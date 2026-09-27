@@ -96,6 +96,7 @@ export async function startFeishu() {
 
 export function wireFeishu() {
   bus.on("say", (text) => void toOwner({ markdown: text }));
+  bus.on("notice", (text) => void toOwner({ markdown: `🔔 ${text}` }));
   bus.on("approval", (a) => { if (a.status === "pending") void toOwner({ card: approvalCard(a) }); });
 }
 

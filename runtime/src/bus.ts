@@ -9,6 +9,7 @@ export interface Events {
   state: [];
   approval: [a: Approval];
   say: [text: string]; // Amani 主动说话，由各通道投递
+  notice: [text: string]; // 系统通知（非 Amani 本人说话），如配对码
 }
 export interface TimelineEntry { id: number; ts: number; kind: string; title: string; detail: unknown }
 export interface Approval { id: string; action: string; reason: string; args: unknown; status: "pending" | "approved" | "denied" }
