@@ -1,0 +1,14 @@
+{
+  "name": "soul-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "灵魂桥：把 Hermes Agent / OpenClaw 的人格与记忆接入同一个 agent 的灵魂仓库，随时插拔",
+  "engines": { "node": ">=22.18" },
+  "bin": { "soul-bridge": "src/cli.ts" },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc --noEmit -p ."
+  }
+}
