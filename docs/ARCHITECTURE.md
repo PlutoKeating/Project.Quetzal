@@ -170,28 +170,30 @@ sequenceDiagram
 
 对话（`converse`）与醒来共用工具循环，但不需要 finish；有人说话会把她从睡眠中叫醒，聊完后想念与表达欲回落。
 
-## 6. 记忆与灵魂同步
+## 6. 身份、记忆与灵魂同步
 
 ```
 soul/
-├── SOUL.md                     人格（系统提示第一段）
+├── agent.json                  身份：id、name、displayName、pronouns、description、color、language（界面与称呼都来自这里）
+├── SOUL.md                     人格（系统提示第一段；缺失时按身份生成种子人格）
 ├── memories/MEMORY.md          她自己的笔记（§ 分隔，默认上限 2200 字符）
 ├── memories/USER.md            关于你（§ 分隔，默认上限 1375 字符）
 ├── journal/<身体>/<日期>.md    情节记忆：每具身体各写各的
-└── notes/<主题>.md             语义记忆：共享的长期笔记
+├── notes/<主题>.md             语义记忆：共享的长期笔记
+└── bodies/<身体>.json          身体登记
 ```
 
-布局与 Hermes Agent 的 `~/.hermes` 一致，Hermes 一侧通过软链接接入（见 `hermes/amani-soul`）。
+同步与版本管理由基座全自动完成（`memory/soul-repo.ts`，运行基座与灵魂桥共用），完整设计见 [SOUL_SYNC.md](SOUL_SYNC.md)。
 
 ```mermaid
 sequenceDiagram
   participant A as 本机 Amani
   participant R as 灵魂仓库（私有 git）
-  participant H as Hermes 设备
-  H->>R: 会话前 sync / 会话后写日记并 sync
-  A->>R: 每次醒来前 pull
+  participant H as Hermes / OpenClaw（soul-bridge）
+  H->>R: 记忆写入后、会话收尾、文件变化时同步
+  A->>R: 每次醒来前 pull（合入内容成为「灵魂同步」知觉）
   A->>R: 每次醒来 / 做梦 / 对话后 commit + push
-  Note over A,R: 冲突时：memories 条目级三方合并<br/>SOUL.md 保留本地、对方另存 SOUL.incoming.md，做梦时由她调和<br/>本地仍是种子人格时直接采用对方人格
+  Note over A,R: 冲突全自动：memories 条目级三方合并；agent.json 字段合并<br/>其他文件采用较新的版本，落选版本保留在 git 历史<br/>身份守卫：不同 agent 的仓库拒绝合并
 ```
 
 同步完全由事件驱动（醒来、做梦、对话），没有定时同步。

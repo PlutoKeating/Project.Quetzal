@@ -24,7 +24,7 @@ Amani 对外有两类接口：**网关 API**（控制台、主机工具使用）
 |---|---|
 | `hello` | `{version, safeMode}`，连接建立时 |
 | `state` | 与 `status` 相同的完整状态（去抖 500ms） |
-| `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}` |
+| `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
 | `approval` | 审批 `{id, action, reason, args, status}` |
 | `say` | Amani 主动说的话（字符串） |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
@@ -37,7 +37,7 @@ Amani 对外有两类接口：**网关 API**（控制台、主机工具使用）
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
-| `status` | — | `{version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models}` |
+| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models}` |
 | `timeline` | `{limit?, before?, kind?}` | 时间线（倒序） |
 | `messages` | `{limit?}` | 对话记录（正序） |
 | `audit` | `{limit?}` | 审计记录 |
@@ -75,6 +75,9 @@ Amani 对外有两类接口：**网关 API**（控制台、主机工具使用）
 | `journalList` / `journal` | — / `{body, day}` |
 | `notes` / `note` / `search` | — / `{name}` / `{query}` |
 | `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | 灵魂仓库地址、本机部署公钥、立即同步 |
+| `agent` / `setAgent` | — / `{displayName?, name?, pronouns?, description?, color?, language?}`（写入 agent.json 并同步） |
+| `bodies` | — → 灵魂仓库中登记的身体 |
+| `soulHistory` / `soulShow` / `soulRevert` | `{limit?}` / `{hash}` / `{hash}`：记忆历史、查看差异、撤销（生成反向提交） |
 
 **模型**
 
