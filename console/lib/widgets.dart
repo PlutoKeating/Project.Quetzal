@@ -1,0 +1,188 @@
+// 通用组件：状态光团、驱动力条、连接状态、急停、离线横幅、提示。
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'api.dart';
+
+void toast(BuildContext context, String text) =>
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating));
+
+/// 调用一个操作并在失败时提示；成功时可选提示。
+Future<T?> act<T>(BuildContext context, Future<T> Function() f, {String? ok}) async {
+  try {
+    final r = await f();
+    if (ok != null && context.mounted) toast(context, ok);
+    return r;
+  } catch (e) {
+    if (context.mounted) toast(context, '$e');
+    return null;
+  }
+}
+
+Future<bool> confirm(BuildContext context, String title, String text) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(title: Text(title), content: Text(text), actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('确定')),
+      ]),
+    ) ??
+    false;
+
+String hm(num ts) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ts.toInt());
+  return '${d.month}/${d.day} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+}
+
+/// 呼吸的光团：睡着时缓慢暗淡，醒着时明亮，思考时加快并出现光晕粒子。
+class Orb extends StatefulWidget {
+  final String mode; // asleep / awake / active / stopped
+  final double alertness;
+  const Orb({super.key, required this.mode, required this.alertness});
+  @override
+  State<Orb> createState() => _OrbState();
+}
+
+class _OrbState extends State<Orb> with SingleTickerProviderStateMixin {
+  late final AnimationController c = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
+  @override
+  void dispose() { c.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (widget.mode) {
+      'asleep' => const Color(0xFF3949AB),
+      'active' => const Color(0xFFB39DDB),
+      'stopped' => Colors.red,
+      _ => const Color(0xFF7C6CF2),
+    };
+    final speed = switch (widget.mode) { 'asleep' => 0.5, 'active' => 2.0, _ => 1.0 };
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: c,
+        builder: (_, _) => CustomPaint(size: const Size.square(200), painter: _OrbPainter(c.value * speed, color, widget.mode, widget.alertness)),
+      ),
+    );
+  }
+}
+
+class _OrbPainter extends CustomPainter {
+  final double t, alert;
+  final Color color;
+  final String mode;
+  _OrbPainter(this.t, this.color, this.mode, this.alert);
+  @override
+  void paint(Canvas canvas, Size s) {
+    final center = s.center(Offset.zero);
+    final breath = 0.5 + 0.5 * sin(t * 2 * pi);
+    final r = s.width * (0.26 + 0.04 * breath);
+    final glow = Paint()..shader = RadialGradient(colors: [color.withValues(alpha: 0.55 * (0.4 + 0.6 * alert)), color.withValues(alpha: 0)]).createShader(Rect.fromCircle(center: center, radius: r * 1.9));
+    canvas.drawCircle(center, r * 1.9, glow);
+    canvas.drawCircle(center, r, Paint()..shader = RadialGradient(colors: [Colors.white.withValues(alpha: 0.9), color]).createShader(Rect.fromCircle(center: center.translate(-r * .3, -r * .3), radius: r * 1.4)));
+    if (mode == 'active') {
+      final p = Paint()..color = Colors.white.withValues(alpha: 0.7);
+      for (var i = 0; i < 12; i++) {
+        final a = t * 2 * pi + i * pi / 6;
+        final d = r * (1.3 + 0.25 * sin(t * 6 + i));
+        canvas.drawCircle(center + Offset(cos(a) * d, sin(a) * d), 2.2, p);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_OrbPainter o) => true;
+}
+
+class DriveBar extends StatelessWidget {
+  final String label;
+  final double value;
+  const DriveBar(this.label, this.value, {super.key});
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(children: [
+          SizedBox(width: 40, child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
+          Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: value.clamp(0, 1), minHeight: 8))),
+          SizedBox(width: 44, child: Text('${(value * 100).round()}%', textAlign: TextAlign.right, style: Theme.of(context).textTheme.bodySmall)),
+        ]),
+      );
+}
+
+class ConnChip extends StatelessWidget {
+  const ConnChip({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final (text, color) = switch (api.conn) {
+      Conn.online => ('在线', Colors.green),
+      Conn.connecting => ('连接中', Colors.amber),
+      Conn.igniting => ('点火中', Colors.amber),
+      Conn.offline => ('离线', Colors.red),
+      Conn.unpaired => ('未配对', Colors.grey),
+    };
+    return Chip(avatar: CircleAvatar(backgroundColor: color, radius: 5), label: Text(text), visualDensity: VisualDensity.compact);
+  }
+}
+
+class StopButton extends StatelessWidget {
+  const StopButton({super.key});
+  @override
+  Widget build(BuildContext context) => IconButton(
+        tooltip: api.stopped ? '解除急停' : '急停',
+        icon: Icon(api.stopped ? Icons.play_circle : Icons.pan_tool, color: api.stopped ? Colors.green : Colors.red),
+        onPressed: api.conn != Conn.online
+            ? null
+            : () async {
+                if (api.stopped) {
+                  if (await confirm(context, '解除急停', '她会恢复自主活动。确定吗？') && context.mounted) await act(context, () => api.call('unstop'), ok: '已解除急停');
+                } else {
+                  await act(context, () => api.call('stop', {'reason': '控制台急停'}), ok: '已急停：她的所有行动已冻结');
+                }
+              },
+      );
+}
+
+class Banner0 extends StatelessWidget {
+  final String text;
+  final Color color;
+  final Widget? action;
+  const Banner0({super.key, required this.text, required this.color, this.action});
+  @override
+  Widget build(BuildContext context) => Material(
+        color: color.withValues(alpha: 0.18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(children: [Expanded(child: Text(text)), ?action]),
+        ),
+      );
+}
+
+class OfflineBanner extends StatelessWidget {
+  const OfflineBanner({super.key});
+  @override
+  Widget build(BuildContext context) => Banner0(
+        text: api.conn == Conn.igniting ? '正在点火…' : '连不上 Amani${api.lastError.isNotEmpty ? '（${api.lastError.length > 40 ? api.lastError.substring(0, 40) : api.lastError}）' : ''}',
+        color: Colors.red,
+        action: api.conn == Conn.igniting
+            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+            : FilledButton.tonal(
+                onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); },
+                child: const Text('点火'),
+              ),
+      );
+}
+
+class Section extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  final Widget? trailing;
+  const Section(this.title, this.children, {super.key, this.trailing});
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)), ?trailing]),
+            const SizedBox(height: 8),
+            ...children,
+          ]),
+        ),
+      );
+}
