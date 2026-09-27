@@ -1,0 +1,239 @@
+# 运行架构
+
+本文用图文说明 Amani 运行基座的整体结构、每个部分的原理与实现方式。代码位置均相对于 `runtime/src/`。
+
+## 1. 总体结构
+
+```mermaid
+flowchart TB
+  subgraph Host["身体（任意设备）"]
+    AD["身体适配器（外部仓库提供）<br/>sample() · notify() · speak() · tools · hands"]
+    SUP["进程守护者<br/>runit / systemd / …"]
+  end
+  subgraph Core["运行基座 · 单进程 Node.js（dist/main.cjs）"]
+    direction TB
+    MAIN["main.ts 装配 + 熔断"]
+    TWIN["body/twin.ts<br/>身体数字孪生"]
+    HEART["heart/<br/>内驱力 · 生物钟 · 醒来抽样"]
+    BRAIN["mind/<br/>内省 · 工具循环 · 反思 · 对话"]
+    MEM["memory/<br/>人格 · 常驻记忆 · 日记 · 笔记 · 灵魂同步"]
+    PROV["providers/<br/>多供应商 · 路由 · 故障转移"]
+    GUARD["guard/<br/>授权 · 审批 · 急停 · 审计"]
+    OPS["ops.ts<br/>统一操作层"]
+    GW["gateway.ts<br/>127.0.0.1 WebSocket"]
+    FS["channels/feishu*<br/>长连接 + 交互卡片"]
+    STORE[("store.ts<br/>SQLite")]
+  end
+  SUP -- 拉起/重启 --> MAIN
+  AD -- 采样 --> TWIN
+  TWIN -- sense 事件 --> HEART
+  HEART -- 醒来 --> BRAIN
+  BRAIN --> PROV
+  BRAIN -- 工具调用 --> GUARD --> AD
+  BRAIN <--> MEM
+  OPS --> HEART & GUARD & MEM & PROV
+  GW --> OPS
+  FS --> OPS
+  FS -- 对话 --> BRAIN
+  GW <--> APP["控制台 App"]
+  MEM <-- git --> SOUL[("灵魂仓库（私有 git）")]
+  HEART & BRAIN & GUARD --> STORE
+```
+
+设计原则：
+
+- **单进程、模块化**：模块之间通过进程内事件总线（`bus.ts`）和少量函数调用耦合，便于单独测试。
+- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由外部适配器提供。
+- **状态全部落盘**：心脏状态、时间线、审计、用量在 SQLite，人格与记忆在灵魂目录。进程重启只相当于"睡了一觉"。
+- **所有控制入口共用一个操作层**（`ops.ts`）：控制台和飞书的行为完全一致，都经过审计。
+
+## 2. 家目录（`AMANI_HOME`，默认 `~/amani`）
+
+```
+config/amani.json        运行配置（控制台可改）
+config/providers.json    模型供应商（Key 为密文）
+secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、feishu_secret、soul_ed25519
+data/amani.db            SQLite：kv / timeline / messages / audit / usage
+data/catalog.json        公共模型目录缓存（models.dev）
+soul/                    灵魂目录（git 仓库）
+state/starts.json        启动记录（熔断用）
+STOP                     急停标志：存在即冻结一切行动
+```
+
+## 3. 心脏：什么时候醒来
+
+### 3.1 内驱力与生物钟
+
+| 量 | 含义 | 动力学（`heart/model.ts`） |
+|---|---|---|
+| 好奇心 / 表达欲 / 想念 | 0–1 | 醒着时按各自的时间常数 τ 趋向 1：`d' = 1 − (1 − d)·e^(−Δt/τ)`；睡着时只以 30% 的速度增长 |
+| 牵挂 | 0–1 | 未完成念头数 / 5 |
+| 睡眠压力 S | 0–1 | 醒着时趋向 1（τ = 16 h），做事还会额外累积；睡着时指数回落（τ = 4 h） |
+| 昼夜节律 C | 0–1 | `0.5 + 0.5·cos(2π(h − 16)/24)`，下午 4 点最清醒；夜里强光 +0.1，白天黑暗 −0.1 |
+| 困意 | S − C | 超过 0.35 入睡；睡眠中低于 −0.15 自然醒 |
+
+下图是默认性格参数下两天的模拟（`test/heart.test.ts` 中有同样的断言）：困意在 22:40 左右越过阈值入睡，睡眠中 S 回落、清晨 C 回升，7:50 左右自然醒——**没有任何时刻表**。
+
+```mermaid
+xychart-beta
+  title "睡眠压力 S 与昼夜节律 C（默认参数，两天）"
+  x-axis [8,10,12,14,16,18,20,22,0,2,4,6,8,10,12,14,16,18,20,22,0,2,4,6]
+  y-axis "0–1" 0 --> 1
+  line [0.45,0.52,0.57,0.62,0.67,0.71,0.74,0.77,0.56,0.34,0.21,0.12,0.09,0.2,0.29,0.37,0.45,0.51,0.57,0.62,0.61,0.37,0.22,0.14]
+  line [0.25,0.5,0.75,0.93,1,0.93,0.75,0.5,0.25,0.07,0,0.07,0.25,0.5,0.75,0.93,1,0.93,0.75,0.5,0.25,0.07,0,0.07]
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> 醒着
+  醒着 --> 思考中: 醒来抽样命中（驱动力高、清醒）
+  思考中 --> 醒着: finish（报告满足了什么，S 因劳累上升）
+  醒着 --> 睡着: 困意 S−C > 0.35
+  睡着 --> 做梦: 醒来抽样命中（有待整理的经历）
+  做梦 --> 睡着: 记忆整理完成
+  睡着 --> 醒着: 困意 < −0.15（自然醒）或被人叫醒
+```
+
+### 3.2 醒来率与抽样
+
+瞬时醒来率（次/小时）：
+
+- 醒着：`λ = base × urge(驱动力) × (0.2 + 0.8 × 清醒度) × 抑制`，其中 `urge = (加权平均驱动力)^γ`，γ 默认 2；
+- 睡着：`λ = base × 0.5 × min(1, 待整理经历/10) × (S > 0.2 ? 1 : 0.3) × 抑制`（做梦）。
+
+抑制系数来自身体与闸门：急停、暂停自主、未配置模型 → 0；过热 ×0.1、电量低且未充电 ×0.2、离线 ×0.5、预算用尽 ×0.05；再乘以活跃度旋钮。
+
+下一次醒来用**非齐次泊松过程的稀疏化抽样（thinning）**决定：
+
+```mermaid
+flowchart LR
+  A[按当前状态计算 λ] --> B["取上界 λ* = max(1.5λ, 0.05)"]
+  B --> C["抽候选间隔 Δ ~ Exp(λ*)"]
+  C --> D{Δ > 15 分钟?}
+  D -- 是 --> E[等 15 分钟，只重新积分状态] --> A
+  D -- 否 --> F[等 Δ，重新积分，算新 λ']
+  F --> G{"随机数 < λ'/λ* ?"}
+  G -- 是 --> H[醒来：think 或 dream]
+  G -- 否 --> A
+  X((任何事件：消息、充电、光线、戳一下…)) -.立即重新抽样.-> A
+```
+
+15 分钟的上界有效期只是数值积分的步长，本身从不触发醒来。醒来间隔服从（时变的）指数分布，没有固定周期。
+
+## 4. 身体数字孪生
+
+```mermaid
+flowchart LR
+  AD["适配器 sample()<br/>电量 · 体温 · 光照 · 运动 · 屏幕 · 其他读数"] --> RAW[raw 原始读数]
+  OS["操作系统<br/>负载 · 内存 · 存储 · 联网"] --> SYS[system]
+  RAW --> FEEL["feel 身体感受<br/>精力 · 冷热 · 明暗 · 安静/被拿起"]
+  RAW & FEEL -- 与上次比较 --> EV["sense 事件<br/>plugged · light · moved · hot · low_battery · screen_on · online…"]
+  EV --> HEART[心脏：调整驱动力并重新抽样]
+  RAW & SYS & FEEL --> PROMPT[大脑的「身体」段落]
+```
+
+- 感知采样（`startSenses`）不调用模型、不等于醒来，是"神经末梢"。间隔自适应：有显著变化时 2 分钟，平静时逐步拉长到 10 分钟。
+- 显著变化对驱动力的影响：被拿起 → 想念 +0.3、好奇 +0.2；光线变化 → 好奇 +0.1；等等（`heart/heart.ts`）。
+
+## 5. 大脑：一次醒来
+
+```mermaid
+sequenceDiagram
+  participant H as 心脏
+  participant B as 大脑
+  participant S as 灵魂仓库
+  participant P as 模型层
+  participant G as 闸门
+  participant T as 工具
+  H->>B: wake(think | dream, 原因)
+  B->>S: git pull（拿到其他身体的记忆）
+  B->>P: 内省（quick 模型）：{"engage", "intent"}
+  alt 不想动
+    B-->>H: 满足一点好奇，继续睡
+  else 投入
+    loop 最多 maxSteps 步
+      B->>P: 系统提示 + 任务 + 工具
+      P-->>B: 文本 / 工具调用
+      B->>G: check(能力类别)
+      G-->>B: 允许 / 询问后批准 / 拒绝
+      B->>T: 执行工具
+    end
+    B->>B: finish：写日记、报告驱动力
+    B->>S: git commit + push
+    B-->>H: 满足程度 + 劳累（S 上升）
+  end
+```
+
+系统提示按顺序组装（`mind/prompt.ts`）：人格 SOUL.md → 处境（多身体、无日程、当前时间）→ 常驻记忆 MEMORY / USER → 身体 → 内在状态与未完成的念头 → 最近日记（含其他身体）→ 最近对话。
+
+内置工具（`mind/tools.ts`）：`memory`（与 Hermes 语义一致）、`note_save` / `note_read`、`recall`、`open_loop`、`web_search` / `web_fetch`、`shell`、`send_message`、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
+
+对话（`converse`）与醒来共用工具循环，但不需要 finish；有人说话会把她从睡眠中叫醒，聊完后想念与表达欲回落。
+
+## 6. 记忆与灵魂同步
+
+```
+soul/
+├── SOUL.md                     人格（系统提示第一段）
+├── memories/MEMORY.md          她自己的笔记（§ 分隔，默认上限 2200 字符）
+├── memories/USER.md            关于你（§ 分隔，默认上限 1375 字符）
+├── journal/<身体>/<日期>.md    情节记忆：每具身体各写各的
+└── notes/<主题>.md             语义记忆：共享的长期笔记
+```
+
+布局与 Hermes Agent 的 `~/.hermes` 一致，Hermes 一侧通过软链接接入（见 `hermes/amani-soul`）。
+
+```mermaid
+sequenceDiagram
+  participant A as 本机 Amani
+  participant R as 灵魂仓库（私有 git）
+  participant H as Hermes 设备
+  H->>R: 会话前 sync / 会话后写日记并 sync
+  A->>R: 每次醒来前 pull
+  A->>R: 每次醒来 / 做梦 / 对话后 commit + push
+  Note over A,R: 冲突时：memories 条目级三方合并<br/>SOUL.md 保留本地、对方另存 SOUL.incoming.md，做梦时由她调和<br/>本地仍是种子人格时直接采用对方人格
+```
+
+同步完全由事件驱动（醒来、做梦、对话），没有定时同步。
+
+## 7. 模型层
+
+```mermaid
+flowchart LR
+  REQ[ChatRequest<br/>统一消息 + 工具] --> R{按全局顺序<br/>遍历已启用模型}
+  R --> K[该供应商已启用的 Key<br/>轮换，最多试 2 把]
+  K --> AD1[openai-completions]
+  K --> AD2[openai-responses]
+  K --> AD3[anthropic-messages]
+  K --> AD4[google-generative-ai]
+  AD1 & AD2 & AD3 & AD4 -- 成功 --> U[记录用量与费用] --> RES[ChatResult]
+  AD1 & AD2 & AD3 & AD4 -- "400/401/403/404 等" --> R
+  AD1 & AD2 & AD3 & AD4 -- "限流/超时/5xx" --> K
+```
+
+- 配置保存语义参考 GoGoGo 管理后台：整份草稿一次保存，带版本号（规范化 JSON 的 sha256），版本不符拒绝覆盖；修改 API 地址前必须先移除旧 Key。
+- Key 用 AES-256-GCM 加密，供应商 id 作为附加认证数据；对外只返回末四位。
+- 模型目录来自 models.dev（含上下文长度、价格），也可以从供应商的 models 接口拉取，或手动添加自定义模型。
+- 可指定一个 quick（内省）模型，用于醒来时的轻量判断。
+
+## 8. 闸门
+
+- 能力类别：联网、执行命令、设备功能、相机、麦克风、定位、主动发消息、修改自身参数、改写记忆、操作屏幕与应用。每类「允许 / 每次询问 / 禁止」，默认全部允许。
+- 询问：生成审批，推送到控制台与飞书（带按钮的卡片），30 分钟未处理视为拒绝。
+- 急停：写入 `STOP` 文件，立即拒绝所有工具调用、醒来率归零；解除需人工确认。
+- 审计：工具调用、配置修改、记忆修改、审批决定都写入 `audit` 表。
+
+## 9. 控制入口
+
+| 入口 | 方式 | 说明 |
+|---|---|---|
+| 控制台 App | 本地网关 WebSocket | 见 [console 文档](../console/docs/README.md) |
+| 飞书 | 长连接（无需公网） | 单聊自动推送「此刻」卡片；机器人菜单事件；卡片按钮与表单直接调用操作层，原地刷新卡片 |
+| 主机 | 端口转发到网关 | 与控制台同一套 API |
+
+## 10. 进程与部署契约
+
+- 基座只负责自身逻辑，**进程守护交给外部**（runit、systemd 等）：进程退出即被重新拉起。
+- **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
+- 部署者提供：Node.js 22+、`AMANI_HOME`、可选的 `AMANI_ADAPTER`（适配器模块路径）、进程守护者。
+- **Android + Termux 部署约定**（控制台的点火器按此约定工作）：runit 服务目录 `$PREFIX/var/service/amani`，开机脚本 `~/.termux/boot/amani`，`termux.properties` 中 `allow-external-apps=true`。
