@@ -12,7 +12,6 @@ import { config, paths } from "../config.ts";
 import { identity } from "./identity.ts";
 
 export type Target = "memory" | "user";
-const SEP = "\n§\n";
 const p = (...a: string[]) => path.join(paths.soul, ...a);
 const read = (f: string) => { try { return fs.readFileSync(f, "utf8"); } catch { return ""; } };
 const write = (f: string, s: string) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, s); };
@@ -31,8 +30,8 @@ export function setSoul(text: string) { write(p("SOUL.md"), text); }
 const fileOf = (t: Target) => p("memories", t === "memory" ? "MEMORY.md" : "USER.md");
 const limitOf = (t: Target) => (t === "memory" ? config.soul.memoryCharLimit : config.soul.userCharLimit);
 
-export function parseEntries(s: string): string[] { return s.split(/\n?§\n?/).map((e) => e.trim()).filter(Boolean); }
-export const joinEntries = (e: string[]) => e.join(SEP) + (e.length ? "\n" : "");
+import { parseEntries, joinEntries } from "./entries.ts";
+export { parseEntries, joinEntries };
 
 export function entries(t: Target): string[] { return parseEntries(read(fileOf(t))); }
 

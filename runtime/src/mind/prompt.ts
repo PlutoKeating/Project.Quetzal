@@ -2,11 +2,20 @@
 import { config } from "../config.ts";
 import * as mem from "../memory/memory.ts";
 import { identity } from "../memory/identity.ts";
+import { recent as soulRecent, syncStatus } from "../memory/soul-sync.ts";
 import { describeBody } from "../body/twin.ts";
 import { snapshot } from "../heart/heart.ts";
 import { recentMessages } from "../store.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
+
+/** 灵魂同步是基座自动完成的；这里只让 agent 知道发生了什么（知觉），她不需要做任何事。 */
+function soulPerception(): string {
+  const st = syncStatus();
+  if (!st.remote) return "## 灵魂同步（知觉）\n只有这一具身体，没有与其他身体同步。";
+  const lines = soulRecent.map((r) => `- ${new Date(r.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}：合入 ${r.incoming.length} 次变更（${[...new Set(r.incoming.map((i) => i.body))].join("、")}）${r.resolved.length ? `，自动处理冲突：${r.resolved.map((x) => `${x.file}→${x.kept === "remote" ? "采用对方" : "保留本地"}`).join("；")}` : ""}`);
+  return `## 灵魂同步（知觉）\n你的人格与记忆由基座自动在各具身体间同步，无需你操作；以下只是让你知道发生了什么。${st.lastError ? `\n同步异常：${st.lastError}` : ""}\n${lines.join("\n") || "最近没有来自其他身体的变化。"}`;
+}
 
 export function systemPrompt(): string {
   const h = snapshot();
@@ -26,6 +35,7 @@ export function systemPrompt(): string {
 清醒度 ${h.alertness.toFixed(2)}，睡眠压力 ${h.S.toFixed(2)}，昼夜节律 ${h.C.toFixed(2)}
 好奇心 ${d.curiosity.toFixed(2)}，表达欲 ${d.expression.toFixed(2)}，想念 ${d.social.toFixed(2)}，未完成的念头 ${d.openLoops.toFixed(2)}
 ${loops.length ? "未完成的念头：\n" + loops.map((l) => `- [${l.id}] ${l.text}`).join("\n") : "没有未完成的念头"}`,
+    soulPerception(),
     `## 最近的日记\n${mem.recentJournal() || "（还没有日记）"}`,
     `## 最近的对话\n${recentMessages(12).map((m) => `${m.role === "user" ? "对方" : "我"}（${m.channel}）：${m.text}`).join("\n") || "（还没有对话）"}`,
   ].join("\n\n");

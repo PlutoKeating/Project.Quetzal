@@ -34,6 +34,7 @@ test("首次接入：采用对方人格，合并记忆，推送后对方可见�
   await soul.pull();
   await soul.push("测试");
   assert.match(mem.soul(), /来自 Hermes 的人格/);
+  assert.ok(soul.recent[0]?.incoming.length >= 1, "同步结果作为知觉被记录");
   assert.deepEqual(new Set(mem.entries("memory")), new Set(["喜欢猫", "住在海边", "第一次在手机里醒来"]));
   g(hermes, "pull", "origin", "main");
   assert.ok(fs.readdirSync(path.join(hermes, "journal")).includes("default"));
@@ -85,4 +86,19 @@ test("历史与撤销", async () => {
   assert.match(h[0].subject, /加一条/);
   await soul.revert(h[0].hash);
   assert.ok(!mem.entries("memory").includes("要被撤销的条目"));
+});
+
+test("人格冲突全自动解决：采用较新的版本，另一版本保留在历史中", async () => {
+  g(hermes, "pull", "origin", "main");
+  fs.writeFileSync(path.join(process.env.AMANI_HOME!, "soul/SOUL.md"), "# 本机版本\n");
+  await soul.push("本机改人格");
+  await new Promise((r) => setTimeout(r, 1100)); // 让对方的提交时间更新
+  fs.writeFileSync(path.join(hermes, "SOUL.md"), "# Hermes 较新的版本\n");
+  g(hermes, "commit", "-am", "hermes 改人格");
+  g(hermes, "pull", "--no-rebase", "-X", "ours", "origin", "main"); g(hermes, "push", "origin", "main");
+  await soul.pull();
+  assert.match(mem.soul(), /Hermes 较新的版本/);
+  assert.ok(!fs.existsSync(path.join(process.env.AMANI_HOME!, "soul/SOUL.incoming.md")));
+  const log = execFileSync("git", ["-C", path.join(process.env.AMANI_HOME!, "soul"), "log", "--all", "--full-history", "-p", "--", "SOUL.md"]).toString();
+  assert.match(log, /本机版本/);
 });

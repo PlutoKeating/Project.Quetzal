@@ -174,6 +174,7 @@ export function startHeart(handler: WakeHandler) {
       light: ["光线变化", { curiosity: 0.1 }], moved: ["被拿起", { social: 0.3, curiosity: 0.2 }],
       screen_on: ["屏幕亮起", { social: 0.2 }], hot: ["身体发烫", {}], low_battery: ["电量低", {}],
       online: ["恢复联网", { curiosity: 0.1 }], offline: ["断网", {}],
+      soul_synced: ["感到另一具身体的经历流入", { curiosity: 0.1, social: 0.05 }],
     };
     const [why, d] = effect[kind] ?? [kind, { curiosity: 0.05 }];
     nudge(why, d);
