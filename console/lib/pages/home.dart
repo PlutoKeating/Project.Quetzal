@@ -4,11 +4,11 @@ import '../api.dart';
 import '../widgets.dart';
 import 'chat.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends ApiWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget view(BuildContext context) {
     final h = api.heart, d = (h['drives'] as Map?) ?? {}, p = api.physical;
     final raw = (p['raw'] as Map?) ?? {}, feel = (p['feel'] as Map?) ?? {}, bat = raw['battery'] as Map?;
     final mode = api.stopped ? 'stopped' : (h['mode'] ?? 'awake') as String;

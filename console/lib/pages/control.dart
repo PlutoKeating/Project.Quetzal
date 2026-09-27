@@ -6,10 +6,10 @@ import '../api.dart';
 import '../widgets.dart';
 import 'providers.dart';
 
-class ControlPage extends StatelessWidget {
+class ControlPage extends ApiWidget {
   const ControlPage({super.key});
   @override
-  Widget build(BuildContext context) {
+  Widget view(BuildContext context) {
     void go(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
     Widget item(IconData i, String t, String s, Widget page, {int badge = 0}) => ListTile(
           leading: Badge(isLabelVisible: badge > 0, label: Text('$badge'), child: Icon(i)),

@@ -106,10 +106,18 @@ class DriveBar extends StatelessWidget {
       );
 }
 
-class ConnChip extends StatelessWidget {
+/// 依赖 api 状态的组件基类：自己监听 api，const 实例也会随状态刷新。
+abstract class ApiWidget extends StatelessWidget {
+  const ApiWidget({super.key});
+  Widget view(BuildContext context);
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(listenable: api, builder: (c, _) => view(c));
+}
+
+class ConnChip extends ApiWidget {
   const ConnChip({super.key});
   @override
-  Widget build(BuildContext context) {
+  Widget view(BuildContext context) {
     final (text, color) = switch (api.conn) {
       Conn.online => ('在线', Colors.green),
       Conn.connecting => ('连接中', Colors.amber),
@@ -121,10 +129,10 @@ class ConnChip extends StatelessWidget {
   }
 }
 
-class StopButton extends StatelessWidget {
+class StopButton extends ApiWidget {
   const StopButton({super.key});
   @override
-  Widget build(BuildContext context) => IconButton(
+  Widget view(BuildContext context) => IconButton(
         tooltip: api.stopped ? '解除急停' : '急停',
         icon: Icon(api.stopped ? Icons.play_circle : Icons.pan_tool, color: api.stopped ? Colors.green : Colors.red),
         onPressed: api.conn != Conn.online
@@ -154,10 +162,10 @@ class Banner0 extends StatelessWidget {
       );
 }
 
-class OfflineBanner extends StatelessWidget {
+class OfflineBanner extends ApiWidget {
   const OfflineBanner({super.key});
   @override
-  Widget build(BuildContext context) => Banner0(
+  Widget view(BuildContext context) => Banner0(
         text: api.conn == Conn.igniting ? '正在点火…' : '连不上 Amani${api.lastError.isNotEmpty ? '（${api.lastError.length > 40 ? api.lastError.substring(0, 40) : api.lastError}）' : ''}',
         color: Colors.red,
         action: api.conn == Conn.igniting
