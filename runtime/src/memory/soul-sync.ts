@@ -1,11 +1,10 @@
 // 运行基座一侧的灵魂同步：把 SoulRepo 协议绑定到运行时配置。
 // 同步由事件触发：醒来前拉取；醒来、做梦、对话、身份修改后提交并推送。没有定时同步。
-import fs from "node:fs";
-import path from "node:path";
 import { config, paths } from "../config.ts";
+import path from "node:path";
 import { log } from "../log.ts";
 import { seedSoul } from "./memory.ts";
-import { identity } from "./identity.ts";
+import { identity, defaultIdentity } from "./identity.ts";
 import { SoulRepo, type PullResult } from "./soul-repo.ts";
 import { addTimeline } from "../store.ts";
 import { bus } from "../bus.ts";
@@ -25,6 +24,8 @@ function r(): SoulRepo {
       sshKey: path.join(paths.secrets, "soul_ed25519"),
       author: () => ({ name: `${identity().displayName} (${config.body})`, email: `${identity().name}@${config.body}.local` }),
       isSeedSoul: (t) => t.trim() === seedSoul(identity().displayName).trim(),
+      seedIdentity: () => defaultIdentity(),
+      seedSoul,
       bodyInfo: () => ({ kind: "runtime", runtime: VERSION }),
       log: (m) => log("soul", m),
     });
@@ -36,13 +37,9 @@ function r(): SoulRepo {
 
 export const syncStatus = () => ({ ...r().status, remote: config.soul.remote, branch: config.soul.branch });
 
+/** 接入灵魂仓库：克隆或初始化，并按规范补齐目录结构（见 docs/SOUL_REPO_SPEC.md）。 */
 export async function ensureSoul() {
-  const how = await r().ensure();
-  identity(); // 确保 agent.json 存在（种子身份）
-  if (!fs.existsSync(path.join(paths.soul, "SOUL.md"))) fs.writeFileSync(path.join(paths.soul, "SOUL.md"), seedSoul(identity().displayName));
-  fs.mkdirSync(path.join(paths.soul, "memories"), { recursive: true });
-  for (const f of ["MEMORY.md", "USER.md"]) if (!fs.existsSync(path.join(paths.soul, "memories", f))) fs.writeFileSync(path.join(paths.soul, "memories", f), "");
-  if (how !== "existing") await r().commit("初始化灵魂目录");
+  await r().ensure();
 }
 
 /** 拉取；有新内容时作为「灵魂同步」知觉告知 agent（写入时间线与感官事件），无需 agent 做任何事。 */

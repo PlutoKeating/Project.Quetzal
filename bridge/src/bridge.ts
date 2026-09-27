@@ -11,26 +11,33 @@ import type { BridgeConfig } from "./types.ts";
 
 export const VERSION = "0.1.0";
 
-export function repoOf(c: BridgeConfig) {
+/** 灵魂仓库对象。displayName 仅在仓库还没有身份时用于生成第一份身份（规范 §3.5、§4）。 */
+export function repoOf(c: BridgeConfig, displayName?: string) {
   const who = () => { try { return JSON.parse(fs.readFileSync(path.join(repoDir(c.agent), "agent.json"), "utf8")); } catch { return {}; } };
   return new SoulRepo({
     dir: repoDir(c.agent), remote: c.remote, branch: c.branch, body: c.body, sshKey: keyPath(c.agent),
+    seedIdentity: () => newIdentity(c, displayName),
+    seedSoul: (n) => nativeSoul(c) ?? `# ${n}\n`, // 新仓库的人格以框架现有人格为准，避免种子覆盖它
     author: () => ({ name: `${who().displayName ?? c.agent} (${c.body})`, email: `${who().name ?? c.agent}@${c.body}.local` }),
     bodyInfo: () => ({ kind: "bridge", framework: c.framework, bridge: VERSION, host: os.hostname() }),
     log: (m) => console.error(`[soul-bridge] ${m}`),
   });
 }
 
-/** 首次接入时，仓库里还没有身份文件则创建一份（名字取自参数或框架的人格文件）。 */
-export function ensureIdentity(c: BridgeConfig, displayName?: string) {
-  const f = path.join(repoDir(c.agent), "agent.json");
-  if (fs.existsSync(f)) return;
-  const fw = frameworks[c.framework];
-  const name = displayName ?? fw.guessName?.(c.home) ?? c.agent;
-  fs.writeFileSync(f, JSON.stringify({
-    id: crypto.randomUUID(), name: c.agent.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40) || "agent", displayName: name,
+/** 框架现有的人格文本（没有则 undefined）。 */
+function nativeSoul(c: BridgeConfig): string | undefined {
+  const m = frameworks[c.framework].mappings(c.home, c.body).find((x) => x.id === "soul");
+  try { return m && "native" in m ? fs.readFileSync(m.native, "utf8") : undefined; } catch { return undefined; }
+}
+
+/** 仓库还没有身份时生成第一份（名字取自参数或框架的人格文件；两者都没有时为种子身份，遇到其他身体的身份会让位）。 */
+function newIdentity(c: BridgeConfig, displayName?: string) {
+  const guessed = displayName ?? frameworks[c.framework].guessName?.(c.home);
+  return {
+    id: crypto.randomUUID(), name: c.agent.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40) || "agent", displayName: guessed ?? c.agent,
     pronouns: "", description: "", color: "#7C6CF2", language: "zh-CN", createdAt: new Date().toISOString(),
-  }, null, 2) + "\n");
+    ...(guessed ? {} : { seed: true }),
+  };
 }
 
 let running: Promise<Report> | undefined;

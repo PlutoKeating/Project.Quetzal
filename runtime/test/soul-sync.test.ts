@@ -1,4 +1,5 @@
 import { test } from "node:test";
+process.env.SOUL_ALLOW_LOCAL_REMOTE = "1"; // 测试使用本地裸仓库作为远端
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

@@ -19,7 +19,8 @@ import { fileURLToPath } from "node:url";
 import { execFile, execFileSync } from "node:child_process";
 import { frameworks, detect } from "./frameworks/index.ts";
 import { loadConfig, saveConfig, keyPath, repoDir, dirOf, listAgents } from "./config.ts";
-import { repoOf, ensureIdentity, syncOnce, VERSION } from "./bridge.ts";
+import { repoOf, syncOnce, VERSION } from "./bridge.ts";
+import { checkRemote } from "../../runtime/src/memory/soul-repo.ts";
 import { runDaemon, installService, removeService } from "./service.ts";
 import { parseGithub, sshUrl, whoami, ensurePrivateRepo, addDeployKey } from "./github.ts";
 import type { BridgeConfig } from "./types.ts";
@@ -57,6 +58,8 @@ async function init() {
   }
   const gh = parseGithub(repoArg);
   const remote = gh ? sshUrl(gh) : repoArg;
+  const bad = checkRemote(remote); // 规范 §7：只允许 SSH 地址
+  if (bad) throw new Error(bad);
   const c: BridgeConfig = { agent, framework, home, remote, branch: opt("branch") ?? "main", body: opt("body") ?? slug(`${framework}-${os.hostname()}`), poll: Number(opt("poll") ?? 300) };
   saveConfig(c);
   if (!fs.existsSync(keyPath(agent))) execFileSync("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", `soul-bridge@${c.body}`, "-f", keyPath(agent)], { stdio: "ignore" });
@@ -69,7 +72,7 @@ async function init() {
     else if (key === false) say("自动添加部署密钥失败（可能没有该仓库的管理权限），将尝试直接访问");
   }
 
-  const repo = repoOf(c);
+  const repo = repoOf(c, displayName);
   const how = await repo.ensure();
   if (how === "initialized") {
     fs.rmSync(repoDir(agent), { recursive: true, force: true });
@@ -77,7 +80,6 @@ async function init() {
     process.exitCode = 2; return;
   }
   await repo.pull();
-  ensureIdentity(c, displayName);
   const r = await syncOnce(c);
   say(`已接入：${agent} ↔ ${fw.label}（${home}），身体名 ${c.body}。首次同步：框架 ${r.changedNative.length} 处、灵魂 ${r.changedSoul.length} 处。`);
   await attach(agent);

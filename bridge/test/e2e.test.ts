@@ -12,7 +12,7 @@ const remote = path.join(tmp, "agent.soul.git");
 execFileSync("git", ["init", "--bare", "-b", "main", remote]);
 const cli = path.resolve("src/cli.ts");
 const run = (home: string, ...a: string[]) => execFileSync(process.execPath, [cli, ...a], {
-  env: { ...process.env, SOUL_BRIDGE_HOME: path.join(tmp, home, ".agent-soul"), HOME: path.join(tmp, home), SOUL_BRIDGE_NO_SERVICE: "1" }, // 测试中不安装系统服务
+  env: { ...process.env, SOUL_BRIDGE_HOME: path.join(tmp, home, ".agent-soul"), HOME: path.join(tmp, home), SOUL_BRIDGE_NO_SERVICE: "1", SOUL_ALLOW_LOCAL_REMOTE: "1" }, // 测试中不安装系统服务、允许本地裸仓库作为远端
 }).toString();
 
 const hermesHome = path.join(tmp, "m1", ".hermes");
@@ -27,6 +27,10 @@ test("Hermes 接入：导入人格与记忆，创建身份", () => {
   assert.match(out, /已接入/);
   const agent = JSON.parse(execFileSync("git", ["--git-dir", remote, "show", "main:agent.json"]).toString());
   assert.equal(agent.displayName, "小满");
+  assert.equal(fs.readFileSync(path.join(hermesHome, "SOUL.md"), "utf8"), "# 小满\n\n我是小满。\n", "框架原有人格不得被种子覆盖");
+  assert.match(execFileSync("git", ["--git-dir", remote, "show", "main:SOUL.md"]).toString(), /我是小满/);
+  const tree = execFileSync("git", ["--git-dir", remote, "ls-tree", "-r", "--name-only", "main"]).toString();
+  for (const f of [".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "memories/USER.md", "notes/.gitkeep", "bodies/hermes-pc.json"]) assert.match(tree, new RegExp(f.replace(/\./g, "\\.")), f);
 });
 
 test("OpenClaw 接入同一个 agent：拿到人格与记忆；它新写的记忆回流到 Hermes", () => {

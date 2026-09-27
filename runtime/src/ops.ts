@@ -15,6 +15,7 @@ import type { ProviderConfig } from "./providers/types.ts";
 import { VERSION } from "./version.ts";
 import { identity, setIdentity, type AgentIdentity } from "./memory/identity.ts";
 import { run } from "./sh.ts";
+import { checkRemote } from "./memory/soul-repo.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -59,6 +60,8 @@ export const ops = {
   syncSoul: async (_: unknown, actor: string) => { await soul.pull(); await soul.push(`${actor} 触发同步`); return soul.syncStatus(); },
   soulConfig: () => ({ remote: config.soul.remote, branch: config.soul.branch, body: config.body, status: soul.syncStatus() }),
   setSoulConfig: async (a: { remote?: string; branch?: string }, actor: string) => {
+    const bad = a.remote ? checkRemote(a.remote) : undefined; // 规范 §7：只允许 SSH 地址
+    if (bad) throw new Error(bad);
     saveConfig({ soul: a }); audit(actor, "soul.config", "", a, "ok");
     await soul.ensureSoul(); await soul.pull(); await soul.push("接入灵魂仓库");
     return soul.syncStatus();
