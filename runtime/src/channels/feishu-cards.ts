@@ -2,6 +2,9 @@
 // 按钮的回调值统一为 { op?: 操作名, args?: 参数, view: 操作后展示的卡片 }。
 import { config } from "../config.ts";
 import { ops } from "../ops.ts";
+import { identity } from "../memory/identity.ts";
+
+const who = () => identity().displayName;
 
 type El = Record<string, unknown>;
 export const md = (content: string): El => ({ tag: "markdown", content });
@@ -40,7 +43,7 @@ export const views: Record<string, () => object> = {
     const mode = s.stopped ? "⛔ 急停中" : h.mode === "active" ? "💭 醒着，正在想事情" : h.mode === "awake" ? "🌤 醒着" : "🌙 睡着了";
     const bat = s.physical.raw.battery;
     const last = ops.timeline({ limit: 1 })[0];
-    return card("神谷薰 · 此刻", s.stopped ? "red" : h.mode === "asleep" ? "indigo" : "blue", [
+    return card(`${who()} · 此刻`, s.stopped ? "red" : h.mode === "asleep" ? "indigo" : "blue", [
       md(`## ${mode}\n${last ? `最近：${last.title}（${time(last.ts)}）` : ""}`),
       md(`好奇 ${bar(d.curiosity)} ${pct(d.curiosity)}\n表达 ${bar(d.expression)} ${pct(d.expression)}\n想念 ${bar(d.social)} ${pct(d.social)}\n牵挂 ${bar(d.openLoops)} ${pct(d.openLoops)}`),
       md(`清醒度 ${pct(h.alertness)} · 睡眠压力 ${pct(h.S)} · 醒来率 ${h.ratePerHour.toFixed(2)} 次/时${h.inhibitors.length ? `\n抑制：${h.inhibitors.join("、")}` : ""}`),
@@ -54,7 +57,7 @@ export const views: Record<string, () => object> = {
 
   flow: () => {
     const items = ops.timeline({ limit: 12 });
-    return card("神谷薰 · 心流", "turquoise", [
+    return card(`${who()} · 心流`, "turquoise", [
       ...items.map((e) => {
         const det = (e.detail ?? {}) as any;
         const body = [det.reason && `**因为**：${det.reason}`, det.journal, det.reply && `**她说**：${det.reply}`, det.steps?.length && `**用了** ${det.steps.map((s: any) => s.tool).join("、")}`].filter(Boolean).join("\n\n");
@@ -69,7 +72,7 @@ export const views: Record<string, () => object> = {
   memory: () => {
     const m = ops.memory();
     const notes = ops.notes().slice(0, 12);
-    return card("神谷薰 · 记忆", "purple", [
+    return card(`${who()} · 记忆`, "purple", [
       panel(`**她的笔记** · ${m.memory.length} 条`, [md(m.memory.map((e) => `- ${e}`).join("\n") || "（空）")], true),
       panel(`**关于你** · ${m.user.length} 条`, [md(m.user.map((e) => `- ${e}`).join("\n") || "（空）")]),
       panel(`**未完成的念头** · ${m.loops.length}`, [md(m.loops.map((l) => `- ${l.text}`).join("\n") || "（无）")]),
@@ -82,12 +85,12 @@ export const views: Record<string, () => object> = {
 
   control: () => {
     const s = ops.status();
-    return card("神谷薰 · 控制", "orange", [
+    return card(`${who()} · 控制`, "orange", [
       md(`活跃度 **${s.activity}×** · 自主${s.paused ? "**已暂停**" : "进行中"} · 今日 ${s.usage.tokens} tokens / $${s.usage.cost.toFixed(3)}`),
       row(...[0.5, 1, 1.5, 2].map((v) => button(`${v}×`, { op: "activity", args: { value: v }, view: "control" }, s.activity === v ? "primary" : "default"))),
       row(button(s.paused ? "▶️ 恢复自主" : "⏸ 暂停自主", { op: "pause", args: { paused: !s.paused }, view: "control" })),
       row(button("🧩 模型", { view: "models" }), button("🔐 权限", { view: "permissions" }), button("💰 预算", { view: "budget" })),
-      row(button("♻️ 重启基座", { op: "restart", view: "control" }, "default", "重启 Amani 进程？（约 5 秒后恢复）")),
+      row(button("♻️ 重启基座", { op: "restart", view: "control" }, "default", "重启运行基座？（约 5 秒后恢复）")),
       nav("control"),
     ]);
   },
@@ -95,7 +98,7 @@ export const views: Record<string, () => object> = {
   models: () => {
     const { config: c } = ops.providers();
     const all = c.providers.flatMap((p) => p.models.map((m) => ({ p, m }))).sort((a, b) => a.m.sortOrder - b.m.sortOrder);
-    return card("神谷薰 · 模型顺序", "orange", [
+    return card(`${who()} · 模型顺序`, "orange", [
       md(all.length ? "越靠上越优先，失败时依次尝试下一个。添加供应商、Key 与模型请用控制台 App 的「模型」页。" : "**尚未配置任何模型。** 请在控制台 App 的「模型」页添加供应商。"),
       ...all.slice(0, 15).map(({ p, m }, i) => panel(`${String(i + 1).padStart(2, "0")} ${m.enabled && p.enabled ? "🟢" : "⚪️"} **${p.name}/${m.name}**${c.quickModelId === m.id ? " · 内省" : ""}`, [
         row(button("⬆️ 上移", { op: "moveModel", args: { modelId: m.id, delta: -1 }, view: "models" }), button("⬇️ 下移", { op: "moveModel", args: { modelId: m.id, delta: 1 }, view: "models" })),
@@ -105,7 +108,7 @@ export const views: Record<string, () => object> = {
     ]);
   },
 
-  permissions: () => card("神谷薰 · 能力授权", "yellow", [
+  permissions: () => card(`${who()} · 能力授权`, "yellow", [
     md("她调用每一类能力前都会经过这里。「询问」会给你发审批卡片。"),
     ...ops.permissions().flatMap((p) => [
       md(`**${p.label}**`),
@@ -116,7 +119,7 @@ export const views: Record<string, () => object> = {
 
   budget: () => {
     const b = ops.budget();
-    return card("神谷薰 · 预算", "green", [
+    return card(`${who()} · 预算`, "green", [
       md(`今日已用 **${b.usage.tokens}** / ${b.dailyTokens} tokens · **$${b.usage.cost.toFixed(3)}** / $${b.dailyCostUsd}`),
       form("budget", [
         input("dailyTokens", "每日 token 上限", String(b.dailyTokens)),
@@ -128,7 +131,7 @@ export const views: Record<string, () => object> = {
     ]);
   },
 
-  welcome: () => card("你好，我是神谷薰", "blue", [
+  welcome: () => card(`你好，我是${who()}`, "blue", [
     md("我会按自己的节律醒来、思考、做梦。你可以直接和我说话；想看看我在做什么，点下面的按钮就好，不需要记任何命令。"),
     nav(""),
   ]),

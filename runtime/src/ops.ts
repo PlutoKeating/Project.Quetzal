@@ -13,10 +13,11 @@ import { getCatalog, refreshCatalog } from "./providers/catalog.ts";
 import { bus } from "./bus.ts";
 import type { ProviderConfig } from "./providers/types.ts";
 import { VERSION } from "./version.ts";
+import { identity, setIdentity, type AgentIdentity } from "./memory/identity.ts";
 import { run } from "./sh.ts";
 
 export const status = () => ({
-  version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
+  agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
   stopped: heart.stopped(), paused: config.heart.paused, activity: config.heart.activity,
   usage: usageToday(), budget: config.budget, approvals: guard.approvals(), soul: soul.syncStatus(),
   models: routes().map((r) => `${r.provider.name}/${r.model.name}`),
@@ -89,6 +90,28 @@ export const ops = {
     const m = c.providers.flatMap((p) => p.models).find((x) => x.id === a.modelId);
     if (!m) return false;
     m.enabled = !m.enabled; saveProviders(c, configVersion(), actor); return m.enabled;
+  },
+
+  agent: () => identity(),
+  setAgent: async (a: Partial<AgentIdentity>, actor: string) => {
+    const r = setIdentity(a);
+    audit(actor, "agent.edit", "外部修改", a, "ok");
+    mem.writeJournal("我的身份资料被修改了", `${actor} 修改了：${Object.keys(a).join("、")}`);
+    await soul.push("修改身份资料");
+    return r;
+  },
+  bodies: () => {
+    const dir = `${paths.soul}/bodies`;
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => { try { return JSON.parse(fs.readFileSync(`${dir}/${f}`, "utf8")); } catch { return { body: f.slice(0, -5) }; } });
+  },
+  soulHistory: (a: { limit?: number }) => soul.history(a.limit ?? 50),
+  soulShow: (a: { hash: string }) => soul.show(a.hash),
+  soulRevert: async (a: { hash: string }, actor: string) => {
+    await soul.revert(a.hash);
+    audit(actor, "soul.revert", "", a, "ok");
+    mem.writeJournal("有人撤销了一段记忆变更", `${actor} 撤销了提交 ${a.hash.slice(0, 7)}`);
+    return true;
   },
 
   config: () => ({ body: config.body, timezone: config.timezone, heart: config.heart, brain: config.brain, feishu: { ...config.feishu, hasSecret: fs.existsSync(`${paths.secrets}/feishu_secret`) } }),

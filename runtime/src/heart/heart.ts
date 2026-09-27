@@ -146,7 +146,7 @@ export const isBusy = () => busy;
 export const mode = () => (ensure(), state.mode);
 export function markBusy(b: boolean) { busy = b; if (!b) schedule(); else clearTimeout(timer); bus.emit("state"); }
 
-/** Amani 自己修改性格参数（有界）。 */
+/** agent 自己修改性格参数（有界）。 */
 export function adjustPersonality(patch: Record<string, number>): string {
   ensure();
   const out: string[] = [];

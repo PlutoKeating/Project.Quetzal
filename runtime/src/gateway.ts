@@ -1,4 +1,4 @@
-// 本地网关：HTTP + WebSocket（JSON-RPC 风格），只监听 127.0.0.1，令牌认证。控制台 App 与主机工具都通过它访问 Amani。
+// 本地网关：HTTP + WebSocket（JSON-RPC 风格），只监听 127.0.0.1，令牌认证。控制台 App 与主机工具都通过它访问 agent。
 //   GET  /health                 → { ok, version, mode }（无需令牌，供点火器探活）
 //   WS   /rpc?token=<令牌>        → 请求 {id, method, params} / 响应 {id, result | error} / 推送 {event, data}
 import http from "node:http";
@@ -41,7 +41,7 @@ export function startGateway(safeMode: boolean) {
     if (req.method === "POST" && req.url === "/pair/start") {
       pairing = { code: String(crypto.randomInt(100000, 1000000)), until: Date.now() + 5 * 60_000, tries: 0 };
       const text = `控制台配对码：${pairing.code}（5 分钟内有效）`;
-      void adapter.notify?.("Amani 控制台配对", text).catch(() => {});
+      void adapter.notify?.("控制台配对", text).catch(() => {});
       bus.emit("notice", text);
       return json(res, 200, { ok: true });
     }

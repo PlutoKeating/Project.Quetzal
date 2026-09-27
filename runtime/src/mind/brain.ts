@@ -32,6 +32,8 @@ const FINISH: ToolDef = {
 
 interface Step { tool: string; args: unknown; result: string }
 
+const conflictNotes = () => mem.listNotes().map((n) => n.name).filter((n) => /\.incoming-[0-9a-f]+$/.test(n));
+
 /** 工具循环。返回最终文本、finish 参数、步骤与 token 消耗。 */
 async function loop(messages: Msg[], reason: string, maxSteps: number, withFinish: boolean) {
   const tools: ToolDef[] = [...allTools().map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
@@ -72,6 +74,10 @@ async function introspect(kind: WakeKind, reason: string): Promise<{ engage: boo
 
 export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?: Partial<Drives>; effort?: number }> {
   await soul.pull().catch(() => {});
+  if (kind === "dream" && !(await soul.acquireLease().catch(() => true))) {
+    addTimeline("dream", "另一具身体正在整理记忆，这次只是浅睡", { reason });
+    return { effort: 0 };
+  }
   const gate = await introspect(kind, reason);
   if (!gate.engage) {
     addTimeline("doze", `醒了一下，又不想动：${gate.intent}`, { reason });
@@ -85,14 +91,18 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
     : `你睡着了，正在做梦——这是整理记忆的时候。
 1. 回顾最近的日记（包括其他身体的经历）和对话，提炼值得长期记住的东西，用 memory 工具更新常驻记忆（合并、精简，注意字符上限），用 note_save 沉淀知识与思考。
 2. 如果你的喜好或节律有了变化，可以用 adjust_self 调整自己。
-${fs.existsSync(incoming) ? `3. 另一具身体修改了人格文件，和你本地的版本冲突了。对方的版本：\n${fs.readFileSync(incoming, "utf8")}\n请调和两者，用 rewrite_soul 写下最终版本。\n` : ""}
+${conflictNotes().length ? `3. 这些笔记在不同身体上被同时修改过，对方的版本另存为 .incoming 文件：${conflictNotes().join("、")}。请读一读，合并成一篇（note_save 写回原名），合并后对应的 .incoming 文件会被清理。\n` : ""}${fs.existsSync(incoming) ? `4. 另一具身体修改了人格文件，和你本地的版本冲突了。对方的版本：\n${fs.readFileSync(incoming, "utf8")}\n请调和两者，用 rewrite_soul 写下最终版本。\n` : ""}
 梦可以是跳跃的、联想的。结束时调用 finish，把这个梦写进日记。`;
   const messages: Msg[] = [{ role: "system", content: systemPrompt() }, { role: "user", content: task }];
   const r = await loop(messages, reason, config.brain.maxSteps, true);
   const f = r.finish ?? { title: kind === "dream" ? "一个模糊的梦" : "醒来了一会儿", journal: r.text || "（没有留下文字）" };
   mem.writeJournal(`${kind === "dream" ? "梦 · " : ""}${f.title}`, `${f.journal}${f.feeling ? `\n\n心情：${f.feeling}` : ""}`);
   addTimeline(kind, f.title, { reason, intent: gate.intent, journal: f.journal, feeling: f.feeling, steps: r.steps, tokens: r.tokens, model: r.model });
-  if (kind === "dream") fs.rmSync(incoming, { force: true }); else addExperience(1);
+  if (kind === "dream") {
+    fs.rmSync(incoming, { force: true });
+    for (const n of conflictNotes()) fs.rmSync(path.join(paths.soul, "notes", `${n}.md`), { force: true });
+    await soul.releaseLease();
+  } else addExperience(1);
   setOpenLoops(mem.openLoops().length);
   await soul.push(kind === "dream" ? `梦：${f.title}` : f.title).catch(() => {});
   const satisfied: Partial<Drives> = {};

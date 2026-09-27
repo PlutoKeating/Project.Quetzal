@@ -1,6 +1,6 @@
 // 飞书通道：长连接（WebSocket），无需公网地址。
 //   打开与机器人的单聊 → 自动推送「此刻」卡片；机器人菜单 → 对应卡片；卡片按钮/表单 → 操作层（ops）并原地刷新卡片
-//   普通文字 → 与 Amani 对话（处理中加 OnIt 表情）；Amani 主动说话 → 私聊；审批 → 带按钮的卡片
+//   普通文字 → 与 agent 对话（处理中加 OnIt 表情）；agent 主动说话 → 私聊；审批 → 带按钮的卡片
 // 接入：控制台一键扫码创建机器人（registerApp），自动获得凭据并绑定扫码的人，全程无需命令行。
 import * as lark from "@larksuiteoapi/node-sdk";
 import { config, saveConfig, readSecret, writeSecret } from "../config.ts";
@@ -9,6 +9,7 @@ import { log } from "../log.ts";
 import { invoke } from "../ops.ts";
 import { converse } from "../mind/brain.ts";
 import { views, approvalCard, md } from "./feishu-cards.ts";
+import { identity } from "../memory/identity.ts";
 
 let channel: lark.LarkChannel | undefined;
 const state = { connected: false, error: "", registering: "" };
@@ -114,7 +115,7 @@ export function registerFeishu(onUrl: (url: string) => void): Promise<unknown> {
   state.registering = "waiting";
   return lark.registerApp({
     createOnly: true, source: "amani",
-    appPreset: { name: "神谷薰", desc: "Amani（神谷薰）的飞书通道" },
+    appPreset: { name: identity().displayName, desc: `${identity().displayName} 的飞书通道` },
     addons: {
       scopes: { tenant: ["im:message", "im:message:send_as_bot", "im:message.p2p_msg:readonly", "im:message.reactions:write_only", "im:resource", "im:chat:readonly", "cardkit:card:write"] },
       events: { items: { tenant: ["im.message.receive_v1", "application.bot.menu_v6", "im.chat.access_event.bot_p2p_chat_entered_v1"] } },

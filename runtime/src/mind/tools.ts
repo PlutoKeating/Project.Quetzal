@@ -1,4 +1,4 @@
-// Amani 可以调用的工具。每个工具声明所属的能力类别，调用前经过闸门检查，调用后写入审计。
+// agent 可以调用的工具。每个工具声明所属的能力类别，调用前经过闸门检查，调用后写入审计。
 // 设备相关的工具由身体适配器提供（adapter.tools / adapter.hands），核心只提供与设备无关的能力。
 import { bus } from "../bus.ts";
 import { audit } from "../store.ts";

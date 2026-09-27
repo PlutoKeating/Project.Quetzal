@@ -1,4 +1,4 @@
-// Amani 运行基座入口：装配各模块。进程由外部守护者（runit、systemd……）负责拉起；本进程只负责熔断。
+// 运行基座入口：装配各模块。进程由外部守护者（runit、systemd……）负责拉起；本进程只负责熔断。
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig, config, paths } from "./config.ts";
@@ -7,6 +7,7 @@ import { loadAdapter, startSenses, sample, adapter } from "./body/twin.ts";
 import { startHeart } from "./heart/heart.ts";
 import { wake } from "./mind/brain.ts";
 import { ensureSoul } from "./memory/soul-sync.ts";
+import { displayName } from "./memory/identity.ts";
 import { startGateway } from "./gateway.ts";
 import { startFeishu, wireFeishu } from "./channels/feishu.ts";
 import { bus } from "./bus.ts";
@@ -28,14 +29,14 @@ async function main() {
   loadConfig();
   openStore();
   const safeMode = crashGuard();
-  log("main", `Amani ${VERSION} 启动（身体：${config.body}，家目录：${paths.home}）${safeMode ? " —— 安全模式" : ""}`);
+  log("main", `运行基座 ${VERSION} 启动（身体：${config.body}，家目录：${paths.home}）${safeMode ? " —— 安全模式" : ""}`);
   process.on("unhandledRejection", (e: any) => log("main", `未处理的异常：${e?.stack ?? e}`));
 
   await loadAdapter(config.adapter || process.env.AMANI_ADAPTER);
   startGateway(safeMode);
   wireFeishu();
   await startFeishu();
-  bus.on("say", (text) => { addMessage("amani", "主动", text); void adapter.notify?.("神谷薰", text).catch(() => {}); });
+  bus.on("say", (text) => { addMessage("amani", "主动", text); void adapter.notify?.(displayName(), text).catch(() => {}); });
 
   if (safeMode) {
     addTimeline("safe", "反复崩溃，进入安全模式");

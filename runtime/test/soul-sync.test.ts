@@ -48,3 +48,41 @@ test("双方同时修改记忆：条目级合并，不丢内容", async () => {
   const e = mem.entries("memory");
   assert.ok(e.includes("Hermes 新学到的事") && e.includes("手机这边新学到的事"), e.join("|"));
 });
+
+test("身份守卫：拒绝合并属于另一个 agent 的灵魂仓库", async () => {
+  const other = path.join(tmp, "other.git");
+  const w = path.join(tmp, "otherwork");
+  execFileSync("git", ["init", "--bare", "-b", "main", other]);
+  fs.mkdirSync(w);
+  g(w, "init", "-b", "main"); g(w, "config", "user.email", "o@x"); g(w, "config", "user.name", "o");
+  fs.writeFileSync(path.join(w, "agent.json"), JSON.stringify({ id: "00000000-0000-0000-0000-000000000000", name: "other", displayName: "别人" }));
+  g(w, "add", "-A"); g(w, "commit", "-m", "o"); g(w, "remote", "add", "origin", other); g(w, "push", "origin", "main");
+  const { identity, setIdentity } = await import("../src/memory/identity.ts");
+  setIdentity({ displayName: "测试者" }); // 不再是种子身份
+  saveConfig({ soul: { remote: other } });
+  await soul.pull();
+  assert.match(soul.syncStatus().lastError, /另一个 agent/);
+  assert.equal(identity().displayName, "测试者");
+  saveConfig({ soul: { remote } });
+});
+
+test("整理租约：另一具身体持有未过期租约时拿不到", async () => {
+  fs.mkdirSync(path.join(hermes, "locks"), { recursive: true });
+  g(hermes, "pull", "origin", "main");
+  fs.writeFileSync(path.join(hermes, "locks/consolidation.json"), JSON.stringify({ body: "hermes", until: Date.now() + 60_000 }));
+  g(hermes, "add", "-A"); g(hermes, "commit", "-m", "lease"); g(hermes, "push", "origin", "main");
+  assert.equal(await soul.acquireLease(), false);
+  fs.writeFileSync(path.join(hermes, "locks/consolidation.json"), JSON.stringify({ body: "hermes", until: 0 }));
+  g(hermes, "commit", "-am", "expire"); g(hermes, "push", "origin", "main");
+  assert.equal(await soul.acquireLease(), true);
+  await soul.releaseLease();
+});
+
+test("历史与撤销", async () => {
+  mem.editMemory("memory", "add", "要被撤销的条目");
+  await soul.push("加一条");
+  const h = await soul.history(5);
+  assert.match(h[0].subject, /加一条/);
+  await soul.revert(h[0].hash);
+  assert.ok(!mem.entries("memory").includes("要被撤销的条目"));
+});
