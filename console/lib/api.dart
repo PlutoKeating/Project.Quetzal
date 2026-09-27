@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'igniter.dart';
@@ -16,6 +16,14 @@ class RpcError implements Exception {
   String toString() => message;
 }
 
+/// 一个 agent 的连接档案：控制台可以保存多个，一键切换。
+class Profile {
+  String id, label, base, token;
+  Profile({required this.id, required this.label, required this.base, this.token = ''});
+  Map<String, dynamic> toJson() => {'id': id, 'label': label, 'base': base, 'token': token};
+  factory Profile.fromJson(Map m) => Profile(id: m['id'], label: m['label'] ?? '', base: m['base'], token: m['token'] ?? '');
+}
+
 class GatewayEvent {
   final String name;
   final dynamic data;
@@ -23,8 +31,10 @@ class GatewayEvent {
 }
 
 class Api extends ChangeNotifier {
-  String base = 'http://127.0.0.1:7788';
-  String token = '';
+  List<Profile> profiles = [];
+  Profile? current;
+  String get base => current?.base ?? 'http://127.0.0.1:7788';
+  String get token => current?.token ?? '';
   Conn conn = Conn.unpaired;
   String lastError = '';
   Map<String, dynamic> status = {};
@@ -40,17 +50,56 @@ class Api extends ChangeNotifier {
 
   Future<void> init() async {
     final p = await SharedPreferences.getInstance();
-    base = p.getString('base') ?? base;
-    token = p.getString('token') ?? '';
-    if (token.isNotEmpty) connect();
-    notifyListeners();
+    profiles = (jsonDecode(p.getString('profiles') ?? '[]') as List).map((m) => Profile.fromJson(m as Map)).toList();
+    if (profiles.isEmpty) { // 迁移旧版单连接设置
+      profiles.add(Profile(id: _newId(), label: '', base: p.getString('base') ?? 'http://127.0.0.1:7788', token: p.getString('token') ?? ''));
+    }
+    current = profiles.firstWhere((x) => x.id == p.getString('current'), orElse: () => profiles.first);
+    await _persist();
+    connect();
+  }
+
+  static String _newId() => DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+
+  Future<void> _persist() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('profiles', jsonEncode(profiles.map((x) => x.toJson()).toList()));
+    if (current != null) await p.setString('current', current!.id);
   }
 
   Future<void> saveSettings({String? base, String? token}) async {
-    final p = await SharedPreferences.getInstance();
-    if (base != null) { this.base = base; await p.setString('base', base); }
-    if (token != null) { this.token = token; await p.setString('token', token); }
+    final c = current;
+    if (c == null) return;
+    if (base != null) c.base = base;
+    if (token != null) c.token = token;
+    await _persist();
     connect();
+  }
+
+  /// 切换到另一个 agent。
+  Future<void> switchTo(Profile p) async {
+    current = p; status = {}; safeMode = false;
+    await _persist();
+    connect();
+  }
+
+  /// 新增一个 agent 连接（进入配对流程）。
+  Future<void> addProfile(String base) async {
+    final p = Profile(id: _newId(), label: '', base: base);
+    profiles.add(p);
+    await switchTo(p);
+  }
+
+  Future<void> removeProfile(Profile p) async {
+    profiles.remove(p);
+    if (profiles.isEmpty) profiles.add(Profile(id: _newId(), label: '', base: 'http://127.0.0.1:7788'));
+    await switchTo(current == p ? profiles.first : current!);
+  }
+
+  /// 记住 agent 的显示名，离线时也能在切换列表里认出它。
+  void _rememberName() {
+    final n = agent['displayName'];
+    if (n is String && current != null && current!.label != n) { current!.label = n; _persist(); }
   }
 
   // ---------- HTTP
@@ -117,14 +166,14 @@ class Api extends ChangeNotifier {
       return;
     }
     final ev = GatewayEvent(m['event'] as String, m['data']);
-    if (ev.name == 'state') { status = Map<String, dynamic>.from(ev.data as Map); notifyListeners(); }
+    if (ev.name == 'state') { status = Map<String, dynamic>.from(ev.data as Map); _rememberName(); notifyListeners(); }
     if (ev.name == 'hello') safeMode = (ev.data as Map)['safeMode'] == true;
     _events.add(ev);
   }
 
   Future<T> call<T>(String method, [Map<String, dynamic>? params]) {
     final ws = _ws;
-    if (ws == null || conn != Conn.online) return Future.error(RpcError('OFFLINE', '未连接到 Amani'));
+    if (ws == null || conn != Conn.online) return Future.error(RpcError('OFFLINE', '未连接到 agent'));
     final id = ++_seq;
     final c = Completer<dynamic>();
     _pending[id] = c;
@@ -133,10 +182,10 @@ class Api extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
-    try { status = Map<String, dynamic>.from(await call<Map>('status')); notifyListeners(); } catch (_) {}
+    try { status = Map<String, dynamic>.from(await call<Map>('status')); _rememberName(); notifyListeners(); } catch (_) {}
   }
 
-  /// 点火：让 Termux 启动 Amani 服务，然后等待网关恢复。
+  /// 点火：让 Termux 启动运行基座服务，然后等待网关恢复。
   Future<String?> ignite() async {
     conn = Conn.igniting; notifyListeners();
     final err = await Igniter.ignite();
@@ -151,6 +200,13 @@ class Api extends ChangeNotifier {
   }
 
   // ---------- 便捷访问
+  Map get agent => (status['agent'] as Map?) ?? {};
+  String get name => (agent['displayName'] as String?) ?? (current?.label.isNotEmpty == true ? current!.label : 'Agent');
+  Color get color {
+    final c = agent['color'];
+    if (c is String && RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(c)) return Color(int.parse('FF${c.substring(1)}', radix: 16));
+    return const Color(0xFF7C6CF2);
+  }
   Map get heart => (status['heart'] as Map?) ?? {};
   Map get physical => (status['physical'] as Map?) ?? {};
   bool get stopped => status['stopped'] == true;

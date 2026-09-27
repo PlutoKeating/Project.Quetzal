@@ -1,6 +1,6 @@
 # console · 控制台 App
 
-Flutter（Material 3，深色为主），应用 ID `xyz.amani.console`，应用名「神谷薰」。
+Flutter（Material 3，深色为主），应用 ID `xyz.amani.console`，应用名「Agent 控制台」。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
 
 ## 定位
 

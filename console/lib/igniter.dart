@@ -1,4 +1,4 @@
-// 点火器：通过 Termux 的 RUN_COMMAND 接口启动 Amani 服务（仅 Android + Termux 部署时可用）。
+// 点火器：通过 Termux 的 RUN_COMMAND 接口启动运行基座服务（仅 Android + Termux 部署时可用）。
 import 'package:flutter/services.dart';
 
 class Igniter {
@@ -16,7 +16,7 @@ class Igniter {
     if (!await available()) return '没有安装 Termux，无法自动点火';
     if (!await hasPermission()) { await requestPermission(); return '请先允许「在 Termux 中运行命令」权限，然后再点一次'; }
     try {
-      // 重新执行开机脚本：保持唤醒 + 启动 runit（Amani 由其守护），幂等
+      // 重新执行开机脚本：保持唤醒 + 启动 runit（运行基座由其守护），幂等
       await _ch.invokeMethod('run', {'path': '$home/.termux/boot/amani', 'args': <String>[]});
       await _ch.invokeMethod('run', {'path': '$prefix/bin/sv', 'args': ['up', '$prefix/var/service/amani']});
       return null;

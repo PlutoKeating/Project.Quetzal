@@ -37,7 +37,7 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('和薰说话')),
+      appBar: AppBar(title: Text('和${api.name}说话')),
       body: Column(children: [
         Expanded(
           child: ListView.builder(

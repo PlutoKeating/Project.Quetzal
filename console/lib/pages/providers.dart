@@ -134,7 +134,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
           child: SafeArea(child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: Row(children: [
-              Expanded(child: Text(dirty ? '有未保存的修改' : '配置已与 Amani 同步', style: const TextStyle(fontWeight: FontWeight.bold))),
+              Expanded(child: Text(dirty ? '有未保存的修改' : '配置已与运行基座同步', style: const TextStyle(fontWeight: FontWeight.bold))),
               TextButton(onPressed: !dirty || busy ? null : () async { if (await confirm(context, '放弃修改', '丢弃所有未保存的修改？')) setState(() => draft = jsonDecode(jsonEncode(saved))); }, child: const Text('放弃')),
               FilledButton(onPressed: !dirty || busy ? null : _save, child: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('保存')),
             ]),

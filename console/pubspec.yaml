@@ -1,5 +1,5 @@
 name: amani_console
-description: "Amani（神谷薰）控制台"
+description: "Agent 控制台：观察、交流、调节与管理任意 agent"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

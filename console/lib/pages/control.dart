@@ -1,10 +1,12 @@
 // 控制：日常调节 → 安全 → 连接与运维，越往下越偏技术。
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../widgets.dart';
 import 'providers.dart';
+import 'agents.dart';
 
 class ControlPage extends ApiWidget {
   const ControlPage({super.key});
@@ -17,6 +19,8 @@ class ControlPage extends ApiWidget {
     Widget header(String t) => Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4), child: Text(t, style: Theme.of(context).textTheme.labelLarge));
     final s = api.status;
     return ListView(children: [
+      header('身份'),
+      item(Icons.badge, '身份', '${api.name} · 名字、代词、简介、主题色', const IdentityPage()),
       header('日常'),
       item(Icons.self_improvement, '自主性', '活跃度 ${s['activity'] ?? 1}× · ${s['paused'] == true ? '已暂停' : '进行中'}', const AutonomyPage()),
       item(Icons.gavel, '审批', '${api.approvals.length} 个待处理', const ApprovalsPage(), badge: api.approvals.length),
@@ -28,6 +32,7 @@ class ControlPage extends ApiWidget {
       item(Icons.hub, '模型', '${(s['models'] as List?)?.length ?? 0} 个可用模型 · 供应商、Key 与顺序', const ProvidersPage()),
       item(Icons.send, '飞书', '一键扫码接入，在飞书里和她说话', const FeishuPage()),
       item(Icons.cloud_sync, '灵魂同步', '与其他身体共享人格与记忆', const SoulPage()),
+      item(Icons.history, '记忆历史', '每一次变更来自哪具身体，可查看与撤销', const HistoryPage()),
       header('运维'),
       item(Icons.monitor_heart, '服务', '版本 ${s['version'] ?? '-'} · 身体 ${s['body'] ?? '-'}（${s['adapter'] ?? '-'}）', const ServicePage()),
     ]);
@@ -228,7 +233,7 @@ class _FeishuPageState extends State<FeishuPage> {
           if (st['appId'] != '' && st['owner'] != true) Text('绑定：在飞书里给机器人发送绑定码 ${st['bindCode']}'),
         ]),
         Section('一键接入（推荐）', [
-          const Text('自动创建一个名为「神谷薰」的飞书机器人，权限、事件与卡片回调都会预先配置好；确认后自动绑定你本人。'),
+          Text('自动创建一个名为「${api.name}」的飞书机器人，权限、事件与卡片回调都会预先配置好；确认后自动绑定你本人。'),
           const SizedBox(height: 8),
           if (qr == null) FilledButton.icon(icon: const Icon(Icons.qr_code), label: const Text('开始'), onPressed: () { setState(() => error = null); act(context, () => api.call('feishu.register')); }),
           if (qr != null) ...[
@@ -288,13 +293,15 @@ class _SoulPageState extends State<SoulPage> {
           TextButton(onPressed: () async { final k = await act(context, () => api.call<String>('soulKey')); if (mounted) setState(() => pub = k); }, child: Text(pub == null ? '显示公钥' : '已生成')),
         ]),
         Section('2. 灵魂仓库地址', [
-          TextField(controller: remote, decoration: const InputDecoration(labelText: '例如 git@github.com:你的用户名/Amani.Soul.git', border: OutlineInputBorder())),
+          TextField(controller: remote, decoration: const InputDecoration(labelText: '例如 git@github.com:你的用户名/<agent>.soul.git', border: OutlineInputBorder())),
           const SizedBox(height: 8),
           FilledButton(onPressed: () async { await act(context, () => api.call('setSoulConfig', {'remote': remote.text.trim()}), ok: '已接入'); _load(); }, child: const Text('接入')),
           const Text('仓库必须是私有的。首次接入时，若仓库里已有另一具身体的人格，会直接采用它，并合并两边的记忆。', style: TextStyle(fontSize: 12)),
         ]),
-        const Section('3. 让 Hermes 也接入', [
-          Text('在运行 Hermes 的设备上，对 Hermes 说：「安装 Project.Amani 仓库 hermes/amani-soul 目录下的技能，并按技能说明接入灵魂仓库」，再把上面的仓库地址告诉它。之后的同步由 Hermes 自己完成。'),
+        Section('3. 让 Hermes / OpenClaw 也住进来', [
+          const Text('在装有 Hermes Agent 或 OpenClaw 的机器上，把下面这句话发给它。它会自己安装 soul-bridge，之后人格与记忆全自动同步，随时可以拔出。'),
+          SelectableText(_bridgePrompt(remote.text.trim())),
+          TextButton.icon(icon: const Icon(Icons.copy), label: const Text('复制'), onPressed: () { Clipboard.setData(ClipboardData(text: _bridgePrompt(remote.text.trim()))); toast(context, '已复制'); }),
         ]),
       ]),
     );
@@ -320,7 +327,7 @@ class ServicePage extends StatelessWidget {
             Section('操作', [
               Wrap(spacing: 8, children: [
                 FilledButton.tonal(onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); }, child: const Text('点火')),
-                FilledButton.tonal(onPressed: () async { if (await confirm(context, '重启基座', '重启 Amani 进程？约 5 秒后恢复。') && context.mounted) await act(context, () => api.call('restart'), ok: '正在重启'); }, child: const Text('重启')),
+                FilledButton.tonal(onPressed: () async { if (await confirm(context, '重启基座', '重启运行基座进程？约 5 秒后恢复。') && context.mounted) await act(context, () => api.call('restart'), ok: '正在重启'); }, child: const Text('重启')),
                 OutlinedButton(onPressed: () async {
                   if (await confirm(context, '重新配对', '将清除本机保存的令牌，需要重新获取配对码。')) await api.saveSettings(token: '');
                 }, child: const Text('重新配对')),
@@ -330,3 +337,7 @@ class ServicePage extends StatelessWidget {
         }),
       );
 }
+
+String _bridgePrompt(String repo) =>
+    '请安装 soul-bridge 技能（https://github.com/PlutoKeating/Project.Amani/tree/main/bridge/skills/soul-bridge），'
+    '按技能说明把你接入灵魂仓库 ${repo.isEmpty ? '<仓库地址>' : repo}，需要我配合的步骤告诉我。';

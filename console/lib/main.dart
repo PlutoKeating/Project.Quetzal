@@ -1,4 +1,4 @@
-// Amani（神谷薰）控制台：观察、交流、调节与管理。只是前端，不托管运行基座。
+// Agent 控制台：观察、交流、调节与管理任意 agent。只是前端，不托管运行基座；可保存多个 agent 连接并一键切换。
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'widgets.dart';
@@ -7,31 +7,33 @@ import 'pages/flow.dart';
 import 'pages/memory.dart';
 import 'pages/control.dart';
 import 'pages/pairing.dart';
+import 'pages/agents.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   api.init();
-  runApp(const AmaniApp());
+  runApp(const ConsoleApp());
 }
 
-const kaoru = Color(0xFF7C6CF2); // 神谷薰的强调色
-
-class AmaniApp extends StatelessWidget {
-  const AmaniApp({super.key});
+class ConsoleApp extends StatelessWidget {
+  const ConsoleApp({super.key});
   @override
   Widget build(BuildContext context) {
     ThemeData theme(Brightness b) => ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: kaoru, brightness: b),
+          colorScheme: ColorScheme.fromSeed(seedColor: api.color, brightness: b), // 主题色随当前 agent
           useMaterial3: true,
           cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
         );
-    return MaterialApp(
-      title: '神谷薰',
-      debugShowCheckedModeBanner: false,
-      theme: theme(Brightness.light),
-      darkTheme: theme(Brightness.dark),
-      themeMode: ThemeMode.dark,
-      home: const Shell(),
+    return ListenableBuilder(
+      listenable: api,
+      builder: (context, _) => MaterialApp(
+        title: 'Agent 控制台',
+        debugShowCheckedModeBanner: false,
+        theme: theme(Brightness.light),
+        darkTheme: theme(Brightness.dark),
+        themeMode: ThemeMode.dark,
+        home: const Shell(),
+      ),
     );
   }
 }
@@ -49,7 +51,7 @@ class _ShellState extends State<Shell> {
     super.initState();
     api.events.listen((e) {
       if (!mounted) return;
-      if (e.name == 'say') toast(context, '薰：${e.data}');
+      if (e.name == 'say') toast(context, '${api.name}：${e.data}');
       if (e.name == 'approval' && (e.data as Map)['status'] == 'pending') toast(context, '她请求批准：${(e.data as Map)['action']}');
     });
   }
@@ -63,7 +65,7 @@ class _ShellState extends State<Shell> {
         final pages = [const HomePage(), const FlowPage(), const MemoryPage(), const ControlPage()];
         return Scaffold(
           appBar: AppBar(
-            title: const Text('神谷薰'),
+            title: const AgentSwitcher(),
             actions: [const ConnChip(), const StopButton(), const SizedBox(width: 8)],
           ),
           body: Column(children: [

@@ -166,7 +166,7 @@ class OfflineBanner extends ApiWidget {
   const OfflineBanner({super.key});
   @override
   Widget view(BuildContext context) => Banner0(
-        text: api.conn == Conn.igniting ? '正在点火…' : '连不上 Amani${api.lastError.isNotEmpty ? '（${api.lastError.length > 40 ? api.lastError.substring(0, 40) : api.lastError}）' : ''}',
+        text: api.conn == Conn.igniting ? '正在点火…' : '连不上 ${api.name}${api.lastError.isNotEmpty ? '（${api.lastError.length > 40 ? api.lastError.substring(0, 40) : api.lastError}）' : ''}',
         color: Colors.red,
         action: api.conn == Conn.igniting
             ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
