@@ -1,0 +1,50 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+
+// 模拟：另一具身体（Hermes）已有人格与记忆，推到了一个裸仓库；本机首次接入
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "amani-soul-"));
+const remote = path.join(tmp, "soul.git");
+const hermes = path.join(tmp, "hermes");
+const g = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, stdio: "pipe" }).toString();
+execFileSync("git", ["init", "--bare", "-b", "main", remote]);
+fs.mkdirSync(path.join(hermes, "memories"), { recursive: true });
+g(hermes, "init", "-b", "main");
+g(hermes, "config", "user.email", "h@x"); g(hermes, "config", "user.name", "hermes");
+fs.writeFileSync(path.join(hermes, "SOUL.md"), "# 神谷薰\n来自 Hermes 的人格\n");
+fs.writeFileSync(path.join(hermes, "memories/MEMORY.md"), "喜欢猫\n§\n住在海边\n");
+g(hermes, "add", "-A"); g(hermes, "commit", "-m", "hermes"); g(hermes, "remote", "add", "origin", remote); g(hermes, "push", "origin", "main");
+
+process.env.AMANI_HOME = path.join(tmp, "home");
+const { loadConfig, saveConfig } = await import("../src/config.ts");
+loadConfig();
+const { openStore } = await import("../src/store.ts");
+openStore();
+const soul = await import("../src/memory/soul-sync.ts");
+const mem = await import("../src/memory/memory.ts");
+
+test("首次接入：采用对方人格，合并记忆，推送后对方可见本机日记", async () => {
+  await soul.ensureSoul();
+  mem.editMemory("memory", "add", "第一次在手机里醒来");
+  mem.writeJournal("初醒", "这里很安静");
+  saveConfig({ soul: { remote } });
+  await soul.pull();
+  await soul.push("测试");
+  assert.match(mem.soul(), /来自 Hermes 的人格/);
+  assert.deepEqual(new Set(mem.entries("memory")), new Set(["喜欢猫", "住在海边", "第一次在手机里醒来"]));
+  g(hermes, "pull", "origin", "main");
+  assert.ok(fs.readdirSync(path.join(hermes, "journal")).includes("default"));
+});
+
+test("双方同时修改记忆：条目级合并，不丢内容", async () => {
+  fs.appendFileSync(path.join(hermes, "memories/MEMORY.md"), "§\nHermes 新学到的事\n");
+  g(hermes, "commit", "-am", "h2"); g(hermes, "push", "origin", "main");
+  mem.editMemory("memory", "add", "手机这边新学到的事");
+  await soul.push("本机");
+  await soul.pull();
+  const e = mem.entries("memory");
+  assert.ok(e.includes("Hermes 新学到的事") && e.includes("手机这边新学到的事"), e.join("|"));
+});

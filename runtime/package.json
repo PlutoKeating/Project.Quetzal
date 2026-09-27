@@ -1,0 +1,23 @@
+{
+  "name": "amani-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "Amani（神谷薰）运行基座：心脏、大脑、记忆、身体、闸门、网关",
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --outfile=dist/main.cjs",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "dev": "AMANI_HOME=./.dev node --experimental-strip-types src/main.ts"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.74.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.5.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}

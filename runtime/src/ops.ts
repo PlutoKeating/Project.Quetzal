@@ -1,0 +1,106 @@
+// 操作层：控制台网关与飞书卡片共用的一套操作。任何控制入口都只调用这里，保证行为一致、都有审计。
+import fs from "node:fs";
+import { config, saveConfig, paths, type Level } from "./config.ts";
+import { audit, listTimeline, listAudit, usageToday, recentMessages } from "./store.ts";
+import * as heart from "./heart/heart.ts";
+import * as guard from "./guard/guard.ts";
+import * as mem from "./memory/memory.ts";
+import * as soul from "./memory/soul-sync.ts";
+import { body, adapter } from "./body/twin.ts";
+import { loadProviders, publicView, configVersion, saveProviders } from "./providers/registry.ts";
+import { routes, testModel, remoteModels } from "./providers/router.ts";
+import { getCatalog, refreshCatalog } from "./providers/catalog.ts";
+import { bus } from "./bus.ts";
+import type { ProviderConfig } from "./providers/types.ts";
+import { VERSION } from "./version.ts";
+import { run } from "./sh.ts";
+
+export const status = () => ({
+  version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
+  stopped: heart.stopped(), paused: config.heart.paused, activity: config.heart.activity,
+  usage: usageToday(), budget: config.budget, approvals: guard.approvals(), soul: soul.syncStatus(),
+  models: routes().map((r) => `${r.provider.name}/${r.model.name}`),
+});
+
+export const ops = {
+  status,
+  timeline: (a: { limit?: number; before?: number; kind?: string }) => listTimeline(a.limit ?? 50, a.before, a.kind),
+  messages: (a: { limit?: number }) => recentMessages(a.limit ?? 50),
+  audit: (a: { limit?: number }) => listAudit(a.limit ?? 100),
+
+  poke: (a: { note?: string }, actor: string) => { heart.nudge(`${actor}戳了一下${a.note ? "：" + a.note : ""}`, { social: 0.3, curiosity: 0.1 }, { wake: true }); audit(actor, "poke", a.note ?? "", null, "ok"); return true; },
+  pause: (a: { paused: boolean }, actor: string) => { saveConfig({ heart: { paused: a.paused } }); audit(actor, a.paused ? "pause" : "resume", "", null, "ok"); heart.nudge(a.paused ? "暂停自主" : "恢复自主"); return true; },
+  activity: (a: { value: number }, actor: string) => { saveConfig({ heart: { activity: Math.max(0, Math.min(4, a.value)) } }); audit(actor, "activity", "", a, "ok"); heart.nudge("活跃度调整"); return config.heart.activity; },
+  stop: (a: { reason?: string }, actor: string) => { guard.emergencyStop(actor, a.reason); return true; },
+  unstop: (_: unknown, actor: string) => { guard.releaseStop(actor); heart.nudge("解除急停"); return true; },
+  personality: (a: { changes: Record<string, number> }, actor: string) => { audit(actor, "personality", "", a, "ok"); return heart.adjustPersonality(a.changes); },
+
+  permissions: () => Object.entries(guard.PERMISSION_LABELS).map(([id, label]) => ({ id, label, level: guard.level(id) })),
+  setPermission: (a: { id: string; level: Level }, actor: string) => { guard.setLevel(a.id, a.level, actor); return true; },
+  approvals: () => guard.approvals(),
+  decide: (a: { id: string; approve: boolean; note?: string }, actor: string) => guard.decide(a.id, a.approve, actor, a.note),
+  budget: () => ({ ...config.budget, usage: usageToday() }),
+  setBudget: (a: Partial<typeof config.budget>, actor: string) => { saveConfig({ budget: a }); audit(actor, "budget", "", a, "ok"); return config.budget; },
+
+  memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), limits: { memory: config.soul.memoryCharLimit, user: config.soul.userCharLimit }, loops: mem.openLoops() }),
+  editMemory: (a: { target: mem.Target; action: "add" | "replace" | "remove"; content?: string; oldText?: string }, actor: string) => {
+    const r = mem.editMemory(a.target, a.action, a.content, a.oldText);
+    audit(actor, "memory.edit", "外部修改", a, r);
+    mem.writeJournal("有人改了我的记忆", `${actor} 对 ${a.target} 做了 ${a.action}：${a.content ?? a.oldText ?? ""}`);
+    return r;
+  },
+  setSoul: (a: { text: string }, actor: string) => { mem.setSoul(a.text); audit(actor, "soul.edit", "外部修改", null, "ok"); mem.writeJournal("有人改了我的人格文件", `${actor} 修改了 SOUL.md`); return true; },
+  journalList: () => mem.listJournal(),
+  journal: (a: { body: string; day: string }) => mem.readJournal(a.body, a.day),
+  notes: () => mem.listNotes(),
+  note: (a: { name: string }) => mem.readNote(a.name),
+  search: (a: { query: string }) => mem.search(a.query),
+  syncSoul: async (_: unknown, actor: string) => { await soul.pull(); await soul.push(`${actor} 触发同步`); return soul.syncStatus(); },
+  soulConfig: () => ({ remote: config.soul.remote, branch: config.soul.branch, body: config.body, status: soul.syncStatus() }),
+  setSoulConfig: async (a: { remote?: string; branch?: string }, actor: string) => {
+    saveConfig({ soul: a }); audit(actor, "soul.config", "", a, "ok");
+    await soul.ensureSoul(); await soul.pull(); await soul.push("接入灵魂仓库");
+    return soul.syncStatus();
+  },
+  /** 生成（或读取）本机访问灵魂仓库用的 SSH 部署密钥，返回公钥，贴到 Git 托管平台的 Deploy keys（勾选写权限）即可。 */
+  soulKey: async () => {
+    const key = `${paths.secrets}/soul_ed25519`;
+    if (!fs.existsSync(key)) await run("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", `amani@${config.body}`, "-f", key]);
+    return fs.readFileSync(`${key}.pub`, "utf8").trim();
+  },
+
+  providers: () => ({ config: publicView(), version: configVersion() }),
+  saveProviders: (a: { config: ProviderConfig; expected: string }, actor: string) => ({ config: saveProviders(a.config, a.expected, actor), version: configVersion() }),
+  catalog: () => getCatalog(),
+  refreshCatalog: async () => ({ fetchedAt: Date.now(), providers: await refreshCatalog() }),
+  testModel: (a: { providerId: string; model: string }) => testModel(a.providerId, a.model),
+  remoteModels: (a: { providerId: string }) => remoteModels(a.providerId),
+  /** 飞书卡片用的快捷操作：在全局顺序中移动一个模型 / 启停一个模型 */
+  moveModel: (a: { modelId: string; delta: number }, actor: string) => {
+    const c = structuredClone(loadProviders());
+    const all = c.providers.flatMap((p) => p.models).sort((x, y) => x.sortOrder - y.sortOrder);
+    const i = all.findIndex((m) => m.id === a.modelId), j = i + a.delta;
+    if (i < 0 || j < 0 || j >= all.length) return false;
+    [all[i].sortOrder, all[j].sortOrder] = [all[j].sortOrder, all[i].sortOrder];
+    saveProviders(c, configVersion(), actor); return true;
+  },
+  toggleModel: (a: { modelId: string }, actor: string) => {
+    const c = structuredClone(loadProviders());
+    const m = c.providers.flatMap((p) => p.models).find((x) => x.id === a.modelId);
+    if (!m) return false;
+    m.enabled = !m.enabled; saveProviders(c, configVersion(), actor); return m.enabled;
+  },
+
+  config: () => ({ body: config.body, timezone: config.timezone, heart: config.heart, brain: config.brain, feishu: { ...config.feishu, hasSecret: fs.existsSync(`${paths.secrets}/feishu_secret`) } }),
+  setConfig: (a: { timezone?: string; brain?: Partial<typeof config.brain>; heart?: Partial<typeof config.heart> }, actor: string) => { saveConfig(a); audit(actor, "config", "", a, "ok"); return true; },
+  restart: (_: unknown, actor: string) => { audit(actor, "restart", "", null, "ok"); setTimeout(() => process.exit(0), 300); return true; }, // 由进程守护者（runit/systemd）重新拉起
+};
+
+export type OpName = keyof typeof ops;
+export async function invoke(name: string, args: any, actor: string) {
+  const f = (ops as any)[name];
+  if (!f) throw new Error(`未知操作：${name}`);
+  const r = await f(args ?? {}, actor);
+  bus.emit("state");
+  return r;
+}
