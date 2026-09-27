@@ -66,3 +66,14 @@ test("拔出：钩子移除，框架文件保持原样", () => {
   assert.equal(JSON.parse(fs.readFileSync(path.join(hermesHome, "shell-hooks-allowlist.json"), "utf8")).approvals.length, 0);
   assert.ok(fs.existsSync(path.join(hermesHome, "memories", "MEMORY.md")));
 });
+
+test("在一台新装的 Hermes 上重生：仓库里的人格与记忆胜过框架的默认人格", () => {
+  const fresh = path.join(tmp, "m3", ".hermes");
+  fs.mkdirSync(path.join(fresh, "memories"), { recursive: true });
+  fs.writeFileSync(path.join(fresh, "SOUL.md"), "# Hermes\n\nYou are Hermes, a helpful assistant.\n"); // 新装 Hermes 的默认人格
+  run("m3", "init", "--framework", "hermes", "--repo", remote, "--home", fresh, "--body", "hermes-new", "--agent", "kaoru", "--poll", "0");
+  assert.match(fs.readFileSync(path.join(fresh, "SOUL.md"), "utf8"), /我是小满/);
+  assert.ok(parseEntries(fs.readFileSync(path.join(fresh, "memories", "MEMORY.md"), "utf8")).includes("喜欢猫"));
+  const log = execFileSync("git", ["--git-dir", remote, "log", "--all", "--full-history", "-p", "--", "SOUL.md"]).toString();
+  assert.match(log, /You are Hermes/); // 默认人格作为落选版本留在历史里
+});

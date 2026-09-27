@@ -1,7 +1,8 @@
 // 同步引擎：双侧基线合并。
 // 对每个映射，记住「上次写给框架的内容」和「上次在灵魂里看到的内容」，由此分别算出框架侧与灵魂侧各自的改动：
 //   条目：结果 = 灵魂当前条目 + 框架新增 − 框架删除；写回框架时按字符上限截取，被截掉的条目仍保留在灵魂里（不算删除）。
-//   文本：只有一侧改动取改动方；两侧都改且不同时采用较新（修改时间）的一方，落选版本由调用方先提交进 git 历史再覆盖。
+//   文本：首次同步时灵魂已有内容则以灵魂为准（重生时不被框架的默认人格覆盖）；之后只有一侧改动取改动方，
+//         两侧都改且不同时采用较新（修改时间）的一方。落选版本由调用方先提交进 git 历史再覆盖。
 //   全过程无需 agent 参与。
 //   文件：日记单向导出 / 其他身体的日记单向镜像；共享笔记逐文件按文本规则双向合并，删除按基线判断。
 import fs from "node:fs";
@@ -55,9 +56,10 @@ export function syncText(native: string, soul: string, st: TextState | undefined
   const newer = () => (mtime(native) > mtime(soul) ? { result: N!, loser: S! } : { result: S!, loser: N! });
   let result: string, loser: string | undefined;
   if (!st) {
+    // 这具身体第一次同步：灵魂里已有内容时以灵魂为准（新装的框架往往带着默认人格，不能覆盖已有的她），
+    // 框架原有版本作为落选版本保存进历史。
     if (!S?.trim()) result = N ?? "";
-    else if (!N?.trim() || N === S) result = S;
-    else ({ result, loser } = newer());
+    else { result = S; if (N?.trim() && N !== S) loser = N; }
   } else {
     const nChanged = (N ?? "") !== st.native, sChanged = (S ?? "") !== st.soul;
     if (nChanged && sChanged && N !== S) ({ result, loser } = newer());
