@@ -69,8 +69,26 @@ WantedBy=default.target
 `);
   await sh("systemctl", ["--user", "daemon-reload"]);
   const ok = await sh("systemctl", ["--user", "enable", "--now", unitName(c.agent)]);
-  await sh("loginctl", ["enable-linger", os.userInfo().username]); // 未登录时也保持运行（失败无妨）
-  return ok ? `已安装并启动 systemd 用户服务 ${unitName(c.agent)}` : `已写入 ${f}，但 systemctl 启动失败（可能不是 systemd 系统），可以改用 run 命令常驻`;
+  if (ok) {
+    await sh("loginctl", ["enable-linger", os.userInfo().username]); // 未登录时也保持运行（失败无妨）
+    return `已安装并启动 systemd 用户服务 ${unitName(c.agent)}`;
+  }
+  fs.rmSync(f, { force: true });
+  return fallbackService(c, cli);
+}
+
+/** 没有 systemd / launchd 时（容器、精简系统）：crontab @reboot 开机自启 + 立即在后台启动一个守护进程。 */
+async function fallbackService(c: BridgeConfig, cli: string): Promise<string> {
+  const log = path.join(os.homedir(), ".agent-soul", c.agent, "bridge.log");
+  const line = `@reboot ${process.execPath} ${cli} run --agent ${c.agent} >> ${log} 2>&1 # soul-bridge:${c.agent}`;
+  const cur = await new Promise<string>((r) => execFile("crontab", ["-l"], (_e, out) => r(String(out ?? ""))));
+  const cron = cur.split("\n").filter((l) => l && !l.includes(`# soul-bridge:${c.agent}`)).concat(line).join("\n") + "\n";
+  const cronOk = await new Promise<boolean>((r) => { const p = execFile("crontab", ["-"], (e) => r(!e)); p.stdin?.end(cron); });
+  const { spawn } = await import("node:child_process");
+  const out = fs.openSync(log, "a");
+  spawn(process.execPath, [cli, "run", "--agent", c.agent], { detached: true, stdio: ["ignore", out, out] }).unref();
+  fs.writeFileSync(path.join(os.homedir(), ".agent-soul", c.agent, "fallback"), "1");
+  return `未检测到 systemd / launchd：已在后台启动守护进程${cronOk ? "，并用 crontab @reboot 设置开机自启" : "（crontab 不可用，重启后需要再次执行 attach）"}`;
 }
 
 export async function removeService(agent: string) {
@@ -78,6 +96,11 @@ export async function removeService(agent: string) {
   if (process.platform === "darwin") {
     const f = path.join(os.homedir(), "Library/LaunchAgents", `dev.soulbridge.${agent}.plist`);
     await sh("launchctl", ["unload", f]); fs.rmSync(f, { force: true }); return;
+  }
+  if (fs.existsSync(path.join(os.homedir(), ".agent-soul", agent, "fallback"))) {
+    const cur = await new Promise<string>((r) => execFile("crontab", ["-l"], (_e, out) => r(String(out ?? ""))));
+    await new Promise<void>((r) => { const p = execFile("crontab", ["-"], () => r()); p.stdin?.end(cur.split("\n").filter((l) => l && !l.includes(`# soul-bridge:${agent}`)).join("\n") + "\n"); });
+    await sh("pkill", ["-f", `run --agent ${agent}`]);
   }
   await sh("systemctl", ["--user", "disable", "--now", unitName(agent)]);
   fs.rmSync(path.join(os.homedir(), ".config/systemd/user", `${unitName(agent)}.service`), { force: true });

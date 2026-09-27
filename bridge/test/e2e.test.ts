@@ -41,10 +41,24 @@ test("OpenClaw 接入同一个 agent：拿到人格与记忆；它新写的记�
   assert.match(bodies, /hermes-pc\.json/); assert.match(bodies, /claw-box\.json/);
 });
 
+test("Hermes 钩子已预先批准：allowlist 中的命令与 config.yaml 中的完全一致；doctor 可自检", () => {
+  const cfg = fs.readFileSync(path.join(hermesHome, "config.yaml"), "utf8");
+  const cmd = cfg.match(/command: "(.+)"/)![1];
+  const allow = JSON.parse(fs.readFileSync(path.join(hermesHome, "shell-hooks-allowlist.json"), "utf8"));
+  for (const ev of ["post_tool_call", "on_session_finalize"]) assert.ok(allow.approvals.some((e: any) => e.event === ev && e.command === cmd), ev);
+  let out = "";
+  try { out = run("m1", "doctor", "--agent", "kaoru"); } catch (e: any) { out = e.stdout.toString(); } // 测试环境没有后台服务，doctor 会报告该项
+  const d = JSON.parse(out);
+  assert.equal(d.agent, "小满");
+  assert.ok(d.checks.find((x: any) => x.name === "仓库访问").ok);
+  assert.ok(d.checks.find((x: any) => x.name === "Hermes 钩子").ok);
+});
+
 test("拔出：钩子移除，框架文件保持原样", () => {
   fs.writeFileSync(path.join(hermesHome, "config.yaml"), fs.existsSync(path.join(hermesHome, "config.yaml")) ? fs.readFileSync(path.join(hermesHome, "config.yaml"), "utf8") : "");
   assert.match(fs.readFileSync(path.join(hermesHome, "config.yaml"), "utf8"), /soul-bridge/);
   run("m1", "detach", "--agent", "kaoru", "--purge");
   assert.doesNotMatch(fs.readFileSync(path.join(hermesHome, "config.yaml"), "utf8"), /soul-bridge/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(hermesHome, "shell-hooks-allowlist.json"), "utf8")).approvals.length, 0);
   assert.ok(fs.existsSync(path.join(hermesHome, "memories", "MEMORY.md")));
 });

@@ -3,12 +3,13 @@
 把 Hermes Agent / OpenClaw 接入 agent 的灵魂仓库：独立、可随时插拔、全自动双向同步。设计与协议见 [../../docs/SOUL_SYNC.md](../../docs/SOUL_SYNC.md)。
 
 - 运行环境：Node.js 22.18+（直接运行 TypeScript 源码，无需构建、无第三方依赖）与 git。
-- 安装方式：把 [技能](../skills/soul-bridge/SKILL.md) 交给框架里的 agent，由它代为执行；用户不需要使用命令行。
-- 测试：`npm test`（引擎单元测试 + 通过真实 CLI 让 Hermes 与 OpenClaw 共享同一个 agent 的端到端测试）。
+- 安装方式：把 [技能](../skills/soul-bridge/SKILL.md) 交给框架里的 agent，由它**自己给自己安装、配置、自检与修复**：自动识别框架、复用或自动创建私有灵魂仓库、自动添加部署密钥、预先批准 Hermes 钩子、没有 systemd 时自动改用 crontab。只有缺少 GitHub 凭据等少数情况才会请人类帮忙一次。
+- 测试：`npm test`（引擎单元测试 + 通过真实 CLI 让 Hermes 与 OpenClaw 共享同一个 agent 的端到端测试 + 钩子预批准与自检）。
 
 | 命令 | 作用 |
 |---|---|
-| `init --framework hermes\|openclaw --repo <地址> [--agent] [--home] [--body] [--name] [--poll 300]` | 接入：生成部署密钥、克隆或初始化仓库、导入现有人格与记忆、安装钩子与后台服务 |
+| `init [--framework] [--repo <owner/name 或 git 地址>] [--agent] [--name] [--home] [--body] [--poll 300]` | 一条命令接入：识别框架 → 生成部署密钥 → 有 gh / `GITHUB_TOKEN` 时创建或确认私有仓库并添加可写部署密钥（不传 `--repo` 时自动创建 `<用户>/<agent>.soul`）→ 克隆 → 导入人格与记忆 → 安装钩子与后台服务 → 首次同步 → 自检。无法访问仓库时以退出码 2 输出 `needHuman` JSON（含公钥与重试命令） |
+| `doctor` | 逐项自检（node、git、框架目录、仓库访问、最近同步、钩子、后台守护），每项附修复建议 |
 | `sync` | 立即同步一次（框架钩子调用） |
 | `run` | 前台守护：监视框架文件（事件驱动）+ 定期拉取远端 |
 | `attach` | 重新安装钩子与服务 |
@@ -22,7 +23,8 @@ src/
 ├── cli.ts                命令行入口
 ├── bridge.ts             一轮同步：拉取 → 双侧基线合并 → 冲突落选版本入历史 → 推送
 ├── engine.ts             双侧基线合并（条目 / 文本 / 文件）
-├── service.ts            守护（watch + 拉取）、systemd 用户服务 / launchd 代理
+├── service.ts            守护（watch + 拉取）、systemd 用户服务 / launchd 代理 / crontab @reboot 兜底
+├── github.ts             创建私有仓库、添加部署密钥（gh CLI 或 GITHUB_TOKEN）
 ├── config.ts             本地配置与基线
 ├── types.ts              Mapping 与 Framework 接口
 └── frameworks/           hermes.ts · openclaw.ts · index.ts（登记）

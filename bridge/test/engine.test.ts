@@ -7,6 +7,13 @@ import { syncMappings, fit } from "../src/engine.ts";
 import { hermes } from "../src/frameworks/hermes.ts";
 import { openclaw, readMarkdownEntries, renderMarkdownEntries } from "../src/frameworks/openclaw.ts";
 import { parseEntries, joinEntries } from "../../runtime/src/memory/entries.ts";
+import { parseGithub, sshUrl } from "../src/github.ts";
+
+test("GitHub 仓库地址解析", () => {
+  for (const s of ["alice/kaoru.soul", "git@github.com:alice/kaoru.soul.git", "https://github.com/alice/kaoru.soul", "https://github.com/alice/kaoru.soul.git"])
+    assert.equal(sshUrl(parseGithub(s)!), "git@github.com:alice/kaoru.soul.git", s);
+  assert.equal(parseGithub("/tmp/x/agent.soul.git"), undefined);
+});
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "bridge-"));
 const w = (f: string, s: string) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, s); };

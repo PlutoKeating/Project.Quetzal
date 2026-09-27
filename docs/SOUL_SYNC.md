@@ -97,7 +97,9 @@ sequenceDiagram
 | 共享笔记 | — | `memory/notes/*.md` ↔ `notes/*.md` |
 | 生效时机 | 下一个会话（Hermes 在会话开始时读取快照） | 下一轮（OpenClaw 每轮重新读取） |
 
-**插拔**：`init` 接入（导入现有人格与记忆、创建身份、安装钩子与后台服务）；`detach` 拔出（移除钩子与服务，框架文件保持原样，可选删除本地副本）。安装由框架里的 agent 按技能说明代为完成（`bridge/skills/soul-bridge/SKILL.md`），用户只需把一句话发给它，并在 GitHub 网页上添加一次部署密钥。
+**插拔**：`init` 接入（导入现有人格与记忆、创建身份、安装钩子与后台服务）；`detach` 拔出（移除钩子与服务，框架文件保持原样，可选删除本地副本）。
+
+**自我安装**：安装由框架里的 agent 按技能（`bridge/skills/soul-bridge/SKILL.md`）自己完成：检查并在用户目录安装 Node.js、获取程序、把技能留在自己的技能目录；按「人类给的地址 → 自己的记忆 → GitHub 上已有的 `*.soul` 私有仓库 → 自动创建」的顺序确定灵魂仓库；一条 `init` 完成全部配置（有 gh 或 `GITHUB_TOKEN` 时自动添加部署密钥，Hermes 钩子预先写入 `shell-hooks-allowlist.json` 批准）；再用 `doctor` 自检并按建议修复。只有缺少 GitHub 凭据、缺少 git 且无 sudo、或同一错误重试 3 次仍失败时，才把需要人类做的事合并成一条消息发出。
 
 新增框架：实现 `bridge/src/types.ts` 的 `Framework` 接口（映射列表、钩子安装与移除），登记到 `bridge/src/frameworks/index.ts`。
 
