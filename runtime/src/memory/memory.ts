@@ -73,7 +73,7 @@ export function readJournal(bodyName: string, day: string): string { return read
 export function listJournal(): { body: string; day: string; mtime: number }[] {
   const root = p("journal");
   if (!fs.existsSync(root)) return [];
-  return fs.readdirSync(root).flatMap((b) =>
+  return fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).flatMap((b) => // 跳过 .gitkeep 等文件
     fs.readdirSync(path.join(root, b)).filter((f) => f.endsWith(".md")).map((f) => ({ body: b, day: f.slice(0, -3), mtime: fs.statSync(path.join(root, b, f)).mtimeMs })))
     .sort((a, b) => b.day.localeCompare(a.day) || a.body.localeCompare(b.body));
 }

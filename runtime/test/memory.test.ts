@@ -27,7 +27,9 @@ test("条目级三方合并：双方新增都保留，任一方删除即删除",
   assert.deepEqual(mem.parseEntries(mergeEntries(base, ours, theirs)), ["A", "C", "D", "E"]);
 });
 
-test("日记与检索", () => {
+test("日记与检索（规范目录中的 .gitkeep 不影响列举）", () => {
+  fs.mkdirSync(path.join(process.env.AMANI_HOME!, "soul", "journal"), { recursive: true });
+  fs.writeFileSync(path.join(process.env.AMANI_HOME!, "soul", "journal", ".gitkeep"), "");
   mem.writeJournal("看星星", "今晚猎户座很亮");
   mem.saveNote("天文", "猎户座在冬季最明显");
   assert.match(mem.search("猎户座"), /笔记\/天文/);
