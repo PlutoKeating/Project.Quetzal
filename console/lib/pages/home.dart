@@ -1,5 +1,4 @@
-// 此刻：她现在怎么样。光团 + 一句话 + 戳一下 / 聊天（首屏）+ 驱动力 + 身体。
-import 'dart:async';
+// 此刻：她现在怎么样。光团 + 状态 + 她想分享的一句话 + 戳一下 / 聊天（首屏）+ 驱动力 + 身体。
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets.dart';
@@ -15,13 +14,22 @@ class HomePage extends ApiWidget {
     final mode = api.stopped ? 'stopped' : (h['mode'] ?? 'awake') as String;
     final label = {'stopped': '急停中', 'asleep': '睡着了', 'active': '醒着，在想事情', 'awake': '醒着'}[mode]!;
     final inhibitors = (h['inhibitors'] as List?)?.cast<String>() ?? [];
+    final thought = api.status['thought'] as Map?;
     return RefreshIndicator(
       onRefresh: api.refresh,
       child: ListView(padding: const EdgeInsets.only(bottom: 90), children: [
         const SizedBox(height: 8),
         Center(child: Orb(mode: mode, alertness: ((h['alertness'] ?? 0.5) as num).toDouble())),
         Text(label, textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
-        _LastThought(),
+        if (thought != null && '${thought['text'] ?? ''}'.isNotEmpty) // 她想分享的一句话，由她自己维护（share_thought）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 8, 28, 4),
+            child: InkWell( // 最多 3 行，保证按钮留在首屏；点击看全文
+              onTap: () => showDialog(context: context, builder: (x) => AlertDialog(content: SelectableText('${thought['text']}'), actions: [TextButton(onPressed: () => Navigator.pop(x), child: const Text('好'))])),
+              child: Text('「${thought['text']}」', textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontStyle: FontStyle.italic)),
+            ),
+          ),
         if (inhibitors.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text('抑制：${inhibitors.join('、')}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.orange))),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 4), // 首屏可达：放在「内在」卡片上方
@@ -65,38 +73,4 @@ class HomePage extends ApiWidget {
     ));
     if (ok == true && context.mounted) await act(context, () => api.call('poke', {'note': c.text}), ok: '她感觉到了。要不要回应，由她自己决定。');
   }
-}
-
-class _LastThought extends StatefulWidget {
-  @override
-  State<_LastThought> createState() => _LastThoughtState();
-}
-
-class _LastThoughtState extends State<_LastThought> {
-  String text = '';
-  StreamSubscription? sub;
-  bool online = false;
-  @override
-  void initState() {
-    super.initState();
-    _load();
-    sub = api.events.where((e) => e.name == 'timeline').listen((e) { if (mounted) setState(() => text = '${(e.data as Map)['title']}'); });
-    api.addListener(_onConn);
-  }
-  // 冷启动时连接可能还没建立，首次加载会失败：每次连上（包括断线重连）后重新加载
-  void _onConn() {
-    final now = api.conn == Conn.online;
-    if (now && !online) _load();
-    online = now;
-  }
-  @override
-  void dispose() { sub?.cancel(); api.removeListener(_onConn); super.dispose(); }
-  Future<void> _load() async {
-    try { final l = await api.call<List>('timeline', {'limit': 1}); if (l.isNotEmpty && mounted) setState(() => text = '${l.first['title']} · ${hm(l.first['ts'])}'); } catch (_) {}
-  }
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
-        child: Text(text.isEmpty ? '' : '「$text」', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontStyle: FontStyle.italic)),
-      );
 }

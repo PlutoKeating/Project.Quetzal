@@ -22,6 +22,7 @@ export const status = () => ({
   stopped: heart.stopped(), paused: config.heart.paused, activity: config.heart.activity,
   usage: usageToday(), budget: config.budget, approvals: guard.approvals(), soul: soul.syncStatus(),
   models: routes().map((r) => `${r.provider.name}/${r.model.name}`),
+  thought: mem.thought(), // 她想分享的一句话（首页展示）
 });
 
 export const ops = {

@@ -208,3 +208,15 @@ export interface OpenLoop { id: string; text: string; ts: number }
 export const openLoops = (): OpenLoop[] => kv.get("openLoops", []);
 export function addLoop(text: string) { const l = openLoops(); l.push({ id: Math.random().toString(36).slice(2, 8), text, ts: Date.now() }); kv.set("openLoops", l); return l.length; }
 export function closeLoop(id: string) { const l = openLoops().filter((x) => x.id !== id); kv.set("openLoops", l); return l.length; }
+
+// ---------- 想分享的一句话：她此刻正在想、并且乐于和对方分享的一句话或一个议题（控制台首页与飞书「此刻」卡片持续展示）
+import { bus } from "../bus.ts";
+export interface Thought { text: string; ts: number }
+export const thought = (): Thought | null => kv.get<Thought | null>("thought", null);
+export function setThought(text: string): string {
+  const t = text.trim().replace(/\s+/g, " ").slice(0, 120);
+  if (!t) return "内容为空，没有更新";
+  kv.set("thought", { text: t, ts: Date.now() });
+  bus.emit("state");
+  return `已更新，对方的首页会显示：「${t}」`;
+}

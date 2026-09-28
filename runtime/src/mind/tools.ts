@@ -92,6 +92,12 @@ const core: Tool[] = [
     handler: async (a) => { const r = await shell(a.command); return `exit ${r.code}\n${(r.out + r.err).slice(0, 8000)}`; },
   },
   {
+    name: "share_thought", permission: "memory",
+    description: "更新「想分享的一句话」：你此刻正在想、并且愿意和对方分享的一句话或一个议题。它会一直显示在对方控制台的首页和飞书「此刻」卡片上，直到你下次更新。用你自己的口吻写一句话，最好不超过 50 字（最多 120 字），细节留到聊天里说；想法变了就随时换。",
+    parameters: obj({ text: str("一句话或一个议题") }, ["text"]),
+    handler: async (a) => mem.setThought(a.text),
+  },
+  {
     name: "send_message", permission: "message", description: "主动给和你一起生活的人发一条消息（飞书、通知等所有已连接的渠道）。",
     parameters: obj({ text: str("消息内容") }, ["text"]),
     handler: async (a) => { bus.emit("say", a.text); return "已发送"; },

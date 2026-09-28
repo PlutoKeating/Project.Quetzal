@@ -36,3 +36,12 @@ test("日记与检索（规范目录中的 .gitkeep 不影响列举）", () => {
   mem.saveNote("天文", "猎户座在冬季最明显");
   assert.match(mem.search("猎户座"), /笔记\/天文/);
 });
+
+test("想分享的一句话：写入、规范化空白、空内容不覆盖", async () => {
+  (await import("../src/store.ts")).openStore();
+  assert.equal(mem.thought(), null);
+  assert.match(mem.setThought("  最近在想：\n记忆 是不是 一种 地图？ "), /已更新/);
+  assert.equal(mem.thought()!.text, "最近在想： 记忆 是不是 一种 地图？");
+  assert.match(mem.setThought("   "), /内容为空/);
+  assert.equal(mem.thought()!.text, "最近在想： 记忆 是不是 一种 地图？");
+});

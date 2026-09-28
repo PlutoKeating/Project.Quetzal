@@ -50,7 +50,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
-| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models}` |
+| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought}`；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
 | `timeline` | `{limit?, before?, kind?}` | 时间线（倒序） |
 | `messages` | `{limit?}` | 对话记录（正序） |
 | `audit` | `{limit?}` | 审计记录 |

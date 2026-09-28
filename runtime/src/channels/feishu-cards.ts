@@ -42,9 +42,9 @@ export const views: Record<string, () => object> = {
     const s = ops.status(), h = s.heart, d = h.drives;
     const mode = s.stopped ? "⛔ 急停中" : h.mode === "active" ? "💭 醒着，正在想事情" : h.mode === "awake" ? "🌤 醒着" : "🌙 睡着了";
     const bat = s.physical.raw.battery;
-    const last = ops.timeline({ limit: 1 })[0];
+    const t = s.thought;
     return card(`${who()} · 此刻`, s.stopped ? "red" : h.mode === "asleep" ? "indigo" : "blue", [
-      md(`## ${mode}\n${last ? `最近：${last.title}（${time(last.ts)}）` : ""}`),
+      md(`## ${mode}\n${t ? `💬 「${t.text}」` : ""}`),
       md(`好奇 ${bar(d.curiosity)} ${pct(d.curiosity)}\n表达 ${bar(d.expression)} ${pct(d.expression)}\n想念 ${bar(d.social)} ${pct(d.social)}\n牵挂 ${bar(d.openLoops)} ${pct(d.openLoops)}`),
       md(`清醒度 ${pct(h.alertness)} · 睡眠压力 ${pct(h.S)} · 醒来率 ${h.ratePerHour.toFixed(2)} 次/时${h.inhibitors.length ? `\n抑制：${h.inhibitors.join("、")}` : ""}`),
       md(`身体：${bat ? `🔋${bat.level}%${bat.charging ? "⚡" : ""} 🌡${bat.tempC ?? "?"}°C · ` : ""}${s.physical.feel.light} · ${s.physical.feel.stillness}`),

@@ -35,6 +35,7 @@ export function systemPrompt(context = ""): string {
     mem.renderMemory("user", context),
     `## 记忆目录（笔记）\n笔记按目录树存放，下面是索引；用 note_read 读全文、note_list 浏览某个分支、recall 检索。\n${mem.noteTree()}`,
     ...(context.trim() ? [`## 可能相关的记忆（自动检索，仅供参考）\n${recallBlock(context) || "（没有检索到相关的笔记或日记）"}`] : []),
+    `## 想分享的一句话\n${(() => { const t = mem.thought(); return t ? `对方的首页正显示着你之前写下的：「${t.text}」（${new Date(t.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}）。想法变了就用 share_thought 更新。` : "你还没有写下想分享的话。它会一直显示在对方的首页上——当你有正在想、愿意和对方分享的一句话或议题时，用 share_thought 写下来（一句话，最好不超过 50 字）。"; })()}`,
     `## 身体\n${describeBody()}`,
     `## 内在状态
 清醒度 ${h.alertness.toFixed(2)}，睡眠压力 ${h.S.toFixed(2)}，昼夜节律 ${h.C.toFixed(2)}

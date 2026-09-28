@@ -26,6 +26,7 @@ const FINISH: ToolDef = {
       title: { type: "string", description: "一句话标题" },
       journal: { type: "string", description: "日记正文：做了什么、想到了什么、感受如何" },
       feeling: { type: "string", description: "此刻的心情" },
+      thought: { type: "string", description: "可选：想分享的一句话——此刻在想、愿意和对方分享的一句话或议题，会显示在对方的首页（不填则保持原样）" },
       curiosity: { type: "number" }, expression: { type: "number" }, social: { type: "number" },
     },
   },
@@ -121,6 +122,7 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
   catch (e: any) { s.emit({ kind: "error", message: e.message }); if (kind === "dream") await soul.releaseLease().catch(() => {}); throw e; }
   finally { s.close(); }
   const f = r.finish ?? { title: kind === "dream" ? "一个模糊的梦" : "醒来了一会儿", journal: r.text || "（没有留下文字）" };
+  if (typeof f.thought === "string" && f.thought.trim()) mem.setThought(f.thought);
   mem.writeJournal(`${kind === "dream" ? "梦 · " : ""}${f.title}`, `${f.journal}${f.feeling ? `\n\n心情：${f.feeling}` : ""}`);
   addTimeline(kind, f.title, { reason, intent: gate.intent, journal: f.journal, feeling: f.feeling, steps: r.steps, tokens: r.tokens, model: r.model });
   if (kind === "dream") await soul.releaseLease(); else addExperience(1);
