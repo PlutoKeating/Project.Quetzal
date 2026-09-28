@@ -64,12 +64,9 @@ export function loadConfig(): Config {
   for (const p of Object.values(paths)) if (p !== paths.stop) fs.mkdirSync(p, { recursive: true });
   fs.chmodSync(paths.secrets, 0o700);
   const read = (f: string) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return {}; } };
-  // 项目曾名 Amani：旧配置 amani.json 优先合并进新配置（部署者可能已预先写入 windler.json 的少量字段），然后移除
-  const legacy = path.join(paths.config, "amani.json");
-  config = merge(merge(defaults, read(file())), fs.existsSync(legacy) ? read(legacy) : {});
+  config = merge(defaults, read(file()));
   if (!config.feishu.bindCode) config.feishu.bindCode = Math.random().toString(36).slice(2, 8);
   saveConfig();
-  fs.rmSync(legacy, { force: true });
   return config;
 }
 

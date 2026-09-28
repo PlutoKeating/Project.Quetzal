@@ -60,12 +60,6 @@ state/starts.json        启动记录（熔断用）
 STOP                     急停标志：存在即冻结一切行动
 ```
 
-项目曾名 Amani。从旧版本升级时：
-
-- 家目录由部署者迁移（把 `~/amani` 改名为 `~/windler`，或者用 `WINDLER_HOME` 指向旧目录）。
-- 启动时，旧的 `config/amani.json`、`data/amani.db` 会自动改名沿用。
-- 旧记录中的角色和审计者标记 `amani` 会统一为 `agent`。
-
 ## 3. 心脏：什么时候醒来
 
 ### 3.1 内驱力与生物钟

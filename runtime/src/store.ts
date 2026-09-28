@@ -1,6 +1,5 @@
 // SQLite 存储：时间线、对话、审计、笔记（FTS5）、通用键值。使用 Node 内置 node:sqlite，无原生依赖。
 import { DatabaseSync } from "node:sqlite";
-import fs from "node:fs";
 import path from "node:path";
 import { paths } from "./config.ts";
 import { bus, type TimelineEntry } from "./bus.ts";
@@ -9,9 +8,6 @@ export let db: DatabaseSync;
 
 export function openStore() {
   const f = path.join(paths.data, "windler.db");
-  // 项目曾名 Amani：沿用旧数据库文件，并把旧的 agent 角色 / 审计者标记 "amani" 统一为 "agent"
-  if (!fs.existsSync(f) && fs.existsSync(path.join(paths.data, "amani.db")))
-    for (const x of ["", "-wal", "-shm"]) if (fs.existsSync(path.join(paths.data, "amani.db" + x))) fs.renameSync(path.join(paths.data, "amani.db" + x), f + x);
   db = new DatabaseSync(f);
   db.exec(`
     PRAGMA journal_mode=WAL;
@@ -21,7 +17,6 @@ export function openStore() {
     CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, ts INTEGER, actor TEXT, action TEXT, reason TEXT, args TEXT, result TEXT);
     CREATE TABLE IF NOT EXISTS usage(day TEXT, model TEXT, input INTEGER, output INTEGER, cost REAL, PRIMARY KEY(day, model));
   `);
-  db.exec(`UPDATE messages SET role='agent' WHERE role='amani'; UPDATE audit SET actor='agent' WHERE actor='amani';`);
 }
 
 export const kv = {
