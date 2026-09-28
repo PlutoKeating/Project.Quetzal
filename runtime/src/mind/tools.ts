@@ -23,24 +23,39 @@ function htmlToText(html: string) {
 const core: Tool[] = [
   {
     name: "memory", permission: "memory",
-    description: "管理常驻记忆（每次醒来都会看到）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限：值得记住的就记下，条目清晰即可。",
+    description: "管理常驻记忆（每次醒来都会看到）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限，但每次只展开与当前话题相关、较新的条目：这里放最核心、最常用的认识；细节和长内容用 note_save 放进笔记目录。",
     parameters: obj({ action: { type: "string", enum: ["add", "replace", "remove"] }, target: { type: "string", enum: ["memory", "user"] }, content: str("新的完整条目"), old_text: str("用于定位旧条目的唯一子串") }, ["action", "target"]),
     handler: async (a) => mem.editMemory(a.target, a.action, a.content, a.old_text),
   },
   {
     name: "note_save", permission: "memory",
-    description: "保存或追加一篇长期笔记（语义记忆，所有身体共享）。适合沉淀知识、想法、长期关注的主题。",
-    parameters: obj({ title: str("主题"), body: str("正文（Markdown）"), append: { type: "boolean", description: "追加到已有笔记" } }, ["title", "body"]),
-    handler: async (a) => mem.saveNote(a.title, a.body, !!a.append),
+    description: "保存或追加一篇长期笔记（语义记忆，所有身体共享，数量不限）。笔记按目录树存放：title 用「分类/子分类/主题」表示位置（最多 4 层），例如「身体/honor9/硬件」。写一句话 summary，它会出现在记忆目录里，帮你以后找到它。",
+    parameters: obj({ title: str("「分类/…/主题」"), body: str("正文（Markdown）"), summary: str("一句话摘要"), append: { type: "boolean", description: "追加到已有笔记" } }, ["title", "body"]),
+    handler: async (a) => mem.saveNote(a.title, a.body, !!a.append, a.summary ?? ""),
   },
   {
-    name: "note_read", permission: "memory", description: "读取一篇笔记；不给 name 时列出全部笔记。",
-    parameters: obj({ name: str("笔记名") }),
-    handler: async (a) => a.name ? mem.readNote(a.name) || "没有这篇笔记" : mem.listNotes().map((n) => n.name).join("\n") || "还没有笔记",
+    name: "note_read", permission: "memory", description: "读取一篇笔记的全文（name 为记忆目录里方括号中的路径）。",
+    parameters: obj({ name: str("笔记路径，如 身体/honor9/硬件") }, ["name"]),
+    handler: async (a) => mem.readNote(a.name) || `没有这篇笔记：${a.name}`,
   },
   {
-    name: "recall", permission: "memory", description: "在笔记和日记（包括其他身体的日记）里检索相关记忆。",
-    parameters: obj({ query: str("关键词，空格分隔") }, ["query"]),
+    name: "note_list", permission: "memory", description: "浏览笔记目录树：不给 dir 看全部，给 dir 只看该分支（每篇附一句话摘要）。",
+    parameters: obj({ dir: str("分支，如 身体/honor9") }),
+    handler: async (a) => mem.noteTree(a.dir ?? "", 8000),
+  },
+  {
+    name: "note_move", permission: "memory", description: "移动或改名笔记，用来整理目录树（归类、合并前的调整）。",
+    parameters: obj({ from: str("原路径"), to: str("新路径，如 人/PK/喜好") }, ["from", "to"]),
+    handler: async (a) => mem.moveNote(a.from, a.to),
+  },
+  {
+    name: "note_delete", permission: "memory", description: "删除一篇笔记（例如已合并进别的笔记）。灵魂仓库的历史里仍可找回。",
+    parameters: obj({ name: str("笔记路径") }, ["name"]),
+    handler: async (a) => mem.deleteNote(a.name),
+  },
+  {
+    name: "recall", permission: "memory", description: "检索全部记忆：笔记目录树、所有日记（包括其他身体的）、常驻记忆里没展开的条目。按相关度排序，中文直接写一句话或几个词即可。",
+    parameters: obj({ query: str("想找什么") }, ["query"]),
     handler: async (a) => mem.search(a.query),
   },
   {

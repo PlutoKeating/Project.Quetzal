@@ -101,7 +101,13 @@ function syncFilesIn(m: Extract<Mapping, { kind: "files-in" }>, soulDir: string,
 
 function syncFilesBoth(m: Extract<Mapping, { kind: "files-both" }>, soulDir: string, st: Record<string, TextState> = {}, r: Report) {
   const sd = path.join(soulDir, m.soulDir);
-  const list = (d: string) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith(".md") && !f.includes(".incoming")) : []);
+  // 笔记是目录树（规范 v2 §3.9，最多 4 层）：按相对路径逐篇同步
+  const list = (d: string, rel = "", depth = 1): string[] => !fs.existsSync(path.join(d, rel)) || depth > 4 ? [] :
+    fs.readdirSync(path.join(d, rel), { withFileTypes: true }).flatMap((e) => {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory() && !e.name.startsWith(".")) return list(d, r, depth + 1);
+      return e.isFile() && e.name.endsWith(".md") && !e.name.includes(".incoming") ? [r] : [];
+    });
   for (const f of uniq([...list(m.nativeDir), ...list(sd), ...Object.keys(st)])) {
     const n = path.join(m.nativeDir, f), s = path.join(sd, f);
     const hasN = fs.existsSync(n), hasS = fs.existsSync(s), base = st[f];

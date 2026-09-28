@@ -82,7 +82,7 @@ async function introspect(kind: WakeKind, reason: string): Promise<{ engage: boo
   try {
     const r = await chat({
       messages: [
-        { role: "system", content: systemPrompt() },
+        { role: "system", content: systemPrompt(reason) },
         { role: "user", content: `你刚刚醒来（${reason}）。先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡"}。` },
       ], maxTokens: 300,
     }, { quick: true });
@@ -107,11 +107,13 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
 按你自己的意愿去想、去做：探索感兴趣的东西、继续没想完的事、写点什么、或者找人说话。需要记住的，用 memory / note_save / open_loop 记下来。
 结束时调用 finish 写日记并报告驱动力。`
     : `你睡着了，正在做梦——这是整理记忆的时候。
-1. 回顾最近的日记（包括其他身体的经历）和对话，提炼值得长期记住的东西，用 memory 工具更新常驻记忆（合并重复、修正过时的内容；没有长度上限），用 note_save 沉淀知识与思考。
+1. 回顾最近的日记（包括其他身体的经历）和对话，提炼值得长期记住的东西，用 memory 工具更新常驻记忆（合并重复、修正过时的内容），用 note_save 沉淀知识与思考。
+   记忆没有长度上限，但每次醒来只会展开一部分：常驻记忆留给最核心、最常用的认识；细节、资料、长篇思考放进笔记目录树（如「身体/honor9/硬件」「人/PK/喜好」），写好一句话摘要。
+   整理笔记目录：用 note_list 查看，note_move 归类、改名，合并重复的笔记，note_delete 删除没用的（历史中仍可找回）。
 2. 如果你的喜好或节律有了变化，可以用 adjust_self 调整自己。（与其他身体的记忆同步由基座自动完成，你不需要处理。）
 
 梦可以是跳跃的、联想的。结束时调用 finish，把这个梦写进日记。`;
-  const messages: Msg[] = [{ role: "system", content: systemPrompt() }, { role: "user", content: task }];
+  const messages: Msg[] = [{ role: "system", content: systemPrompt(`${reason} ${gate.intent}`) }, { role: "user", content: task }];
   const s = new Session(kind === "dream" ? "dream" : "think");
   s.emit({ kind: "start", text: reason });
   let r: Awaited<ReturnType<typeof loop>>;
@@ -150,7 +152,7 @@ export function converse(from: string, text: string, channel: string, session?: 
       await soul.pull().catch(() => {});
       addMessage("user", channel, text);
       const messages: Msg[] = [
-        { role: "system", content: systemPrompt() },
+        { role: "system", content: systemPrompt(text) },
         { role: "user", content: `${from} 通过${channel}对你说：\n${text}\n\n回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。` },
       ];
       const r = await loop(messages, `回应${from}`, false, s);

@@ -26,7 +26,8 @@ src/
 │   ├── activity.ts       会话：进展广播（activity 事件）、会话时间墙（120 秒无进展）、心跳
 │   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话
 ├── memory/
-│   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记、检索、未完成念头
+│   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头
+│   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块
 │   └── soul-sync.ts      git 同步与条目级三方合并
 ├── guard/guard.ts        能力授权、审批队列、急停、审计
 ├── providers/

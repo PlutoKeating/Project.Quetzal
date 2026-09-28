@@ -123,7 +123,7 @@ class _NotesState extends State<_Notes> {
         child: ListView(children: [
           if (notes.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('还没有笔记', textAlign: TextAlign.center)),
           for (final n in notes)
-            ListTile(leading: const Icon(Icons.sticky_note_2), title: Text('${n['name']}'), subtitle: Text(hm(n['mtime'])), onTap: () => _open(context, '${n['name']}', () => api.call<String>('note', {'name': n['name']}))),
+            ListTile(leading: const Icon(Icons.sticky_note_2), title: Text('${n['name']}'), subtitle: Text([if ('${n['summary'] ?? ''}'.isNotEmpty) '${n['summary']}', hm(n['mtime'])].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis), onTap: () => _open(context, '${n['name']}', () => api.call<String>('note', {'name': n['name']}))),
         ]),
       );
 }

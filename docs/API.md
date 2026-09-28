@@ -86,7 +86,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `editMemory` | `{target: memory｜user, action: add｜replace｜remove, content?, oldText?}` |
 | `setSoul` | `{text}` |
 | `journalList` / `journal` | — / `{body, day}` |
-| `notes` / `note` / `search` | — / `{name}` / `{query}` |
+| `notes` / `note` / `search` | — → `[{name, title, summary, mtime, size}]`（`name` 为目录树中的相对路径，如 `身体/honor9/硬件`）/ `{name}` / `{query}`（按相关度检索笔记、日记与常驻记忆） |
 | `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | 灵魂仓库地址（只接受 SSH 地址，见规范 §7）、本机部署公钥、立即同步 |
 | `agent` / `setAgent` | — / `{displayName?, name?, pronouns?, description?, color?, language?}`（写入 agent.json 并同步） |
 | `bodies` | — → 灵魂仓库中登记的身体 |

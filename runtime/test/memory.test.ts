@@ -19,7 +19,7 @@ test("记忆条目：add / replace / remove（与 Hermes 语义一致）", () =>
   assert.match(mem.editMemory("memory", "remove", "", "下雨"), /已删除/);
   assert.match(mem.editMemory("user", "add", "x".repeat(50_000)), /已添加/); // 没有长度上限
   assert.equal(mem.entries("user")[0].length, 50_000);
-  assert.match(mem.renderMemory("user"), /\[50000 字符\]/);
+  assert.match(mem.renderMemory("user"), /另有 1 条未展开，全部共 50003 字/); // 存储不限长，上下文有预算
 });
 
 test("条目级三方合并：双方新增都保留，任一方删除即删除", () => {

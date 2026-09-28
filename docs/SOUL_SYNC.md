@@ -16,7 +16,7 @@
 │   ├── MEMORY.md                   她自己的常驻笔记（条目以「\n§\n」分隔；运行基座不限长度，写回 Hermes 时按其上限截取）
 │   └── USER.md                     关于用户的认识（同上）
 ├── journal/<身体>/<日期>.md        情节记忆：每具身体只写自己的目录
-├── notes/<主题>.md                 语义记忆：共享的长期笔记
+├── notes/<分类>/…/<主题>.md         语义记忆：共享的长期笔记（目录树，最多 4 层）
 ├── bodies/<身体>.json              身体登记：类型（runtime / bridge）、框架、版本、最近同步时间
 └── locks/consolidation.json        整理记忆的租约（做梦时）
 ```
@@ -93,10 +93,10 @@ sequenceDiagram
 | 映射 | Hermes | OpenClaw |
 |---|---|---|
 | 人格 | `SOUL.md` ↔ `SOUL.md` | `SOUL.md` ↔ `SOUL.md` |
-| 常驻笔记 | `memories/MEMORY.md`（§，上限取 `memory_char_limit`） | `MEMORY.md`（自由 Markdown，写回为列表；agent 新写的段落被吸收为条目） |
+| 常驻笔记 | `memories/MEMORY.md`（§，仓库中不限长；写回 Hermes 时按 `memory_char_limit` 截取，截取不写回仓库） | `MEMORY.md`（自由 Markdown，写回为列表；agent 新写的段落被吸收为条目） |
 | 关于用户 | `memories/USER.md`（§，上限取 `user_char_limit`） | `USER.md`（同上，上限 4000） |
 | 日记 | —（Hermes 没有日记文件） | `memory/YYYY-MM-DD*.md` → `journal/<身体>/`；其他身体 → `memory/bodies/<身体>/`（可被 memory_search 检索） |
-| 共享笔记 | — | `memory/notes/*.md` ↔ `notes/*.md` |
+| 共享笔记 | — | `memory/notes/**.md` ↔ `notes/**.md`（按目录树逐篇双向） |
 | 生效时机 | 下一个会话（Hermes 在会话开始时读取快照） | 下一轮（OpenClaw 每轮重新读取） |
 
 **插拔**：`init` 接入（导入现有人格与记忆、创建身份、安装钩子与后台服务）；`detach` 拔出（移除钩子与服务，框架文件保持原样，可选删除本地副本）。
