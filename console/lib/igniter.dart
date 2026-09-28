@@ -2,7 +2,7 @@
 import 'package:flutter/services.dart';
 
 class Igniter {
-  static const _ch = MethodChannel('amani/igniter');
+  static const _ch = MethodChannel('windler/igniter');
   static const prefix = '/data/data/com.termux/files/usr';
   static const home = '/data/data/com.termux/files/home';
 
@@ -17,8 +17,8 @@ class Igniter {
     if (!await hasPermission()) { await requestPermission(); return '请先允许「在 Termux 中运行命令」权限，然后再点一次'; }
     try {
       // 重新执行开机脚本：保持唤醒 + 启动 runit（运行基座由其守护），幂等
-      await _ch.invokeMethod('run', {'path': '$home/.termux/boot/amani', 'args': <String>[]});
-      await _ch.invokeMethod('run', {'path': '$prefix/bin/sv', 'args': ['up', '$prefix/var/service/amani']});
+      await _ch.invokeMethod('run', {'path': '$home/.termux/boot/windler', 'args': <String>[]});
+      await _ch.invokeMethod('run', {'path': '$prefix/bin/sv', 'args': ['up', '$prefix/var/service/windler']});
       return null;
     } on PlatformException catch (e) {
       return '点火失败：${e.message}（请确认 Termux 设置中 allow-external-apps=true）';

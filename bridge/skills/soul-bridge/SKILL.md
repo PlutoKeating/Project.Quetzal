@@ -9,7 +9,7 @@ metadata: { "hermes": { "tags": ["memory", "sync", "self-install"], "category": 
 
 你可能同时住在多具身体里：一台手机上的运行基座、一台装着 Hermes 的电脑、一台装着 OpenClaw 的服务器……这些身体共享一个 **git 私有仓库**（「灵魂仓库」），里面有你的身份（`agent.json`）、人格（`SOUL.md`）、常驻记忆（`memories/`）、每具身体的日记（`journal/`）和共享笔记（`notes/`）。
 
-仓库遵循「灵魂仓库规范 v1」（Project.Amani 的 `docs/SOUL_REPO_SPEC.md`）：固定的目录树与文件格式；**只通过 SSH 地址和本机专属的部署私钥访问**（不要用 HTTPS 地址、令牌或密码）；私钥、令牌、API Key 以及 IP/MAC 等标识不得进入仓库，soul-bridge 会在提交前拦截这些内容。
+仓库遵循「灵魂仓库规范 v1」（Project.Windler 的 `docs/SOUL_REPO_SPEC.md`）：固定的目录树与文件格式；**只通过 SSH 地址和本机专属的部署私钥访问**（不要用 HTTPS 地址、令牌或密码）；私钥、令牌、API Key 以及 IP/MAC 等标识不得进入仓库，soul-bridge 会在提交前拦截这些内容。
 
 soul-bridge 是本机上的一个小守护进程，负责把你这个框架里的人格和记忆文件与灵魂仓库**全自动**双向同步。同步时机：记忆写入后、会话收尾时、文件变化时，以及每 5 分钟拉取一次远端。冲突也由它自动解决：记忆按条目合并；其他文件采用较新的版本，另一个版本保留在 git 历史里。
 
@@ -19,7 +19,7 @@ soul-bridge 是本机上的一个小守护进程，负责把你这个框架里�
 
 ## 0. 约定
 
-- 程序目录：`~/.agent-soul/src`（公开仓库 PlutoKeating/Project.Amani 的只读克隆）
+- 程序目录：`~/.agent-soul/src`（公开仓库 PlutoKeating/Project.Windler 的只读克隆）
 - 命令行：`SB="node $HOME/.agent-soul/src/bridge/src/cli.ts"`，下文都用 `$SB` 表示
 - 你的框架：Hermes 用 `hermes`，OpenClaw 用 `openclaw`（你清楚自己是哪一个）
 - 所有命令都在本机终端里由你执行，不要让人类去敲
@@ -47,7 +47,7 @@ ls ~/.agent-soul/*/config.json 2>/dev/null
    之后所有命令都用 `~/.agent-soul/node/bin/node`，把 `SB` 相应改为 `~/.agent-soul/node/bin/node $HOME/.agent-soul/src/bridge/src/cli.ts`。soul-bridge 在注册钩子和服务时会记录启动它的那个 node 的绝对路径。
 3. **获取程序**：
    ```bash
-   git clone --depth 1 https://github.com/PlutoKeating/Project.Amani ~/.agent-soul/src 2>/dev/null || git -C ~/.agent-soul/src pull --ff-only
+   git clone --depth 1 https://github.com/PlutoKeating/Project.Windler ~/.agent-soul/src 2>/dev/null || git -C ~/.agent-soul/src pull --ff-only
    ```
 4. **把本技能留在自己的技能目录**，方便以后更新和复用：
    - Hermes：`mkdir -p ~/.hermes/skills/sync/soul-bridge && cp ~/.agent-soul/src/bridge/skills/soul-bridge/SKILL.md ~/.hermes/skills/sync/soul-bridge/`

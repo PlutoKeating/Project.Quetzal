@@ -9,16 +9,16 @@ cd runtime
 npm ci
 npm test          # 单元测试
 npm run build     # 生成 dist/main.cjs（单文件，已内置依赖）
-AMANI_HOME=~/amani node --enable-source-maps dist/main.cjs
+WINDLER_HOME=~/windler node --enable-source-maps dist/main.cjs
 ```
 
 生产环境请交给进程守护者（runit、systemd……），退出即重启。示例（systemd 用户服务）：
 
 ```ini
 [Service]
-Environment=AMANI_HOME=%h/amani
-Environment=AMANI_ADAPTER=/path/to/your-adapter.mjs
-ExecStart=/usr/bin/node --enable-source-maps /opt/amani/main.cjs
+Environment=WINDLER_HOME=%h/windler
+Environment=WINDLER_ADAPTER=/path/to/your-adapter.mjs
+ExecStart=/usr/bin/node --enable-source-maps /opt/windler/main.cjs
 Restart=always
 ```
 
@@ -26,8 +26,8 @@ Android 手机上的完整部署（Termux + runit + 身体适配器 + 一键发�
 
 ## 2. 之后的一切都在控制台里完成（使用者）
 
-1. **安装控制台**：`console/` 用 `flutter build apk` 构建后安装到与 Amani 同一台设备。
-2. **配对**：打开 App → 找到运行中的 Amani（找不到时点「点火」）→「申请配对码」→ 在系统通知里看到 6 位配对码 → 填入完成配对。
+1. **安装控制台**：`console/` 用 `flutter build apk` 构建后安装到与 Windler 同一台设备。
+2. **配对**：打开 App → 找到运行中的 Windler（找不到时点「点火」）→「申请配对码」→ 在系统通知里看到 6 位配对码 → 填入完成配对。
 3. **配置模型**：控制 → 模型 → 添加供应商（从目录选择或自定义）→ 添加 Key → 勾选模型 → 保存 → 测试连通 → 在「全局模型顺序」里拖动排序，可把一个便宜的模型设为「内省」模型。配置好之后，她就会按自己的节律开始醒来。
 4. **接入飞书（可选）**：控制 → 飞书 →「开始」→ 在飞书中打开并确认。机器人自动创建并绑定你本人；在飞书里打开与机器人（以 agent 的显示名命名）的单聊，会收到「此刻」卡片，之后所有操作都通过卡片按钮完成。
 5. **身份**：控制 → 身份，给 agent 起名字、选主题色（写入它的灵魂仓库，所有身体同步）。

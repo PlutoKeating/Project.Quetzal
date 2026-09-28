@@ -1,6 +1,6 @@
 # 接口
 
-Amani 对外有两类接口：**网关 API**（控制台、主机工具使用）和**身体适配器接口**（设备仓库实现）。
+Windler 对外有两类接口：**网关 API**（控制台、主机工具使用）和**身体适配器接口**（设备仓库实现）。
 
 ## 1. 网关
 
@@ -26,7 +26,7 @@ Amani 对外有两类接口：**网关 API**（控制台、主机工具使用）
 | `state` | 与 `status` 相同的完整状态（去抖 500ms） |
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
 | `approval` | 审批 `{id, action, reason, args, status}` |
-| `say` | Amani 主动说的话（字符串） |
+| `say` | Windler 主动说的话（字符串） |
 | `activity` | 会话进展 `{session, origin: chat｜think｜dream, channel, ts, kind, …}`，见下表 |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
@@ -148,10 +148,10 @@ interface RawSample {
 约束：
 
 - 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；
-- 适配器从 `AMANI_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
+- 适配器从 `WINDLER_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理。
 
-## 3. 配置项（`config/amani.json`）
+## 3. 配置项（`config/windler.json`）
 
 | 键 | 默认 | 说明 |
 |---|---|---|

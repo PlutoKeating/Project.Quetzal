@@ -37,7 +37,7 @@ export const README_TEMPLATE = (displayName: string) => `# ${displayName} · 灵
 
 - **必须保持私有。**
 - 请不要手动修改：同步、合并与版本管理由基座自动完成；需要撤销时，使用控制台的「记忆历史」。
-- 结构与格式遵循 Soul Repository Specification v1（Project.Amani 的 docs/SOUL_REPO_SPEC.md）。
+- 结构与格式遵循 Soul Repository Specification v1（Project.Windler 的 docs/SOUL_REPO_SPEC.md）。
 `;
 
 /** 规范 §7：远端必须是 SSH 地址（测试中可用 SOUL_ALLOW_LOCAL_REMOTE=1 放行本地路径）。返回错误说明或 undefined。 */

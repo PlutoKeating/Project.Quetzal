@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 
-process.env.AMANI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "amani-test-"));
+process.env.WINDLER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "windler-test-"));
 const { loadConfig } = await import("../src/config.ts");
 loadConfig();
 const { openStore } = await import("../src/store.ts");
@@ -33,7 +33,7 @@ test("保存：版本号防覆盖、密钥加密且只返回末四位", () => {
   const saved = reg.saveProviders(draft, v);
   assert.equal(saved.providers[0].keys[0].lastFour, "3456");
   assert.equal((saved.providers[0].keys[0] as any).ciphertext, undefined);
-  assert.ok(!fs.readFileSync(path.join(process.env.AMANI_HOME!, "config/providers.json"), "utf8").includes("sk-test-123456"));
+  assert.ok(!fs.readFileSync(path.join(process.env.WINDLER_HOME!, "config/providers.json"), "utf8").includes("sk-test-123456"));
   assert.throws(() => reg.saveProviders(draft, v), /已被其他地方修改/);
 });
 

@@ -100,7 +100,7 @@ export async function startFeishu() {
   try {
     const owner = config.feishu.ownerOpenId;
     channel = lark.createLarkChannel({
-      appId: config.feishu.appId, appSecret: secret, transport: "websocket", includeRawEvent: true, source: "amani",
+      appId: config.feishu.appId, appSecret: secret, transport: "websocket", includeRawEvent: true, source: "windler",
       loggerLevel: lark.LoggerLevel.warn, handshakeTimeoutMs: 20_000,
       policy: owner ? { dmMode: "allowlist", dmAllowlist: [owner] } : { dmMode: "open" },
     });
@@ -162,7 +162,7 @@ export async function setFeishu(a: { appId?: string; appSecret?: string; enabled
 export function registerFeishu(onUrl: (url: string) => void): Promise<unknown> {
   state.registering = "waiting";
   return lark.registerApp({
-    createOnly: true, source: "amani",
+    createOnly: true, source: "windler",
     appPreset: { name: identity().displayName, desc: `${identity().displayName} 的飞书通道` },
     addons: {
       scopes: { tenant: ["im:message", "im:message:send_as_bot", "im:message.p2p_msg:readonly", "im:message.reactions:write_only", "im:resource", "im:chat:readonly", "cardkit:card:write"] },

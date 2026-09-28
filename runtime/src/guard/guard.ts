@@ -24,7 +24,7 @@ export async function check(permission: string, action: string, reason: string, 
   if (fs.existsSync(paths.stop)) return false;
   const l = level(permission);
   if (l === "allow") return true;
-  if (l === "deny") { audit("amani", action, reason, args, "denied: policy"); return false; }
+  if (l === "deny") { audit("agent", action, reason, args, "denied: policy"); return false; }
   const a: Approval = { id: crypto.randomBytes(4).toString("hex"), action, reason, args, status: "pending" };
   addTimeline("approval", `请求批准：${action}`, { id: a.id, reason, args });
   const ok = await new Promise<boolean>((resolve) => {

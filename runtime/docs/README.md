@@ -10,6 +10,6 @@ TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），
 
 运行时依赖只有两个：`ws`（网关）与 `@larksuiteoapi/node-sdk`（飞书长连接、交互卡片、一键创建机器人）。
 
-环境变量：`AMANI_HOME`（家目录，默认 `~/amani`）、`AMANI_ADAPTER`（身体适配器模块路径）。
+环境变量：`WINDLER_HOME`（家目录，默认 `~/windler`）、`WINDLER_ADAPTER`（身体适配器模块路径）。
 
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，接口见 [../../docs/API.md](../../docs/API.md)。

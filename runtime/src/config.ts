@@ -1,9 +1,9 @@
-// 路径与运行配置。所有可调参数集中在 config/amani.json，缺省值在此定义。
+// 路径与运行配置。所有可调参数集中在 config/windler.json，缺省值在此定义。
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-export const HOME = process.env.AMANI_HOME ?? path.join(os.homedir(), "amani");
+export const HOME = process.env.WINDLER_HOME ?? path.join(os.homedir(), "windler");
 export const paths = {
   home: HOME,
   config: path.join(HOME, "config"),
@@ -49,7 +49,7 @@ export const defaults: Config = {
   gateway: { port: 7788 },
 };
 
-const file = () => path.join(paths.config, "amani.json");
+const file = () => path.join(paths.config, "windler.json");
 
 function merge<T>(base: T, over: unknown): T {
   if (typeof base !== "object" || base === null || Array.isArray(base)) return (over ?? base) as T;
@@ -63,6 +63,8 @@ export let config: Config = defaults;
 export function loadConfig(): Config {
   for (const p of Object.values(paths)) if (p !== paths.stop) fs.mkdirSync(p, { recursive: true });
   fs.chmodSync(paths.secrets, 0o700);
+  const legacy = path.join(paths.config, "amani.json"); // 项目曾名 Amani：沿用旧配置文件
+  if (!fs.existsSync(file()) && fs.existsSync(legacy)) fs.renameSync(legacy, file());
   try { config = merge(defaults, JSON.parse(fs.readFileSync(file(), "utf8"))); } catch { config = defaults; }
   if (!config.feishu.bindCode) config.feishu.bindCode = Math.random().toString(36).slice(2, 8);
   saveConfig();

@@ -1,5 +1,5 @@
 {
-  "name": "amani-core",
+  "name": "windler-core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --outfile=dist/main.cjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "dev": "AMANI_HOME=./.dev node --experimental-strip-types src/main.ts"
+    "dev": "WINDLER_HOME=./.dev node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",

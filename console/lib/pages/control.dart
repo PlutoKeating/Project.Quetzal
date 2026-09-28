@@ -339,5 +339,5 @@ class ServicePage extends StatelessWidget {
 }
 
 String _bridgePrompt(String repo) =>
-    '请安装 soul-bridge 技能（https://github.com/PlutoKeating/Project.Amani/tree/main/bridge/skills/soul-bridge），'
+    '请安装 soul-bridge 技能（https://github.com/PlutoKeating/Project.Windler/tree/main/bridge/skills/soul-bridge），'
     '按技能说明把你接入灵魂仓库 ${repo.isEmpty ? '<仓库地址>' : repo}，需要我配合的步骤告诉我。';

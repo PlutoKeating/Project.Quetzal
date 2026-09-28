@@ -118,10 +118,10 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
   if (!(await check(t.permission, name, reason, args))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
     const out = await t.handler(args);
-    audit("amani", name, reason, args, out.slice(0, 500));
+    audit("agent", name, reason, args, out.slice(0, 500));
     return { text: out, status: "ok" };
   } catch (e: any) {
-    audit("amani", name, reason, args, `error: ${e.message}`);
+    audit("agent", name, reason, args, `error: ${e.message}`);
     return { text: `出错了：${e.message}`, status: "error" };
   }
 }

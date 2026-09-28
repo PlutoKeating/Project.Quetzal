@@ -35,7 +35,7 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     _load();
-    subs.add(api.events.where((e) => e.name == 'say').listen((e) { if (mounted) setState(() => msgs.add({'role': 'amani', 'channel': '主动', 'text': e.data, 'ts': DateTime.now().millisecondsSinceEpoch})); }));
+    subs.add(api.events.where((e) => e.name == 'say').listen((e) { if (mounted) setState(() => msgs.add({'role': 'agent', 'channel': '主动', 'text': e.data, 'ts': DateTime.now().millisecondsSinceEpoch})); }));
     subs.add(api.events.where((e) => e.name == 'activity').listen(_onActivity));
     api.addListener(_onConn);
   }
@@ -80,7 +80,7 @@ class _ChatPageState extends State<ChatPage> {
 
   void _finish(_Turn t, String reply) {
     if (turn != t) return;
-    msgs.add({'role': 'amani', 'channel': '控制台', 'text': reply, 'process': List<Map>.from(t.items)});
+    msgs.add({'role': 'agent', 'channel': '控制台', 'text': reply, 'process': List<Map>.from(t.items)});
     turn = null;
   }
 

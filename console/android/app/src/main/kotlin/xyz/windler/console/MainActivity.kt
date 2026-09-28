@@ -1,4 +1,4 @@
-package xyz.amani.console
+package xyz.windler.console
 
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -7,7 +7,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * 点火器：通过 Termux 的 RUN_COMMAND 接口在 Termux 里执行固定命令（启动 / 重启 Amani 服务）。
+ * 点火器：通过 Termux 的 RUN_COMMAND 接口在 Termux 里执行固定命令（启动 / 重启 Windler 服务）。
  * 需要 Termux 的 ~/.termux/termux.properties 中 allow-external-apps=true，并授予本应用 RUN_COMMAND 权限。
  */
 class MainActivity : FlutterActivity() {
@@ -15,7 +15,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "amani/igniter").setMethodCallHandler { call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "windler/igniter").setMethodCallHandler { call, result ->
             when (call.method) {
                 "termuxInstalled" -> result.success(installed("com.termux"))
                 "hasPermission" -> result.success(checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED)

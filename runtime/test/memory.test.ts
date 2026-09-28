@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-process.env.AMANI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "amani-test-"));
+process.env.WINDLER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "windler-test-"));
 const { loadConfig } = await import("../src/config.ts");
 loadConfig();
 const mem = await import("../src/memory/memory.ts");
@@ -28,8 +28,8 @@ test("条目级三方合并：双方新增都保留，任一方删除即删除",
 });
 
 test("日记与检索（规范目录中的 .gitkeep 不影响列举）", () => {
-  fs.mkdirSync(path.join(process.env.AMANI_HOME!, "soul", "journal"), { recursive: true });
-  fs.writeFileSync(path.join(process.env.AMANI_HOME!, "soul", "journal", ".gitkeep"), "");
+  fs.mkdirSync(path.join(process.env.WINDLER_HOME!, "soul", "journal"), { recursive: true });
+  fs.writeFileSync(path.join(process.env.WINDLER_HOME!, "soul", "journal", ".gitkeep"), "");
   mem.writeJournal("看星星", "今晚猎户座很亮");
   mem.saveNote("天文", "猎户座在冬季最明显");
   assert.match(mem.search("猎户座"), /笔记\/天文/);

@@ -169,7 +169,7 @@
 ## 7. 认证：必须使用私钥（SSH 部署密钥）
 
 - 远端地址**必须**是 SSH 形式：`git@<host>:<owner>/<repo>.git` 或 `ssh://git@<host>/<owner>/<repo>.git`。**不得**使用 HTTPS、个人访问令牌或密码。
-- **每具身体一把专属密钥**：ed25519，在本机生成。私钥只存放在本机、权限 `0600`（运行基座为 `AMANI_HOME/secrets/soul_ed25519`，灵魂桥为 `~/.agent-soul/<agent>/id_ed25519`），**不得**提交到任何仓库，**不得**在身体之间复制。
+- **每具身体一把专属密钥**：ed25519，在本机生成。私钥只存放在本机、权限 `0600`（运行基座为 `WINDLER_HOME/secrets/soul_ed25519`，灵魂桥为 `~/.agent-soul/<agent>/id_ed25519`），**不得**提交到任何仓库，**不得**在身体之间复制。
 - 公钥以 **Deploy key（勾选 Allow write access）** 的形式添加到该灵魂仓库。**不得**使用个人账号的 SSH 密钥，保证每把密钥只能访问这一个仓库。
 - 实现访问远端时**必须**只使用这把私钥：`ssh -i <私钥> -o IdentitiesOnly=yes`。不得回退到 ssh-agent 或默认密钥。私钥不存在时拒绝访问远端，不静默回退。
 - **吊销**某具身体：在仓库 Settings → Deploy keys 删除它的公钥。

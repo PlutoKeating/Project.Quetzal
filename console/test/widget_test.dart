@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
-import 'package:amani_console/widgets.dart';
+import 'package:windler_console/widgets.dart';
 
 void main() {
   testWidgets('驱动力条显示百分比', (tester) async {

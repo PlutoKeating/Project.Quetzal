@@ -1,6 +1,6 @@
 # 运行架构
 
-本文用图文说明 Amani 运行基座的整体结构、每个部分的原理与实现方式。代码位置均相对于 `runtime/src/`。
+本文用图文说明 Windler 运行基座的整体结构、每个部分的原理与实现方式。代码位置均相对于 `runtime/src/`。
 
 ## 1. 总体结构
 
@@ -47,18 +47,24 @@ flowchart TB
 - **状态全部落盘**：心脏状态、时间线、审计、用量在 SQLite，人格与记忆在灵魂目录。进程重启只相当于"睡了一觉"。
 - **所有控制入口共用一个操作层**（`ops.ts`）：控制台和飞书的行为完全一致，都经过审计。
 
-## 2. 家目录（`AMANI_HOME`，默认 `~/amani`）
+## 2. 家目录（`WINDLER_HOME`，默认 `~/windler`）
 
 ```
-config/amani.json        运行配置（控制台可改）
+config/windler.json      运行配置（控制台可改）
 config/providers.json    模型供应商（Key 为密文）
 secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、feishu_secret、soul_ed25519
-data/amani.db            SQLite：kv / timeline / messages / audit / usage
+data/windler.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
 soul/                    灵魂目录（git 仓库）
 state/starts.json        启动记录（熔断用）
 STOP                     急停标志：存在即冻结一切行动
 ```
+
+项目曾名 Amani。从旧版本升级时：
+
+- 家目录由部署者迁移（把 `~/amani` 改名为 `~/windler`，或者用 `WINDLER_HOME` 指向旧目录）。
+- 启动时，旧的 `config/amani.json`、`data/amani.db` 会自动改名沿用。
+- 旧记录中的角色和审计者标记 `amani` 会统一为 `agent`。
 
 ## 3. 心脏：什么时候醒来
 
@@ -198,7 +204,7 @@ soul/
 
 ```mermaid
 sequenceDiagram
-  participant A as 本机 Amani
+  participant A as 本机 Windler
   participant R as 灵魂仓库（私有 git）
   participant H as Hermes / OpenClaw（soul-bridge）
   H->>R: 记忆写入后、会话收尾、文件变化时同步
@@ -253,5 +259,5 @@ flowchart LR
 
 - 基座只负责自身逻辑，**进程守护交给外部**（runit、systemd 等）：进程退出即被重新拉起。
 - **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
-- 部署者提供：Node.js 22+、`AMANI_HOME`、可选的 `AMANI_ADAPTER`（适配器模块路径）、进程守护者。
-- **Android + Termux 部署约定**（控制台的点火器按此约定工作）：runit 服务目录 `$PREFIX/var/service/amani`，开机脚本 `~/.termux/boot/amani`，`termux.properties` 中 `allow-external-apps=true`。
+- 部署者提供：Node.js 22+、`WINDLER_HOME`、可选的 `WINDLER_ADAPTER`（适配器模块路径）、进程守护者。
+- **Android + Termux 部署约定**（控制台的点火器按此约定工作）：runit 服务目录 `$PREFIX/var/service/windler`，开机脚本 `~/.termux/boot/windler`，`termux.properties` 中 `allow-external-apps=true`。

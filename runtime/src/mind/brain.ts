@@ -155,7 +155,7 @@ export function converse(from: string, text: string, channel: string, session?: 
       ];
       const r = await loop(messages, `回应${from}`, false, s);
       const reply = r.text.trim() || "……";
-      addMessage("amani", channel, reply);
+      addMessage("agent", channel, reply);
       s.emit({ kind: "done", reply });
       addTimeline("chat", `和${from}说话`, { channel, text, reply, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
@@ -166,7 +166,7 @@ export function converse(from: string, text: string, channel: string, session?: 
       const timeout = e instanceof SessionTimeout || s.signal.aborted;
       log("brain", `对话失败：${e.message}`);
       const reply = timeout ? `（我卡住了：${e.message.split("\n")[0]}。你可以再说一次。）` : `（我现在没法好好思考：${e.message.split("\n")[0]}）`;
-      addMessage("amani", channel, reply);
+      addMessage("agent", channel, reply);
       s.emit({ kind: "error", message: e.message.split("\n")[0], reply });
       return reply;
     } finally { if (!wasBusy) markBusy(false); }
