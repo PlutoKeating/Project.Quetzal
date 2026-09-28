@@ -1,4 +1,5 @@
 // 此刻：她现在怎么样。光团 + 一句话 + 戳一下 / 聊天（首屏）+ 驱动力 + 身体。
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets.dart';
@@ -73,12 +74,23 @@ class _LastThought extends StatefulWidget {
 
 class _LastThoughtState extends State<_LastThought> {
   String text = '';
+  StreamSubscription? sub;
+  bool online = false;
   @override
   void initState() {
     super.initState();
     _load();
-    api.events.where((e) => e.name == 'timeline').listen((e) { if (mounted) setState(() => text = '${(e.data as Map)['title']}'); });
+    sub = api.events.where((e) => e.name == 'timeline').listen((e) { if (mounted) setState(() => text = '${(e.data as Map)['title']}'); });
+    api.addListener(_onConn);
   }
+  // 冷启动时连接可能还没建立，首次加载会失败：每次连上（包括断线重连）后重新加载
+  void _onConn() {
+    final now = api.conn == Conn.online;
+    if (now && !online) _load();
+    online = now;
+  }
+  @override
+  void dispose() { sub?.cancel(); api.removeListener(_onConn); super.dispose(); }
   Future<void> _load() async {
     try { final l = await api.call<List>('timeline', {'limit': 1}); if (l.isNotEmpty && mounted) setState(() => text = '${l.first['title']} · ${hm(l.first['ts'])}'); } catch (_) {}
   }
