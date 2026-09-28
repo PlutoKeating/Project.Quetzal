@@ -1,4 +1,4 @@
-// 此刻：她现在怎么样。光团 + 一句话 + 驱动力 + 身体 + 戳一下 / 聊天。
+// 此刻：她现在怎么样。光团 + 一句话 + 戳一下 / 聊天（首屏）+ 驱动力 + 身体。
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets.dart';
@@ -22,6 +22,14 @@ class HomePage extends ApiWidget {
         Text(label, textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
         _LastThought(),
         if (inhibitors.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text('抑制：${inhibitors.join('、')}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.orange))),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4), // 首屏可达：放在「内在」卡片上方
+          child: Row(children: [
+            Expanded(child: FilledButton.tonalIcon(icon: const Icon(Icons.touch_app), label: const Text('戳一下'), onPressed: () => _poke(context))),
+            const SizedBox(width: 12),
+            Expanded(child: FilledButton.icon(icon: const Icon(Icons.chat_bubble), label: const Text('聊天'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatPage())))),
+          ]),
+        ),
         Section('内在', [
           DriveBar('好奇', _n(d['curiosity'])),
           DriveBar('表达', _n(d['expression'])),
@@ -41,14 +49,6 @@ class HomePage extends ApiWidget {
             Chip(avatar: const Icon(Icons.memory, size: 18), label: Text('负载 ${(p['system'] as Map?)?['load1'] ?? '-'}')),
           ]),
         ]),
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(children: [
-            Expanded(child: FilledButton.tonalIcon(icon: const Icon(Icons.touch_app), label: const Text('戳一下'), onPressed: () => _poke(context))),
-            const SizedBox(width: 12),
-            Expanded(child: FilledButton.icon(icon: const Icon(Icons.chat_bubble), label: const Text('聊天'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatPage())))),
-          ]),
-        ),
       ]),
     );
   }
