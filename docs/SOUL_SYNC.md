@@ -13,8 +13,8 @@
 ├── agent.json                      身份：id（UUID，全局唯一）、name、displayName、pronouns、description、color、language、createdAt
 ├── SOUL.md                         人格
 ├── memories/
-│   ├── MEMORY.md                   她自己的常驻笔记（条目以「\n§\n」分隔，默认上限 2200 字符）
-│   └── USER.md                     关于用户的认识（同上，默认上限 1375 字符）
+│   ├── MEMORY.md                   她自己的常驻笔记（条目以「\n§\n」分隔；运行基座不限长度，写回 Hermes 时按其上限截取）
+│   └── USER.md                     关于用户的认识（同上）
 ├── journal/<身体>/<日期>.md        情节记忆：每具身体只写自己的目录
 ├── notes/<主题>.md                 语义记忆：共享的长期笔记
 ├── bodies/<身体>.json              身体登记：类型（runtime / bridge）、框架、版本、最近同步时间

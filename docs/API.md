@@ -82,7 +82,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 |
 |---|---|
-| `memory` | — → `{soul, memory[], user[], limits, loops[]}` |
+| `memory` | — → `{soul, memory[], user[], loops[]}` |
 | `editMemory` | `{target: memory｜user, action: add｜replace｜remove, content?, oldText?}` |
 | `setSoul` | `{text}` |
 | `journalList` / `journal` | — / `{body, day}` |
@@ -163,5 +163,5 @@ interface RawSample {
 | `permissions.*` | 全部 `allow` | 能力授权 |
 | `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
-| `soul.remote` / `branch` / `memoryCharLimit` / `userCharLimit` | "" / main / 2200 / 1375 | 灵魂仓库 |
+| `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
 | `gateway.port` | 7788 | 网关端口 |

@@ -23,7 +23,7 @@ function htmlToText(html: string) {
 const core: Tool[] = [
   {
     name: "memory", permission: "memory",
-    description: "管理常驻记忆（每次醒来都会看到）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。条目要精炼，有字符上限。",
+    description: "管理常驻记忆（每次醒来都会看到）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限：值得记住的就记下，条目清晰即可。",
     parameters: obj({ action: { type: "string", enum: ["add", "replace", "remove"] }, target: { type: "string", enum: ["memory", "user"] }, content: str("新的完整条目"), old_text: str("用于定位旧条目的唯一子串") }, ["action", "target"]),
     handler: async (a) => mem.editMemory(a.target, a.action, a.content, a.old_text),
   },

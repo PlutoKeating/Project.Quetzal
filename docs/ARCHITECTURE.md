@@ -187,8 +187,8 @@ sequenceDiagram
 soul/
 ├── agent.json                  身份：id、name、displayName、pronouns、description、color、language（界面与称呼都来自这里）
 ├── SOUL.md                     人格（系统提示第一段；缺失时按身份生成种子人格）
-├── memories/MEMORY.md          她自己的笔记（§ 分隔，默认上限 2200 字符）
-├── memories/USER.md            关于你（§ 分隔，默认上限 1375 字符）
+├── memories/MEMORY.md          她自己的笔记（§ 分隔，运行基座不限长度）
+├── memories/USER.md            关于你（§ 分隔，运行基座不限长度）
 ├── journal/<身体>/<日期>.md    情节记忆：每具身体各写各的
 ├── notes/<主题>.md             语义记忆：共享的长期笔记
 └── bodies/<身体>.json          身体登记

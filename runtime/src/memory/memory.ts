@@ -2,7 +2,7 @@
 // 因此同一个 agent 可以同时住在多具身体里（本机 + 运行 Hermes 的另一台设备），共享人格与记忆。
 //
 //   soul/SOUL.md                   人格（Hermes 的 SOUL.md，系统提示第一段）
-//   soul/memories/MEMORY.md        她自己的笔记（§ 分隔的条目，有字符上限，与 Hermes 相同）
+//   soul/memories/MEMORY.md        她自己的笔记（§ 分隔的条目，没有长度上限）
 //   soul/memories/USER.md          关于你的认识（同上）
 //   soul/journal/<身体>/<日期>.md  情节记忆：每具身体各写各的日记，互不冲突
 //   soul/notes/<主题>.md           语义记忆：长期知识与思考，所有身体共享
@@ -28,7 +28,6 @@ export function soul(): string { return read(p("SOUL.md")) || seedSoul(identity(
 export function setSoul(text: string) { write(p("SOUL.md"), text); }
 
 const fileOf = (t: Target) => p("memories", t === "memory" ? "MEMORY.md" : "USER.md");
-const limitOf = (t: Target) => (t === "memory" ? config.soul.memoryCharLimit : config.soul.userCharLimit);
 
 import { parseEntries, joinEntries } from "./entries.ts";
 export { parseEntries, joinEntries };
@@ -45,16 +44,14 @@ export function editMemory(t: Target, action: "add" | "replace" | "remove", cont
     if (action === "remove") list.splice(i, 1); else list[i] = content.trim();
   } else list.push(content.trim());
   const text = joinEntries(list);
-  if (text.length > limitOf(t)) return `错误：超出上限（${text.length}/${limitOf(t)} 字符）。请先用 replace 合并或 remove 删除条目。现有条目：\n${entries(t).map((e, i) => `${i + 1}. ${e}`).join("\n")}`;
   write(fileOf(t), text);
-  return `已${action === "add" ? "添加" : action === "replace" ? "更新" : "删除"}（${text.length}/${limitOf(t)} 字符）`;
+  return `已${action === "add" ? "添加" : action === "replace" ? "更新" : "删除"}（共 ${text.length} 字符）`;
 }
 
 export function renderMemory(t: Target): string {
   const text = joinEntries(entries(t)).trim();
-  const lim = limitOf(t);
   const title = t === "memory" ? "MEMORY（我的笔记）" : "USER（关于你）";
-  return `══════ ${title} [${Math.round((text.length / lim) * 100)}% — ${text.length}/${lim}] ══════\n${text.replace(/\n§\n/g, "§")}`;
+  return `══════ ${title} [${text.length} 字符] ══════\n${text.replace(/\n§\n/g, "§")}`;
 }
 
 // ---------- 日记（情节记忆）

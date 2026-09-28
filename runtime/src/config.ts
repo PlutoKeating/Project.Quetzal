@@ -29,7 +29,7 @@ export interface Config {
   permissions: Record<string, Level>;
   brain: { maxOutputTokens: number };
   feishu: { enabled: boolean; appId: string; ownerOpenId: string; bindCode: string };
-  soul: { remote: string; branch: string; memoryCharLimit: number; userCharLimit: number };
+  soul: { remote: string; branch: string };
   gateway: { port: number };
 }
 
@@ -45,7 +45,7 @@ export const defaults: Config = {
   },
   brain: { maxOutputTokens: 4096 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
-  soul: { remote: "", branch: "main", memoryCharLimit: 2200, userCharLimit: 1375 },
+  soul: { remote: "", branch: "main" },
   gateway: { port: 7788 },
 };
 

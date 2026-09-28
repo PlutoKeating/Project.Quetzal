@@ -17,7 +17,9 @@ test("记忆条目：add / replace / remove（与 Hermes 语义一致）", () =>
   assert.deepEqual(mem.entries("memory"), ["喜欢下雨天", "在读《沙丘》第二部"]);
   assert.match(mem.editMemory("memory", "remove", "", "不存在"), /匹配到 0 条/);
   assert.match(mem.editMemory("memory", "remove", "", "下雨"), /已删除/);
-  assert.match(mem.editMemory("user", "add", "x".repeat(5000)), /超出上限/);
+  assert.match(mem.editMemory("user", "add", "x".repeat(50_000)), /已添加/); // 没有长度上限
+  assert.equal(mem.entries("user")[0].length, 50_000);
+  assert.match(mem.renderMemory("user"), /\[50000 字符\]/);
 });
 
 test("条目级三方合并：双方新增都保留，任一方删除即删除", () => {

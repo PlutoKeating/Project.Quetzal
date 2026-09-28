@@ -55,10 +55,9 @@ class _CoreState extends State<_Core> {
     if (ok == true && mounted) { await act(context, () => api.call('setSoul', {'text': c.text}), ok: '已保存，她会知道你改过'); _load(); }
   }
 
-  Widget _entries(String title, String target, List list, int limit) {
+  Widget _entries(String title, String target, List list) {
     final used = list.fold<int>(0, (a, e) => a + '$e'.length + 3);
-    return Section('$title · $used/$limit', [
-      LinearProgressIndicator(value: (used / limit).clamp(0, 1)),
+    return Section('$title · $used 字', [
       for (final e in list) ListTile(dense: true, contentPadding: EdgeInsets.zero, title: Text('$e'), onTap: () => _edit(target, old: '$e')),
       if (list.isEmpty) const Text('（空）'),
     ], trailing: IconButton(icon: const Icon(Icons.add), onPressed: () => _edit(target)));
@@ -68,13 +67,12 @@ class _CoreState extends State<_Core> {
   Widget build(BuildContext context) {
     final m = this.m;
     if (m == null) return const Center(child: CircularProgressIndicator());
-    final limits = m['limits'] as Map;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.only(bottom: 24), children: [
         Section('人格', [Text('${m['soul']}', maxLines: 8, overflow: TextOverflow.fade)], trailing: IconButton(icon: const Icon(Icons.edit), onPressed: _editSoul)),
-        _entries('她的笔记（MEMORY）', 'memory', m['memory'] as List, limits['memory'] as int),
-        _entries('关于你（USER）', 'user', m['user'] as List, limits['user'] as int),
+        _entries('她的笔记（MEMORY）', 'memory', m['memory'] as List),
+        _entries('关于你（USER）', 'user', m['user'] as List),
         Section('未完成的念头', [for (final l in (m['loops'] as List)) Text('· ${l['text']}'), if ((m['loops'] as List).isEmpty) const Text('（无）')]),
       ]),
     );

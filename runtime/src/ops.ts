@@ -44,7 +44,7 @@ export const ops = {
   budget: () => ({ ...config.budget, usage: usageToday() }),
   setBudget: (a: Partial<typeof config.budget>, actor: string) => { saveConfig({ budget: a }); audit(actor, "budget", "", a, "ok"); return config.budget; },
 
-  memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), limits: { memory: config.soul.memoryCharLimit, user: config.soul.userCharLimit }, loops: mem.openLoops() }),
+  memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), loops: mem.openLoops() }),
   editMemory: (a: { target: mem.Target; action: "add" | "replace" | "remove"; content?: string; oldText?: string }, actor: string) => {
     const r = mem.editMemory(a.target, a.action, a.content, a.oldText);
     audit(actor, "memory.edit", "外部修改", a, r);
