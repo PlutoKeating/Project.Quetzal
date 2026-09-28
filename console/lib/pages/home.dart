@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets.dart';
-import 'chat.dart';
+import 'sessions.dart';
 
 class HomePage extends ApiWidget {
   const HomePage({super.key});
@@ -36,7 +36,7 @@ class HomePage extends ApiWidget {
           child: Row(children: [
             Expanded(child: FilledButton.tonalIcon(icon: const Icon(Icons.touch_app), label: const Text('戳一下'), onPressed: () => _poke(context))),
             const SizedBox(width: 12),
-            Expanded(child: FilledButton.icon(icon: const Icon(Icons.chat_bubble), label: const Text('聊天'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatPage())))),
+            Expanded(child: FilledButton.icon(icon: const Icon(Icons.chat_bubble), label: const Text('聊天'), onPressed: () => openChat(context))),
           ]),
         ),
         Section('内在', [

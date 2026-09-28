@@ -31,6 +31,7 @@ class ControlPage extends ApiWidget {
       header('连接'),
       item(Icons.hub, '模型', '${(s['models'] as List?)?.length ?? 0} 个可用模型 · 供应商、Key 与顺序', const ProvidersPage()),
       item(Icons.send, '飞书', '一键扫码接入，在飞书里和她说话', const FeishuPage()),
+      item(Icons.record_voice_over, '语音', 'Azure 语音：她的声音、音色与风格（她自己也可以调）', const VoicePage()),
       item(Icons.cloud_sync, '灵魂同步', '与其他身体共享人格与记忆', const SoulPage()),
       item(Icons.history, '记忆历史', '每一次变更来自哪具身体，可查看与撤销', const HistoryPage()),
       header('运维'),
@@ -341,3 +342,67 @@ class ServicePage extends StatelessWidget {
 String _bridgePrompt(String repo) =>
     '请安装 soul-bridge 技能（https://github.com/PlutoKeating/Project.Windler/tree/main/bridge/skills/soul-bridge），'
     '按技能说明把你接入灵魂仓库 ${repo.isEmpty ? '<仓库地址>' : repo}，需要我配合的步骤告诉我。';
+
+// ---------------------------------------------------------------- 语音（Azure 语音服务）
+class VoicePage extends StatefulWidget {
+  const VoicePage({super.key});
+  @override
+  State<VoicePage> createState() => _VoicePageState();
+}
+
+class _VoicePageState extends State<VoicePage> {
+  static const fields = {'region': '区域（如 eastasia、southeastasia）', 'endpoint': '自定义端点（可选，填了则忽略区域）', 'voice': '音色（如 zh-CN-XiaoxiaoNeural）', 'style': '默认风格（可选，如 cheerful、gentle）', 'rate': '语速（如 0%、+10%）', 'pitch': '音调（如 0%、-5%）', 'volume': '音量（0–100）', 'format': '输出格式'};
+  final c = {for (final k in fields.keys) k: TextEditingController()};
+  final key = TextEditingController(), sample = TextEditingController(text: '你好，这是我的声音。');
+  Map? st;
+  @override
+  void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    final r = await act(context, () => api.call<Map>('speech'));
+    if (!mounted || r == null) return;
+    setState(() { st = r; for (final k in fields.keys) { c[k]!.text = '${r[k] ?? ''}'; } });
+  }
+  Future<void> _save() async {
+    await act(context, () => api.call('setSpeech', {for (final k in fields.keys) k: c[k]!.text.trim(), if (key.text.trim().isNotEmpty) 'key': key.text.trim()}), ok: '已保存');
+    key.clear(); _load();
+  }
+  Future<void> _pickVoice() async {
+    final list = await act(context, () => api.call<List>('speechVoices', {'locale': c['voice']!.text.split('-').take(2).join('-').isEmpty ? 'zh-CN' : c['voice']!.text.split('-').take(2).join('-')}));
+    if (list == null || !mounted) return;
+    final v = await showDialog<Map>(context: context, builder: (x) => SimpleDialog(title: const Text('选择音色'), children: [
+      for (final e in list.cast<Map>()) SimpleDialogOption(onPressed: () => Navigator.pop(x, e),
+          child: Text('${e['local']} · ${e['name']}（${e['gender']}）${(e['styles'] as List).isEmpty ? '' : '\n风格：${(e['styles'] as List).join(' / ')}'}')),
+    ]));
+    if (v != null) setState(() => c['voice']!.text = '${v['name']}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final st = this.st;
+    return Scaffold(
+      appBar: AppBar(title: const Text('语音')),
+      body: st == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
+        Section('状态', [
+          ListTile(contentPadding: EdgeInsets.zero, leading: Icon(st['configured'] == true ? Icons.check_circle : Icons.info_outline, color: st['configured'] == true ? Colors.green : Colors.grey),
+              title: Text(st['configured'] == true ? '已配置，她可以用自己的声音说话' : '尚未配置'),
+              subtitle: Text('密钥：${'${st['keyLastFour']}'.isEmpty ? '未设置' : '****${st['keyLastFour']}'}。这些设置她也可以用 voice_config 工具自己修改。')),
+        ]),
+        Section('Azure 语音服务', [
+          TextField(controller: key, obscureText: true, decoration: const InputDecoration(labelText: '密钥（留空则保持不变）', border: OutlineInputBorder())),
+          for (final e in fields.entries) Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: TextField(controller: c[e.key], decoration: InputDecoration(labelText: e.value, border: const OutlineInputBorder(),
+                suffixIcon: e.key == 'voice' ? IconButton(icon: const Icon(Icons.list), tooltip: '从列表选择', onPressed: _pickVoice) : null)),
+          ),
+          const SizedBox(height: 8),
+          FilledButton(onPressed: _save, child: const Text('保存')),
+        ]),
+        Section('试听', [
+          TextField(controller: sample, decoration: const InputDecoration(border: OutlineInputBorder())),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(icon: const Icon(Icons.play_arrow), label: const Text('用当前配置说一句'), onPressed: () => act(context, () => api.call('speechTest', {'text': sample.text}), ok: '已播放')),
+        ]),
+      ]),
+    );
+  }
+}

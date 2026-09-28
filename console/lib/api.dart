@@ -121,6 +121,24 @@ class Api extends ChangeNotifier {
     try { final j = await _http('GET', '/health'); safeMode = j['safeMode'] == true; return j['ok'] == true; } catch (_) { return false; }
   }
 
+  /// 上传一个附件（原始字节），返回附件信息；onProgress 报告已发送的比例。
+  Future<Map<String, dynamic>> upload(String name, Stream<List<int>> bytes, int length, {void Function(double)? onProgress}) async {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      final req = await c.postUrl(Uri.parse('$base/upload').replace(queryParameters: {'name': name, 'token': token}));
+      req.contentLength = length;
+      var sent = 0;
+      await req.addStream(bytes.map((chunk) { sent += chunk.length; onProgress?.call(length == 0 ? 1 : sent / length); return chunk; }));
+      final res = await req.close().timeout(const Duration(minutes: 5));
+      final j = jsonDecode(await res.transform(utf8.decoder).join()) as Map<String, dynamic>;
+      if (res.statusCode >= 400 || j['ok'] != true) throw RpcError('UPLOAD', '${j['message'] ?? '上传失败'}');
+      return Map<String, dynamic>.from(j['file'] as Map);
+    } finally { c.close(); }
+  }
+
+  /// 附件的下载地址（图片预览）。
+  String fileUrl(String rel) => Uri.parse('$base/uploads/${rel.split('/').map(Uri.encodeComponent).join('/')}').replace(queryParameters: {'token': token}).toString();
+
   Future<void> pairStart() => _http('POST', '/pair/start');
   Future<void> pairFinish(String code) async {
     final j = await _http('POST', '/pair/finish', {'code': code.trim()});
@@ -202,6 +220,12 @@ class Api extends ChangeNotifier {
     arm();
     ws.sink.add(jsonEncode({'id': id, 'method': method, 'params': params}));
     return c.future.whenComplete(() { t?.cancel(); sub.cancel(); }).then((v) => v as T);
+  }
+
+  /// 从后台切回时调用：手机可能已经悄悄断开了连接（但本地还以为在线），探测一下，失效就重连。
+  Future<void> ensureAlive() async {
+    if (conn != Conn.online) { connect(); return; }
+    try { await call<Map>('status').timeout(const Duration(seconds: 5)); } catch (_) { connect(); }
   }
 
   Future<void> refresh() async {
