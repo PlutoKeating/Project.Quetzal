@@ -1,4 +1,4 @@
-// 对话：与她说话；她主动说的话也会出现在这里。
+// 对话：与她说话；她主动说的话也会出现在这里。她的回复按完整 Markdown 渲染（表格、公式、Mermaid 图等，见 markdown.dart）。
 // 她回应时实时显示过程：流式文字，以及每个工具执行时 / 执行后的单行卡片。
 // 等待回复不设绝对超时：只要基座还有进展（流式文字、工具、心跳）就一直等，120 秒毫无动静才判定超时；
 // 超时或断线后，回复一到（done 推送）或重连后重新拉取记录，都会补上。
@@ -7,6 +7,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets.dart';
+import '../markdown.dart';
 
 /// 正在进行的一次回应。
 class _Turn {
@@ -151,18 +152,18 @@ class _ChatPageState extends State<ChatPage> {
     final hint = t.lost ? '连接中断：回复生成后会自动补上' : t.queued ? '排队中…' : running ? '正在调用工具…' : t.live.isEmpty ? '她在想…' : '';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (t.items.isNotEmpty) _Process(t.items),
-      if (t.live.isNotEmpty) _bubble(context, t.live, false, cs),
+      if (t.live.isNotEmpty) _bubble(context, t.live, false, cs, live: true),
       if (hint.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(hint, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
     ]);
   }
 
-  Widget _bubble(BuildContext context, String text, bool me, ColorScheme cs, {Object? channel}) => Container(
+  Widget _bubble(BuildContext context, String text, bool me, ColorScheme cs, {Object? channel, bool live = false}) => Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.all(10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
         decoration: BoxDecoration(color: me ? cs.primaryContainer : cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SelectableText(text),
+          me ? SelectableText(text) : RichMarkdown(text, live: live),
           if (channel != null && channel != '控制台') Text('$channel', style: Theme.of(context).textTheme.labelSmall),
         ]),
       );

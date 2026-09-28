@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- Mermaid 渲染页：由控制台的 MermaidView 加载（mermaid.min.js 为 v11.17.2，MIT 许可，见同目录 LICENSE；已用 esbuild 降级到 chrome88 语法以兼容旧 WebView）。 -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=6">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  #c { padding: 4px 0; }
+  #c svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+</style>
+<script>
+  window.onerror = (msg, src, line) => { try { Out.postMessage(JSON.stringify({ error: "脚本错误：" + msg + " @" + line, ua: navigator.userAgent })); } catch (e) {} };
+</script>
+<script>
+  // 旧版 WebView（如 Chromium 88）缺少的 API；mermaid.min.js 已用 esbuild 把语法降到 chrome88
+  for (const C of [Array, String, Object.getPrototypeOf(Int8Array)])
+    if (!C.prototype.at) Object.defineProperty(C.prototype, "at", { configurable: true, writable: true, value(i) { i = Math.trunc(i) || 0; if (i < 0) i += this.length; return i < 0 || i >= this.length ? undefined : this[i]; } });
+  if (!Object.hasOwn) Object.hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  if (!window.structuredClone) window.structuredClone = (v) => v === undefined ? v : JSON.parse(JSON.stringify(v));
+</script>
+<script src="mermaid.min.js"></script>
+</head>
+<body>
+<div id="c"></div>
+<script>
+  const post = (o) => Out.postMessage(JSON.stringify(o));
+  let n = 0;
+  async function render(code, dark, fit) {
+    if (typeof mermaid === "undefined") return post({ error: "mermaid.js 未能加载", ua: navigator.userAgent });
+    mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict", fontFamily: "sans-serif" });
+    try {
+      const { svg } = await mermaid.render("m" + (++n), code);
+      const c = document.getElementById("c");
+      c.innerHTML = svg;
+      if (!fit) c.querySelector("svg").style.maxWidth = "none";
+      requestAnimationFrame(() => post({ h: Math.ceil(c.getBoundingClientRect().height) }));
+    } catch (e) {
+      post({ error: String((e && e.message) || e).slice(0, 300) });
+    }
+  }
+  post({ ready: true });
+</script>
+</body>
+</html>
