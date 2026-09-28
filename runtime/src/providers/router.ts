@@ -1,5 +1,5 @@
 // 路由与故障转移：按全局模型顺序依次尝试；每个模型内轮换其供应商的已启用 Key。
-// 鉴权/参数/模型不存在类错误立即换下一个模型；限流、超时、5xx 先换 Key 再换模型。
+// 鉴权/参数/模型不存在类错误立即换下一个模型；限流、超时（90 秒无数据）、5xx 先换 Key 再换模型；会话被中止时立即放弃。
 import { adapters, listRemoteModels, type Target } from "./adapters.ts";
 import { loadProviders, keySecret } from "./registry.ts";
 import { ProviderError, type ChatRequest, type ChatResult, type Provider, type ProviderModel } from "./types.ts";
@@ -45,6 +45,7 @@ export async function chat(req: ChatRequest, opts: { quick?: boolean } = {}): Pr
         res.model = `${r.provider.name}/${r.model.name}`;
         return res;
       } catch (e: any) {
+        if (req.signal?.aborted) throw req.signal.reason ?? e; // 会话时间墙已中止：不再故障转移
         errors.push(`${r.provider.name}/${r.model.name}: ${e.message}`);
         log("router", `失败 ${r.provider.name}/${r.model.name}（key ${key.label}）：${e.message}`);
         if (e instanceof ProviderError && e.immediate) break; // 直接换模型

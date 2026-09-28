@@ -27,7 +27,20 @@ Amani 对外有两类接口：**网关 API**（控制台、主机工具使用）
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
 | `approval` | 审批 `{id, action, reason, args, status}` |
 | `say` | Amani 主动说的话（字符串） |
+| `activity` | 会话进展 `{session, origin: chat｜think｜dream, channel, ts, kind, …}`，见下表 |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
+
+`activity` 的 `kind`：
+
+| kind | 字段 | 含义 |
+|---|---|---|
+| `start` / `queued` | `text?` | 会话开始 / 排在前一段对话之后 |
+| `step` | `step` | 第几次模型调用开始 |
+| `delta` | `text` | 流式文字片段（约每 200ms 合并一次） |
+| `text` | `step, text, final` | 该步的完整文字；`final` 为真表示这就是回复（不再调用工具） |
+| `tool` | `call, name, summary, status: running｜ok｜error｜denied, ms?, result?` | 工具执行中 / 执行后（同一 `call` 先后两条），`summary` 为一行参数摘要 |
+| `alive` | — | 心跳，会话存续期间每 15 秒一次 |
+| `done` / `error` | `reply?` / `message, reply?` | 结束；回复已写入对话记录 |
 
 ### 1.3 方法
 
@@ -48,7 +61,7 @@ Amani 对外有两类接口：**网关 API**（控制台、主机工具使用）
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
-| `chat.send` | `{text}` | 与她对话，返回她的回复 |
+| `chat.send` | `{text, session?}` | 与她对话，返回她的回复。`session` 由客户端生成，用于把 `activity` 事件对应到这句话；调用不设绝对超时，按「120 秒无进展」判定 |
 | `poke` | `{note?}` | 戳一下：推高想念与好奇并立即重新抽样，不强制醒来 |
 
 **调节与安全**
@@ -148,7 +161,7 @@ interface RawSample {
 | `heart.activity` / `baseRatePerHour` / `paused` | 1 / 4 / false | 活跃度、饱和醒来率、暂停 |
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日预算与身体限制 |
 | `permissions.*` | 全部 `allow` | 能力授权 |
-| `brain.maxSteps` / `maxOutputTokens` | 12 / 4096 | 每次醒来的工具步数与输出上限 |
+| `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` / `memoryCharLimit` / `userCharLimit` | "" / main / 2200 / 1375 | 灵魂仓库 |
 | `gateway.port` | 7788 | 网关端口 |

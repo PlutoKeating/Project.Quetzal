@@ -27,7 +27,7 @@ export interface Config {
   };
   budget: { dailyTokens: number; dailyCostUsd: number; minBattery: number; maxTempC: number };
   permissions: Record<string, Level>;
-  brain: { maxSteps: number; maxOutputTokens: number };
+  brain: { maxOutputTokens: number };
   feishu: { enabled: boolean; appId: string; ownerOpenId: string; bindCode: string };
   soul: { remote: string; branch: string; memoryCharLimit: number; userCharLimit: number };
   gateway: { port: number };
@@ -43,7 +43,7 @@ export const defaults: Config = {
     network: "allow", shell: "allow", device: "allow", camera: "allow", microphone: "allow",
     location: "allow", message: "allow", self_modify: "allow", memory: "allow", hands: "allow",
   },
-  brain: { maxSteps: 12, maxOutputTokens: 4096 },
+  brain: { maxOutputTokens: 4096 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
   soul: { remote: "", branch: "main", memoryCharLimit: 2200, userCharLimit: 1375 },
   gateway: { port: 7788 },

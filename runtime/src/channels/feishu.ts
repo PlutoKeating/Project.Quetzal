@@ -1,14 +1,17 @@
 // 飞书通道：长连接（WebSocket），无需公网地址。
 //   打开与机器人的单聊 → 自动推送「此刻」卡片；机器人菜单 → 对应卡片；卡片按钮/表单 → 操作层（ops）并原地刷新卡片
-//   普通文字 → 与 agent 对话（处理中加 OnIt 表情）；agent 主动说话 → 私聊；审批 → 带按钮的卡片
+//   普通文字 → 与 agent 对话（处理中加 OnIt 表情；调用工具时回复一张实时更新的「执行过程」卡片，每个工具一行）
+//   agent 主动说话 → 私聊；审批 → 带按钮的卡片
 // 接入：控制台一键扫码创建机器人（registerApp），自动获得凭据并绑定扫码的人，全程无需命令行。
+import crypto from "node:crypto";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { config, saveConfig, readSecret, writeSecret } from "../config.ts";
 import { bus } from "../bus.ts";
 import { log } from "../log.ts";
 import { invoke } from "../ops.ts";
 import { converse } from "../mind/brain.ts";
-import { views, approvalCard, md } from "./feishu-cards.ts";
+import { views, approvalCard, md, card } from "./feishu-cards.ts";
+import type { Activity } from "../bus.ts";
 import { identity } from "../memory/identity.ts";
 
 let channel: lark.LarkChannel | undefined;
@@ -47,6 +50,48 @@ async function onCardAction(d: any) {
   return { toast, card: { type: "raw", data } };
 }
 
+const ICON = { running: "⏳", ok: "✅", error: "❌", denied: "🚫" } as const;
+const code = (s: string) => "`" + s.replace(/`/g, "'") + "`";
+
+/** 执行过程卡片：第一次调用工具时回复一张卡片，之后每秒最多更新一次；每个工具、每段中间叙述各占一行。 */
+function progress(chatId: string, replyTo: string, session: string) {
+  const lines = new Map<string, string>();
+  let running = 0, tools = 0, messageId = "", dirty = false, timer: NodeJS.Timeout | undefined, done = false;
+  let q: Promise<unknown> = Promise.resolve();
+  const render = () => card(done ? `执行过程 · ${tools} 个工具` : "执行过程", done ? "grey" : "indigo",
+    [md([...lines.values(), ...(!done && running ? ["🧰 *正在调用工具…*"] : [])].join("\n") || "…")]);
+  const flush = () => {
+    timer = undefined;
+    if (!dirty || !channel) return q;
+    dirty = false;
+    q = q.then(async () => {
+      if (!messageId) messageId = (await channel!.send(chatId, { card: render() }, { replyTo }))?.messageId ?? "";
+      else await channel!.updateCard(messageId, render());
+    }).catch((e) => log("feishu", `执行过程卡片更新失败：${e.message}`));
+    return q;
+  };
+  const onActivity = (a: Activity) => {
+    if (a.session !== session) return;
+    if (a.kind === "tool") {
+      if (a.status === "running") { running++; tools++; } else if (lines.has(a.call!)) running--; else tools++;
+      const sec = a.ms != null && a.status !== "running" ? ` · ${(a.ms / 1000).toFixed(1)}s` : "";
+      lines.set(a.call!, `${ICON[a.status!]} **${a.name}**${a.summary ? ` — ${code(a.summary)}` : ""}${sec}`);
+    } else if (a.kind === "text" && !a.final && a.text?.trim()) lines.set(`text-${a.step}`, `💬 ${a.text.trim().replace(/\s+/g, " ").slice(0, 300)}`);
+    else return;
+    dirty = true;
+    timer ??= setTimeout(flush, messageId ? 1000 : 0);
+  };
+  bus.on("activity", onActivity);
+  return {
+    async close() {
+      bus.off("activity", onActivity);
+      clearTimeout(timer);
+      done = true;
+      if (lines.size) { dirty = true; await flush(); }
+    },
+  };
+}
+
 export async function startFeishu() {
   await channel?.disconnect().catch(() => {});
   channel = undefined; state.connected = false;
@@ -70,7 +115,10 @@ export async function startFeishu() {
       if (!isOwner(msg.senderId)) return;
       let reaction = "";
       try { reaction = await channel!.addReaction(msg.messageId, "OnIt"); } catch {}
-      const reply = await converse("你", msg.content, "飞书");
+      const sid = crypto.randomUUID();
+      const prog = progress(msg.chatId, msg.messageId, sid);
+      const reply = await converse("你", msg.content, "飞书", sid);
+      await prog.close();
       if (reaction) channel!.removeReaction(msg.messageId, reaction).catch(() => {});
       await channel!.send(msg.chatId, { markdown: reply }, { replyTo: msg.messageId });
     });

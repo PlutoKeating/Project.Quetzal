@@ -23,6 +23,9 @@ export interface ToolDef { name: string; description: string; parameters: Record
 export interface ChatRequest {
   messages: Msg[]; tools?: ToolDef[]; maxTokens?: number; temperature?: number;
   session?: string; // 一次对话的稳定标识（同一次醒来 / 同一段交谈的多轮调用相同），供需要的供应商使用
+  signal?: AbortSignal; // 外部中止（会话时间墙）
+  onChunk?: () => void; // 收到任何流数据块（用于重置会话时间墙）
+  onText?: (text: string) => void; // 流式文字片段
 }
 export interface ChatResult { text: string; toolCalls: ToolCall[]; usage: { input: number; output: number }; model: string }
 

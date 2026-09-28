@@ -25,7 +25,7 @@ export function startGateway(safeMode: boolean) {
   const broadcast = (event: string, data: unknown) => { const s = JSON.stringify({ event, data }); for (const c of clients) c.send(s); };
 
   const extra: Record<string, (p: any) => Promise<unknown> | unknown> = {
-    "chat.send": (p) => converse("你", String(p.text), "控制台"),
+    "chat.send": (p) => converse("你", String(p.text), "控制台", typeof p.session === "string" ? p.session.slice(0, 64) : undefined),
     "feishu.status": () => feishuStatus(),
     "feishu.set": (p) => setFeishu(p),
     "feishu.register": () => { registerFeishu((url) => broadcast("feishu.qr", { url })).then((s) => broadcast("feishu.registered", s), (e) => broadcast("feishu.error", { message: e.description ?? e.message })); return true; },
@@ -84,6 +84,7 @@ export function startGateway(safeMode: boolean) {
   bus.on("timeline", (e) => broadcast("timeline", e));
   bus.on("approval", (a) => broadcast("approval", a));
   bus.on("say", (t) => broadcast("say", t));
+  bus.on("activity", (a) => broadcast("activity", a));
 
   server.listen(config.gateway.port, "127.0.0.1", () => log("gateway", `监听 127.0.0.1:${config.gateway.port}`));
 }

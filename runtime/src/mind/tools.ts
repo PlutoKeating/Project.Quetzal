@@ -110,16 +110,18 @@ export function allTools(): Tool[] {
   return [...core, ...(adapter.tools ?? []).map((t) => ({ ...t, handler: t.handler })), ...handsTools()];
 }
 
-export async function callTool(name: string, args: Record<string, any>, reason: string): Promise<string> {
+export type ToolStatus = "ok" | "error" | "denied";
+
+export async function callTool(name: string, args: Record<string, any>, reason: string): Promise<{ text: string; status: ToolStatus }> {
   const t = allTools().find((x) => x.name === name);
-  if (!t) return `没有这个工具：${name}`;
-  if (!(await check(t.permission, name, reason, args))) return "这个动作没有被允许（闸门拒绝或急停中）";
+  if (!t) return { text: `没有这个工具：${name}`, status: "error" };
+  if (!(await check(t.permission, name, reason, args))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
     const out = await t.handler(args);
     audit("amani", name, reason, args, out.slice(0, 500));
-    return out;
+    return { text: out, status: "ok" };
   } catch (e: any) {
     audit("amani", name, reason, args, `error: ${e.message}`);
-    return `出错了：${e.message}`;
+    return { text: `出错了：${e.message}`, status: "error" };
   }
 }

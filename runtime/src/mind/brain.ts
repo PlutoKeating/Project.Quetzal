@@ -2,6 +2,7 @@
 //   思考（think）：内省（便宜的模型决定要不要投入）→ 行动（工具循环）→ 反思（finish：写日记、报告满足了什么）
 //   做梦（dream）：整理最近的经历（包括其他身体的），更新常驻记忆与笔记，调和人格冲突
 //   对话（converse）：有人说话时立即回应，可以使用工具
+// 每次醒来 / 对话都是一个会话（mind/activity.ts）：进展实时广播，并受「无进展」会话时间墙约束。
 import crypto from "node:crypto";
 import { chat } from "../providers/router.ts";
 import type { Msg, ToolDef } from "../providers/types.ts";
@@ -11,9 +12,10 @@ import { addTimeline, addMessage } from "../store.ts";
 import { config } from "../config.ts";
 import * as mem from "../memory/memory.ts";
 import * as soul from "../memory/soul-sync.ts";
-import { addExperience, setOpenLoops, markBusy, isBusy, nudge, type WakeKind } from "../heart/heart.ts";
+import { addExperience, setOpenLoops, markBusy, isBusy, nudge, stopped, type WakeKind } from "../heart/heart.ts";
 import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
+import { Session, SessionTimeout, summarize } from "./activity.ts";
 
 const FINISH: ToolDef = {
   name: "finish",
@@ -32,23 +34,41 @@ const FINISH: ToolDef = {
 interface Step { tool: string; args: unknown; result: string }
 
 
-/** 工具循环。返回最终文本、finish 参数、步骤与 token 消耗。 */
-async function loop(messages: Msg[], reason: string, maxSteps: number, withFinish: boolean) {
-  const session = crypto.randomUUID(); // 同一次醒来 / 交谈的多轮调用共享一个会话标识
+/**
+ * 工具循环。由 agent 自己决定节奏：每一步由模型选择继续调用工具（可边做边说），或给出不带工具调用的文字作为这次的回复。
+ * 基座不限制步数；防止失控的是「无进展」会话时间墙与急停（每一步开始前检查）。返回最终文本、finish 参数、步骤与 token 消耗。
+ */
+async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session) {
   const tools: ToolDef[] = [...allTools().map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
   const steps: Step[] = [];
   let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "";
-  for (let i = 0; i < maxSteps && !finish; i++) {
-    const r = await chat({ messages, tools, maxTokens: config.brain.maxOutputTokens, session });
+  for (let i = 0; !finish; i++) {
+    s.check(); s.touch();
+    if (stopped()) throw new Error("急停中，已停下");
+    s.emit({ kind: "step", step: i + 1 });
+    const r = await chat({
+      messages, tools, maxTokens: config.brain.maxOutputTokens, session: s.id,
+      signal: s.signal, onChunk: () => s.touch(), onText: (t) => s.delta(t),
+    });
+    s.flush();
+    s.emit({ kind: "text", step: i + 1, text: r.text, final: !r.toolCalls.length });
     tokens += r.usage.input + r.usage.output; model = r.model;
     text = r.text || text;
     messages.push({ role: "assistant", content: r.text, toolCalls: r.toolCalls });
     if (!r.toolCalls.length) break;
     for (const c of r.toolCalls) {
-      if (c.name === "finish") { finish = c.args; messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: "好的" }); continue; }
-      const out = await callTool(c.name, c.args, reason);
-      steps.push({ tool: c.name, args: c.args, result: out.slice(0, 1500) });
-      messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: out.slice(0, 12000) });
+      const card = { call: c.id, name: c.name, summary: c.name === "finish" ? String(c.args.title ?? "") : summarize(c.args) };
+      if (c.name === "finish") {
+        finish = c.args; messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: "好的" });
+        s.emit({ kind: "tool", ...card, status: "ok", ms: 0 });
+        continue;
+      }
+      s.emit({ kind: "tool", ...card, status: "running" });
+      const t0 = Date.now();
+      const out = await s.hold(() => callTool(c.name, c.args, reason)); // 执行工具即在工作：暂停会话时间墙
+      s.emit({ kind: "tool", ...card, status: out.status, ms: Date.now() - t0, result: out.text.split("\n").find((l) => l.trim())?.slice(0, 120) ?? "" });
+      steps.push({ tool: c.name, args: c.args, result: out.text.slice(0, 1500) });
+      messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: out.text.slice(0, 12000) });
     }
   }
   return { text, finish, steps, tokens, model };
@@ -92,7 +112,12 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
 
 梦可以是跳跃的、联想的。结束时调用 finish，把这个梦写进日记。`;
   const messages: Msg[] = [{ role: "system", content: systemPrompt() }, { role: "user", content: task }];
-  const r = await loop(messages, reason, config.brain.maxSteps, true);
+  const s = new Session(kind === "dream" ? "dream" : "think");
+  s.emit({ kind: "start", text: reason });
+  let r: Awaited<ReturnType<typeof loop>>;
+  try { r = await loop(messages, reason, true, s); s.emit({ kind: "done" }); }
+  catch (e: any) { s.emit({ kind: "error", message: e.message }); if (kind === "dream") await soul.releaseLease().catch(() => {}); throw e; }
+  finally { s.close(); }
   const f = r.finish ?? { title: kind === "dream" ? "一个模糊的梦" : "醒来了一会儿", journal: r.text || "（没有留下文字）" };
   mem.writeJournal(`${kind === "dream" ? "梦 · " : ""}${f.title}`, `${f.journal}${f.feeling ? `\n\n心情：${f.feeling}` : ""}`);
   addTimeline(kind, f.title, { reason, intent: gate.intent, journal: f.journal, feeling: f.feeling, steps: r.steps, tokens: r.tokens, model: r.model });
@@ -106,11 +131,19 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
 }
 
 let chain: Promise<unknown> = Promise.resolve();
+let queued = 0;
 
-/** 与人对话。对话按顺序处理；她正在思考时，会在想完后回应。 */
-export function converse(from: string, text: string, channel: string): Promise<string> {
+/**
+ * 与人对话。对话按顺序处理；排队等待期间视为在工作，不计入会话时间墙。
+ * session：客户端给出的会话标识，用于把进展事件对应到它发出的这句话。
+ */
+export function converse(from: string, text: string, channel: string, session?: string): Promise<string> {
   nudge(`${from}在说话`, { social: 0.2 }, { wake: true });
-  const job = chain.then(async () => {
+  const s = new Session("chat", channel, session);
+  s.emit({ kind: "start", text });
+  if (queued++ > 0) s.emit({ kind: "queued" });
+  const prev = chain;
+  const job = s.hold(() => prev).then(async () => {
     const wasBusy = isBusy();
     if (!wasBusy) markBusy(true);
     try {
@@ -118,21 +151,26 @@ export function converse(from: string, text: string, channel: string): Promise<s
       addMessage("user", channel, text);
       const messages: Msg[] = [
         { role: "system", content: systemPrompt() },
-        { role: "user", content: `${from} 通过${channel}对你说：\n${text}\n\n直接回复对方（可以先用工具做需要的事）。` },
+        { role: "user", content: `${from} 通过${channel}对你说：\n${text}\n\n回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。` },
       ];
-      const r = await loop(messages, `回应${from}`, 8, false);
+      const r = await loop(messages, `回应${from}`, false, s);
       const reply = r.text.trim() || "……";
       addMessage("amani", channel, reply);
+      s.emit({ kind: "done", reply });
       addTimeline("chat", `和${from}说话`, { channel, text, reply, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
       nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
       await soul.push("对话").catch(() => {});
       return reply;
     } catch (e: any) {
+      const timeout = e instanceof SessionTimeout || s.signal.aborted;
       log("brain", `对话失败：${e.message}`);
-      return `（我现在没法好好思考：${e.message.split("\n")[0]}）`;
+      const reply = timeout ? `（我卡住了：${e.message.split("\n")[0]}。你可以再说一次。）` : `（我现在没法好好思考：${e.message.split("\n")[0]}）`;
+      addMessage("amani", channel, reply);
+      s.emit({ kind: "error", message: e.message.split("\n")[0], reply });
+      return reply;
     } finally { if (!wasBusy) markBusy(false); }
-  });
+  }).finally(() => { queued--; s.close(); });
   chain = job.catch(() => {});
   return job;
 }
