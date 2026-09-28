@@ -9,6 +9,7 @@ import { adjustPersonality } from "../heart/heart.ts";
 import { adapter } from "../body/twin.ts";
 import type { ToolDef } from "../providers/types.ts";
 import { htmlToText, readDocument } from "./documents.ts";
+import { webSearch, BROWSER_HEADERS } from "./search.ts";
 import * as voice from "../voice/azure.ts";
 
 export interface Tool extends ToolDef { permission: string; handler: (a: Record<string, any>) => Promise<string> }
@@ -61,21 +62,16 @@ const core: Tool[] = [
     handler: async (a) => a.action === "add" ? `已记下，现在有 ${mem.addLoop(a.text)} 件` : `已放下，还剩 ${mem.closeLoop(a.id)} 件`,
   },
   {
-    name: "web_search", permission: "network", description: "搜索网页，返回标题、链接和摘要。",
-    parameters: obj({ query: str("搜索词") }, ["query"]),
-    handler: async (a) => {
-      const res = await fetch(`https://cn.bing.com/search?q=${encodeURIComponent(a.query)}`, { headers: { "user-agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(20_000) });
-      const html = await res.text();
-      const items = [...html.matchAll(/<li class="b_algo"[\s\S]*?<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<p[^>]*>([\s\S]*?)<\/p>)?/g)]
-        .slice(0, 8).map((m) => `- ${htmlToText(m[2])}\n  ${m[1]}\n  ${htmlToText(m[3] ?? "").slice(0, 200)}`);
-      return items.join("\n") || "没有结果";
-    },
+    name: "web_search", permission: "network",
+    description: "搜索网页，返回标题、链接和摘要。默认依次尝试 360 搜索、必应（英文为主的查询用国际版）、百度，拿到结果即止；也可以指定引擎。需要全文时用 web_fetch 打开链接。",
+    parameters: obj({ query: str("搜索词"), count: { type: "number", description: "结果条数（1–10，默认 8）" }, engine: { type: "string", enum: ["so", "bing-cn", "bing-intl", "baidu"], description: "可选：指定引擎" } }, ["query"]),
+    handler: async (a) => webSearch(String(a.query), { count: a.count, engine: a.engine }),
   },
   {
     name: "web_fetch", permission: "network", description: "读取一个网页的正文文本。",
     parameters: obj({ url: str("网址"), offset: { type: "number", description: "从第几个字符开始（用于翻页）" } }, ["url"]),
     handler: async (a) => {
-      const res = await fetch(a.url, { headers: { "user-agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(30_000) });
+      const res = await fetch(a.url, { headers: BROWSER_HEADERS, signal: AbortSignal.timeout(30_000) });
       const type = res.headers.get("content-type") ?? "";
       const raw = await res.text();
       const text = type.includes("html") ? htmlToText(raw) : raw;
