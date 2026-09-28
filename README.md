@@ -20,7 +20,7 @@ flowchart LR
   M <-- git（全自动） --> SOUL[(灵魂仓库<br/>多具身体共享)]
   SOUL <-- soul-bridge --> HX[Hermes / OpenClaw]
   Core <--> GW[本地网关]
-  GW <--> C[控制台 App]
+  GW <--> C["控制台 App（Windler）"]
   Core <--> F[飞书：对话 + 交互卡片]
 ```
 
@@ -39,7 +39,7 @@ flowchart LR
 
 ```
 runtime/   运行基座（TypeScript / Node.js 22+），打包为单文件 dist/main.cjs
-console/   控制台 App（Flutter，Android）
+console/   控制台 App「Windler」（Flutter，Android）
 bridge/    灵魂桥 soul-bridge：Hermes Agent / OpenClaw 的可插拔同步模块
 docs/      架构、API、快速开始
 ```
