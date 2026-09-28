@@ -13,7 +13,9 @@ import { bus } from "../bus.ts";
 import { log } from "../log.ts";
 import { invoke } from "../ops.ts";
 import { converse, isRunning } from "../mind/brain.ts";
-import { kv, ensureSession } from "../store.ts";
+import { kv, ensureSession, type Attachment } from "../store.ts";
+import { saveUpload, MAX_FILES } from "../mind/attachments.ts";
+import { imageMime } from "../mind/images.ts";
 import { views, approvalCard, md, card } from "./feishu-cards.ts";
 import type { Activity } from "../bus.ts";
 import { identity } from "../memory/identity.ts";
@@ -100,7 +102,30 @@ function progress(chatId: string, replyTo: string, session: string) {
 /** 飞书当前的会话（/new 切换）。 */
 const currentConv = () => kv.get<string>("feishu.conv", "feishu");
 
-async function handle(msg: { chatId: string; messageId: string; content: string }) {
+/**
+ * 下载消息里的图片与文件，作为附件交给她。用户发来的资源必须走「消息资源」接口
+ * （SDK 的 downloadResource 走的是下载机器人自己上传的资源的接口，拿不到用户发的图片）。
+ */
+async function fetchResources(msg: lark.NormalizedMessage): Promise<Attachment[]> {
+  const out: Attachment[] = [];
+  for (const r of (msg.resources ?? []).filter((x) => x.type !== "sticker").slice(0, MAX_FILES)) {
+    try {
+      const res = await (channel as any).rawClient.im.v1.messageResource.get({
+        path: { message_id: msg.messageId, file_key: r.fileKey }, params: { type: r.type === "image" ? "image" : "file" },
+      });
+      const chunks: Buffer[] = [];
+      for await (const c of res.getReadableStream()) chunks.push(Buffer.from(c));
+      const data = Buffer.concat(chunks);
+      const ext = imageMime("", data.subarray(0, 16))?.split("/")[1]?.replace("jpeg", "jpg");
+      out.push(saveUpload(r.fileName || `${r.type}-${r.fileKey.slice(-8)}.${ext ?? "bin"}`, data));
+    } catch (e: any) {
+      log("feishu", `下载${r.type === "image" ? "图片" : "文件"}失败：${e.message}`);
+    }
+  }
+  return out;
+}
+
+async function handle(msg: lark.NormalizedMessage) {
   const text = msg.content.trim();
   try {
     const m = text.match(/^\/new(?:\s+(.+))?$/i);
@@ -112,8 +137,9 @@ async function handle(msg: { chatId: string; messageId: string; content: string 
       return;
     }
     const conv = currentConv();
+    const attachments = await fetchResources(msg);
     if (isRunning(conv)) { // 她正在这个会话里工作：插话，下一次模型调用前并入；回复在进行中的那一轮里给出
-      await converse("你", msg.content, "飞书", { conv });
+      await converse("你", msg.content, "飞书", { conv, attachments });
       await channel?.addReaction(msg.messageId, "Get").catch(() => channel?.addReaction(msg.messageId, "OK").catch(() => {}));
       return;
     }
@@ -121,7 +147,7 @@ async function handle(msg: { chatId: string; messageId: string; content: string 
     try { reaction = await channel!.addReaction(msg.messageId, "OnIt"); } catch {}
     const sid = crypto.randomUUID();
     const prog = progress(msg.chatId, msg.messageId, sid);
-    const reply = await converse("你", msg.content, "飞书", { conv, turn: sid });
+    const reply = await converse("你", msg.content, "飞书", { conv, turn: sid, attachments });
     await prog.close();
     if (reaction) channel?.removeReaction(msg.messageId, reaction).catch(() => {});
     await channel?.send(msg.chatId, { markdown: reply }, { replyTo: msg.messageId });

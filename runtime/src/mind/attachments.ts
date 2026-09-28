@@ -9,10 +9,10 @@ import { isUtf8 } from "node:buffer";
 import { paths } from "../config.ts";
 import type { Attachment } from "../store.ts";
 import type { Msg, ImagePart } from "../providers/types.ts";
+import { loadImage } from "./images.ts";
 
 export const MAX_FILES = 20;
 export const MAX_FILE_BYTES = 50 << 20; // 单个文件 50 MiB
-const MAX_IMAGE_BYTES = 8 << 20;        // 放进消息的单张图片
 const MAX_TEXT_CHARS = 60_000;          // 一条消息内联的文本总量
 
 const IMAGE = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" } as Record<string, string>;
@@ -68,27 +68,28 @@ export function resolveUpload(rel: string): string | undefined {
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 /** 组装带附件的用户消息。 */
-export function userMessage(header: string, files: Attachment[], instruction: string): Msg {
+export async function userMessage(header: string, files: Attachment[], instruction: string): Promise<Msg> {
   const images: ImagePart[] = [];
   const lines: string[] = [];
   let inlined = 0;
-  files.slice(0, MAX_FILES).forEach((f, i) => {
+  for (const [i, f] of files.slice(0, MAX_FILES).entries()) {
     const tag = `${i + 1}. ${f.name}（${size(f.size)}，本地路径 ${f.path}）`;
     try {
-      if (f.kind === "image" && f.size <= MAX_IMAGE_BYTES) {
-        images.push({ mime: f.mime, data: fs.readFileSync(f.path).toString("base64") });
-        lines.push(`${tag}：图片，已附在消息中`);
+      if (f.kind === "image") {
+        const { image, note } = await loadImage(f.path);
+        images.push(image);
+        lines.push(`${tag}：图片，已附在消息中${note ? `（${note}）` : ""}`);
       } else if (f.kind === "text") {
         const text = fs.readFileSync(f.path, "utf8");
         if (inlined + text.length <= MAX_TEXT_CHARS) {
           inlined += text.length;
           lines.push(`${tag}：\n\`\`\`${ext(f.name)}\n${text.replace(/```/g, "ˋˋˋ")}\n\`\`\``);
         } else lines.push(`${tag}：文本文件，内容较长未内联，可用 read_document 或 shell 读取`);
-      } else lines.push(`${tag}：${f.kind === "image" ? "图片过大，未放进消息" : "文档或其他文件"}，可用 read_document 读取常见文档（Word、PPT、Excel、PDF、ODF、EPUB、HTML 等），其他格式用 shell 命令处理`);
+      } else lines.push(`${tag}：文档或其他文件，可用 read_document 读取常见文档（Word、PPT、Excel、PDF、ODF、EPUB、HTML 等），其他格式用 shell 命令处理`);
     } catch (e: any) {
-      lines.push(`${tag}：读取失败（${e.message}）`);
+      lines.push(`${tag}：${f.kind === "image" ? "图片无法放进消息" : "读取失败"}（${e.message}），可以用 view_image 或 shell 处理`);
     }
-  });
+  }
   const body = [header, ...(lines.length ? [`\n附件（${lines.length} 个）：\n${lines.join("\n")}`] : []), `\n${instruction}`].join("\n");
   return images.length ? { role: "user", content: body, images } : { role: "user", content: body };
 }

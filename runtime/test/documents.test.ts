@@ -89,15 +89,15 @@ test("附件：分类、保存、只按 uploads 内的路径解析", () => {
   assert.equal(att.fromUpload("../../config/windler.json"), undefined); // 越界
 });
 
-test("附件：组装消息（图片进多模态、文本内联、文档给路径）", () => {
+test("附件：组装消息（图片进多模态、文本内联、文档给路径）", async () => {
   const img = att.saveUpload("p.png", Buffer.from("89504e47", "hex"));
   const txt = att.saveUpload("n.txt", Buffer.from("附件正文"));
   const doc = att.saveUpload("r.docx", Buffer.from("PK\x03\x04"));
-  const m = att.userMessage("你 通过控制台对你说：\n看看", [img, txt, doc], "回复对方。") as any;
+  const m = await att.userMessage("你 通过控制台对你说：\n看看", [img, txt, doc], "回复对方。") as any;
   assert.equal(m.images.length, 1);
   assert.equal(m.images[0].mime, "image/png");
   assert.match(m.content, /附件（3 个）/);
   assert.match(m.content, /附件正文/);
   assert.match(m.content, /r\.docx.*read_document/);
-  assert.equal((att.userMessage("x", [], "y") as any).images, undefined);
+  assert.equal(((await att.userMessage("x", [], "y")) as any).images, undefined);
 });

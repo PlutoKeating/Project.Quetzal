@@ -11,6 +11,7 @@ import type { ToolDef } from "../providers/types.ts";
 import type { Session } from "./activity.ts";
 import { htmlToText, readDocument } from "./documents.ts";
 import { webSearch, BROWSER_HEADERS } from "./search.ts";
+import { loadImage } from "./images.ts";
 import * as voice from "../voice/azure.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
@@ -80,6 +81,24 @@ const core: Tool[] = [
       const text = type.includes("html") ? htmlToText(raw) : raw;
       const off = Number(a.offset) || 0;
       return `[${res.status}] 共 ${text.length} 字符\n` + text.slice(off, off + 8000);
+    },
+  },
+  {
+    name: "view_image", permission: "memory",
+    description: "看图：把本地图片（自己拍的照片、下载的图片、对话里的附件等）交给你自己看，图片会在你下一步思考时出现在眼前。一次最多 4 张；较大的照片会自动缩小。之前对话里的图片只保留了路径，想再看就用它。",
+    parameters: obj({ paths: { type: "array", items: { type: "string" }, description: "图片的本地路径（1–4 个）" } }, ["paths"]),
+    handler: async (a, ctx) => {
+      if (!ctx.session) return "现在无法看图（没有进行中的思考）";
+      const list = (Array.isArray(a.paths) ? a.paths : [a.paths]).filter(Boolean).slice(0, 4).map(String);
+      const out: string[] = [];
+      for (const p of list) {
+        try {
+          const { image, note } = await loadImage(p);
+          ctx.session.images.push({ image, label: `${p}${note ? `（${note}）` : ""}` });
+          out.push(`✓ ${p}${note ? `：${note}` : ""}`);
+        } catch (e: any) { out.push(`✗ ${p}：${e.message}`); }
+      }
+      return `${out.join("\n")}\n图片会在你下一步思考时出现（会自动选用能看图的模型）。`;
     },
   },
   {

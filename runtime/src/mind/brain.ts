@@ -36,11 +36,15 @@ const FINISH: ToolDef = {
 interface Step { tool: string; args: unknown; result: string }
 
 
-/** 把对方在她工作时发来的消息并入上下文（插话 / 打断）。 */
-function drain(messages: Msg[], s: Session): boolean {
+/** 把对方在她工作时发来的消息并入上下文（插话 / 打断），以及她用 view_image 请求查看的图片。 */
+async function drain(messages: Msg[], s: Session): Promise<boolean> {
+  if (s.images.length) {
+    const got = s.images.splice(0);
+    messages.push({ role: "user", content: `（以下是你用 view_image 请求查看的 ${got.length} 张图片：${got.map((g) => g.label).join("；")}）`, images: got.map((g) => g.image) });
+  }
   if (!s.inbox.length) return false;
   for (const m of s.inbox.splice(0)) {
-    messages.push(userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}：\n${m.text}`, m.attachments as Attachment[],
+    messages.push(await userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}：\n${m.text}`, m.attachments as Attachment[],
       m.mode === "interrupt" ? "请优先回应这条消息，再决定之前的工作是否继续。" : "请注意这条新消息，据此调整：之前的工作可以继续，也可以按新消息改变计划。"));
   }
   return true;
@@ -58,7 +62,7 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
   for (let i = 0; !finish; i++) {
     s.check(); s.touch();
     if (stopped()) throw new Error("急停中，已停下");
-    drain(messages, s);
+    await drain(messages, s);
     s.emit({ kind: "step", step: i + 1 });
     let r: Awaited<ReturnType<typeof chat>>;
     try {
@@ -80,7 +84,7 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
     text = r.text || text;
     messages.push({ role: "assistant", content: r.text, toolCalls: r.toolCalls });
     if (!r.toolCalls.length) {
-      if (!s.inbox.length) break;
+      if (!s.inbox.length && !s.images.length) break;
       // 本想结束，但对方刚补充了消息：这段话留作过程中的叙述，接着处理新消息
       if (r.text.trim()) s.emit({ kind: "text", step: i + 1, text: r.text, final: false });
       continue;
@@ -177,7 +181,7 @@ function history(conv: string, self: number, budget = 12000): Msg[] {
   const out: Msg[] = [];
   let used = 0;
   for (const m of sessionMessages(conv, 80).filter((m) => m.id < self || m.role === "agent").reverse()) {
-    const files = m.attachments?.length ? `\n[附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}]` : "";
+    const files = m.attachments?.length ? `\n[附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片想再看用 view_image" : ""}]` : "";
     const text = m.text + files;
     if (used + text.length > budget) break;
     used += text.length;
@@ -221,7 +225,7 @@ export function converse(from: string, text: string, channel: string, o: { conv?
       const messages: Msg[] = [
         { role: "system", content: systemPrompt(text, { conv }) },
         ...history(conv, id),
-        userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
+        await userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
           "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。"),
       ];
       let r = await loop(messages, `回应${from}`, false, s);

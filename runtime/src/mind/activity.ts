@@ -71,6 +71,8 @@ export class Session {
   private llm?: AbortController;
   /** 对方在工作期间发来的消息。 */
   readonly inbox: Incoming[] = [];
+  /** view_image 请求查看的图片：在下一次模型调用时放进上下文。 */
+  readonly images: { image: import("../providers/types.ts").ImagePart; label: string }[] = [];
   /** 本次模型调用已经流式输出的文字（被打断时保留）。 */
   stepText = "";
 

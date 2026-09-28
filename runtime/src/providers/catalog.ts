@@ -21,6 +21,9 @@ function protocolOf(npm = ""): Protocol {
   return "openai-completions";
 }
 
+/** 能否看图只看输入模态（attachment 表示能收文件，不代表能看图）；目录没有模态信息时才退而参考 attachment。 */
+export const visionOf = (m: any): boolean => (Array.isArray(m.modalities?.input) ? m.modalities.input.includes("image") : !!m.attachment);
+
 export async function refreshCatalog(): Promise<CatalogProvider[]> {
   const res = await fetch("https://models.dev/api.json", { signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`models.dev HTTP ${res.status}`);
@@ -29,7 +32,7 @@ export async function refreshCatalog(): Promise<CatalogProvider[]> {
     id: p.id, name: p.name ?? p.id, api: DEFAULT_BASE[p.id] ?? p.api ?? "", protocol: protocolOf(p.npm),
     models: Object.values(p.models ?? {}).map((m: any) => ({
       id: m.id, name: m.name ?? m.id, context: m.limit?.context ?? 0, output: m.limit?.output ?? 0, toolCall: !!m.tool_call,
-      vision: (m.modalities?.input ?? []).includes("image") || !!m.attachment,
+      vision: visionOf(m),
       cost: m.cost ? { input: m.cost.input ?? 0, output: m.cost.output ?? 0 } : undefined,
     })),
   })).sort((a, b) => a.name.localeCompare(b.name));
@@ -37,10 +40,24 @@ export async function refreshCatalog(): Promise<CatalogProvider[]> {
   return list;
 }
 
+let refreshing = false;
+/** 缓存是旧格式（没有「能否看图」信息）时，在后台刷新一次。 */
+function refreshIfStale(c: { providers: CatalogProvider[] }) {
+  if (refreshing || c.providers.some((p) => p.models.some((m) => typeof m.vision === "boolean"))) return;
+  refreshing = true;
+  refreshCatalog().catch(() => {}).finally(() => { refreshing = false; });
+}
+
+/** 启动时检查：没有缓存或缓存是旧格式时，在后台刷新。 */
+export function ensureCatalogFresh() {
+  try { refreshIfStale(JSON.parse(fs.readFileSync(file(), "utf8"))); } catch { refreshIfStale({ providers: [] }); }
+}
+
 /** 公共目录里某个模型能否看图（同步读取缓存；目录没有该信息时返回 undefined）。 */
 export function catalogVision(catalogId: string, model: string): boolean | undefined {
   try {
     const c: { providers: CatalogProvider[] } = JSON.parse(fs.readFileSync(file(), "utf8"));
+    refreshIfStale(c);
     const name = model.replace(/^.*\//, "");
     const hit = c.providers.find((p) => p.id === catalogId)?.models.find((m) => m.id === model || m.id === name)
       ?? c.providers.flatMap((p) => p.models).find((m) => m.id === name && m.vision !== undefined);

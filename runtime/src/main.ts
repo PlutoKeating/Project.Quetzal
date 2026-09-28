@@ -9,6 +9,7 @@ import { wake } from "./mind/brain.ts";
 import { ensureSoul } from "./memory/soul-sync.ts";
 import { displayName } from "./memory/identity.ts";
 import { startGateway } from "./gateway.ts";
+import { ensureCatalogFresh } from "./providers/catalog.ts";
 import { startFeishu, wireFeishu } from "./channels/feishu.ts";
 import { bus } from "./bus.ts";
 import { log } from "./log.ts";
@@ -46,6 +47,7 @@ async function main() {
   await ensureSoul().catch((e) => log("soul", `灵魂目录初始化失败：${e.message}`));
   await sample().catch(() => {});
   addTimeline("boot", "苏醒：进程启动", { version: VERSION, body: config.body });
+  ensureCatalogFresh(); // 模型目录缺少「能否看图」等信息时后台刷新（路由据此把图片只发给能看图的模型）
   startHeart(wake);
   startSenses();
 }
