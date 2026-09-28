@@ -33,7 +33,8 @@ src/
 │   ├── adapters.ts       四种协议的 HTTP 适配（非流式）
 │   ├── catalog.ts        models.dev 公共目录
 │   ├── registry.ts       草稿保存、版本号、Key 加密
-│   └── router.ts         全局顺序路由、Key 轮换、故障转移、连通性测试
+│   ├── router.ts         全局顺序路由、Key 轮换、故障转移、连通性测试
+│   └── compat/           供应商兼容层（仅对匹配的供应商自动生效）：index.ts 登记，opencode-go.ts
 └── channels/
     ├── feishu.ts         飞书长连接、消息、菜单与单聊事件、卡片回调、一键接入
     └── feishu-cards.ts   卡片 JSON 2.0：此刻 / 心流 / 记忆 / 控制 / 模型 / 权限 / 预算 / 审批

@@ -2,6 +2,7 @@
 //   思考（think）：内省（便宜的模型决定要不要投入）→ 行动（工具循环）→ 反思（finish：写日记、报告满足了什么）
 //   做梦（dream）：整理最近的经历（包括其他身体的），更新常驻记忆与笔记，调和人格冲突
 //   对话（converse）：有人说话时立即回应，可以使用工具
+import crypto from "node:crypto";
 import { chat } from "../providers/router.ts";
 import type { Msg, ToolDef } from "../providers/types.ts";
 import { allTools, callTool } from "./tools.ts";
@@ -33,11 +34,12 @@ interface Step { tool: string; args: unknown; result: string }
 
 /** 工具循环。返回最终文本、finish 参数、步骤与 token 消耗。 */
 async function loop(messages: Msg[], reason: string, maxSteps: number, withFinish: boolean) {
+  const session = crypto.randomUUID(); // 同一次醒来 / 交谈的多轮调用共享一个会话标识
   const tools: ToolDef[] = [...allTools().map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
   const steps: Step[] = [];
   let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "";
   for (let i = 0; i < maxSteps && !finish; i++) {
-    const r = await chat({ messages, tools, maxTokens: config.brain.maxOutputTokens });
+    const r = await chat({ messages, tools, maxTokens: config.brain.maxOutputTokens, session });
     tokens += r.usage.input + r.usage.output; model = r.model;
     text = r.text || text;
     messages.push({ role: "assistant", content: r.text, toolCalls: r.toolCalls });

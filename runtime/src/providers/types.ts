@@ -20,7 +20,10 @@ export type Msg =
   | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
   | { role: "tool"; content: string; toolCallId: string; name: string };
 export interface ToolDef { name: string; description: string; parameters: Record<string, unknown> }
-export interface ChatRequest { messages: Msg[]; tools?: ToolDef[]; maxTokens?: number; temperature?: number }
+export interface ChatRequest {
+  messages: Msg[]; tools?: ToolDef[]; maxTokens?: number; temperature?: number;
+  session?: string; // 一次对话的稳定标识（同一次醒来 / 同一段交谈的多轮调用相同），供需要的供应商使用
+}
 export interface ChatResult { text: string; toolCalls: ToolCall[]; usage: { input: number; output: number }; model: string }
 
 export class ProviderError extends Error {
