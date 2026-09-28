@@ -181,6 +181,29 @@ class Api extends ChangeNotifier {
     return c.future.timeout(const Duration(seconds: 90)).then((v) => v as T);
   }
 
+  /// 长时间运行的调用（如对话）：不设绝对超时，而是「无进展」超时——
+  /// 每收到一个满足 isProgress 的推送（模型流式文字、工具执行、心跳……）就重新计时，idle 内毫无动静才判定超时。
+  Future<T> callLive<T>(String method, Map<String, dynamic> params, {required bool Function(GatewayEvent) isProgress, Duration idle = const Duration(seconds: 120)}) {
+    final ws = _ws;
+    if (ws == null || conn != Conn.online) return Future.error(RpcError('OFFLINE', '未连接到 agent'));
+    final id = ++_seq;
+    final c = Completer<dynamic>();
+    _pending[id] = c;
+    Timer? t;
+    void arm() {
+      t?.cancel();
+      t = Timer(idle, () {
+        if (c.isCompleted) return;
+        _pending.remove(id);
+        c.completeError(RpcError('TIMEOUT', '${idle.inSeconds} 秒没有收到任何进展'));
+      });
+    }
+    final sub = _events.stream.where(isProgress).listen((_) => arm());
+    arm();
+    ws.sink.add(jsonEncode({'id': id, 'method': method, 'params': params}));
+    return c.future.whenComplete(() { t?.cancel(); sub.cancel(); }).then((v) => v as T);
+  }
+
   Future<void> refresh() async {
     try { status = Map<String, dynamic>.from(await call<Map>('status')); _rememberName(); notifyListeners(); } catch (_) {}
   }
