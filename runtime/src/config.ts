@@ -31,6 +31,8 @@ export interface Config {
   feishu: { enabled: boolean; appId: string; ownerOpenId: string; bindCode: string };
   soul: { remote: string; branch: string };
   gateway: { port: number };
+  // 语音（Azure 语音服务文本转语音）。密钥单独保存在 secrets/azure_speech_key
+  speech: { region: string; endpoint: string; voice: string; style: string; rate: string; pitch: string; volume: string; format: string };
 }
 
 export const defaults: Config = {
@@ -47,6 +49,7 @@ export const defaults: Config = {
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
   soul: { remote: "", branch: "main" },
   gateway: { port: 7788 },
+  speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
 };
 
 const file = () => path.join(paths.config, "windler.json");

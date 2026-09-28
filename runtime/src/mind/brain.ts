@@ -8,14 +8,15 @@ import { chat } from "../providers/router.ts";
 import type { Msg, ToolDef } from "../providers/types.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemPrompt } from "./prompt.ts";
-import { addTimeline, addMessage } from "../store.ts";
+import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, type Attachment } from "../store.ts";
+import { userMessage } from "./attachments.ts";
 import { config } from "../config.ts";
 import * as mem from "../memory/memory.ts";
 import * as soul from "../memory/soul-sync.ts";
 import { addExperience, setOpenLoops, markBusy, isBusy, nudge, stopped, type WakeKind } from "../heart/heart.ts";
 import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
-import { Session, SessionTimeout, summarize } from "./activity.ts";
+import { Session, SessionTimeout, Interrupted, summarize } from "./activity.ts";
 
 const FINISH: ToolDef = {
   name: "finish",
@@ -35,9 +36,20 @@ const FINISH: ToolDef = {
 interface Step { tool: string; args: unknown; result: string }
 
 
+/** 把对方在她工作时发来的消息并入上下文（插话 / 打断）。 */
+function drain(messages: Msg[], s: Session): boolean {
+  if (!s.inbox.length) return false;
+  for (const m of s.inbox.splice(0)) {
+    messages.push(userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}：\n${m.text}`, m.attachments as Attachment[],
+      m.mode === "interrupt" ? "请优先回应这条消息，再决定之前的工作是否继续。" : "请注意这条新消息，据此调整：之前的工作可以继续，也可以按新消息改变计划。"));
+  }
+  return true;
+}
+
 /**
  * 工具循环。由 agent 自己决定节奏：每一步由模型选择继续调用工具（可边做边说），或给出不带工具调用的文字作为这次的回复。
  * 基座不限制步数；防止失控的是「无进展」会话时间墙与急停（每一步开始前检查）。返回最终文本、finish 参数、步骤与 token 消耗。
+ * 对方在她工作时发来的消息：每次调用模型前并入；「打断」会中止正在进行的模型输出（保留已输出的部分），但不会打断正在执行的工具。
  */
 async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session) {
   const tools: ToolDef[] = [...allTools().map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
@@ -46,17 +58,33 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
   for (let i = 0; !finish; i++) {
     s.check(); s.touch();
     if (stopped()) throw new Error("急停中，已停下");
+    drain(messages, s);
     s.emit({ kind: "step", step: i + 1 });
-    const r = await chat({
-      messages, tools, maxTokens: config.brain.maxOutputTokens, session: s.id,
-      signal: s.signal, onChunk: () => s.touch(), onText: (t) => s.delta(t),
-    });
+    let r: Awaited<ReturnType<typeof chat>>;
+    try {
+      r = await chat({
+        messages, tools, maxTokens: config.brain.maxOutputTokens, session: s.id,
+        signal: s.beginLLM(), onChunk: () => s.touch(), onText: (t) => s.delta(t),
+      });
+    } catch (e) {
+      if (!(e instanceof Interrupted) || s.signal.aborted) throw e;
+      s.flush(); // 被打断：保留已经说出的部分，下一步带着对方的新消息继续
+      const partial = s.stepText.trim();
+      if (partial) messages.push({ role: "assistant", content: `${partial}\n（输出被对方打断）` });
+      s.emit({ kind: "text", step: i + 1, text: partial ? `${partial}（被打断）` : "（被打断）", final: false });
+      continue;
+    } finally { s.endLLM(); }
     s.flush();
     s.emit({ kind: "text", step: i + 1, text: r.text, final: !r.toolCalls.length });
     tokens += r.usage.input + r.usage.output; model = r.model;
     text = r.text || text;
     messages.push({ role: "assistant", content: r.text, toolCalls: r.toolCalls });
-    if (!r.toolCalls.length) break;
+    if (!r.toolCalls.length) {
+      if (!s.inbox.length) break;
+      // 本想结束，但对方刚补充了消息：这段话留作过程中的叙述，接着处理新消息
+      if (r.text.trim()) s.emit({ kind: "text", step: i + 1, text: r.text, final: false });
+      continue;
+    }
     for (const c of r.toolCalls) {
       const card = { call: c.id, name: c.name, summary: c.name === "finish" ? String(c.args.title ?? "") : summarize(c.args) };
       if (c.name === "finish") {
@@ -134,34 +162,76 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
   return { satisfied, effort: effortOf(r.tokens, r.steps.length) };
 }
 
-let chain: Promise<unknown> = Promise.resolve();
-let queued = 0;
+// ---------- 对话：多个会话可以同时进行。同一会话内按顺序处理；不同会话并行，但彼此可见（系统提示里有其他会话的近况与进行中的工作）。
+const chains = new Map<string, Promise<unknown>>();
+const running = new Map<string, Session>(); // 会话 → 正在进行的那一轮
+const waiting = new Map<string, number>();
+let chatting = 0, ownsBusy = false;
+const enter = () => { if (chatting++ === 0 && !isBusy()) { markBusy(true); ownsBusy = true; } };
+const leave = () => { if (--chatting === 0 && ownsBusy) { ownsBusy = false; markBusy(false); } };
+
+/** 会话自己的历史，作为真正的多轮上下文（从新到旧，在预算内）。不含这句话本身，也不含之后还在排队的话。 */
+function history(conv: string, self: number, budget = 12000): Msg[] {
+  const out: Msg[] = [];
+  let used = 0;
+  for (const m of sessionMessages(conv, 80).filter((m) => m.id < self || m.role === "agent").reverse()) {
+    const files = m.attachments?.length ? `\n[附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}]` : "";
+    const text = m.text + files;
+    if (used + text.length > budget) break;
+    used += text.length;
+    out.unshift(m.role === "user" ? { role: "user", content: text } : { role: "assistant", content: text });
+  }
+  return out;
+}
 
 /**
- * 与人对话。对话按顺序处理；排队等待期间视为在工作，不计入会话时间墙。
- * session：客户端给出的会话标识，用于把进展事件对应到它发出的这句话。
+ * 与人对话。conv：会话（缺省时飞书用「飞书」会话，其余用「最初的对话」）；turn：客户端给这一轮的标识；attachments：已上传的附件。
+ * 排队等待期间视为在工作，不计入会话时间墙。
  */
-export function converse(from: string, text: string, channel: string, session?: string): Promise<string> {
+export function converse(from: string, text: string, channel: string, o: { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt" } = {}): Promise<string> {
+  const conv = o.conv || (channel === "飞书" ? "feishu" : "first");
+  ensureSession(conv, conv === "feishu" ? "飞书" : "新的对话", channel);
+  // 她正在这个会话里工作时：默认「插话」（这次模型调用结束后并入）；「打断」立即中止当前模型输出（不打断工具）；「排队」作为下一轮
+  const cur = running.get(conv), mode = o.mode ?? "steer";
+  if (cur && mode !== "queue") {
+    const id = addMessage("user", channel, text, { session: conv, attachments: o.attachments, mode });
+    cur.inbox.push({ id, text, mode, attachments: o.attachments ?? [] });
+    cur.emit({ kind: "steer", text, msg: id, mode });
+    cur.touch();
+    const cut = mode === "interrupt" && cur.interrupt();
+    return Promise.resolve(cut ? "（已打断，她会马上看到这条消息）" : "（已送达，她会在这一步结束后看到）");
+  }
   nudge(`${from}在说话`, { social: 0.2 }, { wake: true });
-  const s = new Session("chat", channel, session);
-  s.emit({ kind: "start", text });
-  if (queued++ > 0) s.emit({ kind: "queued" });
-  const prev = chain;
+  const s = new Session("chat", channel, o.turn, conv);
+  // 收到就入库：记录的顺序即发送顺序，客户端随时从后端取回都一致；start 带上消息 id，进行中的卡片挂在它下面
+  const id = addMessage("user", channel, text, { session: conv, attachments: o.attachments });
+  if (getSession(conv)?.title === "新的对话") updateSession(conv, { title: text.replace(/\s+/g, " ").trim().slice(0, 20) || (o.attachments?.[0]?.name ?? "新的对话") });
+  s.emit({ kind: "start", text, msg: id });
+  const n = waiting.get(conv) ?? 0;
+  waiting.set(conv, n + 1);
+  if (n > 0) s.emit({ kind: "queued" });
+  const prev = chains.get(conv) ?? Promise.resolve();
   const job = s.hold(() => prev).then(async () => {
-    const wasBusy = isBusy();
-    if (!wasBusy) markBusy(true);
+    enter();
+    running.set(conv, s);
     try {
       await soul.pull().catch(() => {});
-      addMessage("user", channel, text);
       const messages: Msg[] = [
-        { role: "system", content: systemPrompt(text) },
-        { role: "user", content: `${from} 通过${channel}对你说：\n${text}\n\n回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。` },
+        { role: "system", content: systemPrompt(text, { conv }) },
+        ...history(conv, id),
+        userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
+          "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。"),
       ];
-      const r = await loop(messages, `回应${from}`, false, s);
+      let r = await loop(messages, `回应${from}`, false, s);
+      while (s.inbox.length) { // 最后一步刚结束时又来了消息：继续处理
+        const more = await loop(messages, `回应${from}`, false, s);
+        r = { ...more, text: more.text || r.text, steps: [...r.steps, ...more.steps], tokens: r.tokens + more.tokens };
+      }
+      running.delete(conv);
       const reply = r.text.trim() || "……";
-      addMessage("agent", channel, reply);
+      addMessage("agent", channel, reply, { session: conv, process: s.process() });
       s.emit({ kind: "done", reply });
-      addTimeline("chat", `和${from}说话`, { channel, text, reply, steps: r.steps, tokens: r.tokens, model: r.model });
+      addTimeline("chat", `和${from}说话`, { channel, conv, text, reply, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
       nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
       await soul.push("对话").catch(() => {});
@@ -170,11 +240,11 @@ export function converse(from: string, text: string, channel: string, session?: 
       const timeout = e instanceof SessionTimeout || s.signal.aborted;
       log("brain", `对话失败：${e.message}`);
       const reply = timeout ? `（我卡住了：${e.message.split("\n")[0]}。你可以再说一次。）` : `（我现在没法好好思考：${e.message.split("\n")[0]}）`;
-      addMessage("agent", channel, reply);
+      addMessage("agent", channel, reply, { session: conv, process: s.process() });
       s.emit({ kind: "error", message: e.message.split("\n")[0], reply });
       return reply;
-    } finally { if (!wasBusy) markBusy(false); }
-  }).finally(() => { queued--; s.close(); });
-  chain = job.catch(() => {});
+    } finally { if (running.get(conv) === s) running.delete(conv); leave(); }
+  }).finally(() => { waiting.set(conv, (waiting.get(conv) ?? 1) - 1); s.close(); });
+  chains.set(conv, job.catch(() => {}));
   return job;
 }

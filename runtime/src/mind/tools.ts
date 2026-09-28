@@ -3,22 +3,19 @@
 import { bus } from "../bus.ts";
 import { audit } from "../store.ts";
 import { check } from "../guard/guard.ts";
-import { shell } from "../sh.ts";
+import { shell, startJob, stopJob, getJob, listJobs } from "../sh.ts";
 import * as mem from "../memory/memory.ts";
 import { adjustPersonality } from "../heart/heart.ts";
 import { adapter } from "../body/twin.ts";
 import type { ToolDef } from "../providers/types.ts";
+import { htmlToText, readDocument } from "./documents.ts";
+import * as voice from "../voice/azure.ts";
 
 export interface Tool extends ToolDef { permission: string; handler: (a: Record<string, any>) => Promise<string> }
 
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties: props, required });
 const str = (description: string) => ({ type: "string", description });
 
-function htmlToText(html: string) {
-  return html.replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, " ").replace(/<br\s*\/?>|<\/(p|div|li|h\d)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
-    .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
-}
 
 const core: Tool[] = [
   {
@@ -87,15 +84,64 @@ const core: Tool[] = [
     },
   },
   {
-    name: "shell", permission: "shell", description: "在这具身体上执行一条 shell 命令，返回输出（60 秒超时）。",
-    parameters: obj({ command: str("命令") }, ["command"]),
-    handler: async (a) => { const r = await shell(a.command); return `exit ${r.code}\n${(r.out + r.err).slice(0, 8000)}`; },
+    name: "read_document", permission: "shell",
+    description: "读取本地文档的文字内容（分页，每次约 2 万字）：Word（docx/doc）、PowerPoint（pptx/ppt，含备注）、Excel（xlsx/xls，按工作表输出为制表符分隔）、PDF、OpenDocument（odt/ods/odp）、EPUB、HTML、RTF、各类文本；zip 会列出内容。用户上传的附件在附件列表里给出了本地路径。",
+    parameters: obj({ path: str("文件的本地路径"), offset: { type: "number", description: "从第几个字开始（用于翻页）" } }, ["path"]),
+    handler: async (a) => readDocument(String(a.path), Number(a.offset) || 0),
+  },
+  {
+    name: "shell", permission: "shell",
+    description: "在这具身体上执行一条 shell 命令。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。",
+    parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
+    handler: async (a) => {
+      if (a.background) { const j = startJob(a.command); return `已在后台运行，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
+      const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000);
+      return `exit ${r.code}\n${(r.out + r.err).slice(0, 8000)}`;
+    },
+  },
+  {
+    name: "shell_jobs", permission: "shell", description: "管理后台命令：list 列出全部任务；output 查看某个任务最近的输出；stop 停止某个任务（连同它启动的子进程）。你可以按自己的判断，或根据对方的要求随时停止。",
+    parameters: obj({ action: { type: "string", enum: ["list", "output", "stop"] }, id: str("任务 id") }, ["action"]),
+    handler: async (a) => {
+      if (a.action === "stop") return stopJob(String(a.id));
+      if (a.action === "output") { const j = getJob(String(a.id)); return j ? `${j.ended ? `已结束（退出码 ${j.code}）` : "运行中"}\n${j.out.slice(-8000) || "（还没有输出）"}` : `没有这个任务：${a.id}`; }
+      const l = listJobs();
+      return l.map((j) => `${j.id}  ${j.ended ? `已结束（${j.code}）` : `运行中 ${Math.round((Date.now() - j.started) / 1000)}s`}  ${j.command.slice(0, 80)}`).join("\n") || "没有后台任务";
+    },
   },
   {
     name: "share_thought", permission: "memory",
     description: "更新「想分享的一句话」：你此刻正在想、并且愿意和对方分享的一句话或一个议题。它会一直显示在对方控制台的首页和飞书「此刻」卡片上，直到你下次更新。用你自己的口吻写一句话，最好不超过 50 字（最多 120 字），细节留到聊天里说；想法变了就随时换。",
     parameters: obj({ text: str("一句话或一个议题") }, ["text"]),
     handler: async (a) => mem.setThought(a.text),
+  },
+  {
+    name: "voice_speak", permission: "device",
+    description: "用你自己的声音说话（Azure 语音合成，由这具身体的扬声器播放）。可以只为这一句临时换音色、风格、语速、音调；想长期换声音用 voice_config。",
+    parameters: obj({ text: str("要说的话"), voice: str("可选：音色，如 zh-CN-XiaoxiaoNeural"), style: str("可选：表达风格，如 cheerful、gentle、whispering"), rate: str("可选：语速，如 +10%"), pitch: str("可选：音调，如 -5%") }, ["text"]),
+    handler: async (a) => {
+      const file = await voice.synthesize(String(a.text), { voice: a.voice, style: a.style, rate: a.rate, pitch: a.pitch });
+      if (!adapter.playAudio) return `已合成：${file}（这具身体不支持播放音频，可以用 shell 自己播放）`;
+      await adapter.playAudio(file);
+      return `说出来了（音频：${file}）`;
+    },
+  },
+  {
+    name: "voice_config", permission: "self_modify",
+    description: "查看或修改你的声音配置（Azure 语音服务）。action=get 查看当前配置；voices 列出可选音色（可用 locale 过滤，如 zh-CN，结果含每个音色支持的风格）；set 修改：region（如 eastasia）或 endpoint（自定义端点）、key（密钥）、voice（音色）、style（默认风格，空表示不用）、rate / pitch（如 +10% / -5%）、volume（0–100）、format（输出格式）。",
+    parameters: obj({ action: { type: "string", enum: ["get", "voices", "set"] }, locale: str("voices 用：语言，如 zh-CN"),
+      region: str(""), endpoint: str(""), key: str(""), voice: str(""), style: str(""), rate: str(""), pitch: str(""), volume: str(""), format: str("") }, ["action"]),
+    handler: async (a) => {
+      if (a.action === "voices") {
+        const list = await voice.listVoices(a.locale ?? "zh-CN");
+        return list.slice(0, 120).map((v) => `${v.name}（${v.local}，${v.gender}${v.styles.length ? `，风格：${v.styles.join("/")}` : ""}）`).join("\n") || "没有找到音色";
+      }
+      if (a.action === "set") {
+        const { action, locale, ...patch } = a;
+        return JSON.stringify(voice.setSpeech(patch));
+      }
+      return JSON.stringify(voice.speechStatus());
+    },
   },
   {
     name: "send_message", permission: "message", description: "主动给和你一起生活的人发一条消息（飞书、通知等所有已连接的渠道）。",

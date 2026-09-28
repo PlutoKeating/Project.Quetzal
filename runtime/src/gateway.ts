@@ -2,6 +2,9 @@
 //   GET  /health                 → { ok, version, mode }（无需令牌，供点火器探活）
 //   WS   /rpc?token=<令牌>        → 请求 {id, method, params} / 响应 {id, result | error} / 推送 {event, data}
 import http from "node:http";
+import fs from "node:fs";
+import { saveUpload, fromUpload, resolveUpload, MAX_FILES, MAX_FILE_BYTES } from "./mind/attachments.ts";
+const str64 = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 64) : undefined);
 import crypto from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { config, readSecret, writeSecret } from "./config.ts";
@@ -25,7 +28,12 @@ export function startGateway(safeMode: boolean) {
   const broadcast = (event: string, data: unknown) => { const s = JSON.stringify({ event, data }); for (const c of clients) c.send(s); };
 
   const extra: Record<string, (p: any) => Promise<unknown> | unknown> = {
-    "chat.send": (p) => converse("你", String(p.text), "控制台", typeof p.session === "string" ? p.session.slice(0, 64) : undefined),
+    // conv：会话；turn：客户端给这一轮的标识；attachments：上传返回的附件（只按 rel 解析）
+    "chat.send": (p) => {
+      const files = (Array.isArray(p.attachments) ? p.attachments : []).slice(0, MAX_FILES).map((a: any) => fromUpload(String(a?.rel ?? ""))).filter(Boolean);
+      const mode = ["steer", "queue", "interrupt"].includes(p.mode) ? p.mode : undefined; // 她工作时发消息的方式（默认插话）
+      return converse("你", String(p.text ?? ""), "控制台", { conv: str64(p.conv), turn: str64(p.turn), attachments: files, mode });
+    },
     "feishu.status": () => feishuStatus(),
     "feishu.set": (p) => setFeishu(p),
     "feishu.register": () => { registerFeishu((url) => broadcast("feishu.qr", { url })).then((s) => broadcast("feishu.registered", s), (e) => broadcast("feishu.error", { message: e.description ?? e.message })); return true; },
@@ -35,6 +43,10 @@ export function startGateway(safeMode: boolean) {
   // 配对：控制台请求 → 基座通过系统通知与飞书下发 6 位配对码 → 控制台提交配对码换取令牌（5 分钟有效，最多尝试 5 次）
   let pairing: { code: string; until: number; tries: number } | undefined;
   const json = (res: http.ServerResponse, code: number, body: unknown) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
+  const authed = (req: http.IncomingMessage) => {
+    const given = Buffer.from(new URL(req.url ?? "", "http://x").searchParams.get("token") ?? String(req.headers["x-token"] ?? ""));
+    return given.length === token.length && crypto.timingSafeEqual(given, Buffer.from(token));
+  };
   const readBody = (req: http.IncomingMessage) => new Promise<any>((r) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
 
   const server = http.createServer(async (req, res) => {
@@ -51,6 +63,27 @@ export function startGateway(safeMode: boolean) {
       if (String(code) !== pairing.code) return json(res, 403, { ok: false, message: "配对码不正确" });
       pairing = undefined;
       return json(res, 200, { ok: true, token });
+    }
+    // 附件上传：POST /upload?name=<文件名>，请求体为文件内容；返回附件信息（控制台随 chat.send 回传）
+    if (req.method === "POST" && req.url?.startsWith("/upload")) {
+      if (!authed(req)) return json(res, 401, { ok: false, message: "未授权" });
+      const chunks: Buffer[] = []; let n = 0, over = false;
+      req.on("data", (c: Buffer) => { n += c.length; if (n > MAX_FILE_BYTES) over = true; else chunks.push(c); });
+      req.on("end", () => {
+        if (over) return json(res, 413, { ok: false, message: `文件超过 ${MAX_FILE_BYTES >> 20} MiB` });
+        try { json(res, 200, { ok: true, file: saveUpload(new URL(req.url!, "http://x").searchParams.get("name") || "file", Buffer.concat(chunks)) }); }
+        catch (e: any) { json(res, 400, { ok: false, message: e.message }); }
+      });
+      return;
+    }
+    // 附件下载（预览）：GET /uploads/<rel>
+    if (req.method === "GET" && req.url?.startsWith("/uploads/")) {
+      if (!authed(req)) return json(res, 401, { ok: false, message: "未授权" });
+      const f = resolveUpload(decodeURIComponent(new URL(req.url, "http://x").pathname.slice("/uploads/".length)));
+      if (!f) return json(res, 404, { ok: false, message: "没有这个文件" });
+      const a = fromUpload(decodeURIComponent(new URL(req.url, "http://x").pathname.slice("/uploads/".length)))!;
+      res.writeHead(200, { "content-type": a.kind === "image" ? a.mime : a.kind === "text" ? "text/plain; charset=utf-8" : "application/octet-stream", "content-length": a.size });
+      return void fs.createReadStream(f).pipe(res);
     }
     if (req.url === "/health") {
       res.writeHead(200, { "content-type": "application/json" });

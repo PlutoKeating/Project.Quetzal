@@ -5,6 +5,7 @@ import { loadProviders, keySecret } from "./registry.ts";
 import { ProviderError, type ChatRequest, type ChatResult, type Provider, type ProviderModel } from "./types.ts";
 import { addUsage } from "../store.ts";
 import { applyCompat, compatFor } from "./compat/index.ts";
+import { catalogVision } from "./catalog.ts";
 import crypto from "node:crypto";
 import { log } from "../log.ts";
 
@@ -23,8 +24,30 @@ function target(r: Route, keyId: string, session: string): Target {
   return applyCompat(r.provider, t, { session }); // 仅对需要的供应商生效（如 OpenCode Go）
 }
 
+/** 常见的能看图的模型名（公共目录与手动设置都没有信息时的兜底）。 */
+const VISION_NAME = /gpt-4o|gpt-4\.1|gpt-5|gpt-6|o[34](-|$)|claude-(3|sonnet|opus|haiku)|claude-.*-4|gemini|gemma-3|qwen[\w.-]*-?vl|qvq|glm-4(\.\d)?v|vision|kimi-k2\.5|kimi[\w.-]*vl|grok-(2-vision|4)|llava|pixtral|mistral-(medium|small)-3|minimax-(vl|m3)|doubao[\w.-]*vision|step-1v|internvl|llama-4/i;
+
+/** 这条路由的模型能否看图：手动设置 > 公共目录 > 模型名推断。 */
+export function canSee(r: Route): boolean {
+  return r.model.vision ?? catalogVision(r.provider.catalogId, r.model.name) ?? VISION_NAME.test(r.model.name);
+}
+
+/** 请求里有图片时只用能看图的模型；一个都没有时去掉图片并在消息里说明，保证仍能回应。 */
+function forImages(req: ChatRequest, list: Route[]): { req: ChatRequest; list: Route[] } {
+  if (!req.messages.some((m) => m.role === "user" && m.images?.length)) return { req, list };
+  const seeing = list.filter(canSee);
+  if (seeing.length) return { req, list: seeing };
+  return {
+    list,
+    req: { ...req, messages: req.messages.map((m) => m.role === "user" && m.images?.length
+      ? { role: "user", content: `${m.content}\n\n（这条消息附带了 ${m.images.length} 张图片，但当前启用的模型都不支持看图，图片没有发送给你；需要的话可以用工具处理附件列表里的本地路径。）` }
+      : m) },
+  };
+}
+
 export async function chat(req: ChatRequest, opts: { quick?: boolean } = {}): Promise<ChatResult> {
   let list = routes();
+  ({ req, list } = forImages(req, list));
   const quickId = loadProviders().quickModelId;
   if (opts.quick && quickId) list = [...list.filter((r) => r.model.id === quickId), ...list.filter((r) => r.model.id !== quickId)];
   if (!list.length) throw new ProviderError("尚未配置可用的模型：请在控制台「模型」页添加供应商、Key 和模型", 0, true);

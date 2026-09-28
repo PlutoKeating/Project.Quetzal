@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig, config, paths } from "./config.ts";
-import { openStore, addTimeline, addMessage } from "./store.ts";
+import { openStore, addTimeline, addMessage, ensureSession } from "./store.ts";
 import { loadAdapter, startSenses, sample, adapter } from "./body/twin.ts";
 import { startHeart } from "./heart/heart.ts";
 import { wake } from "./mind/brain.ts";
@@ -36,7 +36,7 @@ async function main() {
   startGateway(safeMode);
   wireFeishu();
   await startFeishu();
-  bus.on("say", (text) => { addMessage("agent", "主动", text); void adapter.notify?.(displayName(), text).catch(() => {}); });
+  bus.on("say", (text) => { ensureSession("inbox", "主动消息", "主动"); addMessage("agent", "主动", text, { session: "inbox" }); void adapter.notify?.(displayName(), text).catch(() => {}); });
 
   if (safeMode) {
     addTimeline("safe", "反复崩溃，进入安全模式");

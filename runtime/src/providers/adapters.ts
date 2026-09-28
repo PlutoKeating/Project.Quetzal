@@ -88,6 +88,7 @@ async function openaiCompletions(t: Target, r: ChatRequest): Promise<ChatResult>
   const messages = r.messages.map((m) =>
     m.role === "assistant" ? { role: "assistant", content: m.content || null, ...(m.toolCalls?.length ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } })) } : {}) }
     : m.role === "tool" ? { role: "tool", tool_call_id: m.toolCallId, content: m.content }
+    : m.role === "user" && m.images?.length ? { role: "user", content: [{ type: "text", text: m.content }, ...m.images.map((i) => ({ type: "image_url", image_url: { url: `data:${i.mime};base64,${i.data}` } }))] }
     : { role: m.role, content: m.content });
   let text = ""; const usage = { input: 0, output: 0 };
   const calls: { id: string; name: string; args: string }[] = [];
@@ -135,7 +136,8 @@ async function openaiResponses(t: Target, r: ChatRequest): Promise<ChatResult> {
     if (m.role === "system") instructions += m.content + "\n";
     else if (m.role === "tool") input.push({ type: "function_call_output", call_id: m.toolCallId, output: m.content });
     else {
-      if (m.content) input.push({ role: m.role, content: m.content });
+      if (m.role === "user" && m.images?.length) input.push({ role: "user", content: [{ type: "input_text", text: m.content }, ...m.images.map((i) => ({ type: "input_image", image_url: `data:${i.mime};base64,${i.data}` }))] });
+      else if (m.content) input.push({ role: m.role, content: m.content });
       if (m.role === "assistant") for (const c of m.toolCalls ?? []) input.push({ type: "function_call", call_id: c.id, name: c.name, arguments: JSON.stringify(c.args) });
     }
   }
@@ -169,7 +171,10 @@ async function anthropicMessages(t: Target, r: ChatRequest): Promise<ChatResult>
     else if (m.role === "assistant") {
       if (m.content) push("assistant", { type: "text", text: m.content });
       for (const c of m.toolCalls ?? []) push("assistant", { type: "tool_use", id: c.id, name: c.name, input: c.args });
-    } else push("user", { type: "text", text: m.content });
+    } else {
+      push("user", { type: "text", text: m.content });
+      if (m.role === "user") for (const i of m.images ?? []) push("user", { type: "image", source: { type: "base64", media_type: i.mime, data: i.data } });
+    }
   }
   const blocks: any[] = []; const usage = { input: 0, output: 0 };
   const j = await sse(`${base(t.baseUrl)}/messages`, { "x-api-key": t.apiKey, "anthropic-version": "2023-06-01", ...t.headers }, {
@@ -215,7 +220,10 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
     else if (m.role === "assistant") {
       if (m.content) push("model", { text: m.content });
       for (const c of m.toolCalls ?? []) push("model", { functionCall: { name: c.name, args: c.args } });
-    } else push("user", { text: m.content });
+    } else {
+      push("user", { text: m.content });
+      if (m.role === "user") for (const i of m.images ?? []) push("user", { inlineData: { mimeType: i.mime, data: i.data } });
+    }
   }
   let text = ""; const toolCalls: ToolCall[] = []; const usage = { input: 0, output: 0 };
   const onChunk = (c: any, live: boolean) => {

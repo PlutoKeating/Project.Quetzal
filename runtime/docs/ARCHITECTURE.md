@@ -7,9 +7,10 @@ src/
 ├── main.ts               装配各模块；熔断（安全模式）
 ├── config.ts             家目录布局、配置读写、密钥文件
 ├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity）
-├── store.ts              SQLite：kv、timeline、messages、audit、usage
+├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式）、audit、usage
 ├── log.ts                日志（stdout，写出前脱敏）
-├── sh.ts                 外部命令执行（超时、输出上限）
+├── sh.ts                 外部命令执行（超时、输出上限）；后台任务（可随时停止整个进程组）
+├── voice/azure.ts        语音：Azure 文本转语音（SSML、合成、音色列表、配置与密钥）
 ├── crypto.ts             供应商 Key 的 AES-256-GCM 加密
 ├── version.ts            版本号
 ├── ops.ts                统一操作层：网关与飞书共用，修改类操作全部审计
@@ -23,7 +24,9 @@ src/
 ├── mind/
 │   ├── prompt.ts         系统提示组装
 │   ├── tools.ts          内置工具 + 适配器工具 + 预留 hands 工具；经闸门调用
-│   ├── activity.ts       会话：进展广播（activity 事件）、会话时间墙（120 秒无进展）、心跳
+│   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断
+│   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
+│   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
 │   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话
 ├── memory/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头

@@ -6,7 +6,8 @@ import { identity } from "../memory/identity.ts";
 import { recent as soulRecent, syncStatus } from "../memory/soul-sync.ts";
 import { describeBody } from "../body/twin.ts";
 import { snapshot } from "../heart/heart.ts";
-import { recentMessages } from "../store.ts";
+import { listSessions, sessionMessages } from "../store.ts";
+import { liveTurns } from "./activity.ts";
 import { recallBlock } from "../memory/retrieval.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
@@ -20,7 +21,30 @@ function soulPerception(): string {
 }
 
 /** context：当前话题（对话内容、醒来的原因与意图），用于挑选相关记忆。 */
-export function systemPrompt(context = ""): string {
+/**
+ * 其他会话：它们都是同一个你，只是同时在和人说话或在想事情。这里给出每个会话的近况，以及正在进行中的工作，
+ * 让每个会话都知道全部正在发生的事（而不是彼此隔离）。conv 为当前会话，醒来时为空（看到全部会话）。
+ */
+function otherSessions(conv = "", budget = 4000): string {
+  const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n) + "…" : x; };
+  const lines: string[] = [];
+  const title = (id: string) => listSessions({ limit: 200 }).find((s) => s.id === id)?.title ?? id;
+  for (const t of liveTurns().filter((t) => t.conv !== conv)) {
+    const lastTool = [...t.items].reverse().find((x) => x.type === "tool") as any;
+    const where = t.origin === "chat" ? `会话「${title(t.conv)}」` : t.origin === "dream" ? "做梦（整理记忆）" : "醒来思考";
+    lines.push(`- 【进行中】${where}${t.origin === "chat" ? `：对方说「${clip(t.text, 80)}」` : `：${clip(t.text, 60)}`}；${t.status === "queued" ? "排队中" : `第 ${t.step} 步`}${lastTool ? `，最近的工具 ${lastTool.name}（${lastTool.status}）` : ""}${t.live ? `，正在写：「${clip(t.live, 80)}」` : ""}`);
+  }
+  for (const s of listSessions({ limit: 8 }).filter((s) => s.id !== conv).slice(0, 5)) {
+    const msgs = sessionMessages(s.id, 4);
+    if (!msgs.length) continue;
+    lines.push(`- 会话「${s.title}」（${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}）：\n${msgs.map((m) => `    ${m.role === "user" ? "对方" : "我"}：${clip(m.text, 160)}`).join("\n")}`);
+  }
+  let out = lines.join("\n");
+  if (out.length > budget) out = out.slice(0, budget) + "…";
+  return out;
+}
+
+export function systemPrompt(context = "", o: { conv?: string } = {}): string {
   const h = snapshot();
   const d = h.drives;
   const loops = mem.openLoops();
@@ -43,6 +67,6 @@ export function systemPrompt(context = ""): string {
 ${loops.length ? "未完成的念头：\n" + loops.map((l) => `- [${l.id}] ${l.text}`).join("\n") : "没有未完成的念头"}`,
     soulPerception(),
     `## 最近的日记\n${mem.recentJournal() || "（还没有日记）"}`,
-    `## 最近的对话\n${recentMessages(12).map((m) => `${m.role === "user" ? "对方" : "我"}（${m.channel}）：${m.text}`).join("\n") || "（还没有对话）"}`,
+    `## ${o.conv ? "其他会话（都是你自己，同时进行；当前会话的历史在下面的对话里）" : "各个会话的近况"}\n${otherSessions(o.conv) || "（没有其他会话）"}`,
   ].join("\n\n");
 }

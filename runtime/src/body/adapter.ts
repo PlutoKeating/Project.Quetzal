@@ -39,6 +39,7 @@ export interface BodyAdapter {
   /** 系统通知：agent 主动说话的本地出口；actions 为可选按钮（id → 文案） */
   notify?(title: string, text: string): Promise<void>;
   speak?(text: string): Promise<void>;
+  playAudio?(file: string): Promise<void>;  // 播放一个音频文件（如语音合成的结果）
   tools?: AdapterTool[];
   hands?: Hands;
 }

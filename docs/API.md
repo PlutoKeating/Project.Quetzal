@@ -13,6 +13,8 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌，供点火器探活 |
 | POST | `/pair/start` | 生成 6 位配对码（5 分钟有效），通过适配器的系统通知与飞书下发 |
 | POST | `/pair/finish` | `{code}` → `{ok, token}`；错误码 403（不正确）、410（失效或尝试超过 5 次） |
+| POST | `/upload?name=<文件名>&token=<令牌>` | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `WINDLER_HOME/data/uploads/<日期>/` |
+| GET | `/uploads/<rel>?token=<令牌>` | 下载附件（控制台预览图片）；只能访问 uploads 目录内的文件 |
 
 ### 1.2 WebSocket `/rpc?token=<令牌>`
 
@@ -27,20 +29,23 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
 | `approval` | 审批 `{id, action, reason, args, status}` |
 | `say` | Windler 主动说的话（字符串） |
-| `activity` | 会话进展 `{session, origin: chat｜think｜dream, channel, ts, kind, …}`，见下表 |
+| `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），见下表 |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
 `activity` 的 `kind`：
 
 | kind | 字段 | 含义 |
 |---|---|---|
-| `start` / `queued` | `text?` | 会话开始 / 排在前一段对话之后 |
+| `start` / `queued` | `text?`, `msg?` | 这一轮开始（`msg` 为这句话在对话记录里的 id）/ 排在同一会话前一轮之后 |
+| `steer` | `text, msg, mode: steer｜interrupt` | 她工作时对方发来的消息已并入这一轮（进行中的卡片挂到这句话下面） |
 | `step` | `step` | 第几次模型调用开始 |
 | `delta` | `text` | 流式文字片段（约每 200ms 合并一次） |
 | `text` | `step, text, final` | 该步的完整文字；`final` 为真表示这就是回复（不再调用工具） |
 | `tool` | `call, name, summary, status: running｜ok｜error｜denied, ms?, result?` | 工具执行中 / 执行后（同一 `call` 先后两条），`summary` 为一行参数摘要 |
 | `alive` | — | 心跳，会话存续期间每 15 秒一次 |
-| `done` / `error` | `reply?` / `message, reply?` | 结束；回复已写入对话记录 |
+| `done` / `error` | `reply?` / `message, reply?` | 结束；回复与执行过程已写入对话记录 |
+
+进行中的每一轮同时保存为快照（`sessions.live`）：客户端断线重连、从后台切回时据此完整恢复，然后继续接收增量事件。
 
 ### 1.3 方法
 
@@ -52,7 +57,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 |---|---|---|
 | `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought}`；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
 | `timeline` | `{limit?, before?, kind?}` | 时间线（倒序） |
-| `messages` | `{limit?}` | 对话记录（正序） |
+| `messages` | `{limit?}` | 全部会话里最近的对话（正序） |
 | `audit` | `{limit?}` | 审计记录 |
 
 `heart` 字段：`mode`（awake / asleep / active）、`S`、`C`、`sleepiness`、`alertness`、`drives{curiosity, expression, social, openLoops}`、`unconsolidated`、`ratePerHour`、`inhibitors[]`、`lastReason`、`nextCandidateAt`、`personality`。
@@ -61,8 +66,21 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
-| `chat.send` | `{text, session?}` | 与她对话，返回她的回复。`session` 由客户端生成，用于把 `activity` 事件对应到这句话；调用不设绝对超时，按「120 秒无进展」判定 |
+| `chat.send` | `{text, conv?, turn?, attachments?, mode?}` | 与她对话，返回她的回复。`conv` 为会话（缺省为「最初的对话」）；`turn` 由客户端生成，用于把 `activity` 事件对应到这句话；`attachments` 为 `/upload` 返回的附件（只按 `rel` 解析，最多 20 个）。她正在这个会话里工作时，`mode` 决定这句话怎么处理：`steer`（默认，插话：这次模型调用结束后并入）、`queue`（排队：作为下一轮）、`interrupt`（打断：立即中止当前模型输出并带着新消息继续，不打断正在执行的工具）；插话与打断立即返回。调用不设绝对超时，按「120 秒无进展」判定 |
+| `sessions` | `{archived?}` | 会话列表 `[{id, title, channel, created, updated, archived, count, last}]`（按最近更新） |
+| `sessions.create` | `{title?}` | 新建会话（首条消息自动成为标题） |
+| `sessions.rename` / `sessions.archive` | `{id, title}` / `{id, archived}` | 重命名 / 归档与找回（有新消息的会话自动回到列表） |
+| `sessions.messages` | `{id, limit?, before?}` | 某个会话的对话 `[{id, ts, role, channel, text, session, process, attachments, mode}]`；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
+| `sessions.live` | — | 进行中的轮次快照 `[{turn, conv, origin, text, msg, status, step, live, items}]` |
 | `poke` | `{note?}` | 戳一下：推高想念与好奇并立即重新抽样，不强制醒来 |
+
+**语音（Azure 语音服务）**
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `speech` / `setSpeech` | — / `{region?, endpoint?, key?, voice?, style?, rate?, pitch?, volume?, format?}` | 查看 / 修改配置；密钥只返回末四位，留空不改 |
+| `speechVoices` | `{locale?}` | 可选音色（含支持的风格） |
+| `speechTest` | `{text?}` | 用当前配置合成并播放一句 |
 
 **调节与安全**
 
@@ -135,6 +153,7 @@ interface BodyAdapter {
   sample(): Promise<RawSample>;            // 一次物理采样，字段全部可选
   notify?(title: string, text: string): Promise<void>;  // 本地系统通知
   speak?(text: string): Promise<void>;
+  playAudio?(file: string): Promise<void>; // 播放音频文件（语音合成的结果）
   tools?: AdapterTool[];                   // 设备动作，每个声明所属能力类别
   hands?: Hands;                           // 预留：看屏幕与操作其他应用
 }
@@ -165,3 +184,4 @@ interface RawSample {
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
 | `gateway.port` | 7788 | 网关端口 |
+| `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |

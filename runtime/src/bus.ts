@@ -15,11 +15,13 @@ export interface Events {
 export interface TimelineEntry { id: number; ts: number; kind: string; title: string; detail: unknown }
 /** 会话进展事件（见 mind/activity.ts）。 */
 export interface Activity {
-  session: string; origin: "chat" | "think" | "dream"; channel: string; ts: number;
-  kind: "start" | "queued" | "step" | "delta" | "text" | "tool" | "alive" | "done" | "error";
+  session: string; conv: string; origin: "chat" | "think" | "dream"; channel: string; ts: number; // session：这一轮的标识；conv：所属会话（醒来为空）
+  kind: "start" | "queued" | "step" | "delta" | "text" | "tool" | "steer" | "alive" | "done" | "error";
   step?: number; text?: string; final?: boolean; // step：第几步；delta / text：流式片段 / 该步完整文字（final：是否为最终回复）
   call?: string; name?: string; summary?: string; status?: "running" | "ok" | "error" | "denied"; ms?: number; result?: string; // 工具
   reply?: string; message?: string; // done / error
+  msg?: number; // start / steer：这句话在对话记录里的 id
+  mode?: "steer" | "interrupt"; // steer：对方在她工作时发来的消息如何并入
 }
 export interface Approval { id: string; action: string; reason: string; args: unknown; status: "pending" | "approved" | "denied" }
 

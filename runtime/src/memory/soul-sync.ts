@@ -42,8 +42,12 @@ export async function ensureSoul() {
   await r().ensure();
 }
 
+// 多个会话、醒来可能同时触发 git 操作：全部排队串行执行，避免索引锁冲突
+let queue: Promise<unknown> = Promise.resolve();
+function serial<T>(f: () => Promise<T>): Promise<T> { const p = queue.then(f); queue = p.catch(() => {}); return p; }
+
 /** 拉取；有新内容时作为「灵魂同步」知觉告知 agent（写入时间线与感官事件），无需 agent 做任何事。 */
-export const pull = async () => {
+export const pull = () => serial(async () => {
   const res = await r().pull();
   if (res.merged) {
     const bodies = [...new Set(res.incoming.map((i) => i.body).filter((b) => b !== config.body))];
@@ -54,12 +58,12 @@ export const pull = async () => {
     bus.emit("sense", "soul_synced", { bodies, count: res.incoming.length });
   }
   return res.merged;
-};
+});
 /** 最近几次同步的摘要（进入系统提示的「知觉」段落）。 */
 export const recent: ({ ts: number } & PullResult)[] = [];
-export const push = (msg: string) => r().push(msg);
-export const acquireLease = () => r().acquireLease();
-export const releaseLease = () => r().releaseLease();
+export const push = (msg: string) => serial(() => r().push(msg));
+export const acquireLease = () => serial(() => r().acquireLease());
+export const releaseLease = () => serial(() => r().releaseLease());
 export const history = (limit = 50) => r().history(limit);
 export const show = (hash: string) => r().show(hash);
-export const revert = (hash: string) => r().revert(hash);
+export const revert = (hash: string) => serial(() => r().revert(hash));

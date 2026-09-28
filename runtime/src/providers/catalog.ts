@@ -4,7 +4,7 @@ import path from "node:path";
 import { paths } from "../config.ts";
 import type { Protocol } from "./types.ts";
 
-export interface CatalogModel { id: string; name: string; context: number; output: number; toolCall: boolean; cost?: { input: number; output: number } }
+export interface CatalogModel { id: string; name: string; context: number; output: number; toolCall: boolean; vision?: boolean; cost?: { input: number; output: number } }
 export interface CatalogProvider { id: string; name: string; api: string; protocol: Protocol; models: CatalogModel[] }
 
 const DEFAULT_BASE: Record<string, string> = {
@@ -29,11 +29,23 @@ export async function refreshCatalog(): Promise<CatalogProvider[]> {
     id: p.id, name: p.name ?? p.id, api: DEFAULT_BASE[p.id] ?? p.api ?? "", protocol: protocolOf(p.npm),
     models: Object.values(p.models ?? {}).map((m: any) => ({
       id: m.id, name: m.name ?? m.id, context: m.limit?.context ?? 0, output: m.limit?.output ?? 0, toolCall: !!m.tool_call,
+      vision: (m.modalities?.input ?? []).includes("image") || !!m.attachment,
       cost: m.cost ? { input: m.cost.input ?? 0, output: m.cost.output ?? 0 } : undefined,
     })),
   })).sort((a, b) => a.name.localeCompare(b.name));
   fs.writeFileSync(file(), JSON.stringify({ fetchedAt: Date.now(), providers: list }));
   return list;
+}
+
+/** 公共目录里某个模型能否看图（同步读取缓存；目录没有该信息时返回 undefined）。 */
+export function catalogVision(catalogId: string, model: string): boolean | undefined {
+  try {
+    const c: { providers: CatalogProvider[] } = JSON.parse(fs.readFileSync(file(), "utf8"));
+    const name = model.replace(/^.*\//, "");
+    const hit = c.providers.find((p) => p.id === catalogId)?.models.find((m) => m.id === model || m.id === name)
+      ?? c.providers.flatMap((p) => p.models).find((m) => m.id === name && m.vision !== undefined);
+    return hit?.vision;
+  } catch { return undefined; }
 }
 
 export async function getCatalog(): Promise<{ fetchedAt: number; providers: CatalogProvider[] }> {

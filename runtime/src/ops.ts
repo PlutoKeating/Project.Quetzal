@@ -1,7 +1,10 @@
 // 操作层：控制台网关与飞书卡片共用的一套操作。任何控制入口都只调用这里，保证行为一致、都有审计。
 import fs from "node:fs";
 import { config, saveConfig, paths, type Level } from "./config.ts";
-import { audit, listTimeline, listAudit, usageToday, recentMessages } from "./store.ts";
+import { audit, listTimeline, listAudit, usageToday, recentMessages, listSessions, ensureSession, updateSession, sessionMessages } from "./store.ts";
+import { liveTurns } from "./mind/activity.ts";
+import * as voice from "./voice/azure.ts";
+import crypto from "node:crypto";
 import * as heart from "./heart/heart.ts";
 import * as guard from "./guard/guard.ts";
 import * as mem from "./memory/memory.ts";
@@ -30,6 +33,20 @@ export const ops = {
   timeline: (a: { limit?: number; before?: number; kind?: string }) => listTimeline(a.limit ?? 50, a.before, a.kind),
   messages: (a: { limit?: number }) => recentMessages(a.limit ?? 50),
   audit: (a: { limit?: number }) => listAudit(a.limit ?? 100),
+
+  // 会话：多个会话可同时进行；归档的会话可以找回；进行中的轮次可随时取回快照（断线、切到后台后恢复界面）
+  sessions: (a: { archived?: boolean }) => listSessions({ archived: !!a.archived }),
+  "sessions.create": (a: { title?: string }) => ensureSession(crypto.randomUUID(), a.title?.trim() || "新的对话"),
+  "sessions.rename": (a: { id: string; title: string }) => updateSession(a.id, { title: a.title }),
+  "sessions.archive": (a: { id: string; archived: boolean }) => updateSession(a.id, { archived: a.archived !== false }),
+  "sessions.messages": (a: { id: string; limit?: number; before?: number }) => sessionMessages(a.id, a.limit ?? 60, a.before),
+  "sessions.live": () => liveTurns(),
+
+  // 语音（Azure）：密钥只返回末四位
+  speech: () => voice.speechStatus(),
+  setSpeech: (a: Partial<voice.SpeechConfig> & { key?: string }, actor: string) => { audit(actor, "speech", "", { ...a, key: a.key ? "****" : undefined }, "ok"); return voice.setSpeech(a); },
+  speechVoices: (a: { locale?: string }) => voice.listVoices(a.locale ?? ""),
+  speechTest: async (a: { text?: string }) => { const f = await voice.synthesize(a.text || "你好，这是我的声音。"); await adapter.playAudio?.(f); return { ok: true, file: f, played: !!adapter.playAudio }; },
 
   poke: (a: { note?: string }, actor: string) => { heart.nudge(`${actor}戳了一下${a.note ? "：" + a.note : ""}`, { social: 0.3, curiosity: 0.1 }, { wake: true }); audit(actor, "poke", a.note ?? "", null, "ok"); return true; },
   pause: (a: { paused: boolean }, actor: string) => { saveConfig({ heart: { paused: a.paused } }); audit(actor, a.paused ? "pause" : "resume", "", null, "ok"); heart.nudge(a.paused ? "暂停自主" : "恢复自主"); return true; },

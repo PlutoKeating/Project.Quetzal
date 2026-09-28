@@ -117,7 +117,7 @@ export async function startFeishu() {
       try { reaction = await channel!.addReaction(msg.messageId, "OnIt"); } catch {}
       const sid = crypto.randomUUID();
       const prog = progress(msg.chatId, msg.messageId, sid);
-      const reply = await converse("你", msg.content, "飞书", sid);
+      const reply = await converse("你", msg.content, "飞书", { turn: sid });
       await prog.close();
       if (reaction) channel!.removeReaction(msg.messageId, reaction).catch(() => {});
       await channel!.send(msg.chatId, { markdown: reply }, { replyTo: msg.messageId });

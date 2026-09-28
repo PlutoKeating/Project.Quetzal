@@ -16,7 +16,17 @@ export function openStore() {
     CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, ts INTEGER, role TEXT, channel TEXT, text TEXT);
     CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, ts INTEGER, actor TEXT, action TEXT, reason TEXT, args TEXT, result TEXT);
     CREATE TABLE IF NOT EXISTS usage(day TEXT, model TEXT, input INTEGER, output INTEGER, cost REAL, PRIMARY KEY(day, model));
+    CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, title TEXT, channel TEXT, created INTEGER, updated INTEGER, archived INTEGER DEFAULT 0);
   `);
+  // 对话归属会话，并保存执行过程与附件（旧库补列；此前没有会话的对话归入「最初的对话」）
+  const cols = (db.prepare("PRAGMA table_info(messages)").all() as any[]).map((c) => c.name);
+  for (const [c, t] of [["session", "TEXT"], ["process", "TEXT"], ["attachments", "TEXT"], ["mode", "TEXT"]]) if (!cols.includes(c)) db.exec(`ALTER TABLE messages ADD COLUMN ${c} ${t}`);
+  db.exec("CREATE INDEX IF NOT EXISTS messages_session ON messages(session, id)");
+  const orphan = db.prepare("SELECT MIN(ts) a, MAX(ts) b FROM messages WHERE session IS NULL").get() as any;
+  if (orphan?.a) {
+    db.prepare("INSERT OR IGNORE INTO sessions(id,title,channel,created,updated) VALUES('first','最初的对话','控制台',?,?)").run(orphan.a, orphan.b);
+    db.exec("UPDATE messages SET session='first' WHERE session IS NULL");
+  }
 }
 
 export const kv = {
@@ -42,11 +52,50 @@ export function listTimeline(limit = 50, before = Number.MAX_SAFE_INTEGER, kind?
   return rows.map((r) => ({ ...r, detail: JSON.parse(r.detail) }));
 }
 
-export function addMessage(role: "user" | "agent", channel: string, text: string) {
-  db.prepare("INSERT INTO messages(ts,role,channel,text) VALUES(?,?,?,?)").run(Date.now(), role, channel, text);
+// ---------- 会话与对话
+export interface SessionInfo { id: string; title: string; channel: string; created: number; updated: number; archived: boolean; count?: number; last?: string }
+export interface Attachment { id: string; name: string; path: string; rel: string; mime: string; size: number; kind: "image" | "text" | "file" } // rel：相对 uploads 目录
+export interface MessageRow { id: number; ts: number; role: "user" | "agent"; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null } // mode：她工作时发来的消息如何并入（steer / interrupt）
+
+const rowSession = (r: any): SessionInfo => ({ ...r, archived: !!r.archived });
+const rowMessage = (r: any): MessageRow => ({ ...r, process: r.process ? JSON.parse(r.process) : null, attachments: r.attachments ? JSON.parse(r.attachments) : null });
+
+/** 确保会话存在（固定 id 的会话如「飞书」首次使用时自动创建）。 */
+export function ensureSession(id: string, title: string, channel = "控制台"): SessionInfo {
+  const now = Date.now();
+  db.prepare("INSERT OR IGNORE INTO sessions(id,title,channel,created,updated) VALUES(?,?,?,?,?)").run(id, title, channel, now, now);
+  return getSession(id)!;
 }
-export function recentMessages(limit = 20) {
-  return (db.prepare("SELECT ts,role,channel,text FROM messages ORDER BY id DESC LIMIT ?").all(limit) as any[]).reverse();
+export function getSession(id: string): SessionInfo | undefined {
+  const r = db.prepare("SELECT * FROM sessions WHERE id=?").get(id);
+  return r ? rowSession(r) : undefined;
+}
+export function listSessions(o: { archived?: boolean; limit?: number } = {}): SessionInfo[] {
+  return (db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session=s.id) count,
+      (SELECT text FROM messages m WHERE m.session=s.id ORDER BY id DESC LIMIT 1) last
+    FROM sessions s WHERE archived=? ORDER BY updated DESC LIMIT ?`).all(o.archived ? 1 : 0, o.limit ?? 200) as any[])
+    .map((r) => ({ ...rowSession(r), last: String(r.last ?? "").slice(0, 80) }));
+}
+export function updateSession(id: string, patch: { title?: string; archived?: boolean }) {
+  if (patch.title !== undefined) db.prepare("UPDATE sessions SET title=? WHERE id=?").run(patch.title.trim().slice(0, 60) || "新的对话", id);
+  if (patch.archived !== undefined) db.prepare("UPDATE sessions SET archived=? WHERE id=?").run(patch.archived ? 1 : 0, id);
+  return getSession(id);
+}
+
+export function addMessage(role: "user" | "agent", channel: string, text: string, o: { session?: string; process?: unknown[]; attachments?: Attachment[]; mode?: string } = {}) {
+  const ts = Date.now(), session = o.session ?? "first";
+  const r = db.prepare("INSERT INTO messages(ts,role,channel,text,session,process,attachments,mode) VALUES(?,?,?,?,?,?,?,?)")
+    .run(ts, role, channel, text, session, o.process?.length ? JSON.stringify(o.process) : null, o.attachments?.length ? JSON.stringify(o.attachments) : null, o.mode ?? null);
+  db.prepare("UPDATE sessions SET updated=?, archived=0 WHERE id=?").run(ts, session); // 有新消息的会话自动回到列表
+  return Number(r.lastInsertRowid);
+}
+/** 全部会话里最近的对话（正序）。 */
+export function recentMessages(limit = 20): MessageRow[] {
+  return (db.prepare("SELECT * FROM messages ORDER BY id DESC LIMIT ?").all(limit) as any[]).map(rowMessage).reverse();
+}
+/** 某个会话的对话（正序）；before 为消息 id，用于向前翻页。 */
+export function sessionMessages(session: string, limit = 50, before = Number.MAX_SAFE_INTEGER): MessageRow[] {
+  return (db.prepare("SELECT * FROM messages WHERE session=? AND id<? ORDER BY id DESC LIMIT ?").all(session, before, limit) as any[]).map(rowMessage).reverse();
 }
 
 export function audit(actor: string, action: string, reason: string, args: unknown, result: string) {
