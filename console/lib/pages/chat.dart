@@ -384,7 +384,7 @@ class _ChatPageState extends State<ChatPage> {
       );
 }
 
-/// 执行过程：每个工具一行（执行中 / 完成 / 出错 / 被拒绝），中间叙述一行。
+/// 执行过程：每个工具一行（执行中 / 完成 / 出错 / 被拒绝）；她中途说的话按正常消息气泡完整显示（Markdown）。
 class _Process extends StatelessWidget {
   final List<Map> items;
   const _Process(this.items);
@@ -398,13 +398,20 @@ class _Process extends StatelessWidget {
       constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.9),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (final x in items)
+          if (x['type'] == 'text') // 她中途说的话：正常的消息气泡
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.all(10),
+              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+              decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
+              child: RichMarkdown('${x['text']}'),
+            )
+          else
           Container(
             margin: const EdgeInsets.symmetric(vertical: 2),
             padding: const EdgeInsets.only(left: 8),
             decoration: BoxDecoration(border: Border(left: BorderSide(color: cs.outlineVariant, width: 2))),
-            child: x['type'] == 'text'
-                ? Text(_plain('${x['text']}'), maxLines: 2, overflow: TextOverflow.ellipsis, style: small?.copyWith(color: cs.onSurfaceVariant))
-                : Row(children: [
+            child: Row(children: [
                     _icon(x['status'], cs),
                     const SizedBox(width: 6),
                     Flexible(
@@ -422,9 +429,6 @@ class _Process extends StatelessWidget {
       ]),
     );
   }
-
-  /// 过程里的叙述只显示一两行：去掉 Markdown 标记、合并换行。
-  static String _plain(String t) => t.replaceAll(RegExp(r'[*_`#>]+'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
 
   Widget _icon(Object? status, ColorScheme cs) => switch (status) {
         'running' => const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
