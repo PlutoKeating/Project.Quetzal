@@ -170,3 +170,24 @@ test("图片只发给能看图的模型；没有时去掉图片并说明", async
   assert.equal(router.canSee({ provider: { catalogId: "x" } as any, model: { name: "gpt-4o-mini" } as any }), true);
   server.close();
 });
+
+test("当前会话：对话中的 send_message 只进入当前对话；醒来时才作为主动消息发出", async () => {
+  const { callTool } = await import("../src/mind/tools.ts");
+  const { bus } = await import("../src/bus.ts");
+  const said: string[] = [];
+  const on = (t: string) => said.push(t);
+  bus.on("say", on);
+  const chat = new Session("chat", "飞书", "t-chat", "c-chat");
+  chat.emit({ kind: "start", text: "在干啥" });
+  const r1 = await callTool("send_message", { text: "我在查心跳" }, "回应你", { session: chat });
+  assert.match(r1.text, /当前对话/);
+  assert.deepEqual(said, []);
+  assert.deepEqual(chat.process(), [{ type: "text", text: "我在查心跳" }]);
+  chat.close();
+  const think = new Session("think");
+  const r2 = await callTool("send_message", { text: "我自己醒了" }, "光线变化", { session: think });
+  assert.match(r2.text, /主动消息/);
+  assert.deepEqual(said, ["我自己醒了"]);
+  think.close();
+  bus.off("say", on);
+});

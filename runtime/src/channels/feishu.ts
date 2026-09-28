@@ -1,7 +1,10 @@
 // 飞书通道：长连接（WebSocket），无需公网地址。
 //   打开与机器人的单聊 → 自动推送「此刻」卡片；机器人菜单 → 对应卡片；卡片按钮/表单 → 操作层（ops）并原地刷新卡片
-//   普通文字 → 与 agent 对话（处理中加 OnIt 表情；调用工具时回复一张实时更新的「执行过程」卡片，每个工具一行）
-//   agent 主动说话 → 私聊；审批 → 带按钮的卡片
+//   普通文字 → 与 agent 对话（处理中加 OnIt 表情；调用工具时回复一张实时更新的「执行过程」卡片，每个工具一行、中途说的话一段）
+//     她正在工作时再发的消息 → 插话：在下一次模型调用前并入进行中的这一轮，只加一个表情表示收到，回复在那一轮里给出
+//     /new [标题] → 开启新的飞书会话（此后的对话都在新会话里）
+//   注意：SDK 默认对每个聊天串行投递消息（等处理函数返回才投递下一条），所以处理函数必须立即返回，对话在后台进行，否则插话无法生效。
+//   agent 自主思考时主动说的话 → 私聊（带「主动消息」标识）；审批 → 带按钮的卡片
 // 接入：控制台一键扫码创建机器人（registerApp），自动获得凭据并绑定扫码的人，全程无需命令行。
 import crypto from "node:crypto";
 import * as lark from "@larksuiteoapi/node-sdk";
@@ -9,7 +12,8 @@ import { config, saveConfig, readSecret, writeSecret } from "../config.ts";
 import { bus } from "../bus.ts";
 import { log } from "../log.ts";
 import { invoke } from "../ops.ts";
-import { converse } from "../mind/brain.ts";
+import { converse, isRunning } from "../mind/brain.ts";
+import { kv, ensureSession } from "../store.ts";
 import { views, approvalCard, md, card } from "./feishu-cards.ts";
 import type { Activity } from "../bus.ts";
 import { identity } from "../memory/identity.ts";
@@ -76,7 +80,8 @@ function progress(chatId: string, replyTo: string, session: string) {
       if (a.status === "running") { running++; tools++; } else if (lines.has(a.call!)) running--; else tools++;
       const sec = a.ms != null && a.status !== "running" ? ` · ${(a.ms / 1000).toFixed(1)}s` : "";
       lines.set(a.call!, `${ICON[a.status!]} **${a.name}**${a.summary ? ` — ${code(a.summary)}` : ""}${sec}`);
-    } else if (a.kind === "text" && !a.final && a.text?.trim()) lines.set(`text-${a.step}`, `💬 ${a.text.trim().replace(/\s+/g, " ").slice(0, 300)}`);
+    } else if (a.kind === "steer" && a.text?.trim()) lines.set(`steer-${a.msg}`, `📨 *你插话：${a.text.trim().replace(/\s+/g, " ").slice(0, 200)}*（已并入）`);
+    else if (a.kind === "text" && !a.final && a.text?.trim()) lines.set(`text-${a.ts}-${lines.size}`, `💬 ${a.text.trim().slice(0, 1500)}`); // 她中途说的话：完整一段
     else return;
     dirty = true;
     timer ??= setTimeout(flush, messageId ? 1000 : 0);
@@ -90,6 +95,39 @@ function progress(chatId: string, replyTo: string, session: string) {
       if (lines.size) { dirty = true; await flush(); }
     },
   };
+}
+
+/** 飞书当前的会话（/new 切换）。 */
+const currentConv = () => kv.get<string>("feishu.conv", "feishu");
+
+async function handle(msg: { chatId: string; messageId: string; content: string }) {
+  const text = msg.content.trim();
+  try {
+    const m = text.match(/^\/new(?:\s+(.+))?$/i);
+    if (m) {
+      const conv = `feishu-${Date.now().toString(36)}`;
+      ensureSession(conv, m[1]?.trim() || "新的对话", "飞书");
+      kv.set("feishu.conv", conv);
+      await send(msg.chatId, { markdown: `🆕 已开启新会话${m[1] ? `「${m[1].trim()}」` : ""}，接下来的对话都在这里。之前的会话可以在控制台里找回。` });
+      return;
+    }
+    const conv = currentConv();
+    if (isRunning(conv)) { // 她正在这个会话里工作：插话，下一次模型调用前并入；回复在进行中的那一轮里给出
+      await converse("你", msg.content, "飞书", { conv });
+      await channel?.addReaction(msg.messageId, "Get").catch(() => channel?.addReaction(msg.messageId, "OK").catch(() => {}));
+      return;
+    }
+    let reaction = "";
+    try { reaction = await channel!.addReaction(msg.messageId, "OnIt"); } catch {}
+    const sid = crypto.randomUUID();
+    const prog = progress(msg.chatId, msg.messageId, sid);
+    const reply = await converse("你", msg.content, "飞书", { conv, turn: sid });
+    await prog.close();
+    if (reaction) channel?.removeReaction(msg.messageId, reaction).catch(() => {});
+    await channel?.send(msg.chatId, { markdown: reply }, { replyTo: msg.messageId });
+  } catch (e: any) {
+    log("feishu", `处理消息失败：${e.message}`);
+  }
 }
 
 export async function startFeishu() {
@@ -113,14 +151,7 @@ export async function startFeishu() {
         return void startFeishu(); // 以白名单模式重连
       }
       if (!isOwner(msg.senderId)) return;
-      let reaction = "";
-      try { reaction = await channel!.addReaction(msg.messageId, "OnIt"); } catch {}
-      const sid = crypto.randomUUID();
-      const prog = progress(msg.chatId, msg.messageId, sid);
-      const reply = await converse("你", msg.content, "飞书", { turn: sid });
-      await prog.close();
-      if (reaction) channel!.removeReaction(msg.messageId, reaction).catch(() => {});
-      await channel!.send(msg.chatId, { markdown: reply }, { replyTo: msg.messageId });
+      void handle(msg); // 立即返回：SDK 才会投递她工作期间你发来的下一条消息（插话）
     });
     channel.on("error", (e: any) => { state.error = String(e?.message ?? e); log("feishu", `${e?.code ?? ""} ${state.error}`); });
     await channel.connect();
@@ -144,7 +175,7 @@ export async function startFeishu() {
 }
 
 export function wireFeishu() {
-  bus.on("say", (text) => void toOwner({ markdown: text }));
+  bus.on("say", (text) => void toOwner({ markdown: `💭 **主动消息**（她自己醒来时想跟你说的）\n\n${text}` }));
   bus.on("notice", (text) => void toOwner({ markdown: `🔔 ${text}` }));
   bus.on("approval", (a) => { if (a.status === "pending") void toOwner({ card: approvalCard(a) }); });
 }

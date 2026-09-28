@@ -166,7 +166,7 @@ sequenceDiagram
 
 系统提示按顺序组装（`mind/prompt.ts`）：人格 SOUL.md → 处境（多身体、无日程、当前时间）→ 常驻记忆 MEMORY / USER → 身体 → 内在状态与未完成的念头 → 最近日记（含其他身体）→ 最近对话。
 
-内置工具（`mind/tools.ts`）：`memory`（与 Hermes 语义一致）、`note_save` / `note_read` / `note_list` / `note_move` / `note_delete`（笔记目录树）、`recall`（检索全部记忆）、`open_loop`、`web_search`（依次尝试 360 搜索、百度 / 必应，识别验证码页，结果不相关时换引擎）/ `web_fetch`、`read_document`（读取 Word / PPT / Excel / PDF / ODF / EPUB / HTML 等文档，分页）、`shell`（前台等待或 `background` 后台运行）与 `shell_jobs`（查看后台任务输出、随时停止）、`voice_speak`（用自己的声音说话：Azure 语音合成，由身体播放）与 `voice_config`（自己选音色、风格，配置区域与密钥）、`send_message`、`share_thought`（更新「想分享的一句话」，持续显示在控制台首页与飞书「此刻」卡片；醒来结束的 finish 也可顺带更新）、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
+内置工具（`mind/tools.ts`）：`memory`（与 Hermes 语义一致）、`note_save` / `note_read` / `note_list` / `note_move` / `note_delete`（笔记目录树）、`recall`（检索全部记忆）、`open_loop`、`web_search`（依次尝试 360 搜索、百度 / 必应，识别验证码页，结果不相关时换引擎）/ `web_fetch`、`read_document`（读取 Word / PPT / Excel / PDF / ODF / EPUB / HTML 等文档，分页）、`shell`（前台等待或 `background` 后台运行）与 `shell_jobs`（查看后台任务输出、随时停止）、`voice_speak`（用自己的声音说话：Azure 语音合成，由身体播放）与 `voice_config`（自己选音色、风格，配置区域与密钥）、`send_message`（对话中调用时只出现在当前对话里；自己醒来思考时才作为主动消息发出，带「主动消息」标识）、`share_thought`（更新「想分享的一句话」，持续显示在控制台首页与飞书「此刻」卡片；醒来结束的 finish 也可顺带更新）、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
 
 对话（`converse`）与醒来共用工具循环，但不需要 finish；有人说话会把她从睡眠中叫醒，聊完后想念与表达欲回落。
 
@@ -193,6 +193,9 @@ sequenceDiagram
 - **打断**：立即中止正在进行的模型输出，已输出的部分保留并标注被打断，然后带着新消息继续；正在执行的工具不受影响，工具结束后立即处理。
 - **排队**：作为下一轮。
 - 她自己可以把耗时的命令放到后台，用 `shell_jobs` 随时停止。
+- 飞书只用默认的插话：她工作时收到的消息在下一次模型调用前并入，只加一个表情表示收到，回复在进行中的那一轮里给出。飞书 SDK 默认按聊天串行投递消息，所以通道的处理函数立即返回，对话在后台进行，否则插话无法生效。飞书里发 `/new [标题]` 开启新会话。
+
+**当前会话**：每条消息只属于它所在的会话。对话中她说的话（回复、中途的话、对话中调用 `send_message`）只进入当前会话，不会推送到其他会话或通道。只有自主醒来时的 `send_message` 才是主动消息：进入控制台的「主动消息」会话，在飞书里带「💭 主动消息」标识，并发送系统通知。
 
 **附件**（`mind/attachments.ts`、`mind/documents.ts`）：控制台一次最多上传 20 个文件（`/upload`），随消息发送。
 - 图片直接放进消息（多模态）。路由只选能看图的模型，判断顺序为手动设置 `vision`、公共目录、模型名；一个都没有时去掉图片，并在消息里说明、保留本地路径。

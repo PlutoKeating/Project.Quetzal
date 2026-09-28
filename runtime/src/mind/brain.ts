@@ -94,7 +94,7 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
       }
       s.emit({ kind: "tool", ...card, status: "running" });
       const t0 = Date.now();
-      const out = await s.hold(() => callTool(c.name, c.args, reason)); // 执行工具即在工作：暂停会话时间墙
+      const out = await s.hold(() => callTool(c.name, c.args, reason, { session: s })); // 执行工具即在工作：暂停会话时间墙
       s.emit({ kind: "tool", ...card, status: out.status, ms: Date.now() - t0, result: out.text.split("\n").find((l) => l.trim())?.slice(0, 120) ?? "" });
       steps.push({ tool: c.name, args: c.args, result: out.text.slice(0, 1500) });
       messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: out.text.slice(0, 12000) });
@@ -165,6 +165,8 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
 // ---------- 对话：多个会话可以同时进行。同一会话内按顺序处理；不同会话并行，但彼此可见（系统提示里有其他会话的近况与进行中的工作）。
 const chains = new Map<string, Promise<unknown>>();
 const running = new Map<string, Session>(); // 会话 → 正在进行的那一轮
+/** 这个会话此刻是否有正在进行的一轮（通道据此决定新消息是插话还是新的一轮）。 */
+export const isRunning = (conv: string) => running.has(conv);
 const waiting = new Map<string, number>();
 let chatting = 0, ownsBusy = false;
 const enter = () => { if (chatting++ === 0 && !isBusy()) { markBusy(true); ownsBusy = true; } };

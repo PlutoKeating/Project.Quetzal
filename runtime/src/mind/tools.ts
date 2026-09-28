@@ -8,11 +8,14 @@ import * as mem from "../memory/memory.ts";
 import { adjustPersonality } from "../heart/heart.ts";
 import { adapter } from "../body/twin.ts";
 import type { ToolDef } from "../providers/types.ts";
+import type { Session } from "./activity.ts";
 import { htmlToText, readDocument } from "./documents.ts";
 import { webSearch, BROWSER_HEADERS } from "./search.ts";
 import * as voice from "../voice/azure.ts";
 
-export interface Tool extends ToolDef { permission: string; handler: (a: Record<string, any>) => Promise<string> }
+/** 调用工具的上下文：当前这一轮（对话或醒来）。 */
+export interface ToolContext { session?: Session }
+export interface Tool extends ToolDef { permission: string; handler: (a: Record<string, any>, ctx: ToolContext) => Promise<string> }
 
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties: props, required });
 const str = (description: string) => ({ type: "string", description });
@@ -140,9 +143,18 @@ const core: Tool[] = [
     },
   },
   {
-    name: "send_message", permission: "message", description: "主动给和你一起生活的人发一条消息（飞书、通知等所有已连接的渠道）。",
+    name: "send_message", permission: "message",
+    description: "给和你一起生活的人发一条消息。在对话中调用时，这段话出现在当前这个对话里（对方正看着这个对话；一般直接回复即可，不必用它）；在自己醒来思考时调用，才作为主动消息发出（控制台的「主动消息」会话、飞书、系统通知）。",
     parameters: obj({ text: str("消息内容") }, ["text"]),
-    handler: async (a) => { bus.emit("say", a.text); return "已发送"; },
+    handler: async (a, ctx) => {
+      const s = ctx.session;
+      if (s?.origin === "chat") { // 当前会话：只出现在这个对话里，不外发到其他会话或通道
+        s.emit({ kind: "text", text: String(a.text), final: false });
+        return "已在当前对话里说了（对方正看着这个对话）";
+      }
+      bus.emit("say", String(a.text));
+      return "已作为主动消息发出";
+    },
   },
   {
     name: "adjust_self", permission: "self_modify",
@@ -175,12 +187,12 @@ export function allTools(): Tool[] {
 
 export type ToolStatus = "ok" | "error" | "denied";
 
-export async function callTool(name: string, args: Record<string, any>, reason: string): Promise<{ text: string; status: ToolStatus }> {
+export async function callTool(name: string, args: Record<string, any>, reason: string, ctx: ToolContext = {}): Promise<{ text: string; status: ToolStatus }> {
   const t = allTools().find((x) => x.name === name);
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };
   if (!(await check(t.permission, name, reason, args))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
-    const out = await t.handler(args);
+    const out = await t.handler(args, ctx);
     audit("agent", name, reason, args, out.slice(0, 500));
     return { text: out, status: "ok" };
   } catch (e: any) {
