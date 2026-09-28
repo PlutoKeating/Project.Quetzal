@@ -45,6 +45,14 @@ test("小图原样读取；大图缩小到长边 1600 像素", async (t) => {
   assert.equal(b.image.mime, "image/jpeg");
   assert.match(b.note, /已缩小到长边 1600 像素/);
   assert.ok(Buffer.from(b.image.data, "base64").length < 1_500_000);
+  // 每个可用的缩图工具都要能单独工作（此前 ffmpeg 参数带了引号，在不经过 shell 时会失败，被后备工具掩盖）
+  const { shrink } = await import("../src/mind/images.ts");
+  for (const tool of ["ffmpeg", "magick"] as const) {
+    try { execFileSync(tool, ["-version"]); } catch { continue; }
+    const out = await shrink(big, tool);
+    assert.ok(out && fs.statSync(out).size > 0, `${tool} 缩图失败`);
+    fs.rmSync(out!);
+  }
 });
 
 test("目录里的「能否看图」只看输入模态", () => {

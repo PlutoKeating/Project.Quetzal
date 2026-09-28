@@ -25,14 +25,16 @@ export function imageMime(file: string, head?: Buffer): string | undefined {
   return undefined;
 }
 
-async function shrink(file: string): Promise<string | undefined> {
+/** 依次尝试缩图工具；导出供测试逐个验证。 */
+export async function shrink(file: string, only?: "ffmpeg" | "magick" | "convert"): Promise<string | undefined> {
   const out = path.join(os.tmpdir(), `windler-img-${process.pid}-${Date.now()}.jpg`);
   const tries: [string, string[]][] = [
-    ["ffmpeg", ["-y", "-loglevel", "error", "-i", file, "-vf", `scale='if(gt(iw,ih),min(${MAX_EDGE},iw),-2)':'if(gt(iw,ih),-2,min(${MAX_EDGE},ih))'`, "-frames:v", "1", "-q:v", "4", out]],
+    // 注意：这里不经过 shell，参数里不能带引号；force_original_aspect_ratio=decrease 保持比例、只缩不放（只在大文件时调用）
+    ["ffmpeg", ["-y", "-loglevel", "error", "-i", file, "-vf", `scale=${MAX_EDGE}:${MAX_EDGE}:force_original_aspect_ratio=decrease`, "-frames:v", "1", "-q:v", "4", out]],
     ["magick", [file, "-auto-orient", "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, "-quality", "85", out]],
     ["convert", [file, "-auto-orient", "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, "-quality", "85", out]],
   ];
-  for (const [cmd, args] of tries) {
+  for (const [cmd, args] of tries.filter(([c]) => !only || c === only)) {
     const r = await run(cmd, args, 60_000);
     if (r.code === 0 && fs.existsSync(out) && fs.statSync(out).size > 0) return out;
   }
