@@ -27,7 +27,7 @@ src/
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
 │   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick），供附件与 view_image 使用
 │   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
-│   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps），标出她自己、父进程与后台任务
+│   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，识别验证码页，按关键词覆盖率判断相关性并换引擎
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
 │   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话；会话历史带时间与每轮的过程记录（describeProcess）

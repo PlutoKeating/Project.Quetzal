@@ -8,15 +8,22 @@ export interface Proc { pid: number; ppid: number; state: string; startedMs: num
 
 const CLK = 100; // Linux 的 CLK_TCK 几乎总是 100
 let bootMs: number | undefined;
+/**
+ * 开机时刻。不读 /proc/stat 与 /proc/uptime——Android 上普通应用读它们会被拒绝（EACCES）；
+ * 改用自己的 /proc/self/stat 里的启动 tick 与 process.uptime() 反推，读不到就返回 NaN（时长显示为 ?）。
+ */
 function bootTime(): number {
   if (bootMs === undefined) {
-    const m = fs.readFileSync("/proc/stat", "utf8").match(/^btime (\d+)/m);
-    bootMs = m ? Number(m[1]) * 1000 : Date.now() - Number(fs.readFileSync("/proc/uptime", "utf8").split(" ")[0]) * 1000;
+    try {
+      const stat = fs.readFileSync("/proc/self/stat", "utf8");
+      const start = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);
+      bootMs = Date.now() - process.uptime() * 1000 - start / CLK * 1000;
+    } catch { bootMs = NaN; }
   }
   return bootMs;
 }
 
-/** 当前用户能看到的全部进程。没有 /proc（非 Linux）时抛错。 */
+/** 当前用户能看到的全部进程（Android 的 /proc 带 hidepid，只看得到自己这个用户的）。没有 /proc（非 Linux）时抛错。 */
 export function listProcesses(): Proc[] {
   const boot = bootTime();
   const out: Proc[] = [];
@@ -34,12 +41,12 @@ export function listProcesses(): Proc[] {
   return out.sort((a, b) => a.pid - b.pid);
 }
 
-const ago = (ms: number) => { const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? `${s}秒` : s < 3600 ? `${Math.round(s / 60)}分` : `${(s / 3600).toFixed(1)}时`; };
+const ago = (ms: number) => { if (!Number.isFinite(ms)) return "?"; const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? `${s}秒` : s < 3600 ? `${Math.round(s / 60)}分` : `${(s / 3600).toFixed(1)}时`; };
 
 /** 给她看的进程表：可按命令行子串过滤；标出她自己、她的父进程与她启动的后台任务。 */
 export function describeProcesses(filter = "", limit = 80): string {
   let list: Proc[];
-  try { list = listProcesses(); } catch (e: any) { return `这具身体上读不到进程列表（没有 /proc：${e.message}）`; }
+  try { list = listProcesses(); } catch (e: any) { return `这具身体上读不到进程列表（${e.message}）`; }
   const jobs = new Map(listJobs().filter((j) => !j.ended && j.proc.pid).map((j) => [j.proc.pid!, j.id]));
   const q = filter.trim().toLowerCase();
   const hit = q ? list.filter((p) => p.cmd.toLowerCase().includes(q) || String(p.pid) === q) : list;
