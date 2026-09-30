@@ -23,13 +23,13 @@ src/
 │   └── heart.ts          状态机与稀疏化抽样调度；抑制；有界的性格修改
 ├── mind/
 │   ├── prompt.ts         系统提示组装
-│   ├── tools.ts          内置工具 + 适配器工具 + 预留 hands 工具；经闸门调用
-│   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断
+│   ├── tools.ts          内置工具（含 recent_actions 查审计、view_image 同一轮不重复发图）+ 适配器工具 + 预留 hands 工具；经闸门调用
+│   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
 │   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick），供附件与 view_image 使用
 │   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，识别验证码页，按关键词覆盖率判断相关性并换引擎
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
-│   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话
+│   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话；会话历史带时间与每轮的过程记录（describeProcess）
 ├── memory/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头
 │   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块
