@@ -21,7 +21,7 @@ test("接入时补齐固定目录树与固定内容", async () => {
   for (const f of [".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "agent.json", "SOUL.md", "memories/MEMORY.md", "memories/USER.md", "journal/.gitkeep", "notes/.gitkeep", "bodies/.gitkeep"])
     assert.ok(fs.existsSync(path.join(d, f)), f);
   for (const [f, text] of Object.entries(FIXED_FILES)) assert.equal(fs.readFileSync(path.join(d, f), "utf8"), text);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, ".soul-spec.json"), "utf8")), { spec: "soul-repo", version: 2 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, ".soul-spec.json"), "utf8")), { spec: "soul-repo", version: 3 });
   assert.match(execFileSync("git", ["-C", d, "log", "--oneline"]).toString(), /补齐灵魂仓库规范结构/);
 });
 
@@ -63,4 +63,11 @@ test("禁止内容识别（不误伤时间戳、版本号与日期）", () => {
   assert.ok(bad("电话 13812345678").length);
   assert.ok(lintContent("b.bin", Buffer.from([1, 0, 2])).length);
   assert.deepEqual(bad('{"until": 1790530000000, "runtime": "0.1.0", "day": "2026-09-28", "ip": "127.0.0.1"}'), []);
+  // IP 只拦能定位设备或个人的：版本号、回环 / 保留段、公共 DNS 都放行；报告带行号但不回显内容
+  assert.deepEqual(bad("Make=HUAWEI / 固件版本 2.0.0.150，没有曝光参数"), []);
+  assert.deepEqual(bad("| 固件 | 2.0.0.150 |\nfirmware: 4.4.2.1\nv1.2.3.4 build 10.0.19041.1"), []);
+  assert.deepEqual(bad("DNS 换成 1.1.1.1 / 223.5.5.5 / 114.114.114.114 都能解析；监听 0.0.0.0，组播 224.0.0.251"), []);
+  assert.deepEqual(bad("第一行\n路由器在 10.0.0.1"), ["f.md:2：包含 IP 地址"]);
+  assert.deepEqual(bad("公网出口 2.0.0.150"), ["f.md:1：包含 IP 地址"]); // 没有版本字样的四段数字仍按 IP 处理
+  assert.deepEqual(bad("x\n\n电话 13812345678"), ["f.md:3：包含疑似手机号"]);
 });

@@ -23,7 +23,7 @@ export interface SoulRepoOptions {
 }
 
 const LEASE_MS = 30 * 60_000;
-export const SPEC = { spec: "soul-repo", version: 2 };
+export const SPEC = { spec: "soul-repo", version: 3 };
 const MAX_FILE = 1 << 20;
 const TOP_LEVEL = new Set([".git", ".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "locks"]);
 export const FIXED_FILES: Record<string, string> = {
@@ -37,7 +37,7 @@ export const README_TEMPLATE = (displayName: string) => `# ${displayName} · 灵
 
 - **必须保持私有。**
 - 请不要手动修改：同步、合并与版本管理由基座自动完成；需要撤销时，使用控制台的「记忆历史」。
-- 结构与格式遵循 Soul Repository Specification v2（Project.Windler 的 docs/SOUL_REPO_SPEC.md）。
+- 结构与格式遵循 Soul Repository Specification v3（Project.Windler 的 docs/SOUL_REPO_SPEC.md）。
 `;
 
 /** 规范 §7：远端必须是 SSH 地址（测试中可用 SOUL_ALLOW_LOCAL_REMOTE=1 放行本地路径）。返回错误说明或 undefined。 */
@@ -56,18 +56,42 @@ const FORBIDDEN: [RegExp, string][] = [
   [/\bsk-[A-Za-z0-9_-]{16,}/, "API Key"],
   [/\bAKIA[0-9A-Z]{16}\b/, "AWS 访问密钥"],
   [/\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/, "MAC 地址"],
-  [/(?<![\d.])(?!127\.0\.0\.1(?![\d.]))(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\d.])/, "IP 地址"],
   [/(?<!\d)\d{15}(?!\d)/, "疑似 IMEI"],
   [/(?<!\d)1[3-9]\d{9}(?!\d)/, "疑似手机号"],
 ];
 
-/** 检查文件内容是否违反规范 §2/§6。返回问题列表。 */
+// 规范 §6 的 IP 地址：只拦「能定位设备或个人」的地址（私网与公网单播）。四段数字的格式无法区分 IP 与版本号，
+// 曾把 EXIF 里的固件版本号「2.0.0.150」当成 IP 而拒绝提交两天；所以按上下文与地址段放行：
+//   - 前面紧跟版本字样（v / ver / version / 版本 / 固件 / firmware / build / release / rev）的四段数字是版本号；
+//   - 回环（127/8）、0.0.0.0、广播、组播与保留段（224 以上）不定位任何人；
+//   - 公共 DNS 服务器是公开服务，不是个人标识。
+const IPV4 = /(?<![\d.])(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\d.])/g;
+const VERSION_CONTEXT = /(?:\bv(?:er(?:sion)?)?|版本|固件|firmware|build|release|rev(?:ision)?)[\s|:：=]*$/i;
+const PUBLIC_DNS = new Set(["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112", "208.67.222.222", "208.67.220.220",
+  "223.5.5.5", "223.6.6.6", "114.114.114.114", "114.114.115.115", "119.29.29.29", "180.76.76.76"]);
+/** 文本里第一个能定位设备或个人的 IPv4 地址的位置，没有则返回 -1。 */
+export function identifyingIp(text: string): number {
+  for (const m of text.matchAll(IPV4)) {
+    const ip = m[0], first = Number(ip.split(".")[0]);
+    if (first === 127 || first === 0 || first >= 224 || PUBLIC_DNS.has(ip)) continue;
+    const before = text.slice(Math.max(0, m.index - 24), m.index).split("\n").pop()!;
+    if (VERSION_CONTEXT.test(before)) continue;
+    return m.index;
+  }
+  return -1;
+}
+
+const lineOf = (text: string, at: number) => text.slice(0, at).split("\n").length;
+
+/** 检查文件内容是否违反规范 §2/§6。返回问题列表（含行号，便于修正；不回显命中的内容本身）。 */
 export function lintContent(file: string, buf: Buffer): string[] {
   const out: string[] = [];
   if (buf.length > MAX_FILE) out.push(`${file}：超过 1 MiB`);
   if (buf.includes(0)) { out.push(`${file}：二进制文件`); return out; }
   const text = buf.toString("utf8");
-  for (const [re, what] of FORBIDDEN) if (re.test(text)) out.push(`${file}：包含${what}`);
+  for (const [re, what] of FORBIDDEN) { const m = re.exec(text); if (m) out.push(`${file}:${lineOf(text, m.index)}：包含${what}`); }
+  const ip = identifyingIp(text);
+  if (ip >= 0) out.push(`${file}:${lineOf(text, ip)}：包含 IP 地址`);
   return out;
 }
 

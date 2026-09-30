@@ -232,7 +232,7 @@ soul/
 └── bodies/<身体>.json          身体登记
 ```
 
-同步与版本管理由基座全自动完成（`memory/soul-repo.ts`，运行基座与灵魂桥共用），完整设计见 [SOUL_SYNC.md](SOUL_SYNC.md)。仓库结构与约束遵循 [灵魂仓库规范 v2](SOUL_REPO_SPEC.md)：接入时自动补齐固定目录树与固定文件；每次提交前检查禁止内容（私钥、令牌、API Key、MAC/IP 等），命中即拒绝；远端只允许 SSH 地址，并且只使用本身体专属的部署私钥。
+同步与版本管理由基座全自动完成（`memory/soul-repo.ts`，运行基座与灵魂桥共用），完整设计见 [SOUL_SYNC.md](SOUL_SYNC.md)。仓库结构与约束遵循 [灵魂仓库规范 v3](SOUL_REPO_SPEC.md)：接入时自动补齐固定目录树与固定文件；每次提交前检查禁止内容（私钥、令牌、API Key、MAC/IP 等；IP 只拦能定位设备的地址，版本号、回环、公共 DNS 放行），命中即拒绝并报出文件与行号；远端只允许 SSH 地址，并且只使用本身体专属的部署私钥。
 
 ```mermaid
 sequenceDiagram
