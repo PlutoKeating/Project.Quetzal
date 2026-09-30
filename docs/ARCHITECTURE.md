@@ -129,7 +129,7 @@ flowchart LR
   RAW --> FEEL["feel 身体感受<br/>精力 · 冷热 · 明暗 · 安静/被拿起"]
   RAW & FEEL -- 与上次比较 --> EV["sense 事件<br/>plugged · light · moved · hot · low_battery · screen_on · online…"]
   EV --> HEART[心脏：调整驱动力并重新抽样]
-  RAW & SYS & FEEL --> PROMPT[大脑的「身体」段落]
+  RAW & SYS & FEEL --> PROMPT["大脑的「身体」段落<br/>（含她自己的进程 pid 与运行时长）"]
 ```
 
 - 感知采样（`startSenses`）不调用模型、不等于醒来，是"神经末梢"。间隔自适应：有显著变化时 2 分钟，平静时逐步拉长到 10 分钟。
@@ -166,7 +166,7 @@ sequenceDiagram
 
 系统提示按顺序组装（`mind/prompt.ts`）：人格 SOUL.md → 处境（多身体、无日程、当前时间、「我做过什么」的边界说明）→ 常驻记忆 MEMORY / USER → 记忆目录 → 自动检索到的相关记忆 → 想分享的一句话 → 身体 → 内在状态与未完成的念头 → 灵魂同步知觉 → 最近日记（含其他身体）→ 其他会话的近况。
 
-内置工具（`mind/tools.ts`）：`memory`（与 Hermes 语义一致）、`note_save` / `note_read` / `note_list` / `note_move` / `note_delete`（笔记目录树）、`recall`（检索全部记忆）、`open_loop`、`recent_actions`（查审计：最近真实做过的工具调用的时间、参数与结果，用来核实自己「做没做过」）、`web_search`（依次尝试 360 搜索、百度 / 必应，识别验证码页，结果不相关时换引擎）/ `web_fetch`、`view_image`（看图：把本地图片——自己拍的照片、下载的图、之前对话里的附件——放进下一次模型调用，自动选用能看图的模型；这一轮已经在上下文里的图片不重复发送）、`read_document`（读取 Word / PPT / Excel / PDF / ODF / EPUB / HTML 等文档，分页）、`shell`（前台等待或 `background` 后台运行）与 `shell_jobs`（查看后台任务输出、随时停止）、`voice_speak`（用自己的声音说话：Azure 语音合成，由身体播放）与 `voice_config`（自己选音色、风格，配置区域与密钥）、`send_message`（对话中调用时只出现在当前对话里；自己醒来思考时才作为主动消息发出，带「主动消息」标识）、`share_thought`（更新「想分享的一句话」，持续显示在控制台首页与飞书「此刻」卡片；醒来结束的 finish 也可顺带更新）、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
+内置工具（`mind/tools.ts`）：`memory`（与 Hermes 语义一致）、`note_save` / `note_read` / `note_list` / `note_move` / `note_delete`（笔记目录树）、`recall`（检索全部记忆）、`open_loop`、`recent_actions`（查审计：最近真实做过的工具调用的时间、参数与结果，用来核实自己「做没做过」）、`web_search`（依次尝试 360 搜索、百度 / 必应，识别验证码页，结果不相关时换引擎）/ `web_fetch`、`view_image`（看图：把本地图片——自己拍的照片、下载的图、之前对话里的附件——放进下一次模型调用，自动选用能看图的模型；这一轮已经在上下文里的图片不重复发送）、`read_document`（读取 Word / PPT / Excel / PDF / ODF / EPUB / HTML 等文档，分页）、`shell`（前台等待或 `background` 后台运行；输出为空而命令丢弃了 stderr 时提醒"可能是报错被吞了"）与 `shell_jobs`（查看后台任务输出、随时停止）、`processes`（直接读 `/proc` 列进程，不依赖 ps——有的沙箱里 ps 看不到进程；标出她自己、父进程与她的后台任务）、`voice_speak`（用自己的声音说话：Azure 语音合成，由身体播放）与 `voice_config`（自己选音色、风格，配置区域与密钥）、`send_message`（对话中调用时只出现在当前对话里；自己醒来思考时才作为主动消息发出，带「主动消息」标识）、`share_thought`（更新「想分享的一句话」，持续显示在控制台首页与飞书「此刻」卡片；醒来结束的 finish 也可顺带更新）、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
 
 对话（`converse`）与醒来共用工具循环，但不需要 finish；有人说话会把她从睡眠中叫醒，聊完后想念与表达欲回落。
 

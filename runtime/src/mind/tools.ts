@@ -13,6 +13,7 @@ import { summarize, type Session } from "./activity.ts";
 import { htmlToText, readDocument } from "./documents.ts";
 import { webSearch, BROWSER_HEADERS } from "./search.ts";
 import { loadImage } from "./images.ts";
+import { describeProcesses } from "./processes.ts";
 import * as voice from "../voice/azure.ts";
 import { config } from "../config.ts";
 
@@ -130,13 +131,23 @@ const core: Tool[] = [
   },
   {
     name: "shell", permission: "shell",
-    description: "在这具身体上执行一条 shell 命令。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。",
+    description: "在这具身体上执行一条 shell 命令。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
     parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
     handler: async (a) => {
       if (a.background) { const j = startJob(a.command); return `已在后台运行，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
       const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000);
-      return `exit ${r.code}\n${(r.out + r.err).slice(0, 8000)}`;
+      const out = (r.out + r.err).slice(0, 8000);
+      // 输出为空而命令丢弃了 stderr：报错可能被吞了，看起来像"没有结果"，不能据此下结论（非零退出时 run 会补一句 Command failed，不算输出）
+      const real = r.out + r.err.replace(/^Command failed: [^\n]*\n?/, "");
+      const note = !real.trim() && /2>\s*\/dev\/null|2>&-/.test(String(a.command)) ? "\n（输出为空，而命令把 stderr 丢弃了：可能是命令报错被吞掉，不等于「没有」。去掉 2>/dev/null 再看，或换别的来源核实，比如 processes。）" : "";
+      return `exit ${r.code}\n${out}${note}`;
     },
+  },
+  {
+    name: "processes", permission: "shell",
+    description: "列出这具身体上你能看到的进程（直接读 /proc，不依赖 ps）：pid、父进程、状态、已运行时长、命令行，并标出你自己（运行基座）、你的父进程和你启动的后台任务。想知道某个程序有没有在跑，用它而不是 ps。",
+    parameters: obj({ filter: str("可选：按命令行子串或 pid 过滤，如 node、dnsproxy") }),
+    handler: async (a) => describeProcesses(a.filter ? String(a.filter) : ""),
   },
   {
     name: "shell_jobs", permission: "shell", description: "管理后台命令：list 列出全部任务；output 查看某个任务最近的输出；stop 停止某个任务（连同它启动的子进程）。你可以按自己的判断，或根据对方的要求随时停止。",

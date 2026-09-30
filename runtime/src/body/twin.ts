@@ -87,6 +87,7 @@ export function describeBody(): string {
   lines.push(`环境：${feel.light}${raw.lux != null ? `（${raw.lux} lux）` : ""}，${feel.stillness}${raw.screenOn != null ? `，屏幕${raw.screenOn ? "亮" : "灭"}` : ""}`);
   lines.push(`系统：已运行 ${s.uptimeH} 小时，负载 ${s.load1}，空闲内存 ${s.memFreeMB} MB，存储余量 ${s.storageFreeGB ?? "?"} GB；网络${body.online ? "在线" : "离线"}`);
   if (raw.extra) lines.push("其他读数：" + Object.entries(raw.extra).map(([k, v]) => `${k}=${v}`).join("，"));
+  lines.push(`你自己：运行基座是 node ${process.version} 进程 pid ${process.pid}（父进程 ${process.ppid}），已运行 ${(process.uptime() / 3600).toFixed(1)} 小时；你执行的命令都是它的子进程。看进程用 processes 工具。`);
   return lines.join("\n");
 }
 
