@@ -150,13 +150,21 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
   const s = new Session(kind === "dream" ? "dream" : "think");
   s.emit({ kind: "start", text: reason });
   let r: Awaited<ReturnType<typeof loop>>;
-  try { r = await loop(messages, reason, true, s); s.emit({ kind: "done" }); }
-  catch (e: any) { s.emit({ kind: "error", message: e.message }); if (kind === "dream") await soul.releaseLease().catch(() => {}); throw e; }
+  // 执行过程（工具卡片与中途叙述）在 done / error 之后就从快照里移除，所以先取出来，随时间线条目保存：控制台据此只读回放这次醒来
+  let process: Record<string, unknown>[] = [];
+  try { r = await loop(messages, reason, true, s); process = s.process(); s.emit({ kind: "done" }); }
+  catch (e: any) {
+    process = s.process();
+    s.emit({ kind: "error", message: e.message });
+    addTimeline(kind, `醒来中断了：${e.message.split("\n")[0]}`, { reason, intent: gate.intent, error: e.message.split("\n")[0], process, model: "" });
+    if (kind === "dream") await soul.releaseLease().catch(() => {});
+    throw e;
+  }
   finally { s.close(); }
   const f = r.finish ?? { title: kind === "dream" ? "一个模糊的梦" : "醒来了一会儿", journal: r.text || "（没有留下文字）" };
   if (typeof f.thought === "string" && f.thought.trim()) mem.setThought(f.thought);
   mem.writeJournal(`${kind === "dream" ? "梦 · " : ""}${f.title}`, `${f.journal}${f.feeling ? `\n\n心情：${f.feeling}` : ""}`);
-  addTimeline(kind, f.title, { reason, intent: gate.intent, journal: f.journal, feeling: f.feeling, steps: r.steps, tokens: r.tokens, model: r.model });
+  addTimeline(kind, f.title, { reason, intent: gate.intent, journal: f.journal, feeling: f.feeling, thought: f.thought, process, steps: r.steps, tokens: r.tokens, model: r.model });
   if (kind === "dream") await soul.releaseLease(); else addExperience(1);
   setOpenLoops(mem.openLoops().length);
   await soul.push(kind === "dream" ? `梦：${f.title}` : f.title).catch(() => {});
@@ -271,10 +279,10 @@ export function converse(from: string, text: string, channel: string, o: { conv?
         r = { ...more, text: more.text || r.text, steps: [...r.steps, ...more.steps], tokens: r.tokens + more.tokens };
       }
       running.delete(conv);
-      const reply = r.text.trim() || "……";
-      addMessage("agent", channel, reply, { session: conv, process: s.process() });
+      const reply = r.text.trim() || "……", process = s.process();
+      addMessage("agent", channel, reply, { session: conv, process });
       s.emit({ kind: "done", reply });
-      addTimeline("chat", `和${from}说话`, { channel, conv, text, reply, steps: r.steps, tokens: r.tokens, model: r.model });
+      addTimeline("chat", `和${from}说话`, { channel, conv, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
       nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
       await soul.push("对话").catch(() => {});
