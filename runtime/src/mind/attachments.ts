@@ -67,8 +67,8 @@ export function resolveUpload(rel: string): string | undefined {
 
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
-/** 组装带附件的用户消息。 */
-export async function userMessage(header: string, files: Attachment[], instruction: string): Promise<Msg> {
+/** 组装带附件的用户消息。seen：本轮已放进上下文的图片路径，成功附带的图片会登记进去（view_image 据此不再重复发送）。 */
+export async function userMessage(header: string, files: Attachment[], instruction: string, seen?: Set<string>): Promise<Msg> {
   const images: ImagePart[] = [];
   const lines: string[] = [];
   let inlined = 0;
@@ -78,6 +78,7 @@ export async function userMessage(header: string, files: Attachment[], instructi
       if (f.kind === "image") {
         const { image, note } = await loadImage(f.path);
         images.push(image);
+        seen?.add(path.resolve(f.path));
         lines.push(`${tag}：图片，已附在消息中${note ? `（${note}）` : ""}`);
       } else if (f.kind === "text") {
         const text = fs.readFileSync(f.path, "utf8");

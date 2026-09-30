@@ -1,18 +1,20 @@
 // agent 可以调用的工具。每个工具声明所属的能力类别，调用前经过闸门检查，调用后写入审计。
 // 设备相关的工具由身体适配器提供（adapter.tools / adapter.hands），核心只提供与设备无关的能力。
+import path from "node:path";
 import { bus } from "../bus.ts";
-import { audit } from "../store.ts";
+import { audit, listAudit } from "../store.ts";
 import { check } from "../guard/guard.ts";
 import { shell, startJob, stopJob, getJob, listJobs } from "../sh.ts";
 import * as mem from "../memory/memory.ts";
 import { adjustPersonality } from "../heart/heart.ts";
 import { adapter } from "../body/twin.ts";
 import type { ToolDef } from "../providers/types.ts";
-import type { Session } from "./activity.ts";
+import { summarize, type Session } from "./activity.ts";
 import { htmlToText, readDocument } from "./documents.ts";
 import { webSearch, BROWSER_HEADERS } from "./search.ts";
 import { loadImage } from "./images.ts";
 import * as voice from "../voice/azure.ts";
+import { config } from "../config.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -85,20 +87,39 @@ const core: Tool[] = [
   },
   {
     name: "view_image", permission: "memory",
-    description: "看图：把本地图片（自己拍的照片、下载的图片、对话里的附件等）交给你自己看，图片会在你下一步思考时出现在眼前。一次最多 4 张；较大的照片会自动缩小。之前对话里的图片只保留了路径，想再看就用它。",
+    description: "看图：把本地图片（自己拍的照片、下载的图片、对话里的附件等）交给你自己看，图片会在你下一步思考时出现在眼前。一次最多 4 张；较大的照片会自动缩小。之前对话里的图片只保留了路径，想再看就用它；这一轮已经在你眼前的图片（随消息附带的、刚看过的）不会重复发送。",
     parameters: obj({ paths: { type: "array", items: { type: "string" }, description: "图片的本地路径（1–4 个）" } }, ["paths"]),
     handler: async (a, ctx) => {
       if (!ctx.session) return "现在无法看图（没有进行中的思考）";
       const list = (Array.isArray(a.paths) ? a.paths : [a.paths]).filter(Boolean).slice(0, 4).map(String);
       const out: string[] = [];
+      let sent = 0;
       for (const p of list) {
+        const key = path.resolve(p);
+        if (ctx.session.seen.has(key)) { out.push(`= ${p}：这张图这一轮已经在你眼前（随消息附带或刚看过），就是同一张，不再重复发送`); continue; }
         try {
           const { image, note } = await loadImage(p);
           ctx.session.images.push({ image, label: `${p}${note ? `（${note}）` : ""}` });
+          ctx.session.seen.add(key);
+          sent++;
           out.push(`✓ ${p}${note ? `：${note}` : ""}`);
         } catch (e: any) { out.push(`✗ ${p}：${e.message}`); }
       }
-      return `${out.join("\n")}\n图片会在你下一步思考时出现（会自动选用能看图的模型）。`;
+      return `${out.join("\n")}${sent ? "\n图片会在你下一步思考时出现（会自动选用能看图的模型）。" : ""}`;
+    },
+  },
+  {
+    name: "recent_actions", permission: "memory",
+    description: "核实你自己最近真实做过的事：审计记录里每次工具调用的时间、工具、参数摘要与结果开头（包括其他会话和醒来时的）。对话历史里只有每轮的过程摘要，更早或更细的靠它查。要说自己「做过 / 没做过」某件事之前先查，不要凭印象。",
+    parameters: obj({ hours: { type: "number", description: "只看最近多少小时（默认 24）" }, name: str("只看某个工具，如 view_image"), limit: { type: "number", description: "最多多少条（默认 30，最多 100）" } }),
+    handler: async (a) => {
+      const limit = Math.min(100, Math.max(1, Number(a.limit) || 30)), hours = Math.max(0.1, Number(a.hours) || 24);
+      const rows = listAudit(limit, { action: a.name ? String(a.name) : undefined, since: Date.now() - hours * 3600_000 }).reverse();
+      if (!rows.length) return `最近 ${hours} 小时没有${a.name ? `调用 ${a.name} 的` : ""}记录`;
+      const when = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      const parse = (j: string) => { try { return JSON.parse(j); } catch { return {}; } };
+      return `最近 ${hours} 小时的记录（旧→新，共 ${rows.length} 条${rows.length >= limit ? "，已达上限" : ""}）：\n` + rows.map((r) =>
+        `${when(r.ts)} ${r.actor === "agent" ? "" : `[${r.actor}] `}${r.action}(${summarize(parse(r.args) ?? {})})${r.reason ? `〔${r.reason}〕` : ""} → ${r.result.replace(/\s+/g, " ").trim().slice(0, 120)}`).join("\n");
     },
   },
   {

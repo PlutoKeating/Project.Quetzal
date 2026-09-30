@@ -45,7 +45,7 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
   if (!s.inbox.length) return false;
   for (const m of s.inbox.splice(0)) {
     messages.push(await userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}：\n${m.text}`, m.attachments as Attachment[],
-      m.mode === "interrupt" ? "请优先回应这条消息，再决定之前的工作是否继续。" : "请注意这条新消息，据此调整：之前的工作可以继续，也可以按新消息改变计划。"));
+      m.mode === "interrupt" ? "请优先回应这条消息，再决定之前的工作是否继续。" : "请注意这条新消息，据此调整：之前的工作可以继续，也可以按新消息改变计划。", s.seen));
   }
   return true;
 }
@@ -176,13 +176,50 @@ let chatting = 0, ownsBusy = false;
 const enter = () => { if (chatting++ === 0 && !isBusy()) { markBusy(true); ownsBusy = true; } };
 const leave = () => { if (--chatting === 0 && ownsBusy) { ownsBusy = false; markBusy(false); } };
 
-/** 会话自己的历史，作为真正的多轮上下文（从新到旧，在预算内）。不含这句话本身，也不含之后还在排队的话。 */
-function history(conv: string, self: number, budget = 12000): Msg[] {
+const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n) + "…" : x; };
+const stamp = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+
+/**
+ * 某一轮回复的过程记录（保存在 messages.process 里的工具卡片与中途叙述），供之后的轮次看到自己做过什么。
+ * full 为真给出每一步（工具、参数摘要、结果开头、中途说的话），否则只给工具计数。
+ */
+export function describeProcess(items: unknown[] | null | undefined, full: boolean, budget = 1200): string {
+  const list = (items ?? []) as Record<string, any>[];
+  if (!list.length) return "";
+  const tools = list.filter((x) => x.type === "tool");
+  if (!full) {
+    if (!tools.length) return `这一轮没有用工具${list.length ? "，中途说过话" : ""}`;
+    const n = new Map<string, number>();
+    for (const t of tools) n.set(t.name, (n.get(t.name) ?? 0) + 1);
+    return `这一轮用了 ${tools.length} 个工具：${[...n].map(([k, v]) => `${k}×${v}`).join("、")}（细节用 recent_actions 查）`;
+  }
+  const mark = (s: string) => (s === "ok" ? "✓" : s === "running" ? "…" : "✗");
+  const lines = list.map((x) => x.type === "tool"
+    ? `${x.name}(${clip(String(x.summary ?? ""), 80)}) ${mark(String(x.status))}${x.result ? ` → ${clip(String(x.result), 100)}` : ""}`
+    : `说：「${clip(String(x.text ?? ""), 100)}」`);
+  let out = lines.join("；");
+  if (out.length > budget) out = out.slice(0, budget) + `…（共 ${lines.length} 步）`;
+  return out;
+}
+
+/**
+ * 会话自己的历史，作为真正的多轮上下文（从新到旧，在预算内）。不含这句话本身，也不含之后还在排队的话。
+ * 每条都带时间；她自己的回复前附上那一轮的过程记录（最近 FULL_PROCESS 轮给出每一步，更早的只给工具计数），
+ * 否则下一轮她只看得到回复的文字，不知道自己做过什么、看过什么。
+ */
+const FULL_PROCESS = 3;
+export function history(conv: string, self: number, budget = 16000): Msg[] {
   const out: Msg[] = [];
-  let used = 0;
+  let used = 0, replies = 0;
   for (const m of sessionMessages(conv, 80).filter((m) => m.id < self || m.role === "agent").reverse()) {
-    const files = m.attachments?.length ? `\n[附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片想再看用 view_image" : ""}]` : "";
-    const text = m.text + files;
+    let text: string;
+    if (m.role === "user") {
+      const files = m.attachments?.length ? `\n[${stamp(m.ts)} 随这条消息发来的附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片当时已附在消息里，现在只剩路径，想再看用 view_image" : ""}]` : "";
+      text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}] ${m.text}${files}`;
+    } else {
+      const proc = describeProcess(m.process, replies++ < FULL_PROCESS);
+      text = `[${stamp(m.ts)}${proc ? `｜这一轮的过程记录：${proc}` : ""}]\n${m.text}`;
+    }
     if (used + text.length > budget) break;
     used += text.length;
     out.unshift(m.role === "user" ? { role: "user", content: text } : { role: "assistant", content: text });
@@ -226,7 +263,7 @@ export function converse(from: string, text: string, channel: string, o: { conv?
         { role: "system", content: systemPrompt(text, { conv }) },
         ...history(conv, id),
         await userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
-          "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。"),
+          "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。", s.seen),
       ];
       let r = await loop(messages, `回应${from}`, false, s);
       while (s.inbox.length) { // 最后一步刚结束时又来了消息：继续处理

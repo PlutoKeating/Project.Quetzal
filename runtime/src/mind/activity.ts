@@ -73,6 +73,8 @@ export class Session {
   readonly inbox: Incoming[] = [];
   /** view_image 请求查看的图片：在下一次模型调用时放进上下文。 */
   readonly images: { image: import("../providers/types.ts").ImagePart; label: string }[] = [];
+  /** 这一轮已经放进上下文的图片（绝对路径）：随消息附带的、view_image 看过的。同一张不再重复发送。 */
+  readonly seen = new Set<string>();
   /** 本次模型调用已经流式输出的文字（被打断时保留）。 */
   stepText = "";
 
@@ -135,10 +137,11 @@ export class Session {
   close() { this.flush(); clearTimeout(this.timer); clearInterval(this.beat); live.delete(this.id); }
 }
 
-/** 工具调用的一行摘要：优先取常见的主参数，否则取第一个字符串参数。 */
+/** 工具调用的一行摘要：优先取常见的主参数，否则取第一个字符串参数或字符串数组（如 view_image 的 paths）。 */
 export function summarize(args: Record<string, unknown> = {}): string {
   const keys = ["command", "query", "url", "title", "name", "id", "text", "target", "action"];
   const v = keys.map((k) => args[k]).find((x) => typeof x === "string" && x) ?? Object.values(args).find((x) => typeof x === "string" && x)
+    ?? (Object.values(args).find((x) => Array.isArray(x) && x.length && x.every((y) => typeof y === "string")) as string[] | undefined)?.join("、")
     ?? (Object.keys(args).length ? JSON.stringify(args) : "");
   const s = String(v).replace(/\s+/g, " ").trim();
   return s.length > 100 ? s.slice(0, 100) + "…" : s;

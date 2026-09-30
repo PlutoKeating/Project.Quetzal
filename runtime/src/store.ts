@@ -102,8 +102,10 @@ export function audit(actor: string, action: string, reason: string, args: unkno
   db.prepare("INSERT INTO audit(ts,actor,action,reason,args,result) VALUES(?,?,?,?,?,?)")
     .run(Date.now(), actor, action, reason, JSON.stringify(args ?? null).slice(0, 2000), result.slice(0, 2000));
 }
-export function listAudit(limit = 100) {
-  return db.prepare("SELECT * FROM audit ORDER BY id DESC LIMIT ?").all(limit);
+export interface AuditRow { id: number; ts: number; actor: string; action: string; reason: string; args: string; result: string }
+/** 审计记录（从新到旧）；action 只看某个动作，since 只看该时刻之后的。 */
+export function listAudit(limit = 100, o: { action?: string; since?: number } = {}): AuditRow[] {
+  return db.prepare("SELECT * FROM audit WHERE (?1 IS NULL OR action=?1) AND ts>=?2 ORDER BY id DESC LIMIT ?3").all(o.action ?? null, o.since ?? 0, limit) as unknown as AuditRow[];
 }
 
 export const today = () => new Date().toISOString().slice(0, 10);
