@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../markdown.dart';
 import '../widgets.dart';
 import 'chat.dart';
 
@@ -90,7 +91,7 @@ class _SessionsPageState extends State<SessionsPage> {
                     selected: cur,
                     leading: live ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.chat_bubble_outline, color: cs.outline),
                     title: Text('${s['title']}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('${live ? '进行中 · ' : ''}${hm(s['updated'])} · ${s['count']} 条${'${s['last'] ?? ''}'.isEmpty ? '' : '\n${'${s['last']}'.replaceAll(RegExp(r'[*_`#>]+'), '').replaceAll(RegExp(r'\s+'), ' ').trim()}'}', maxLines: 2, overflow: TextOverflow.ellipsis),
+                    subtitle: Text('${live ? '进行中 · ' : ''}${hm(s['updated'])} · ${s['count']} 条${'${s['last'] ?? ''}'.isEmpty ? '' : '\n${plainPreview('${s['last']}')}'}', maxLines: 2, overflow: TextOverflow.ellipsis),
                     isThreeLine: '${s['last'] ?? ''}'.isNotEmpty,
                     onTap: () => _open(s),
                     trailing: PopupMenuButton<String>(

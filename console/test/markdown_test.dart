@@ -20,4 +20,16 @@ void main() {
     expect(s.map((x) => x.text).join('\n'), contains('未闭合'));
     expect(s.map((x) => x.text).join('\n'), contains('graph TD'));
   });
+
+  test('一行预览去掉 Markdown 标记', () {
+    expect(plainPreview('## 标题\n\n- **粗体** 与 `代码`\n> 引用 [链接](http://x)\n```sh\nls\n```\n尾'), '标题 粗体 与 代码 引用 链接 尾');
+  });
+
+  test('识别像 Markdown 的文字，shell 输出与 JSON 不算', () {
+    expect(looksLikeMarkdown('# 标题\n正文'), isTrue);
+    expect(looksLikeMarkdown('说明：**重要**'), isTrue);
+    expect(looksLikeMarkdown('- a\n- b'), isTrue);
+    expect(looksLikeMarkdown('exit 0\ntotal 12\ndrwxr-xr-x 2 u u 4096 .'), isFalse);
+    expect(looksLikeMarkdown('{"command":"ls -la"}'), isFalse);
+  });
 }

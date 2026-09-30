@@ -2,6 +2,7 @@
 // + LaTeX 公式（行内 $…$ / \(…\)，独立 $$…$$ / \[…\]，原生排版）
 // + Mermaid 图（```mermaid：流程图、时序图、甘特图、类图、状态图、思维导图、框图、饼图……，在 WebView 中用内置的 mermaid.js 渲染，离线可用）。
 // 做法：先把 Mermaid 代码块与独立公式块切成单独的片段，其余交给 Markdown；行内公式通过自定义语法进入 Markdown。
+// 控制台里凡是她写的文字（回复、日记、笔记、记忆条目、想分享的一句话、理由）都经 RichMarkdown 渲染；工具输出经 RawOrMarkdown；只能放一行的地方用 plainPreview。
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -99,11 +100,36 @@ class _MathBuilder extends MarkdownElementBuilder {
   }
 }
 
+/// 去掉 Markdown 标记，用于只能放一行的地方：列表里的预览、通知条、首页那句话的折叠预览。
+String plainPreview(String md) => md
+    .replaceAll(RegExp(r'```[\s\S]*?(```|$)'), ' ')
+    .replaceAll(RegExp(r'^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+|\d+\.\s+|\|)', multiLine: true), '')
+    .replaceAllMapped(RegExp(r'!?\[([^\]]*)\]\([^)]*\)'), (m) => m.group(1)!)
+    .replaceAll(RegExp(r'[*_`~]+'), '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+/// 一段文字是否像 Markdown（标题、列表、引用、围栏、表格、粗体、行内代码、链接）。
+bool looksLikeMarkdown(String t) =>
+    RegExp(r'(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|\|.*\|)|\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]\([^)\n]+\)').hasMatch(t);
+
+/// 工具的参数与结果、审计里的输出：像 Markdown 就按 Markdown 渲染（笔记、她写的说明），否则按原样等宽显示（shell 输出、JSON），不让换行与空格被吞掉。
+class RawOrMarkdown extends StatelessWidget {
+  final String text;
+  const RawOrMarkdown(this.text, {super.key});
+  @override
+  Widget build(BuildContext context) => looksLikeMarkdown(text)
+      ? RichMarkdown(text)
+      : SelectableText(text, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'));
+}
+
 /// 渲染一段 Markdown。live：正在流式输出时为真，此时 Mermaid 先按代码显示，结束后再渲染成图。
+/// selectable：默认可选中文字；放在可点击的列表项里时关掉，否则点击会被文字选择吃掉。
+/// 单个换行按换行显示（softLineBreak）：她的日记、笔记与回复都是按行写的。
 class RichMarkdown extends StatelessWidget {
   final String text;
-  final bool live;
-  const RichMarkdown(this.text, {super.key, this.live = false});
+  final bool live, selectable;
+  const RichMarkdown(this.text, {super.key, this.live = false, this.selectable = true});
 
   @override
   Widget build(BuildContext context) {
@@ -129,7 +155,7 @@ class RichMarkdown extends StatelessWidget {
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Center(child: Math.tex(s.text, mathStyle: MathStyle.display, textStyle: theme.textTheme.bodyLarge,
-                    onErrorFallback: (_) => SelectableText(s.text))),
+                    onErrorFallback: (_) => selectable ? SelectableText(s.text) : Text(s.text))),
               ),
             ),
           _ => _markdown(s.text, sheet),
@@ -139,7 +165,8 @@ class RichMarkdown extends StatelessWidget {
 
   Widget _markdown(String data, MarkdownStyleSheet sheet) => MarkdownBody(
         data: data,
-        selectable: true,
+        selectable: selectable,
+        softLineBreak: true,
         styleSheet: sheet,
         extensionSet: md.ExtensionSet(
           md.ExtensionSet.gitHubFlavored.blockSyntaxes,

@@ -1,7 +1,11 @@
-// 心流：她经历了什么。按时间倒序的时间线，可展开看理由、日记、工具调用；可筛选；可切换到醒来分布。
+// 心流：她经历了什么。按时间倒序的时间线，可展开看理由、日记（Markdown）、工具调用；点「完整过程」进入只读的醒来记录页；可筛选；可切换到醒来分布。
+// 她正在思考 / 做梦时，列表顶部出现进行中的入口。
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../markdown.dart';
+import '../process.dart';
 import '../widgets.dart';
+import 'wake.dart';
 
 const kinds = {'think': ('思考', Icons.psychology), 'dream': ('梦', Icons.nights_stay), 'chat': ('对话', Icons.chat), 'doze': ('小憩', Icons.snooze), 'sleep': ('入睡', Icons.bedtime), 'wake': ('醒来', Icons.wb_sunny), 'approval': ('审批', Icons.gavel), 'stop': ('急停', Icons.pan_tool), 'boot': ('苏醒', Icons.power_settings_new), 'safe': ('安全模式', Icons.warning)};
 
@@ -21,7 +25,12 @@ class _FlowPageState extends State<FlowPage> {
     super.initState();
     _load(reset: true);
     api.events.where((e) => e.name == 'timeline').listen((e) { if (mounted && (kind == null || (e.data as Map)['kind'] == kind)) setState(() => items.insert(0, e.data as Map)); });
+    wakes.addListener(_onWake);
   }
+
+  @override
+  void dispose() { wakes.removeListener(_onWake); super.dispose(); }
+  void _onWake() { if (mounted) setState(() {}); }
 
   Future<void> _load({bool reset = false}) async {
     if (loading) return;
@@ -53,9 +62,14 @@ class _FlowPageState extends State<FlowPage> {
                 onNotification: (n) { if (n.metrics.extentAfter < 300) _load(); return false; },
                 child: RefreshIndicator(
                   onRefresh: () => _load(reset: true),
-                  child: items.isEmpty
-                      ? ListView(children: const [Padding(padding: EdgeInsets.all(32), child: Text('还没有经历', textAlign: TextAlign.center))])
-                      : ListView.builder(itemCount: items.length, itemBuilder: (_, i) => _Entry(items[i])),
+                  child: ListView.builder(
+                    itemCount: wakes.list.length + (items.isEmpty ? 1 : items.length),
+                    itemBuilder: (_, i) => i < wakes.list.length
+                        ? LiveWakeTile(wakes.list[i]) // 进行中：她正在思考 / 做梦
+                        : items.isEmpty
+                            ? const Padding(padding: EdgeInsets.all(32), child: Text('还没有经历', textAlign: TextAlign.center))
+                            : _Entry(items[i - wakes.list.length]),
+                  ),
                 ),
               ),
       ),
@@ -70,8 +84,9 @@ class _Entry extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = kinds[e['kind']] ?? ('${e['kind']}', Icons.circle);
     final d = (e['detail'] as Map?) ?? {};
-    final steps = (d['steps'] as List?) ?? [];
-    final has = d['journal'] != null || d['reply'] != null || steps.isNotEmpty || d['reason'] != null;
+    final steps = (d['steps'] as List?) ?? [], process = (d['process'] as List?) ?? [];
+    final has = d['journal'] != null || d['reply'] != null || steps.isNotEmpty || process.isNotEmpty || d['reason'] != null || d['error'] != null;
+    final full = process.isNotEmpty || steps.isNotEmpty || d['journal'] != null || d['reply'] != null; // 可以进只读的完整过程页
     final tile = ListTile(leading: Icon(k.$2), title: Text('${e['title']}'), subtitle: Text('${k.$1} · ${hm(e['ts'])}'));
     if (!has) return Card(child: tile);
     return Card(
@@ -84,17 +99,18 @@ class _Entry extends StatelessWidget {
         children: [
           if (d['reason'] != null) Text('因为：${d['reason']}', style: Theme.of(context).textTheme.bodySmall),
           if (d['intent'] != null && '${d['intent']}'.isNotEmpty) Text('想：${d['intent']}', style: Theme.of(context).textTheme.bodySmall),
-          if (d['text'] != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('对方：${d['text']}')),
-          if (d['reply'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text('她：${d['reply']}')),
-          if (d['journal'] != null) Padding(padding: const EdgeInsets.only(top: 8), child: SelectableText('${d['journal']}')),
-          if (d['feeling'] != null) Text('心情：${d['feeling']}', style: Theme.of(context).textTheme.bodySmall),
-          for (final s in steps)
-            ExpansionTile(
-              dense: true, tilePadding: EdgeInsets.zero,
-              title: Text('🔧 ${s['tool']}', style: Theme.of(context).textTheme.bodySmall),
-              children: [SelectableText('参数：${s['args']}\n结果：${s['result']}', style: Theme.of(context).textTheme.bodySmall)],
-            ),
-          if (d['tokens'] != null) Text('${d['tokens']} tokens', style: Theme.of(context).textTheme.labelSmall),
+          if (d['error'] != null) Text('中断了：${d['error']}', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          if (d['text'] != null) Padding(padding: const EdgeInsets.only(top: 8), child: Align(alignment: Alignment.centerRight, child: Bubble('${d['text']}', me: true, channel: d['channel']))),
+          if (d['reply'] != null) Bubble('${d['reply']}'),
+          if (d['journal'] != null) Padding(padding: const EdgeInsets.only(top: 8), child: RichMarkdown('${d['journal']}')),
+          if (d['feeling'] != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text('心情：${d['feeling']}', style: Theme.of(context).textTheme.bodySmall)),
+          // 工具调用：与对话页同样的卡片，点开看完整参数与结果
+          if (process.isNotEmpty || steps.isNotEmpty) ProcessView(process.isNotEmpty ? process.cast<Map>() : itemsFromSteps(steps), steps: steps.cast<Map>()),
+          Row(children: [
+            if (d['tokens'] != null) Text('${d['tokens']} tokens', style: Theme.of(context).textTheme.labelSmall),
+            const Spacer(),
+            if (full) TextButton.icon(icon: const Icon(Icons.visibility_outlined, size: 16), label: const Text('完整过程'), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WakePage(entry: e)))),
+          ]),
         ],
       ),
     );

@@ -1,9 +1,11 @@
-// 控制：日常调节 → 安全 → 连接与运维，越往下越偏技术。
+// 控制：日常调节 → 安全 → 连接与运维，越往下越偏技术。审批的理由按 Markdown 渲染；审计日志点开看完整参数与输出。
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
+import '../markdown.dart';
 import '../widgets.dart';
 import 'providers.dart';
 import 'agents.dart';
@@ -94,8 +96,11 @@ class ApprovalsPage extends StatelessWidget {
           if (api.approvals.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('没有待处理的请求', textAlign: TextAlign.center)),
           for (final a in api.approvals)
             Section('${a['action']}', [
-              Text('理由：${a['reason']}'),
-              Text('参数：${a['args']}', style: Theme.of(context).textTheme.bodySmall),
+              Text('理由', style: Theme.of(context).textTheme.labelLarge),
+              RichMarkdown('${a['reason']}'),
+              const SizedBox(height: 6),
+              Text('参数', style: Theme.of(context).textTheme.labelLarge),
+              SelectableText(_json(a['args']), style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace')),
               Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                 TextButton(onPressed: () => act(context, () => api.call('decide', {'id': a['id'], 'approve': false})), child: const Text('拒绝')),
                 FilledButton(onPressed: () => act(context, () => api.call('decide', {'id': a['id'], 'approve': true})), child: const Text('批准')),
@@ -190,10 +195,45 @@ class AuditPage extends StatelessWidget {
               ? Center(child: s.hasError ? Text('${s.error}') : const CircularProgressIndicator())
               : ListView(children: [
                   for (final a in s.data!)
-                    ListTile(dense: true, title: Text('${a['actor']} · ${a['action']}'), subtitle: Text('${hm(a['ts'])}  ${a['reason'] ?? ''}\n${a['result'] ?? ''}', maxLines: 3, overflow: TextOverflow.ellipsis)),
+                    ListTile(
+                      dense: true,
+                      title: Text('${a['actor']} · ${a['action']}'),
+                      subtitle: Text('${hm(a['ts'])}  ${a['reason'] ?? ''}\n${plainPreview('${a['result'] ?? ''}')}', maxLines: 3, overflow: TextOverflow.ellipsis),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => _AuditDetail(a as Map))),
+                    ),
                 ]),
         ),
       );
+}
+
+/// 一条审计记录的完整内容：参数（JSON）与输出（像 Markdown 就按 Markdown 渲染，否则原样等宽）。
+class _AuditDetail extends StatelessWidget {
+  final Map a;
+  const _AuditDetail(this.a);
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return Scaffold(
+      appBar: AppBar(title: Text('${a['actor']} · ${a['action']}')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Text('${hm(a['ts'])}${'${a['reason'] ?? ''}'.isNotEmpty ? ' · ${a['reason']}' : ''}', style: t.bodySmall),
+        const SizedBox(height: 12),
+        Text('参数', style: t.labelLarge),
+        SelectableText(_json(a['args']), style: t.bodySmall?.copyWith(fontFamily: 'monospace')),
+        const SizedBox(height: 12),
+        Text('结果', style: t.labelLarge),
+        if ('${a['result'] ?? ''}'.isEmpty) Text('（无）', style: t.bodySmall) else RawOrMarkdown('${a['result']}'),
+      ]),
+    );
+  }
+}
+
+/// 参数的可读形式：已是 JSON 字符串就整理缩进，否则直接编码。
+String _json(Object? v) {
+  try {
+    final o = v is String ? jsonDecode(v) : v;
+    return o == null ? '（无）' : const JsonEncoder.withIndent('  ').convert(o);
+  } catch (_) { return '$v'; }
 }
 
 // ---------------------------------------------------------------- 飞书

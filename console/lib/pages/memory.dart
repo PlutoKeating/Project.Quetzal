@@ -1,7 +1,8 @@
-// 记忆：她是谁、记得什么。核心（人格 + 常驻记忆）/ 日记 / 笔记 / 搜索。
+// 记忆：她是谁、记得什么。核心（人格 + 常驻记忆）/ 日记 / 笔记 / 搜索。人格、条目、日记、笔记与搜索结果都按完整 Markdown 渲染。
 // 你对记忆的任何修改，她下次醒来都会知道（写入她的日记），不会被悄悄篡改。
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../markdown.dart';
 import '../widgets.dart';
 
 class MemoryPage extends StatelessWidget {
@@ -58,7 +59,8 @@ class _CoreState extends State<_Core> {
   Widget _entries(String title, String target, List list) {
     final used = list.fold<int>(0, (a, e) => a + '$e'.length + 3);
     return Section('$title · $used 字', [
-      for (final e in list) ListTile(dense: true, contentPadding: EdgeInsets.zero, title: Text('$e'), onTap: () => _edit(target, old: '$e')),
+      for (final e in list)
+        ListTile(dense: true, contentPadding: EdgeInsets.zero, title: RichMarkdown('$e', selectable: false), trailing: const Icon(Icons.edit_outlined, size: 16), onTap: () => _edit(target, old: '$e')),
       if (list.isEmpty) const Text('（空）'),
     ], trailing: IconButton(icon: const Icon(Icons.add), onPressed: () => _edit(target)));
   }
@@ -70,10 +72,19 @@ class _CoreState extends State<_Core> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.only(bottom: 24), children: [
-        Section('人格', [Text('${m['soul']}', maxLines: 8, overflow: TextOverflow.fade)], trailing: IconButton(icon: const Icon(Icons.edit), onPressed: _editSoul)),
+        Section('人格', [
+          // 折叠预览（Markdown），点开看全文；编辑用右上角的笔
+          InkWell(
+            onTap: () => _open(context, '人格 SOUL.md', () async => '${m['soul']}'),
+            child: ClipRect(child: SizedBox(height: 220, child: OverflowBox(alignment: Alignment.topLeft, maxHeight: double.infinity, child: RichMarkdown('${m['soul']}', selectable: false)))),
+          ),
+          TextButton(onPressed: () => _open(context, '人格 SOUL.md', () async => '${m['soul']}'), child: const Text('查看全文')),
+        ], trailing: IconButton(icon: const Icon(Icons.edit), onPressed: _editSoul)),
         _entries('她的笔记（MEMORY）', 'memory', m['memory'] as List),
         _entries('关于你（USER）', 'user', m['user'] as List),
-        Section('未完成的念头', [for (final l in (m['loops'] as List)) Text('· ${l['text']}'), if ((m['loops'] as List).isEmpty) const Text('（无）')]),
+        Section('未完成的念头', [
+          if ((m['loops'] as List).isEmpty) const Text('（无）') else RichMarkdown((m['loops'] as List).map((l) => '- ${l['text']}').join('\n')),
+        ]),
       ]),
     );
   }
@@ -123,7 +134,7 @@ class _NotesState extends State<_Notes> {
         child: ListView(children: [
           if (notes.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('还没有笔记', textAlign: TextAlign.center)),
           for (final n in notes)
-            ListTile(leading: const Icon(Icons.sticky_note_2), title: Text('${n['name']}'), subtitle: Text([if ('${n['summary'] ?? ''}'.isNotEmpty) '${n['summary']}', hm(n['mtime'])].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis), onTap: () => _open(context, '${n['name']}', () => api.call<String>('note', {'name': n['name']}))),
+            ListTile(leading: const Icon(Icons.sticky_note_2), title: Text('${n['name']}'), subtitle: Text([if ('${n['summary'] ?? ''}'.isNotEmpty) plainPreview('${n['summary']}'), hm(n['mtime'])].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis), onTap: () => _open(context, '${n['name']}', () => api.call<String>('note', {'name': n['name']}))),
         ]),
       );
 }
@@ -143,13 +154,13 @@ class _SearchState extends State<_Search> {
           onSubmitted: (q) async { final r = await act(context, () => api.call<String>('search', {'query': q})); if (mounted) setState(() => result = r ?? ''); },
         ),
         const SizedBox(height: 12),
-        SelectableText(result),
+        RichMarkdown(result),
       ]);
 }
 
 void _open(BuildContext context, String title, Future<String> Function() load) {
   Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
     appBar: AppBar(title: Text(title)),
-    body: FutureBuilder<String>(future: load(), builder: (_, s) => s.hasData ? SingleChildScrollView(padding: const EdgeInsets.all(16), child: SelectableText(s.data!)) : const Center(child: CircularProgressIndicator())),
+    body: FutureBuilder<String>(future: load(), builder: (_, s) => s.hasData ? SingleChildScrollView(padding: const EdgeInsets.all(16), child: RichMarkdown(s.data!)) : s.hasError ? Center(child: Text('${s.error}')) : const Center(child: CircularProgressIndicator())),
   )));
 }

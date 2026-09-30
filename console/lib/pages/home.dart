@@ -1,13 +1,17 @@
-// 此刻：她现在怎么样。光团 + 状态 + 她想分享的一句话 + 戳一下 / 聊天（首屏）+ 驱动力 + 身体。
+// 此刻：她现在怎么样。光团 + 状态 + 她想分享的一句话（Markdown）+ 她正在想什么（只读入口）+ 戳一下 / 聊天（首屏）+ 驱动力 + 身体。
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../markdown.dart';
 import '../widgets.dart';
 import 'sessions.dart';
+import 'wake.dart';
 
-class HomePage extends ApiWidget {
+class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
+  Widget build(BuildContext context) => ListenableBuilder(listenable: Listenable.merge([api, wakes]), builder: (c, _) => view(c));
+
   Widget view(BuildContext context) {
     final h = api.heart, d = (h['drives'] as Map?) ?? {}, p = api.physical;
     final raw = (p['raw'] as Map?) ?? {}, feel = (p['feel'] as Map?) ?? {}, bat = raw['battery'] as Map?;
@@ -24,12 +28,15 @@ class HomePage extends ApiWidget {
         if (thought != null && '${thought['text'] ?? ''}'.isNotEmpty) // 她想分享的一句话，由她自己维护（share_thought）
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 8, 28, 4),
-            child: InkWell( // 最多 3 行，保证按钮留在首屏；点击看全文
-              onTap: () => showDialog(context: context, builder: (x) => AlertDialog(content: SelectableText('${thought['text']}'), actions: [TextButton(onPressed: () => Navigator.pop(x), child: const Text('好'))])),
-              child: Text('「${thought['text']}」', textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis,
+            child: InkWell( // 折叠时最多 3 行（去掉 Markdown 标记），保证按钮留在首屏；点击看全文（完整 Markdown）
+              onTap: () => showDialog(context: context, builder: (x) => AlertDialog(
+                  content: SingleChildScrollView(child: RichMarkdown('${thought['text']}')),
+                  actions: [TextButton(onPressed: () => Navigator.pop(x), child: const Text('好'))])),
+              child: Text('「${plainPreview('${thought['text']}')}」', textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontStyle: FontStyle.italic)),
             ),
           ),
+        for (final t in wakes.list) LiveWakeTile(t), // 她正在思考 / 做梦：只读地看她在做什么
         if (inhibitors.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text('抑制：${inhibitors.join('、')}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.orange))),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 4), // 首屏可达：放在「内在」卡片上方

@@ -4,30 +4,18 @@
 //   附件：一次最多 20 个文件，先上传到基座，再随消息发送（图片直接进消息，文本内联，文档给路径由她自己读）。
 //   她工作时发消息：默认「插话」（这次模型调用结束后并入）；发送按钮右侧的小三角可改为「排队」（下一轮）或「打断」（立即中止当前模型输出，不打断工具）。
 //   滚动：打开即在最底部；在底部时新内容自动跟随；上滑后右下角出现「回到底部」，有新内容时变亮并显示「新消息」。
+//   气泡、工具卡片与进行中的一轮（LiveTurn）在 process.dart 里，与只读的「醒来记录」页共用。
 import 'dart:async';
 import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets.dart';
-import '../markdown.dart';
+import '../process.dart';
 import 'sessions.dart';
 
 const maxFiles = 20;
 const modes = {'steer': ('插话', '这一步结束后并入，她会注意到', Icons.call_merge), 'queue': ('排队', '等这一轮结束后再处理', Icons.schedule_send), 'interrupt': ('打断', '立即打断她的输出，工具不受影响', Icons.pan_tool)};
-
-/// 进行中的一轮（由后端快照与推送事件共同维护）。
-class _Turn {
-  final String id;
-  int msg;
-  String text, status = 'running', live = '';
-  final items = <Map>[];
-  _Turn(this.id, this.msg, this.text);
-  factory _Turn.snapshot(Map t) => _Turn('${t['turn']}', (t['msg'] as num?)?.toInt() ?? 0, '${t['text'] ?? ''}')
-    ..status = '${t['status'] ?? 'running'}'
-    ..live = '${t['live'] ?? ''}'
-    ..items.addAll((t['items'] as List? ?? []).cast<Map>());
-}
 
 /// 待发送的附件（上传中 / 已上传 / 失败）。
 class _Pending {
@@ -48,7 +36,7 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final msgs = <Map>[];
-  final turns = <String, _Turn>{};
+  final turns = <String, LiveTurn>{};
   final local = <String, Map>{}; // 刚发出、后端还没确认的话（turn → 消息）
   final finished = <String>{}; // 已结束的轮次：取回快照时忽略（防止与已入库的回复重复）
   final files = <_Pending>[];
@@ -97,7 +85,7 @@ class _ChatPageState extends State<ChatPage> {
         msgs..clear()..addAll(r[0].cast<Map>());
         turns
           ..clear()
-          ..addEntries(r[1].cast<Map>().where((t) => t['conv'] == widget.conv && t['origin'] == 'chat' && !finished.contains(t['turn'])).map((t) => MapEntry('${t['turn']}', _Turn.snapshot(t))));
+          ..addEntries(r[1].cast<Map>().where((t) => t['conv'] == widget.conv && t['origin'] == 'chat' && !finished.contains(t['turn'])).map((t) => MapEntry('${t['turn']}', LiveTurn.snapshot(t))));
         local.removeWhere((k, _) => turns.containsKey(k) || msgs.any((m) => m['role'] == 'user' && m['text'] == local[k]!['text']));
         if (me.isNotEmpty) title = '${me.first['title']}';
         loading = false;
@@ -115,7 +103,7 @@ class _ChatPageState extends State<ChatPage> {
     switch (a['kind']) {
       case 'start':
         local.remove(id);
-        turns[id] = _Turn(id, (a['msg'] as num?)?.toInt() ?? 0, '${a['text'] ?? ''}');
+        turns[id] = LiveTurn(id, (a['msg'] as num?)?.toInt() ?? 0, '${a['text'] ?? ''}', conv: widget.conv);
         _resync(); // 取回这句话（也可能来自另一个客户端）
         return;
       case 'steer':
@@ -131,20 +119,7 @@ class _ChatPageState extends State<ChatPage> {
     }
     final t = turns[id];
     if (t == null) { _resync(); return; } // 错过了开头（例如刚切回前台）：直接取快照
-    setState(() {
-      switch (a['kind']) {
-        case 'queued': t.status = 'queued';
-        case 'step': t.status = 'running';
-        case 'delta': t.live += '${a['text'] ?? ''}';
-        case 'text':
-          final text = '${a['text'] ?? ''}'.trim();
-          if (a['final'] == true) { t.live = text; } else { if (text.isNotEmpty) t.items.add({'type': 'text', 'text': text}); t.live = ''; }
-        case 'tool':
-          final i = t.items.indexWhere((x) => x['type'] == 'tool' && x['call'] == a['call']);
-          final item = {'type': 'tool', ...a};
-          if (i >= 0) { t.items[i] = item; } else { t.items.add(item); }
-      }
-    });
+    setState(() => t.apply(a));
     _changed();
   }
 
@@ -223,14 +198,14 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     // 进行中的轮次挂在它对应的那句话下面；找不到时放在最后
-    final after = <int, List<_Turn>>{};
-    final tail = <_Turn>[];
+    final after = <int, List<LiveTurn>>{};
+    final tail = <LiveTurn>[];
     final ids = msgs.map((m) => (m['id'] as num?)?.toInt()).toSet();
     for (final t in turns.values) { ids.contains(t.msg) ? (after[t.msg] ??= []).add(t) : tail.add(t); }
     final rows = <Widget>[
       for (final m in msgs) ...[
         _message(context, m, cs),
-        for (final t in after[(m['id'] as num?)?.toInt()] ?? const <_Turn>[]) _live(t, cs),
+        for (final t in after[(m['id'] as num?)?.toInt()] ?? const <LiveTurn>[]) _live(t, cs),
       ],
       for (final t in tail) _live(t, cs),
       for (final m in local.values) _message(context, m, cs),
@@ -325,9 +300,9 @@ class _ChatPageState extends State<ChatPage> {
     final process = (m['process'] as List?)?.cast<Map>() ?? const [];
     final atts = (m['attachments'] as List?)?.cast<Map>() ?? const [];
     return Column(crossAxisAlignment: me ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
-      if (process.isNotEmpty) _Process(process),
+      if (process.isNotEmpty) ProcessView(process),
       if (atts.isNotEmpty) _attachments(context, atts, me, cs),
-      if ('${m['text']}'.isNotEmpty || atts.isEmpty) _bubble(context, '${m['text']}', me, cs, channel: m['channel'], pending: m['pending'] == true),
+      if ('${m['text']}'.isNotEmpty || atts.isEmpty) Bubble('${m['text']}', me: me, channel: m['channel'], pending: m['pending'] == true),
       if (me && modes[m['mode']] != null) Text('${modes[m['mode']]!.$1} · 在她工作时发送', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
     ]);
   }
@@ -359,81 +334,9 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _live(_Turn t, ColorScheme cs) {
-    final running = t.items.any((x) => x['type'] == 'tool' && x['status'] == 'running');
-    final hint = t.status == 'queued' ? '排队中（这个会话前面还有话没回完）…' : running ? '正在调用工具…' : t.live.isEmpty ? '她在想…' : '';
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      if (t.items.isNotEmpty) _Process(t.items),
-      if (t.live.isNotEmpty) _bubble(context, t.live, false, cs, live: true),
-      if (hint.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(hint, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
-    ]);
-  }
-
-  Widget _bubble(BuildContext context, String text, bool me, ColorScheme cs, {Object? channel, bool live = false, bool pending = false}) => Opacity(
-        opacity: pending ? 0.6 : 1,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.all(10),
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
-          decoration: BoxDecoration(color: me ? cs.primaryContainer : cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            me ? SelectableText(text) : RichMarkdown(text, live: live),
-            if (channel != null && channel != '控制台') Text('$channel', style: Theme.of(context).textTheme.labelSmall),
-          ]),
-        ),
-      );
-}
-
-/// 执行过程：每个工具一行（执行中 / 完成 / 出错 / 被拒绝）；她中途说的话按正常消息气泡完整显示（Markdown）。
-class _Process extends StatelessWidget {
-  final List<Map> items;
-  const _Process(this.items);
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final small = Theme.of(context).textTheme.bodySmall;
-    return Container(
-      margin: const EdgeInsets.only(top: 4),
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.9),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        for (final x in items)
-          if (x['type'] == 'text') // 她中途说的话：正常的消息气泡
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.all(10),
-              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
-              decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
-              child: RichMarkdown('${x['text']}'),
-            )
-          else
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 2),
-            padding: const EdgeInsets.only(left: 8),
-            decoration: BoxDecoration(border: Border(left: BorderSide(color: cs.outlineVariant, width: 2))),
-            child: Row(children: [
-                    _icon(x['status'], cs),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text.rich(
-                        TextSpan(children: [
-                          TextSpan(text: '${x['name']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          if ('${x['summary'] ?? ''}'.isNotEmpty) TextSpan(text: ' — ${x['summary']}', style: TextStyle(color: cs.onSurfaceVariant)),
-                        ]),
-                        maxLines: 1, overflow: TextOverflow.ellipsis, style: small,
-                      ),
-                    ),
-                    if (x['ms'] != null && x['status'] != 'running') Text('  ${((x['ms'] as num) / 1000).toStringAsFixed(1)}s', style: small?.copyWith(color: cs.outline)),
-                  ]),
-          ),
-      ]),
-    );
-  }
-
-  Widget _icon(Object? status, ColorScheme cs) => switch (status) {
-        'running' => const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-        'ok' => const Icon(Icons.check_circle, size: 16, color: Colors.green),
-        'denied' => Icon(Icons.block, size: 16, color: cs.outline),
-        _ => Icon(Icons.error, size: 16, color: cs.error),
-      };
+  Widget _live(LiveTurn t, ColorScheme cs) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (t.items.isNotEmpty) ProcessView(t.items),
+        if (t.live.isNotEmpty) Bubble(t.live, live: true),
+        if (t.hint.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(t.hint, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
+      ]);
 }

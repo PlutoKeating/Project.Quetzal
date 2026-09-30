@@ -1,7 +1,9 @@
 // Windler 控制台：观察、交流、调节与管理任意 agent。只是前端，不托管运行基座；可保存多个 agent 连接并一键切换。
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'markdown.dart';
 import 'widgets.dart';
+import 'pages/wake.dart';
 import 'pages/home.dart';
 import 'pages/flow.dart';
 import 'pages/memory.dart';
@@ -12,6 +14,7 @@ import 'pages/agents.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   api.init();
+  wakes.start(); // 跟踪她正在进行的醒来（首页与心流页的只读入口）
   runApp(const ConsoleApp());
 }
 
@@ -51,7 +54,7 @@ class _ShellState extends State<Shell> {
     super.initState();
     api.events.listen((e) {
       if (!mounted) return;
-      if (e.name == 'say') toast(context, '${api.name}：${e.data}');
+      if (e.name == 'say') toast(context, '${api.name}：${plainPreview('${e.data}')}');
       if (e.name == 'approval' && (e.data as Map)['status'] == 'pending') toast(context, '她请求批准：${(e.data as Map)['action']}');
     });
   }
