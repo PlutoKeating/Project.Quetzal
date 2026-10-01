@@ -4,6 +4,7 @@
 //     她正在工作时再发的消息 → 插话：在下一次模型调用前并入进行中的这一轮，只加一个表情表示收到，回复在那一轮里给出
 //     /new [标题] → 开启新的飞书会话（此后的对话都在新会话里）
 //   注意：SDK 默认对每个聊天串行投递消息（等处理函数返回才投递下一条），所以处理函数必须立即返回，对话在后台进行，否则插话无法生效。
+//   保密输入（pass_secret）进行中 → 一张提醒卡片（要哪几项、结束口令、完成 / 取消按钮，随进展原地更新）；期间的每条消息只回一条不含内容的回执
 //   agent 自主思考时主动说的话 → 私聊（带「主动消息」标识）；审批 → 带按钮的卡片
 // 接入：控制台一键扫码创建机器人（registerApp），自动获得凭据并绑定扫码的人，全程无需命令行。
 import crypto from "node:crypto";
@@ -16,8 +17,9 @@ import { converse, isRunning } from "../mind/brain.ts";
 import { kv, ensureSession, type Attachment } from "../store.ts";
 import { saveUpload, MAX_FILES } from "../mind/attachments.ts";
 import { imageMime } from "../mind/images.ts";
-import { views, approvalCard, md, card } from "./feishu-cards.ts";
-import type { Activity } from "../bus.ts";
+import { views, approvalCard, secretCard, md, card } from "./feishu-cards.ts";
+import type { Activity, SecretEvent } from "../bus.ts";
+import { capturing } from "../mind/secrets.ts";
 import { identity } from "../memory/identity.ts";
 
 let channel: lark.LarkChannel | undefined;
@@ -43,16 +45,19 @@ async function onCardAction(d: any) {
   if (v.op === "poke") args.note = formValue.note ?? "";
   if (v.numeric) for (const [k, x] of Object.entries(formValue)) if (x !== "" && !isNaN(Number(x))) args[k] = Number(x);
   let toast = { type: "success", content: "好的" };
+  let ended: SecretEvent | undefined; // 保密输入由按钮结束后的状态
   if (v.op) {
     if (v.field && !args[v.field]) return { toast: { type: "warning", content: "请先填写内容" } };
     try {
+      if (v.op === "secrets.end") secretCards.delete(args.id); // 卡片由这次回调原地更新，不再由事件更新
       const r: any = await Promise.race([invoke(v.op, args, "飞书"), new Promise((res) => setTimeout(() => res("__slow__"), 2500))]);
       if (v.op === "testModel" && r !== "__slow__") toast = r.ok ? { type: "success", content: `连通 ✓ ${r.latencyMs}ms：${r.message}` } : { type: "error", content: r.message };
       else if (typeof r === "string" && r !== "__slow__") toast = { type: r.startsWith("错误") ? "error" : "success", content: r.slice(0, 80) };
       else if (r === "__slow__") toast = { type: "info", content: "处理中…" };
+      if (v.op === "secrets.end") { ended = r && r !== "__slow__" ? r : { ...(v as any).secret, status: "expired" }; if (!r) toast = { type: "info", content: "这次保密输入已经结束了" }; }
     } catch (e: any) { toast = { type: "error", content: e.message.slice(0, 80) }; }
   }
-  const data = v.op === "decide" ? approvalCard({ ...v.approval, status: v.args.approve ? "approved" : "denied" }) : (views[v.view ?? "home"] ?? views.home)();
+  const data = v.op === "decide" ? approvalCard({ ...v.approval, status: v.args.approve ? "approved" : "denied" }) : ended ? secretCard(ended) : (views[v.view ?? "home"] ?? views.home)();
   return { toast, card: { type: "raw", data } };
 }
 
@@ -99,6 +104,18 @@ function progress(chatId: string, replyTo: string, session: string) {
   };
 }
 
+// 保密输入的提醒卡片：开始时发一张，之后随进展原地更新（保密输入 id → 卡片消息 id）
+const secretCards = new Map<string, string>();
+async function onSecret(e: SecretEvent) {
+  if (e.channel !== "飞书" || !channel || !config.feishu.ownerOpenId) return;
+  try {
+    const id = secretCards.get(e.id);
+    if (e.status === "open") { const r = await channel.send(config.feishu.ownerOpenId, { card: secretCard(e) }); if (r?.messageId) secretCards.set(e.id, r.messageId); }
+    else if (id) await channel.updateCard(id, secretCard(e));
+    if (e.status !== "open" && e.status !== "progress") secretCards.delete(e.id);
+  } catch (err: any) { log("feishu", `保密输入卡片更新失败：${err.message}`); }
+}
+
 /** 飞书当前的会话（/new 切换）。 */
 const currentConv = () => kv.get<string>("feishu.conv", "feishu");
 
@@ -128,6 +145,11 @@ async function fetchResources(msg: lark.NormalizedMessage): Promise<Attachment[]
 async function handle(msg: lark.NormalizedMessage) {
   const text = msg.content.trim();
   try {
+    // 保密输入进行中：这条消息是一项保密值或口令，交给 converse 截走。不下载附件、不加表情、不引用回复（引用会带出原文）
+    if (capturing(currentConv())) {
+      await send(msg.chatId, { markdown: await converse("你", msg.resources?.length ? "" : msg.content, "飞书", { conv: currentConv() }) });
+      return;
+    }
     const m = text.match(/^\/new(?:\s+(.+))?$/i);
     if (m) {
       const conv = `feishu-${Date.now().toString(36)}`;
@@ -204,6 +226,7 @@ export function wireFeishu() {
   bus.on("say", (text) => void toOwner({ markdown: `💭 **主动消息**（她自己醒来时想跟你说的）\n\n${text}` }));
   bus.on("notice", (text) => void toOwner({ markdown: `🔔 ${text}` }));
   bus.on("approval", (a) => { if (a.status === "pending") void toOwner({ card: approvalCard(a) }); });
+  bus.on("secret", (e) => void onSecret(e));
 }
 
 /** 手动配置凭据。 */

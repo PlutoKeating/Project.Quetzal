@@ -118,6 +118,7 @@ export function startGateway(safeMode: boolean) {
   bus.on("approval", (a) => broadcast("approval", a));
   bus.on("say", (t) => broadcast("say", t));
   bus.on("activity", (a) => broadcast("activity", a));
+  bus.on("secret", (e) => broadcast("secret", e));
 
   server.listen(config.gateway.port, "127.0.0.1", () => log("gateway", `监听 127.0.0.1:${config.gateway.port}`));
 }

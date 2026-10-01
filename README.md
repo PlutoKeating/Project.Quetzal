@@ -33,6 +33,7 @@ flowchart LR
 - **可插拔的灵魂桥**：装在运行 [Hermes Agent](https://hermes-agent.nousresearch.com/) 或 OpenClaw 的机器上，让它们成为同一个 agent 的另一具身体；把一句话发给那里的 agent 即可自行安装，随时拔出。
 - **多 agent**：身份数据化（`agent.json`），控制台保存多个连接、一键切换，界面称呼与主题色随 agent 变化。
 - **任意模型供应商**：OpenAI 兼容、OpenAI Responses、Anthropic、Google Gemini 四种协议；多供应商、多 Key、全局调用顺序与自动故障转移；Key 本地加密。
+- **保密传递**：agent 需要密码、令牌、密钥时调用 `pass_secret`，你直接在聊天框（控制台或飞书）里发，发完回一句结束口令；内容不进入对话与模型上下文，直接存进本机保密库，agent 只拿到文件路径。
 - **可控**：能力授权（允许 / 询问 / 禁止）、审批、预算、急停、审计；控制台 App 与飞书交互卡片两种操作方式，全程不需要命令行。
 
 ## 仓库结构

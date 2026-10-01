@@ -8,6 +8,7 @@ export const paths = {
   home: HOME,
   config: path.join(HOME, "config"),
   secrets: path.join(HOME, "secrets"),
+  vault: path.join(HOME, "vault"), // 保密库：对方通过 pass_secret 交给 agent 的保密值（见 mind/secrets.ts）
   data: path.join(HOME, "data"),
   state: path.join(HOME, "state"),
   soul: path.join(HOME, "soul"), // 与 Hermes 共享的灵魂仓库（git）
@@ -43,7 +44,7 @@ export const defaults: Config = {
   budget: { dailyTokens: 2_000_000, dailyCostUsd: 5, minBattery: 15, maxTempC: 45 },
   permissions: {
     network: "allow", shell: "allow", device: "allow", camera: "allow", microphone: "allow",
-    location: "allow", message: "allow", self_modify: "allow", memory: "allow", hands: "allow",
+    location: "allow", message: "allow", self_modify: "allow", memory: "allow", hands: "allow", secret: "allow",
   },
   brain: { maxOutputTokens: 4096 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
@@ -66,6 +67,7 @@ export let config: Config = defaults;
 export function loadConfig(): Config {
   for (const p of Object.values(paths)) if (p !== paths.stop) fs.mkdirSync(p, { recursive: true });
   fs.chmodSync(paths.secrets, 0o700);
+  fs.chmodSync(paths.vault, 0o700);
   const read = (f: string) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return {}; } };
   config = merge(defaults, read(file()));
   if (!config.feishu.bindCode) config.feishu.bindCode = Math.random().toString(36).slice(2, 8);

@@ -11,7 +11,7 @@ const ASK_TIMEOUT_MS = 30 * 60_000;
 
 export const PERMISSION_LABELS: Record<string, string> = {
   network: "联网", shell: "执行命令", device: "设备功能", camera: "相机", microphone: "麦克风",
-  location: "定位", message: "主动发消息", self_modify: "修改自身参数", memory: "改写记忆", hands: "操作屏幕与应用",
+  location: "定位", message: "主动发消息", self_modify: "修改自身参数", memory: "改写记忆", hands: "操作屏幕与应用", secret: "索取保密信息",
 };
 
 export function level(permission: string): Level { return config.permissions[permission] ?? "allow"; }

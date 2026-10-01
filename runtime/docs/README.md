@@ -4,7 +4,7 @@ TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），
 
 | 命令 | 作用 |
 |---|---|
-| `npm test` | 单元与集成测试（心脏数学、记忆语义、灵魂 git 合并、供应商保存与故障转移） |
+| `npm test` | 单元与集成测试（心脏数学、记忆语义、灵魂 git 合并、供应商保存与故障转移、保密传递） |
 | `npm run build` | 类型检查 + esbuild 打包 |
 | `npm run dev` | 以 `./.dev` 为家目录直接运行源码 |
 

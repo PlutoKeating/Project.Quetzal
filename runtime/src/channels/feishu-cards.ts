@@ -3,6 +3,8 @@
 import { config } from "../config.ts";
 import { ops } from "../ops.ts";
 import { identity } from "../memory/identity.ts";
+import { secretNotice } from "../mind/secrets.ts";
+import type { SecretEvent } from "../bus.ts";
 
 const who = () => identity().displayName;
 
@@ -144,3 +146,18 @@ export const approvalCard = (a: { id: string; action: string; reason: string; ar
       ? row(button("✅ 批准", { op: "decide", args: { id: a.id, approve: true }, approval: a }, "primary_filled"), button("❌ 拒绝", { op: "decide", args: { id: a.id, approve: false }, approval: a }, "danger"))
       : md(a.status === "approved" ? "✅ 已批准" : "❌ 已拒绝"),
   ]);
+
+/** 保密输入（pass_secret）：提醒对方要发哪几项、结束口令；随进展原地更新。按钮与发回结束口令等价。 */
+export const secretCard = (e: SecretEvent) => {
+  const live = e.status === "open" || e.status === "progress";
+  const names = (l: { name: string }[]) => l.map((x) => x.name).join("、");
+  return card(live ? "🔒 保密输入" : e.status === "done" ? "🔒 保密输入 · 已保存" : e.status === "cancelled" ? "🔒 保密输入 · 已取消" : "🔒 保密输入 · 已超时", live ? "orange" : e.status === "done" ? "green" : "grey", live
+    ? [
+      md(secretNotice(e)),
+      md(e.got >= e.items.length ? `**${e.items.length} 项已收齐**，确认无误请结束。` : `已收到 **${e.got}/${e.items.length}** 项，下一项：**${e.items[e.got].name}**`),
+      row(button("✅ 输入完毕", { op: "secrets.end", args: { id: e.id }, secret: e }, "primary_filled"), button("取消", { op: "secrets.end", args: { id: e.id, cancel: true }, secret: e }, "default", "放弃这次保密输入？已发的内容不会保存。")),
+    ]
+    : [md(e.status === "done"
+      ? (e.got ? `已存入保密库 ${e.got} 项：${names(e.items.slice(0, e.got))}。${who()} 看不到明文。${e.got < e.items.length ? `\n没有提供：${names(e.items.slice(e.got))}` : ""}\n这几条消息还留在聊天记录里，建议现在把它们撤回。` : "已结束，没有保存任何内容。")
+      : e.status === "cancelled" ? "已取消，没有保存任何内容。" : "太久没有动静，已自动取消，没有保存任何内容。需要时让她再发起一次。")]);
+};

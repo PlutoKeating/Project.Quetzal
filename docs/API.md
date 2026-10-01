@@ -30,6 +30,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `approval` | 审批 `{id, action, reason, args, status}` |
 | `say` | Windler 主动说的话（字符串） |
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），见下表 |
+| `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
 `activity` 的 `kind`：
@@ -73,6 +74,17 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `sessions.messages` | `{id, limit?, before?}` | 某个会话的对话 `[{id, ts, role, channel, text, session, process, attachments, mode}]`；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
 | `sessions.live` | — | 进行中的轮次快照 `[{turn, conv, origin, text, msg, status, step, live, items}]` |
 | `poke` | `{note?}` | 戳一下：推高想念与好奇并立即重新抽样，不强制醒来 |
+
+**保密库（`pass_secret`）**
+
+会话处于保密输入中时，`chat.send` 的 `text` 被当作一项保密值（或结束口令）消费：不入库、不进入上下文，立即返回一条不含内容的回执。任何接口都不返回值。
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `secrets` | — | 保密库里的各项 `[{name, hint, ts, channel, bytes, path}]` |
+| `secrets.delete` | `{name}` | 删除一项，返回是否存在 |
+| `secrets.pending` | — | 进行中的保密输入（结构同 `secret` 事件），客户端重建界面时取回 |
+| `secrets.end` | `{id, cancel?}` | 结束一次保密输入，与对方发回结束口令（`cancel` 为真时与「口令 取消」）等价；返回结束后的状态，已结束则为 `null` |
 
 **语音（Azure 语音服务）**
 

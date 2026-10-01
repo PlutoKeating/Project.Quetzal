@@ -17,6 +17,7 @@ import { addExperience, setOpenLoops, markBusy, isBusy, nudge, stopped, type Wak
 import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
 import { Session, SessionTimeout, Interrupted, summarize } from "./activity.ts";
+import { intake } from "./secrets.ts";
 
 const FINISH: ToolDef = {
   name: "finish",
@@ -241,6 +242,9 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
  */
 export function converse(from: string, text: string, channel: string, o: { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt" } = {}): Promise<string> {
   const conv = o.conv || (channel === "飞书" ? "feishu" : "first");
+  // 保密输入进行中（pass_secret）：这条消息是一项保密值或口令，在入库、进入上下文之前截走，只回一条不含内容的回执。所有通道都经过这里
+  const ack = intake(conv, text);
+  if (ack !== undefined) return Promise.resolve(ack);
   ensureSession(conv, conv === "feishu" ? "飞书" : "新的对话", channel);
   // 她正在这个会话里工作时：默认「插话」（这次模型调用结束后并入）；「打断」立即中止当前模型输出（不打断工具）；「排队」作为下一轮
   const cur = running.get(conv), mode = o.mode ?? "steer";

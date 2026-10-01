@@ -6,7 +6,7 @@
 src/
 ├── main.ts               装配各模块；熔断（安全模式）
 ├── config.ts             家目录布局、配置读写、密钥文件
-├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity）
+├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret）
 ├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式）、audit、usage
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时、输出上限）；后台任务（可随时停止整个进程组）
@@ -30,6 +30,7 @@ src/
 │   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，识别验证码页，按关键词覆盖率判断相关性并换引擎
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
+│   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（WINDLER_HOME/vault）、工具输出里的保密值替换
 │   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话；会话历史带时间与每轮的过程记录（describeProcess）
 ├── memory/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头
@@ -44,13 +45,14 @@ src/
 │   ├── router.ts         全局顺序路由、Key 轮换、故障转移、连通性测试
 │   └── compat/           供应商兼容层（仅对匹配的供应商自动生效）：index.ts 登记，opencode-go.ts
 └── channels/
-    ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话）、菜单与单聊事件、卡片回调、一键接入
-    └── feishu-cards.ts   卡片 JSON 2.0：此刻 / 心流 / 记忆 / 控制 / 模型 / 权限 / 预算 / 审批
+    ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话；保密输入期间只回不含内容的回执）、菜单与单聊事件、卡片回调、一键接入
+    └── feishu-cards.ts   卡片 JSON 2.0：此刻 / 心流 / 记忆 / 控制 / 模型 / 权限 / 预算 / 审批 / 保密输入
 ```
 
 约定：
 
 - 设备相关逻辑一律不进入本目录，只能通过 `body/adapter.ts` 的接口。
+- 所有通道的消息都经 `brain.ts` 的 `converse` 进入：保密输入的截取（`secrets.intake`）在那里，新通道不需要也不应该自己处理保密值，只需订阅 `secret` 事件提醒对方、把回执发回去。
 - 新增的控制能力先加到 `ops.ts`，控制台与飞书再各自接入。
 - 纯数学与状态转换放在无副作用的函数里（如 `heart/model.ts`），便于测试。
 - TypeScript 只使用可擦除语法（`erasableSyntaxOnly`），测试直接用 Node 运行源码。

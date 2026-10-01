@@ -19,6 +19,7 @@ import { VERSION } from "./version.ts";
 import { identity, setIdentity, type AgentIdentity } from "./memory/identity.ts";
 import { run } from "./sh.ts";
 import { checkRemote } from "./memory/soul-repo.ts";
+import { listSecrets, deleteSecret, pendingSecrets, endCapture } from "./mind/secrets.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -47,6 +48,12 @@ export const ops = {
   setSpeech: (a: Partial<voice.SpeechConfig> & { key?: string }, actor: string) => { audit(actor, "speech", "", { ...a, key: a.key ? "****" : undefined }, "ok"); return voice.setSpeech(a); },
   speechVoices: (a: { locale?: string }) => voice.listVoices(a.locale ?? ""),
   speechTest: async (a: { text?: string }) => { const f = await voice.synthesize(a.text || "你好，这是我的声音。"); await adapter.playAudio?.(f); return { ok: true, file: f, played: !!adapter.playAudio }; },
+
+  // 保密库（pass_secret）：只有名字、说明与大小，任何接口都不返回值。secrets.end 与对方发回结束口令等价（按钮用）
+  secrets: () => listSecrets(),
+  "secrets.delete": (a: { name: string }, actor: string) => { const ok = deleteSecret(String(a.name)); audit(actor, "secrets.delete", "", a, ok ? "ok" : "没有这一项"); return ok; },
+  "secrets.pending": () => pendingSecrets(),
+  "secrets.end": (a: { id: string; cancel?: boolean }) => endCapture(String(a.id), a.cancel ? "cancelled" : "done") ?? null,
 
   poke: (a: { note?: string }, actor: string) => { heart.nudge(`${actor}戳了一下${a.note ? "：" + a.note : ""}`, { social: 0.3, curiosity: 0.1 }, { wake: true }); audit(actor, "poke", a.note ?? "", null, "ok"); return true; },
   pause: (a: { paused: boolean }, actor: string) => { saveConfig({ heart: { paused: a.paused } }); audit(actor, a.paused ? "pause" : "resume", "", null, "ok"); heart.nudge(a.paused ? "暂停自主" : "恢复自主"); return true; },

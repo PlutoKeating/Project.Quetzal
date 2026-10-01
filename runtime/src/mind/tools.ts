@@ -16,6 +16,7 @@ import { loadImage } from "./images.ts";
 import { describeProcesses } from "./processes.ts";
 import * as voice from "../voice/azure.ts";
 import { config } from "../config.ts";
+import { requestSecrets, redactSecrets, MAX_ITEMS } from "./secrets.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -208,6 +209,19 @@ const core: Tool[] = [
     },
   },
   {
+    name: "pass_secret", permission: "secret",
+    description: "向对方索取密码、令牌、API Key、私钥等敏感信息时，必须且只能用它：不要让对方把这类内容直接发在对话里（那样你会看到明文，它还会留在对话记录和上下文里）。不涉及敏感信息时不要用。调用前先用一两句话告诉对方你要什么、为什么要、去哪里拿。调用后基座会在当前对话里提醒对方：对方把每一项各用一条消息发来，最后发回结束口令；这些消息不进入对话，直接存进这具身体的保密库（每项一个文件）。你会一直等到对方输入完毕、取消，或 10 分钟没有动静；拿到的只有每项的文件路径，看不到明文。之后在 shell 里用 \"$(cat 路径)\" 或 < 路径 引用，不要把内容输出出来（工具输出里出现的保密值会被替换成 ‹secret:名字›）。只能在对话中调用。",
+    parameters: obj({
+      purpose: str("用途：一句话说明为什么需要，会显示给对方"),
+      items: { type: "array", description: `要对方提供的各项（1–${MAX_ITEMS} 项），对方按这个顺序一条消息发一项`, items: obj({ name: str("名字，也是保存的文件名：字母、数字、下划线、连字符，如 github_token（同名会覆盖旧值）"), hint: str("给对方看的说明：这是什么、去哪里拿") }, ["name"]) },
+    }, ["purpose", "items"]),
+    handler: async (a, ctx) => {
+      const s = ctx.session;
+      if (s?.origin !== "chat" || !s.conv) return "pass_secret 只能在对话中调用：需要对方在场，在这个对话里输入。先发消息约对方，等对方回复后在对话里再用。";
+      return requestSecrets(s.conv, s.channel, String(a.purpose ?? ""), a.items);
+    },
+  },
+  {
     name: "adjust_self", permission: "self_modify",
     description: "调整自己的性格参数（会改变你醒来的节律与偏好）。可用键：tau.curiosity / tau.expression / tau.social（驱动力饱和时间，小时），weight.curiosity / weight.expression / weight.social / weight.openLoops（各驱动力对醒来的影响权重），gamma，sleepRiseH，sleepFallH，circadianPeakHour。",
     parameters: obj({ changes: { type: "object", description: "键值对，如 {\"tau.curiosity\": 2}" } }, ["changes"]),
@@ -243,11 +257,12 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };
   if (!(await check(t.permission, name, reason, args))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
-    const out = await t.handler(args, ctx);
+    const out = redactSecrets(await t.handler(args, ctx)); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计
     audit("agent", name, reason, args, out.slice(0, 500));
     return { text: out, status: "ok" };
   } catch (e: any) {
-    audit("agent", name, reason, args, `error: ${e.message}`);
-    return { text: `出错了：${e.message}`, status: "error" };
+    const msg = redactSecrets(String(e.message));
+    audit("agent", name, reason, args, `error: ${msg}`);
+    return { text: `出错了：${msg}`, status: "error" };
   }
 }
