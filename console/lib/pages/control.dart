@@ -30,6 +30,7 @@ class ControlPage extends ApiWidget {
       item(Icons.verified_user, '能力授权', '她能做什么、需要问你什么', const PermissionsPage()),
       item(Icons.savings, '预算', '今日 ${(s['usage'] as Map?)?['tokens'] ?? 0} tokens', const BudgetPage()),
       item(Icons.receipt_long, '审计日志', '每一次动作与修改', const AuditPage()),
+      item(Icons.key, '保密库', '你保密交给她的密码、令牌：她能用，看不到明文', const SecretsPage()),
       header('连接'),
       item(Icons.hub, '模型', '${(s['models'] as List?)?.length ?? 0} 个可用模型 · 供应商、Key 与顺序', const ProvidersPage()),
       item(Icons.send, '飞书', '一键扫码接入，在飞书里和她说话', const FeishuPage()),
@@ -234,6 +235,44 @@ String _json(Object? v) {
     final o = v is String ? jsonDecode(v) : v;
     return o == null ? '（无）' : const JsonEncoder.withIndent('  ').convert(o);
   } catch (_) { return '$v'; }
+}
+
+// ---------------------------------------------------------------- 保密库
+/// 你通过保密输入（她调用 pass_secret 时）交给她的值：只列名字与说明，任何地方都不显示内容；可以删除。
+class SecretsPage extends StatefulWidget {
+  const SecretsPage({super.key});
+  @override
+  State<SecretsPage> createState() => _SecretsPageState();
+}
+
+class _SecretsPageState extends State<SecretsPage> {
+  List? list;
+  @override
+  void initState() { super.initState(); _load(); }
+  Future<void> _load() async { final r = await act(context, () => api.call<List>('secrets')); if (mounted && r != null) setState(() => list = r); }
+  @override
+  Widget build(BuildContext context) {
+    final list = this.list;
+    return Scaffold(
+      appBar: AppBar(title: const Text('保密库')),
+      body: list == null ? const Center(child: CircularProgressIndicator()) : ListView(children: [
+        Padding(padding: const EdgeInsets.all(16), child: Text('${api.name} 需要密码、令牌、密钥时，会在对话里请你「保密输入」：你发的内容不进入对话，直接存到这里。她只能在命令里按路径引用，看不到明文；这里也不显示内容。它们只在这具身体上，不会同步到别的身体。')),
+        if (list.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('还没有保密值', textAlign: TextAlign.center)),
+        for (final s in list.cast<Map>())
+          ListTile(
+            leading: const Icon(Icons.key),
+            title: Text('${s['name']}'),
+            subtitle: Text('${'${s['hint']}'.isEmpty ? '' : '${s['hint']}\n'}${hm(s['ts'])}${'${s['channel']}'.isEmpty ? '' : ' · 来自${s['channel']}'} · ${s['bytes']} 字节'),
+            isThreeLine: '${s['hint']}'.isNotEmpty,
+            trailing: IconButton(tooltip: '删除', icon: const Icon(Icons.delete_outline), onPressed: () async {
+              if (!await confirm(context, '删除保密值', '删除「${s['name']}」？她将无法再使用它，需要时得请你重新输入。') || !context.mounted) return;
+              await act(context, () => api.call('secrets.delete', {'name': s['name']}), ok: '已删除');
+              _load();
+            }),
+          ),
+      ]),
+    );
+  }
 }
 
 // ---------------------------------------------------------------- 飞书
