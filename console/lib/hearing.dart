@@ -5,6 +5,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'api.dart';
 
 class Hearing {
@@ -31,6 +32,7 @@ class HearingController extends ChangeNotifier {
   void start() {
     api.addListener(sync);
     Hearing.events.listen(_onEvent, onError: (_) {});
+    AppLifecycleListener(onResume: () => refreshPermission().then((_) => sync())); // 从系统设置授权回来
     refreshPermission().then((_) => sync());
   }
 
@@ -38,8 +40,9 @@ class HearingController extends ChangeNotifier {
 
   static bool local(String base) => base.contains('127.0.0.1') || base.contains('localhost');
 
-  /// 基座想听、本机有权限、agent 在本机 → 开；否则关。
+  /// 基座想听、本机有权限、agent 在本机 → 开；否则关。没权限时每次都重查（权限可能在设置里或经 adb 刚被授予）。
   Future<void> sync() async {
+    if (!granted) granted = await Hearing.hasPermission();
     final h = (api.status['hearing'] as Map?) ?? {};
     final want = h['listening'] == true && api.conn == Conn.online && granted && local(api.base);
     final key = '${api.base}|${api.token}|${h['sensitivity'] ?? 2}';
