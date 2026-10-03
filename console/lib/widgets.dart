@@ -48,12 +48,14 @@ class _OrbState extends State<Orb> with SingleTickerProviderStateMixin {
   void dispose() { c.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
-    final base = api.color; // 光团用当前 agent 的主题色；睡着时沉下去，思考时亮起来
+    // 光团用当前 agent 的主题色，但作为发光体要比界面上的主题色更饱和、更亮；睡着时略沉，思考时更亮
+    final hsl = HSLColor.fromColor(api.color);
+    final vivid = hsl.withSaturation((hsl.saturation * 1.3).clamp(0, 1)).withLightness((hsl.lightness + 0.06).clamp(0, 1));
     final color = switch (widget.mode) {
-      'asleep' => Color.lerp(base, Colors.black, 0.45)!,
-      'active' => Color.lerp(base, Colors.white, 0.25)!,
+      'asleep' => vivid.withLightness((vivid.lightness - 0.08).clamp(0, 1)).toColor(),
+      'active' => vivid.withLightness((vivid.lightness + 0.1).clamp(0, 1)).toColor(),
       'stopped' => Colors.red,
-      _ => base,
+      _ => vivid.toColor(),
     };
     final speed = switch (widget.mode) { 'asleep' => 0.5, 'active' => 2.0, _ => 1.0 };
     return RepaintBoundary(
@@ -75,9 +77,15 @@ class _OrbPainter extends CustomPainter {
     final center = s.center(Offset.zero);
     final breath = 0.5 + 0.5 * sin(t * 2 * pi);
     final r = s.width * (0.26 + 0.04 * breath);
-    final glow = Paint()..shader = RadialGradient(colors: [color.withValues(alpha: 0.55 * (0.4 + 0.6 * alert)), color.withValues(alpha: 0)]).createShader(Rect.fromCircle(center: center, radius: r * 1.9));
-    canvas.drawCircle(center, r * 1.9, glow);
-    canvas.drawCircle(center, r, Paint()..shader = RadialGradient(colors: [Colors.white.withValues(alpha: 0.9), color]).createShader(Rect.fromCircle(center: center.translate(-r * .3, -r * .3), radius: r * 1.4)));
+    final glow = Paint()..shader = RadialGradient(colors: [color.withValues(alpha: 0.85 * (0.5 + 0.5 * alert)), color.withValues(alpha: 0.25 * (0.5 + 0.5 * alert)), color.withValues(alpha: 0)], stops: const [0, 0.55, 1]).createShader(Rect.fromCircle(center: center, radius: r * 2.2));
+    canvas.drawCircle(center, r * 2.2, glow);
+    // 球体：高光集中、过渡短、边缘压得更暗，让它像一盏实心的灯；高光由主题色提亮而不是整体泛白
+    final hi = center.translate(-r * .38, -r * .38);
+    canvas.drawCircle(center, r, Paint()..shader = RadialGradient(
+      colors: [Color.lerp(color, Colors.white, 0.7)!, Color.lerp(color, Colors.white, 0.2)!, color, Color.lerp(color, Colors.black, 0.45)!],
+      stops: const [0, 0.25, 0.6, 1],
+    ).createShader(Rect.fromCircle(center: hi, radius: r * 1.55)));
+    canvas.drawCircle(hi, r * 0.22, Paint()..shader = RadialGradient(colors: [Colors.white.withValues(alpha: 0.85), Colors.white.withValues(alpha: 0)]).createShader(Rect.fromCircle(center: hi, radius: r * 0.22)));
     if (mode == 'active') {
       final p = Paint()..color = Colors.white.withValues(alpha: 0.7);
       for (var i = 0; i < 12; i++) {

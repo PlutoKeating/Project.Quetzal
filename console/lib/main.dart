@@ -32,6 +32,8 @@ class ConsoleApp extends StatelessWidget {
       if (b == Brightness.dark) {
         // 暗色背景固定为中性灰 RGB(32,32,32)，各层容器为同一灰阶，不随主题色偏色
         scheme = scheme.copyWith(
+          primary: api.color, // 主色直接用 agent 的主题色（M3 从种子推导的深色主色会变成偏淡的粉），文字用设计系统的 accent-fg
+          onPrimary: const Color(0xFF1A120A),
           surface: darkBackground,
           surfaceContainerLowest: const Color(0xFF1A1A1A),
           surfaceContainerLow: const Color(0xFF262626),
