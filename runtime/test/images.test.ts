@@ -89,3 +89,26 @@ test("view_image：下一次模型调用带上图片，并只发给能看图的�
   assert.match(last.content[0].text, /你用 view_image 请求查看的 1 张图片/);
   assert.equal(last.content[1].type, "image_url");
 });
+
+test("没有任何缩图工具时，JPEG 用内置的 jpeg-js 缩小（手机上不必装 ffmpeg）", async () => {
+  const { shrink, shrinkJpegJs } = await import("../src/mind/images.ts");
+  const jpeg = (await import("jpeg-js")).default;
+  // 3000×2000 随机噪声 JPEG：压不小，确保走缩图
+  const w = 3000, h = 2000, data = Buffer.alloc(w * h * 4);
+  for (let i = 0; i < data.length; i += 4) { data[i] = Math.random() * 255; data[i + 1] = Math.random() * 255; data[i + 2] = Math.random() * 255; data[i + 3] = 255; }
+  const big = path.join(dir, "big.jpg");
+  fs.writeFileSync(big, jpeg.encode({ data, width: w, height: h }, 95).data);
+  assert.ok(fs.statSync(big).size > 1_500_000);
+  const out = await shrink(big, "jpeg-js");
+  assert.ok(out && fs.existsSync(out));
+  const small = jpeg.decode(fs.readFileSync(out!));
+  assert.equal(small.width, 1600); assert.equal(small.height, 1067);
+  fs.rmSync(out!);
+  // 小图不放大
+  const tiny = path.join(dir, "tiny.jpg"), tout = path.join(dir, "tiny-out.jpg");
+  fs.writeFileSync(tiny, jpeg.encode({ data: Buffer.alloc(8 * 8 * 4, 200), width: 8, height: 8 }, 90).data);
+  assert.ok(shrinkJpegJs(tiny, tout));
+  assert.equal(jpeg.decode(fs.readFileSync(tout)).width, 8);
+  // 不是 JPEG（或损坏）时返回 false，由上层决定是否原图直发
+  assert.equal(shrinkJpegJs(path.join(dir, "s.png"), tout), false);
+});

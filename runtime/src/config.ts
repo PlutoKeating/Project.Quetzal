@@ -36,15 +36,21 @@ export interface Config {
   speech: { region: string; endpoint: string; voice: string; style: string; rate: string; pitch: string; volume: string; format: string };
 }
 
+/** 系统时区（部署者未配置时的缺省）；拿不到就用上海。 */
+function systemTimezone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"; } catch { return "Asia/Shanghai"; }
+}
+
 export const defaults: Config = {
   body: "default",
   adapter: "",
-  timezone: "Asia/Shanghai",
+  timezone: systemTimezone(),
   heart: { activity: 1, baseRatePerHour: 4, paused: false },
   budget: { dailyTokens: 2_000_000, dailyCostUsd: 5, minBattery: 15, maxTempC: 45 },
+  // 相机、麦克风、定位、操作屏幕默认「每次询问」：新装的用户先看见她想做什么，再决定放开；其余默认允许
   permissions: {
-    network: "allow", shell: "allow", device: "allow", camera: "allow", microphone: "allow",
-    location: "allow", message: "allow", self_modify: "allow", memory: "allow", hands: "allow", secret: "allow",
+    network: "allow", shell: "allow", device: "allow", camera: "ask", microphone: "ask",
+    location: "ask", message: "allow", self_modify: "allow", memory: "allow", hands: "ask", secret: "allow",
   },
   brain: { maxOutputTokens: 4096 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },

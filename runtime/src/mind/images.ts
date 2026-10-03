@@ -1,7 +1,9 @@
 // 图片：把本地图片准备成多模态消息的一部分（附件、view_image 工具共用）。
 //   手机照片常有 5–10 MB，超过多数模型接口的上限，所以较大的图片先缩到长边 MAX_EDGE 像素的 JPEG：
-//   依次尝试 ffmpeg、ImageMagick（magick / convert），都没有时原图不超过 MAX_RAW 就直接发，否则给出明确提示。
+//   依次尝试 ffmpeg、ImageMagick（magick / convert）；都没有时 JPEG 用内置的纯 JS 编解码（jpeg-js，手机上不必装任何软件包）；
+//   仍不行的（大 PNG / WebP 等）原图不超过 MAX_RAW 就直接发，否则给出明确提示。
 import fs from "node:fs";
+import jpeg from "jpeg-js";
 import os from "node:os";
 import path from "node:path";
 import { run } from "../sh.ts";
@@ -25,8 +27,33 @@ export function imageMime(file: string, head?: Buffer): string | undefined {
   return undefined;
 }
 
-/** 依次尝试缩图工具；导出供测试逐个验证。 */
-export async function shrink(file: string, only?: "ffmpeg" | "magick" | "convert"): Promise<string | undefined> {
+/** 纯 JS 缩图（只支持 JPEG）：解码 → 盒式采样缩到长边 MAX_EDGE → 质量 85 编码。12 MP 的照片在手机上约需几秒。 */
+export function shrinkJpegJs(file: string, out: string, maxEdge = MAX_EDGE): boolean {
+  let img: { width: number; height: number; data: Uint8Array };
+  try { img = jpeg.decode(fs.readFileSync(file), { useTArray: true, formatAsRGBA: true, maxMemoryUsageInMB: 1024, maxResolutionInMP: 120 }); } catch { return false; }
+  const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+  const box = Math.max(1, Math.floor(1 / scale)); // 每个输出像素对盒内 box×box 个源像素取平均
+  const dst = Buffer.alloc(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const sy = Math.min(img.height - box, Math.floor(y / scale));
+    for (let x = 0; x < w; x++) {
+      const sx = Math.min(img.width - box, Math.floor(x / scale));
+      let r = 0, g = 0, b = 0;
+      for (let dy = 0; dy < box; dy++) for (let dx = 0; dx < box; dx++) {
+        const i = ((sy + dy) * img.width + sx + dx) * 4;
+        r += img.data[i]; g += img.data[i + 1]; b += img.data[i + 2];
+      }
+      const n = box * box, o = (y * w + x) * 4;
+      dst[o] = r / n; dst[o + 1] = g / n; dst[o + 2] = b / n; dst[o + 3] = 255;
+    }
+  }
+  fs.writeFileSync(out, jpeg.encode({ data: dst, width: w, height: h }, 85).data);
+  return true;
+}
+
+/** 依次尝试缩图工具，最后是内置的 jpeg-js；导出供测试逐个验证。 */
+export async function shrink(file: string, only?: "ffmpeg" | "magick" | "convert" | "jpeg-js"): Promise<string | undefined> {
   const out = path.join(os.tmpdir(), `windler-img-${process.pid}-${Date.now()}.jpg`);
   const tries: [string, string[]][] = [
     // 注意：这里不经过 shell，参数里不能带引号；force_original_aspect_ratio=decrease 保持比例、只缩不放（只在大文件时调用）
@@ -38,6 +65,7 @@ export async function shrink(file: string, only?: "ffmpeg" | "magick" | "convert
     const r = await run(cmd, args, 60_000);
     if (r.code === 0 && fs.existsSync(out) && fs.statSync(out).size > 0) return out;
   }
+  if ((!only || only === "jpeg-js") && imageMime(file) === "image/jpeg" && shrinkJpegJs(file, out)) return out;
   return undefined;
 }
 
@@ -57,7 +85,7 @@ export async function loadImage(file: string): Promise<{ image: ImagePart; note:
       fs.rmSync(small, { force: true });
       return { image: { mime: "image/jpeg", data }, note: `原图 ${(size / 1048576).toFixed(1)} MB，已缩小到长边 ${MAX_EDGE} 像素（${kb} KB）` };
     }
-    if (size > MAX_RAW) throw new Error(`图片太大（${(size / 1048576).toFixed(1)} MB），且没有可用的缩图工具（ffmpeg / ImageMagick）`);
+    if (size > MAX_RAW) throw new Error(`图片太大（${(size / 1048576).toFixed(1)} MB），且没有可用的缩图工具（内置缩图只支持 JPEG；PNG / WebP 需要 ffmpeg 或 ImageMagick）`);
   }
   return { image: { mime, data: fs.readFileSync(file).toString("base64") }, note: "" };
 }

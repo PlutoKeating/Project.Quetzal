@@ -1,17 +1,18 @@
 {
   "name": "windler-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
   "description": "通用的 Agentic 生命运行基座：心脏、大脑、记忆、身体、闸门、网关",
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --outfile=dist/main.cjs",
+    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --outfile=dist/main.cjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "dev": "WINDLER_HOME=./.dev node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",
+    "jpeg-js": "^0.4.4",
     "ws": "^8.22.0"
   },
   "devDependencies": {
