@@ -25,7 +25,6 @@ export interface SoulRepoOptions {
 const LEASE_MS = 30 * 60_000;
 export const SPEC = { spec: "soul-repo", version: 4 };
 const MAX_FILE = 1 << 20;
-const TOP_LEVEL = new Set([".git", ".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "locks"]);
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",
   ".gitattributes": "* text=auto eol=lf\n*.md text diff=markdown\n*.json text\n",
@@ -109,12 +108,10 @@ export class SoulRepo {
     return changed;
   }
 
-  /** 规范检查：顶层条目（警告）与暂存区文件内容（错误，阻止提交）。 */
-  /** 提交前的提醒（只记日志，从不阻止提交）：顶层规范外的条目、过大或二进制的文件。 */
+  /** 提交前的提醒（只记日志，从不阻止提交）：过大或二进制的文件。顶层多出的目录是她自己的（规范 §1），不提醒。 */
   async lint(): Promise<string[]> {
-    const warnings = fs.readdirSync(this.o.dir).filter((e) => !TOP_LEVEL.has(e)).map((e) => `顶层出现规范外的条目：${e}`);
     const staged = (await this.git("diff", "--cached", "--name-only", "-z", "--diff-filter=AM")).out.split("\0").filter(Boolean); // -z：保留中文等非 ASCII 文件名
-    return [...warnings, ...staged.flatMap((f) => { try { return lintContent(f, fs.readFileSync(this.p(f))); } catch { return []; } })];
+    return staged.flatMap((f) => { try { return lintContent(f, fs.readFileSync(this.p(f))); } catch { return []; } });
   }
 
 
