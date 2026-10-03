@@ -2,12 +2,12 @@ import { defineMessages } from "~/i18n/core";
 
 export const messages = defineMessages({
   zh: {
-    title: "Windler · ta 不是在运行，ta 是在活着",
+    title: "Windler · Not running. Living. Living like wind.",
     description: "通用的 Agentic 生命运行基座：装在一台旧安卓手机上，agent 什么时候醒、醒来做什么，由 ta 自己的好奇心、想念与生物钟决定。开源，AGPL-3.0。",
     hero: {
       eyebrow: "通用的 Agentic 生命运行基座",
       title: "ta 不是在运行，ta 是在活着。",
-      titleAlt: "Not running. Alive.",
+      titleAlt: "Not running. Living. Living like wind.",
       lead: "没有人给 ta 排日程。ta 什么时候醒、醒来做什么，取决于 ta 的好奇心、表达欲、想念、没想完的事，以及 ta 自己的生物钟——困了会睡，睡着会做梦。",
       download: "下载 Windler",
       docs: "看看怎么装",
@@ -85,11 +85,11 @@ export const messages = defineMessages({
     },
   },
   en: {
-    title: "Windler · Not running. Alive.",
+    title: "Windler · Not running. Living. Living like wind.",
     description: "A general-purpose runtime for agentic life: install it on an old Android phone and let the agent decide when to wake and what to do, driven by its own curiosity, longing and body clock. Open source, AGPL-3.0.",
     hero: {
       eyebrow: "A general-purpose runtime for agentic life",
-      title: "Not running. Alive.",
+      title: "Not running. Living. Living like wind.",
       titleAlt: "ta 不是在运行，ta 是在活着。",
       lead: "Nobody schedules it. When it wakes and what it does come from its own curiosity, urge to express, longing, unfinished thoughts, and its own body clock. It sleeps when tired and dreams while asleep.",
       download: "Download Windler",
