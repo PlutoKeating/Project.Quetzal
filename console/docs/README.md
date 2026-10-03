@@ -19,6 +19,8 @@ flutter build apk --release --target-platform android-arm64
 
 签名：`android/key.properties`（不入库）里给出 `storeFile`、`storePassword`、`keyAlias`、`keyPassword` 即用正式签名，没有时退回 debug 签名。版本号在 `pubspec.yaml`，与 runtime 的版本一致。
 
+GitHub Release（`.github/workflows/release.yml`，推送 `v<版本>` 标签触发）使用仓库 Secrets `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 写入同样的 `key.properties` 做正式签名（已配置；密钥库由维护者离线保管）。注意 v0.2.1 是 debug 签名，从它升级到正式签名的版本需要先卸载再安装，Termux 里的运行基座不受影响。
+
 依赖：`web_socket_channel`、`shared_preferences`、`qr_flutter`、`url_launcher`、`file_picker`（附件，一次最多 20 个）；Markdown 渲染用 `flutter_markdown_plus` + `markdown`（GFM），`flutter_math_fork`（LaTeX），`webview_flutter`（Mermaid 图）。
 
 构建注意：Flutter 的 Gradle 工具（`packages/flutter_tools/gradle/settings.gradle.kts`）要求仓库只在 settings 里声明（`FAIL_ON_PROJECT_REPOS`）。如果本机 `~/.gradle/init.gradle` 之类的用户级初始化脚本给每个项目注入了镜像仓库，`assembleRelease` 会以"repository 'maven' was added by settings file"失败；构建时把该脚本临时移开即可，完成后放回。
