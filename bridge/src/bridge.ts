@@ -35,7 +35,7 @@ function newIdentity(c: BridgeConfig, displayName?: string) {
   const guessed = displayName ?? frameworks[c.framework].guessName?.(c.home);
   return {
     id: crypto.randomUUID(), name: c.agent.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40) || "agent", displayName: guessed ?? c.agent,
-    pronouns: "", description: "", color: "#7C6CF2", language: "zh-CN", createdAt: new Date().toISOString(),
+    pronouns: "", description: "", color: "#F0A35E", language: "zh-CN", createdAt: new Date().toISOString(),
     ...(guessed ? {} : { seed: true }),
   };
 }

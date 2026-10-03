@@ -48,11 +48,12 @@ class _OrbState extends State<Orb> with SingleTickerProviderStateMixin {
   void dispose() { c.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
+    final base = api.color; // 光团用当前 agent 的主题色；睡着时沉下去，思考时亮起来
     final color = switch (widget.mode) {
-      'asleep' => const Color(0xFF3949AB),
-      'active' => const Color(0xFFB39DDB),
+      'asleep' => Color.lerp(base, Colors.black, 0.45)!,
+      'active' => Color.lerp(base, Colors.white, 0.25)!,
       'stopped' => Colors.red,
-      _ => const Color(0xFF7C6CF2),
+      _ => base,
     };
     final speed = switch (widget.mode) { 'asleep' => 0.5, 'active' => 2.0, _ => 1.0 };
     return RepaintBoundary(

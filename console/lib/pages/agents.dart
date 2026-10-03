@@ -77,7 +77,7 @@ class _AgentSheetState extends State<_AgentSheet> {
       );
 }
 
-const _palette = ['#7C6CF2', '#E0607E', '#F2994A', '#27AE60', '#2D9CDB', '#56CCF2', '#BB6BD9', '#EB5757', '#6FCF97', '#F2C94C'];
+const _palette = ['#F0A35E', '#E0607E', '#27AE60', '#2D9CDB', '#56CCF2', '#BB6BD9', '#EB5757', '#6FCF97', '#F2C94C', '#7C6CF2']; // 首项为官网设计系统的琥珀，即默认色
 
 /// 身份资料：名字、代词、简介、主题色。保存后写入灵魂仓库的 agent.json，所有身体同步。
 class IdentityPage extends StatefulWidget {
@@ -88,7 +88,7 @@ class IdentityPage extends StatefulWidget {
 
 class _IdentityPageState extends State<IdentityPage> {
   final f = <String, TextEditingController>{};
-  String color = '#7C6CF2';
+  String color = '#F0A35E';
   Map? a;
   @override
   void initState() { super.initState(); _load(); }

@@ -252,12 +252,15 @@ class Api extends ChangeNotifier {
   Color get color {
     final c = agent['color'];
     if (c is String && RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(c)) return Color(int.parse('FF${c.substring(1)}', radix: 16));
-    return const Color(0xFF7C6CF2);
+    return defaultAgentColor;
   }
   Map get heart => (status['heart'] as Map?) ?? {};
   Map get physical => (status['physical'] as Map?) ?? {};
   bool get stopped => status['stopped'] == true;
   List get approvals => (status['approvals'] as List?) ?? [];
 }
+
+/// 默认主题色：与官网设计系统的琥珀（accent）一致。
+const defaultAgentColor = Color(0xFFF0A35E);
 
 final api = Api();

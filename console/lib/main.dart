@@ -13,6 +13,9 @@ import 'pages/agents.dart';
 import 'pages/setup.dart';
 import 'installer.dart';
 
+/// 暗色模式的背景：固定 RGB(32,32,32)，与主题色无关。
+const darkBackground = Color(0xFF202020);
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   api.init();
@@ -24,11 +27,26 @@ class ConsoleApp extends StatelessWidget {
   const ConsoleApp({super.key});
   @override
   Widget build(BuildContext context) {
-    ThemeData theme(Brightness b) => ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: api.color, brightness: b), // 主题色随当前 agent
-          useMaterial3: true,
-          cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
+    ThemeData theme(Brightness b) {
+      var scheme = ColorScheme.fromSeed(seedColor: api.color, brightness: b); // 主题色随当前 agent
+      if (b == Brightness.dark) {
+        // 暗色背景固定为中性灰 RGB(32,32,32)，各层容器为同一灰阶，不随主题色偏色
+        scheme = scheme.copyWith(
+          surface: darkBackground,
+          surfaceContainerLowest: const Color(0xFF1A1A1A),
+          surfaceContainerLow: const Color(0xFF262626),
+          surfaceContainer: const Color(0xFF2C2C2C),
+          surfaceContainerHigh: const Color(0xFF333333),
+          surfaceContainerHighest: const Color(0xFF3A3A3A),
         );
+      }
+      return ThemeData(
+        colorScheme: scheme,
+        scaffoldBackgroundColor: b == Brightness.dark ? darkBackground : null,
+        useMaterial3: true,
+        cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
+      );
+    }
     return ListenableBuilder(
       listenable: api,
       builder: (context, _) => MaterialApp(

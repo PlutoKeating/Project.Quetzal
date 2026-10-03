@@ -22,7 +22,7 @@ const file = () => path.join(paths.soul, "agent.json");
 export function defaultIdentity(): AgentIdentity {
   return {
     id: crypto.randomUUID(), name: "agent", displayName: "未命名的 Agent", pronouns: "", description: "",
-    color: "#7C6CF2", language: "zh-CN", createdAt: new Date().toISOString(), seed: true,
+    color: "#F0A35E", language: "zh-CN", createdAt: new Date().toISOString(), seed: true,
   };
 }
 
