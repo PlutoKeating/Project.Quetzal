@@ -2,7 +2,7 @@
  * 设计系统组件：全站可复用的基础构件。只用语义工具类，不含任何字面量视觉参数。
  */
 import { Link, type LinkProps } from "react-router";
-import { useEffect, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
 
 export const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(" ");
 
@@ -115,6 +115,32 @@ export function Kbd({ className, ...rest }: ComponentPropsWithoutRef<"kbd">) {
 
 export function Divider({ className, ...rest }: ComponentPropsWithoutRef<"hr">) {
   return <hr className={cx("border-border", className)} {...rest} />;
+}
+
+/** 光团：品牌标志，与控制台首页的球同一套渲染（左上光源、明度偏移、高光点、光晕）。颜色来自设计系统的 orb-* 色标。 */
+export function OrbMark({ size = 20, className }: { size?: number; className?: string }) {
+  const id = useId();
+  const g = `${id}g`, s = `${id}s`, h = `${id}h`;
+  const v = (k: string) => `var(--ds-color-${k})`;
+  // 视口 100×100，球半径 r=24，光晕半径 2.2r；球体渐变以球心左上 0.38r 为光源、半径 1.38r；高光点在 -0.42r、半径 0.2r
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden className={className}>
+      <defs>
+        <radialGradient id={g} cx="50" cy="50" r="52.8" gradientUnits="userSpaceOnUse">
+          <stop offset="0" style={{ stopColor: v("orb-glow") }} /><stop offset="0.55" style={{ stopColor: v("orb-glow-mid") }} /><stop offset="1" style={{ stopColor: v("orb-glow-end") }} />
+        </radialGradient>
+        <radialGradient id={s} cx="40.9" cy="40.9" r="33.1" gradientUnits="userSpaceOnUse">
+          <stop offset="0" style={{ stopColor: v("orb-hi") }} /><stop offset="0.25" style={{ stopColor: v("orb-mid") }} /><stop offset="0.6" style={{ stopColor: v("orb") }} /><stop offset="1" style={{ stopColor: v("orb-rim") }} />
+        </radialGradient>
+        <radialGradient id={h} cx="39.9" cy="39.9" r="4.8" gradientUnits="userSpaceOnUse">
+          <stop offset="0" style={{ stopColor: v("fg"), stopOpacity: 0.95 }} /><stop offset="1" style={{ stopColor: v("fg"), stopOpacity: 0 }} />
+        </radialGradient>
+      </defs>
+      <circle cx="50" cy="50" r="52.8" fill={`url(#${g})`} />
+      <circle cx="50" cy="50" r="24" fill={`url(#${s})`} />
+      <circle cx="39.9" cy="39.9" r="4.8" fill={`url(#${h})`} />
+    </svg>
+  );
 }
 
 /** 状态灯：唯一允许「亮」的小元素。alive 时呼吸。 */
