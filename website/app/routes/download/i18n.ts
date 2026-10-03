@@ -29,7 +29,7 @@ export const messages = defineMessages({
       api: "Termux:API",
       apiDesc: "传感器、通知、相机、麦克风等身体能力",
       boot: "Termux:Boot",
-      bootDesc: "开机自启，重启后它自己醒来",
+      bootDesc: "开机自启，重启后 ta 自己醒来",
       requirements: "要求：Android 7 以上，arm64 处理器。",
       guide: "完整安装步骤",
     },
@@ -47,7 +47,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "其他机器",
       heading: "部署到不是手机的地方",
-      body: "运行基座包里是单文件的 main.cjs 与 Termux 身体适配器 termux.mjs。任何能跑 Node.js 22 与 git 的机器都可以成为它的身体，交给 runit、systemd 之类的进程守护者即可。",
+      body: "运行基座包里是单文件的 main.cjs 与 Termux 身体适配器 termux.mjs。任何能跑 Node.js 22 与 git 的机器都可以成为 ta 的身体，交给 runit、systemd 之类的进程守护者即可。",
       link: "部署到其他机器",
     },
     state: {

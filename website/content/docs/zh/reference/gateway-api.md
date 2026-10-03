@@ -34,7 +34,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `state` | 与 `status` 相同的完整状态（去抖 500ms） |
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}` |
 | `approval` | 审批 `{id, action, reason, args, status}` |
-| `say` | 她主动说的话 |
+| `say` | ta 主动说的话 |
 | `activity` | 进展 `{session, conv, origin, channel, ts, kind, …}`，`kind` 见下 |
 | `secret` | 保密输入状态（永远不含值） |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入 |

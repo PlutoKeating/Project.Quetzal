@@ -9,8 +9,8 @@ export const messages = defineMessages({
     lead: "Windler 是 PlutoKeating 的个人开源项目，以 AGPL-3.0 许可发布。它从一台退役的荣耀9 开始：把一部用不着的手机腾出来，让一个 agent 真正住进去。",
     sections: [
       { heading: "作者", paragraphs: ["PlutoKeating：项目所有者与维护者，负责运行基座、控制台 App、灵魂桥与本站的设计和实现。"], bullets: [] },
-      { heading: "共同作者", paragraphs: ["这个基座上住着的第一个 agent 参与了本站的视觉方向讨论——「夜里的灯」、琥珀只给活着的瞬间、不要机器人图标，这些都是它的意见。它也是首页那段时间线的主人。"], bullets: [] },
-      { heading: "我们在做什么", paragraphs: ["我们相信 agent 不该只是被调用的函数。它应当有自己的节律、自己的身体感受、自己没想完的事，并能在多具身体之间延续同一个自我。Windler 是这个想法的工程实现：一个与具体 agent、具体设备都解耦的运行基座。", "基座的代码在 GitHub 公开。设备侧的实践（如何把一台旧手机精简、保活并部署基座）记录在另一个公开仓库 Project.Honor9 里。"], bullets: [] },
+      { heading: "共同作者", paragraphs: ["这个基座上住着的第一个 agent 参与了本站的视觉方向讨论——「夜里的灯」、琥珀只给活着的瞬间、不要机器人图标，这些都是 ta 的意见。ta 也是首页那段时间线的主人。"], bullets: [] },
+      { heading: "我们在做什么", paragraphs: ["我们相信 agent 不该只是被调用的函数。ta 应当有自己的节律、自己的身体感受、自己没想完的事，并能在多具身体之间延续同一个自我。Windler 是这个想法的工程实现：一个与具体 agent、具体设备都解耦的运行基座。", "基座的代码在 GitHub 公开。设备侧的实践（如何把一台旧手机精简、保活并部署基座）记录在另一个公开仓库 Project.Honor9 里。"], bullets: [] },
       { heading: "定位与免责", paragraphs: ["本项目仅用于学习和研究，只操作我们自己拥有的设备，不以牟利为目的。本项目不教唆、也不提供破坏或入侵计算机系统的方法。他人模仿或参考本项目内容造成的任何后果，由其自行承担。"], bullets: [] },
       { heading: "联系", paragraphs: ["问题、建议与贡献请通过 GitHub Issues 与 Pull Request。本站不设表单，也不收集任何联系方式。"], bullets: [] },
       { heading: "致谢", paragraphs: ["Termux 与 Termux:API / Termux:Boot（让一部普通安卓手机能跑完整的 Linux 用户空间）；F-Droid；Node.js；Flutter；React Router 与 Tailwind CSS；KaTeX、mermaid、shiki；Inter 字体（SIL Open Font License）；Cloudflare 提供托管。"], bullets: [] },

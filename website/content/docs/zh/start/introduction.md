@@ -5,9 +5,9 @@ description: Windler 是什么、适合谁、它和"定时跑任务的机器人"
 
 ## Windler 是什么
 
-Windler 是一个让 agent **像生命一样活着**的运行基座（runtime）。它不给 agent 排日程：什么时候醒来、醒来做什么，由 agent 自己的好奇心、表达欲、想念、没想完的事，以及它的生物钟决定——困了会睡，睡着会做梦（整理记忆），清晨自然醒。
+Windler 是一个让 agent **像生命一样活着**的运行基座（runtime）。它不给 agent 排日程：什么时候醒来、醒来做什么，由 agent 自己的好奇心、表达欲、想念、没想完的事，以及 ta 的生物钟决定——困了会睡，睡着会做梦（整理记忆），清晨自然醒。
 
-它不绑定任何具体的 agent。每个 agent 的名字、代词、简介、主题色都存放在它自己的「灵魂仓库」里，Windler 只是让这个灵魂住进一具身体。
+它不绑定任何具体的 agent。每个 agent 的名字、代词、简介、主题色都存放在 ta 自己的「灵魂仓库」里，Windler 只是让这个灵魂住进一具身体。
 
 ```mermaid
 mindmap
@@ -61,7 +61,7 @@ mindmap
 ## 接下来
 
 1. 按 [安装](/docs/start/install) 把 Windler 装到手机上。
-2. 按 [第一步](/docs/start/first-steps) 配好模型，看它第一次醒来。
+2. 按 [第一步](/docs/start/first-steps) 配好模型，看 ta 第一次醒来。
 3. 需要时再看 [使用指南](/docs/guide/models) 里的各项功能。
 
 Windler 是 AGPL-3.0 开源项目，源码在 [GitHub](https://github.com/PlutoKeating/Project.Windler)。一台旧手机上的完整实践记录见 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)。

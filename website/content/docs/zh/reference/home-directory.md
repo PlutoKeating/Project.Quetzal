@@ -13,7 +13,7 @@ vault/                   0700：保密库，每项一个 0600 文件；index.jso
 data/windler.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
 data/uploads/<日期>/      对话附件
-data/media/              她拍的照片、录音（Termux 适配器）
+data/media/              ta 拍的照片、录音（Termux 适配器）
 soul/                    灵魂目录（git 仓库）
 state/starts.json        启动记录（熔断用）
 STOP                     急停标志：存在即冻结一切行动

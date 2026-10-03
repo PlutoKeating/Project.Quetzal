@@ -67,7 +67,7 @@ interface BodyAdapter {
 
 - `startSenses` 周期调用 `sample()`，间隔自适应 2–10 分钟，不调用模型。
 - 读数与操作系统信息一起进入身体孪生，派生身体感受，与上次比较产生 sense 事件，影响驱动力并触发重新抽样。
-- `extra` 原样进入她看到的「身体」段落。
+- `extra` 原样进入 ta 看到的「身体」段落。
 
 ## Termux 适配器（`runtime/adapters/termux/`，构建为 `dist/termux.mjs`）
 

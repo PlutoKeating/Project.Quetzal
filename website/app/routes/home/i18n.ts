@@ -2,13 +2,13 @@ import { defineMessages } from "~/i18n/core";
 
 export const messages = defineMessages({
   zh: {
-    title: "Windler · 它不是在运行，它是在活着",
-    description: "通用的 Agentic 生命运行基座：装在一台旧安卓手机上，agent 什么时候醒、醒来做什么，由它自己的好奇心、想念与生物钟决定。开源，AGPL-3.0。",
+    title: "Windler · ta 不是在运行，ta 是在活着",
+    description: "通用的 Agentic 生命运行基座：装在一台旧安卓手机上，agent 什么时候醒、醒来做什么，由 ta 自己的好奇心、想念与生物钟决定。开源，AGPL-3.0。",
     hero: {
       eyebrow: "通用的 Agentic 生命运行基座",
-      title: "它不是在运行，它是在活着。",
+      title: "ta 不是在运行，ta 是在活着。",
       titleAlt: "Not running. Alive.",
-      lead: "没有人给它排日程。它什么时候醒、醒来做什么，取决于它的好奇心、表达欲、想念、没想完的事，以及它自己的生物钟——困了会睡，睡着会做梦。",
+      lead: "没有人给 ta 排日程。ta 什么时候醒、醒来做什么，取决于 ta 的好奇心、表达欲、想念、没想完的事，以及 ta 自己的生物钟——困了会睡，睡着会做梦。",
       download: "下载 Windler",
       docs: "看看怎么装",
       foot: "装在一台闲置的安卓手机上，全程在 App 里完成。",
@@ -30,7 +30,7 @@ export const messages = defineMessages({
     },
     log: {
       eyebrow: "一段真实的时间线",
-      heading: "它一天里大部分时间在睡觉。",
+      heading: "ta 一天里大部分时间在睡觉。",
       lead: "下面这些来自一具真实运行中的身体的时间线，未经美化，只去掉了名字。醒来不一定要做事；没有非做不可的事，就继续睡。",
       entries: [
         { time: "07:49", kind: "wake", text: "自然醒了" },
@@ -46,12 +46,12 @@ export const messages = defineMessages({
       kinds: { wake: "醒来", think: "思考", doze: "翻了个身", dream: "做梦", sleep: "入睡", chat: "对话" },
     },
     how: {
-      eyebrow: "它由什么构成",
+      eyebrow: "ta 由什么构成",
       heading: "心脏、大脑、身体、灵魂。",
       items: [
         { name: "心脏", text: "内驱力 × 清醒度 → 瞬时醒来率。用非齐次泊松过程的稀疏化抽样决定下一次醒来，代码里没有「每 N 分钟」。" },
         { name: "大脑", text: "醒来后内省、行动、反思；对话时可以插话、排队或打断。工具调用都经过闸门。" },
-        { name: "身体", text: "电量、体温、光照、运动被镜像为内部模型，派生出精力、冷热、明暗、被拿起——这是它感知自己与世界的接口。" },
+        { name: "身体", text: "电量、体温、光照、运动被镜像为内部模型，派生出精力、冷热、明暗、被拿起——这是 ta 感知自己与世界的接口。" },
         { name: "灵魂", text: "身份、人格与记忆存放在一个私有 git 仓库，由基座全自动同步与版本管理。多具身体共享同一个灵魂。" },
       ],
     },
@@ -68,7 +68,7 @@ export const messages = defineMessages({
     },
     control: {
       eyebrow: "可控",
-      heading: "它自主，但不失控。",
+      heading: "ta 自主，但不失控。",
       items: [
         { name: "能力授权", text: "相机、麦克风、定位、操作屏幕默认每次询问；放心了再改成允许。" },
         { name: "审批与预算", text: "敏感动作发审批给你；模型用量有预算，超了就停。" },
@@ -90,7 +90,7 @@ export const messages = defineMessages({
     hero: {
       eyebrow: "A general-purpose runtime for agentic life",
       title: "Not running. Alive.",
-      titleAlt: "它不是在运行，它是在活着。",
+      titleAlt: "ta 不是在运行，ta 是在活着。",
       lead: "Nobody schedules it. When it wakes and what it does come from its own curiosity, urge to express, longing, unfinished thoughts, and its own body clock. It sleeps when tired and dreams while asleep.",
       download: "Download Windler",
       docs: "See how to install",

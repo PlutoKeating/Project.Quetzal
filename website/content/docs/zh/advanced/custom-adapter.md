@@ -43,7 +43,7 @@ export default adapter;
 
 | 成员 | 必需 | 说明 |
 |---|---|---|
-| `name` / `describe` | 是 | `describe` 一句话描述这具身体，写进她的自我认知 |
+| `name` / `describe` | 是 | `describe` 一句话描述这具身体，写进 ta 的自我认知 |
 | `sample()` | 是 | 一次物理采样，字段全部可选：有什么报什么 |
 | `init()` | 否 | 启动时调用一次 |
 | `notify()` | 否 | 本地系统通知；没有它配对码只能从令牌文件读 |

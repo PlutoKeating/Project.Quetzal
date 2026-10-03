@@ -1,11 +1,11 @@
 ---
 title: 灵魂桥
-description: 让装着 Hermes Agent 或 OpenClaw 的机器成为同一个 agent 的另一具身体——把一句话发给那里的 agent，它会自己安装。
+description: 让装着 Hermes Agent 或 OpenClaw 的机器成为同一个 agent 的另一具身体——把一句话发给那里的 agent，ta 会自己安装。
 ---
 
 ## 它是什么
 
-**soul-bridge** 是一个独立、可随时插拔的小守护进程，装在运行 [Hermes Agent](https://hermes-agent.nousresearch.com/) 或 OpenClaw 的机器上。它把那个框架的人格与记忆文件和灵魂仓库**双向同步**：手机上的她和电脑上的她是同一个灵魂。
+**soul-bridge** 是一个独立、可随时插拔的小守护进程，装在运行 [Hermes Agent](https://hermes-agent.nousresearch.com/) 或 OpenClaw 的机器上。它把那个框架的人格与记忆文件和灵魂仓库**双向同步**：手机上的 ta 和电脑上的 ta 是同一个灵魂。
 
 ```mermaid
 flowchart LR
@@ -24,16 +24,16 @@ flowchart LR
   BO <-- git --> R
 ```
 
-## 安装：让它自己装
+## 安装：让 ta 自己装
 
-**控制 → 灵魂同步** 第 3 步有一句现成的话。复制它，发给那台机器上的 Hermes 或 OpenClaw。它会按技能自己完成：
+**控制 → 灵魂同步** 第 3 步有一句现成的话。复制它，发给那台机器上的 Hermes 或 OpenClaw。ta 会按技能自己完成：
 
 1. 检查并在用户目录安装 Node.js（22.18+）、获取程序、把技能留在自己的技能目录；
-2. 确定灵魂仓库：你给的地址 → 它自己的记忆 → GitHub 上已有的 `*.soul` 私有仓库 → 自动创建；
+2. 确定灵魂仓库：你给的地址 → ta 自己的记忆 → GitHub 上已有的 `*.soul` 私有仓库 → 自动创建；
 3. 一条 `init` 完成全部配置：生成部署密钥、有 `gh` 或 `GITHUB_TOKEN` 时自动添加可写部署密钥、克隆、导入现有人格与记忆、安装钩子与后台服务、首次同步；
 4. `doctor` 自检并按建议修复。
 
-只有缺少 GitHub 凭据、缺少 git 且无 sudo、或同一错误重试 3 次仍失败时，它才会把需要你做的事合并成一条消息发出——通常只是**在 GitHub 网页添加一次它给出的部署公钥**。
+只有缺少 GitHub 凭据、缺少 git 且无 sudo、或同一错误重试 3 次仍失败时，ta 才会把需要你做的事合并成一条消息发出——通常只是**在 GitHub 网页添加一次 ta 给出的部署公钥**。
 
 > [!TIP]
 > 整个过程你不需要打开终端。
