@@ -1,4 +1,4 @@
-// 生成 README 用的生物钟曲线 ../docs/assets/readme/bodyclock.{zh,en}.svg（与官网首页同一模型）。
+// 生成生物钟曲线 bodyclock.{zh,en}.svg（与官网同一模型）：写到 ../docs/assets/readme/（README 用）与 public/img/（文档架构页用）。
 // 用法：node --experimental-strip-types scripts/gen-bodyclock-svg.ts
 import { writeFileSync } from "node:fs";
 import { simulateDay } from "../app/lib/bodyClock.ts";
@@ -32,6 +32,5 @@ for (const [lang, t] of Object.entries(L)) {
   o.push(`<line x1="${PX + 520}" x2="${PX + 556}" y1="${H - 36}" y2="${H - 36}" stroke="${SUB}" stroke-width="2.5" stroke-dasharray="6 6"/><text x="${PX + 568}" y="${H - 30}" font-size="18" fill="${MUTED}">${t.S}</text>`);
   o.push(`<text x="${W - PX}" y="${H - 30}" text-anchor="end" font-size="18" fill="${SUB}">${t.note}</text>`);
   o.push(`</svg>`);
-  const p = `../docs/assets/readme/bodyclock.${lang}.svg`;
-  writeFileSync(p, o.join("\n")); console.log(p);
+  for (const p of [`../docs/assets/readme/bodyclock.${lang}.svg`, `public/img/bodyclock.${lang}.svg`]) { writeFileSync(p, o.join("\n")); console.log(p); }
 }

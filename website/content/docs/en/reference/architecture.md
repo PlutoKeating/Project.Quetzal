@@ -13,6 +13,8 @@ Design principles: **device-agnostic** (the core knows only the adapter interfac
 
 ## Heart: when to wake
 
+![One day of the body clock: sleep pressure S and circadian rhythm C (the model)](/img/bodyclock.en.svg)
+
 ### Drives and body clock
 
 | Quantity | Range | Dynamics |

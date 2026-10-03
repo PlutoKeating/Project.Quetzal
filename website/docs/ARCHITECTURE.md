@@ -38,15 +38,15 @@ flowchart LR
 ## 3.1 首页的两处「活着」
 
 - **呼吸光斑** `Breath`：有机形状的柔光，`animate-breath`（亮度 ±8%、5 秒周期）。
-- **生物钟曲线** `routes/home/BodyClock.tsx`：在浏览器里运行 `lib/bodyClock.ts`（与 `runtime/src/heart/model.ts` 相同的双过程模型纯函数）模拟稳态的一天，画出 S、C 与清醒时段，并用一个琥珀点标出当前本地时刻；明确标注这是模型，不是任何真实设备的数据。
-- 首页「一段真实的时间线」是从一具真实运行中的身体导出的时间线摘录（去掉名字，静态写在 i18n.ts 里），不接任何运行时服务。
+- **示例身体** `routes/home/ExampleBody.tsx`：在浏览器里运行 `lib/bodyClock.ts`（与 `runtime/src/heart/model.ts` 相同的双过程模型纯函数）按本地时间推算醒 / 睡、清醒度、睡眠压力，电量与光线是按一天节律构造的示例曲线；明确标注「示例身体 · 模型实时推算」。
+- **一天** `routes/home/DayStrip.tsx` + i18n 里的示例条目：时间线按模型节律构造、参考真实身体的典型形态，**不含任何真实设备或个人数据**（公开站点的硬规则）。生物钟的完整曲线作为静态 SVG 放在文档架构页。
 
 ## 4. 页面与数据
 
 | 路径 | 内容 | 数据来源 |
 |---|---|---|
 | `/` | 语言跳转 | 内联脚本 |
-| `/:lang` | 首页 hero 与分节 | `routes/home/i18n.ts` |
+| `/:lang` | 首页：hero → 它此刻（示例身体，模型实时推算）→ 一天（示例时间线 + 生物钟底纹）→ 它有时候不动（暗节）→ 开始 | `routes/home/i18n.ts`；`ExampleBody.tsx`、`DayStrip.tsx` 只用 `lib/bodyClock` 的模型，不含任何真实设备数据 |
 | `/:lang/features` | 七个亮点故事（通俗标题 + 示意图 + 要点 + 文档链接，左右交替）与「还有这些」网格 | `routes/features/i18n.ts`；示意图为 `routes/features/illustrations.tsx` 里的内联 SVG（只用语义类，文字走 i18n） |
 | `/:lang/docs/*` | 文档教程：侧栏、正文（统一 Markdown 组件）、页内目录 | `content/docs/<lang>/**/*.md`（构建时读取） |
 
