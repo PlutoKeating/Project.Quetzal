@@ -23,7 +23,7 @@ export interface SoulRepoOptions {
 }
 
 const LEASE_MS = 30 * 60_000;
-export const SPEC = { spec: "soul-repo", version: 4 };
+export const SPEC = { spec: "soul-repo", version: 5 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",
@@ -36,7 +36,7 @@ export const README_TEMPLATE = (displayName: string) => `# ${displayName} · 灵
 
 - **必须保持私有。**
 - 请不要手动修改：同步、合并与版本管理由基座自动完成；需要撤销时，使用控制台的「记忆历史」。
-- 结构与格式遵循 Soul Repository Specification v4（Project.Windler 的 docs/SOUL_REPO_SPEC.md）。
+- 结构与格式遵循 Soul Repository Specification v5（Project.Windler 的 docs/SOUL_REPO_SPEC.md）。
 `;
 
 /** 规范 §7：远端必须是 SSH 地址（测试中可用 SOUL_ALLOW_LOCAL_REMOTE=1 放行本地路径）。返回错误说明或 undefined。 */

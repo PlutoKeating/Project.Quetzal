@@ -18,6 +18,7 @@ import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
 import { Session, SessionTimeout, Interrupted, summarize } from "./activity.ts";
 import { intake } from "./secrets.ts";
+import { noteSilence } from "../voice/hearing.ts";
 
 const FINISH: ToolDef = {
   name: "finish",
@@ -145,6 +146,7 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
    记忆没有长度上限，但每次醒来只会展开一部分：常驻记忆留给最核心、最常用的认识；细节、资料、长篇思考放进笔记目录树（如「身体/honor9/硬件」「人/PK/喜好」），写好一句话摘要。
    整理笔记目录：用 note_list 查看，note_move 归类、改名，合并重复的笔记，note_delete 删除没用的（历史中仍可找回）。
 2. 如果你的喜好或节律有了变化，可以用 adjust_self 调整自己。（与其他身体的记忆同步由基座自动完成，你不需要处理。）
+3. 回顾最近的工具调用（recent_actions）：反复出现、步骤稳定的 shell 流程，可以用 tool_write 沉淀成工具，并写好技能文档；灵魂仓库里有技能文档而本机没有实现的，也可以按文档实现。
 
 梦可以是跳跃的、联想的。结束时调用 finish，把这个梦写进日记。`;
   const messages: Msg[] = [{ role: "system", content: systemPrompt(`${reason} ${gate.intent}`) }, { role: "user", content: task }];
@@ -222,7 +224,9 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
   let used = 0, replies = 0;
   for (const m of sessionMessages(conv, 80).filter((m) => m.id < self || m.role === "agent").reverse()) {
     let text: string;
-    if (m.role === "user") {
+    if (m.role === "ambient") {
+      text = `[${stamp(m.ts)}｜环境声音：麦克风听到并识别的话，不一定是对你说的] ${m.text}`;
+    } else if (m.role === "user") {
       const files = m.attachments?.length ? `\n[${stamp(m.ts)} 随这条消息发来的附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片当时已附在消息里，现在只剩路径，想再看用 view_image" : ""}]` : "";
       text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}] ${m.text}${files}`;
     } else {
@@ -236,22 +240,28 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
   return out;
 }
 
+/** 她不回应环境声音时的回复标记（只回这两个字，不入库、不显示）。 */
+const SILENCE = /^[\s\[【（(]*沉默[\s\]】）)]*$/;
+const AMBIENT_PROMPT = "这是麦克风听到的环境声音（已转成文字，可能有错字、断句不准，也可能不是对你说的，比如旁人的交谈、电视）。请自己判断：是不是在对你说话、要不要回应。不需要回应时只回复两个字：沉默（不会被记录成你的话）。要回应就像平常一样回复，可以用工具。对方是用声音在和你说话，可能此刻不方便看屏幕——你可以用 voice_speak 把回复念出来，是否念由你决定。";
+
 /**
  * 与人对话。conv：会话（缺省时飞书用「飞书」会话，其余用「最初的对话」）；turn：客户端给这一轮的标识；attachments：已上传的附件。
+ * ambient：这句话是麦克风听到的环境声音（听觉），以第三种消息类型入库，由她判断是否回应。
  * 排队等待期间视为在工作，不计入会话时间墙。
  */
-export function converse(from: string, text: string, channel: string, o: { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt" } = {}): Promise<string> {
+export function converse(from: string, text: string, channel: string, o: { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt"; ambient?: boolean } = {}): Promise<string> {
   const conv = o.conv || (channel === "飞书" ? "feishu" : "first");
   // 保密输入进行中（pass_secret）：这条消息是一项保密值或口令，在入库、进入上下文之前截走，只回一条不含内容的回执。所有通道都经过这里
   const ack = intake(conv, text);
   if (ack !== undefined) return Promise.resolve(ack);
   ensureSession(conv, conv === "feishu" ? "飞书" : "新的对话", channel);
+  const role = o.ambient ? "ambient" : "user";
   // 她正在这个会话里工作时：默认「插话」（这次模型调用结束后并入）；「打断」立即中止当前模型输出（不打断工具）；「排队」作为下一轮
   const cur = running.get(conv), mode = o.mode ?? "steer";
   if (cur && mode !== "queue") {
-    const id = addMessage("user", channel, text, { session: conv, attachments: o.attachments, mode });
-    cur.inbox.push({ id, text, mode, attachments: o.attachments ?? [] });
-    cur.emit({ kind: "steer", text, msg: id, mode });
+    const id = addMessage(role, channel, text, { session: conv, attachments: o.attachments, mode });
+    cur.inbox.push({ id, text: o.ambient ? `（环境声音，麦克风听到的，不一定是对你说的）${text}` : text, mode, attachments: o.attachments ?? [] });
+    cur.emit({ kind: "steer", text, msg: id, mode, ambient: o.ambient });
     cur.touch();
     const cut = mode === "interrupt" && cur.interrupt();
     return Promise.resolve(cut ? "（已打断，她会马上看到这条消息）" : "（已送达，她会在这一步结束后看到）");
@@ -259,9 +269,9 @@ export function converse(from: string, text: string, channel: string, o: { conv?
   nudge(`${from}在说话`, { social: 0.2 }, { wake: true });
   const s = new Session("chat", channel, o.turn, conv);
   // 收到就入库：记录的顺序即发送顺序，客户端随时从后端取回都一致；start 带上消息 id，进行中的卡片挂在它下面
-  const id = addMessage("user", channel, text, { session: conv, attachments: o.attachments });
+  const id = addMessage(role, channel, text, { session: conv, attachments: o.attachments });
   if (getSession(conv)?.title === "新的对话") updateSession(conv, { title: text.replace(/\s+/g, " ").trim().slice(0, 20) || (o.attachments?.[0]?.name ?? "新的对话") });
-  s.emit({ kind: "start", text, msg: id });
+  s.emit({ kind: "start", text, msg: id, ambient: o.ambient });
   const n = waiting.get(conv) ?? 0;
   waiting.set(conv, n + 1);
   if (n > 0) s.emit({ kind: "queued" });
@@ -274,8 +284,10 @@ export function converse(from: string, text: string, channel: string, o: { conv?
       const messages: Msg[] = [
         { role: "system", content: systemPrompt(text, { conv }) },
         ...history(conv, id),
-        await userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
-          "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。", s.seen),
+        o.ambient
+          ? await userMessage(`你听到附近有人说：\n${text}`, [], AMBIENT_PROMPT, s.seen)
+          : await userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
+            "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。", s.seen),
       ];
       let r = await loop(messages, `回应${from}`, false, s);
       while (s.inbox.length) { // 最后一步刚结束时又来了消息：继续处理
@@ -283,10 +295,17 @@ export function converse(from: string, text: string, channel: string, o: { conv?
         r = { ...more, text: more.text || r.text, steps: [...r.steps, ...more.steps], tokens: r.tokens + more.tokens };
       }
       running.delete(conv);
-      const reply = r.text.trim() || "……", process = s.process();
+      const process = s.process();
+      if (o.ambient && (SILENCE.test(r.text) || (!r.text.trim() && !process.length))) { // 她判断不必回应：不留她的话，只在心流里记一笔
+        s.emit({ kind: "done", reply: "" });
+        noteSilence(conv, text);
+        addExperience(1);
+        return "";
+      }
+      const reply = r.text.trim() || "……";
       addMessage("agent", channel, reply, { session: conv, process });
       s.emit({ kind: "done", reply });
-      addTimeline("chat", `和${from}说话`, { channel, conv, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
+      addTimeline("chat", o.ambient ? "听到有人说话，回应了" : `和${from}说话`, { channel, conv, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
       nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
       await soul.push("对话").catch(() => {});

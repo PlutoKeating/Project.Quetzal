@@ -62,6 +62,32 @@ export async function synthesize(text: string, override: Partial<SpeechConfig> =
   return file;
 }
 
+/** 语音识别端点：区域 → <region>.stt.speech.microsoft.com；自定义端点：Azure 的 tts 域名换成 stt，自定义子域加 /stt 前缀。 */
+export function sttUrl(c: SpeechConfig, language: string): string {
+  const PATH = "/speech/recognition/conversation/cognitiveservices/v1";
+  let b = "";
+  if (c.endpoint) {
+    const e = c.endpoint.replace(/\/+$/, "").replace(/\/cognitiveservices\/v1$/, "");
+    b = /\.tts\.speech\./.test(e) ? e.replace(".tts.speech.", ".stt.speech.") + PATH : /\.stt\.speech\./.test(e) ? e + PATH : e + "/stt" + PATH;
+  } else if (c.region) b = `https://${c.region}.stt.speech.microsoft.com${PATH}`;
+  if (!b) throw new Error("还没有配置 Azure 语音的区域（region）或端点");
+  return `${b}?language=${encodeURIComponent(language)}&format=simple&profanity=raw`;
+}
+
+/** 识别一段 16 kHz 单声道 16 位 WAV（最长 60 秒）。返回识别出的文字；没有听清返回空串。 */
+export async function recognize(wav: Buffer, language: string): Promise<{ text: string; status: string }> {
+  const c = config.speech, key = need(c);
+  const res = await fetch(sttUrl(c, language), {
+    method: "POST",
+    headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000", Accept: "application/json", "User-Agent": "windler" },
+    body: new Uint8Array(wav), signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`Azure 语音识别失败：HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  const j: any = await res.json().catch(() => ({}));
+  const status = String(j.RecognitionStatus ?? "Error");
+  return { text: status === "Success" ? String(j.DisplayText ?? "").trim() : "", status };
+}
+
 /** 列出可用音色（可按语言过滤，如 zh-CN）。 */
 export async function listVoices(locale = ""): Promise<{ name: string; locale: string; gender: string; local: string; styles: string[] }[]> {
   const c = config.speech, key = need(c);

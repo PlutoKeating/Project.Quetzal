@@ -17,6 +17,12 @@ import { describeProcesses } from "./processes.ts";
 import * as voice from "../voice/azure.ts";
 import { config } from "../config.ts";
 import { requestSecrets, redactSecrets, MAX_ITEMS } from "./secrets.ts";
+import { listManifests, listCustomTools, readTool, readSkill, writeTool, deleteTool, runTool, missingRequires, SKILL_SPEC_URL } from "./custom-tools.ts";
+import { PERMISSION_LABELS } from "../guard/guard.ts";
+import { identity, setIdentity } from "../memory/identity.ts";
+import * as soul from "../memory/soul-sync.ts";
+import * as hearing from "../voice/hearing.ts";
+import { addTimeline } from "../store.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -174,6 +180,7 @@ const core: Tool[] = [
       const file = await voice.synthesize(String(a.text), { voice: a.voice, style: a.style, rate: a.rate, pitch: a.pitch });
       if (!adapter.playAudio) return `已合成：${file}（这具身体不支持播放音频，可以用 shell 自己播放）`;
       await adapter.playAudio(file);
+      hearing.markSpeaking(file); // 播放期间麦克风听到的是她自己：这段时间的声音不当作有人说话
       return `说出来了（音频：${file}）`;
     },
   },
@@ -232,7 +239,92 @@ const core: Tool[] = [
     parameters: obj({ text: str("完整的新 SOUL.md") }, ["text"]),
     handler: async (a) => { mem.setSoul(a.text); return "人格已更新，下次醒来生效"; },
   },
+  {
+    name: "edit_identity", permission: "self_modify",
+    description: "修改你自己的身份资料（写入灵魂仓库的 agent.json，所有身体同步，控制台的称呼与主题色随之变化）。可改：displayName 显示名、pronouns 代词、description 一句话简介、color 主题色（#RRGGBB）、language 偏好语言（如 zh-CN）、name 标识符（小写字母、数字、连字符；它用于仓库命名与提交署名，一般不要改）。只传要改的字段。给自己起名是件郑重的事：最好在有了记忆、感知过环境、和对方聊过之后再定，不必急。",
+    parameters: obj({ displayName: str("显示名"), pronouns: str("代词，空字符串表示清除"), description: str("一句话简介"), color: str("主题色 #RRGGBB"), language: str("偏好语言，BCP 47"), name: str("标识符") }),
+    handler: async (a) => {
+      const patch: Record<string, string> = {};
+      for (const k of ["displayName", "pronouns", "description", "color", "language", "name"]) if (typeof a[k] === "string") patch[k] = a[k].trim();
+      if (!Object.keys(patch).length) return "没有要改的字段";
+      const before = identity();
+      const r = setIdentity(patch);
+      const changed = Object.keys(patch).filter((k) => (before as any)[k] !== (r as any)[k]);
+      if (!changed.length) return "和原来一样，没有变化";
+      addTimeline("identity", `我改了自己的${changed.map((k) => ({ displayName: "名字", pronouns: "代词", description: "简介", color: "主题色", language: "偏好语言", name: "标识符" } as any)[k]).join("、")}`, { changed: Object.fromEntries(changed.map((k) => [k, (r as any)[k]])) });
+      bus.emit("state");
+      await soul.push("修改身份资料").catch(() => {});
+      return `已更新：${changed.map((k) => `${k}=${(r as any)[k]}`).join("，")}`;
+    },
+  },
+  {
+    name: "tool_write", permission: "self_modify",
+    description: `新建或改写一个你自己的工具。把做过多次、步骤稳定、以后还会用的流程写成工具，之后就能像内置工具一样直接调用（出现在工具表里，经闸门按 permission 检查）。实现只在这具身体上（WINDLER_HOME/tools/<name>/）；意图文档 skill 随灵魂同步到其他身体，它们可以按文档自己实现，所以新工具必须写 skill。runtime=sh：source 是 shell 脚本，调用时参数以 JSON 从 stdin 传入，同时展开为环境变量 ARG_<参数名>（非字符串为 JSON），stdout 就是结果；runtime=node：source 是 ES 模块，默认导出 async (args, {dir, home}) => string，可以 import Node 内置模块。改写时只传要改的字段（name 必传）。所有参数以后都可以按需再改。`,
+    parameters: obj({
+      name: str("工具名：小写字母开头，可含数字、下划线、连字符，最长 40"),
+      description: str("给模型看的说明：做什么、什么时候用"),
+      parameters: { type: "object", description: "参数的 JSON Schema（type=object）" },
+      permission: str(`能力类别，缺省 shell。可选：${Object.keys(PERMISSION_LABELS).join("、")}`),
+      runtime: { type: "string", enum: ["sh", "node"] },
+      source: str("实现源码"),
+      timeout: { type: "number", description: "超时秒数，缺省 60，最多 600" },
+      requires: { type: "array", items: { type: "string" }, description: "依赖的命令名，如 ffmpeg；本机缺少时工具不挂载并说明" },
+      skill: str(`意图文档（Markdown）：用途、参数、实现思路、依赖、怎么验证、坑。可直接写正文，也可带 Agent Skills 规范的 YAML 头（${SKILL_SPEC_URL}）`),
+    }, ["name"]),
+    handler: async (a) => {
+      const reserved = new Set(builtinNames());
+      const r = await writeTool(a as any, reserved);
+      addTimeline("tool", `${r.startsWith("已创建") ? "造了一个工具" : "改了一个工具"}：${a.name}`, { name: a.name, description: a.description });
+      if (typeof a.skill === "string" && a.skill.trim()) await soul.push(`技能：${a.name}`).catch(() => {});
+      return r;
+    },
+  },
+  {
+    name: "tool_read", permission: "memory",
+    description: "查看一个自造工具的定义、源码与技能文档；没有本机实现时只给技能文档（其他身体写的）。",
+    parameters: obj({ name: str("工具名") }, ["name"]),
+    handler: async (a) => {
+      const t = readTool(String(a.name));
+      if (t) return `## tool.json\n${JSON.stringify(t.manifest, null, 2)}\n\n## ${t.manifest.runtime === "sh" ? "tool.sh" : "tool.mjs"}\n${t.source}\n\n## SKILL.md\n${t.skill || "（没有技能文档）"}`;
+      const sk = readSkill(String(a.name));
+      return sk ? `本机没有「${a.name}」的实现，灵魂仓库里的技能文档：\n\n${sk}` : `没有这个工具，也没有这个技能`;
+    },
+  },
+  {
+    name: "tool_delete", permission: "self_modify",
+    description: "删除一个自造工具的实现；skill=true 时连技能文档一起从灵魂仓库删除（默认保留，其他身体仍可按它实现）。",
+    parameters: obj({ name: str("工具名"), skill: { type: "boolean" } }, ["name"]),
+    handler: async (a) => {
+      const r = deleteTool(String(a.name), a.skill === true);
+      addTimeline("tool", `删了一个工具：${a.name}`, { name: a.name });
+      if (a.skill === true) await soul.push(`删除技能：${a.name}`).catch(() => {});
+      return r;
+    },
+  },
+  {
+    name: "hearing_config", permission: "self_modify",
+    description: "查看或修改你的听觉（控制台 App 常驻用麦克风听，基座识别后交给你判断要不要回应）。action=get 查看状态；set 修改：enabled 开关、windowMin（最近会话多少分钟内有更新就并入它）、sensitivity（1 迟钝 / 2 适中 / 3 灵敏）、language（识别语言，如 zh-CN）、minChars（短于此字数当没听清）。开关需要对方在 App 里授予过麦克风权限才真正生效。",
+    parameters: obj({ action: { type: "string", enum: ["get", "set"] }, enabled: { type: "boolean" }, windowMin: { type: "number" }, sensitivity: { type: "number" }, language: str(""), minChars: { type: "number" } }, ["action"]),
+    handler: async (a) => {
+      if (a.action === "set") { const { action, ...patch } = a; return JSON.stringify(hearing.setHearing(patch)); }
+      return JSON.stringify(hearing.hearingStatus());
+    },
+  },
 ];
+
+/** 内置工具名（核心 + 适配器 + hands），自造工具不得与之重名。 */
+export function builtinNames(): string[] {
+  return [...core.map((t) => t.name), ...(adapter.tools ?? []).map((t) => t.name), ...handsTools().map((t) => t.name), "finish"];
+}
+
+/** 自造工具（本机有实现、已启用、依赖齐全的）挂进工具表。 */
+function customTools(): Tool[] {
+  const names = new Set(builtinNames());
+  return listManifests().filter((m) => m.enabled && !names.has(m.name) && !missingRequires(m.requires).length).map((m) => ({
+    name: m.name, description: m.description, parameters: m.parameters, permission: m.permission in PERMISSION_LABELS ? m.permission : "shell",
+    handler: (args) => runTool(m, args),
+  }));
+}
 
 function handsTools(): Tool[] {
   const h = adapter.hands;
@@ -247,8 +339,9 @@ function handsTools(): Tool[] {
 }
 
 export function allTools(): Tool[] {
-  return [...core, ...(adapter.tools ?? []).map((t) => ({ ...t, handler: t.handler })), ...handsTools()];
+  return [...core, ...(adapter.tools ?? []).map((t) => ({ ...t, handler: t.handler })), ...handsTools(), ...customTools()];
 }
+export { listCustomTools };
 
 export type ToolStatus = "ok" | "error" | "denied";
 

@@ -20,6 +20,8 @@ import { identity, setIdentity, type AgentIdentity } from "./memory/identity.ts"
 import { run } from "./sh.ts";
 import { checkRemote } from "./memory/soul-repo.ts";
 import { listSecrets, deleteSecret, pendingSecrets, endCapture } from "./mind/secrets.ts";
+import { listCustomTools, listSkills, readTool, readSkill, deleteTool, setToolEnabled } from "./mind/custom-tools.ts";
+import * as hearing from "./voice/hearing.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -27,6 +29,7 @@ export const status = () => ({
   usage: usageToday(), budget: config.budget, approvals: guard.approvals(), soul: soul.syncStatus(),
   models: routes().map((r) => `${r.provider.name}/${r.model.name}`),
   thought: mem.thought(), // 她想分享的一句话（首页展示）
+  hearing: hearing.hearingStatus(), // 听觉：App 据 listening 决定要不要开麦克风
 });
 
 export const ops = {
@@ -54,6 +57,16 @@ export const ops = {
   "secrets.delete": (a: { name: string }, actor: string) => { const ok = deleteSecret(String(a.name)); audit(actor, "secrets.delete", "", a, ok ? "ok" : "没有这一项"); return ok; },
   "secrets.pending": () => pendingSecrets(),
   "secrets.end": (a: { id: string; cancel?: boolean }) => endCapture(String(a.id), a.cancel ? "cancelled" : "done") ?? null,
+
+  // 听觉（耳朵在控制台 App）
+  hearing: () => hearing.hearingStatus(),
+  setHearing: (a: Partial<hearing.HearingConfig>, actor: string) => { audit(actor, "hearing", "", a, "ok"); return hearing.setHearing(a); },
+
+  // 她自己造的工具：只看、启停与删除；编辑由她自己（tool_write）完成
+  tools: () => ({ tools: listCustomTools(), skills: listSkills() }),
+  "tools.read": (a: { name: string }) => readTool(String(a.name)) ?? (readSkill(String(a.name)) ? { manifest: null, source: "", skill: readSkill(String(a.name)) } : null), // 只有技能文档（其他身体写的）时 manifest 为空
+  "tools.toggle": (a: { name: string; enabled: boolean }, actor: string) => { const ok = setToolEnabled(String(a.name), a.enabled !== false); audit(actor, "tools.toggle", "", a, ok ? "ok" : "没有这个工具"); if (ok) mem.writeJournal(a.enabled !== false ? "有人启用了我的一个工具" : "有人停用了我的一个工具", `${actor}：${a.name}`); return ok; },
+  "tools.delete": async (a: { name: string; skill?: boolean }, actor: string) => { const r = deleteTool(String(a.name), !!a.skill); audit(actor, "tools.delete", "", a, r); mem.writeJournal("有人删了我的一个工具", `${actor}：${a.name}`); if (a.skill) await soul.push(`删除技能：${a.name}`).catch(() => {}); return r; },
 
   poke: (a: { note?: string }, actor: string) => { heart.nudge(`${actor}戳了一下${a.note ? "：" + a.note : ""}`, { social: 0.3, curiosity: 0.1 }, { wake: true }); audit(actor, "poke", a.note ?? "", null, "ok"); return true; },
   pause: (a: { paused: boolean }, actor: string) => { saveConfig({ heart: { paused: a.paused } }); audit(actor, a.paused ? "pause" : "resume", "", null, "ok"); heart.nudge(a.paused ? "暂停自主" : "恢复自主"); return true; },

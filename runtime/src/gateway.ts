@@ -15,6 +15,7 @@ import { feishuStatus, setFeishu, registerFeishu } from "./channels/feishu.ts";
 import { VERSION } from "./version.ts";
 import { log } from "./log.ts";
 import { adapter } from "./body/twin.ts";
+import { hear } from "./voice/hearing.ts";
 
 export function gatewayToken(): string {
   let t = readSecret("gateway.token");
@@ -73,6 +74,18 @@ export function startGateway(safeMode: boolean) {
         if (over) return json(res, 413, { ok: false, message: `文件超过 ${MAX_FILE_BYTES >> 20} MiB` });
         try { json(res, 200, { ok: true, file: saveUpload(new URL(req.url!, "http://x").searchParams.get("name") || "file", Buffer.concat(chunks)) }); }
         catch (e: any) { json(res, 400, { ok: false, message: e.message }); }
+      });
+      return;
+    }
+    // 听觉：POST /hear?started=<这句话开始的毫秒时刻>，请求体为 16 kHz 单声道 16 位 WAV（控制台 App 的耳朵切好的一句话）
+    if (req.method === "POST" && req.url?.startsWith("/hear")) {
+      if (!authed(req)) return json(res, 401, { ok: false, message: "未授权" });
+      const chunks: Buffer[] = []; let n = 0, over = false;
+      req.on("data", (c: Buffer) => { n += c.length; if (n > 4 << 20) over = true; else chunks.push(c); });
+      req.on("end", async () => {
+        if (over) return json(res, 413, { ok: false, message: "一句话不能超过 4 MiB" });
+        try { json(res, 200, await hear(Buffer.concat(chunks), Number(new URL(req.url!, "http://x").searchParams.get("started")) || 0)); }
+        catch (e: any) { json(res, 500, { ok: false, message: e.message }); }
       });
       return;
     }

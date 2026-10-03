@@ -55,7 +55,8 @@ export function listTimeline(limit = 50, before = Number.MAX_SAFE_INTEGER, kind?
 // ---------- 会话与对话
 export interface SessionInfo { id: string; title: string; channel: string; created: number; updated: number; archived: boolean; count?: number; last?: string }
 export interface Attachment { id: string; name: string; path: string; rel: string; mime: string; size: number; kind: "image" | "text" | "file" } // rel：相对 uploads 目录
-export interface MessageRow { id: number; ts: number; role: "user" | "agent"; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null } // mode：她工作时发来的消息如何并入（steer / interrupt）
+export type Role = "user" | "agent" | "ambient"; // ambient：环境的声音（麦克风听到并识别的话），不是对方发来的消息
+export interface MessageRow { id: number; ts: number; role: Role; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null } // mode：她工作时发来的消息如何并入（steer / interrupt）
 
 const rowSession = (r: any): SessionInfo => ({ ...r, archived: !!r.archived });
 const rowMessage = (r: any): MessageRow => ({ ...r, process: r.process ? JSON.parse(r.process) : null, attachments: r.attachments ? JSON.parse(r.attachments) : null });
@@ -82,7 +83,7 @@ export function updateSession(id: string, patch: { title?: string; archived?: bo
   return getSession(id);
 }
 
-export function addMessage(role: "user" | "agent", channel: string, text: string, o: { session?: string; process?: unknown[]; attachments?: Attachment[]; mode?: string } = {}) {
+export function addMessage(role: Role, channel: string, text: string, o: { session?: string; process?: unknown[]; attachments?: Attachment[]; mode?: string } = {}) {
   const ts = Date.now(), session = o.session ?? "first";
   const r = db.prepare("INSERT INTO messages(ts,role,channel,text,session,process,attachments,mode) VALUES(?,?,?,?,?,?,?,?)")
     .run(ts, role, channel, text, session, o.process?.length ? JSON.stringify(o.process) : null, o.attachments?.length ? JSON.stringify(o.attachments) : null, o.mode ?? null);

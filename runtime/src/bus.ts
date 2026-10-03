@@ -23,6 +23,7 @@ export interface Activity {
   reply?: string; message?: string; // done / error
   msg?: number; // start / steer：这句话在对话记录里的 id
   mode?: "steer" | "interrupt"; // steer：对方在她工作时发来的消息如何并入
+  ambient?: boolean; // start / steer：这一轮由环境声音（麦克风听到的话）触发，不是对方发的消息
 }
 /**
  * 保密输入的状态（见 mind/secrets.ts）。open：刚开始，通道据此提醒对方；progress：收到了一项；done / cancelled / expired：结束。
