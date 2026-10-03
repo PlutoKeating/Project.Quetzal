@@ -43,6 +43,7 @@ flowchart LR
 runtime/   运行基座（TypeScript / Node.js 22+），打包为单文件 dist/main.cjs；adapters/termux 为安卓手机（Termux）的身体适配器 dist/termux.mjs
 console/   Windler App（Flutter，Android）：控制台 + 安装器（把内置的运行基座装进同一台手机的 Termux）
 bridge/    灵魂桥 soul-bridge：Hermes Agent / OpenClaw 的可插拔同步模块
+website/   产品官网（React Router + Tailwind，预渲染静态站，Cloudflare Workers 托管）
 docs/      架构、API、快速开始
 ```
 
@@ -52,7 +53,7 @@ docs/      架构、API、快速开始
 - [运行架构（图文）](docs/ARCHITECTURE.md)
 - [接口：网关 API 与身体适配器](docs/API.md)
 - [灵魂同步：同一个 agent 的多地人格与记忆](docs/SOUL_SYNC.md) · [灵魂仓库规范 v4](docs/SOUL_REPO_SPEC.md)
-- 模块文档：[runtime](runtime/docs/README.md) · [console](console/docs/README.md) · [bridge](bridge/docs/README.md)
+- 模块文档：[runtime](runtime/docs/README.md) · [console](console/docs/README.md) · [bridge](bridge/docs/README.md) · [website](website/docs/README.md)（官网：https://windler.plutokeating.beer ）
 
 ## 免责声明
 

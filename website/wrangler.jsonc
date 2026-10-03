@@ -1,0 +1,15 @@
+// Cloudflare Workers（静态资源模式）：只托管 build/client/ 里的预渲染产物，没有 Worker 脚本。
+// 自定义域名在 Cloudflare 控制台的 Settings → Domains & Routes 里添加，不写在这里。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "windler-website",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./build/client",
+    // 未知路径返回预渲染的 404.html（由 scripts/postbuild.mjs 从 /404 复制到根目录）
+    "not_found_handling": "404-page",
+    // 预渲染目录形如 /en/docs/index.html，访问 /en/docs 与 /en/docs/ 都命中
+    "html_handling": "auto-trailing-slash"
+  },
+  "observability": { "enabled": true }
+}

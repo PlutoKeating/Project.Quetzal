@@ -27,6 +27,7 @@
 - 运行时任务：阅读 `runtime/docs/README.md`、`runtime/docs/ARCHITECTURE.md`
 - 控制台任务：阅读 `console/docs/README.md`、`console/docs/ARCHITECTURE.md`
 - 灵魂桥任务：阅读 `bridge/docs/README.md` 与 `docs/SOUL_SYNC.md`
+- 官网任务：阅读 `website/docs/README.md`、`website/docs/ARCHITECTURE.md`、`website/docs/DEVOPS.md`；视觉参数只能来自 `website/app/design-system/designSystem.ts`，文案只能来自各页面的 `i18n.ts`
 - 其他任务同理
 
 如任务涉及模块启动、环境变量、脚本或部署，还必须阅读该模块的：
@@ -163,7 +164,7 @@ Agent 的工作边界：
 - 执行与改动匹配的验证。
 - 检查目录结构是否符合项目约定。
 - **必须进行依赖列表文件与编译/部署等配置文件或脚本的更新**，严格遵循当前代码内容，不要缺失或包含旧内容
-- **必须进行文档更新**，文档范围为全局文档与你修改涉及模块（runtime / console / bridge）的修改，严格按照你的代码修改与当前最新的代码内容更新文档，不要缺失或包含旧内容
+- **必须进行文档更新**，文档范围为全局文档与你修改涉及模块（runtime / console / bridge / website）的修改，严格按照你的代码修改与当前最新的代码内容更新文档，不要缺失或包含旧内容
 - **必须进行git仓库同步**，本地 `git add` 和 `git commit`，保持审查边界清晰。
 - 回复用户时列出文件、验证结果和未完成风险。
 
