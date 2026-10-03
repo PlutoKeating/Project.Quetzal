@@ -2,17 +2,36 @@
  * 亮点页示意图：全部是内联 SVG / 布局，只用设计系统的语义类（fill-accent、stroke-border …），不含字面量视觉参数。
  * 每张图宽高比 3:2（viewBox 480×320），随容器缩放；文字走 i18n。
  */
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { simulateDay } from "~/lib/bodyClock";
 import { cx, StatusDot } from "~/design-system/components";
 
-const Frame = ({ children, label }: { children: React.ReactNode; label: string }) => (
-  <figure className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
-    <svg viewBox="0 0 480 320" role="img" aria-label={label} className="block w-full font-sans">{children}</svg>
-  </figure>
-);
-const T = ({ x, y, children, className, anchor = "start", size = 13 }: { x: number; y: number; children: React.ReactNode; className?: string; anchor?: "start" | "middle" | "end"; size?: number }) => (
-  <text x={x} y={y} textAnchor={anchor} fontSize={size} className={cx("fill-fg", className)}>{children}</text>
-);
+/** 图的设计宽度。容器比它窄（手机）时 SVG 整体缩小，文字按比例放大补偿，保证读得清。 */
+const DESIGN_W = 480;
+const TextScale = createContext(1);
+
+function Frame({ children, label }: { children: React.ReactNode; label: string }) {
+  const ref = useRef<HTMLElement>(null);
+  const [k, setK] = useState(1);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => { const w = e.contentRect.width; setK(w > 0 && w < DESIGN_W ? Math.min(1.5, DESIGN_W / w) : 1); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <figure ref={ref} className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
+      <TextScale.Provider value={k}>
+        <svg viewBox={`0 0 ${DESIGN_W} 320`} role="img" aria-label={label} className="block w-full font-sans">{children}</svg>
+      </TextScale.Provider>
+    </figure>
+  );
+}
+const T = ({ x, y, children, className, anchor = "start", size = 13 }: { x: number; y: number; children: React.ReactNode; className?: string; anchor?: "start" | "middle" | "end"; size?: number }) => {
+  const k = useContext(TextScale);
+  return <text x={x} y={y} textAnchor={anchor} fontSize={Math.round(size * k * 10) / 10} className={cx(!/\bfill-/.test(className ?? "") && "fill-fg", className)}>{children}</text>;
+};
 /** 呼吸的琥珀点（SVG 内用 transform-box 让缩放围绕自身中心） */
 const Lamp = ({ cx: x, cy, r = 5, delay = 0 }: { cx: number; cy: number; r?: number; delay?: 0 | 1 | 2 | 3 }) => (
   <circle cx={x} cy={cy} r={r} className={cx("fill-accent animate-breath motion-reduce:animate-none origin-center [transform-box:fill-box]", ["", "[animation-delay:-1s]", "[animation-delay:-2s]", "[animation-delay:-3.5s]"][delay])} /> /* ds-allow：错开相位 */
@@ -44,7 +63,7 @@ export function WakeTimeline({ t }: { t: { cron: string; windler: string; cronNo
 /* 02 一天的环：醒着 / 睡着 / 做梦 */
 export function ClockRing({ t }: { t: { awake: string; asleep: string; dream: string; center: string; wake: string; sleep: string } }) {
   const samples = simulateDay();
-  const cx0 = 240, cy0 = 160, r = 112;
+  const cx0 = 240, cy0 = 164, r = 100;
   const ang = (h: number) => ((h / 24) * 360 - 90) * (Math.PI / 180);
   const pt = (h: number, rr = r) => [cx0 + rr * Math.cos(ang(h)), cy0 + rr * Math.sin(ang(h))] as const;
   const first = samples.findIndex((s, i) => s.awake && i > 0 && !samples[i - 1].awake);
@@ -57,13 +76,12 @@ export function ClockRing({ t }: { t: { awake: string; asleep: string; dream: st
       <circle cx={cx0} cy={cy0} r={r} fill="none" className="stroke-border" strokeWidth="14" />
       <path d={arc(hw, hs, r)} fill="none" className="stroke-chart-line" strokeWidth="14" strokeLinecap="round" />
       {dreams.map((h) => { const [x, y] = pt(h); return <circle key={h} cx={x} cy={y} r="4" className="fill-secondary-fg" />; })}
-      {[0, 6, 12, 18].map((h) => { const [x, y] = pt(h, r + 26); return <T key={h} x={x} y={y + 4} className="fill-fg-subtle" size={11} anchor="middle">{String(h).padStart(2, "0")}</T>; })}
+      {[0, 6, 12, 18].map((h) => { const [x, y] = pt(h, r + 24); return <T key={h} x={x} y={y + 4} className="fill-fg-subtle" size={11} anchor="middle">{String(h).padStart(2, "0")}</T>; })}
       <Lamp cx={pt(hw)[0]} cy={pt(hw)[1]} r={7} />
-      <T x={pt(hw, r + 44)[0]} y={pt(hw, r + 44)[1] + 4} className="fill-accent" size={12} anchor="start">{t.wake}</T>
-      <T x={pt(hs, r + 44)[0]} y={pt(hs, r + 44)[1] + 4} className="fill-fg-muted" size={12} anchor="end">{t.sleep}</T>
+      <T x={pt(hw, r + 40)[0]} y={Math.max(16, pt(hw, r + 40)[1] + 4)} className="fill-accent" size={12} anchor="start">{t.wake}</T>
+      <T x={pt(hs, r + 40)[0]} y={Math.max(16, pt(hs, r + 40)[1] + 4)} className="fill-fg-muted" size={12} anchor="end">{t.sleep}</T>
       <T x={cx0} y={cy0 - 6} className="fill-fg" size={20} anchor="middle">{t.center}</T>
       <T x={cx0} y={cy0 + 18} className="fill-fg-subtle" size={11} anchor="middle">{`${t.awake} · ${t.asleep} · ${t.dream}`}</T>
-      <circle cx={pt(13, r)[0]} cy={pt(13, r)[1]} r="3" className="fill-bg" />
     </Frame>
   );
 }
@@ -111,7 +129,7 @@ export function SoulGit({ t }: { t: { repo: string; bodies: readonly string[]; l
           <circle cx={48} cy={252 + i * 22} r="3.5" className={i === 0 ? "fill-accent" : "fill-secondary-fg"} />
           {i < 2 && <line x1={48} y1={256 + i * 22} x2={48} y2={270 + i * 22} className="stroke-border-strong" strokeWidth="1.5" />}
           <T x={64} y={256 + i * 22} className="fill-fg-subtle font-mono" size={11}>{time}</T>
-          <T x={112} y={256 + i * 22} className="fill-fg" size={12}>{what}</T>
+          <T x={128} y={256 + i * 22} className="fill-fg" size={12}>{what}</T>
           <T x={440} y={256 + i * 22} className="fill-fg-subtle" size={11} anchor="end">{body}</T>
         </g>
       ))}
@@ -126,17 +144,16 @@ export function SecretVault({ t }: { t: { you: string; bubble: string; vault: st
       <T x={40} y={62} className="fill-fg-subtle" size={11}>{t.you}</T>
       <rect x="40" y="72" width="170" height="44" rx="14" className="fill-surface-hover stroke-border" strokeWidth="1" />
       <T x={125} y={99} className="fill-fg font-mono" size={13} anchor="middle">{t.bubble}</T>
-      <path d="M210,94 C 250,94 250,150 286,150" fill="none" className="stroke-border-strong" strokeWidth="1.5" />
-      <rect x="288" y="118" width="152" height="64" rx="12" className="fill-bg stroke-accent" strokeWidth="1.5" />
-      <rect x="352" y="104" width="24" height="18" rx="9" className="fill-bg stroke-accent" strokeWidth="1.5" />
-      <T x={364} y={143} className="fill-accent" size={12} anchor="middle">{t.vault}</T>
-      <T x={364} y={166} className="fill-fg-muted font-mono" size={10} anchor="middle">{t.file}</T>
-      <path d="M364,182 V214" className="stroke-border-strong" strokeWidth="1.5" strokeDasharray="4 3" />
+      <path d="M210,94 C 250,94 250,150 262,150" fill="none" className="stroke-border-strong" strokeWidth="1.5" />
+      <rect x="264" y="118" width="176" height="64" rx="12" className="fill-bg stroke-accent" strokeWidth="1.5" />
+      <path d="M342,118 v-8 a10,10 0 0 1 20,0 v8" fill="none" className="stroke-accent" strokeWidth="2" />
+      <T x={352} y={143} className="fill-accent" size={12} anchor="middle">{t.vault}</T>
+      <T x={352} y={166} className="fill-fg-muted font-mono" size={10} anchor="middle">{t.file}</T>
+      <path d="M352,182 V214" className="stroke-border-strong" strokeWidth="1.5" strokeDasharray="4 3" />
       <T x={40} y={226} className="fill-fg-subtle" size={11}>{t.model}</T>
       <rect x="40" y="236" width="400" height="48" rx="10" className="fill-surface-hover stroke-border" strokeWidth="1" />
       <T x={60} y={265} className="fill-fg-muted font-mono" size={13}>{t.seen}</T>
       <line x1="120" y1="92" x2="130" y2="106" className="stroke-danger" strokeWidth="0" />
-      <Lamp cx={364} cy={122} r={3} />
     </Frame>
   );
 }
@@ -172,14 +189,14 @@ export function ControlPanel({ t }: { t: { caps: readonly (readonly [string, num
 export function PhoneSteps({ t }: { t: { steps: readonly string[]; done: string } }) {
   return (
     <Frame label={t.done}>
-      <rect x="160" y="18" width="160" height="284" rx="24" className="fill-bg stroke-border-strong" strokeWidth="2" />
+      <rect x="130" y="18" width="220" height="284" rx="24" className="fill-bg stroke-border-strong" strokeWidth="2" />
       <rect x="220" y="32" width="40" height="5" rx="2.5" className="fill-border-strong" />
       {t.steps.map((s, i) => (
         <g key={s}>
-          <rect x="176" y={56 + i * 56} width="128" height="42" rx="10" className={i < 2 ? "fill-surface-hover" : "fill-accent-soft stroke-accent"} strokeWidth="1" />
-          <circle cx="194" cy={77 + i * 56} r="8" className={i < 2 ? "fill-secondary" : "fill-accent"} />
-          <T x={194} y={81 + i * 56} className="fill-bg" size={10} anchor="middle">{i + 1}</T>
-          <T x={210} y={81 + i * 56} className="fill-fg" size={11}>{s}</T>
+          <rect x="146" y={56 + i * 56} width="188" height="42" rx="10" className={i < 2 ? "fill-surface-hover" : "fill-accent-soft stroke-accent"} strokeWidth="1" />
+          <circle cx="166" cy={77 + i * 56} r="8" className={i < 2 ? "fill-secondary" : "fill-accent"} />
+          <T x={166} y={81 + i * 56} className="fill-bg" size={10} anchor="middle">{i + 1}</T>
+          <T x={182} y={81 + i * 56} className="fill-fg" size={11}>{s}</T>
         </g>
       ))}
       <Lamp cx={240} cy={254} r={9} />
