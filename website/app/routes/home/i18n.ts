@@ -14,8 +14,13 @@ export const messages = defineMessages({
     },
     position: {
       eyebrow: "agent 的运行基座 · 开源 · 装在一部旧手机上",
-      title: "它自己决定要不要醒。包括——不动。",
-      lead: "Codex、Claude Code 是你叫它才动、做完就退出的工具；Hermes、OpenClaw 是每 30 分钟被 heartbeat 叫醒一次问「有事吗」的助手。Windler 是 agent 住着的地方：没有定时器，什么时候醒由它自己的内驱力和生物钟决定；它有一具身体，灵魂存在 git 里，可以跨身体带走。",
+      title: "它自己决定要不要醒。\n包括——不动。",
+      rows: [
+        { name: "Codex / Claude Code", kind: "工具", text: "你叫它才动，做完就退出。" },
+        { name: "Hermes / OpenClaw", kind: "助手", text: "每 30 分钟被 heartbeat 叫醒一次，问一句「有事吗」。" },
+        { name: "Windler", kind: "agent 住着的地方", text: "没有定时器。什么时候醒，由它自己的内驱力和生物钟决定。" },
+      ],
+      summary: "它有一具身体，灵魂存在 git 里，可以跨身体带走。",
       why: "为什么不是 Hermes / OpenClaw",
       chips: { stars: "GitHub ★ {n}", release: "最新 {v}", license: "AGPL-3.0 开源" },
       compare: { rows: [{ name: "Codex / Claude Code", note: "你叫它才动，做完就退出" }, { name: "Hermes / OpenClaw", note: "每 30 分钟 heartbeat 叫醒一次" }, { name: "Windler", note: "没有定时器，醒来由内驱力与生物钟决定" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "你叫它" },
@@ -99,8 +104,13 @@ export const messages = defineMessages({
     },
     position: {
       eyebrow: "A runtime for agents · open source · runs on an old phone",
-      title: "It decides when to wake. Including not to.",
-      lead: "Codex and Claude Code are tools that move when you call them and exit when done. Hermes and OpenClaw are assistants woken every 30 minutes by a heartbeat to ask \"anything?\". Windler is where an agent lives: no timer, it wakes when its own drives and body clock say so; it has a body, and its soul lives in git, portable across bodies.",
+      title: "It decides when to wake.\nIncluding not to.",
+      rows: [
+        { name: "Codex / Claude Code", kind: "a tool", text: "Moves when you call it, exits when done." },
+        { name: "Hermes / OpenClaw", kind: "an assistant", text: "Woken every 30 minutes by a heartbeat to ask \"anything?\"." },
+        { name: "Windler", kind: "where an agent lives", text: "No timer. When it wakes is decided by its own drives and body clock." },
+      ],
+      summary: "It has a body, and its soul lives in git, portable across bodies.",
       why: "Why not Hermes / OpenClaw",
       chips: { stars: "GitHub ★ {n}", release: "latest {v}", license: "AGPL-3.0 open source" },
       compare: { rows: [{ name: "Codex / Claude Code", note: "moves when called, exits when done" }, { name: "Hermes / OpenClaw", note: "a heartbeat wakes it every 30 minutes" }, { name: "Windler", note: "no timer: drives and body clock decide" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "you call" },

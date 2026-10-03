@@ -46,7 +46,7 @@ export function WakeCompare({ t, bare }: { t: CompareLabels; bare?: boolean }) {
   const px = (h: number) => x0 + ((x1 - x0) * h) / 24;
   const calls = [9.6, 14.2, 20.8];
   const wakes = [7.9, 8.6, 10.2, 10.9, 11.3, 13.4, 14.1, 14.5, 15.2, 15.6, 16.1, 16.9, 17.8, 19.3, 20.7, 22.4];
-  const alert = Array.from({ length: 49 }, (_, i) => { const h = i / 2; const c = 0.5 + 0.5 * Math.cos((2 * Math.PI * (h - 16)) / 24); return `${i ? "L" : "M"}${px(h).toFixed(1)},${(rows[2] + 30 - 54 * c).toFixed(1)}`; }).join(" ");
+  const alert = Array.from({ length: 49 }, (_, i) => { const h = i / 2; const c = 0.5 + 0.5 * Math.cos((2 * Math.PI * (h - 16)) / 24); return `${i ? "L" : "M"}${px(h).toFixed(1)},${(rows[2] + 14 - 44 * c).toFixed(1)}`; }).join(" ");
   const head = (i: number, strong?: boolean) => (
     <>
       <T x={x0} y={rows[i] - 30} className={strong ? "fill-fg" : "fill-fg-muted"} size={12}>{t.rows[i].name}</T>

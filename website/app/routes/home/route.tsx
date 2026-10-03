@@ -2,7 +2,7 @@ import type { Route } from "./+types/route";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useMessages, isLang, DEFAULT_LANG, localized, useLang } from "~/i18n/core";
-import { Badge, Breath, ButtonAnchor, ButtonLink, Container, Eyebrow, Heading, Lead, Reveal, Section, cx } from "~/design-system/components";
+import { Badge, Breath, ButtonAnchor, ButtonLink, Container, Eyebrow, Heading, Lead, Reveal, Section, StatusDot, cx } from "~/design-system/components";
 import { GITHUB_REPO } from "~/components/i18n";
 import { WakeCompare } from "~/components/figure";
 import { fetchRepoStats, type RepoStats } from "~/lib/github";
@@ -43,10 +43,25 @@ export default function Home() {
       {/* 2 · 定位：它和 Codex / Hermes / OpenClaw 什么关系 + 三条带子 */}
       <Section>
         <Container className="grid items-center gap-10 lg:grid-cols-[1.15fr_1fr] lg:gap-14"> {/* ds-allow：栅格比例 */}
-          <Reveal className="flex flex-col gap-5">
+          <Reveal className="flex flex-col gap-6">
             <Eyebrow>{t.position.eyebrow}</Eyebrow>
-            <Heading as="h2" size="xl">{t.position.title}</Heading>
-            <Lead className="max-w-2xl">{t.position.lead}</Lead>
+            <Heading as="h2" size="lg" className="whitespace-pre-line">{t.position.title}</Heading>
+            <dl className="flex flex-col divide-y divide-border border-y border-border">
+              {t.position.rows.map((r, i) => (
+                <div key={r.name} className="grid grid-cols-[1.5rem_1fr] gap-x-3 py-4">
+                  <span aria-hidden className="mt-1.5 flex items-center">
+                    {i === 0 && <span className="size-2.5 rounded-full bg-fg-subtle" />}
+                    {i === 1 && <span className="flex gap-0.5">{[0, 1, 2].map((k) => <span key={k} className="h-3 w-0.5 bg-fg-subtle" />)}</span>}
+                    {i === 2 && <StatusDot alive />}
+                  </span>
+                  <div className="flex flex-col gap-1">
+                    <dt className="flex flex-wrap items-baseline gap-x-2"><span className={cx("font-medium", i === 2 ? "text-fg" : "text-fg-muted")}>{r.name}</span><span className="text-xs text-fg-subtle">{r.kind}</span></dt>
+                    <dd className={cx("text-pretty", i === 2 ? "text-fg" : "text-fg-muted")}>{r.text}</dd>
+                  </div>
+                </div>
+              ))}
+            </dl>
+            <p className="text-fg-muted">{t.position.summary}</p>
             <a href="#why" className="text-sm text-link underline-offset-4 hover:underline">{t.position.why} ↓</a>
             <ul className="flex flex-wrap gap-2">
               <li><a className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} href={GITHUB_REPO} target="_blank" rel="noreferrer noopener">{stats && stats.stars >= 10 ? t.position.chips.stars.replace("{n}", String(stats.stars)) : "GitHub ↗"}</a></li>
