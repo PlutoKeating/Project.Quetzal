@@ -16,6 +16,7 @@ import { VERSION } from "./version.ts";
 import { log } from "./log.ts";
 import { adapter } from "./body/twin.ts";
 import { hear, hearStream } from "./voice/hearing.ts";
+import { mediaFile } from "./voice/player.ts";
 
 export function gatewayToken(): string {
   let t = readSecret("gateway.token");
@@ -83,7 +84,7 @@ export function startGateway(safeMode: boolean) {
       if (!authed(req)) return json(res, 401, { ok: false, message: "未授权" });
       const q = new URL(req.url, "http://x").searchParams;
       if (q.get("stream") === "1") {
-        try { return json(res, 200, await hearStream(req, Number(q.get("started")) || 0, str64(q.get("id")))); }
+        try { return json(res, 200, await hearStream(req, Number(q.get("started")) || 0, str64(q.get("id")), false, q.get("bargein") === "1")); }
         catch (e: any) { return json(res, 500, { ok: false, message: e.message }); }
       }
       const chunks: Buffer[] = []; let n = 0, over = false;
@@ -94,6 +95,14 @@ export function startGateway(safeMode: boolean) {
         catch (e: any) { json(res, 500, { ok: false, message: e.message }); }
       });
       return;
+    }
+    // 她的声音：GET /media/<文件名>，控制台 App 取合成语音来播放
+    if (req.method === "GET" && req.url?.startsWith("/media/")) {
+      if (!authed(req)) return json(res, 401, { ok: false, message: "未授权" });
+      const f = mediaFile(decodeURIComponent(new URL(req.url, "http://x").pathname.slice("/media/".length)));
+      if (!f) return json(res, 404, { ok: false, message: "没有这个文件" });
+      res.writeHead(200, { "content-type": /\.mp3$/i.test(f) ? "audio/mpeg" : /\.wav$/i.test(f) ? "audio/wav" : "application/octet-stream", "content-length": fs.statSync(f).size });
+      return void fs.createReadStream(f).pipe(res);
     }
     // 附件下载（预览）：GET /uploads/<rel>
     if (req.method === "GET" && req.url?.startsWith("/uploads/")) {
@@ -140,6 +149,7 @@ export function startGateway(safeMode: boolean) {
   bus.on("secret", (e) => broadcast("secret", e));
   bus.on("hearing", (e) => broadcast("hearing", e));
   bus.on("speaking", (e) => broadcast("speaking", e));
+  bus.on("speak", (e) => broadcast("speak", e));
 
   server.listen(config.gateway.port, "127.0.0.1", () => log("gateway", `监听 127.0.0.1:${config.gateway.port}`));
 }

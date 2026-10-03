@@ -18,14 +18,19 @@ class Hearing {
   static Future<bool> isRunning() async { try { return await _ch.invokeMethod<bool>('isRunning') ?? false; } catch (_) { return false; } }
   static Future<void> start({required String base, required String token, required int sensitivity}) => _ch.invokeMethod('start', {'base': base, 'token': token, 'sensitivity': sensitivity});
   static Future<void> stop() => _ch.invokeMethod('stop');
+  /// 播放她的一段合成语音（走通话路径，耳朵以它为回声参考）；播完或被插嘴后以 played 事件回报。
+  static Future<bool> play(String id, String url) async { try { return await _ch.invokeMethod<bool>('play', {'id': id, 'url': url}) ?? false; } catch (_) { return false; } }
+  static Future<void> stopPlayback() => _ch.invokeMethod('stopPlayback');
 }
 
 /// 跟随基座状态启停耳朵，并保留最近的事件给界面。
 class HearingController extends ChangeNotifier {
   bool running = false, granted = false, speaking = false, pending = false; // pending：一句话刚说完，基座正在识别
+  bool playing = false; // 正在播放她的声音
   String? error;
   Map? lastHeard; // {text, dropped, ms}
   String _key = ''; // 上次启动的参数（base|token|sensitivity），变了就重启
+  bool _registered = false; // 已向基座登记为播放器
   Timer? _speakTimer, _pendingTimer;
 
   /// 给界面的一句话：此刻耳朵的状态；没开听觉时返回 null。
@@ -54,6 +59,12 @@ class HearingController extends ChangeNotifier {
       if (ms > 0) _speakingTimer = Timer(Duration(milliseconds: ms), notifyListeners);
       notifyListeners();
     });
+    api.events.where((e) => e.name == 'speak').listen((e) async { // 她要说话：由本机播放（回声消除需要声音从这里出来）
+      final s = e.data as Map;
+      if (!running) return;
+      final ok = await Hearing.play('${s['id']}', '${api.base}${s['url']}?token=${Uri.encodeComponent(api.token)}');
+      if (!ok) api.call('player.done', {'id': s['id'], 'interrupted': false}).catchError((_) => null); // 服务不在：让基座别等
+    });
     api.events.where((e) => e.name == 'hearing').listen((e) { // 基座确认听到了对方（含插嘴）：亮起来
       final h = e.data as Map;
       if (h['status'] == 'partial' || h['status'] == 'final') { speaking = h['status'] == 'partial'; pending = h['status'] == 'final'; notifyListeners(); }
@@ -77,10 +88,15 @@ class HearingController extends ChangeNotifier {
       if (want && (!running || key != _key)) {
         await Hearing.start(base: api.base, token: api.token, sensitivity: ((h['sensitivity'] ?? 2) as num).toInt());
         _key = key; running = true; error = null;
+        api.call('player.set', {'enabled': true}).catchError((_) => null); // 耳朵开着：登记为她的播放器
       } else if (!want && running) {
         await Hearing.stop();
         running = false;
+        api.call('player.set', {'enabled': false}).catchError((_) => null);
+      } else if (running && api.conn == Conn.online && !_registered) {
+        api.call('player.set', {'enabled': true}).catchError((_) => null); // 重连后重新登记
       }
+      _registered = running && api.conn == Conn.online;
     } catch (e) { error = '$e'; }
     notifyListeners();
   }
@@ -97,6 +113,8 @@ class HearingController extends ChangeNotifier {
           if (((e['ms'] as num?) ?? 0) >= 400) { pending = true; _pendingTimer?.cancel(); _pendingTimer = Timer(const Duration(seconds: 20), () { pending = false; notifyListeners(); }); }
         }
       case 'heard': lastHeard = e; error = null; pending = false; _pendingTimer?.cancel();
+      case 'playing': playing = e['on'] == true;
+      case 'played': api.call('player.done', {'id': e['id'], 'interrupted': e['interrupted'] == true, if (e['utterance'] != null) 'utterance': e['utterance']}).catchError((_) => null);
       case 'error': error = '${e['message']}';
     }
     notifyListeners();

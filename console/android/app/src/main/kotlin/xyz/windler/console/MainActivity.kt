@@ -35,6 +35,8 @@ class MainActivity : FlutterActivity() {
                 "start" -> { HearingService.start(this, call.argument<String>("base")!!, call.argument<String>("token")!!, call.argument<Int>("sensitivity") ?: 2); result.success(true) }
                 "stop" -> { HearingService.stop(this); result.success(true) }
                 "isRunning" -> result.success(HearingService.running)
+                "play" -> { HearingService.instance?.play(call.argument<String>("id")!!, call.argument<String>("url")!!); result.success(HearingService.instance != null) }
+                "stopPlayback" -> { HearingService.instance?.stop(interrupted = false); result.success(true) }
                 else -> result.notImplemented()
             }
         }

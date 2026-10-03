@@ -13,7 +13,8 @@ export interface Events {
   activity: [a: Activity]; // 会话进展：步骤、流式文字、工具执行、心跳、结束
   secret: [e: SecretEvent]; // 保密输入（pass_secret）的开始、进展与结束，由各通道提醒对方
   hearing: [e: HearingEvent]; // 听觉：一句话的中间结果、最终结果与她的取舍（控制台据此流式显示、保留或隐藏）
-  speaking: [e: { until: number }]; // 她在说话（播放合成语音）到 until 为止：耳朵这段时间捂住，免得听到她自己
+  speaking: [e: { until: number }]; // 她在说话（播放合成语音）到 until 为止，给界面用；说完或被插嘴时 until 提前到现在
+  speak: [e: { id: string; url: string; text: string; ms: number }]; // 让控制台 App 播放一段合成语音（走通话路径，耳朵有回声消除）；App 播完或被插嘴后回报 player.done
 }
 /**
  * 听觉事件（见 voice/hearing.ts）。partial：识别中的文字；final：这句话识别完成并进入会话（conv）；dropped：没进会话（太短、没听清、她自己在说话……）；

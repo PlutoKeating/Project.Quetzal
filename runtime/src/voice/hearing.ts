@@ -4,11 +4,13 @@
 //   识别完成 → 挑会话：最近一个有更新的会话在 windowMin 分钟内就并入它，否则新开会话 → 以「环境声音」进入会话：
 //   它不是对方发的消息，是她听到的；是不是对她说的、要不要回应，由她自己判断（见 brain.converse 的 ambient）。
 //   她判断不是对她说的：这句话在记录里标为 ignored，控制台隐藏（hearing 事件 ignored）；回应了则保留（kept）。
-//   她自己说话（voice_speak 播放）期间听到的是自己的声音：按音频时长估一个窗口，窗口内开始的声音直接丢弃。
+//   她自己说话时：声音由 App 经通话路径播放、采集走回声消除（见 voice/player.ts），麦克风音轨里减掉了她自己的声音；
+//   这里只维护「她在说话到何时」的窗口给界面用，并把 App 回报的插嘴（打断了播放的那句话）以「打断」并入。
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { config, saveConfig } from "../config.ts";
 import { body, adapter } from "../body/twin.ts";
+import { isBargeIn } from "./player.ts";
 import { stopped } from "../heart/heart.ts";
 import { identity } from "../memory/identity.ts";
 import { listSessions, ensureSession, addTimeline } from "../store.ts";
@@ -19,14 +21,13 @@ import { log } from "../log.ts";
 
 export const CHANNEL = "语音";
 let speakingUntil = 0;
-let speakingText = ""; // 她正在念的话：用来分辨耳朵听到的是她自己的回声还是对方在插嘴
 let last: { ts: number; text: string; status: string; conv?: string } | undefined;
 /** 流式识别器的工厂（测试里换成模拟的）。 */
 export let streamFactory: (language: string, onPartial: (t: string) => void) => StreamRecognizer = recognizeStream;
 export const setStreamFactory = (f: typeof streamFactory) => { streamFactory = f; };
 
-/** 她要说话了：播放一个合成的音频文件，按码率估算时长（没法从播放器拿到结束事件）。在开始播放之前调用；text 是她要念的话。 */
-export function markSpeaking(file: string, text = "") {
+/** 她要说话了：按文件大小与码率估算时长（App 播放时会准确回报结束），记下窗口、通知界面。返回估计的毫秒数。 */
+export function markSpeaking(file: string, _text = ""): number {
   let ms = 3000;
   try {
     const bytes = fs.statSync(file).size;
@@ -34,33 +35,17 @@ export function markSpeaking(file: string, text = "") {
     ms = Math.round((bytes * 8) / (kbps * 1000) * 1000);
   } catch {}
   speakingUntil = Math.max(speakingUntil, Date.now() + ms + 800);
-  speakingText = text;
   bus.emit("speaking", { until: speakingUntil });
+  return ms;
 }
 export const isSpeaking = () => Date.now() < speakingUntil;
 
-/** 对方插嘴：让她停下来（停止播放），说话窗口立即结束。 */
-export async function stopSpeaking() {
+/** 她说完了或被插嘴：说话窗口立即结束；stopAdapter 为真时还让适配器停止播放（声音由适配器放的时候）。 */
+export async function stopSpeaking(stopAdapter = true) {
   if (!isSpeaking()) return;
   speakingUntil = Date.now();
   bus.emit("speaking", { until: speakingUntil });
-  await adapter.stopAudio?.().catch(() => {});
-}
-
-const norm = (s: string) => s.replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
-const bigrams = (s: string) => { const b = new Set<string>(); for (let i = 0; i + 1 < s.length; i++) b.add(s.slice(i, i + 2)); return b; };
-/**
- * 听到的是不是她自己的回声：和她正在念的话比字符二元组的覆盖率。太短的（不到 4 个字）还判断不了，先当作回声。
- * 不像她的话（覆盖率低于 0.5）就是对方在插嘴。
- */
-export function isEcho(heard: string, spoken = speakingText): boolean {
-  const h = norm(heard), s = norm(spoken);
-  if (h.length < 4) return true;
-  if (!s) return true;
-  if (s.includes(h)) return true;
-  const hb = bigrams(h), sb = bigrams(s);
-  let hit = 0; for (const x of hb) if (sb.has(x)) hit++;
-  return hit / Math.max(1, hb.size) >= 0.5;
+  if (stopAdapter) await adapter.stopAudio?.().catch(() => {});
 }
 
 export type HearingConfig = typeof config.hearing;
@@ -104,20 +89,17 @@ const emit = (e: HearingEvent) => bus.emit("hearing", e);
 const newId = () => crypto.randomBytes(6).toString("hex");
 
 /**
- * 识别出文字之后：太短的不打扰她；她说话期间开始的声音像她自己的话就是回声，丢掉；否则挑会话、交给她判断，
- * 并把她的取舍（kept / ignored）推给控制台。bargeIn：这句话是在她说话时插进来的，让她先停下（停止播放），并以「打断」并入。
+ * 识别出文字之后：太短的不打扰她；否则挑会话、交给她判断，并把她的取舍（kept / ignored）推给控制台。
+ * bargeIn：这句话打断了她的播放（App 回报的插嘴），以「打断」并入她当前的工作。
  */
-async function deliver(id: string, r: { text: string; status: string }, wait: boolean, inWindow = false, bargeIn = false): Promise<HeardResult> {
+async function deliver(id: string, r: { text: string; status: string }, wait: boolean, bargeIn = false): Promise<HeardResult> {
   last = { ts: Date.now(), text: r.text, status: r.status };
   if (!r.text || r.text.length < config.hearing.minChars) {
     const dropped = r.text ? "太短" : `没听清（${r.status}）`;
     emit({ id, status: "dropped", text: r.text, reason: dropped });
     return { ok: true, id, text: r.text, dropped };
   }
-  if (inWindow && !bargeIn) {
-    if (isEcho(r.text)) { emit({ id, status: "dropped", text: "", reason: "我自己在说话" }); return { ok: true, id, text: "", dropped: "我自己在说话" }; }
-    bargeIn = true;
-  }
+  bargeIn = bargeIn || isBargeIn(id);
   if (bargeIn) await stopSpeaking();
   const conv = pickSession(r.text);
   last.conv = conv;
@@ -130,21 +112,19 @@ async function deliver(id: string, r: { text: string; status: string }, wait: bo
   return { ok: true, id, text: r.text, conv };
 }
 
-function gate(startedAt: number, id: string): HeardResult | undefined {
+function gate(id: string): HeardResult | undefined {
   const st = hearingStatus();
   if (!st.listening) { emit({ id, status: "dropped", text: "", reason: st.reasons.join("、") }); return { ok: false, id, text: "", dropped: st.reasons.join("、") }; }
   return undefined;
 }
-/** 这句话是在她说话期间开始的（可能是她的回声，也可能是对方插嘴，识别出来才知道）。 */
-const inSpeaking = (startedAt: number) => !!startedAt && startedAt < speakingUntil;
 
-/** 一整句 WAV 一次识别。startedAt：这句话开始的时刻（毫秒），用于判断是不是她自己在说。wait：等她处理完再返回（测试用）。 */
-export async function hear(wav: Buffer, startedAt: number, wait = false): Promise<HeardResult> {
+/** 一整句 WAV 一次识别。wait：等她处理完再返回（测试用）。 */
+export async function hear(wav: Buffer, _startedAt: number, wait = false): Promise<HeardResult> {
   const id = newId();
-  const g = gate(startedAt, id);
+  const g = gate(id);
   if (g) return g;
   if (wav.length < 44 + 16000 * 2 * 0.3) { emit({ id, status: "dropped", text: "", reason: "太短" }); return { ok: true, id, text: "", dropped: "太短" }; } // 不到 0.3 秒
-  return deliver(id, await recognize(wav, hearingStatus().language), wait, inSpeaking(startedAt));
+  return deliver(id, await recognize(wav, hearingStatus().language), wait);
 }
 
 const WAV_HEADER = (pcmBytes: number) => {
@@ -171,20 +151,13 @@ async function recognizeLong(pcm: Buffer, language: string): Promise<{ text: str
  * 边说边识别：chunks 为分块到达的 PCM（16 kHz 单声道 16 位，无 WAV 头）。中间结果随到随推（hearing: partial），
  * 收完后给最终结果；流式识别失败或没结果时，用已收到的全部音频走一次 REST 识别兜底。
  */
-export async function hearStream(chunks: AsyncIterable<Buffer>, startedAt: number, id = newId(), wait = false): Promise<HeardResult> {
-  const g = gate(startedAt, id);
+export async function hearStream(chunks: AsyncIterable<Buffer>, _startedAt: number, id = newId(), wait = false, bargeIn = false): Promise<HeardResult> {
+  const g = gate(id);
   if (g) return g;
   const language = hearingStatus().language;
   const all: Buffer[] = [];
-  const inWindow = inSpeaking(startedAt);
-  let rec: StreamRecognizer | undefined, partial = "", bargeIn = false;
-  // 她说话期间：中间结果先和她念的话比对，像回声就不显示；一旦不像，就是对方在插嘴——立刻让她停下，之后照常流式显示
-  const onPartial = (t: string) => {
-    if (t === partial) return;
-    partial = t;
-    if (inWindow && !bargeIn) { if (isEcho(t)) return; bargeIn = true; void stopSpeaking(); }
-    emit({ id, status: "partial", text: t });
-  };
+  let rec: StreamRecognizer | undefined, partial = "";
+  const onPartial = (t: string) => { if (t === partial) return; partial = t; emit({ id, status: "partial", text: t }); };
   try { rec = streamFactory(language, onPartial); }
   catch (e: any) { log("hearing", `流式识别不可用，改用一次识别：${e.message}`); }
   for await (const c of chunks) { all.push(c); try { rec?.push(c); } catch {} }
@@ -193,7 +166,7 @@ export async function hearStream(chunks: AsyncIterable<Buffer>, startedAt: numbe
   let r: { text: string; status: string } | undefined;
   if (rec) { try { r = await rec.end(); } catch (e: any) { log("hearing", `流式识别失败，改用一次识别：${e.message}`); } }
   if (!r || (!r.text && r.status !== "NoMatch")) r = await recognizeLong(pcm, language);
-  return deliver(id, r, wait, inWindow, bargeIn);
+  return deliver(id, r, wait, bargeIn);
 }
 
 /** 她听到了但没有回应：留一条时间线，让心流里看得到。 */

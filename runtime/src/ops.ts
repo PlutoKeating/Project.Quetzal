@@ -22,6 +22,7 @@ import { checkRemote } from "./memory/soul-repo.ts";
 import { listSecrets, deleteSecret, pendingSecrets, endCapture } from "./mind/secrets.ts";
 import { listCustomTools, listSkills, readTool, readSkill, deleteTool, setToolEnabled } from "./mind/custom-tools.ts";
 import * as hearing from "./voice/hearing.ts";
+import * as player from "./voice/player.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -50,7 +51,10 @@ export const ops = {
   speech: () => voice.speechStatus(),
   setSpeech: (a: Partial<voice.SpeechConfig> & { key?: string }, actor: string) => { audit(actor, "speech", "", { ...a, key: a.key ? "****" : undefined }, "ok"); return voice.setSpeech(a); },
   speechVoices: (a: { locale?: string }) => voice.listVoices(a.locale ?? ""),
-  speechTest: async (a: { text?: string }) => { const f = await voice.synthesize(a.text || "你好，这是我的声音。"); if (adapter.playAudio) { hearing.markSpeaking(f, a.text || "你好，这是我的声音。"); await adapter.playAudio(f); } return { ok: true, file: f, played: !!adapter.playAudio }; },
+  speechTest: async (a: { text?: string }) => { const f = await voice.synthesize(a.text || "你好，这是我的声音。"); const r = await player.play(f, a.text || "你好，这是我的声音。"); return { ok: true, file: f, played: r.by !== "none", by: r.by }; },
+  // 控制台 App 的耳朵开着时登记为她的播放器（回声消除需要声音从 App 的通话路径放出来）；播完或被插嘴后回报
+  "player.set": (a: { enabled: boolean }) => { player.setPlayer(a.enabled !== false); return player.hasPlayer(); },
+  "player.done": (a: { id: string; interrupted?: boolean; utterance?: string }) => player.done(String(a.id), !!a.interrupted, a.utterance ? String(a.utterance).slice(0, 64) : undefined),
 
   // 保密库（pass_secret）：只有名字、说明与大小，任何接口都不返回值。secrets.end 与对方发回结束口令等价（按钮用）
   secrets: () => listSecrets(),

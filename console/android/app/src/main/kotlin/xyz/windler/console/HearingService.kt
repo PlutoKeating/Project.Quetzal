@@ -9,8 +9,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioTrack
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
@@ -23,6 +28,7 @@ import com.konovalov.vad.webrtc.VadWebRTC
 import com.konovalov.vad.webrtc.config.FrameSize
 import com.konovalov.vad.webrtc.config.Mode
 import com.konovalov.vad.webrtc.config.SampleRate
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -33,8 +39,10 @@ import java.util.concurrent.LinkedBlockingQueue
 
 /**
  * 耳朵：常驻的麦克风前台服务。
- *  - 采集：AudioRecord，VOICE_RECOGNITION 音源（系统为语音识别调好的降噪链），16 kHz 单声道 16 位；有的话再挂系统的 NoiseSuppressor、AutomaticGainControl
- *    与 AcousticEchoCanceler（她说话时不捂耳朵，对方可以插嘴：回声消除尽量去掉她自己的声音，基座再拿她念的文本比对兜底）。
+ *  - 采集：AudioRecord，VOICE_COMMUNICATION 音源（通话路径，系统在这条路径上做声学回声消除），16 kHz 单声道 16 位；再挂系统的
+ *    AcousticEchoCanceler、NoiseSuppressor、AutomaticGainControl。
+ *  - 播放：她的声音（合成语音）也由本服务播放（AudioTrack，USAGE_VOICE_COMMUNICATION）——「收听音轨 = 麦克风音轨 − 扬声器音轨」：
+ *    回声消除器拿本机正在放的声音做参考，从麦克风里减掉，她说话时对方可以直接插嘴；播放期间检测到持续人声就是插嘴，本地立即停播并回报。
  *  - 断句：WebRTC VAD（android-vad，MIT）逐 20ms 帧判断有没有人声，自带起止迟滞（停顿 1.5 秒算说完）；这里加前置缓冲（说话前 300ms）与单段上限（120 秒）。
  *  - 投递：一句话开始就打开到运行基座网关 /hear?stream=1 的分块 POST，边采集边送 PCM（不经过 Flutter，App 退到后台也照常）；
  *    基座用流式识别，中间结果经网关推送给控制台显示，说完后由基座交给 agent 判断。
@@ -54,7 +62,11 @@ class HearingService : Service() {
 
         @Volatile var running = false
             private set
+        /** 正在播放的她的声音（合成语音文件名），没有则为空。 */
+        @Volatile var playing: String? = null
+        private const val BARGE_IN_FRAMES = 20 // 播放期间人声持续 400ms 才算插嘴（挡掉残余回声的零星触发）
         @Volatile var listener: ((String, Map<String, Any?>) -> Unit)? = null
+        @Volatile var instance: HearingService? = null
         private val main = Handler(Looper.getMainLooper())
         private fun emit(kind: String, data: Map<String, Any?> = emptyMap()) { val l = listener ?: return; main.post { l(kind, data) } }
 
@@ -67,6 +79,11 @@ class HearingService : Service() {
 
     private var thread: Thread? = null
     private val poster = Executors.newSingleThreadExecutor()
+    private val playerThread = Executors.newSingleThreadExecutor()
+    @Volatile private var track: AudioTrack? = null
+    @Volatile private var stopPlayback = false
+    @Volatile private var currentUtterance: String? = null
+    @Volatile private var bargeInUtterance: String? = null
     @Volatile private var base = ""
     @Volatile private var token = ""
     @Volatile private var sensitivity = 2
@@ -74,6 +91,7 @@ class HearingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        instance = this
         if (intent == null) { stopSelf(); return START_NOT_STICKY }
         base = intent.getStringExtra("base") ?: base
         token = intent.getStringExtra("token") ?: token
@@ -96,8 +114,10 @@ class HearingService : Service() {
 
     override fun onDestroy() {
         running = false
+        instance = null
         thread?.interrupt(); thread = null
-        poster.shutdown()
+        stop(interrupted = false)
+        poster.shutdown(); playerThread.shutdown()
         emit("state", mapOf("running" to false))
         super.onDestroy()
     }
@@ -128,7 +148,7 @@ class HearingService : Service() {
 
     private fun capture() {
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME * 2 * 8))
+        val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME * 2 * 8))
         if (rec.state != AudioRecord.STATE_INITIALIZED) { rec.release(); throw IllegalStateException("麦克风初始化失败（可能被别的应用占用）") }
         val ns = if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true } else null
         val aec = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true } else null // 她说话时对方插嘴：消掉扬声器里她自己的声音
@@ -148,17 +168,25 @@ class HearingService : Service() {
                 emit("speech", mapOf("on" to false, "ms" to frames * 20, "reason" to reason))
                 u.put(END)
             }
+            var speechRun = 0 // 连续有人声的帧数（播放期间判断插嘴用）
             while (running && !restartRequested && !Thread.currentThread().isInterrupted) {
                 var got = 0
                 while (got < FRAME) { val n = rec.read(frame, got, FRAME - got); if (n <= 0) throw IllegalStateException("麦克风读取失败（$n）"); got += n }
                 val speech = vad.isSpeech(frame)
+                speechRun = if (speech) speechRun + 1 else 0
                 if (speech) {
                     if (utter == null) {
                         val q = LinkedBlockingQueue<ByteArray>(); utter = q; frames = 0
                         val startedAt = System.currentTimeMillis() - PREROLL_FRAMES * 20L
                         for (p in preroll) { q.put(pcm(p)); frames++ }
-                        stream(q, startedAt)
+                        val uid = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12)
+                        currentUtterance = uid
+                        stream(q, startedAt, uid)
                         emit("speech", mapOf("on" to true))
+                    }
+                    if (playing != null && speechRun >= BARGE_IN_FRAMES && bargeInUtterance == null) { // 她在说话时对方开口了：立刻闭嘴
+                        bargeInUtterance = currentUtterance
+                        stop(interrupted = true)
                     }
                     utter!!.put(pcm(frame)); frames++
                     if (frames * 20 >= MAX_MS) { flush("too-long"); preroll.clear() }
@@ -177,13 +205,13 @@ class HearingService : Service() {
 
     private fun pcm(s: ShortArray): ByteArray { val b = ByteBuffer.allocate(s.size * 2).order(ByteOrder.LITTLE_ENDIAN); b.asShortBuffer().put(s); return b.array() }
 
-    /** 边说边送：POST /hear?stream=1&started=<开始时刻>，分块传输，每 20ms 一帧；说完（END）关闭请求体，等基座识别完返回。失败只记事件，不重试。 */
-    private fun stream(q: LinkedBlockingQueue<ByteArray>, startedAt: Long) {
+    /** 边说边送：POST /hear?stream=1&started=<开始时刻>&id=<句子标识>，分块传输，每 20ms 一帧；说完（END）关闭请求体，等基座识别完返回。失败只记事件，不重试。 */
+    private fun stream(q: LinkedBlockingQueue<ByteArray>, startedAt: Long, uid: String) {
         if (poster.isShutdown) return
         poster.execute {
             var sent = 0
             try {
-                val url = URL("$base/hear?stream=1&token=${URLEncoder.encode(token, "UTF-8")}&started=$startedAt")
+                val url = URL("$base/hear?stream=1&token=${URLEncoder.encode(token, "UTF-8")}&started=$startedAt&id=$uid")
                 val c = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"; doOutput = true; connectTimeout = 4000; readTimeout = 60_000
                     setChunkedStreamingMode(FRAME * 2)
@@ -205,6 +233,94 @@ class HearingService : Service() {
                 emit("error", mapOf("message" to "送到基座失败：${e.message}"))
             }
         }
+    }
+
+    // ---------- 播放她的声音（走通话路径，耳朵的回声消除以它为参考）
+
+    /** 下载并播放一段合成语音；播完或被插嘴后发 played 事件（interrupted、utterance = 打断它的那句话）。 */
+    fun play(id: String, url: String) {
+        if (playerThread.isShutdown) return
+        stop(interrupted = false)
+        playerThread.execute {
+            var interrupted = false
+            try {
+                val f = File(cacheDir, "speak-$id")
+                (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 4000; readTimeout = 30_000 }.let { c ->
+                    c.inputStream.use { i -> f.outputStream().use { o -> i.copyTo(o) } }; c.disconnect()
+                }
+                stopPlayback = false; bargeInUtterance = null; playing = id
+                emit("playing", mapOf("id" to id, "on" to true))
+                interrupted = decodeAndPlay(f)
+                f.delete()
+            } catch (e: Exception) {
+                emit("error", mapOf("message" to "播放失败：${e.message}"))
+            } finally {
+                playing = null
+                val by = bargeInUtterance
+                emit("played", mapOf("id" to id, "interrupted" to interrupted, "utterance" to by))
+                emit("playing", mapOf("id" to id, "on" to false))
+            }
+        }
+    }
+
+    /** 停止播放（对方插嘴，或基座要求）。 */
+    fun stop(interrupted: Boolean) {
+        if (playing == null) return
+        stopPlayback = true
+        try { track?.pause(); track?.flush() } catch (_: Exception) {}
+        if (!interrupted) bargeInUtterance = null
+    }
+
+    /** MediaExtractor + MediaCodec 解码到 PCM，AudioTrack 以 VOICE_COMMUNICATION 用途播放。返回是否被插嘴打断。 */
+    private fun decodeAndPlay(f: File): Boolean {
+        val ex = MediaExtractor(); ex.setDataSource(f.absolutePath)
+        var idx = -1; var fmt: MediaFormat? = null
+        for (i in 0 until ex.trackCount) { val m = ex.getTrackFormat(i); if (m.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) { idx = i; fmt = m; break } }
+        if (idx < 0 || fmt == null) { ex.release(); throw IllegalStateException("文件里没有音频") }
+        ex.selectTrack(idx)
+        val codec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME)!!)
+        codec.configure(fmt, null, null, 0); codec.start()
+        var out: AudioTrack? = null
+        var eos = false; var interrupted = false
+        val info = MediaCodec.BufferInfo()
+        try {
+            while (!stopPlayback) {
+                if (!eos) {
+                    val ib = codec.dequeueInputBuffer(10_000)
+                    if (ib >= 0) {
+                        val buf = codec.getInputBuffer(ib)!!
+                        val n = ex.readSampleData(buf, 0)
+                        if (n < 0) { codec.queueInputBuffer(ib, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM); eos = true }
+                        else { codec.queueInputBuffer(ib, 0, n, ex.sampleTime, 0); ex.advance() }
+                    }
+                }
+                val ob = codec.dequeueOutputBuffer(info, 10_000)
+                if (ob >= 0) {
+                    if (out == null) {
+                        val of = codec.outputFormat
+                        val rate = of.getInteger(MediaFormat.KEY_SAMPLE_RATE); val ch = of.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        val mask = if (ch == 1) AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
+                        val size = maxOf(AudioTrack.getMinBufferSize(rate, mask, AudioFormat.ENCODING_PCM_16BIT), rate * ch * 2 / 5)
+                        out = AudioTrack(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build(),
+                            AudioFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build(), size, AudioTrack.MODE_STREAM, android.media.AudioManager.AUDIO_SESSION_ID_GENERATE)
+                        track = out; out.play()
+                    }
+                    val buf = codec.getOutputBuffer(ob)!!
+                    val bytes = ByteArray(info.size); buf.get(bytes); buf.clear()
+                    var off = 0
+                    while (off < bytes.size && !stopPlayback) { val w = out.write(bytes, off, bytes.size - off); if (w < 0) break; off += w }
+                    codec.releaseOutputBuffer(ob, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                }
+            }
+            if (stopPlayback) interrupted = bargeInUtterance != null
+            else out?.let { t -> try { t.stop() } catch (_: Exception) {} } // 播完：让缓冲里的尾音放完
+        } finally {
+            try { out?.release() } catch (_: Exception) {}
+            track = null
+            codec.stop(); codec.release(); ex.release()
+        }
+        return interrupted
     }
 
     private fun unescape(s: String): String {

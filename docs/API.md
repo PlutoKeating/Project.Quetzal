@@ -13,7 +13,8 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌，供点火器探活 |
 | POST | `/pair/start` | 生成 6 位配对码（5 分钟有效），通过适配器的系统通知与飞书下发 |
 | POST | `/pair/finish` | `{code}` → `{ok, token}`；错误码 403（不正确）、410（失效或尝试超过 5 次） |
-| POST | `/hear?started=<毫秒时刻>&token=<令牌>[&stream=1&id=<标识>]` | 听觉。`stream=1`：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输），基座用官方 SDK 流式识别，中间结果经 `hearing` 事件推送；否则请求体为一整句 WAV（最多 4 MiB）一次识别。→ `{ok, id, text, conv?, dropped?}`；`started` 为这句话开始的时刻，用于判断是不是她自己在说话（丢弃）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
+| GET | `/media/<文件名>?token=<令牌>` | 她的声音：控制台 App 取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |
+| POST | `/hear?started=<毫秒时刻>&token=<令牌>[&stream=1&id=<标识>&bargein=1]` | 听觉。`bargein=1`：这句话打断了她的播放（App 本地已停播），以「打断」并入。`stream=1`：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输），基座用官方 SDK 流式识别，中间结果经 `hearing` 事件推送；否则请求体为一整句 WAV（最多 4 MiB）一次识别。→ `{ok, id, text, conv?, dropped?}`；`started` 为这句话开始的时刻，用于判断是不是她自己在说话（丢弃）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
 | POST | `/upload?name=<文件名>&token=<令牌>` | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `WINDLER_HOME/data/uploads/<日期>/` |
 | GET | `/uploads/<rel>?token=<令牌>` | 下载附件（控制台预览图片）；只能访问 uploads 目录内的文件 |
 
@@ -33,7 +34,8 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（太短、没听清、她自己在说话、没在听）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
-| `speaking` | `{until}`：她在说话（`voice_speak`、试听播放合成语音）到 `until`（毫秒时刻）为止；对方插嘴时基座停止播放并把 `until` 提前到现在再推一次。App 只用它显示「她在说话」，不捂耳朵 |
+| `speaking` | `{until}`：她在说话（`voice_speak`、试听）到 `until`（毫秒时刻，按码率估计）为止；App 回报播完或被插嘴时 `until` 提前到现在再推一次。只给界面用 |
+| `speak` | `{id, url, text, ms}`：让控制台 App 播放一段合成语音（`url` 为 `/media/<文件名>`，走通话音频路径，耳朵的回声消除以它为参考）；App 播完或被插嘴后调用 `player.done` |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
 `activity` 的 `kind`：
@@ -101,6 +103,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
+| `player.set` / `player.done` | `{enabled}` / `{id, interrupted?, utterance?}` | 控制台 App 的耳朵开着时登记为她的播放器（之后 `voice_speak` 的声音由 App 经通话路径播放，没有播放器时交给身体适配器）；播完或被插嘴后回报，`utterance` 为打断播放的那句话的标识（耳朵送 `/hear` 时带的 `id`），那句话以「打断」并入 |
 | `hearing` / `setHearing` | — / `{enabled?, windowMin?, sensitivity?, language?, minChars?}` | 查看 / 修改：`{…配置, listening, reasons[], speaking, last}`。`listening` 为 App 该不该开麦克风（开关、未急停、Azure 语音已配置、电量与温度在预算限制内），`reasons` 为没在听的原因，`speaking` 为她此刻在说话，`last` 为最近一次识别 |
 | `status` 的 `hearing` 字段 | — | 同 `hearing`，随 `state` 推送；App 据此启停本机的麦克风前台服务 |
 

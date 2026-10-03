@@ -22,6 +22,7 @@ import { PERMISSION_LABELS } from "../guard/guard.ts";
 import { identity, setIdentity } from "../memory/identity.ts";
 import * as soul from "../memory/soul-sync.ts";
 import * as hearing from "../voice/hearing.ts";
+import * as player from "../voice/player.ts";
 import { addTimeline } from "../store.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
@@ -178,10 +179,9 @@ const core: Tool[] = [
     parameters: obj({ text: str("要说的话"), voice: str("可选：音色，如 zh-CN-XiaoxiaoNeural"), style: str("可选：表达风格，如 cheerful、gentle、whispering"), rate: str("可选：语速，如 +10%"), pitch: str("可选：音调，如 -5%") }, ["text"]),
     handler: async (a) => {
       const file = await voice.synthesize(String(a.text), { voice: a.voice, style: a.style, rate: a.rate, pitch: a.pitch });
-      if (!adapter.playAudio) return `已合成：${file}（这具身体不支持播放音频，可以用 shell 自己播放）`;
-      hearing.markSpeaking(file, String(a.text)); // 记下她在说什么：播放期间听到的若是这段话就是回声，不是就是对方在插嘴
-      await adapter.playAudio(file);
-      return `说出来了（音频：${file}）`;
+      const r = await player.play(file, String(a.text)); // 有耳朵时由 App 经通话路径播放（回声消除），否则交给身体适配器
+      if (r.by === "none") return `已合成：${file}（这具身体不支持播放音频，可以用 shell 自己播放）`;
+      return r.interrupted ? `说到一半被对方打断了（音频：${file}）——对方说的话马上会到` : `说出来了（音频：${file}）`;
     },
   },
   {
