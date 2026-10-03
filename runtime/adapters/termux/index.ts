@@ -113,6 +113,7 @@ const adapter: BodyAdapter = {
     const r = await run("termux-media-player", ["play", file], 30_000);
     if (r.code !== 0 || /error|fail/i.test(r.out)) throw new Error(`播放失败：${r.out.trim().slice(0, 200)}`);
   },
+  async stopAudio() { await run("termux-media-player", ["stop"], 10_000); },
   tools,
   // speak 不提供：很多手机没有系统 TTS 引擎，termux-tts-speak 不出声；说话统一由运行基座的 voice_speak 完成
   // hands：看屏幕与操作其他应用——预留，尚未实现（需要无障碍服务或 shell 身份）

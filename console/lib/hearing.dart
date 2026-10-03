@@ -18,8 +18,6 @@ class Hearing {
   static Future<bool> isRunning() async { try { return await _ch.invokeMethod<bool>('isRunning') ?? false; } catch (_) { return false; } }
   static Future<void> start({required String base, required String token, required int sensitivity}) => _ch.invokeMethod('start', {'base': base, 'token': token, 'sensitivity': sensitivity});
   static Future<void> stop() => _ch.invokeMethod('stop');
-  /// 她要说话了：捂住耳朵 ms 毫秒（期间不喂 VAD）。
-  static Future<void> mute(int ms) => _ch.invokeMethod('mute', {'ms': ms});
 }
 
 /// 跟随基座状态启停耳朵，并保留最近的事件给界面。
@@ -35,7 +33,7 @@ class HearingController extends ChangeNotifier {
     final h = (api.status['hearing'] as Map?) ?? {};
     if (h['enabled'] != true) return null;
     if (!running) { final r = (h['reasons'] as List?)?.cast<String>() ?? []; return r.isEmpty ? (granted ? '耳朵没开' : '耳朵没开：没有麦克风权限') : '没在听：${r.join('、')}'; }
-    if (DateTime.now().millisecondsSinceEpoch < speakingUntil) return '她在说话';
+    if (DateTime.now().millisecondsSinceEpoch < speakingUntil) return '她在说话（可以直接插嘴）';
     if (speaking) return '有人在说话…';
     if (pending) return '听到了，正在听清…';
     return '在听';
@@ -48,12 +46,18 @@ class HearingController extends ChangeNotifier {
   void start() {
     api.addListener(sync);
     Hearing.events.listen(_onEvent, onError: (_) {});
-    api.events.where((e) => e.name == 'speaking').listen((e) { // 她要播放合成语音了：先捂住耳朵
+    api.events.where((e) => e.name == 'speaking').listen((e) { // 她在说话到 until 为止（对方插嘴时基座会把 until 提前到现在）
       final until = ((e.data as Map)['until'] as num).toInt();
       speakingUntil = until; speaking = false; pending = false;
-      final ms = until - DateTime.now().millisecondsSinceEpoch + 300;
-      if (ms > 0) { if (running) Hearing.mute(ms); _speakingTimer?.cancel(); _speakingTimer = Timer(Duration(milliseconds: ms), notifyListeners); }
+      final ms = until - DateTime.now().millisecondsSinceEpoch + 100;
+      _speakingTimer?.cancel();
+      if (ms > 0) _speakingTimer = Timer(Duration(milliseconds: ms), notifyListeners);
       notifyListeners();
+    });
+    api.events.where((e) => e.name == 'hearing').listen((e) { // 基座确认听到了对方（含插嘴）：亮起来
+      final h = e.data as Map;
+      if (h['status'] == 'partial' || h['status'] == 'final') { speaking = h['status'] == 'partial'; pending = h['status'] == 'final'; notifyListeners(); }
+      if (h['status'] == 'kept' || h['status'] == 'ignored' || h['status'] == 'dropped') { pending = false; notifyListeners(); }
     });
     AppLifecycleListener(onResume: () => refreshPermission().then((_) => sync())); // 从系统设置授权回来
     refreshPermission().then((_) => sync());
@@ -85,7 +89,7 @@ class HearingController extends ChangeNotifier {
     switch (e['kind']) {
       case 'state': running = e['running'] == true; if (!running) speaking = false;
       case 'speech':
-        if (DateTime.now().millisecondsSinceEpoch < speakingUntil) return; // 她在说话：耳朵里的动静是她自己
+        if (DateTime.now().millisecondsSinceEpoch < speakingUntil) return; // 她在说话：耳朵里的动静多半是她自己；是不是插嘴由基座比对后用 hearing 事件告知
         speaking = e['on'] == true;
         _speakTimer?.cancel();
         if (!speaking) {

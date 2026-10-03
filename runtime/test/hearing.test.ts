@@ -167,4 +167,44 @@ test("流式识别失败或没结果时，用已收到的音频走一次 REST �
   assert.match((await hearing.hearStream(short(), Date.now() + 5000, "s5")).dropped!, /太短/);
 });
 
+// ---------- 插嘴：她说话期间听到的若像她念的话就是回声，不像就是对方在插嘴（让她停下、以打断并入）
+test("回声判断：像她念的话算回声，不像就是插嘴", () => {
+  const spoken = "今天下午我在整理旧手机的时候，发现了一张三年前的照片。";
+  assert.equal(hearing.isEcho("我在整理旧手机的时候", spoken), true);
+  assert.equal(hearing.isEcho("发现了一张3年前的照片", spoken), true); // 识别的小差异
+  assert.equal(hearing.isEcho("薰", spoken), true); // 太短还判断不了
+  assert.equal(hearing.isEcho("薰，等一下，先别说了", spoken), false);
+  assert.equal(hearing.isEcho("明天几点出门", spoken), false);
+});
+
+test("她说话时对方插嘴：中间结果一不像回声就让她停下，这句话以打断并入；像回声的整句丢弃", async () => {
+  const { bus } = await import("../src/bus.ts");
+  const { adapter } = await import("../src/body/twin.ts");
+  let stopped = 0; (adapter as any).stopAudio = async () => { stopped++; };
+  const events: any[] = [], speaking: number[] = [];
+  bus.on("hearing", (e) => events.push(e)); bus.on("speaking", (e) => speaking.push(e.until));
+  const f = await voice.synthesize("今天下午我在整理旧手机的时候，发现了一张三年前的照片。");
+  hearing.markSpeaking(f, "今天下午我在整理旧手机的时候，发现了一张三年前的照片。");
+  assert.ok(hearing.isSpeaking());
+  // 回声：中间结果都像她的话 → 不推 partial，最终丢弃
+  hearing.setStreamFactory((_l, onPartial) => ({ push: () => { onPartial("今天下午我在"); onPartial("今天下午我在整理旧手机"); }, end: async () => ({ text: "今天下午我在整理旧手机的时候", status: "Success" }) }));
+  async function* pcm() { yield Buffer.alloc(32000); }
+  const r1 = await hearing.hearStream(pcm(), Date.now(), "b1", true);
+  assert.equal(r1.dropped, "我自己在说话");
+  assert.deepEqual(events.filter((e) => e.id === "b1").map((e) => e.status), ["dropped"]);
+  assert.ok(hearing.isSpeaking(), "回声不会打断她");
+  assert.equal(stopped, 0);
+  // 插嘴：中间结果不像她的话 → 立刻停止播放、说话窗口结束、partial 照常推送，最终以打断并入会话
+  hearing.setStreamFactory((_l, onPartial) => ({ push: () => { onPartial("薰"); onPartial("薰等一下"); onPartial("薰等一下先别说了"); }, end: async () => ({ text: "薰，等一下，先别说了。", status: "Success" }) }));
+  const r2 = await hearing.hearStream(pcm(), Date.now(), "b2", true);
+  assert.equal(r2.text, "薰，等一下，先别说了。");
+  assert.equal(stopped, 1);
+  assert.ok(!hearing.isSpeaking());
+  assert.ok(speaking.at(-1)! <= Date.now());
+  assert.deepEqual(events.filter((e) => e.id === "b2").map((e) => [e.status, e.text]).slice(0, 3), [["partial", "薰等一下"], ["partial", "薰等一下先别说了"], ["final", "薰，等一下，先别说了。"]]);
+  const m = store.sessionMessages(r2.conv!).find((x) => x.text === "薰，等一下，先别说了。")!;
+  assert.equal(m.role, "ambient");
+  delete (adapter as any).stopAudio;
+});
+
 test("收尾", () => { azure.close(); llm.close(); });

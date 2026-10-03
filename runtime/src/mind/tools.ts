@@ -179,7 +179,7 @@ const core: Tool[] = [
     handler: async (a) => {
       const file = await voice.synthesize(String(a.text), { voice: a.voice, style: a.style, rate: a.rate, pitch: a.pitch });
       if (!adapter.playAudio) return `已合成：${file}（这具身体不支持播放音频，可以用 shell 自己播放）`;
-      hearing.markSpeaking(file); // 先让耳朵捂住：播放期间麦克风听到的是她自己
+      hearing.markSpeaking(file, String(a.text)); // 记下她在说什么：播放期间听到的若是这段话就是回声，不是就是对方在插嘴
       await adapter.playAudio(file);
       return `说出来了（音频：${file}）`;
     },

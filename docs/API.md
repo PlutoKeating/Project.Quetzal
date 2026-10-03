@@ -33,7 +33,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（太短、没听清、她自己在说话、没在听）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
-| `speaking` | `{until}`：她要播放合成语音了（`voice_speak`、试听），到 `until`（毫秒时刻）为止；App 据此捂住耳朵，免得把她自己的声音当成有人说话 |
+| `speaking` | `{until}`：她在说话（`voice_speak`、试听播放合成语音）到 `until`（毫秒时刻）为止；对方插嘴时基座停止播放并把 `until` 提前到现在再推一次。App 只用它显示「她在说话」，不捂耳朵 |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
 `activity` 的 `kind`：
@@ -185,6 +185,7 @@ interface BodyAdapter {
   notify?(title: string, text: string): Promise<void>;  // 本地系统通知
   speak?(text: string): Promise<void>;
   playAudio?(file: string): Promise<void>; // 播放音频文件（语音合成的结果）
+  stopAudio?(): Promise<void>;             // 停止播放（对方插嘴时让她停下）
   tools?: AdapterTool[];                   // 设备动作，每个声明所属能力类别
   hands?: Hands;                           // 预留：看屏幕与操作其他应用
 }
@@ -201,7 +202,7 @@ interface RawSample {
 - 适配器从 `WINDLER_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理。
 
-Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Windler」按钮）、`playAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`WINDLER_HOME`（媒体保存位置 `data/media/`）、`WINDLER_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.windler.console/.MainActivity`）。
+Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Windler」按钮）、`playAudio()` / `stopAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`WINDLER_HOME`（媒体保存位置 `data/media/`）、`WINDLER_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.windler.console/.MainActivity`）。
 
 ## 3. 配置项（`config/windler.json`）
 

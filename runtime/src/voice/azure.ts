@@ -125,8 +125,8 @@ export function recognizeStream(language: string, onPartial: (text: string) => v
   };
   rec.recognizing = (_, e) => { if (e.result.text) onPartial(finals.join("") + e.result.text); };
   rec.recognized = (_, e) => { if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text) finals.push(e.result.text.trim()); };
-  rec.canceled = (_, e) => { if (e.reason === sdk.CancellationReason.Error) error = e.errorDetails || String(e.errorCode); finish(); }; // EndOfStream：音频送完并识别完
-  rec.sessionStopped = () => finish();
+  rec.canceled = (_, e) => { if (e.reason === sdk.CancellationReason.Error) { error = e.errorDetails || String(e.errorCode); finish(); } }; // EndOfStream 不在这里收尾：最后一段的定稿可能还在后面
+  rec.sessionStopped = () => finish(); // 服务把送完的音频全部识别完、最后一段也定稿之后才到这里
   rec.startContinuousRecognitionAsync(undefined, (err) => { error = String(err); finish(); });
   return {
     push: (pcm) => push.write(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) as ArrayBuffer),

@@ -40,6 +40,7 @@ export interface BodyAdapter {
   notify?(title: string, text: string): Promise<void>;
   speak?(text: string): Promise<void>;
   playAudio?(file: string): Promise<void>;  // 播放一个音频文件（如语音合成的结果）
+  stopAudio?(): Promise<void>; // 停止播放（对方插嘴时让她闭嘴）
   tools?: AdapterTool[];
   hands?: Hands;
 }

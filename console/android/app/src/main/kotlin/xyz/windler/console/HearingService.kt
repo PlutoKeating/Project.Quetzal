@@ -12,6 +12,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
@@ -32,7 +33,8 @@ import java.util.concurrent.LinkedBlockingQueue
 
 /**
  * 耳朵：常驻的麦克风前台服务。
- *  - 采集：AudioRecord，VOICE_RECOGNITION 音源（系统为语音识别调好的降噪链），16 kHz 单声道 16 位；有的话再挂系统的 NoiseSuppressor 与 AutomaticGainControl。
+ *  - 采集：AudioRecord，VOICE_RECOGNITION 音源（系统为语音识别调好的降噪链），16 kHz 单声道 16 位；有的话再挂系统的 NoiseSuppressor、AutomaticGainControl
+ *    与 AcousticEchoCanceler（她说话时不捂耳朵，对方可以插嘴：回声消除尽量去掉她自己的声音，基座再拿她念的文本比对兜底）。
  *  - 断句：WebRTC VAD（android-vad，MIT）逐 20ms 帧判断有没有人声，自带起止迟滞（停顿 1.5 秒算说完）；这里加前置缓冲（说话前 300ms）与单段上限（120 秒）。
  *  - 投递：一句话开始就打开到运行基座网关 /hear?stream=1 的分块 POST，边采集边送 PCM（不经过 Flutter，App 退到后台也照常）；
  *    基座用流式识别，中间结果经网关推送给控制台显示，说完后由基座交给 agent 判断。
@@ -52,8 +54,6 @@ class HearingService : Service() {
 
         @Volatile var running = false
             private set
-        /** 她在说话到这个时刻为止：期间不喂 VAD，免得把扬声器里她自己的声音当成有人说话。 */
-        @Volatile var muteUntil = 0L
         @Volatile var listener: ((String, Map<String, Any?>) -> Unit)? = null
         private val main = Handler(Looper.getMainLooper())
         private fun emit(kind: String, data: Map<String, Any?> = emptyMap()) { val l = listener ?: return; main.post { l(kind, data) } }
@@ -131,11 +131,12 @@ class HearingService : Service() {
         val rec = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME * 2 * 8))
         if (rec.state != AudioRecord.STATE_INITIALIZED) { rec.release(); throw IllegalStateException("麦克风初始化失败（可能被别的应用占用）") }
         val ns = if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true } else null
+        val aec = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true } else null // 她说话时对方插嘴：消掉扬声器里她自己的声音
         val agc = if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(rec.audioSessionId)?.apply { enabled = true } else null
         val vad = VadWebRTC(sampleRate = SampleRate.SAMPLE_RATE_16K, frameSize = FrameSize.FRAME_SIZE_320, mode = mode(), speechDurationMs = 100, silenceDurationMs = SILENCE_MS)
         restartRequested = false
         rec.startRecording()
-        emit("mic", mapOf("noiseSuppressor" to (ns != null), "agc" to (agc != null), "mode" to mode().name))
+        emit("mic", mapOf("noiseSuppressor" to (ns != null), "agc" to (agc != null), "aec" to (aec != null), "mode" to mode().name))
         try {
             val frame = ShortArray(FRAME)
             val preroll = ArrayDeque<ShortArray>(PREROLL_FRAMES)
@@ -147,18 +148,9 @@ class HearingService : Service() {
                 emit("speech", mapOf("on" to false, "ms" to frames * 20, "reason" to reason))
                 u.put(END)
             }
-            var muted = false
             while (running && !restartRequested && !Thread.currentThread().isInterrupted) {
                 var got = 0
                 while (got < FRAME) { val n = rec.read(frame, got, FRAME - got); if (n <= 0) throw IllegalStateException("麦克风读取失败（$n）"); got += n }
-                val nowMuted = System.currentTimeMillis() < muteUntil
-                if (nowMuted) {
-                    if (utter != null) flush("muted")
-                    if (!muted) { preroll.clear(); emit("muted", mapOf("on" to true)) }
-                    muted = true
-                    continue
-                }
-                if (muted) { muted = false; vad.isSpeech(ShortArray(FRAME)); emit("muted", mapOf("on" to false)) } // 捂住期间的尾音不算
                 val speech = vad.isSpeech(frame)
                 if (speech) {
                     if (utter == null) {
@@ -179,7 +171,7 @@ class HearingService : Service() {
             if (utter != null) flush("stop")
         } finally {
             try { rec.stop() } catch (_: Exception) {}
-            rec.release(); ns?.release(); agc?.release(); vad.close()
+            rec.release(); ns?.release(); agc?.release(); aec?.release(); vad.close()
         }
     }
 
