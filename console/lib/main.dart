@@ -10,6 +10,8 @@ import 'pages/memory.dart';
 import 'pages/control.dart';
 import 'pages/pairing.dart';
 import 'pages/agents.dart';
+import 'pages/setup.dart';
+import 'installer.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,9 +51,11 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int tab = 0;
+  String? bundled; // App 内置的运行基座版本：与运行中的不同时提示升级（本机部署才有意义）
   @override
   void initState() {
     super.initState();
+    Installer.bundledVersion().then((v) { if (mounted) setState(() => bundled = v); });
     api.events.listen((e) {
       if (!mounted) return;
       if (e.name == 'say') toast(context, '${api.name}：${plainPreview('${e.data}')}');
@@ -74,6 +78,9 @@ class _ShellState extends State<Shell> {
           body: Column(children: [
             if (api.conn != Conn.online) const OfflineBanner(),
             if (api.safeMode) const Banner0(text: '基座处于安全模式（反复崩溃后）：只能查看与管理，不会醒来。', color: Colors.orange),
+            if (bundled != null && api.conn == Conn.online && api.status['version'] != null && api.status['version'] != bundled && api.base.contains('127.0.0.1'))
+              Banner0(text: 'App 内置的运行基座是 $bundled，正在运行的是 ${api.status['version']}。', color: Colors.blueGrey,
+                  action: FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('升级'))),
             Expanded(child: pages[tab]),
           ]),
           bottomNavigationBar: NavigationBar(

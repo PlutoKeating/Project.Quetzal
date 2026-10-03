@@ -1,14 +1,20 @@
 package xyz.windler.console
 
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * 点火器：通过 Termux 的 RUN_COMMAND 接口在 Termux 里执行固定命令（启动 / 重启 Windler 服务）。
- * 需要 Termux 的 ~/.termux/termux.properties 中 allow-external-apps=true，并授予本应用 RUN_COMMAND 权限。
+ * Termux 桥（MethodChannel windler/igniter）：
+ *  - run：通过 Termux 的 RUN_COMMAND 接口在 Termux 里后台执行一个程序（点火、安装器）。
+ *    需要 Termux 的 ~/.termux/termux.properties 中 allow-external-apps=true，并授予本应用 RUN_COMMAND 权限。
+ *  - 三件套检测、打开应用、系统的电池优化 / 各厂商自启动管理页（保活引导）。
  */
 class MainActivity : FlutterActivity() {
     private val perm = "com.termux.permission.RUN_COMMAND"
@@ -17,7 +23,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "windler/igniter").setMethodCallHandler { call, result ->
             when (call.method) {
-                "termuxInstalled" -> result.success(installed("com.termux"))
+                "packageVersion" -> result.success(version(call.argument<String>("pkg")!!))
                 "hasPermission" -> result.success(checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED)
                 "requestPermission" -> { requestPermissions(arrayOf(perm), 1); result.success(null) }
                 "run" -> {
@@ -37,14 +43,46 @@ class MainActivity : FlutterActivity() {
                         result.error("IGNITE_FAILED", e.message, null)
                     }
                 }
-                "openTermux" -> {
-                    packageManager.getLaunchIntentForPackage("com.termux")?.let { startActivity(it) }
+                "openApp" -> {
+                    val pkg = call.argument<String>("pkg")!!
+                    val i = packageManager.getLaunchIntentForPackage(pkg)
+                    if (i != null) startActivity(i) else result.error("NO_APP", "没有安装 $pkg", null).also { return@setMethodCallHandler }
                     result.success(null)
                 }
+                "openAppDetails" -> { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + call.argument<String>("pkg")))); result.success(null) }
+                "openBatterySettings" -> { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); result.success(null) }
+                "requestIgnoreBattery" -> {
+                    val pm = getSystemService(POWER_SERVICE) as PowerManager
+                    if (!pm.isIgnoringBatteryOptimizations(packageName))
+                        startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+                    result.success(pm.isIgnoringBatteryOptimizations(packageName))
+                }
+                "openAutostart" -> { openAutostart(); result.success(null) }
                 else -> result.notImplemented()
             }
         }
     }
 
-    private fun installed(pkg: String) = try { packageManager.getPackageInfo(pkg, 0); true } catch (e: Exception) { false }
+    private fun version(pkg: String): String? = try { packageManager.getPackageInfo(pkg, 0).versionName } catch (e: Exception) { null }
+
+    /** 各厂商的自启动 / 后台运行管理页（尽力而为），都打不开时退回 Termux 的应用详情页。 */
+    private fun openAutostart() {
+        val candidates = listOf(
+            "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+            "com.huawei.systemmanager" to "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity",
+            "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
+            "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
+            "com.oppo.safe" to "com.oppo.safe.permission.startup.StartupAppListActivity",
+            "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+            "com.iqoo.secure" to "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity",
+            "com.samsung.android.lool" to "com.samsung.android.sm.ui.battery.BatteryActivity",
+            "com.oneplus.security" to "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity",
+            "com.asus.mobilemanager" to "com.asus.mobilemanager.autostart.AutoStartActivity",
+        )
+        for ((pkg, cls) in candidates) {
+            val i = Intent().setComponent(ComponentName(pkg, cls)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (packageManager.resolveActivity(i, 0) != null) { try { startActivity(i); return } catch (_: Exception) {} }
+        }
+        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:com.termux")))
+    }
 }

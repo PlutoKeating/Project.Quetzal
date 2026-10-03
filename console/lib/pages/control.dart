@@ -9,6 +9,8 @@ import '../markdown.dart';
 import '../widgets.dart';
 import 'providers.dart';
 import 'agents.dart';
+import 'setup.dart';
+import '../installer.dart';
 
 class ControlPage extends ApiWidget {
   const ControlPage({super.key});
@@ -403,10 +405,12 @@ class ServicePage extends StatelessWidget {
               Text('身体：${s['body'] ?? '-'} · 适配器 ${s['adapter'] ?? '-'}'),
               Text('系统：已运行 ${sys['uptimeH'] ?? '-'} 小时 · 负载 ${sys['load1'] ?? '-'} · 空闲内存 ${sys['memFreeMB'] ?? '-'} MB · 存储余量 ${sys['storageFreeGB'] ?? '-'} GB'),
               Text('模型：${((s['models'] as List?) ?? []).join('、')}'),
+              FutureBuilder(future: Installer.bundledVersion(), builder: (_, v) => Text('App 内置的运行基座：${v.data ?? '（无）'}${v.data != null && s['version'] != null && v.data != s['version'] ? '，与运行中的不同，可升级' : ''}')),
             ]),
             Section('操作', [
               Wrap(spacing: 8, children: [
                 FilledButton.tonal(onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); }, child: const Text('点火')),
+                FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('升级 / 重装')),
                 FilledButton.tonal(onPressed: () async { if (await confirm(context, '重启基座', '重启运行基座进程？约 5 秒后恢复。') && context.mounted) await act(context, () => api.call('restart'), ok: '正在重启'); }, child: const Text('重启')),
                 OutlinedButton(onPressed: () async {
                   if (await confirm(context, '重新配对', '将清除本机保存的令牌，需要重新获取配对码。')) await api.saveSettings(token: '');

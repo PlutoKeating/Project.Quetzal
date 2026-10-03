@@ -1,8 +1,14 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// 正式签名：android/key.properties（不入库）里给出 storeFile / storePassword / keyAlias / keyPassword；没有时退回 debug 签名。
+val keyProps = Properties().apply { rootProject.file("key.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
+val hasKey = keyProps.containsKey("storeFile")
 
 android {
     namespace = "xyz.windler.console"
@@ -15,7 +21,6 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "xyz.windler.console"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -29,11 +34,18 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasKey) create("release") {
+            storeFile = rootProject.file(keyProps["storeFile"] as String)
+            storePassword = keyProps["storePassword"] as String
+            keyAlias = keyProps["keyAlias"] as String
+            keyPassword = keyProps["keyPassword"] as String
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (hasKey) "release" else "debug")
         }
     }
 }

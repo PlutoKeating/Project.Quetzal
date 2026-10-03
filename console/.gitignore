@@ -46,3 +46,11 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# 内置的运行基座（tool/bundle-runtime.sh 生成）
+/assets/runtime/*
+!/assets/runtime/.gitkeep
+# 正式签名（绝不入库）
+/android/key.properties
+*.jks
+*.keystore
