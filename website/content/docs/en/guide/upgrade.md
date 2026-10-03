@@ -10,7 +10,7 @@ The Windler app bundles the runtime. After installing a newer APK, the app notic
 Upgrading runs the same idempotent script as installation:
 
 ```mermaid
-flowchart LR
+flowchart TB
   A[Place new version in releases/<version>/] --> B[previous ← current<br/>current ← new version]
   B --> C[Restart service]
   C --> D{/health OK within 40 s?}

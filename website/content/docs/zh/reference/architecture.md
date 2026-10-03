@@ -7,35 +7,7 @@ description: 运行基座的总体结构、心脏的数学（内驱力、生物�
 
 运行基座是**单进程 Node.js**（`dist/main.cjs`），模块之间通过进程内事件总线耦合，状态全部落盘（SQLite 与灵魂目录），进程重启只相当于"睡了一觉"。
 
-```mermaid
-flowchart TB
-  subgraph Host["身体（任意设备）"]
-    AD["身体适配器<br/>sample() · notify() · playAudio() · tools"]
-    SUP["进程守护者<br/>runit / systemd"]
-  end
-  subgraph Core["运行基座 · 单进程"]
-    TWIN["身体数字孪生"]
-    HEART["心脏<br/>内驱力 · 生物钟 · 醒来抽样"]
-    BRAIN["大脑<br/>内省 · 工具循环 · 反思 · 对话"]
-    MEM["记忆<br/>人格 · 常驻记忆 · 日记 · 笔记 · 灵魂同步"]
-    PROV["模型层<br/>多供应商 · 路由 · 故障转移"]
-    GUARD["闸门<br/>授权 · 审批 · 急停 · 审计"]
-    OPS["统一操作层"]
-    GW["网关 127.0.0.1 WebSocket"]
-    FS["飞书 长连接 + 卡片"]
-    STORE[("SQLite")]
-  end
-  SUP -- 拉起 / 重启 --> Core
-  AD -- 采样 --> TWIN -- sense 事件 --> HEART -- 醒来 --> BRAIN
-  BRAIN --> PROV
-  BRAIN -- 工具调用 --> GUARD --> AD
-  BRAIN <--> MEM
-  OPS --> HEART & GUARD & MEM & PROV
-  GW & FS --> OPS
-  GW <--> APP["Windler App"]
-  MEM <-- git --> SOUL[("灵魂仓库")]
-  HEART & BRAIN & GUARD --> STORE
-```
+![Windler 架构总图：身体 → 运行基座（心脏 · 大脑 · 记忆 · 模型层 · 闸门）→ 灵魂仓库与其他身体](/img/architecture.zh.svg)
 
 设计原则：**设备无关**（核心只认识适配器接口）、**所有控制入口共用一个操作层**（App 与飞书行为一致、都写审计）、**没有定时器驱动的行为**。
 
@@ -81,7 +53,7 @@ $$\lambda_{\text{asleep}} = \lambda_0 \cdot 0.5 \cdot \min\!\left(1, \frac{n_{\t
 ### 抽样：非齐次泊松过程的稀疏化
 
 ```mermaid
-flowchart LR
+flowchart TB
   A[按当前状态计算 λ] --> B["上界 λ* = max(1.5λ, 0.05)"]
   B --> C["抽候选间隔 Δ ~ Exp(λ*)"]
   C --> D{Δ > 15 分钟?}

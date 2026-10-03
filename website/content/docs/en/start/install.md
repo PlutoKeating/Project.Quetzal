@@ -8,14 +8,13 @@ description: Put the Termux trio and the Windler app on a spare Android phone, t
 Four steps: install the Termux trio → install the Windler app → install the runtime from the app's wizard → keep the system from killing it. It takes a few minutes and a few tens of megabytes.
 
 ```mermaid
-flowchart LR
-  A["1. Install the Termux trio<br/>(same source)"] --> B["2. Install the Windler app<br/>(download page / GitHub Releases)"]
-  B --> C["3. Open Windler<br/>“Install on this phone”"]
-  C --> C1["Allow commands to Termux"]
-  C1 --> C2["Paste one line in Termux<br/>to allow external apps"]
-  C2 --> C3["Tap “Install”<br/>Node.js, runit, runtime, boot script — automatic"]
-  C3 --> D["4. Keep-alive: battery whitelist + autostart"]
-  D --> E(("She wakes up"))
+flowchart TB
+  A["1. Install the Termux trio<br/>same source"] --> B["2. Install the Windler app<br/>download page / Releases"] --> C
+  subgraph C["3. Follow the app wizard"]
+    direction LR
+    C1["Allow commands to Termux"] --> C2["Paste one line in Termux<br/>to allow external apps"] --> C3["Tap Install<br/>the rest is automatic"]
+  end
+  C --> D["4. Keep it alive<br/>battery whitelist + autostart"] --> E(("it wakes up"))
 ```
 
 ## 1. Install the Termux trio

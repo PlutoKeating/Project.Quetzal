@@ -17,7 +17,7 @@ flowchart LR
     BH["soul-bridge"] <--> HF["~/.hermes/SOUL.md<br/>memories/*.md"]
   end
   subgraph Server["Server: OpenClaw"]
-    BO["soul-bridge"] <--> OF["workspace/SOUL.md · MEMORY.md · USER.md<br/>memory/*.md · memory/notes/"]
+    BO["soul-bridge"] <--> OF["workspace/SOUL.md<br/>MEMORY.md · USER.md<br/>memory/*.md · notes/"]
   end
   RT <-- "SSH deploy key" --> R
   BH <-- git --> R

@@ -12,7 +12,7 @@ flowchart TB
   APP["Windler app"]
   APP -- "local 127.0.0.1:7788" --> A["Runtime A<br/>(this phone)"]
   APP -- "forwarded port / tunnel" --> B["Runtime B<br/>(another device)"]
-  APP -- "local 127.0.0.1:7789" --> C["Runtime C<br/>(same phone, another home directory)"]
+  APP -- "local 127.0.0.1:7789" --> C["Runtime C<br/>same phone, another home"]
   A --- SA[("A's soul repository")]
   B --- SB[("B's soul repository")]
   C --- SC[("C's soul repository")]

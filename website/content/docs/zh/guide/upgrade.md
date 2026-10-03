@@ -10,7 +10,7 @@ Windler App 内置了运行基座。装新版 APK 后，App 发现内置的版�
 升级走的是和安装相同的脚本（幂等）：
 
 ```mermaid
-flowchart LR
+flowchart TB
   A[新版本放进 releases/新版本/] --> B[previous ← current<br/>current ← 新版本]
   B --> C[重启服务]
   C --> D{40 秒内 /health 正常?}

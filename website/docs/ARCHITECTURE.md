@@ -49,6 +49,8 @@ flowchart LR
 | `/:lang` | 首页 hero 与分节 | `routes/home/i18n.ts` |
 | `/:lang/features` | 亮点功能 | `routes/features/i18n.ts` |
 | `/:lang/docs/*` | 文档教程：侧栏、正文（统一 Markdown 组件）、页内目录 | `content/docs/<lang>/**/*.md`（构建时读取） |
+
+**图表与图片的可读性**（`components/markdown/Mermaid.tsx`、`Lightbox.tsx`）：mermaid 以原始尺寸渲染（`useMaxWidth: false`，字号 16px）；容器窄于 640px 时横向流程图（LR / RL，含子图 direction）自动改为纵向；图比容器宽时，若缩放不低于 0.72 则整体缩放，否则原尺寸横向滚动并提示；每张图与文档里的图片都可点按进入全屏查看（缩放按钮、双向滚动、Esc 关闭）。时序图开启自动换行。架构参考页的总图改用与 README 相同的手绘 SVG（`public/img/architecture.{zh,en}.svg`，由 `scripts/gen-architecture-svg.py` 生成）。
 | `/:lang/download` | 最新版本、资产下载、发布说明、历史版本、Termux 三件套链接 | 浏览器直连 GitHub Releases 公开 API（sessionStorage 缓存），不硬编码版本 |
 | `/:lang/about` `terms` `privacy` | 关于 / 条款 / 隐私（共用 `components/Article.tsx` 长文版式） | 各自 `i18n.ts`（分节 + 段落 + 要点） |
 | `/404` | 404 页 | — |

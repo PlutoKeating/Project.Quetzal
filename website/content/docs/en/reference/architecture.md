@@ -7,35 +7,7 @@ description: The runtime's overall structure, the heart's mathematics (drives, b
 
 The runtime is a **single Node.js process** (`dist/main.cjs`). Modules are coupled through an in-process event bus, all state is on disk (SQLite and the soul directory), and a restart is just a nap.
 
-```mermaid
-flowchart TB
-  subgraph Host["Body (any device)"]
-    AD["Body adapter<br/>sample() · notify() · playAudio() · tools"]
-    SUP["Process supervisor<br/>runit / systemd"]
-  end
-  subgraph Core["Runtime · one process"]
-    TWIN["Body digital twin"]
-    HEART["Heart<br/>drives · body clock · wake sampling"]
-    BRAIN["Mind<br/>introspect · tool loop · reflect · converse"]
-    MEM["Memory<br/>personality · resident · journal · notes · soul sync"]
-    PROV["Provider layer<br/>multi-provider · routing · failover"]
-    GUARD["Guard<br/>permissions · approvals · stop · audit"]
-    OPS["Operations layer"]
-    GW["Gateway 127.0.0.1 WebSocket"]
-    FS["Feishu long connection + cards"]
-    STORE[("SQLite")]
-  end
-  SUP -- start / restart --> Core
-  AD -- samples --> TWIN -- sense events --> HEART -- wake --> BRAIN
-  BRAIN --> PROV
-  BRAIN -- tool calls --> GUARD --> AD
-  BRAIN <--> MEM
-  OPS --> HEART & GUARD & MEM & PROV
-  GW & FS --> OPS
-  GW <--> APP["Windler app"]
-  MEM <-- git --> SOUL[("Soul repository")]
-  HEART & BRAIN & GUARD --> STORE
-```
+![Windler architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies](/img/architecture.en.svg)
 
 Design principles: **device-agnostic** (the core knows only the adapter interface), **one operations layer for every control entry** (app and Feishu behave identically and both audit), and **no timer-driven behaviour**.
 
@@ -81,7 +53,7 @@ where $\bar d$ is the weighted mean drive, $\gamma$ defaults to 2, $a$ is alertn
 ### Sampling: thinning a non-homogeneous Poisson process
 
 ```mermaid
-flowchart LR
+flowchart TB
   A[Compute λ from current state] --> B["Bound λ* = max(1.5λ, 0.05)"]
   B --> C["Draw candidate gap Δ ~ Exp(λ*)"]
   C --> D{Δ > 15 min?}

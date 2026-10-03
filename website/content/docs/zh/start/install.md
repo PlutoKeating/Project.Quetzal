@@ -8,14 +8,13 @@ description: 在一台闲置的安卓手机上装好 Termux 三件套与 Windler
 安装分四步：装 Termux 三件套 → 装 Windler App → 在 App 的向导里安装运行基座 → 让系统不要杀掉它。整个过程几分钟，下载几十 MB。
 
 ```mermaid
-flowchart LR
-  A["1. 装 Termux 三件套<br/>（同一来源）"] --> B["2. 装 Windler App<br/>（下载页 / GitHub Releases）"]
-  B --> C["3. 打开 Windler<br/>「在这台手机上安装」"]
-  C --> C1["授权向 Termux 发指令"]
-  C1 --> C2["在 Termux 粘贴一行<br/>开启外部调用"]
-  C2 --> C3["点「安装」<br/>自动装 Node.js、runit、放入运行基座、注册开机自启"]
-  C3 --> D["4. 保活：电池优化名单 + 自启动放行"]
-  D --> E(("ta 醒来了"))
+flowchart TB
+  A["1. 装 Termux 三件套<br/>同一来源"] --> B["2. 装 Windler App<br/>下载页 / Releases"] --> C
+  subgraph C["3. 跟着 App 向导走"]
+    direction LR
+    C1["授权向 Termux 发指令"] --> C2["在 Termux 粘贴一行<br/>开启外部调用"] --> C3["点「安装」<br/>其余自动完成"]
+  end
+  C --> D["4. 保活<br/>电池优化名单 + 自启动放行"] --> E(("ta 醒来了"))
 ```
 
 ## 1. 安装 Termux 三件套

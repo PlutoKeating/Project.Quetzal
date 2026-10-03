@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成 README 用的架构图 ../docs/assets/readme/architecture.{zh,en}.svg（1600×820）。
+"""生成架构图 architecture.{zh,en}.svg（1600×820）：写到 ../docs/assets/readme/（README 用）与 public/img/（文档站架构页用）。
 颜色取自 designSystem.ts 深色方案（手动同步）。琥珀只给心脏——那是「活着」的地方。
 用法：python3 scripts/gen-architecture-svg.py"""
 BG, PANEL, BOX, BORDER, FG, MUTED, ACCENT, SEC = "#0e0f11", "#131417", "#17181c", "#2a2b30", "#e8e4dd", "#a9a49c", "#f0a35e", "#7d8f8a"
@@ -68,6 +68,9 @@ def render(t):
     o.append('</svg>')
     return "\n".join(o)
 
+import os
+os.makedirs("public/img", exist_ok=True)
 for lang, t in L.items():
-    p = f"../docs/assets/readme/architecture.{lang}.svg"
-    open(p, "w", encoding="utf8").write(render(t)); print(p)
+    svg = render(t)
+    for p in (f"../docs/assets/readme/architecture.{lang}.svg", f"public/img/architecture.{lang}.svg"):
+        open(p, "w", encoding="utf8").write(svg); print(p)

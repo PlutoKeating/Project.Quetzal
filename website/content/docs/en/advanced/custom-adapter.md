@@ -69,7 +69,7 @@ The path can also go into the `adapter` field of `config/windler.json`.
 ## From samples to feelings
 
 ```mermaid
-flowchart LR
+flowchart TB
   S["sample()<br/>battery · temp · lux · motion · extra"] --> RAW[raw readings]
   RAW --> FEEL["body feelings<br/>energy · warmth · brightness · still / picked up"]
   RAW -- compared with last --> EV["sense events<br/>plugged · light · moved · hot · low_battery…"]

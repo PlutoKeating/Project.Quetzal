@@ -30,7 +30,7 @@ description: 四种协议、多供应商多 Key、全局调用顺序与自动故
 每次调用按**全局顺序**遍历已启用模型；同一供应商的 Key 轮换，最多试 2 把：
 
 ```mermaid
-flowchart LR
+flowchart TB
   REQ[一次请求] --> R{按全局顺序<br/>取下一个模型}
   R --> K[该供应商的 Key<br/>轮换，最多 2 把]
   K -- 成功 --> U[记录用量与费用]

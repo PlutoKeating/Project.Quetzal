@@ -8,7 +8,7 @@ description: The guard's three permission levels, approvals, budget, emergency s
 Every capability she wants to use passes through the **guard**. You manage it under **Control**; Feishu cards can do the same, and both paths behave identically and write to the audit log.
 
 ```mermaid
-flowchart LR
+flowchart TB
   T[She wants to call a tool] --> G{Guard: capability category}
   G -- allow --> X[Execute]
   G -- ask --> A[Approval sent to app and Feishu]

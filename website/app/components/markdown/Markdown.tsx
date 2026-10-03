@@ -16,6 +16,7 @@ import { cx } from "~/design-system/components";
 import { useMessages } from "~/i18n/core";
 import { CodeBlock } from "./CodeBlock";
 import { Mermaid } from "./Mermaid";
+import { ZoomImage } from "./Lightbox";
 import { mdMessages } from "./i18n";
 import { remarkAlerts, rehypeCollectHeadings, type AlertKind, type HeadingItem } from "./plugins";
 
@@ -72,7 +73,7 @@ export function Markdown({ source, className, onHeadings, linkBase }: MarkdownPr
       const to = linkBase ? linkBase(href) : href;
       return <Link to={to} {...rest}>{children}</Link>;
     },
-    img: ({ node: _n, alt, ...rest }) => <img loading="lazy" decoding="async" alt={alt ?? ""} {...rest} />,
+    img: ({ node: _n, alt, ...rest }) => <ZoomImage alt={alt} {...rest} />,
     table: ({ node: _n, children, ...rest }) => <div className="md-table-wrap my-5 overflow-x-auto"><table {...rest}>{children}</table></div>,
     blockquote: ({ node, children, ...rest }) => {
       const kind = (node?.properties as { dataAlert?: string } | undefined)?.dataAlert as AlertKind | undefined;

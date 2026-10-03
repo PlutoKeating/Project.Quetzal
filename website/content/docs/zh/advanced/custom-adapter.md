@@ -69,7 +69,7 @@ WINDLER_HOME=~/windler WINDLER_ADAPTER=$PWD/my-adapter.mjs node --enable-source-
 ## 采样如何变成感受
 
 ```mermaid
-flowchart LR
+flowchart TB
   S["sample()<br/>电量 · 体温 · 光照 · 运动 · extra"] --> RAW[原始读数]
   RAW --> FEEL["身体感受<br/>精力 · 冷热 · 明暗 · 安静/被拿起"]
   RAW -- 与上次比较 --> EV["sense 事件<br/>plugged · light · moved · hot · low_battery…"]

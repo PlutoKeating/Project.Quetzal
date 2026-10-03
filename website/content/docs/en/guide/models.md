@@ -30,7 +30,7 @@ description: Four protocols, several providers and keys, a global call order wit
 Each call walks the **global order** of enabled models; within a provider, keys rotate with at most two attempts:
 
 ```mermaid
-flowchart LR
+flowchart TB
   REQ[One request] --> R{Next model<br/>in global order}
   R --> K[Keys of that provider<br/>rotate, max 2]
   K -- success --> U[Record usage and cost]
