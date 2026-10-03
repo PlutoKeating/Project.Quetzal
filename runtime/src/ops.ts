@@ -50,7 +50,7 @@ export const ops = {
   speech: () => voice.speechStatus(),
   setSpeech: (a: Partial<voice.SpeechConfig> & { key?: string }, actor: string) => { audit(actor, "speech", "", { ...a, key: a.key ? "****" : undefined }, "ok"); return voice.setSpeech(a); },
   speechVoices: (a: { locale?: string }) => voice.listVoices(a.locale ?? ""),
-  speechTest: async (a: { text?: string }) => { const f = await voice.synthesize(a.text || "你好，这是我的声音。"); await adapter.playAudio?.(f); return { ok: true, file: f, played: !!adapter.playAudio }; },
+  speechTest: async (a: { text?: string }) => { const f = await voice.synthesize(a.text || "你好，这是我的声音。"); if (adapter.playAudio) { hearing.markSpeaking(f); await adapter.playAudio(f); } return { ok: true, file: f, played: !!adapter.playAudio }; },
 
   // 保密库（pass_secret）：只有名字、说明与大小，任何接口都不返回值。secrets.end 与对方发回结束口令等价（按钮用）
   secrets: () => listSecrets(),

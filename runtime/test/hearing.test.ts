@@ -87,8 +87,11 @@ test("识别：WAV 直接 POST，没听清与太短的不打扰她", async () =>
 
 test("她自己说话期间开始的声音直接丢弃", async () => {
   const f = await voice.synthesize("我说一句");
+  const { bus } = await import("../src/bus.ts");
+  let until = 0; bus.on("speaking", (e) => (until = e.until));
   hearing.markSpeaking(f); // 6000 字节 @48kbps ≈ 1 秒 + 0.8 秒余量
   assert.ok(hearing.isSpeaking());
+  assert.ok(until > Date.now() + 1500 && until < Date.now() + 2500, "通知 App 捂住耳朵到播完为止");
   const d = await hearing.hear(wav("薰你好"), Date.now());
   assert.deepEqual([d.ok, d.text, d.dropped], [true, "", "我自己在说话"]);
   assert.equal(store.listSessions().length, 0);

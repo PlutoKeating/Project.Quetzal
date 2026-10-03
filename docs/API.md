@@ -33,6 +33,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（太短、没听清、她自己在说话、没在听）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
+| `speaking` | `{until}`：她要播放合成语音了（`voice_speak`、试听），到 `until`（毫秒时刻）为止；App 据此捂住耳朵，免得把她自己的声音当成有人说话 |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
 `activity` 的 `kind`：

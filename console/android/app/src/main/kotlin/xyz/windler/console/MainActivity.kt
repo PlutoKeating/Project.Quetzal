@@ -35,6 +35,7 @@ class MainActivity : FlutterActivity() {
                 "start" -> { HearingService.start(this, call.argument<String>("base")!!, call.argument<String>("token")!!, call.argument<Int>("sensitivity") ?: 2); result.success(true) }
                 "stop" -> { HearingService.stop(this); result.success(true) }
                 "isRunning" -> result.success(HearingService.running)
+                "mute" -> { HearingService.muteUntil = System.currentTimeMillis() + (call.argument<Int>("ms") ?: 0); result.success(true) }
                 else -> result.notImplemented()
             }
         }

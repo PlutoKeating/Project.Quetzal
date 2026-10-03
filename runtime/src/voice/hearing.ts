@@ -24,7 +24,7 @@ let last: { ts: number; text: string; status: string; conv?: string } | undefine
 export let streamFactory: (language: string, onPartial: (t: string) => void) => StreamRecognizer = recognizeStream;
 export const setStreamFactory = (f: typeof streamFactory) => { streamFactory = f; };
 
-/** 她正在说话：播放一个合成的音频文件，按码率估算时长（没法从播放器拿到结束事件）。 */
+/** 她要说话了：播放一个合成的音频文件，按码率估算时长（没法从播放器拿到结束事件）。在开始播放之前调用，让 App 先把耳朵捂住。 */
 export function markSpeaking(file: string) {
   let ms = 3000;
   try {
@@ -33,6 +33,7 @@ export function markSpeaking(file: string) {
     ms = Math.round((bytes * 8) / (kbps * 1000) * 1000);
   } catch {}
   speakingUntil = Math.max(speakingUntil, Date.now() + ms + 800);
+  bus.emit("speaking", { until: speakingUntil });
 }
 export const isSpeaking = () => Date.now() < speakingUntil;
 
@@ -119,6 +120,18 @@ const WAV_HEADER = (pcmBytes: number) => {
   return h;
 };
 
+/** 一次识别的兜底：短语音 REST 最长 60 秒，更长的按 50 秒分段识别后拼起来。 */
+async function recognizeLong(pcm: Buffer, language: string): Promise<{ text: string; status: string }> {
+  const SEG = 16000 * 2 * 50;
+  const parts: string[] = []; let status = "NoMatch";
+  for (let i = 0; i < pcm.length; i += SEG) {
+    const seg = pcm.subarray(i, Math.min(pcm.length, i + SEG));
+    const r = await recognize(Buffer.concat([WAV_HEADER(seg.length), seg]), language);
+    if (r.text) { parts.push(r.text); status = "Success"; } else if (status !== "Success") status = r.status;
+  }
+  return { text: parts.join(""), status };
+}
+
 /**
  * 边说边识别：chunks 为分块到达的 PCM（16 kHz 单声道 16 位，无 WAV 头）。中间结果随到随推（hearing: partial），
  * 收完后给最终结果；流式识别失败或没结果时，用已收到的全部音频走一次 REST 识别兜底。
@@ -136,7 +149,7 @@ export async function hearStream(chunks: AsyncIterable<Buffer>, startedAt: numbe
   if (pcm.length < 16000 * 2 * 0.3) { emit({ id, status: "dropped", text: "", reason: "太短" }); return { ok: true, id, text: "", dropped: "太短" }; }
   let r: { text: string; status: string } | undefined;
   if (rec) { try { r = await rec.end(); } catch (e: any) { log("hearing", `流式识别失败，改用一次识别：${e.message}`); } }
-  if (!r || (!r.text && r.status !== "NoMatch")) r = await recognize(Buffer.concat([WAV_HEADER(pcm.length), pcm]), language);
+  if (!r || (!r.text && r.status !== "NoMatch")) r = await recognizeLong(pcm, language);
   return deliver(id, r, wait);
 }
 

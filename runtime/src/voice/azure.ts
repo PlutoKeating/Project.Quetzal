@@ -103,26 +103,34 @@ function sdkConfig(c: SpeechConfig, key: string, language: string): sdk.SpeechCo
 }
 
 /**
- * 流式识别一句话（官方 SDK，WebSocket 推流）：边 push 16 kHz 单声道 16 位 PCM 边拿到中间结果（onPartial），end 后给最终结果。
- * 一句话一个会话（recognizeOnceAsync）：App 的耳朵已经按静音切好了句子，这里不做连续识别。
+ * 流式识别一段话（官方 SDK，WebSocket 推流，连续识别）：边 push 16 kHz 单声道 16 位 PCM 边拿到中间结果（onPartial，带上前面已定稿的各段），
+ * end 后等服务把剩余音频识别完（EndOfStream），把各段拼成最终结果。用连续识别而不是单句识别：一段话里有停顿、说得长也不会被截断。
  */
 export function recognizeStream(language: string, onPartial: (text: string) => void): StreamRecognizer {
   const c = config.speech, key = need(c);
   if (!c.region && !c.endpoint) throw new Error("还没有配置 Azure 语音的区域（region）或端点");
   const push = sdk.AudioInputStream.createPushStream(sdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1));
   const rec = new sdk.SpeechRecognizer(sdkConfig(c, key, language), sdk.AudioConfig.fromStreamInput(push));
-  rec.recognizing = (_, e) => { if (e.result.text) onPartial(e.result.text); };
-  const done = new Promise<{ text: string; status: string }>((resolve, reject) => {
-    rec.recognizeOnceAsync((r) => {
-      rec.close();
-      if (r.reason === sdk.ResultReason.RecognizedSpeech) resolve({ text: r.text.trim(), status: "Success" });
-      else if (r.reason === sdk.ResultReason.NoMatch) resolve({ text: "", status: "NoMatch" });
-      else reject(new Error(`Azure 流式识别失败：${sdk.CancellationDetails.fromResult(r).errorDetails || r.reason}`));
-    }, (err) => { rec.close(); reject(new Error(`Azure 流式识别失败：${err}`)); });
-  });
+  const finals: string[] = [];
+  let error: string | undefined, settled = false;
+  let resolve!: (v: { text: string; status: string }) => void, reject!: (e: Error) => void;
+  const done = new Promise<{ text: string; status: string }>((res, rej) => { resolve = res; reject = rej; });
+  const finish = () => {
+    if (settled) return; settled = true;
+    rec.stopContinuousRecognitionAsync(() => rec.close(), () => rec.close());
+    const text = finals.join("").trim();
+    if (text) resolve({ text, status: "Success" });
+    else if (error) reject(new Error(`Azure 流式识别失败：${error}`));
+    else resolve({ text: "", status: "NoMatch" });
+  };
+  rec.recognizing = (_, e) => { if (e.result.text) onPartial(finals.join("") + e.result.text); };
+  rec.recognized = (_, e) => { if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text) finals.push(e.result.text.trim()); };
+  rec.canceled = (_, e) => { if (e.reason === sdk.CancellationReason.Error) error = e.errorDetails || String(e.errorCode); finish(); }; // EndOfStream：音频送完并识别完
+  rec.sessionStopped = () => finish();
+  rec.startContinuousRecognitionAsync(undefined, (err) => { error = String(err); finish(); });
   return {
     push: (pcm) => push.write(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) as ArrayBuffer),
-    end: () => { push.close(); return done; },
+    end: () => { push.close(); setTimeout(finish, 15_000).unref(); return done; }, // 15 秒内服务没说结束就用已有的结果
   };
 }
 
