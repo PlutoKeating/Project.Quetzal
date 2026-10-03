@@ -19,16 +19,16 @@ export const HTML_LANG: Record<Lang, string> = { zh: "zh-CN", en: "en" };
 
 export const isLang = (v: unknown): v is Lang => typeof v === "string" && (LANGS as readonly string[]).includes(v);
 
-/** 让两种语言拥有完全相同的键结构；值可以是字符串、嵌套对象或它们的数组。 */
-export type MessageValue = string | MessageTree | readonly MessageValue[];
+/** 让两种语言拥有完全相同的键结构：形状由 zh 推断，en 必须与之一致（NoInfer）。值可以是字符串、数字、嵌套对象或它们的数组。 */
+export type MessageValue = string | number | MessageTree | readonly MessageValue[];
 export type MessageTree = { [key: string]: MessageValue };
-export function defineMessages<T extends MessageTree>(m: { zh: T; en: T }): Record<Lang, T> {
+export function defineMessages<T extends object>(m: { zh: T; en: NoInfer<T> }): Record<Lang, T> {
   return m;
 }
 
 export const LangContext = createContext<Lang>(DEFAULT_LANG);
 export const useLang = (): Lang => useContext(LangContext);
-export function useMessages<T extends MessageTree>(messages: Record<Lang, T>): T {
+export function useMessages<T extends object>(messages: Record<Lang, T>): T {
   return messages[useLang()];
 }
 

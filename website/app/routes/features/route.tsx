@@ -1,7 +1,9 @@
 import type { Route } from "./+types/route";
+import { Link } from "react-router";
 import { useMessages, isLang, DEFAULT_LANG, localized, useLang } from "~/i18n/core";
-import { ButtonLink, Container, Eyebrow, Heading, Lead, Reveal, Section } from "~/design-system/components";
+import { ButtonLink, Container, Eyebrow, Heading, Lead, Reveal, Section, cx } from "~/design-system/components";
 import { messages } from "./i18n";
+import { BodySenses, ClockRing, ControlPanel, PhoneSteps, SecretVault, SoulGit, WakeTimeline } from "./illustrations";
 
 export const meta: Route.MetaFunction = ({ params }) => {
   const m = messages[isLang(params.lang) ? params.lang : DEFAULT_LANG];
@@ -11,6 +13,19 @@ export const meta: Route.MetaFunction = ({ params }) => {
 export default function Features() {
   const t = useMessages(messages);
   const lang = useLang();
+  type Story = (typeof t.stories)[number];
+  const art = (s: Story) => {
+    switch (s.id) {
+      case "waking": return <WakeTimeline t={s.art as never} />;
+      case "clock": return <ClockRing t={s.art as never} />;
+      case "body": return <BodySenses t={s.art as never} />;
+      case "soul": return <SoulGit t={s.art as never} />;
+      case "secret": return <SecretVault t={s.art as never} />;
+      case "control": return <ControlPanel t={s.art as never} />;
+      default: return <PhoneSteps t={s.art as never} />;
+    }
+  };
+
   return (
     <>
       <Section tight className="border-b border-border">
@@ -20,39 +35,40 @@ export default function Features() {
           <Lead>{t.lead}</Lead>
         </Container>
       </Section>
+
+      {t.stories.map((s, i) => (
+        <Section key={s.id} tone={i % 2 ? "elevated" : "plain"} className="scroll-mt-(--ds-header-height)" id={s.id}>
+          <Container className={cx("grid items-center gap-10 lg:gap-16", i % 2 ? "lg:grid-cols-[1.1fr_1fr]" : "lg:grid-cols-[1fr_1.1fr]")}> {/* ds-allow：栅格比例 */}
+            <Reveal className={cx("flex flex-col gap-5", i % 2 ? "lg:order-2" : "")}>
+              <Eyebrow>{s.eyebrow}</Eyebrow>
+              <Heading as="h2" size="lg">{s.heading}</Heading>
+              <Lead>{s.lead}</Lead>
+              <ul className="flex flex-col gap-2 text-fg-muted">
+                {s.points.map((p) => (
+                  <li key={p} className="grid grid-cols-[0.75rem_1fr] gap-2"><span aria-hidden className="mt-2.5 inline-block size-1.5 rounded-full bg-secondary" /><span>{p}</span></li>
+                ))}
+              </ul>
+              <Link to={localized(lang, s.link)} className="text-sm text-link underline-offset-4 hover:underline">{t.learnMore} →</Link>
+            </Reveal>
+            <Reveal delay={1} className={i % 2 ? "lg:order-1" : ""}>{art(s)}</Reveal>
+          </Container>
+        </Section>
+      ))}
+
       <Section>
-        <Container className="grid gap-12 lg:grid-cols-[14rem_1fr]">
-          <nav aria-label={t.toc} className="hidden lg:block">
-            <div className="sticky top-[calc(var(--ds-header-height)+1.5rem)] flex flex-col gap-1 text-sm"> {/* ds-allow：偏移只引用变量 */}
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-subtle">{t.toc}</p>
-              {t.features.map((f, i) => (
-                <a key={f.id} href={`#${f.id}`} className="rounded-md px-2 py-1 text-fg-muted transition-colors duration-(--ds-duration-fast) hover:bg-surface-hover hover:text-fg">
-                  <span className="mr-2 font-mono text-xs text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>{f.name}
-                </a>
-              ))}
-            </div>
-          </nav>
-          <div className="flex flex-col divide-y divide-border">
-            {t.features.map((f, i) => (
-              <Reveal key={f.id} as="article" className="scroll-mt-(--ds-header-height) grid gap-4 py-10 first:pt-0 md:grid-cols-[4rem_1fr] short:py-6">
-                <span className="font-mono text-2xl text-secondary-fg">{String(i + 1).padStart(2, "0")}</span>
-                <div className="flex flex-col gap-4" id={f.id}>
-                  <Heading as="h2" size="md">{f.name}</Heading>
-                  <p className="max-w-prose text-lg text-fg-muted text-pretty">{f.summary}</p>
-                  {f.code && <pre className="overflow-x-auto rounded-lg border border-border bg-code-bg px-4 py-3 font-mono text-sm text-code-fg">{f.code}</pre>}
-                  {f.details.length > 0 && (
-                    <ul className="flex max-w-prose flex-col gap-2 text-sm text-fg-muted">
-                      {f.details.map((d) => (
-                        <li key={d} className="grid grid-cols-[0.75rem_1fr] gap-2"><span aria-hidden className="mt-2 inline-block size-1.5 rounded-full bg-secondary" /><span>{d}</span></li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+        <Container className="flex flex-col gap-8">
+          <Heading size="md">{t.more.heading}</Heading>
+          <ul className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
+            {t.more.items.map((it, i) => (
+              <Reveal key={it.name} as="li" delay={(i % 3) as 0 | 1 | 2} className="flex flex-col gap-1.5 border-t border-border pt-4">
+                <p className="font-medium text-fg">{it.name}</p>
+                <p className="text-sm text-fg-muted">{it.text}</p>
               </Reveal>
             ))}
-          </div>
+          </ul>
         </Container>
       </Section>
+
       <Section tone="elevated" tight>
         <Container className="flex flex-wrap gap-3">
           <ButtonLink variant="accent" to={localized(lang, "/download")}>{t.cta.download}</ButtonLink>
