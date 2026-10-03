@@ -8,6 +8,8 @@
 
 一个让 agent **像生命一样活着**的通用运行基座。
 
+### [官网 · 文档 · 下载 → windler.plutokeating.beer](https://windler.plutokeating.beer)
+
 [![Release](https://img.shields.io/github/v/release/PlutoKeating/Project.Windler?label=release)](https://github.com/PlutoKeating/Project.Windler/releases)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-5c7a6b)](runtime/package.json)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-7d8f8a)](LICENSE)
