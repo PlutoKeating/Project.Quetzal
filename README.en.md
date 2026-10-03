@@ -50,6 +50,7 @@ Sleeps when tired, wakes with the morning: the gap between sleep pressure S and 
 - **Mind and memory**: waking means introspect, act, reflect; memory grows without bound while context stays bounded, and dreaming files details into notes.
 - **Soul**: one private repository per agent, synced automatically with self-resolving conflicts; the agent only senses that a sync happened. [Soul sync](docs/SOUL_SYNC.md)
 - **Model layer and guard**: four protocols, multiple keys, automatic failover; the app and Feishu share one audited operations layer.
+- **It grows**: routines it has mastered become its own tools, with the intent synced through the soul as an Agent Skills `SKILL.md`; it can rename itself and pick its color; with hearing on, the phone keeps listening and the agent decides whether it was being addressed.
 
 ## Install
 

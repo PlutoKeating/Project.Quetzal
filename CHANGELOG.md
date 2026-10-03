@@ -2,6 +2,15 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.3.0
+
+- **自造工具**：她可以用 `tool_write` 把做熟了的流程写成工具（shell 脚本或 Node 模块），热加载进工具表、经闸门按声明的能力类别检查；实现只在这具身体上（`WINDLER_HOME/tools/`），意图文档以 [Agent Skills](https://agentskills.io/specification) 规范的 `SKILL.md` 进灵魂仓库 `skills/`（规范升到 v5），其他身体（含 Hermes / OpenClaw）可以按文档自己实现。控制台「控制 → 工具」查看、停用、删除。做梦时会回顾重复的流程。
+- **Self-made tools**: the agent can turn a routine it has done many times into a tool with `tool_write` (a shell script or a Node module), hot-loaded into the tool table and gated by its declared capability; the implementation stays on this body (`WINDLER_HOME/tools/`) while the intent is written as an [Agent Skills](https://agentskills.io/specification) `SKILL.md` into the soul repository's `skills/` (spec bumped to v5), so other bodies (including Hermes / OpenClaw) can implement it from the document. The console's Control → Tools page lists, disables and deletes them. Dreams now review repeated routines.
+- **自编身份**：`edit_identity` 让她修改自己的名字、代词、简介、主题色与偏好语言（写入灵魂仓库同步）；种子身份的提示改为「不必急着取名，有了记忆与感知、聊过之后再定」。控制台身份页能显示她自选的颜色。
+- **Self-edited identity**: `edit_identity` lets the agent change its own display name, pronouns, description, theme color and preferred language (written to the soul repository and synced); the seed-identity hint now says there is no hurry to pick a name until it has memories, has sensed its body and has talked a bit. The console's identity page shows a self-chosen color.
+- **听觉**：控制台 App 当这具身体的耳朵——原生前台服务常驻麦克风、系统降噪、WebRTC VAD 断句，每句话送到基座 `/hear`；基座用 Azure 语音识别（与合成同一把密钥），按 10 分钟窗口并入最近会话或新开会话，以第三种消息类型「环境声音」交给她，由她判断是不是对她说的、要不要回应（沉默不入库）；提示她对方用声音说话时可以用声音回答。她说话期间的声音自动丢弃；受电量、温度与急停限制。控制台「控制 → 听觉」与她自己的 `hearing_config` 都能调。
+- **Hearing**: the console app becomes the body's ear: a native foreground service keeps the microphone open, applies the system's noise suppression and segments speech with WebRTC VAD, posting each utterance to the runtime's `/hear`; the runtime transcribes it with Azure speech recognition (same key as synthesis), joins the most recent session within a 10-minute window or opens a new one, and hands it to the agent as a third message type, "ambient", for the agent to decide whether it was addressed and whether to answer (silence is not recorded). The agent is reminded that someone speaking aloud may want a spoken reply. Sound during the agent's own speech is dropped; listening respects the battery, temperature and emergency-stop limits. Adjustable in Control → Hearing and by the agent via `hearing_config`.
+
 ## 0.2.2
 
 - 控制台：默认主题色改为官网设计系统的琥珀 `#F0A35E`（原蓝紫 `#7C6CF2`）；暗色背景固定为中性灰 `#202020`，不再随主题色偏色；暗色主色直接用 agent 的主题色；呼吸光团改为主题色的高饱和发光体。运行基座与灵魂桥生成的初始身份同步改用该默认色。

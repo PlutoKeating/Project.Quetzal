@@ -1,10 +1,11 @@
-# 灵魂仓库规范（Soul Repository Specification）v4
+# 灵魂仓库规范（Soul Repository Specification）v5
 
 本规范定义用于灵魂同步的 git 仓库：它的目录树、固定内容、文件格式、提交约定与认证方式。它是 agent 自己的**私有**仓库，对内容不设任何检查。凡是读写灵魂仓库的实现（运行基座 `runtime/src/memory/soul-repo.ts`、灵魂桥 `bridge/`，以及将来的其他实现）都**必须**遵守。文中「必须 / 不得 / 应当 / 可以」对应 MUST / MUST NOT / SHOULD / MAY。
 
 实现会强制执行其中可以机器检查的部分：远端地址与私钥检查、固定内容补齐。
 
 版本历史：
+- **v5**：§2 新增可选目录 `skills/`（§3.12）：agent 沉淀的技能文档，采用 [Agent Skills](https://agentskills.io/specification) 开放标准的 `SKILL.md`，Hermes Agent 与 OpenClaw 可直接读取；只放意图说明，不放实现代码。v4 仓库无需迁移即符合 v5。
 - **v4**：§6 取消全部内容检查；§1 允许顶层出现规范外的条目。灵魂仓库按设计只能是私有仓库（§7 只允许部署私钥访问），记忆里出现 IP、电话、密钥都是她自己的事，实现**不得**因内容拒绝提交；此前的检查曾两次把她的记忆挡在本地数天（版本号被当成 IP）。v3 仓库无需迁移即符合 v4。
 - v3：§6 明确 IP 地址只指能定位设备或个人的地址：版本号、回环与保留段、公共 DNS 服务器不算；检查结果带行号。v2 仓库无需迁移即符合 v3。
 - v2：常驻记忆取消字符上限，由实现在放进上下文时按预算展开；笔记改为最多 4 层的目录树，可以写一句话摘要。v1 仓库无需迁移即符合 v2，实现接入时把 `.soul-spec.json` 更新为 v2。
@@ -37,6 +38,9 @@
 │   └── [<分类>/…/]<主题>.md     最多 4 层
 ├── bodies/                    必需  身体登记（含 .gitkeep）
 │   └── <body>.json
+├── skills/                    可选  技能文档（Agent Skills 规范），每个技能一个目录
+│   └── <skill-name>/
+│       └── SKILL.md
 └── locks/                     可选  协调锁（按需创建）
     └── consolidation.json
 ```
@@ -140,6 +144,29 @@
 
 - `body` 与文件名相同，只能用 `[a-z0-9-]`。每具身体只写自己的文件，每次推送时更新 `lastSeen`。
 - **不得**写入 IP 地址、MAC 地址、序列号等可以定位设备或个人的标识。
+
+### 3.12 `skills/<skill-name>/SKILL.md`（技能文档）
+
+agent 把做过多次、步骤稳定的流程沉淀为技能：**只同步意图**（用途、参数、实现思路、依赖、验证方法、坑），**不同步实现代码**——每具身体按文档在本地自己实现（运行基座：`WINDLER_HOME/tools/<名>/`；Hermes / OpenClaw：各自的 skills 目录）。格式遵循 Agent Skills 开放标准：
+
+```markdown
+---
+name: web-search
+description: 搜索网页并返回标题、链接与摘要。查资料、核实事实时用。
+compatibility: 需要命令 curl
+metadata:
+  windler-tool: web_search
+  windler-requires: curl
+---
+
+## 用途
+……
+```
+
+- 目录名与 `name` 相同：`^[a-z0-9]+(-[a-z0-9]+)*$`，最长 64 字符（运行基座把工具名里的 `_` 换成 `-` 得到它）。
+- `name`、`description` 必需；`compatibility`、`license`、`metadata`（字符串映射）可选。运行基座写入 `metadata.windler-tool`（对应的工具名）与 `metadata.windler-requires`（依赖的命令，逗号分隔），其他实现可以忽略。
+- 正文自由 Markdown；可以有 `references/` 等子目录（规范建议），但**不得**放可执行实现（实现是身体的，不是灵魂的）。
+- 合并规则：采用提交时间较新的一方，落选版本保留在历史中。
 
 ### 3.11 `locks/consolidation.json`（整理租约）
 

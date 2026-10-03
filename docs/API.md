@@ -13,6 +13,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌，供点火器探活 |
 | POST | `/pair/start` | 生成 6 位配对码（5 分钟有效），通过适配器的系统通知与飞书下发 |
 | POST | `/pair/finish` | `{code}` → `{ok, token}`；错误码 403（不正确）、410（失效或尝试超过 5 次） |
+| POST | `/hear?started=<毫秒时刻>&token=<令牌>` | 听觉：请求体为一句话的 16 kHz 单声道 16 位 WAV（控制台 App 的耳朵切好的，最多 4 MiB）→ `{ok, text, conv?, dropped?}`；`started` 为这句话开始的时刻，用于判断是不是她自己在说话（丢弃）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
 | POST | `/upload?name=<文件名>&token=<令牌>` | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `WINDLER_HOME/data/uploads/<日期>/` |
 | GET | `/uploads/<rel>?token=<令牌>` | 下载附件（控制台预览图片）；只能访问 uploads 目录内的文件 |
 
@@ -37,7 +38,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | kind | 字段 | 含义 |
 |---|---|---|
-| `start` / `queued` | `text?`, `msg?` | 这一轮开始（`msg` 为这句话在对话记录里的 id）/ 排在同一会话前一轮之后 |
+| `start` / `queued` | `text?`, `msg?`, `ambient?` | 这一轮开始（`msg` 为这句话在对话记录里的 id；`ambient` 为真表示由环境声音触发）/ 排在同一会话前一轮之后 |
 | `steer` | `text, msg, mode: steer｜interrupt` | 她工作时对方发来的消息已并入这一轮（进行中的卡片挂到这句话下面） |
 | `step` | `step` | 第几次模型调用开始 |
 | `delta` | `text` | 流式文字片段（约每 200ms 合并一次） |
@@ -57,7 +58,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | 方法 | 参数 | 返回 |
 |---|---|---|
 | `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought}`；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
-| `timeline` | `{limit?, before?, kind?}` | 时间线（倒序）。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数与结果（结果最多 1500 字） |
+| `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数与结果（结果最多 1500 字） |
 | `messages` | `{limit?}` | 全部会话里最近的对话（正序） |
 | `audit` | `{limit?}` | 审计记录 |
 
@@ -71,7 +72,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `sessions` | `{archived?}` | 会话列表 `[{id, title, channel, created, updated, archived, count, last}]`（按最近更新） |
 | `sessions.create` | `{title?}` | 新建会话（首条消息自动成为标题） |
 | `sessions.rename` / `sessions.archive` | `{id, title}` / `{id, archived}` | 重命名 / 归档与找回（有新消息的会话自动回到列表） |
-| `sessions.messages` | `{id, limit?, before?}` | 某个会话的对话 `[{id, ts, role, channel, text, session, process, attachments, mode}]`；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
+| `sessions.messages` | `{id, limit?, before?}` | 某个会话的对话 `[{id, ts, role, channel, text, session, process, attachments, mode}]`；`role` 为 `user`（对方）、`agent`（她）或 `ambient`（环境声音：麦克风听到并识别的话，通道 `语音`，不是对方发的消息）；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
 | `sessions.live` | — | 进行中的轮次快照 `[{turn, conv, origin, text, msg, status, step, live, items}]` |
 | `poke` | `{note?}` | 戳一下：推高想念与好奇并立即重新抽样，不强制醒来 |
 
@@ -93,6 +94,22 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `speech` / `setSpeech` | — / `{region?, endpoint?, key?, voice?, style?, rate?, pitch?, volume?, format?}` | 查看 / 修改配置；密钥只返回末四位，留空不改 |
 | `speechVoices` | `{locale?}` | 可选音色（含支持的风格） |
 | `speechTest` | `{text?}` | 用当前配置合成并播放一句 |
+
+**听觉（耳朵在控制台 App，识别在基座）**
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `hearing` / `setHearing` | — / `{enabled?, windowMin?, sensitivity?, language?, minChars?}` | 查看 / 修改：`{…配置, listening, reasons[], speaking, last}`。`listening` 为 App 该不该开麦克风（开关、未急停、Azure 语音已配置、电量与温度在预算限制内），`reasons` 为没在听的原因，`speaking` 为她此刻在说话，`last` 为最近一次识别 |
+| `status` 的 `hearing` 字段 | — | 同 `hearing`，随 `state` 推送；App 据此启停本机的麦克风前台服务 |
+
+**自造工具（她用 `tool_write` 造的，这里只看、启停与删除）**
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `tools` | — | `{tools: [{name, description, parameters, permission, runtime, timeout, requires, enabled, updatedAt, missing[], hasSkill, skillSummary}], skills: [{name, description, implemented}]}`；`skills` 为灵魂仓库里的全部技能文档（含其他身体写的） |
+| `tools.read` | `{name}` | `{manifest, source, skill}`；只有技能文档没有本机实现时 `manifest` 为 `null` |
+| `tools.toggle` | `{name, enabled}` | 停用 / 启用（写入她的日记） |
+| `tools.delete` | `{name, skill?}` | 删除实现；`skill` 为真时连技能文档一起删（灵魂仓库历史可找回） |
 
 **调节与安全**
 
@@ -118,7 +135,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `journalList` / `journal` | — / `{body, day}` |
 | `notes` / `note` / `search` | — → `[{name, title, summary, mtime, size}]`（`name` 为目录树中的相对路径，如 `身体/honor9/硬件`）/ `{name}` / `{query}`（按相关度检索笔记、日记与常驻记忆） |
 | `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | 灵魂仓库地址（只接受 SSH 地址，见规范 §7）、本机部署公钥、立即同步 |
-| `agent` / `setAgent` | — / `{displayName?, name?, pronouns?, description?, color?, language?}`（写入 agent.json 并同步） |
+| `agent` / `setAgent` | — / `{displayName?, name?, pronouns?, description?, color?, language?}`（写入 agent.json 并同步；她自己改用工具 `edit_identity`，留时间线 `identity`） |
 | `bodies` | — → 灵魂仓库中登记的身体 |
 | `soulHistory` / `soulShow` / `soulRevert` | `{limit?}` / `{hash}` / `{hash}`：记忆历史、查看差异、撤销（生成反向提交） |
 
@@ -198,4 +215,5 @@ Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`term
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
 | `gateway.port` | 7788 | 网关端口 |
+| `hearing.enabled` / `windowMin` / `sensitivity` / `language` / `minChars` | false / 10 / 2 / ""（取她的偏好语言）/ 2 | 听觉：开关；最近会话多少分钟内有更新就并入（0 为每句新开）；灵敏度 1 迟钝 / 2 适中 / 3 灵敏（App 的 VAD 模式）；识别语言；短于此字数当没听清 |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |

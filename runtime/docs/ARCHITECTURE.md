@@ -7,10 +7,12 @@ src/
 ├── main.ts               装配各模块；熔断（安全模式）
 ├── config.ts             家目录布局、配置读写、密钥文件
 ├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret）
-├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式）、audit、usage
+├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式；role 为 user / agent / ambient）、audit、usage
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时、输出上限）；后台任务（可随时停止整个进程组）
-├── voice/azure.ts        语音：Azure 文本转语音（SSML、合成、音色列表、配置与密钥）
+├── voice/
+│   ├── azure.ts          语音：Azure 文本转语音（SSML、合成、音色列表、配置与密钥）与语音识别（短语音 REST，端点由区域或 TTS 端点推导）
+│   └── hearing.ts        听觉：/hear 送来的一句话 → 识别 → 挑会话（windowMin 窗口）→ 以环境声音交给 brain.converse；她自己说话期间丢弃；听觉状态（开关、急停、电量、温度）
 ├── crypto.ts             供应商 Key 的 AES-256-GCM 加密
 ├── version.ts            版本号
 ├── ops.ts                统一操作层：网关与飞书共用，修改类操作全部审计
@@ -23,7 +25,8 @@ src/
 │   └── heart.ts          状态机与稀疏化抽样调度；抑制；有界的性格修改
 ├── mind/
 │   ├── prompt.ts         系统提示组装
-│   ├── tools.ts          内置工具（含 recent_actions 查审计、view_image 同一轮不重复发图）+ 适配器工具 + 预留 hands 工具；经闸门调用
+│   ├── tools.ts          内置工具（含 recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用
+│   ├── custom-tools.ts   自造工具：WINDLER_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（stdin JSON + ARG_ 环境变量 / ES 模块）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
 │   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick），供附件与 view_image 使用
 │   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
@@ -31,7 +34,7 @@ src/
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，识别验证码页，按关键词覆盖率判断相关性并换引擎
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
 │   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（WINDLER_HOME/vault）、工具输出里的保密值替换
-│   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话；会话历史带时间与每轮的过程记录（describeProcess）
+│   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话（含环境声音：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess）
 ├── memory/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头
 │   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块

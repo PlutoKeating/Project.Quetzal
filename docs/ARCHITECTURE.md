@@ -167,7 +167,7 @@ sequenceDiagram
 
 系统提示按顺序组装（`mind/prompt.ts`）：人格 SOUL.md → 处境（多身体、无日程、当前时间、「我做过什么」的边界说明）→ 常驻记忆 MEMORY / USER → 记忆目录 → 自动检索到的相关记忆 → 想分享的一句话 → 身体 → 内在状态与未完成的念头 → 灵魂同步知觉 → 最近日记（含其他身体）→ 其他会话的近况。
 
-内置工具（`mind/tools.ts`）：`memory`（与 Hermes 语义一致）、`note_save` / `note_read` / `note_list` / `note_move` / `note_delete`（笔记目录树）、`recall`（检索全部记忆）、`open_loop`、`recent_actions`（查审计：最近真实做过的工具调用的时间、参数与结果，用来核实自己「做没做过」）、`web_search`（依次尝试 360 搜索、百度 / 必应，识别验证码页，结果不相关时换引擎）/ `web_fetch`、`view_image`（看图：把本地图片——自己拍的照片、下载的图、之前对话里的附件——放进下一次模型调用，自动选用能看图的模型；这一轮已经在上下文里的图片不重复发送）、`read_document`（读取 Word / PPT / Excel / PDF / ODF / EPUB / HTML 等文档，分页）、`shell`（前台等待或 `background` 后台运行；输出为空而命令丢弃了 stderr 时提醒"可能是报错被吞了"）与 `shell_jobs`（查看后台任务输出、随时停止）、`processes`（直接读 `/proc` 列进程，不依赖 ps——有的沙箱里 ps 看不到进程；标出她自己、父进程与她的后台任务）、`voice_speak`（用自己的声音说话：Azure 语音合成，由身体播放）与 `voice_config`（自己选音色、风格，配置区域与密钥）、`pass_secret`（向对方索取密码、令牌、密钥时用：对方在对话里保密输入，她只拿到文件路径，见 §5.1）、`send_message`（对话中调用时只出现在当前对话里；自己醒来思考时才作为主动消息发出，带「主动消息」标识）、`share_thought`（更新「想分享的一句话」，持续显示在控制台首页与飞书「此刻」卡片；醒来结束的 finish 也可顺带更新）、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
+内置工具（`mind/tools.ts`）：`memory`（与 Hermes 语义一致）、`note_save` / `note_read` / `note_list` / `note_move` / `note_delete`（笔记目录树）、`recall`（检索全部记忆）、`open_loop`、`recent_actions`（查审计：最近真实做过的工具调用的时间、参数与结果，用来核实自己「做没做过」）、`web_search`（依次尝试 360 搜索、百度 / 必应，识别验证码页，结果不相关时换引擎）/ `web_fetch`、`view_image`（看图：把本地图片——自己拍的照片、下载的图、之前对话里的附件——放进下一次模型调用，自动选用能看图的模型；这一轮已经在上下文里的图片不重复发送）、`read_document`（读取 Word / PPT / Excel / PDF / ODF / EPUB / HTML 等文档，分页）、`shell`（前台等待或 `background` 后台运行；输出为空而命令丢弃了 stderr 时提醒"可能是报错被吞了"）与 `shell_jobs`（查看后台任务输出、随时停止）、`processes`（直接读 `/proc` 列进程，不依赖 ps——有的沙箱里 ps 看不到进程；标出她自己、父进程与她的后台任务）、`voice_speak`（用自己的声音说话：Azure 语音合成，由身体播放）与 `voice_config`（自己选音色、风格，配置区域与密钥）、`pass_secret`（向对方索取密码、令牌、密钥时用：对方在对话里保密输入，她只拿到文件路径，见 §5.1）、`send_message`（对话中调用时只出现在当前对话里；自己醒来思考时才作为主动消息发出，带「主动消息」标识）、`share_thought`（更新「想分享的一句话」，持续显示在控制台首页与飞书「此刻」卡片；醒来结束的 finish 也可顺带更新）、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`、`edit_identity`（修改自己的身份资料：名字、代词、简介、主题色、偏好语言，写入灵魂仓库同步到所有身体）、`tool_write` / `tool_read` / `tool_delete`（自造工具，见 §5.2）、`hearing_config`（听觉开关与参数，见 §5.3）；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
 
 对话（`converse`）与醒来共用工具循环，但不需要 finish；有人说话会把她从睡眠中叫醒，聊完后想念与表达欲回落。
 
@@ -237,6 +237,21 @@ sequenceDiagram
 - **使用**：她在命令里按路径引用（`"$(cat 路径)"`、`< 路径`），不输出内容。
 - **兜底**：所有工具的输出在交给模型、写入审计之前经过 `redactSecrets`，出现的保密值（4 个字符以上；多行的值还按行）替换为 `‹secret:名字›`。这防的是无意泄露（`cat`、`env`、调试输出），挡不住刻意变换编码；她与基座是同一个系统用户，保密库对她的 shell 是可读的——"看不到明文"由协议、工具约定与输出替换共同保证，而不是操作系统级的隔离。
 - **只能在对话中调用**：自己醒来时没有在场的对方，工具会提示先约对方。
+
+### 5.2 自造工具：做熟了的流程沉淀为工具，意图随灵魂走
+
+她可以把做过多次、步骤稳定、以后还会用的流程写成工具（`tool_write`），之后像内置工具一样直接调用：出现在工具表里、经闸门按声明的能力类别检查、写入审计。做梦任务里有一条提醒：回顾最近的工具调用，反复出现的 shell 流程可以沉淀。
+
+- **实现只在这具身体上**：`WINDLER_HOME/tools/<名>/tool.json`（名字、描述、参数 JSON Schema、能力类别、超时、依赖的命令、启用）+ `tool.sh`（参数以 JSON 从 stdin 传入，并展开为环境变量 `ARG_<名>`，stdout 即结果）或 `tool.mjs`（ES 模块，默认导出 `async (args, {dir, home}) => string`）。写入时校验名字、保留名、schema、语法（`sh -n` / `node --check`）、大小（1 MiB）；每次组装工具表时热加载，不用重启；声明的 `requires` 里有命令不存在时不挂载，只在系统提示里说明。
+- **意图随灵魂同步**：灵魂仓库 `skills/<名>/SKILL.md`，采用 [Agent Skills](https://agentskills.io/specification) 开放标准（规范 §3.12），Hermes / OpenClaw 直接能读。其他身体读到技能文档却没有本地实现时，系统提示会列出来，她可以按文档用 `tool_write` 在那具身体上实现。新工具必须同时写技能文档，改写可以不写。
+- **闸门**：新建、改写、删除归 `self_modify`；调用按工具自己声明的类别（只能是闸门已知的类别，缺省 `shell`）。控制台「控制 → 工具」只看、停用 / 启用与删除（可选连技能文档一起删），不在手机上编辑代码。
+- 任何参数（描述、schema、类别、超时、依赖）她都可以在认为需要时改。
+
+### 5.3 听觉：耳朵在控制台 App，判断在她
+
+控制台 App 当这具身体的耳朵（第一次让 App 承担身体的一部分；原因见 [console 文档](../console/docs/ARCHITECTURE.md)）：原生前台服务常驻麦克风（Android 9 起后台拿不到麦克风），`VOICE_RECOGNITION` 音源走系统降噪链再挂 `NoiseSuppressor` / `AutomaticGainControl`，WebRTC VAD（android-vad，MIT）逐 20ms 帧断句（前置 300ms、最短 0.4 秒、最长 30 秒），每句话拼成 16 kHz WAV 直接 POST 到本机网关 `/hear`。
+
+基座这边（`voice/hearing.ts`）：Azure 语音识别（短语音 REST，与语音合成同一把密钥，区域或端点自动推导）→ 太短或没听清的不打扰她 → 挑会话：最近一个有更新的会话在 `hearing.windowMin` 分钟内就并入，否则新开（标题取第一句话）→ 以**第三种消息类型 `ambient`（环境声音）**入库，不是对方发的消息、也不是她的话 → `converse` 以「你听到附近有人说」的框架交给她，并说明：是不是对她说的、要不要回应由她判断，不回应只回复「沉默」（不入库，心流里记一笔「听到有人说话，没有回应」）；对方用声音说话时往往也希望听到声音，可以用 `voice_speak` 念出来——建议而不是强制。她自己说话（`voice_speak` 播放）期间开始的声音按音频时长估算的窗口直接丢弃，避免听见自己。听觉受预算里的最低电量（充电时除外）与温度限制；急停时不听。配置在 `hearing.*`，控制台「控制 → 听觉」与她自己的 `hearing_config` 都能改；App 只在 `status.hearing.listening` 为真且 agent 在本机（127.0.0.1）时开麦克风。
 
 ## 6. 身份、记忆与灵魂同步
 
@@ -327,4 +342,4 @@ flowchart LR
 - **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
 - 部署者提供：Node.js 22+、`WINDLER_HOME`、可选的 `WINDLER_ADAPTER`（适配器模块路径）、进程守护者。
 - **Android + Termux 部署约定**（Windler App 的安装器与点火器按此约定工作，脚本在 `console/assets/install/install.sh`）：软件包 `nodejs-lts termux-services termux-api git openssh`；版本目录 `~/windler/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/windler/current` → 运行中的版本，`~/windler/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/windler`（`run` 以 `WINDLER_ADAPTER=$HOME/windler/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/windler/`；开机脚本 `~/.termux/boot/windler`（唤醒锁 + 启动 runit）；`termux.properties` 中 `allow-external-apps=true`。安装器在 App 内开一个 127.0.0.1 的临时 HTTP 服务提供脚本与运行基座文件、接收进度；脚本通过 Termux 的 `RUN_COMMAND` 执行，完成后把 `secrets/gateway.token` 交给控制台，同一台手机上不需要配对码。健康检查 40 秒不通过自动切回 `previous`。
-- **配置缺省**：`body` 由安装器写为机型名，`timezone` 取系统时区；相机、麦克风、定位、操作屏幕默认「每次询问」。
+- **配置缺省**：`body` 由安装器写为机型名，`timezone` 取系统时区；相机、麦克风、定位、操作屏幕默认「每次询问」；听觉默认关闭。
