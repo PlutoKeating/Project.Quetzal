@@ -54,7 +54,7 @@ class _OrbState extends State<Orb> with SingleTickerProviderStateMixin {
     final color = switch (widget.mode) {
       'asleep' => vivid.withLightness((vivid.lightness - 0.08).clamp(0, 1)).toColor(),
       'active' => vivid.withLightness((vivid.lightness + 0.1).clamp(0, 1)).toColor(),
-      'stopped' => Colors.red,
+      'stopped' => const Color(0xFFFF3B30),
       _ => vivid.toColor(),
     };
     final speed = switch (widget.mode) { 'asleep' => 0.5, 'active' => 2.0, _ => 1.0 };
@@ -79,13 +79,17 @@ class _OrbPainter extends CustomPainter {
     final r = s.width * (0.26 + 0.04 * breath);
     final glow = Paint()..shader = RadialGradient(colors: [color.withValues(alpha: 0.85 * (0.5 + 0.5 * alert)), color.withValues(alpha: 0.25 * (0.5 + 0.5 * alert)), color.withValues(alpha: 0)], stops: const [0, 0.55, 1]).createShader(Rect.fromCircle(center: center, radius: r * 2.2));
     canvas.drawCircle(center, r * 2.2, glow);
-    // 球体：高光集中、过渡短、边缘压得更暗，让它像一盏实心的灯；高光由主题色提亮而不是整体泛白
-    final hi = center.translate(-r * .38, -r * .38);
+    // 球体：以球心左上 0.38r 为光源，明度沿 HSL 从 +0.28 过渡到 -0.225（保住色相与饱和度，不向白 / 黑插值），边缘压暗出体积感
+    final hsl = HSLColor.fromColor(color);
+    Color lit(double d) => hsl.withLightness((hsl.lightness + d).clamp(0, 1)).toColor();
+    final src = center.translate(-r * .38, -r * .38);
     canvas.drawCircle(center, r, Paint()..shader = RadialGradient(
-      colors: [Color.lerp(color, Colors.white, 0.7)!, Color.lerp(color, Colors.white, 0.2)!, color, Color.lerp(color, Colors.black, 0.45)!],
+      colors: [lit(0.28), lit(0.12), color, lit(-0.225)],
       stops: const [0, 0.25, 0.6, 1],
-    ).createShader(Rect.fromCircle(center: hi, radius: r * 1.55)));
-    canvas.drawCircle(hi, r * 0.22, Paint()..shader = RadialGradient(colors: [Colors.white.withValues(alpha: 0.85), Colors.white.withValues(alpha: 0)]).createShader(Rect.fromCircle(center: hi, radius: r * 0.22)));
+    ).createShader(Rect.fromCircle(center: src, radius: r * 1.38)));
+    // 高光点：小而亮的白色，位于光源方向
+    final hi = center.translate(-r * .42, -r * .42);
+    canvas.drawCircle(hi, r * 0.2, Paint()..shader = RadialGradient(colors: [Colors.white.withValues(alpha: 0.95), Colors.white.withValues(alpha: 0)]).createShader(Rect.fromCircle(center: hi, radius: r * 0.2)));
     if (mode == 'active') {
       final p = Paint()..color = Colors.white.withValues(alpha: 0.7);
       for (var i = 0; i < 12; i++) {
