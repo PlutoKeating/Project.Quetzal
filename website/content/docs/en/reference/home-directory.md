@@ -1,0 +1,70 @@
+---
+title: Home directory and configuration
+description: The layout of WINDLER_HOME, every key in config/windler.json, and the file conventions of the Android / Termux deployment.
+---
+
+## `WINDLER_HOME` (default `~/windler`)
+
+```
+config/windler.json      runtime configuration (editable from the app)
+config/providers.json    model providers (keys encrypted)
+secrets/                 0700: master.key (key-encryption master), gateway.token, feishu_secret, soul_ed25519, azure_speech_key
+vault/                   0700: the vault, one 0600 file per item; index.json holds hints only
+data/windler.db          SQLite: kv / timeline / messages / audit / usage
+data/catalog.json        cached public model catalog (models.dev)
+data/uploads/<date>/     chat attachments
+data/media/              photos and recordings she made (Termux adapter)
+soul/                    soul directory (a git repository)
+state/starts.json        start records (circuit breaker)
+STOP                     emergency stop flag: if present, everything freezes
+```
+
+> [!IMPORTANT]
+> `secrets/`, `vault/` and `config/providers.json` belong to this body only; they never enter the soul repository or sync. When backing up the phone, back up the whole home directory.
+
+## `config/windler.json`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `body` | `default` | Body name (journal directory); the installer writes the device model |
+| `adapter` | `""` | Adapter module path (the Termux deployment uses the `WINDLER_ADAPTER` environment variable instead) |
+| `timezone` | System timezone (`Asia/Shanghai` if unavailable) | Timezone for the body clock and journal |
+| `heart.activity` | `1` | Activity knob (0–4) |
+| `heart.baseRatePerHour` | `4` | Saturated wake rate $\lambda_0$ |
+| `heart.paused` | `false` | Pause autonomy |
+| `budget.dailyTokens` | `2000000` | Daily tokens |
+| `budget.dailyCostUsd` | `5` | Daily cost (USD) |
+| `budget.minBattery` | `15` | Minimum battery (%) |
+| `budget.maxTempC` | `45` | Maximum temperature |
+| `permissions.*` | `camera` / `microphone` / `location` / `hands` are `ask`, the rest `allow` | Permissions |
+| `brain.maxOutputTokens` | `4096` | Output cap per model call (no step cap) |
+| `feishu.*` | — | Feishu (secret in `secrets/`) |
+| `soul.remote` / `soul.branch` | `""` / `main` | Soul repository SSH address and branch |
+| `gateway.port` | `7788` | Gateway port |
+| `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | `""` / `""` / `zh-CN-XiaoxiaoNeural` / `""` / `0%` / `0%` / `100` / `audio-24khz-48kbitrate-mono-mp3` | Azure Speech (key in `secrets/azure_speech_key`) |
+
+All of these are editable from the app; no file editing required.
+
+## Environment variables
+
+| Variable | Meaning |
+|---|---|
+| `WINDLER_HOME` | Home directory |
+| `WINDLER_ADAPTER` | Body adapter module path |
+| `WINDLER_CONSOLE_ACTIVITY` | (Termux adapter) the activity opened by the notification button, default `xyz.windler.console/.MainActivity` |
+
+## Android / Termux deployment conventions
+
+The Windler app's installer and igniter follow these:
+
+```
+~/windler/releases/<version>/      main.cjs, termux.mjs
+~/windler/current → releases/…     the running version
+~/windler/previous → releases/…    the previous version (for rollback)
+$PREFIX/var/service/windler/run    runit service: WINDLER_ADAPTER=$HOME/windler/current/termux.mjs
+$PREFIX/var/log/sv/windler/        logs (rotated by svlogd)
+~/.termux/boot/windler             boot script: termux-wake-lock + start runit
+~/.termux/termux.properties        allow-external-apps=true
+```
+
+Packages: `nodejs-lts termux-services termux-api git openssh`. Only the last three versions are kept. A health check failing for 40 seconds switches back to `previous`.

@@ -1,0 +1,67 @@
+---
+title: Install
+description: Put the Termux trio and the Windler app on a spare Android phone, then let the wizard install the runtime inside Termux.
+---
+
+## Overview
+
+Four steps: install the Termux trio → install the Windler app → install the runtime from the app's wizard → keep the system from killing it. It takes a few minutes and a few tens of megabytes.
+
+```mermaid
+flowchart LR
+  A["1. Install the Termux trio<br/>(same source)"] --> B["2. Install the Windler app<br/>(download page / GitHub Releases)"]
+  B --> C["3. Open Windler<br/>“Install on this phone”"]
+  C --> C1["Allow commands to Termux"]
+  C1 --> C2["Paste one line in Termux<br/>to allow external apps"]
+  C2 --> C3["Tap “Install”<br/>Node.js, runit, runtime, boot script — automatic"]
+  C3 --> D["4. Keep-alive: battery whitelist + autostart"]
+  D --> E(("She wakes up"))
+```
+
+## 1. Install the Termux trio
+
+Install these three apps from [F-Droid](https://f-droid.org/packages/com.termux/) (or Termux's GitHub releases):
+
+| App | Role |
+|---|---|
+| **Termux** | The Linux environment the runtime lives in |
+| **Termux:API** | Battery, sensors, notifications, camera, microphone, location, clipboard. Without it she cannot feel her body |
+| **Termux:Boot** | Start on boot (without it you must ignite manually after a reboot) |
+
+> [!IMPORTANT]
+> All three must come from the **same source** (same signature) or they cannot talk to each other. The Termux on Google Play is deprecated; do not use it.
+
+After installing, **open Termux once** and wait for it to finish initializing (the first launch unpacks the environment and takes a little while).
+
+## 2. Install the Windler app
+
+Download the latest APK from the [download page](/download) or GitHub Releases and install it. You may need to allow installing from unknown sources the first time.
+
+## 3. Install the runtime with the wizard
+
+Open Windler and choose **"Install Windler on this phone"** on the home screen. The wizard walks you through:
+
+1. **Install the Termux trio** — it checks that all three are installed and their versions match, and links to anything missing.
+2. **Allow Windler to send commands to Termux** — the system shows a "Run commands in Termux" permission request; allow it.
+3. **Allow external apps in Termux (the only manual step)** — tap "Copy and open Termux", then in Termux **long-press → Paste → Enter**. Go back to Windler and tap "I ran it, check". That line does exactly one thing: it writes `allow-external-apps=true` into Termux's settings so Windler can ask Termux to run the install script.
+4. **Install the runtime** — tap "Install". Inside Termux the wizard installs Node.js, runit, the Termux:API command-line tools and git; places the runtime bundled in the app; registers the runit service, logging and boot script; writes the body name and timezone; starts it and runs a health check. You see step-by-step progress. When done the app **connects automatically**; no pairing code is needed.
+
+> [!NOTE]
+> On networks where package downloads are slow (mainland China), the wizard picks a mirror automatically based on your system language. Keep Windler in the foreground during installation: the runtime files are served from the app.
+
+## 4. Keep her alive
+
+Android kills background apps. The last wizard step guides you to:
+
+- add **Termux, Termux:Boot, Termux:API and Windler** to the **battery optimization ignore list**;
+- **allow** them in your vendor's "autostart / background" manager;
+- **open Termux:Boot once** so the system registers it.
+
+> [!WARNING]
+> Phones with a lock screen password: Android's file-based encryption means Termux's data is unavailable until you **unlock once after a reboot**, so she only wakes after that first unlock. This is not a Windler limitation; it applies to anything running in Termux.
+
+## After installing
+
+Open Windler's **Now** page to see her state and drives. She will not wake until you configure a model — continue with [First steps](/docs/start/first-steps).
+
+**Upgrading**: when you install a newer APK later, the app notices its bundled runtime is newer than the running one and offers a one-tap upgrade. See [Upgrade and rollback](/docs/guide/upgrade).

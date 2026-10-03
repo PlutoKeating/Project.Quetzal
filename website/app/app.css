@@ -24,3 +24,86 @@
     }
   }
 }
+
+/* ---------- Markdown 排版（.prose-docs）：只引用 --ds-* 变量 ---------- */
+@layer components {
+  .prose-docs {
+    color: var(--ds-color-fg);
+    font-size: var(--ds-text-base);
+    line-height: var(--ds-text-base--line-height);
+    overflow-wrap: anywhere;
+  }
+  .prose-docs > :first-child { margin-top: 0; }
+  .prose-docs p, .prose-docs ul, .prose-docs ol, .prose-docs blockquote, .prose-docs .katex-display { margin-block: 1em; }
+  .prose-docs h2, .prose-docs h3, .prose-docs h4 {
+    position: relative;
+    color: var(--ds-color-fg);
+    font-weight: var(--ds-weight-semibold);
+    letter-spacing: var(--ds-tracking-tight);
+    scroll-margin-top: calc(var(--ds-header-height) + 1rem);
+  }
+  .prose-docs h2 { font-size: var(--ds-text-2xl); line-height: var(--ds-text-2xl--line-height); margin: 2.2em 0 0.8em; padding-bottom: 0.3em; border-bottom: var(--ds-border-hairline) solid var(--ds-color-border); }
+  .prose-docs h3 { font-size: var(--ds-text-xl); line-height: var(--ds-text-xl--line-height); margin: 1.8em 0 0.6em; }
+  .prose-docs h4 { font-size: var(--ds-text-lg); line-height: var(--ds-text-lg--line-height); margin: 1.4em 0 0.5em; }
+  .prose-docs .md-anchor {
+    position: absolute; left: -1.25em; width: 1.25em;
+    color: var(--ds-color-fg-subtle); text-decoration: none; opacity: 0;
+    transition: opacity var(--ds-duration-fast) var(--ds-ease-standard);
+  }
+  .prose-docs h2:hover .md-anchor, .prose-docs h3:hover .md-anchor, .prose-docs .md-anchor:focus-visible { opacity: 1; }
+  .prose-docs a:not(.md-anchor) {
+    color: var(--ds-color-link);
+    text-decoration: underline; text-decoration-color: var(--ds-color-border-strong); text-underline-offset: 0.2em;
+    transition: color var(--ds-duration-fast) var(--ds-ease-standard);
+  }
+  .prose-docs a:not(.md-anchor):hover { color: var(--ds-color-link-hover); text-decoration-color: var(--ds-color-fg); }
+  .prose-docs strong { color: var(--ds-color-fg); font-weight: var(--ds-weight-semibold); }
+  .prose-docs ul { list-style: disc; padding-left: 1.5em; }
+  .prose-docs ol { list-style: decimal; padding-left: 1.5em; }
+  .prose-docs li { margin-block: 0.35em; }
+  .prose-docs li > ul, .prose-docs li > ol { margin-block: 0.35em; }
+  .prose-docs li.task-list-item, .prose-docs li:has(> .md-task) { list-style: none; margin-left: -1.5em; }
+  .prose-docs .md-task { margin-right: 0.5em; accent-color: var(--ds-color-accent); }
+  .prose-docs blockquote:not(.md-alert) {
+    border-left: var(--ds-border-thick) solid var(--ds-color-border-strong);
+    padding-left: 1em; color: var(--ds-color-fg-muted);
+  }
+  .prose-docs .md-alert p { margin-block: 0.25em; }
+  .prose-docs hr { border: 0; border-top: var(--ds-border-hairline) solid var(--ds-color-border); margin-block: 2.5em; }
+  .prose-docs .md-inline-code {
+    font-family: var(--ds-font-mono); font-size: 0.875em;
+    background: var(--ds-color-code-bg); color: var(--ds-color-code-fg);
+    border: var(--ds-border-hairline) solid var(--ds-color-border);
+    border-radius: var(--ds-radius-sm); padding: 0.1em 0.4em;
+  }
+  .prose-docs .md-code code, .prose-docs .md-code pre, .prose-docs .md-shiki pre { font-family: var(--ds-font-mono); background: transparent !important; }
+  .prose-docs .md-shiki pre { margin: 0; }
+  .prose-docs table { width: 100%; border-collapse: collapse; font-size: var(--ds-text-sm); line-height: var(--ds-text-sm--line-height); }
+  .prose-docs th, .prose-docs td { border: var(--ds-border-hairline) solid var(--ds-color-border); padding: 0.55em 0.8em; text-align: left; vertical-align: top; }
+  .prose-docs th { background: var(--ds-color-bg-elevated); color: var(--ds-color-fg); font-weight: var(--ds-weight-medium); }
+  .prose-docs tr:nth-child(even) td { background: var(--ds-color-bg-elevated); }
+  .prose-docs img { max-width: 100%; border-radius: var(--ds-radius-md); }
+  .prose-docs .footnotes { margin-top: 3em; padding-top: 1em; border-top: var(--ds-border-hairline) solid var(--ds-color-border); font-size: var(--ds-text-sm); color: var(--ds-color-fg-muted); }
+  .prose-docs .footnotes h2 { display: none; }
+  .prose-docs .katex { font-size: 1.05em; }
+  .prose-docs .katex-display { overflow-x: auto; overflow-y: hidden; padding-block: 0.25em; }
+  .prose-docs kbd { font-family: var(--ds-font-mono); font-size: 0.8em; border: var(--ds-border-hairline) solid var(--ds-color-border); border-radius: var(--ds-radius-sm); padding: 0.1em 0.4em; background: var(--ds-color-code-bg); }
+
+  /* shiki 的 CSS 变量主题 → 设计系统的 syntax-* 色 */
+  :root {
+    --shiki-foreground: var(--ds-color-code-fg);
+    --shiki-background: var(--ds-color-code-bg);
+    --shiki-token-constant: var(--ds-color-syntax-constant);
+    --shiki-token-string: var(--ds-color-syntax-string);
+    --shiki-token-comment: var(--ds-color-syntax-comment);
+    --shiki-token-keyword: var(--ds-color-syntax-keyword);
+    --shiki-token-parameter: var(--ds-color-fg);
+    --shiki-token-function: var(--ds-color-syntax-function);
+    --shiki-token-string-expression: var(--ds-color-syntax-string);
+    --shiki-token-punctuation: var(--ds-color-syntax-punctuation);
+    --shiki-token-link: var(--ds-color-link);
+    --shiki-token-inserted: var(--ds-color-success);
+    --shiki-token-deleted: var(--ds-color-danger);
+    --shiki-token-changed: var(--ds-color-warning);
+  }
+}
