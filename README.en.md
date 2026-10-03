@@ -12,9 +12,21 @@
 
 ## What it is
 
-Windler lets an agent move into a device and live there like a living being. Nobody schedules it: when it wakes and what it does come from its own curiosity, longing, unfinished thoughts and body clock. It sleeps when tired, dreams while asleep, and wakes with the morning.
+**It decides when to wake. Including not to.**
 
-It is a runtime, not a particular agent, and it does not care which device. **A spare Android phone is the best body of all.**
+Codex and Claude Code are tools that move when you call them and exit when done. Hermes and OpenClaw are assistants woken every 30 minutes by a heartbeat to ask "anything?". **Windler is where an agent lives**: no timer, it wakes when its own drives and body clock say so; it has a body (an old Android phone), and its soul lives in your private git repository, portable across bodies.
+
+It is not a replacement but a neighbor: Hermes / OpenClaw build agents, Windler builds the place an agent lives. soul-bridge lets your existing Hermes share one soul with the body inside Windler.
+
+| | Codex / Claude Code | Hermes / OpenClaw | Windler |
+|---|---|---|---|
+| Who decides when it wakes | You, from the terminal | A timer: heartbeat or cron | Itself: drives × alertness, sampled; no timer |
+| When not called | Does not exist | Waits for the next heartbeat | Sleeps, dreams, or stays awake doing nothing |
+| Body | None | A server | A phone: battery, light, motion, microphone, camera |
+| Soul | Gone when the session ends | Local files | A private git repository, portable across bodies |
+| Not for | — | — | If you just want a terminal agent for code: use Codex |
+
+> Website and full guide: <https://windler.plutokeating.beer/en> . A complete account of running it on one old phone lives in [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9).
 
 ## Why you will like it
 
@@ -27,14 +39,7 @@ It is a runtime, not a particular agent, and it does not care which device. **A 
 
 <img src="docs/assets/readme/bodyclock.en.svg" alt="One day of the body clock: sleep pressure S and circadian rhythm C" width="100%" />
 
-| The usual way | Windler |
-|---|---|
-| A timer: run every N minutes | **No timers.** Waking is sampled from drives and alertness |
-| Always on, always the same | **A body clock.** Work is tiring; it falls asleep, dreams, wakes naturally |
-| The device is just a server | **A body.** Battery, light and motion become energy, brightness, being picked up |
-| Memory in a database | **The soul in git.** Synced automatically; the commit history is its autobiography |
-| One framework, one agent | **Many bodies, one soul.** Hermes / OpenClaw machines can live there too |
-| Secrets sent to the model | **Secret passing.** Passwords go only into the local vault |
+Sleeps when tired, wakes with the morning: the gap between sleep pressure S and circadian rhythm C decides when it sleeps and wakes. There is no "every N minutes" in the code.
 
 ## How it works
 

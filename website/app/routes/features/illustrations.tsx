@@ -1,63 +1,14 @@
 /**
- * 亮点页示意图：全部是内联 SVG / 布局，只用设计系统的语义类（fill-accent、stroke-border …），不含字面量视觉参数。
- * 每张图宽高比 3:2（viewBox 480×320），随容器缩放；文字走 i18n。
+ * 亮点页示意图：全部是内联 SVG，只用设计系统的语义类，不含字面量视觉参数；公共件见 components/figure.tsx。
+ * 每张图 viewBox 480×320，随容器缩放；文字走 i18n。
  */
-import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { simulateDay } from "~/lib/bodyClock";
 import { cx, StatusDot } from "~/design-system/components";
+import { Frame, T, Lamp, WakeCompare, type CompareLabels } from "~/components/figure";
 
-/** 图的设计宽度。容器比它窄（手机）时 SVG 整体缩小，文字按比例放大补偿，保证读得清。 */
-const DESIGN_W = 480;
-const TextScale = createContext(1);
-
-function Frame({ children, label }: { children: React.ReactNode; label: string }) {
-  const ref = useRef<HTMLElement>(null);
-  const [k, setK] = useState(1);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([e]) => { const w = e.contentRect.width; setK(w > 0 && w < DESIGN_W ? Math.min(1.5, DESIGN_W / w) : 1); });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return (
-    <figure ref={ref} className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
-      <TextScale.Provider value={k}>
-        <svg viewBox={`0 0 ${DESIGN_W} 320`} role="img" aria-label={label} className="block w-full font-sans">{children}</svg>
-      </TextScale.Provider>
-    </figure>
-  );
-}
-const T = ({ x, y, children, className, anchor = "start", size = 13 }: { x: number; y: number; children: React.ReactNode; className?: string; anchor?: "start" | "middle" | "end"; size?: number }) => {
-  const k = useContext(TextScale);
-  return <text x={x} y={y} textAnchor={anchor} fontSize={Math.round(size * k * 10) / 10} className={cx(!/\bfill-/.test(className ?? "") && "fill-fg", className)}>{children}</text>;
-};
-/** 呼吸的琥珀点（SVG 内用 transform-box 让缩放围绕自身中心） */
-const Lamp = ({ cx: x, cy, r = 5, delay = 0 }: { cx: number; cy: number; r?: number; delay?: 0 | 1 | 2 | 3 }) => (
-  <circle cx={x} cy={cy} r={r} className={cx("fill-accent animate-breath motion-reduce:animate-none origin-center [transform-box:fill-box]", ["", "[animation-delay:-1s]", "[animation-delay:-2s]", "[animation-delay:-3.5s]"][delay])} /> /* ds-allow：错开相位 */
-);
-
-/* 01 定时器 vs Windler 的醒来 */
-export function WakeTimeline({ t }: { t: { cron: string; windler: string; cronNote: string; windlerNote: string; axis: readonly string[] } }) {
-  const x0 = 40, x1 = 440, y1 = 96, y2 = 212;
-  const px = (h: number) => x0 + ((x1 - x0) * h) / 24;
-  // 固定的一组「醒来」时刻：清晨稀疏、午后密集、深夜几乎没有
-  const wakes = [7.9, 8.6, 10.2, 10.9, 11.3, 13.4, 14.1, 14.5, 15.2, 15.6, 16.1, 16.9, 17.8, 19.3, 20.7, 22.4];
-  const alert = Array.from({ length: 49 }, (_, i) => { const h = i / 2; const c = 0.5 + 0.5 * Math.cos((2 * Math.PI * (h - 16)) / 24); return `${i ? "L" : "M"}${px(h).toFixed(1)},${(y2 + 34 - 60 * c).toFixed(1)}`; }).join(" ");
-  return (
-    <Frame label={`${t.cron} vs ${t.windler}`}>
-      <T x={x0} y={y1 - 36} className="fill-fg-muted" size={12}>{t.cron}</T>
-      <T x={x1} y={y1 - 36} className="fill-fg-subtle" size={11} anchor="end">{t.cronNote}</T>
-      <line x1={x0} x2={x1} y1={y1} y2={y1} className="stroke-border" strokeWidth="2" />
-      {Array.from({ length: 25 }, (_, i) => <rect key={i} x={px(i) - 1.5} y={y1 - 10} width="3" height="20" className="fill-fg-subtle" />)}
-      <T x={x0} y={y2 - 52} className="fill-fg" size={12}>{t.windler}</T>
-      <T x={x1} y={y2 - 52} className="fill-fg-subtle" size={11} anchor="end">{t.windlerNote}</T>
-      <path d={alert} fill="none" className="stroke-chart-line" strokeWidth="1.5" strokeDasharray="4 4" />
-      <line x1={x0} x2={x1} y1={y2} y2={y2} className="stroke-border" strokeWidth="2" />
-      {wakes.map((h, i) => <Lamp key={h} cx={px(h)} cy={y2} r={4.5} delay={(i % 4) as 0 | 1 | 2 | 3} />)}
-      {t.axis.map((a, i) => <T key={a} x={px(i * 6)} y={300} className="fill-fg-subtle" size={11} anchor={i === 0 ? "start" : i === 4 ? "end" : "middle"}>{a}</T>)}
-    </Frame>
-  );
+/* 01 三条带子：Codex / Hermes-OpenClaw / Windler */
+export function WakeTimeline({ t }: { t: CompareLabels }) {
+  return <WakeCompare t={t} />;
 }
 
 /* 02 一天的环：醒着 / 睡着 / 做梦 */

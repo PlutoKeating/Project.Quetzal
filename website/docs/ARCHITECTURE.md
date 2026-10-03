@@ -35,7 +35,10 @@ flowchart LR
 - 所有间距、字号均为 rem，不写像素。
 - 外观：默认跟随系统（`prefers-color-scheme`），顶栏的切换按钮写入 `localStorage` 键 `windler.theme` 并设置 `<html data-theme>`；`root.tsx` 内联脚本在首屏前应用，避免闪烁。
 
-## 3.1 首页的两处「活着」
+## 3.1 首页的示意与「活着」
+
+- **三条带子** `components/figure.tsx` 的 `WakeCompare`（hero 与亮点页 01 共用）：Codex / Claude Code 只在你调用时有点；Hermes / OpenClaw 每 30 分钟一个 heartbeat 刻度；Windler 是随清醒度起伏的随机醒来点与大段睡眠。对照口径经查证：Hermes 有 cron，OpenClaw 有 heartbeat（默认 30 分钟）与 cron。
+- **凭证小字**：`lib/github.ts` 的 `fetchRepoStats` 取星标与最新版本（星标少于 10 时只显示 GitHub）。
 
 - **呼吸光斑** `Breath`：有机形状的柔光，`animate-breath`（亮度 ±8%、5 秒周期）。
 - **示例身体** `routes/home/ExampleBody.tsx`：在浏览器里运行 `lib/bodyClock.ts`（与 `runtime/src/heart/model.ts` 相同的双过程模型纯函数）按本地时间推算醒 / 睡、清醒度、睡眠压力，电量与光线是按一天节律构造的示例曲线；明确标注「示例身体 · 模型实时推算」。
@@ -46,7 +49,7 @@ flowchart LR
 | 路径 | 内容 | 数据来源 |
 |---|---|---|
 | `/` | 语言跳转 | 内联脚本 |
-| `/:lang` | 首页：hero → 它此刻（示例身体，模型实时推算）→ 一天（示例时间线 + 生物钟底纹）→ 它有时候不动（暗节）→ 开始 | `routes/home/i18n.ts`；`ExampleBody.tsx`、`DayStrip.tsx` 只用 `lib/bodyClock` 的模型，不含任何真实设备数据 |
+| `/:lang` | 首页：hero（定位 + 三条 24 小时带子对照 Codex / Hermes-OpenClaw / Windler + 凭证小字）→ 为什么不是 Hermes / OpenClaw（机制对照表、谁不该用、soul-bridge）→ 它此刻（示例身体）→ 一天 → 它有时候不动 → 开始 | `routes/home/i18n.ts`；`ExampleBody.tsx`、`DayStrip.tsx` 只用 `lib/bodyClock` 的模型，不含任何真实设备数据 |
 | `/:lang/features` | 七个亮点故事（通俗标题 + 示意图 + 要点 + 文档链接，左右交替）与「还有这些」网格 | `routes/features/i18n.ts`；示意图为 `routes/features/illustrations.tsx` 里的内联 SVG（只用语义类，文字走 i18n） |
 | `/:lang/docs/*` | 文档教程：侧栏、正文（统一 Markdown 组件）、页内目录 | `content/docs/<lang>/**/*.md`（构建时读取） |
 
