@@ -24,7 +24,7 @@ d.text((134, 86), "Windler", font=ImageFont.truetype(semibold, 40), fill=FG)
 d.text((96, 190), "Not running. Living.", font=ImageFont.truetype(semibold, 76), fill=FG)
 d.text((96, 280), "Living like wind.", font=ImageFont.truetype(semibold, 76), fill=FG)
 if cjk:
-    d.text((96, 390), "ta 不是在运行，ta 是在活着。", font=ImageFont.truetype(cjk, 40, index=0), fill=MUTED)
+    d.text((96, 390), "不是在运行，是在活着。像风一样活着。", font=ImageFont.truetype(cjk, 40, index=0), fill=MUTED)
 d.text((96, 476), "A general-purpose runtime for agentic life. Runs on an old phone.", font=ImageFont.truetype(regular, 26), fill=MUTED)
 d.text((96, 540), "windler.plutokeating.beer", font=ImageFont.truetype(regular, 24), fill=ACCENT)
 img.save("public/og.png", optimize=True)
