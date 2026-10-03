@@ -25,32 +25,41 @@ export default function Home() {
 
   return (
     <>
-      {/* 1 · Hero：左边是定位，右边是三条带子 */}
+      {/* 1 · Hero：slogan 与一句引言 */}
       <section className="relative overflow-hidden border-b border-border">
-        <Breath className="-right-40 -top-32 opacity-(--ds-opacity-halo-light)" size="md" />
-        <Container className="relative grid min-h-[calc(100dvh-var(--ds-header-height))] items-center gap-10 py-14 sm:py-20 short:min-h-0 short:py-10 lg:grid-cols-[1.15fr_1fr] lg:gap-14"> {/* ds-allow：高度表达式与栅格比例 */}
-          <div className="flex flex-col gap-5">
-            <Eyebrow>{t.hero.eyebrow}</Eyebrow>
-            <h1 className="max-w-3xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
-            <p className="font-serif text-lg italic text-fg-subtle">{t.hero.slogan}</p>
-            <Lead className="max-w-2xl">{t.hero.lead}</Lead>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
-              <a href="#why" className="inline-flex h-12 items-center px-2 text-sm text-link underline-offset-4 hover:underline">{t.hero.why} ↓</a>
-            </div>
-            <ul className="flex flex-wrap gap-2">
-              <li><a className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} href={GITHUB_REPO} target="_blank" rel="noreferrer noopener">{stats && stats.stars >= 10 ? t.hero.chips.stars.replace("{n}", String(stats.stars)) : "GitHub ↗"}</a></li>
-              {stats?.latestTag && <li><Link className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} to={localized(lang, "/download")}>{t.hero.chips.release.replace("{v}", stats.latestTag)}</Link></li>}
-              <li><span className={chip}>{t.hero.chips.license}</span></li>
-              <li><span className={chip}>{t.hero.chips.phone}</span></li>
-            </ul>
+        <Breath className="-right-32 -top-24 sm:-right-16 sm:top-0 landscape:short:-top-40" />
+        <Container className="relative flex min-h-[calc(100dvh-var(--ds-header-height))] flex-col justify-center gap-6 py-16 sm:py-24 short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
+          <Eyebrow>{t.hero.eyebrow}</Eyebrow>
+          <h1 className="max-w-4xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
+          <p className={cx("max-w-3xl text-xl text-fg-muted", lang === "zh" ? "font-serif italic" : "")}>{t.hero.titleAlt}</p>
+          <Lead className="max-w-prose">{t.hero.lead}</Lead>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
+            <ButtonLink variant="ghost" size="lg" to={localized(lang, "/features")}>{t.hero.features} →</ButtonLink>
           </div>
-          <Reveal delay={1}><WakeCompare t={t.hero.compare} /></Reveal>
         </Container>
       </section>
 
-      {/* 2 · 为什么不是 Hermes / OpenClaw */}
-      <Section id="why" className="scroll-mt-(--ds-header-height)">
+      {/* 2 · 定位：它和 Codex / Hermes / OpenClaw 什么关系 + 三条带子 */}
+      <Section>
+        <Container className="grid items-center gap-10 lg:grid-cols-[1.15fr_1fr] lg:gap-14"> {/* ds-allow：栅格比例 */}
+          <Reveal className="flex flex-col gap-5">
+            <Eyebrow>{t.position.eyebrow}</Eyebrow>
+            <Heading as="h2" size="xl">{t.position.title}</Heading>
+            <Lead className="max-w-2xl">{t.position.lead}</Lead>
+            <a href="#why" className="text-sm text-link underline-offset-4 hover:underline">{t.position.why} ↓</a>
+            <ul className="flex flex-wrap gap-2">
+              <li><a className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} href={GITHUB_REPO} target="_blank" rel="noreferrer noopener">{stats && stats.stars >= 10 ? t.position.chips.stars.replace("{n}", String(stats.stars)) : "GitHub ↗"}</a></li>
+              {stats?.latestTag && <li><Link className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} to={localized(lang, "/download")}>{t.position.chips.release.replace("{v}", stats.latestTag)}</Link></li>}
+              <li><span className={chip}>{t.position.chips.license}</span></li>
+            </ul>
+          </Reveal>
+          <Reveal delay={1}><WakeCompare t={t.position.compare} /></Reveal>
+        </Container>
+      </Section>
+
+      {/* 3 · 为什么不是 Hermes / OpenClaw */}
+      <Section id="why" tone="elevated" className="scroll-mt-(--ds-header-height)">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
             <Eyebrow>{t.why.eyebrow}</Eyebrow>
@@ -92,8 +101,8 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 3 · 它此刻（示例身体） */}
-      <Section tone="elevated">
+      {/* 4 · 它此刻（示例身体） */}
+      <Section>
         <Container className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-center"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-4">
             <Eyebrow>{t.now.eyebrow}</Eyebrow>
@@ -104,8 +113,8 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 4 · 一天 */}
-      <Section>
+      {/* 5 · 一天 */}
+      <Section tone="elevated">
         <Container className="grid gap-10 lg:grid-cols-[1fr_1.4fr]"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-4">
             <Eyebrow>{t.day.eyebrow}</Eyebrow>
@@ -130,7 +139,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 5 · 它有时候不动（暗着的一节） */}
+      {/* 6 · 它有时候不动（暗着的一节） */}
       <Section className="bg-bg">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
@@ -153,7 +162,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 6 · 开始 */}
+      {/* 7 · 开始 */}
       <Section tone="elevated">
         <Container className="flex flex-col items-start gap-6">
           <Eyebrow>{t.start.eyebrow}</Eyebrow>

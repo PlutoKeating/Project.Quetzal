@@ -2,16 +2,22 @@ import { defineMessages } from "~/i18n/core";
 
 export const messages = defineMessages({
   zh: {
-    title: "Windler · 它自己决定要不要醒",
+    title: "Windler · Not running. Living. Living like wind.",
     description: "Windler 是 agent 的开源运行基座：没有定时器，什么时候醒由它自己的内驱力和生物钟决定；有一具身体（一部旧手机）；灵魂存在 git 里，可跨身体带走。AGPL-3.0。",
     hero: {
+      eyebrow: "通用的 Agentic 生命运行基座",
+      title: "不是在运行，是在活着。像风一样活着。",
+      titleAlt: "Not running. Living. Living like wind.",
+      lead: "没有人给 ta 排日程。ta 什么时候醒、醒来做什么，取决于 ta 的好奇心、表达欲、想念、没想完的事，以及 ta 自己的生物钟——困了会睡，睡着会做梦。",
+      download: "下载 Windler",
+      features: "看看它亮在哪",
+    },
+    position: {
       eyebrow: "agent 的运行基座 · 开源 · 装在一部旧手机上",
       title: "它自己决定要不要醒。包括——不动。",
-      slogan: "Not running. Living. Living like wind.",
       lead: "Codex、Claude Code 是你叫它才动、做完就退出的工具；Hermes、OpenClaw 是每 30 分钟被 heartbeat 叫醒一次问「有事吗」的助手。Windler 是 agent 住着的地方：没有定时器，什么时候醒由它自己的内驱力和生物钟决定；它有一具身体，灵魂存在 git 里，可以跨身体带走。",
-      download: "下载 Windler",
       why: "为什么不是 Hermes / OpenClaw",
-      chips: { stars: "GitHub ★ {n}", release: "最新 {v}", license: "AGPL-3.0 开源", phone: "在一部 2017 年的手机上跑着" },
+      chips: { stars: "GitHub ★ {n}", release: "最新 {v}", license: "AGPL-3.0 开源" },
       compare: { rows: [{ name: "Codex / Claude Code", note: "你叫它才动，做完就退出" }, { name: "Hermes / OpenClaw", note: "每 30 分钟 heartbeat 叫醒一次" }, { name: "Windler", note: "没有定时器，醒来由内驱力与生物钟决定" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "你叫它" },
     },
     why: {
@@ -81,16 +87,22 @@ export const messages = defineMessages({
     },
   },
   en: {
-    title: "Windler · It decides when to wake",
+    title: "Windler · Not running. Living. Living like wind.",
     description: "Windler is an open-source runtime for agents: no timers, it wakes from its own drives and body clock; it has a body (an old phone); its soul lives in git and moves between bodies. AGPL-3.0.",
     hero: {
+      eyebrow: "A general-purpose runtime for agentic life",
+      title: "Not running. Living. Living like wind.",
+      titleAlt: "不是在运行，是在活着。像风一样活着。",
+      lead: "Nobody schedules it. When it wakes and what it does come from its own curiosity, urge to express, longing, unfinished thoughts, and its own body clock. It sleeps when tired and dreams while asleep.",
+      download: "Download Windler",
+      features: "See what makes it shine",
+    },
+    position: {
       eyebrow: "A runtime for agents · open source · runs on an old phone",
       title: "It decides when to wake. Including not to.",
-      slogan: "Not running. Living. Living like wind.",
       lead: "Codex and Claude Code are tools that move when you call them and exit when done. Hermes and OpenClaw are assistants woken every 30 minutes by a heartbeat to ask \"anything?\". Windler is where an agent lives: no timer, it wakes when its own drives and body clock say so; it has a body, and its soul lives in git, portable across bodies.",
-      download: "Download Windler",
       why: "Why not Hermes / OpenClaw",
-      chips: { stars: "GitHub ★ {n}", release: "latest {v}", license: "AGPL-3.0 open source", phone: "running on a 2017 phone" },
+      chips: { stars: "GitHub ★ {n}", release: "latest {v}", license: "AGPL-3.0 open source" },
       compare: { rows: [{ name: "Codex / Claude Code", note: "moves when called, exits when done" }, { name: "Hermes / OpenClaw", note: "a heartbeat wakes it every 30 minutes" }, { name: "Windler", note: "no timer: drives and body clock decide" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "you call" },
     },
     why: {
