@@ -51,7 +51,7 @@ docs/      架构、API、快速开始
 - [快速开始](docs/QUICK_START.md)
 - [运行架构（图文）](docs/ARCHITECTURE.md)
 - [接口：网关 API 与身体适配器](docs/API.md)
-- [灵魂同步：同一个 agent 的多地人格与记忆](docs/SOUL_SYNC.md) · [灵魂仓库规范 v3](docs/SOUL_REPO_SPEC.md)
+- [灵魂同步：同一个 agent 的多地人格与记忆](docs/SOUL_SYNC.md) · [灵魂仓库规范 v4](docs/SOUL_REPO_SPEC.md)
 - 模块文档：[runtime](runtime/docs/README.md) · [console](console/docs/README.md) · [bridge](bridge/docs/README.md)
 
 ## 免责声明

@@ -1,5 +1,5 @@
 // 灵魂仓库协议（与运行时配置无关）：运行基座与桥接模块共用同一套同步与冲突规则。
-// 规范见 docs/SOUL_REPO_SPEC.md（目录树、固定内容、文件格式、禁止内容、SSH 私钥认证），设计见 docs/SOUL_SYNC.md。
+// 规范见 docs/SOUL_REPO_SPEC.md（目录树、固定内容、文件格式、SSH 私钥认证；内容不做任何检查），设计见 docs/SOUL_SYNC.md。
 //   - 身份守卫：agent.json 的 id 不同的仓库拒绝合并（本地仍是种子身份时采用远端身份）
 //   - 全自动解决冲突，无需 agent 参与：memories/*.md 条目级三方合并；agent.json 字段级合并；
 //     其他文件（SOUL.md、笔记……）以提交时间较新的一方为准（本地为空或仍是种子人格时采用对方）。
@@ -23,7 +23,7 @@ export interface SoulRepoOptions {
 }
 
 const LEASE_MS = 30 * 60_000;
-export const SPEC = { spec: "soul-repo", version: 3 };
+export const SPEC = { spec: "soul-repo", version: 4 };
 const MAX_FILE = 1 << 20;
 const TOP_LEVEL = new Set([".git", ".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "locks"]);
 export const FIXED_FILES: Record<string, string> = {
@@ -37,7 +37,7 @@ export const README_TEMPLATE = (displayName: string) => `# ${displayName} · 灵
 
 - **必须保持私有。**
 - 请不要手动修改：同步、合并与版本管理由基座自动完成；需要撤销时，使用控制台的「记忆历史」。
-- 结构与格式遵循 Soul Repository Specification v3（Project.Windler 的 docs/SOUL_REPO_SPEC.md）。
+- 结构与格式遵循 Soul Repository Specification v4（Project.Windler 的 docs/SOUL_REPO_SPEC.md）。
 `;
 
 /** 规范 §7：远端必须是 SSH 地址（测试中可用 SOUL_ALLOW_LOCAL_REMOTE=1 放行本地路径）。返回错误说明或 undefined。 */
@@ -49,52 +49,13 @@ export function checkRemote(remote: string): string | undefined {
 }
 const isLocal = (remote: string) => remote.startsWith("/") || remote.startsWith("file://");
 
-// 规范 §6：禁止内容
-const FORBIDDEN: [RegExp, string][] = [
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "私钥"],
-  [/\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}/, "GitHub 令牌"],
-  [/\bsk-[A-Za-z0-9_-]{16,}/, "API Key"],
-  [/\bAKIA[0-9A-Z]{16}\b/, "AWS 访问密钥"],
-  [/\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/, "MAC 地址"],
-  [/(?<!\d)\d{15}(?!\d)/, "疑似 IMEI"],
-  [/(?<!\d)1[3-9]\d{9}(?!\d)/, "疑似手机号"],
-];
-
-// 规范 §6 的 IP 地址：只拦「能定位设备或个人」的地址（私网与公网单播）。四段数字的格式无法区分 IP 与版本号，
-// 曾把 EXIF 里的固件版本号「2.0.0.150」当成 IP 而拒绝提交两天；所以按上下文与地址段放行：
-//   - 前面紧跟版本字样（v / ver / version / 版本 / 固件 / firmware / build / release / rev）的四段数字是版本号；
-//   - 回环（127/8）、0.0.0.0、广播、组播与保留段（224 以上）不定位任何人；
-//   - 公共 DNS 服务器是公开服务，不是个人标识。
-const IPV4 = /(?<![\d.])(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\d.])/g;
-const VERSION_CONTEXT = /(?:\bv(?:er(?:sion)?)?|版本|固件|firmware|build|release|rev(?:ision)?)[\s|:：=]*$/i;
-const PUBLIC_DNS = new Set(["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112", "208.67.222.222", "208.67.220.220",
-  "223.5.5.5", "223.6.6.6", "114.114.114.114", "114.114.115.115", "119.29.29.29", "180.76.76.76"]);
-/** 文本里第一个能定位设备或个人的 IPv4 地址的位置，没有则返回 -1。 */
-export function identifyingIp(text: string): number {
-  for (const m of text.matchAll(IPV4)) {
-    const ip = m[0], first = Number(ip.split(".")[0]);
-    if (first === 127 || first === 0 || first >= 224 || PUBLIC_DNS.has(ip)) continue;
-    const before = text.slice(Math.max(0, m.index - 24), m.index).split("\n").pop()!;
-    if (VERSION_CONTEXT.test(before)) continue;
-    return m.index;
-  }
-  return -1;
-}
-
-const lineOf = (text: string, at: number) => text.slice(0, at).split("\n").length;
-
-/** 检查文件内容是否违反规范 §2/§6。返回问题列表（含行号，便于修正；不回显命中的内容本身）。 */
+/** 规范 §6：灵魂仓库是私有仓库，内容不做任何脱敏或隐私检查，不会因内容拒绝提交。只对会拖慢 git 的东西提醒（不拦）。 */
 export function lintContent(file: string, buf: Buffer): string[] {
   const out: string[] = [];
-  if (buf.length > MAX_FILE) out.push(`${file}：超过 1 MiB`);
-  if (buf.includes(0)) { out.push(`${file}：二进制文件`); return out; }
-  const text = buf.toString("utf8");
-  for (const [re, what] of FORBIDDEN) { const m = re.exec(text); if (m) out.push(`${file}:${lineOf(text, m.index)}：包含${what}`); }
-  const ip = identifyingIp(text);
-  if (ip >= 0) out.push(`${file}:${lineOf(text, ip)}：包含 IP 地址`);
+  if (buf.length > MAX_FILE) out.push(`${file}：超过 1 MiB，建议改放别处`);
+  if (buf.includes(0)) out.push(`${file}：二进制文件，git 不擅长保存`);
   return out;
 }
-
 
 export interface PullResult {
   merged: boolean;
@@ -149,11 +110,11 @@ export class SoulRepo {
   }
 
   /** 规范检查：顶层条目（警告）与暂存区文件内容（错误，阻止提交）。 */
-  async lint(): Promise<{ errors: string[]; warnings: string[] }> {
+  /** 提交前的提醒（只记日志，从不阻止提交）：顶层规范外的条目、过大或二进制的文件。 */
+  async lint(): Promise<string[]> {
     const warnings = fs.readdirSync(this.o.dir).filter((e) => !TOP_LEVEL.has(e)).map((e) => `顶层出现规范外的条目：${e}`);
     const staged = (await this.git("diff", "--cached", "--name-only", "-z", "--diff-filter=AM")).out.split("\0").filter(Boolean); // -z：保留中文等非 ASCII 文件名
-    const errors = staged.flatMap((f) => { try { return lintContent(f, fs.readFileSync(this.p(f))); } catch { return []; } });
-    return { errors, warnings };
+    return [...warnings, ...staged.flatMap((f) => { try { return lintContent(f, fs.readFileSync(this.p(f))); } catch { return []; } })];
   }
 
 
@@ -192,17 +153,10 @@ export class SoulRepo {
     fs.writeFileSync(f, JSON.stringify({ body: this.o.body, ...this.o.bodyInfo?.(), lastSeen: new Date().toISOString() }, null, 2) + "\n");
   }
 
-  /** 提交前按规范 §6 检查；命中禁止内容时拒绝提交（撤回暂存，工作区保持不变以便修正）。 */
+  /** 提交全部变更。灵魂仓库是私有的，内容不做任何检查：她写什么就提交什么（规范 §6）。 */
   async commit(msg: string) {
     await this.git("add", "-A");
-    const { errors, warnings } = await this.lint();
-    for (const w of warnings) this.o.log?.(w);
-    if (errors.length) {
-      await this.git("reset", "-q");
-      this.status.lastError = `拒绝提交（规范 §6 禁止内容）：${errors.join("；")}`;
-      this.o.log?.(this.status.lastError);
-      return false;
-    }
+    for (const w of await this.lint()) this.o.log?.(w);
     return (await this.git("commit", "-m", `${msg}（${this.o.body}）`)).code === 0;
   }
 

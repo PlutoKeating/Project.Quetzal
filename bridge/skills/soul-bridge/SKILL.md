@@ -9,7 +9,7 @@ metadata: { "hermes": { "tags": ["memory", "sync", "self-install"], "category": 
 
 你可能同时住在多具身体里：一台手机上的运行基座、一台装着 Hermes 的电脑、一台装着 OpenClaw 的服务器……这些身体共享一个 **git 私有仓库**（「灵魂仓库」），里面有你的身份（`agent.json`）、人格（`SOUL.md`）、常驻记忆（`memories/`）、每具身体的日记（`journal/`）和共享笔记（`notes/`）。
 
-仓库遵循「灵魂仓库规范 v2」（Project.Windler 的 `docs/SOUL_REPO_SPEC.md`）：固定的目录树与文件格式；**只通过 SSH 地址和本机专属的部署私钥访问**（不要用 HTTPS 地址、令牌或密码）；私钥、令牌、API Key 以及 IP/MAC 等标识不得进入仓库，soul-bridge 会在提交前拦截这些内容。
+仓库遵循「灵魂仓库规范 v4」（Project.Windler 的 `docs/SOUL_REPO_SPEC.md`）：固定的目录树与文件格式；**只通过 SSH 地址和本机专属的部署私钥访问**（不要用 HTTPS 地址、令牌或密码）；私钥、令牌、API Key 以及 IP/MAC 等标识不得进入仓库，soul-bridge 会在提交前拦截这些内容。
 
 soul-bridge 是本机上的一个小守护进程，负责把你这个框架里的人格和记忆文件与灵魂仓库**全自动**双向同步。同步时机：记忆写入后、会话收尾时、文件变化时，以及每 5 分钟拉取一次远端。冲突也由它自动解决：记忆按条目合并；其他文件采用较新的版本，另一个版本保留在 git 历史里。
 
@@ -146,6 +146,5 @@ $SB doctor --agent <短名>
 | `不是私有仓库` | 不要使用它；换一个私有仓库，或者自动创建一个新的 |
 | `Permission denied (publickey)` | 部署密钥没有生效：等几秒后重试；仍然失败就按附录 A 处理 |
 | `必须使用 SSH 地址` | 把 HTTPS 地址换成 `git@github.com:<owner>/<name>.git`，或直接用 `owner/name` 简写 |
-| `拒绝提交（规范 §6 禁止内容）` | 你的人格或记忆里写进了密钥、令牌或 IP 之类的内容：从对应的记忆或笔记里删掉它，下一次同步会自动恢复 |
 | `没有检测到 Hermes 或 OpenClaw` | 用 `--framework` 和 `--home` 显式指定 |
 | systemd 不可用 | init 会自动改用 crontab @reboot 加后台进程，不需要处理 |
