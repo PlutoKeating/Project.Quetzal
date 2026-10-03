@@ -64,24 +64,24 @@ export default function Download() {
             const apk = findAsset(latest, "apk");
             const totalDownloads = latest.assets.reduce((s, a) => s + a.downloadCount, 0);
             return (
-              <Card className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between lg:gap-10">
+              <Card className="grid gap-8 p-8 lg:grid-cols-[1fr_auto] lg:items-center lg:gap-12"> {/* ds-allow：栅格比例 */}
                 <div className="flex min-w-0 flex-col gap-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="font-mono text-3xl font-semibold tracking-tight text-fg sm:text-4xl">{latest.version}</span>
+                  <div className="flex flex-wrap items-baseline gap-3">
+                    <span className="font-mono text-4xl font-semibold tracking-tight text-fg sm:text-5xl">{latest.version}</span>
                     <Badge tone={latest.prerelease ? "warning" : "secondary"}>{latest.prerelease ? t.latest.prerelease : t.latest.stable}</Badge>
                   </div>
                   <p className="text-sm text-fg-muted">
                     {t.latest.publishedOn} <time dateTime={latest.publishedAt}>{fmtDate(latest.publishedAt)}</time>
                     {totalDownloads > 0 && <span className="text-fg-subtle"> · {fmtNum(totalDownloads)} {t.latest.downloads}</span>}
                   </p>
-                  <ExternalLink href={latest.url} className="text-sm">{t.latest.viewOnGithub} ↗</ExternalLink>
                 </div>
-                <div className="flex w-full flex-col gap-3 lg:w-auto lg:min-w-[20rem]"> {/* ds-allow：宽度不是视觉参数 */}
+                <div className="flex w-full flex-col items-stretch gap-3 lg:w-auto lg:min-w-[22rem] lg:items-end"> {/* ds-allow：宽度不是视觉参数 */}
                   {apk ? (
                     <AssetButton asset={apk} label={t.latest.downloadApk} variant="accent" lang={lang} />
                   ) : (
                     <p className="text-sm text-fg-muted">{t.latest.noApk}</p>
                   )}
+                  <ExternalLink href={latest.url} className="text-sm lg:self-end">{t.latest.viewOnGithub} ↗</ExternalLink>
                 </div>
               </Card>
             );
@@ -163,9 +163,9 @@ export default function Download() {
 
 function AssetButton({ asset, label, variant, lang }: { asset: ReleaseAsset; label: string; variant: "accent" | "secondary"; lang: "zh" | "en" }) {
   return (
-    <ButtonAnchor href={asset.url} variant={variant} size="lg" className="h-auto w-full flex-col items-start gap-0.5 py-3 text-left whitespace-normal sm:w-auto lg:w-full">
-      <span>{label}</span>
-      <span className={cx("font-mono text-xs font-normal", variant === "accent" ? "opacity-(--ds-opacity-muted)" : "text-fg-muted")}>{asset.name} · {formatBytes(asset.size, lang)}</span>
+    <ButtonAnchor href={asset.url} variant={variant} size="lg" className="h-auto w-full flex-col items-start gap-1 px-6 py-4 text-left whitespace-normal">
+      <span className="text-lg">{label}</span>
+      <span className={cx("font-mono text-xs font-normal break-all", variant === "accent" ? "opacity-(--ds-opacity-muted)" : "text-fg-muted")}>{asset.name} · {formatBytes(asset.size, lang)}</span>
     </ButtonAnchor>
   );
 }
