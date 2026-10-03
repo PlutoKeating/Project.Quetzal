@@ -43,7 +43,7 @@ flowchart TB
 设计原则：
 
 - **单进程、模块化**：模块之间通过进程内事件总线（`bus.ts`）和少量函数调用耦合，便于单独测试。
-- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由外部适配器提供。
+- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由适配器提供。仓库内自带一个平台级适配器 `runtime/adapters/termux/`（任意安卓手机 + Termux:API，传感器按名字探测），不含任何具体机型的实现。
 - **状态全部落盘**：心脏状态、时间线、审计、用量在 SQLite，人格与记忆在灵魂目录。进程重启只相当于"睡了一觉"。
 - **所有控制入口共用一个操作层**（`ops.ts`）：控制台和飞书的行为完全一致，都经过审计。
 
@@ -199,7 +199,7 @@ sequenceDiagram
 **当前会话**：每条消息只属于它所在的会话。对话中她说的话（回复、中途的话、对话中调用 `send_message`）只进入当前会话，不会推送到其他会话或通道。只有自主醒来时的 `send_message` 才是主动消息：进入控制台的「主动消息」会话，在飞书里带「💭 主动消息」标识，并发送系统通知。
 
 **附件**（`mind/attachments.ts`、`mind/documents.ts`）：控制台一次最多上传 20 个文件（`/upload`），随消息发送。
-- 图片直接放进消息（多模态）；较大的图片（手机照片常有 5–10 MB）先缩到长边 1600 像素（依次尝试 ffmpeg、ImageMagick）。路由只选能看图的模型，判断顺序为手动设置 `vision`、公共目录（只看输入模态是否含 image）、模型名；一个都没有时去掉图片，并在消息里说明、保留本地路径。启动时若目录缓存是旧格式（没有看图信息），在后台自动刷新。
+- 图片直接放进消息（多模态）；较大的图片（手机照片常有 5–10 MB）先缩到长边 1600 像素（依次尝试 ffmpeg、ImageMagick；都没有时 JPEG 用内置的纯 JS 编解码 jpeg-js，手机上不必装任何软件包）。路由只选能看图的模型，判断顺序为手动设置 `vision`、公共目录（只看输入模态是否含 image）、模型名；一个都没有时去掉图片，并在消息里说明、保留本地路径。启动时若目录缓存是旧格式（没有看图信息），在后台自动刷新。
 - 飞书里发来的图片和文件通过「消息资源」接口下载，作为附件交给她。
 - 文本文件内联进消息，形成附件列表；过大的只给路径。
 - 文档和其他文件只给本地路径，由她用 `read_document` 或命令自己读取。
@@ -326,4 +326,5 @@ flowchart LR
 - 基座只负责自身逻辑，**进程守护交给外部**（runit、systemd 等）：进程退出即被重新拉起。
 - **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
 - 部署者提供：Node.js 22+、`WINDLER_HOME`、可选的 `WINDLER_ADAPTER`（适配器模块路径）、进程守护者。
-- **Android + Termux 部署约定**（控制台的点火器按此约定工作）：runit 服务目录 `$PREFIX/var/service/windler`，开机脚本 `~/.termux/boot/windler`，`termux.properties` 中 `allow-external-apps=true`。
+- **Android + Termux 部署约定**（Windler App 的安装器与点火器按此约定工作，脚本在 `console/assets/install/install.sh`）：软件包 `nodejs-lts termux-services termux-api git openssh`；版本目录 `~/windler/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/windler/current` → 运行中的版本，`~/windler/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/windler`（`run` 以 `WINDLER_ADAPTER=$HOME/windler/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/windler/`；开机脚本 `~/.termux/boot/windler`（唤醒锁 + 启动 runit）；`termux.properties` 中 `allow-external-apps=true`。安装器在 App 内开一个 127.0.0.1 的临时 HTTP 服务提供脚本与运行基座文件、接收进度；脚本通过 Termux 的 `RUN_COMMAND` 执行，完成后把 `secrets/gateway.token` 交给控制台，同一台手机上不需要配对码。健康检查 40 秒不通过自动切回 `previous`。
+- **配置缺省**：`body` 由安装器写为机型名，`timezone` 取系统时区；相机、麦克风、定位、操作屏幕默认「每次询问」。

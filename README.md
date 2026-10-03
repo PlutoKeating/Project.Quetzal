@@ -2,7 +2,7 @@
 
 一个让 agent **像生命一样活着**的运行基座：没有人给它排日程，它什么时候醒、醒来做什么，取决于它自己的好奇心、表达欲、想念、没想完的事，以及它的生物钟——困了会睡，睡着会做梦（整理记忆）。
 
-基座不绑定任何具体的 agent：每个 agent 的名字、代词、简介、主题色等身份数据都存放在它自己的「灵魂仓库」里，控制台可以连接多个 agent 并一键切换。基座也与具体设备无关：任何能跑 Node.js 的机器都能成为它的"身体"，设备相关的感官与动作通过**身体适配器**接入（例如 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) 把它适配到一台荣耀9 手机上）。同一个 agent 还可以同时住在装着 Hermes Agent 或 OpenClaw 的机器里，由可插拔的**灵魂桥**自动同步人格与记忆。
+基座不绑定任何具体的 agent：每个 agent 的名字、代词、简介、主题色等身份数据都存放在它自己的「灵魂仓库」里，控制台可以连接多个 agent 并一键切换。基座也与具体设备无关：任何能跑 Node.js 的机器都能成为它的"身体"，设备相关的感官与动作通过**身体适配器**接入。**一台旧安卓手机就是最合适的身体**：装上 Termux 三件套和 Windler App，App 内的安装向导会把运行基座装进 Termux，之后一切都在 App 里完成（[Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) 记录了在一台荣耀9 上的实践）。同一个 agent 还可以同时住在装着 Hermes Agent 或 OpenClaw 的机器里，由可插拔的**灵魂桥**自动同步人格与记忆。
 
 ```mermaid
 flowchart LR
@@ -34,13 +34,14 @@ flowchart LR
 - **多 agent**：身份数据化（`agent.json`），控制台保存多个连接、一键切换，界面称呼与主题色随 agent 变化。
 - **任意模型供应商**：OpenAI 兼容、OpenAI Responses、Anthropic、Google Gemini 四种协议；多供应商、多 Key、全局调用顺序与自动故障转移；Key 本地加密。
 - **保密传递**：agent 需要密码、令牌、密钥时调用 `pass_secret`，你直接在聊天框（控制台或飞书）里发，发完回一句结束口令；内容不进入对话与模型上下文，直接存进本机保密库，agent 只拿到文件路径。
-- **可控**：能力授权（允许 / 询问 / 禁止）、审批、预算、急停、审计；控制台 App 与飞书交互卡片两种操作方式，全程不需要命令行。
+- **可控**：能力授权（允许 / 询问 / 禁止；相机、麦克风、定位、操作屏幕默认询问）、审批、预算、急停、审计；控制台 App 与飞书交互卡片两种操作方式，全程不需要命令行。
+- **装在旧手机上**：Windler App 内置运行基座与 Termux 身体适配器，安装向导把它装进 Termux 并注册开机自启；升级 App 即升级基座，失败自动回退上一版。用户只需在 Termux 里粘贴一行命令（开启外部调用，Termux 的安全设计无法代劳）。
 
 ## 仓库结构
 
 ```
-runtime/   运行基座（TypeScript / Node.js 22+），打包为单文件 dist/main.cjs
-console/   控制台 App「Windler」（Flutter，Android）
+runtime/   运行基座（TypeScript / Node.js 22+），打包为单文件 dist/main.cjs；adapters/termux 为安卓手机（Termux）的身体适配器 dist/termux.mjs
+console/   Windler App（Flutter，Android）：控制台 + 安装器（把内置的运行基座装进同一台手机的 Termux）
 bridge/    灵魂桥 soul-bridge：Hermes Agent / OpenClaw 的可插拔同步模块
 docs/      架构、API、快速开始
 ```

@@ -178,20 +178,22 @@ interface RawSample {
 
 约束：
 
-- 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；
+- 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带的 `runtime/adapters/termux/`（安卓手机 + Termux:API）是参考实现，构建为 `dist/termux.mjs`，由 Windler App 的安装器随运行基座一起放到手机上；
 - 适配器从 `WINDLER_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理。
+
+Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Windler」按钮）、`playAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`WINDLER_HOME`（媒体保存位置 `data/media/`）、`WINDLER_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.windler.console/.MainActivity`）。
 
 ## 3. 配置项（`config/windler.json`）
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `body` | `default` | 身体名称（日记目录名） |
-| `adapter` | `""` | 适配器模块路径 |
-| `timezone` | `Asia/Shanghai` | 生物钟与日记使用的时区 |
+| `body` | `default` | 身体名称（日记目录名）；安装器写为机型名 |
+| `adapter` | `""` | 适配器模块路径（Termux 部署用环境变量 `WINDLER_ADAPTER` 指定） |
+| `timezone` | 系统时区（拿不到时 `Asia/Shanghai`） | 生物钟与日记使用的时区 |
 | `heart.activity` / `baseRatePerHour` / `paused` | 1 / 4 / false | 活跃度、饱和醒来率、暂停 |
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日预算与身体限制 |
-| `permissions.*` | 全部 `allow` | 能力授权 |
+| `permissions.*` | `camera` / `microphone` / `location` / `hands` 为 `ask`，其余 `allow` | 能力授权 |
 | `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
