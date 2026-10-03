@@ -59,3 +59,7 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("com.github.gkonovalov.android-vad:webrtc:2.0.10") // WebRTC VAD（MIT）：听觉的断句，纯 Kotlin，无模型文件
+}

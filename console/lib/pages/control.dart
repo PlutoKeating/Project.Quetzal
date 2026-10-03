@@ -10,6 +10,8 @@ import '../widgets.dart';
 import 'providers.dart';
 import 'agents.dart';
 import 'setup.dart';
+import 'tools.dart';
+import 'hearing.dart';
 import '../installer.dart';
 
 class ControlPage extends ApiWidget {
@@ -28,6 +30,7 @@ class ControlPage extends ApiWidget {
       header('日常'),
       item(Icons.self_improvement, '自主性', '活跃度 ${s['activity'] ?? 1}× · ${s['paused'] == true ? '已暂停' : '进行中'}', const AutonomyPage()),
       item(Icons.gavel, '审批', '${api.approvals.length} 个待处理', const ApprovalsPage(), badge: api.approvals.length),
+      item(Icons.handyman, '工具', '她自己造的工具与技能文档：查看、停用、删除', const ToolsPage()),
       header('安全'),
       item(Icons.verified_user, '能力授权', '她能做什么、需要问你什么', const PermissionsPage()),
       item(Icons.savings, '预算', '今日 ${(s['usage'] as Map?)?['tokens'] ?? 0} tokens', const BudgetPage()),
@@ -37,6 +40,7 @@ class ControlPage extends ApiWidget {
       item(Icons.hub, '模型', '${(s['models'] as List?)?.length ?? 0} 个可用模型 · 供应商、Key 与顺序', const ProvidersPage()),
       item(Icons.send, '飞书', '一键扫码接入，在飞书里和她说话', const FeishuPage()),
       item(Icons.record_voice_over, '语音', 'Azure 语音：她的声音、音色与风格（她自己也可以调）', const VoicePage()),
+      item(Icons.hearing, '听觉', (s['hearing'] as Map?)?['enabled'] == true ? ((s['hearing'] as Map)['listening'] == true ? '开着：这台手机在听' : '开着，此刻没在听') : '关着 · 让她用麦克风听你说话', const HearingPage()),
       item(Icons.cloud_sync, '灵魂同步', '与其他身体共享人格与记忆', const SoulPage()),
       item(Icons.history, '记忆历史', '每一次变更来自哪具身体，可查看与撤销', const HistoryPage()),
       header('运维'),

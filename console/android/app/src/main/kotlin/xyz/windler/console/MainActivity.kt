@@ -8,6 +8,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 /**
@@ -15,12 +16,35 @@ import io.flutter.plugin.common.MethodChannel
  *  - run：通过 Termux 的 RUN_COMMAND 接口在 Termux 里后台执行一个程序（点火、安装器）。
  *    需要 Termux 的 ~/.termux/termux.properties 中 allow-external-apps=true，并授予本应用 RUN_COMMAND 权限。
  *  - 三件套检测、打开应用、系统的电池优化 / 各厂商自启动管理页（保活引导）。
+ * 听觉桥（MethodChannel windler/hearing + EventChannel windler/hearing/events）：启停耳朵（HearingService）、麦克风权限、服务事件。
  */
 class MainActivity : FlutterActivity() {
     private val perm = "com.termux.permission.RUN_COMMAND"
+    private var hearingSink: EventChannel.EventSink? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "windler/hearing").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "hasPermission" -> result.success(checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+                "requestPermission" -> {
+                    val wanted = mutableListOf(android.Manifest.permission.RECORD_AUDIO)
+                    if (android.os.Build.VERSION.SDK_INT >= 33) wanted.add("android.permission.POST_NOTIFICATIONS")
+                    requestPermissions(wanted.toTypedArray(), 2); result.success(null)
+                }
+                "start" -> { HearingService.start(this, call.argument<String>("base")!!, call.argument<String>("token")!!, call.argument<Int>("sensitivity") ?: 2); result.success(true) }
+                "stop" -> { HearingService.stop(this); result.success(true) }
+                "isRunning" -> result.success(HearingService.running)
+                else -> result.notImplemented()
+            }
+        }
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "windler/hearing/events").setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(args: Any?, sink: EventChannel.EventSink) {
+                hearingSink = sink
+                HearingService.listener = { kind, data -> hearingSink?.success(mapOf("kind" to kind) + data) }
+            }
+            override fun onCancel(args: Any?) { hearingSink = null; HearingService.listener = null }
+        })
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "windler/igniter").setMethodCallHandler { call, result ->
             when (call.method) {
                 "packageVersion" -> result.success(version(call.argument<String>("pkg")!!))

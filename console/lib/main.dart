@@ -12,6 +12,7 @@ import 'pages/pairing.dart';
 import 'pages/agents.dart';
 import 'pages/setup.dart';
 import 'installer.dart';
+import 'hearing.dart';
 
 /// 暗色模式的背景：固定 RGB(32,32,32)，与主题色无关。
 const darkBackground = Color(0xFF202020);
@@ -20,6 +21,7 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   api.init();
   wakes.start(); // 跟踪她正在进行的醒来（首页与心流页的只读入口）
+  hearing.start(); // 耳朵：跟随基座的听觉开关启停本机的麦克风前台服务
   runApp(const ConsoleApp());
 }
 

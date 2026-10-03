@@ -2,6 +2,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 听觉：常驻麦克风前台服务（Android 9 起后台拿不到麦克风；10+ 要声明 microphone 类型；14+ 要 FOREGROUND_SERVICE_MICROPHONE；13+ 显示前台通知要 POST_NOTIFICATIONS） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="Windler"
         android:usesCleartextTraffic="true"
@@ -29,6 +34,10 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".HearingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

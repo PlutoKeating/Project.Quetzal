@@ -113,7 +113,7 @@ class _IdentityPageState extends State<IdentityPage> {
           Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: TextField(controller: f[e.key], decoration: InputDecoration(labelText: e.value, border: const OutlineInputBorder()))),
         const Text('主题色'),
         Wrap(spacing: 8, children: [
-          for (final c in _palette)
+          for (final c in [..._palette, if (!_palette.contains(color.toUpperCase()) && !_palette.contains(color)) color]) // 她自己选的颜色（edit_identity）也显示出来
             ChoiceChip(
               label: const SizedBox(width: 16, height: 16),
               avatar: CircleAvatar(backgroundColor: Color(int.parse('FF${c.substring(1)}', radix: 16))),

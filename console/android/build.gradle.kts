@@ -2,6 +2,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") } // android-vad（听觉的语音活动检测）
     }
 }
 

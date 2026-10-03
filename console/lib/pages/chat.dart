@@ -362,6 +362,7 @@ class _ChatPageState extends State<ChatPage> {
   static String _size(num n) => n >= 1048576 ? '${(n / 1048576).toStringAsFixed(1)} MB' : '${max(1, (n / 1024).round())} KB';
 
   Widget _message(BuildContext context, Map m, ColorScheme cs) {
+    if (m['role'] == 'ambient') return _ambient(context, m, cs);
     final me = m['role'] == 'user';
     final process = (m['process'] as List?)?.cast<Map>() ?? const [];
     final atts = (m['attachments'] as List?)?.cast<Map>() ?? const [];
@@ -372,6 +373,16 @@ class _ChatPageState extends State<ChatPage> {
       if (me && modes[m['mode']] != null) Text('${modes[m['mode']]!.$1} · 在她工作时发送', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
     ]);
   }
+
+  /// 环境声音：麦克风听到并识别的话。不是对方发的消息，也不是她的话——居中、安静地显示，她的回应（如果有）紧随其后。
+  Widget _ambient(BuildContext context, Map m, ColorScheme cs) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 24),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.hearing, size: 14, color: cs.outline),
+          const SizedBox(width: 6),
+          Flexible(child: Text('${m['text']}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
+        ]),
+      );
 
   Widget _attachments(BuildContext context, List<Map> atts, bool me, ColorScheme cs) {
     final images = atts.where((a) => a['kind'] == 'image' && a['rel'] != null).toList();

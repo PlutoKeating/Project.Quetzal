@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../markdown.dart';
 import '../widgets.dart';
+import '../hearing.dart';
 import 'sessions.dart';
 import 'wake.dart';
 
@@ -10,7 +11,7 @@ class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(listenable: Listenable.merge([api, wakes]), builder: (c, _) => view(c));
+  Widget build(BuildContext context) => ListenableBuilder(listenable: Listenable.merge([api, wakes, hearing]), builder: (c, _) => view(c));
 
   Widget view(BuildContext context) {
     final h = api.heart, d = (h['drives'] as Map?) ?? {}, p = api.physical;
@@ -25,6 +26,12 @@ class HomePage extends StatelessWidget {
         const SizedBox(height: 8),
         Center(child: Orb(mode: mode, alertness: ((h['alertness'] ?? 0.5) as num).toDouble())),
         Text(label, textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
+        if ((api.status['hearing'] as Map?)?['enabled'] == true) // 耳朵开着：克制的「在听」标记，有人说话的瞬间亮起
+          Padding(padding: const EdgeInsets.only(top: 2), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(Icons.hearing, size: 13, color: hearing.speaking ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline),
+            const SizedBox(width: 4),
+            Text(hearing.running ? (hearing.speaking ? '听到了' : '在听') : '耳朵没开', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: hearing.speaking ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline)),
+          ])),
         if (thought != null && '${thought['text'] ?? ''}'.isNotEmpty) // 她想分享的一句话，由她自己维护（share_thought）
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 8, 28, 4),
