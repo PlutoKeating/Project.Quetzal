@@ -62,9 +62,6 @@ export default function Download() {
             const latest = pickLatest(state.releases);
             if (!latest) return <EmptyBlock label={t.state.empty} go={t.state.goToReleases} />;
             const apk = findAsset(latest, "apk");
-            const runtime = findAsset(latest, "runtime");
-            const sums = findAsset(latest, "checksums");
-            const others = latest.assets.filter((a) => a.kind === "other");
             const totalDownloads = latest.assets.reduce((s, a) => s + a.downloadCount, 0);
             return (
               <Card className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between lg:gap-10">
@@ -85,11 +82,6 @@ export default function Download() {
                   ) : (
                     <p className="text-sm text-fg-muted">{t.latest.noApk}</p>
                   )}
-                  {runtime && <AssetButton asset={runtime} label={t.latest.downloadRuntime} variant="secondary" lang={lang} />}
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                    {sums && <ExternalLink href={sums.url}>{t.latest.checksums}</ExternalLink>}
-                    {others.length > 0 && <span className="text-fg-subtle">{t.latest.otherAssets}: {others.map((a, i) => (<span key={a.name}>{i > 0 && ", "}<ExternalLink href={a.url}>{a.name}</ExternalLink></span>))}</span>}
-                  </div>
                 </div>
               </Card>
             );
