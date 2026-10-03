@@ -11,8 +11,8 @@ src/
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时、输出上限）；后台任务（可随时停止整个进程组）
 ├── voice/
-│   ├── azure.ts          语音：Azure 文本转语音（SSML、合成、音色列表、配置与密钥）与语音识别（短语音 REST，端点由区域或 TTS 端点推导）
-│   └── hearing.ts        听觉：/hear 送来的一句话 → 识别 → 挑会话（windowMin 窗口）→ 以环境声音交给 brain.converse；她自己说话期间丢弃；听觉状态（开关、急停、电量、温度）
+│   ├── azure.ts          语音：Azure 文本转语音（SSML、合成、音色列表、配置与密钥）与语音识别（官方 SDK 推流的流式识别 recognizeStream；短语音 REST 的 recognize 兜底）
+│   └── hearing.ts        听觉：/hear 送来的一句话（流式 PCM 或整句 WAV）→ 识别（中间结果经 hearing 事件推送）→ 挑会话（windowMin 窗口）→ 以环境声音交给 brain.converse，她的取舍（kept / ignored）推给控制台；她自己说话期间丢弃；听觉状态（开关、急停、电量、温度）
 ├── crypto.ts             供应商 Key 的 AES-256-GCM 加密
 ├── version.ts            版本号
 ├── ops.ts                统一操作层：网关与飞书共用，修改类操作全部审计

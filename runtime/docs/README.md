@@ -8,7 +8,7 @@ TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），
 | `npm run build` | 类型检查 + esbuild 打包（`dist/main.cjs` 与 `dist/termux.mjs`） |
 | `npm run dev` | 以 `./.dev` 为家目录直接运行源码 |
 
-运行时依赖只有三个：`ws`（网关）、`@larksuiteoapi/node-sdk`（飞书长连接、交互卡片、一键创建机器人）与 `jpeg-js`（纯 JS 的 JPEG 编解码：手机上没有 ffmpeg / ImageMagick 时也能把大照片缩小后交给模型）。
+运行时依赖只有四个：`ws`（网关）、`@larksuiteoapi/node-sdk`（飞书长连接、交互卡片、一键创建机器人）、`jpeg-js`（纯 JS 的 JPEG 编解码：手机上没有 ffmpeg / ImageMagick 时也能把大照片缩小后交给模型）与 `microsoft-cognitiveservices-speech-sdk`（听觉的流式识别：裸 WebSocket 协议的社区实现都已弃用，官方 SDK 是 Node 下的标准做法，打包后约 1 MB）。
 
 环境变量：`WINDLER_HOME`（家目录，默认 `~/windler`）、`WINDLER_ADAPTER`（身体适配器模块路径）。
 
