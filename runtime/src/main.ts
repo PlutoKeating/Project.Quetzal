@@ -14,6 +14,7 @@ import { startFeishu, wireFeishu } from "./channels/feishu.ts";
 import { bus } from "./bus.ts";
 import { log } from "./log.ts";
 import { VERSION } from "./version.ts";
+import { restore as restoreAgents } from "./mind/agents.ts";
 
 /** 熔断：10 分钟内启动超过 5 次（说明在反复崩溃）则进入安全模式——只开网关与飞书，不醒来、不调用模型。 */
 function crashGuard(): boolean {
@@ -29,6 +30,7 @@ function crashGuard(): boolean {
 async function main() {
   loadConfig();
   openStore();
+  restoreAgents(); // 上次还在跑的子 agent 已随进程消失，标为中断
   const safeMode = crashGuard();
   log("main", `运行基座 ${VERSION} 启动（身体：${config.body}，家目录：${paths.home}）${safeMode ? " —— 安全模式" : ""}`);
   process.on("unhandledRejection", (e: any) => log("main", `未处理的异常：${e?.stack ?? e}`));

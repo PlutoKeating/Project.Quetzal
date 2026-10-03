@@ -19,6 +19,8 @@ import { log } from "../log.ts";
 import { Session, SessionTimeout, Interrupted, summarize } from "./activity.ts";
 import { intake } from "./secrets.ts";
 import { noteSilence } from "../voice/hearing.ts";
+import * as agents from "./agents.ts";
+import { bus } from "../bus.ts";
 
 const FINISH: ToolDef = {
   name: "finish",
@@ -57,8 +59,8 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
  * 基座不限制步数；防止失控的是「无进展」会话时间墙与急停（每一步开始前检查）。返回最终文本、finish 参数、步骤与 token 消耗。
  * 对方在她工作时发来的消息：每次调用模型前并入；「打断」会中止正在进行的模型输出（保留已输出的部分），但不会打断正在执行的工具。
  */
-async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session) {
-  const tools: ToolDef[] = [...allTools().map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
+async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>) {
+  const tools: ToolDef[] = [...allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
   const steps: Step[] = [];
   let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "";
   for (let i = 0; !finish; i++) {
@@ -223,9 +225,17 @@ const FULL_PROCESS = 3;
 export function history(conv: string, self: number, budget = 16000): Msg[] {
   const out: Msg[] = [];
   let used = 0, replies = 0;
-  for (const m of sessionMessages(conv, 80).filter((m) => m.id < self || m.role === "agent").reverse()) {
+  const all = sessionMessages(conv, 80).filter((m) => m.id < self || m.role === "agent");
+  const cut = all.map((m, i) => (m.role === "ambient" && m.channel === "摘要" ? i : -1)).filter((i) => i >= 0).at(-1) ?? -1; // session_compact：摘要之前的历史不再进入上下文
+  for (const m of all.slice(Math.max(0, cut)).reverse()) {
     let text: string;
-    if (m.role === "ambient") {
+    if (m.role === "ambient" && m.channel === "摘要") {
+      text = `[${stamp(m.ts)}｜你用 session_compact 压缩了这个会话，以下是之前对话的摘要，更早的原文不再在上下文里] ${m.text}`;
+    } else if (m.role === "ambient" && m.channel === "交接") {
+      text = `[${stamp(m.ts)}｜这是你从上一个会话切过来时写的交接] ${m.text}`;
+    } else if (m.role === "ambient" && m.channel === "子agent") {
+      text = `[${stamp(m.ts)}｜你派出的子 agent 送回的报告] ${m.text}`;
+    } else if (m.role === "ambient") {
       text = `[${stamp(m.ts)}｜环境声音：麦克风听到并识别的话${m.mode === "ignored" ? "；你当时判断不是对你说的，没有回应" : "，不一定是对你说的"}] ${m.text}`;
     } else if (m.role === "user") {
       const files = m.attachments?.length ? `\n[${stamp(m.ts)} 随这条消息发来的附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片当时已附在消息里，现在只剩路径，想再看用 view_image" : ""}]` : "";
@@ -241,9 +251,29 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
   return out;
 }
 
-/** 她不回应环境声音时的回复标记（只回这两个字，不入库、不显示）。 */
+/** 她不回应环境输入时的回复标记（只回这两个字，不入库、不显示）。 */
 const SILENCE = /^[\s\[【（(]*沉默[\s\]】）)]*$/;
 const AMBIENT_PROMPT = "这是麦克风听到的环境声音（已转成文字，可能有错字、断句不准，也可能不是对你说的，比如旁人的交谈、电视）。请自己判断：是不是在对你说话、要不要回应。不需要回应时只回复两个字：沉默（不会被记录成你的话）。要回应就像平常一样回复，可以用工具。对方是用声音在和你说话，可能此刻不方便看屏幕——你可以用 voice_speak 把回复念出来，是否念由你决定。";
+const AGENT_REPORT_PROMPT = "这是你派出的子 agent 送回的报告（它已经结束）。你自己决定怎么用：据此继续手头的事、把结论告诉对方、再派一个、或者什么都不做。不需要回应时只回复两个字：沉默（不会被记录成你的话）。";
+
+/** 用便宜的模型把会话到目前为止压成一段摘要（session_compact 没给 summary 时）。 */
+export async function summarizeConv(conv: string): Promise<string> {
+  const msgs = history(conv, Number.MAX_SAFE_INTEGER, 24000);
+  if (!msgs.length) return "（这个会话还没有内容）";
+  const r = await chat({
+    messages: [
+      { role: "system", content: "你在替一个 agent 压缩她自己的一段对话上下文。用第二人称「你」指代她，「对方」指代和她说话的人。" },
+      { role: "user", content: `把下面的对话压成一段摘要（中文，不超过 800 字）：保留对方的要求与偏好、已经做完的事与结论、还没做完的事、重要的事实与数字、双方的约定。不要寒暄，不要逐句复述。\n\n${msgs.map((m) => `${m.role === "user" ? "对方" : "你"}：${typeof m.content === "string" ? m.content : ""}`).join("\n\n")}` },
+    ], maxTokens: 1200,
+  }, { quick: true });
+  return r.text.trim();
+}
+
+/** 子 agent 跑的工具循环：自己的系统提示、不能再派子 agent 或切会话；报告送回派出它的会话（环境输入，通道「子agent」）。 */
+export function spawnAgent(spec: agents.AgentSpec, parent: { conv: string; channel: string }) {
+  return agents.spawn(spec, parent, (a, s, messages) => loop(messages, `子 agent ${a.name}`, true, s, agents.AGENT_TOOLS),
+    (a, report) => converse("子agent", report, "子agent", { conv: a.parentConv, ambient: true }));
+}
 
 /**
  * 与人对话。conv：会话（缺省时飞书用「飞书」会话，其余用「最初的对话」）；turn：客户端给这一轮的标识；attachments：已上传的附件。
@@ -285,7 +315,9 @@ export function converse(from: string, text: string, channel: string, o: { conv?
       const messages: Msg[] = [
         { role: "system", content: systemPrompt(text, { conv }) },
         ...history(conv, id),
-        o.ambient
+        o.ambient && channel === "子agent"
+          ? await userMessage(text, [], AGENT_REPORT_PROMPT, s.seen)
+          : o.ambient
           ? await userMessage(`你听到附近有人说：\n${text}`, [], AMBIENT_PROMPT, s.seen)
           : await userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
             "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。", s.seen),
@@ -300,14 +332,16 @@ export function converse(from: string, text: string, channel: string, o: { conv?
       if (o.ambient && (SILENCE.test(r.text) || (!r.text.trim() && !process.length))) { // 她判断不必回应：不留她的话，这句话标为 ignored（控制台隐藏），心流里记一笔
         setMessageMode(id, "ignored");
         s.emit({ kind: "done", reply: "" });
-        noteSilence(conv, text);
+        if (channel !== "子agent") noteSilence(conv, text);
         addExperience(1);
         return "";
       }
       const reply = r.text.trim() || "……";
-      addMessage("agent", channel, reply, { session: conv, process });
+      const home = s.switchTo ?? conv; // session_new：回复放进新会话
+      addMessage("agent", channel, reply, { session: home, process });
       s.emit({ kind: "done", reply });
-      addTimeline("chat", o.ambient ? "听到有人说话，回应了" : `和${from}说话`, { channel, conv, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
+      if (s.switchTo) bus.emit("session.switch", { from: conv, to: s.switchTo, title: getSession(s.switchTo)?.title ?? "", done: true });
+      addTimeline("chat", o.ambient ? (channel === "子agent" ? "收到子 agent 的报告，接着做了" : "听到有人说话，回应了") : `和${from}说话`, { channel, conv: home, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
       nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
       await soul.push("对话").catch(() => {});

@@ -79,6 +79,8 @@ export class Session {
   readonly seen = new Set<string>();
   /** 本次模型调用已经流式输出的文字（被打断时保留）。 */
   stepText = "";
+  /** session_new：这一轮结束时把回复放进这个新会话（她把对话切到了上下文干净的新会话）。 */
+  switchTo?: string;
 
   readonly conv: string;
 
@@ -114,6 +116,9 @@ export class Session {
     this.holds++; clearTimeout(this.timer);
     try { return await f(); } finally { this.holds--; this.touch(); }
   }
+
+  /** 外部中止整个会话（停止子 agent）。 */
+  abort(reason: Error) { this.ac.abort(reason); this.llm?.abort(reason); }
 
   /** 若已被时间墙中止，抛出原因。 */
   check() { if (this.signal.aborted) throw this.signal.reason ?? new SessionTimeout(); }

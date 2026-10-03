@@ -59,7 +59,7 @@ export const defaults: Config = {
   // 相机、麦克风、定位、操作屏幕默认「每次询问」：新装的用户先看见她想做什么，再决定放开；其余默认允许
   permissions: {
     network: "allow", shell: "allow", device: "allow", camera: "ask", microphone: "ask",
-    location: "ask", message: "allow", self_modify: "allow", memory: "allow", hands: "ask", secret: "allow",
+    location: "ask", message: "allow", self_modify: "allow", memory: "allow", hands: "ask", secret: "allow", session: "allow",
   },
   brain: { maxOutputTokens: 4096 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },

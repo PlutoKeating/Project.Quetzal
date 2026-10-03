@@ -14,7 +14,8 @@ export interface Events {
   secret: [e: SecretEvent]; // 保密输入（pass_secret）的开始、进展与结束，由各通道提醒对方
   hearing: [e: HearingEvent]; // 听觉：一句话的中间结果、最终结果与她的取舍（控制台据此流式显示、保留或隐藏）
   speaking: [e: { until: number }]; // 她在说话（播放合成语音）到 until 为止，给界面用；说完或被插嘴时 until 提前到现在
-  speak: [e: { id: string; url: string; text: string; ms: number }]; // 让控制台 App 播放一段合成语音（走通话路径，耳朵有回声消除）；App 播完或被插嘴后回报 player.done
+  speak: [e: { id: string; url: string; text: string; ms: number }];
+  "session.switch": [e: { from: string; to: string; title: string; done?: boolean }]; // 她用 session_new 把对话切到新会话：控制台跟着切；done 为真表示回复已放进新会话 // 让控制台 App 播放一段合成语音（走通话路径，耳朵有回声消除）；App 播完或被插嘴后回报 player.done
 }
 /**
  * 听觉事件（见 voice/hearing.ts）。partial：识别中的文字；final：这句话识别完成并进入会话（conv）；dropped：没进会话（太短、没听清、她自己在说话……）；
@@ -24,7 +25,7 @@ export interface HearingEvent { id: string; status: "partial" | "final" | "dropp
 export interface TimelineEntry { id: number; ts: number; kind: string; title: string; detail: unknown }
 /** 会话进展事件（见 mind/activity.ts）。 */
 export interface Activity {
-  session: string; conv: string; origin: "chat" | "think" | "dream"; channel: string; ts: number; // session：这一轮的标识；conv：所属会话（醒来为空）
+  session: string; conv: string; origin: "chat" | "think" | "dream" | "agent"; channel: string; ts: number; // session：这一轮的标识；conv：所属会话（醒来为空；子 agent 为派出它的会话）
   kind: "start" | "queued" | "step" | "delta" | "text" | "tool" | "steer" | "alive" | "done" | "error";
   step?: number; text?: string; final?: boolean; // step：第几步；delta / text：流式片段 / 该步完整文字（final：是否为最终回复）
   call?: string; name?: string; summary?: string; status?: "running" | "ok" | "error" | "denied"; ms?: number; result?: string; // 工具

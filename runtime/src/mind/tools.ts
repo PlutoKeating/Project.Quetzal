@@ -23,7 +23,10 @@ import { identity, setIdentity } from "../memory/identity.ts";
 import * as soul from "../memory/soul-sync.ts";
 import * as hearing from "../voice/hearing.ts";
 import * as player from "../voice/player.ts";
-import { addTimeline } from "../store.ts";
+import * as agents from "./agents.ts";
+import { ensureSession, getSession, kv } from "../store.ts";
+import crypto from "node:crypto";
+import { addTimeline, addMessage } from "../store.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -300,6 +303,75 @@ const core: Tool[] = [
       if (a.skill === true) await soul.push(`删除技能：${a.name}`).catch(() => {});
       return r;
     },
+  },
+  // ---------- 会话与子 agent：由她自己决定要不要、什么时候、怎么用
+  {
+    name: "session_new", permission: "session",
+    description: "把当前对话切到一个上下文干净的新会话（相当于对方发 /new）：你这一轮的回复会落在新会话里，对方接下来的话也都在新会话里；旧会话原样保留，可在控制台找回。适合话题彻底换了、或上下文又长又乱、想重新开始的时候。handoff 是你写给新会话里的自己的交接（可选）：把需要带过去的要点写进去，它会作为新会话的第一条记录出现在你眼前；不写则什么都不带。只能在对话中调用。",
+    parameters: obj({ title: str("新会话的标题（可选，不写则由第一句话决定）"), handoff: str("交接要点（可选，Markdown）") }),
+    handler: async (a, ctx) => {
+      const s = ctx.session;
+      if (s?.origin !== "chat" || !s.conv) return "session_new 只能在对话中调用";
+      if (s.switchTo) return `这一轮已经切到新会话 ${s.switchTo} 了`;
+      const conv = s.channel === "飞书" ? `feishu-${Date.now().toString(36)}` : crypto.randomUUID();
+      const title = String(a.title ?? "").trim() || "新的对话";
+      ensureSession(conv, title, s.channel);
+      if (s.channel === "飞书") kv.set("feishu.conv", conv);
+      if (typeof a.handoff === "string" && a.handoff.trim()) addMessage("ambient", "交接", a.handoff.trim(), { session: conv });
+      s.switchTo = conv;
+      bus.emit("session.switch", { from: s.conv, to: conv, title });
+      addTimeline("session", `切到新会话「${title}」`, { from: s.conv, to: conv, handoff: !!a.handoff });
+      return `已切到新会话「${title}」（${conv}）：你接下来的回复会出现在那里，对方之后的话也在那里。${a.handoff ? "交接已放进去。" : ""}`;
+    },
+  },
+  {
+    name: "session_compact", permission: "session",
+    description: "压缩当前会话的上下文（相当于 /compact）：之后你只看到这段摘要和它之后的新内容，更早的原文不再进入上下文（记录仍完整保留，对方在控制台能看到）；对话仍在当前会话继续。适合会话很长、很多内容已经没用、或你发现自己快记不住前面的要点时。summary 由你自己写（你眼前有全部上下文，知道什么重要）；不写则由基座用快速模型代写。只能在对话中调用。",
+    parameters: obj({ summary: str("摘要（可选，Markdown）：对方的要求与偏好、做完的事与结论、没做完的事、关键事实与约定") }),
+    handler: async (a, ctx) => {
+      const s = ctx.session;
+      if (s?.origin !== "chat" || !s.conv) return "session_compact 只能在对话中调用";
+      const { summarizeConv } = await import("./brain.ts");
+      const summary = typeof a.summary === "string" && a.summary.trim() ? a.summary.trim() : await summarizeConv(s.conv);
+      addMessage("ambient", "摘要", summary, { session: s.conv });
+      addTimeline("session", "压缩了当前会话的上下文", { conv: s.conv, chars: summary.length });
+      return `已压缩：从下一轮起，你只会看到这段摘要（${summary.length} 字）和之后的内容。\n\n${summary}`;
+    },
+  },
+  {
+    name: "agent_spawn", permission: "session",
+    description: "派出一个子 agent 在后台替你做一件事（相当于 /assign-agents）：你给它名字、目标，并按需给它人设、领域范围、知识背景与上下文——它不是你，没有你的记忆，只知道你告诉它的。它用自己的系统提示独立跑工具循环（能查资料、执行命令、读文档、记笔记，不能再派子 agent 或切会话），进展对方在控制台能看到，你用 agent_status 看进度与报告、agent_message 跟它说话、agent_stop 停止。做完后它的报告会作为一条环境输入送回这个会话，由你决定怎么用。适合调研、学习一个领域、长时间的后台任务、需要换一个视角的事。可以同时派多个。",
+    parameters: obj({
+      name: str("名字（给它的称呼）"), goal: str("目标：要它做成什么、交付什么"),
+      persona: str("人设（可选）：它是谁、什么风格、什么立场"), scope: str("领域范围（可选）：只管什么、不管什么"),
+      background: str("知识背景（可选）：它应当预先知道的事实、约束、术语"), context: str("上下文（可选）：相关材料、路径、对方说过的话"),
+      maxSteps: { type: "number", description: "最多多少步（可选，缺省不限，由会话时间墙与急停兜底）" },
+    }, ["name", "goal"]),
+    handler: async (a, ctx) => {
+      const s = ctx.session;
+      const { spawnAgent } = await import("./brain.ts");
+      const spec = { name: String(a.name).trim().slice(0, 40), goal: String(a.goal), persona: a.persona, scope: a.scope, background: a.background, context: a.context, maxSteps: a.maxSteps ? Number(a.maxSteps) : undefined };
+      const sub = spawnAgent(spec, { conv: s?.conv || "first", channel: s?.channel || "控制台" });
+      return `已派出「${sub.name}」（id ${sub.id}），在后台开始了。用 agent_status 看进度，agent_message 跟它说话；做完后报告会送回这个会话。`;
+    },
+  },
+  {
+    name: "agent_status", permission: "session",
+    description: "查看子 agent 的进度与报告：不给 id 列出全部（含已完成的），给 id 看那一个的最近动作与完整报告。",
+    parameters: obj({ id: str("子 agent 的 id（可选）") }),
+    handler: async (a) => agents.describe(a.id ? String(a.id) : undefined),
+  },
+  {
+    name: "agent_message", permission: "session",
+    description: "跟进行中的子 agent 说话：补充要求、纠正方向、问它进展。它会在这一步结束后看到并回应（回应出现在它的过程里，用 agent_status 看）。",
+    parameters: obj({ id: str("子 agent 的 id"), text: str("要说的话") }, ["id", "text"]),
+    handler: async (a) => agents.message(String(a.id), String(a.text)),
+  },
+  {
+    name: "agent_stop", permission: "session",
+    description: "停止一个进行中的子 agent（它不会再有报告）。",
+    parameters: obj({ id: str("子 agent 的 id") }, ["id"]),
+    handler: async (a) => agents.stop(String(a.id)),
   },
   {
     name: "hearing_config", permission: "self_modify",

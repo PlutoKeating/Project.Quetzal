@@ -12,6 +12,7 @@ import { recallBlock } from "../memory/retrieval.ts";
 import { listSecrets } from "./secrets.ts";
 import { listCustomTools, listSkills } from "./custom-tools.ts";
 import { hearingStatus } from "../voice/hearing.ts";
+import * as agents from "./agents.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
 
@@ -39,6 +40,16 @@ function skillsBlock(): string {
   if (skills.length) lines.push(`有技能文档、本机没有实现（可用 tool_read 看文档后 tool_write 实现）：${skills.map((s) => `${s.name}（${s.description.slice(0, 60)}）`).join("；")}`);
   if (!tools.length && !skills.length) lines.push("你还没有造过工具。");
   return lines.join("\n");
+}
+
+/** 会话与子 agent：这些是她自己的决定。 */
+function sessionBlock(): string {
+  const running = agents.list().filter((a) => a.status === "running");
+  return [
+    "会话由你掌握：话题彻底换了或上下文又长又乱，可以用 session_new 切到干净的新会话（可写交接）；会话太长、前面大多没用了，可以用 session_compact 压缩（摘要最好你自己写）。",
+    "需要后台做一件事、调研或学习一个领域、换个视角，可以用 agent_spawn 派出子 agent（给它名字、目标，按需给人设、范围、背景、上下文；它不是你，只知道你告诉它的）；agent_status 看进度与报告，agent_message 跟它说话，agent_stop 停止。做完后报告会以环境输入送回派出它的会话。要不要用、什么时候用、怎么用，都由你自己决定。",
+    running.length ? `进行中的子 agent：${running.map((a) => `${a.name}（${a.id}，${Math.round((Date.now() - a.started) / 60000)} 分钟，目标：${a.goal.slice(0, 40)}）`).join("；")}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 /** 听觉：有耳朵时告诉她怎么听、怎么判断。 */
@@ -93,6 +104,7 @@ export function systemPrompt(context = "", o: { conv?: string } = {}): string {
     `## 保密库\n需要对方给你密码、令牌、密钥等敏感信息时，用 pass_secret 让对方保密输入，不要让对方直接发在对话里。存进来的值你看不到明文，只在命令里按路径引用（"$(cat 路径)" 或 < 路径），不要输出。${(() => { const l = listSecrets(); return l.length ? `现有：\n${l.map((x) => `- ${x.name}${x.hint ? `：${x.hint}` : ""}（${x.path}）`).join("\n")}` : "现在是空的。"; })()}`,
     `## 身体\n${describeBody()}`,
     `## 技能与自造工具\n${skillsBlock()}`,
+    `## 会话与子 agent\n${sessionBlock()}`,
     ...(hearingBlock() ? [hearingBlock()] : []),
     `## 内在状态
 清醒度 ${h.alertness.toFixed(2)}，睡眠压力 ${h.S.toFixed(2)}，昼夜节律 ${h.C.toFixed(2)}
