@@ -1,0 +1,103 @@
+# 发版：推送 v<版本> 标签 → 测试并构建运行基座与 App → 创建 GitHub Release。
+# 资产命名（官网下载页按此识别）：
+#   windler-<版本>-android-arm64.apk     Windler App（内置运行基座与 Termux 身体适配器）
+#   windler-runtime-<版本>.tar.gz        运行基座 main.cjs + termux.mjs（部署到其他机器）
+#   SHA256SUMS
+# 发布说明：CHANGELOG.md 里「## <版本>」小节（没有则只用 GitHub 自动生成的提交摘要）。
+# 正式签名：仓库 Secrets 里提供 ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD；
+# 缺任一项则退回 debug 签名（与本地无 key.properties 时一致）。
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验版本号一致（标签 = runtime/package.json = console/pubspec.yaml）
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          RT=$(node -p "require('./runtime/package.json').version")
+          APP=$(sed -n 's/^version: *\([0-9][0-9.]*\).*/\1/p' console/pubspec.yaml)
+          echo "tag=$TAG runtime=$RT app=$APP"
+          [ "$TAG" = "$RT" ] && [ "$TAG" = "$APP" ] || { echo "版本号不一致"; exit 1; }
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: runtime/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.x
+          cache: true
+
+      - name: 构建运行基座并内置进 App（npm ci + test + build）
+        run: console/tool/bundle-runtime.sh
+
+      - name: 写入正式签名（有 Secrets 时）
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KS_B64" | base64 -d > console/android/release.keystore
+          cat > console/android/key.properties <<EOP
+          storeFile=release.keystore
+          storePassword=$KS_PASS
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASS
+          EOP
+
+      - name: 构建 APK（arm64）
+        working-directory: console
+        run: |
+          flutter pub get
+          flutter test
+          flutter build apk --release --target-platform android-arm64
+
+      - name: 打包资产
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p out
+          cp console/build/app/outputs/flutter-apk/app-release.apk "out/windler-$V-android-arm64.apk"
+          tar -czf "out/windler-runtime-$V.tar.gz" -C runtime/dist main.cjs termux.mjs
+          (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+
+      - name: 提取发布说明（CHANGELOG.md 的对应小节）
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            awk -v v="## $V" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md > out/NOTES.md
+          fi
+          [ -s out/NOTES.md ] || : > out/NOTES.md
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Windler ${{ steps.ver.outputs.version }}
+          body_path: out/NOTES.md
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            out/windler-*.apk
+            out/windler-runtime-*.tar.gz
+            out/SHA256SUMS

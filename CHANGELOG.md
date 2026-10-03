@@ -1,0 +1,25 @@
+# 更新日志
+
+每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
+
+## 0.2.1
+
+**首个公开发布版。** Windler 是一个让 agent 像生命一样活着的通用运行基座：非定时的自主醒来、双过程生物钟、身体数字孪生、多身体共享灵魂。
+
+- **装在旧手机上**：Windler App 内置运行基座与 Termux 身体适配器，安装向导把它装进 Termux 并注册开机自启；升级 App 即升级基座，失败自动回退。
+- **Termux 身体适配器**：电量、光线、加速度等传感器按名字探测；通知、TTS、相机、麦克风、定位、剪贴板经 Termux:API。
+- **任意模型供应商**：OpenAI 兼容 / OpenAI Responses / Anthropic / Google Gemini；多 Key、全局顺序与故障转移，Key 本地加密。
+- **可控**：能力授权、审批、预算、急停、审计；控制台 App 与飞书交互卡片两种操作方式。
+- **保密传递** `pass_secret`：密码与令牌不进入对话与模型上下文。
+- **灵魂仓库规范 v4**：私有仓库里 agent 写什么就提交什么，顶层允许它自己放的目录。
+- 缩图在没有 ffmpeg / imagemagick 时用内置 jpeg-js 兜底。
+
+**First public release.** Windler is a general-purpose runtime that lets an agent live like a living being: non-scheduled autonomous waking, a two-process body clock, a digital twin of the body, and a soul shared across bodies.
+
+- **Runs on an old phone**: the Windler app bundles the runtime and the Termux body adapter; its setup wizard installs them into Termux and registers boot start. Upgrading the app upgrades the runtime, with automatic rollback on failure.
+- **Termux body adapter**: battery, light and accelerometer sensors detected by name; notifications, TTS, camera, microphone, location and clipboard through Termux:API.
+- **Any model provider**: OpenAI-compatible, OpenAI Responses, Anthropic and Google Gemini; multiple keys, global ordering and failover, keys encrypted locally.
+- **Under control**: capability permissions, approvals, budgets, emergency stop and audit; operate from the app or from Feishu interactive cards.
+- **Secret passing** via `pass_secret`: passwords and tokens never enter the conversation or the model context.
+- **Soul repository spec v4**: whatever the agent writes into its private repository is committed; top-level directories of its own are allowed.
+- Thumbnails fall back to the bundled jpeg-js when ffmpeg / imagemagick are absent.
