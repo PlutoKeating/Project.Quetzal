@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 控制台：默认主题色改为官网设计系统的琥珀 `#F0A35E`（原蓝紫 `#7C6CF2`）；暗色背景固定为中性灰 `#202020`，不再随主题色偏色；呼吸光团改用当前 agent 的主题色。运行基座与灵魂桥生成的初始身份同步改用该默认色。
+- Console: the default theme color is now the website design system's amber `#F0A35E` (was blue-violet `#7C6CF2`); the dark background is a fixed neutral gray `#202020` that no longer shifts with the theme color; the breathing orb now uses the current agent's theme color. The runtime and the soul bridge generate seed identities with the same default.
 - App 改用正式签名（Release 工作流从仓库 Secrets 读取密钥库）。从 debug 签名的 0.2.1 升级需先卸载再安装；Termux 里的运行基座与数据不受影响。
 - The app is now signed with a release key (the release workflow reads the keystore from repository secrets). Upgrading from the debug-signed 0.2.1 requires uninstalling first; the runtime and data inside Termux are unaffected.
 

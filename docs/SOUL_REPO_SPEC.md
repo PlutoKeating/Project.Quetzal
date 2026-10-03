@@ -83,7 +83,7 @@
   "displayName": "显示名",
   "pronouns": "",
   "description": "",
-  "color": "#7C6CF2",
+  "color": "#F0A35E",
   "language": "zh-CN",
   "createdAt": "2026-09-28T02:00:00.000Z"
 }
