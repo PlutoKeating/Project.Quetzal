@@ -2,6 +2,13 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.3.1
+
+- **会话与子 agent 由她自己掌握**：新内置工具 `session_new`（切到上下文干净的新会话，可写交接，控制台与飞书跟着切）、`session_compact`（压缩当前会话上下文：她自己写摘要或由快速模型代写，之后只看摘要与新内容，对话仍在当前会话继续）、`agent_spawn` / `agent_status` / `agent_message` / `agent_stop`（派出子 agent 在后台做事：她给名字、目标与可选的人设、领域范围、知识背景、上下文，子 agent 用自己的系统提示独立跑工具循环，进展在控制台实时可见，她可随时查看、对话、停止；完成后报告以环境输入送回派出它的会话）。新能力类别「会话与子 agent」，默认允许。
+- **Sessions and sub-agents are the agent's own calls**: new built-in tools `session_new` (switch to a clean new session, optionally with a handoff; the console and Feishu follow), `session_compact` (compress the current session's context: the agent writes the summary or lets the quick model draft it, then only the summary and newer content remain in context while the conversation continues in place), and `agent_spawn` / `agent_status` / `agent_message` / `agent_stop` (dispatch a sub-agent to work in the background: the agent gives it a name, a goal and optional persona, scope, background and context; the sub-agent runs its own tool loop under its own system prompt, its progress is visible live in the console, the agent can inspect, talk to or stop it, and its report comes back into the dispatching session as an ambient input). New capability category "sessions and sub-agents", allowed by default.
+- 发布脚本：运行基座测试失败时在 CI 日志里打印测试输出。
+- Release script: when the runtime tests fail, their output is printed in the CI log.
+
 ## 0.3.0
 
 - **自造工具**：她可以用 `tool_write` 把做熟了的流程写成工具（shell 脚本或 Node 模块），热加载进工具表、经闸门按声明的能力类别检查；实现只在这具身体上（`WINDLER_HOME/tools/`），意图文档以 [Agent Skills](https://agentskills.io/specification) 规范的 `SKILL.md` 进灵魂仓库 `skills/`（规范升到 v5），其他身体（含 Hermes / OpenClaw）可以按文档自己实现。控制台「控制 → 工具」查看、停用、删除。做梦时会回顾重复的流程。
