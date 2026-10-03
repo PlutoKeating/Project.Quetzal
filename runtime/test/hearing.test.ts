@@ -63,7 +63,8 @@ test("识别端点：区域、tts 端点换 stt、自定义子域加 /stt；lang
 test("没开听觉或未配置语音时不听；配置后 listening 为真", async () => {
   assert.equal(hearing.hearingStatus().listening, false);
   assert.deepEqual(hearing.hearingStatus().reasons, ["未开启", "Azure 语音未配置"]);
-  assert.deepEqual(await hearing.hear(wav("你好"), Date.now()), { ok: false, text: "", dropped: "未开启、Azure 语音未配置" });
+  const d = await hearing.hear(wav("你好"), Date.now());
+  assert.deepEqual([d.ok, d.text, d.dropped], [false, "", "未开启、Azure 语音未配置"]);
   voice.setSpeech({ endpoint: azureBase, key: "k-123456" } as any);
   const st = hearing.setHearing({ enabled: true, windowMin: 10, sensitivity: 9, minChars: 2 });
   assert.equal(st.listening, true);
@@ -88,7 +89,8 @@ test("她自己说话期间开始的声音直接丢弃", async () => {
   const f = await voice.synthesize("我说一句");
   hearing.markSpeaking(f); // 6000 字节 @48kbps ≈ 1 秒 + 0.8 秒余量
   assert.ok(hearing.isSpeaking());
-  assert.deepEqual(await hearing.hear(wav("薰你好"), Date.now()), { ok: true, text: "", dropped: "我自己在说话" });
+  const d = await hearing.hear(wav("薰你好"), Date.now());
+  assert.deepEqual([d.ok, d.text, d.dropped], [true, "", "我自己在说话"]);
   assert.equal(store.listSessions().length, 0);
   assert.equal((await hearing.hear(wav("薰你好"), Date.now() + 5000, true)).text, "薰你好"); // 之后开始的正常处理
 });
@@ -125,5 +127,41 @@ test("会话窗口：超过 windowMin 新开会话，窗口为 0 时每句都新
   hearing.setHearing({ windowMin: 10 });
   const latest = store.listSessions()[0].id;
   assert.equal(hearing.pickSession("再说一句"), latest);
-  azure.close(); llm.close();
 });
+
+// ---------- 流式识别（模拟的流式识别器）与她的取舍事件
+test("流式：中间结果随到随推，最终进入会话；她沉默时这句话标为 ignored 且控制台收到 ignored", async () => {
+  const { bus } = await import("../src/bus.ts");
+  const events: any[] = [];
+  bus.on("hearing", (e) => events.push(e));
+  hearing.setStreamFactory((_lang, onPartial) => {
+    let got = 0;
+    return { push: (b) => { got += b.length; if (got === 32000) onPartial("今天"); if (got === 64000) onPartial("今天天气"); }, end: async () => ({ text: "今天天气不错吧", status: "Success" }) };
+  });
+  async function* pcm() { for (let i = 0; i < 4; i++) yield Buffer.alloc(32000); }
+  const r = await hearing.hearStream(pcm(), Date.now() + 5000, "s1", true);
+  assert.equal(r.text, "今天天气不错吧");
+  assert.deepEqual(events.filter((e) => e.id === "s1").map((e) => [e.status, e.text]), [["partial", "今天"], ["partial", "今天天气"], ["final", "今天天气不错吧"], ["ignored", "今天天气不错吧"]]);
+  const m = store.sessionMessages(r.conv!).find((x) => x.text === "今天天气不错吧")!;
+  assert.equal(m.role, "ambient");
+  assert.equal(m.mode, "ignored"); // 她判断不是对她说的：标记后控制台隐藏
+  // 叫到她：kept
+  hearing.setStreamFactory((_lang) => ({ push: () => {}, end: async () => ({ text: "薰，几点了", status: "Success" }) }));
+  await hearing.hearStream(pcm(), Date.now() + 5000, "s2", true);
+  assert.deepEqual(events.filter((e) => e.id === "s2").map((e) => e.status), ["final", "kept"]);
+  assert.equal(store.sessionMessages(r.conv!).find((x) => x.text === "薰，几点了")!.mode, null);
+});
+
+test("流式识别失败或没结果时，用已收到的音频走一次 REST 识别兜底", async () => {
+  hearing.setStreamFactory(() => ({ push: () => {}, end: async () => { throw new Error("socket closed"); } }));
+  async function* pcm() { yield Buffer.concat([Buffer.alloc(32000), Buffer.from("薰在吗兜底")]); }
+  const r = await hearing.hearStream(pcm(), Date.now() + 5000, "s3", true);
+  assert.equal(r.text, "薰在吗兜底"); // 模拟 REST 把 44 字节头之后的文字标记当作识别结果
+  assert.equal(sttHeaders["content-type"], "audio/wav; codecs=audio/pcm; samplerate=16000");
+  hearing.setStreamFactory(() => { throw new Error("SDK 不可用"); }); // 连识别器都建不出来：同样兜底
+  assert.equal((await hearing.hearStream(pcm(), Date.now() + 5000, "s4", true)).text, "薰在吗兜底");
+  async function* short() { yield Buffer.alloc(1000); }
+  assert.match((await hearing.hearStream(short(), Date.now() + 5000, "s5")).dropped!, /太短/);
+});
+
+test("收尾", () => { azure.close(); llm.close(); });

@@ -15,7 +15,7 @@ import { feishuStatus, setFeishu, registerFeishu } from "./channels/feishu.ts";
 import { VERSION } from "./version.ts";
 import { log } from "./log.ts";
 import { adapter } from "./body/twin.ts";
-import { hear } from "./voice/hearing.ts";
+import { hear, hearStream } from "./voice/hearing.ts";
 
 export function gatewayToken(): string {
   let t = readSecret("gateway.token");
@@ -77,9 +77,15 @@ export function startGateway(safeMode: boolean) {
       });
       return;
     }
-    // 听觉：POST /hear?started=<这句话开始的毫秒时刻>，请求体为 16 kHz 单声道 16 位 WAV（控制台 App 的耳朵切好的一句话）
+    // 听觉：POST /hear?started=<这句话开始的毫秒时刻>。stream=1：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输，流式识别，中间结果经 hearing 事件推送）；
+    // 否则请求体为一整句 WAV（一次识别）。两者都来自控制台 App 的耳朵。
     if (req.method === "POST" && req.url?.startsWith("/hear")) {
       if (!authed(req)) return json(res, 401, { ok: false, message: "未授权" });
+      const q = new URL(req.url, "http://x").searchParams;
+      if (q.get("stream") === "1") {
+        try { return json(res, 200, await hearStream(req, Number(q.get("started")) || 0, str64(q.get("id")))); }
+        catch (e: any) { return json(res, 500, { ok: false, message: e.message }); }
+      }
       const chunks: Buffer[] = []; let n = 0, over = false;
       req.on("data", (c: Buffer) => { n += c.length; if (n > 4 << 20) over = true; else chunks.push(c); });
       req.on("end", async () => {
@@ -132,6 +138,7 @@ export function startGateway(safeMode: boolean) {
   bus.on("say", (t) => broadcast("say", t));
   bus.on("activity", (a) => broadcast("activity", a));
   bus.on("secret", (e) => broadcast("secret", e));
+  bus.on("hearing", (e) => broadcast("hearing", e));
 
   server.listen(config.gateway.port, "127.0.0.1", () => log("gateway", `监听 127.0.0.1:${config.gateway.port}`));
 }

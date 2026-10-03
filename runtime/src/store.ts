@@ -90,6 +90,8 @@ export function addMessage(role: Role, channel: string, text: string, o: { sessi
   db.prepare("UPDATE sessions SET updated=?, archived=0 WHERE id=?").run(ts, session); // 有新消息的会话自动回到列表
   return Number(r.lastInsertRowid);
 }
+/** 改一条消息的并入方式标记（ambient 的 ignored：她判断不是对她说的）。 */
+export function setMessageMode(id: number, mode: string | null) { db.prepare("UPDATE messages SET mode=? WHERE id=?").run(mode, id); }
 /** 全部会话里最近的对话（正序）。 */
 export function recentMessages(limit = 20): MessageRow[] {
   return (db.prepare("SELECT * FROM messages ORDER BY id DESC LIMIT ?").all(limit) as any[]).map(rowMessage).reverse();

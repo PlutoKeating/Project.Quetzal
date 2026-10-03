@@ -47,8 +47,10 @@ function fold(a: Activity) {
       if (a.final) t.live = a.text ?? "";
       else { if (a.text?.trim()) t.items.push({ type: "text", text: a.text.trim() }); t.live = ""; }
       break;
-    case "steer": t.msg = a.msg ?? t.msg; break;
-    case "done": case "error": live.delete(a.session); break; // 回复已入库：快照立即移除，客户端取回时不会重复显示 // 进行中的卡片挂到最新并入的那句话下面
+    case "steer": // 插话 / 打断：在过程里打一个标记，前端据此把之前的过程截断在插话消息上方，之后的过程（含正在流式输出的文字）从插话下面重新开出
+      t.items.push({ type: "steer", msg: a.msg, text: a.text ?? "", mode: a.mode, ambient: !!a.ambient });
+      break;
+    case "done": case "error": live.delete(a.session); break; // 回复已入库：快照立即移除，客户端取回时不会重复显示
     case "tool": {
       const item = { type: "tool", call: a.call, name: a.name, summary: a.summary, status: a.status, ms: a.ms, result: a.result };
       const i = t.items.findIndex((x) => x.type === "tool" && x.call === a.call);

@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config, saveConfig, paths, readSecret, writeSecret } from "../config.ts";
+import * as sdk from "microsoft-cognitiveservices-speech-sdk";
 
 export type SpeechConfig = typeof config.speech;
 const KEY = "azure_speech_key";
@@ -86,6 +87,43 @@ export async function recognize(wav: Buffer, language: string): Promise<{ text: 
   const j: any = await res.json().catch(() => ({}));
   const status = String(j.RecognitionStatus ?? "Error");
   return { text: status === "Success" ? String(j.DisplayText ?? "").trim() : "", status };
+}
+
+export interface StreamRecognizer { push(pcm: Buffer): void; end(): Promise<{ text: string; status: string }> }
+
+/** SDK 的 SpeechConfig：区域优先；Azure 的 tts / stt 域名里带区域；其余当作自定义资源端点。 */
+function sdkConfig(c: SpeechConfig, key: string, language: string): sdk.SpeechConfig {
+  const region = c.region || c.endpoint.match(/^https?:\/\/([a-z0-9-]+)\.(?:tts|stt)\.speech\.microsoft\.com/i)?.[1];
+  const sc = region ? sdk.SpeechConfig.fromSubscription(key, region) : sdk.SpeechConfig.fromEndpoint(new URL(c.endpoint.replace(/\/+$/, "")), key);
+  sc.speechRecognitionLanguage = language;
+  sc.setProperty(sdk.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs, "8000");
+  sc.setProperty(sdk.PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs, "1200");
+  sc.setProfanity(sdk.ProfanityOption.Raw);
+  return sc;
+}
+
+/**
+ * 流式识别一句话（官方 SDK，WebSocket 推流）：边 push 16 kHz 单声道 16 位 PCM 边拿到中间结果（onPartial），end 后给最终结果。
+ * 一句话一个会话（recognizeOnceAsync）：App 的耳朵已经按静音切好了句子，这里不做连续识别。
+ */
+export function recognizeStream(language: string, onPartial: (text: string) => void): StreamRecognizer {
+  const c = config.speech, key = need(c);
+  if (!c.region && !c.endpoint) throw new Error("还没有配置 Azure 语音的区域（region）或端点");
+  const push = sdk.AudioInputStream.createPushStream(sdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1));
+  const rec = new sdk.SpeechRecognizer(sdkConfig(c, key, language), sdk.AudioConfig.fromStreamInput(push));
+  rec.recognizing = (_, e) => { if (e.result.text) onPartial(e.result.text); };
+  const done = new Promise<{ text: string; status: string }>((resolve, reject) => {
+    rec.recognizeOnceAsync((r) => {
+      rec.close();
+      if (r.reason === sdk.ResultReason.RecognizedSpeech) resolve({ text: r.text.trim(), status: "Success" });
+      else if (r.reason === sdk.ResultReason.NoMatch) resolve({ text: "", status: "NoMatch" });
+      else reject(new Error(`Azure 流式识别失败：${sdk.CancellationDetails.fromResult(r).errorDetails || r.reason}`));
+    }, (err) => { rec.close(); reject(new Error(`Azure 流式识别失败：${err}`)); });
+  });
+  return {
+    push: (pcm) => push.write(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) as ArrayBuffer),
+    end: () => { push.close(); return done; },
+  };
 }
 
 /** 列出可用音色（可按语言过滤，如 zh-CN）。 */

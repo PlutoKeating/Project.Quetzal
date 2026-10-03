@@ -8,7 +8,7 @@ import { chat } from "../providers/router.ts";
 import type { Msg, ToolDef } from "../providers/types.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemPrompt } from "./prompt.ts";
-import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, type Attachment } from "../store.ts";
+import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, type Attachment } from "../store.ts";
 import { userMessage } from "./attachments.ts";
 import { config } from "../config.ts";
 import * as mem from "../memory/memory.ts";
@@ -207,6 +207,7 @@ export function describeProcess(items: unknown[] | null | undefined, full: boole
   const mark = (s: string) => (s === "ok" ? "✓" : s === "running" ? "…" : "✗");
   const lines = list.map((x) => x.type === "tool"
     ? `${x.name}(${clip(String(x.summary ?? ""), 80)}) ${mark(String(x.status))}${x.result ? ` → ${clip(String(x.result), 100)}` : ""}`
+    : x.type === "steer" ? `（此时${x.ambient ? "听到有人说" : x.mode === "interrupt" ? "对方打断" : "对方插话"}：「${clip(String(x.text ?? ""), 60)}」）`
     : `说：「${clip(String(x.text ?? ""), 100)}」`);
   let out = lines.join("；");
   if (out.length > budget) out = out.slice(0, budget) + `…（共 ${lines.length} 步）`;
@@ -225,7 +226,7 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
   for (const m of sessionMessages(conv, 80).filter((m) => m.id < self || m.role === "agent").reverse()) {
     let text: string;
     if (m.role === "ambient") {
-      text = `[${stamp(m.ts)}｜环境声音：麦克风听到并识别的话，不一定是对你说的] ${m.text}`;
+      text = `[${stamp(m.ts)}｜环境声音：麦克风听到并识别的话${m.mode === "ignored" ? "；你当时判断不是对你说的，没有回应" : "，不一定是对你说的"}] ${m.text}`;
     } else if (m.role === "user") {
       const files = m.attachments?.length ? `\n[${stamp(m.ts)} 随这条消息发来的附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片当时已附在消息里，现在只剩路径，想再看用 view_image" : ""}]` : "";
       text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}] ${m.text}${files}`;
@@ -296,7 +297,8 @@ export function converse(from: string, text: string, channel: string, o: { conv?
       }
       running.delete(conv);
       const process = s.process();
-      if (o.ambient && (SILENCE.test(r.text) || (!r.text.trim() && !process.length))) { // 她判断不必回应：不留她的话，只在心流里记一笔
+      if (o.ambient && (SILENCE.test(r.text) || (!r.text.trim() && !process.length))) { // 她判断不必回应：不留她的话，这句话标为 ignored（控制台隐藏），心流里记一笔
+        setMessageMode(id, "ignored");
         s.emit({ kind: "done", reply: "" });
         noteSilence(conv, text);
         addExperience(1);

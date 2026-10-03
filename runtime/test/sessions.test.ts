@@ -111,7 +111,11 @@ test("工作中发消息：默认插话，在这次模型调用后并入", async
   assert.equal(seen.length, 2); // 第一次调用结束后，带着补充的消息再调用一次（即使第一次本想结束）
   assert.match(lastUser(seen[1]), /补充了新消息：\n顺便看看明天/);
   assert.deepEqual(store.sessionMessages("st").map((m) => [m.role, m.mode]), [["user", null], ["user", "steer"], ["agent", null]]);
-  assert.deepEqual(store.sessionMessages("st")[2].process, [{ type: "text", text: "收到：帮我查一下天气" }]); // 被插话接续的那段回复留在过程里
+  const proc = store.sessionMessages("st")[2].process as any[];
+  assert.equal(proc[0].type, "steer"); // 插话标记（插话到达的那一刻）：前端据此把之前的过程截断在插话消息上方
+  assert.equal(proc[0].text, "顺便看看明天");
+  assert.equal(proc[0].msg, store.sessionMessages("st")[1].id);
+  assert.deepEqual(proc[1], { type: "text", text: "收到：帮我查一下天气" }); // 插话之后才完成的那段回复，留在过程里、显示在插话下方
   assert.ok(!liveTurns().some((t) => t.conv === "st")); // 结束后快照已移除
 });
 

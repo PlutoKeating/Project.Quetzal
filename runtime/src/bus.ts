@@ -12,7 +12,13 @@ export interface Events {
   notice: [text: string]; // 系统通知（非 agent 本人说话），如配对码
   activity: [a: Activity]; // 会话进展：步骤、流式文字、工具执行、心跳、结束
   secret: [e: SecretEvent]; // 保密输入（pass_secret）的开始、进展与结束，由各通道提醒对方
+  hearing: [e: HearingEvent]; // 听觉：一句话的中间结果、最终结果与她的取舍（控制台据此流式显示、保留或隐藏）
 }
+/**
+ * 听觉事件（见 voice/hearing.ts）。partial：识别中的文字；final：这句话识别完成并进入会话（conv）；dropped：没进会话（太短、没听清、她自己在说话……）；
+ * kept：她判断是对她说的（回应了）；ignored：她判断不是对她说的（这句话在记录里标为 ignored，控制台隐藏）。
+ */
+export interface HearingEvent { id: string; status: "partial" | "final" | "dropped" | "kept" | "ignored"; text: string; conv?: string; reason?: string }
 export interface TimelineEntry { id: number; ts: number; kind: string; title: string; detail: unknown }
 /** 会话进展事件（见 mind/activity.ts）。 */
 export interface Activity {
