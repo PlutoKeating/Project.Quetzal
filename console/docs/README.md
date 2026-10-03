@@ -17,6 +17,8 @@ flutter test
 flutter build apk --release --target-platform android-arm64
 ```
 
+启动图标：`tool/gen-launcher-icon.py`（Pillow + numpy）用与首页光团同一套渲染生成琥珀球图标，输出传统图标 `mipmap-*/ic_launcher.png`、Android 8+ 自适应图标（前景 `mipmap-*/ic_launcher_foreground.png`、背景色 `#202020`、`mipmap-anydpi-v26/ic_launcher.xml`）与 512 预览 `../docs/assets/readme/app-icon.png`，全部入库；改球的渲染参数后重新运行即可。
+
 签名：`android/key.properties`（不入库）里给出 `storeFile`、`storePassword`、`keyAlias`、`keyPassword` 即用正式签名，没有时退回 debug 签名。版本号在 `pubspec.yaml`，与 runtime 的版本一致。
 
 GitHub Release（`.github/workflows/release.yml`，推送 `v<版本>` 标签触发）使用仓库 Secrets `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 写入同样的 `key.properties` 做正式签名（已配置；密钥库由维护者离线保管）。注意 v0.2.1 是 debug 签名，从它升级到正式签名的版本需要先卸载再安装，Termux 里的运行基座不受影响。

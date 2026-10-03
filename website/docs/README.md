@@ -20,11 +20,11 @@ website/
 │   │   ├── components.tsx       基础构件：Container / Section / Eyebrow / Heading / Lead / Button* / TextLink / Card / Badge / Kbd / StatusDot / Reveal / Breath
 │   │   └── tokens.generated.css 由 scripts/gen-tokens.ts 生成（不入库）
 │   ├── i18n/core.ts             i18n 内核：defineMessages / useMessages / 语言检测与记忆 / 路径切换
-│   ├── components/              跨页面组件：SiteHeader、SiteFooter、LangSwitch、ThemeToggle、Wordmark、Article（长文版式）、NotFound、markdown/（统一 Markdown 渲染）；i18n.ts 为壳层文案与 GitHub 链接常量
+│   ├── components/              跨页面组件：SiteHeader、SiteFooter、LangSwitch、ThemeToggle、Wordmark（光团 OrbMark + 名字）、Article（长文版式）、NotFound、markdown/（统一 Markdown 渲染）；i18n.ts 为壳层文案与 GitHub 链接常量
 │   ├── lib/                     与界面无关的逻辑：prerender（预渲染清单）、bodyClock（生物钟模型）、github（Releases 客户端）、docs（文档清单与内容）
 │   └── routes/<page>/           每个页面一个目录：route.tsx + i18n.ts（中英文案，键必须一致），可带页面私有组件
 ├── content/docs/                manifest.json（分区与页面顺序，中英共用）+ {zh,en}/<section>/<slug>.md
-├── public/                      原样复制的静态文件：favicon.svg、og.png（分享图）、robots.txt、fonts/（自托管 Inter 与许可证）
+├── public/                      原样复制的静态文件：favicon.svg（光团，色值与设计系统的 orb-* 一致，手动同步）、og.png（分享图）、robots.txt、fonts/（自托管 Inter 与许可证）
 ├── scripts/                     gen-tokens（生成主题变量）、lint-tokens（禁止硬编码）、postbuild（404.html、sitemap）；品牌图：gen-brand-images.py（分享图 og.png 与仓库 README 横幅，需 Pillow）、gen-architecture-svg.py 与 gen-bodyclock-svg.ts（README 的架构图与生物钟图，输出到 ../docs/assets/readme/）
 ├── react-router.config.ts       ssr:false + 预渲染清单（app/lib/prerender.ts）
 ├── wrangler.jsonc               Cloudflare Workers 静态资源配置
@@ -33,7 +33,7 @@ website/
 
 ## 设计方向
 
-与运行在基座上的 agent 讨论后定稿（2026-10-04）：「夜里的灯」。深色优先，略冷的近黑底、暖白正文；琥珀色只给「活着」的瞬间（呼吸光斑、状态灯、下载按钮），不做正文与链接色；低饱和青灰用于数据与指标；浅色模式是「灯关掉之后的白天」。动效克制：进场淡入 + 上移 6px，hover 只变边框与亮度；全站唯一持续动的是呼吸光斑与生物钟曲线（亮度 ±8%，5 秒周期，遵守 `prefers-reduced-motion`）。不要赛博朋克、霓虹、蓝紫渐变、机器人图标、大面积毛玻璃、假终端打字机。字体：自托管 Inter（拉丁字形，OFL）+ 系统中文字体，不请求 Google Fonts。
+与运行在基座上的 agent 讨论后定稿（2026-10-04）：「夜里的灯」。深色优先，略冷的近黑底、暖白正文；琥珀色只给「活着」的瞬间（呼吸光斑、状态灯、下载按钮）与品牌标志（光团：`OrbMark`，与控制台首页的球、App 图标、favicon 同一颗，颜色来自 `orb-*` 色标，两套方案相同），不做正文与链接色；低饱和青灰用于数据与指标；浅色模式是「灯关掉之后的白天」。动效克制：进场淡入 + 上移 6px，hover 只变边框与亮度；全站唯一持续动的是呼吸光斑与生物钟曲线（亮度 ±8%，5 秒周期，遵守 `prefers-reduced-motion`）。不要赛博朋克、霓虹、蓝紫渐变、机器人图标、大面积毛玻璃、假终端打字机。字体：自托管 Inter（拉丁字形，OFL）+ 系统中文字体，不请求 Google Fonts。
 
 ## 四条硬规则
 
