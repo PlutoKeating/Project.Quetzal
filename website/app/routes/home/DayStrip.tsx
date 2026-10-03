@@ -17,7 +17,7 @@ export function DayStrip({ times, label }: { times: readonly string[]; label: st
       <path d={path("S")} fill="none" className="stroke-fg-subtle" strokeWidth="1" strokeDasharray="3 3" />
       <path d={path("C")} fill="none" className="stroke-chart-line" strokeWidth="1.5" />
       {times.map((t) => <circle key={t} cx={x(toH(t))} cy={H - 14} r="3.5" className="fill-chart-marker" />)}
-      {[0, 6, 12, 18, 24].map((h) => <text key={h} x={x(h)} y={H - 1} textAnchor={h === 0 ? "start" : h === 24 ? "end" : "middle"} fontSize="9" className="fill-fg-subtle">{String(h % 24).padStart(2, "0")}</text>)}
+      {[0, 6, 12, 18, 24].map((h) => <text key={h} x={x(h)} y={H - 1} textAnchor={h === 0 ? "start" : h === 24 ? "end" : "middle"} fontSize="10.5" className="fill-fg-subtle font-medium">{String(h % 24).padStart(2, "0")}</text>)}
     </svg>
   );
 }

@@ -4,6 +4,7 @@
 @layer base {
   html {
     font-family: var(--ds-font-sans);
+    font-weight: var(--ds-weight-normal);
     background: var(--ds-color-bg);
     color: var(--ds-color-fg);
     -webkit-text-size-adjust: 100%;

@@ -8,6 +8,8 @@ import { cx } from "~/design-system/components";
 /** 图的设计宽度。容器比它窄（手机）时 SVG 整体缩小，文字按比例放大补偿。 */
 export const DESIGN_W = 480;
 const TextScale = createContext(1);
+/** 示意图文字整体放大系数（随「全站文字加大加粗」一起调） */
+const TEXT_BOOST = 1.15;
 
 export function Frame({ children, label, height = 320, bare }: { children: React.ReactNode; label: string; height?: number; bare?: boolean }) {
   const ref = useRef<HTMLElement>(null);
@@ -30,7 +32,7 @@ export function Frame({ children, label, height = 320, bare }: { children: React
 
 export const T = ({ x, y, children, className, anchor = "start", size = 13 }: { x: number; y: number; children: React.ReactNode; className?: string; anchor?: "start" | "middle" | "end"; size?: number }) => {
   const k = useContext(TextScale);
-  return <text x={x} y={y} textAnchor={anchor} fontSize={Math.round(size * k * 10) / 10} className={cx(!/\bfill-/.test(className ?? "") && "fill-fg", className)}>{children}</text>;
+  return <text x={x} y={y} textAnchor={anchor} fontSize={Math.round(size * k * TEXT_BOOST * 10) / 10} className={cx(!/\bfill-/.test(className ?? "") && "fill-fg", "font-medium", className)}>{children}</text>;
 };
 
 /** 呼吸的琥珀点（SVG 内用 transform-box 让缩放围绕自身中心） */
@@ -49,8 +51,8 @@ export function WakeCompare({ t, bare }: { t: CompareLabels; bare?: boolean }) {
   const alert = Array.from({ length: 49 }, (_, i) => { const h = i / 2; const c = 0.5 + 0.5 * Math.cos((2 * Math.PI * (h - 16)) / 24); return `${i ? "L" : "M"}${px(h).toFixed(1)},${(rows[2] + 14 - 44 * c).toFixed(1)}`; }).join(" ");
   const head = (i: number, strong?: boolean) => (
     <>
-      <T x={x0} y={rows[i] - 30} className={strong ? "fill-fg" : "fill-fg-muted"} size={12}>{t.rows[i].name}</T>
-      <T x={x1} y={rows[i] - 30} className="fill-fg-subtle" size={10.5} anchor="end">{t.rows[i].note}</T>
+      <T x={x0} y={rows[i] - 30} className={strong ? "fill-fg font-semibold" : "fill-fg-muted"} size={13}>{t.rows[i].name}</T>
+      <T x={x1} y={rows[i] - 30} className="fill-fg-subtle" size={11.5} anchor="end">{t.rows[i].note}</T>
       <line x1={x0} x2={x1} y1={rows[i]} y2={rows[i]} className="stroke-border" strokeWidth="2" />
     </>
   );
@@ -60,7 +62,7 @@ export function WakeCompare({ t, bare }: { t: CompareLabels; bare?: boolean }) {
       {calls.map((h) => (
         <g key={h}>
           <circle cx={px(h)} cy={rows[0]} r="4.5" className="fill-fg-subtle" />
-          <T x={px(h)} y={rows[0] - 10} className="fill-fg-subtle" size={9.5} anchor="middle">{t.call}</T>
+          <T x={px(h)} y={rows[0] - 10} className="fill-fg-subtle" size={10.5} anchor="middle">{t.call}</T>
         </g>
       ))}
       {head(1)}
@@ -70,7 +72,7 @@ export function WakeCompare({ t, bare }: { t: CompareLabels; bare?: boolean }) {
       <rect x={px(22.6)} y={rows[2] - 9} width={px(24) - px(22.6)} height="18" rx="3" className="fill-chart-fill" />
       <path d={alert} fill="none" className="stroke-chart-line" strokeWidth="1.2" strokeDasharray="4 4" />
       {wakes.map((h, i) => <Lamp key={h} cx={px(h)} cy={rows[2]} r={4.5} delay={(i % 4) as 0 | 1 | 2 | 3} />)}
-      {t.axis.map((a, i) => <T key={a} x={px(i * 6)} y={292} className="fill-fg-subtle" size={10} anchor={i === 0 ? "start" : i === 4 ? "end" : "middle"}>{a}</T>)}
+      {t.axis.map((a, i) => <T key={a} x={px(i * 6)} y={293} className="fill-fg-subtle" size={11} anchor={i === 0 ? "start" : i === 4 ? "end" : "middle"}>{a}</T>)}
     </Frame>
   );
 }

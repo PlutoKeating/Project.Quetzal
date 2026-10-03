@@ -36,7 +36,7 @@ function themeVariables() {
   const soft = dsColor("surface-hover", bg);
   return {
     darkMode: document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches),
-    fontSize: "16px",
+    fontSize: "17px",
     background: bg, mainBkg: soft, primaryColor: soft, primaryTextColor: fg, primaryBorderColor: border,
     secondaryColor: soft, secondaryTextColor: fg, secondaryBorderColor: border, tertiaryColor: bg, tertiaryTextColor: fg, tertiaryBorderColor: border,
     lineColor: muted, textColor: fg, nodeTextColor: fg, titleColor: fg, edgeLabelBackground: bg, clusterBkg: bg, clusterBorder: border,
