@@ -32,12 +32,27 @@ class LiveTurn {
         final i = items.indexWhere((x) => x['type'] == 'tool' && x['call'] == a['call']);
         final item = {'type': 'tool', ...a};
         if (i >= 0) { items[i] = item; } else { items.add(item); }
+      case 'steer': // 插话 / 打断到达的那一刻：之前的过程截断在插话消息上方，之后的从它下面重新开出
+        items.add({'type': 'steer', 'msg': a['msg'], 'text': a['text'], 'mode': a['mode'], 'ambient': a['ambient']});
     }
   }
 
   bool get running => items.any((x) => x['type'] == 'tool' && x['status'] == 'running');
   Map? get lastTool { final l = items.where((x) => x['type'] == 'tool'); return l.isEmpty ? null : l.last; }
   String get hint => status == 'queued' ? '排队中（这个会话前面还有话没回完）…' : running ? '正在调用工具…' : live.isEmpty ? '她在想…' : '';
+}
+
+/// 把过程按插话标记切成段：第一段挂在这一轮开始的那句话下面，之后每段挂在对应的插话消息下面（msg 为插话消息的 id）。
+/// 插话标记本身不渲染（它对应的消息由对话记录里的那条消息显示）。
+List<({int? msg, List<Map> items})> splitAtSteer(List<Map> items) {
+  final out = <({int? msg, List<Map> items})>[];
+  var cur = <Map>[];
+  int? msg;
+  for (final x in items) {
+    if (x['type'] == 'steer') { out.add((msg: msg, items: cur)); cur = <Map>[]; msg = (x['msg'] as num?)?.toInt(); } else { cur.add(x); }
+  }
+  out.add((msg: msg, items: cur));
+  return out;
 }
 
 /// 消息气泡：她的话按完整 Markdown 渲染（表格、公式、Mermaid 图）；对方的话同样按 Markdown 渲染，用不同底色区分。
@@ -81,7 +96,7 @@ class ProcessView extends StatelessWidget {
       margin: const EdgeInsets.only(top: 4),
       constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.9),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        for (final x in items)
+        for (final x in items.where((x) => x['type'] != 'steer'))
           if (x['type'] == 'text') // 她中途说的话：正常的消息气泡
             Bubble('${x['text']}')
           else

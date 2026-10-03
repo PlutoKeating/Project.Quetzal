@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets.dart';
 import '../process.dart';
+import '../hearing.dart';
 import 'sessions.dart';
 
 const maxFiles = 20;
@@ -50,6 +51,7 @@ class _ChatPageState extends State<ChatPage> {
   bool atBottom = true, unread = false, wasOnline = true, loading = true;
   String mode = 'steer'; // 她正在工作时发消息的方式
   Map? secret; // 这个会话进行中的保密输入（pass_secret）
+  Map? heard; // 耳朵正在听的一句话：{id, text, status}。partial 流式显示；final 后等记录里出现这条消息；她判断不是对她说的（ignored）就消失
   bool reveal = false; // 保密输入时显示明文（多行的值如私钥需要打开）
   double lastExtent = 0;
 
@@ -61,6 +63,7 @@ class _ChatPageState extends State<ChatPage> {
     subs.add(api.events.where((e) => e.name == 'activity').listen(_onActivity));
     subs.add(api.events.where((e) => e.name == 'say').listen((_) { if (widget.conv == 'inbox') _resync(); }));
     subs.add(api.events.where((e) => e.name == 'secret').listen(_onSecret));
+    subs.add(api.events.where((e) => e.name == 'hearing').listen(_onHearing));
     api.addListener(_onConn);
     life = AppLifecycleListener(onResume: () async { await api.ensureAlive(); _resync(); }); // 从后台切回：确认连接并从后端重建
     _resync(first: true);
@@ -92,6 +95,7 @@ class _ChatPageState extends State<ChatPage> {
       setState(() {
         secret = pending.isEmpty ? null : pending.first;
         msgs..clear()..addAll(r[0].cast<Map>());
+        if (heard != null && heard!['status'] != 'partial' && msgs.any((m) => m['role'] == 'ambient' && m['text'] == heard!['text'])) heard = null; // 记录里已经有这句话了
         turns
           ..clear()
           ..addEntries(r[1].cast<Map>().where((t) => t['conv'] == widget.conv && t['origin'] == 'chat' && !finished.contains(t['turn'])).map((t) => MapEntry('${t['turn']}', LiveTurn.snapshot(t))));
@@ -103,6 +107,20 @@ class _ChatPageState extends State<ChatPage> {
     } catch (_) {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  /// 听觉：中间结果流式显示在最底部；识别完成进入别的会话就不显示；她判断不是对她说的（ignored）或没进会话（dropped）就消失，回应了（kept）则由记录里的那条消息接替。
+  void _onHearing(GatewayEvent e) {
+    final h = e.data as Map;
+    if (!mounted) return;
+    switch (h['status']) {
+      case 'partial': setState(() => heard = {'id': h['id'], 'text': h['text'], 'status': 'partial'});
+      case 'final': setState(() => heard = h['conv'] == widget.conv ? {'id': h['id'], 'text': h['text'], 'status': 'final'} : null);
+      case 'dropped': setState(() => heard = null);
+      case 'ignored': setState(() => heard = null); _resync(); // 这句话已标为 ignored：重取记录即隐藏
+      case 'kept': if (heard?['id'] == h['id']) _resync();
+    }
+    _changed();
   }
 
   void _onSecret(GatewayEvent e) {
@@ -132,7 +150,8 @@ class _ChatPageState extends State<ChatPage> {
         _resync(); // 取回这句话（也可能来自另一个客户端）
         return;
       case 'steer':
-        _resync(); // 这句话已并入进行中的一轮
+        turns[id]?.apply(a); // 先打上插话标记（之前的过程截断在这句话上方），再取回这句话
+        _resync();
         return;
       case 'done' || 'error':
         finished.add(id);
@@ -223,18 +242,43 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    // 进行中的轮次挂在它对应的那句话下面；找不到时放在最后
-    final after = <int, List<LiveTurn>>{};
-    final tail = <LiveTurn>[];
+    // 过程按插话标记分段：插话到达之前的过程留在插话消息上方，之后的从插话消息下面重新开出。
+    // 进行中的轮次：第一段挂在这一轮开始的那句话下面，之后每段挂在对应的插话消息下面；找不到对应消息时放在最后。
+    // 已入库的回复：过程里插话之前的各段同样提到对应插话消息的上方，回复本身只带最后一段。
+    final before = <int, List<Widget>>{}, after = <int, List<Widget>>{};
+    final tail = <Widget>[];
     final ids = msgs.map((m) => (m['id'] as num?)?.toInt()).toSet();
-    for (final t in turns.values) { ids.contains(t.msg) ? (after[t.msg] ??= []).add(t) : tail.add(t); }
+    final lastSeg = <int, List<Map>>{}; // 已入库的回复：只渲染最后一段
+    for (final m in msgs) {
+      if (m['role'] != 'agent') continue;
+      final segs = splitAtSteer((m['process'] as List?)?.cast<Map>() ?? const []);
+      if (segs.length == 1) continue;
+      for (var k = 0; k < segs.length - 1; k++) {
+        final anchor = segs[k + 1].msg;
+        if (segs[k].items.isEmpty) continue;
+        (anchor != null && ids.contains(anchor) ? (before[anchor] ??= []) : tail).add(ProcessView(segs[k].items));
+      }
+      lastSeg[(m['id'] as num).toInt()] = segs.last.items;
+    }
+    for (final t in turns.values) {
+      final segs = splitAtSteer(t.items);
+      for (var k = 0; k < segs.length - 1; k++) {
+        final anchor = segs[k + 1].msg;
+        if (segs[k].items.isEmpty) continue;
+        (anchor != null && ids.contains(anchor) ? (before[anchor] ??= []) : tail).add(ProcessView(segs[k].items));
+      }
+      final anchor = segs.length > 1 ? segs.last.msg : t.msg;
+      (anchor != null && ids.contains(anchor) ? (after[anchor] ??= []) : tail).add(_live(t, segs.last.items, cs));
+    }
     final rows = <Widget>[
       for (final m in msgs) ...[
-        _message(context, m, cs),
-        for (final t in after[(m['id'] as num?)?.toInt()] ?? const <LiveTurn>[]) _live(t, cs),
+        ...before[(m['id'] as num?)?.toInt()] ?? const <Widget>[],
+        _message(context, m, cs, process: lastSeg[(m['id'] as num?)?.toInt()]),
+        ...after[(m['id'] as num?)?.toInt()] ?? const <Widget>[],
       ],
-      for (final t in tail) _live(t, cs),
+      ...tail,
       for (final m in local.values) _message(context, m, cs),
+      if (heard != null) _heardLive(context, heard!, cs),
     ];
     return Scaffold(
       appBar: AppBar(title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis), actions: [
@@ -272,6 +316,7 @@ class _ChatPageState extends State<ChatPage> {
         ),
         if (files.isNotEmpty) _fileTray(cs),
         if (secret != null) _secretBar(secret!, cs),
+        ListenableBuilder(listenable: hearing, builder: (context, _) => hearing.caption == null ? const SizedBox.shrink() : _listening(cs)), // 耳朵开着：让对方知道她在听
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(8),
@@ -361,10 +406,26 @@ class _ChatPageState extends State<ChatPage> {
   static IconData _icon(Map f) => switch (f['kind']) { 'image' => Icons.image, 'text' => Icons.description, _ => Icons.insert_drive_file };
   static String _size(num n) => n >= 1048576 ? '${(n / 1048576).toStringAsFixed(1)} MB' : '${max(1, (n / 1024).round())} KB';
 
-  Widget _message(BuildContext context, Map m, ColorScheme cs) {
+  /// 聆听状态的一行：在听（灰）→ 有人在说话 / 正在听清（主题色）。
+  Widget _listening(ColorScheme cs) {
+    final lit = hearing.lit, color = lit ? cs.primary : cs.outline;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+      child: Row(children: [
+        AnimatedContainer(duration: const Duration(milliseconds: 300), width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: color.withValues(alpha: lit ? 1 : 0.5))),
+        const SizedBox(width: 6),
+        Icon(Icons.hearing, size: 13, color: color),
+        const SizedBox(width: 4),
+        Text(hearing.caption ?? '', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color)),
+        if (hearing.pending && !hearing.speaking) ...[const SizedBox(width: 6), SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: color))],
+      ]),
+    );
+  }
+
+  Widget _message(BuildContext context, Map m, ColorScheme cs, {List<Map>? process}) {
     if (m['role'] == 'ambient') return _ambient(context, m, cs);
     final me = m['role'] == 'user';
-    final process = (m['process'] as List?)?.cast<Map>() ?? const [];
+    process ??= (m['process'] as List?)?.cast<Map>() ?? const [];
     final atts = (m['attachments'] as List?)?.cast<Map>() ?? const [];
     return Column(crossAxisAlignment: me ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
       if (process.isNotEmpty) ProcessView(process),
@@ -374,8 +435,20 @@ class _ChatPageState extends State<ChatPage> {
     ]);
   }
 
+  /// 耳朵正在听的一句话：和环境声音同样的样式，末尾一个小点表示还在听清。
+  Widget _heardLive(BuildContext context, Map h, ColorScheme cs) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 24),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.hearing, size: 14, color: cs.primary),
+          const SizedBox(width: 6),
+          Flexible(child: Text('${h['text']}${h['status'] == 'partial' ? ' …' : ''}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
+          if (h['status'] != 'partial') ...[const SizedBox(width: 6), SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.outline))],
+        ]),
+      );
+
   /// 环境声音：麦克风听到并识别的话。不是对方发的消息，也不是她的话——居中、安静地显示，她的回应（如果有）紧随其后。
-  Widget _ambient(BuildContext context, Map m, ColorScheme cs) => Padding(
+  /// 她判断不是对她说的（mode 为 ignored）就不显示。
+  Widget _ambient(BuildContext context, Map m, ColorScheme cs) => m['mode'] == 'ignored' ? const SizedBox.shrink() : Padding(
         padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 24),
         child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Icon(Icons.hearing, size: 14, color: cs.outline),
@@ -411,8 +484,8 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _live(LiveTurn t, ColorScheme cs) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (t.items.isNotEmpty) ProcessView(t.items),
+  Widget _live(LiveTurn t, List<Map> items, ColorScheme cs) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (items.isNotEmpty) ProcessView(items),
         if (t.live.isNotEmpty) Bubble(t.live, live: true),
         if (t.hint.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(t.hint, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
       ]);

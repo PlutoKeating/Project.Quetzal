@@ -3,7 +3,6 @@
 //   基座的 status.hearing.listening 为真（开关开着、未急停、电量与温度在限制内、Azure 语音已配置）且 agent 在本机（127.0.0.1）时开耳朵，否则关。
 //   服务事件（说话开始 / 结束、识别结果、错误）只用于界面提示：首页光团旁的「在听」、听觉页的最近一句。
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'api.dart';
@@ -23,11 +22,22 @@ class Hearing {
 
 /// 跟随基座状态启停耳朵，并保留最近的事件给界面。
 class HearingController extends ChangeNotifier {
-  bool running = false, granted = false, speaking = false;
+  bool running = false, granted = false, speaking = false, pending = false; // pending：一句话刚说完，基座正在识别
   String? error;
   Map? lastHeard; // {text, dropped, ms}
   String _key = ''; // 上次启动的参数（base|token|sensitivity），变了就重启
-  Timer? _speakTimer;
+  Timer? _speakTimer, _pendingTimer;
+
+  /// 给界面的一句话：此刻耳朵的状态；没开听觉时返回 null。
+  String? get caption {
+    final h = (api.status['hearing'] as Map?) ?? {};
+    if (h['enabled'] != true) return null;
+    if (!running) { final r = (h['reasons'] as List?)?.cast<String>() ?? []; return r.isEmpty ? (granted ? '耳朵没开' : '耳朵没开：没有麦克风权限') : '没在听：${r.join('、')}'; }
+    if (speaking) return '有人在说话…';
+    if (pending) return '听到了，正在听清…';
+    return '在听';
+  }
+  bool get lit => running && (speaking || pending);
 
   void start() {
     api.addListener(sync);
@@ -64,8 +74,11 @@ class HearingController extends ChangeNotifier {
       case 'speech':
         speaking = e['on'] == true;
         _speakTimer?.cancel();
-        if (!speaking) { speaking = true; _speakTimer = Timer(const Duration(milliseconds: 1200), () { speaking = false; notifyListeners(); }); } // 说完后再亮一会儿
-      case 'heard': lastHeard = e; error = null;
+        if (!speaking) {
+          speaking = true; _speakTimer = Timer(const Duration(milliseconds: 1200), () { speaking = false; notifyListeners(); }); // 说完后再亮一会儿
+          if (((e['ms'] as num?) ?? 0) >= 400) { pending = true; _pendingTimer?.cancel(); _pendingTimer = Timer(const Duration(seconds: 20), () { pending = false; notifyListeners(); }); }
+        }
+      case 'heard': lastHeard = e; error = null; pending = false; _pendingTimer?.cancel();
       case 'error': error = '${e['message']}';
     }
     notifyListeners();
