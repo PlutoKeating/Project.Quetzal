@@ -15,7 +15,7 @@ const rules: Array<[RegExp, string]> = [
   [/\b(?:rounded(?:-[trbl]{1,2})?|opacity|shadow|blur|backdrop-blur|duration|ease)-\[/, "任意值外形 / 透明度 / 阴影 / 模糊 / 动效"],
   [/\bopacity-\d{1,3}\b/, "数字透明度类（请用 opacity-(--ds-opacity-*)）"],
   [/\b(?:duration|delay)-\d{2,4}\b/, "数字时长类（请用 duration-(--ds-duration-*)）"],
-  [/\b(?:drop-)?shadow-(?:xs|sm|md|lg|xl|2xl|none|inner)\b(?!-)/, "Tailwind 内置阴影类（请用 designSystem 的 shadow 键）"],
+  [/\b(?:drop-)?shadow-(?:xs|xl|2xl|inner)\b(?!-)/, "Tailwind 内置阴影类（designSystem 只定义了 none/sm/md/lg/glow/glow-strong/ring）"],
 ];
 
 const problems: string[] = [];

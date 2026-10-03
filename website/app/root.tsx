@@ -2,6 +2,7 @@ import { isRouteErrorResponse, Links, Meta, Outlet, Scripts, ScrollRestoration, 
 import type { Route } from "./+types/root";
 import "./app.css";
 import { HTML_LANG, isLang, LangContext, DEFAULT_LANG } from "./i18n/core";
+import { THEME_SCRIPT } from "./components/ThemeToggle";
 
 export const links: Route.LinksFunction = () => [{ rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }];
 
@@ -13,8 +14,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <Meta />
         <Links />
+        <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Windler" />
+        <meta property="og:image" content="https://windler.plutokeating.beer/og.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta name="twitter:card" content="summary_large_image" />
       </head>
       <body className="min-h-dvh bg-bg text-fg antialiased">
         <LangContext.Provider value={lang}>{children}</LangContext.Provider>

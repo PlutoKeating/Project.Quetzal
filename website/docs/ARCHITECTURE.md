@@ -31,8 +31,15 @@ flowchart LR
 ## 3. 响应式与横竖屏
 
 - 宽度断点来自设计系统（`sm`…`2xl`），高度用 `short:`（`max-height`），方向用 Tailwind 内置的 `portrait:` / `landscape:`。
-- 首屏使用 `min-h-dvh`、`viewport-fit=cover`，横屏矮窗口时压缩纵向留白（`landscape:short:py-*`）。
+- 首屏 hero 高度为视口减顶栏（`100dvh - 顶栏`），矮窗口（横屏手机）时取消最小高度并压缩留白；`Section` 统一处理 `short:` 留白。
 - 所有间距、字号均为 rem，不写像素。
+- 外观：默认跟随系统（`prefers-color-scheme`），顶栏的切换按钮写入 `localStorage` 键 `windler.theme` 并设置 `<html data-theme>`；`root.tsx` 内联脚本在首屏前应用，避免闪烁。
+
+## 3.1 首页的两处「活着」
+
+- **呼吸光斑** `Breath`：有机形状的柔光，`animate-breath`（亮度 ±8%、5 秒周期）。
+- **生物钟曲线** `routes/home/BodyClock.tsx`：在浏览器里运行 `lib/bodyClock.ts`（与 `runtime/src/heart/model.ts` 相同的双过程模型纯函数）模拟稳态的一天，画出 S、C 与清醒时段，并用一个琥珀点标出当前本地时刻；明确标注这是模型，不是任何真实设备的数据。
+- 首页「一段真实的时间线」是从一具真实运行中的身体导出的时间线摘录（去掉名字，静态写在 i18n.ts 里），不接任何运行时服务。
 
 ## 4. 页面与数据
 
@@ -43,5 +50,5 @@ flowchart LR
 | `/:lang/features` | 亮点功能 | `routes/features/i18n.ts` |
 | `/:lang/docs/*` | 文档教程：侧栏、正文（统一 Markdown 组件）、页内目录 | `content/docs/<lang>/**/*.md`（构建时读取） |
 | `/:lang/download` | 最新版本、资产下载、发布说明、历史版本、Termux 三件套链接 | 浏览器直连 GitHub Releases 公开 API（sessionStorage 缓存），不硬编码版本 |
-| `/:lang/about` `terms` `privacy` | 关于 / 条款 / 隐私 | 各自 `i18n.ts` |
+| `/:lang/about` `terms` `privacy` | 关于 / 条款 / 隐私（共用 `components/Article.tsx` 长文版式） | 各自 `i18n.ts`（分节 + 段落 + 要点） |
 | `/404` | 404 页 | — |

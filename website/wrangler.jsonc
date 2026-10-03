@@ -8,8 +8,8 @@
     "directory": "./build/client",
     // 未知路径返回预渲染的 404.html（由 scripts/postbuild.mjs 从 /404 复制到根目录）
     "not_found_handling": "404-page",
-    // 预渲染目录形如 /en/docs/index.html，访问 /en/docs 与 /en/docs/ 都命中
-    "html_handling": "auto-trailing-slash"
+    // 预渲染目录形如 /en/docs/index.html：/en/docs 直接命中，/en/docs/ 跳转到不带斜杠（站内链接一律不带斜杠）
+    "html_handling": "drop-trailing-slash"
   },
   "observability": { "enabled": true }
 }

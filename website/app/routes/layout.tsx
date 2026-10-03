@@ -11,7 +11,7 @@ export default function LangLayout() {
   return (
     <div className="flex min-h-dvh flex-col">
       <SiteHeader />
-      <div className="flex-1"><Outlet /></div>
+      <div id="main" className="flex-1"><Outlet /></div>
       <SiteFooter />
     </div>
   );
