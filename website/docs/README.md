@@ -25,7 +25,7 @@ website/
 │   └── routes/<page>/           每个页面一个目录：route.tsx + i18n.ts（中英文案，键必须一致），可带页面私有组件
 ├── content/docs/                manifest.json（分区与页面顺序，中英共用）+ {zh,en}/<section>/<slug>.md
 ├── public/                      原样复制的静态文件：favicon.svg、og.png（分享图）、robots.txt、fonts/（自托管 Inter 与许可证）
-├── scripts/                     gen-tokens（生成主题变量）、lint-tokens（禁止硬编码）、postbuild（404.html、sitemap）、gen-og.py（分享图，需 Pillow）
+├── scripts/                     gen-tokens（生成主题变量）、lint-tokens（禁止硬编码）、postbuild（404.html、sitemap）；品牌图：gen-brand-images.py（分享图 og.png 与仓库 README 横幅，需 Pillow）、gen-architecture-svg.py 与 gen-bodyclock-svg.ts（README 的架构图与生物钟图，输出到 ../docs/assets/readme/）
 ├── react-router.config.ts       ssr:false + 预渲染清单（app/lib/prerender.ts）
 ├── wrangler.jsonc               Cloudflare Workers 静态资源配置
 └── docs/                        本目录：README / ARCHITECTURE / DEVOPS
