@@ -13,6 +13,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets.dart';
+import '../markdown.dart';
 import '../process.dart';
 import '../hearing.dart';
 import 'sessions.dart';
@@ -64,6 +65,12 @@ class _ChatPageState extends State<ChatPage> {
     subs.add(api.events.where((e) => e.name == 'say').listen((_) { if (widget.conv == 'inbox') _resync(); }));
     subs.add(api.events.where((e) => e.name == 'secret').listen(_onSecret));
     subs.add(api.events.where((e) => e.name == 'hearing').listen(_onHearing));
+    subs.add(api.events.where((e) => e.name == 'session.switch').listen((e) { // 她用 session_new 切到了新会话：跟着切过去
+      final s = e.data as Map;
+      if (s['from'] != widget.conv || s['done'] == true || !mounted) return;
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: '${s['to']}', title: '${s['title']}')));
+    }));
+    subs.add(api.events.where((e) => e.name == 'session.switch' && (e.data as Map)['to'] == widget.conv && (e.data as Map)['done'] == true).listen((_) => _resync())); // 回复落进了这个新会话
     api.addListener(_onConn);
     life = AppLifecycleListener(onResume: () async { await api.ensureAlive(); _resync(); }); // 从后台切回：确认连接并从后端重建
     _resync(first: true);
@@ -446,16 +453,27 @@ class _ChatPageState extends State<ChatPage> {
         ]),
       );
 
-  /// 环境声音：麦克风听到并识别的话。不是对方发的消息，也不是她的话——居中、安静地显示，她的回应（如果有）紧随其后。
-  /// 她判断不是对她说的（mode 为 ignored）就不显示。
-  Widget _ambient(BuildContext context, Map m, ColorScheme cs) => m['mode'] == 'ignored' ? const SizedBox.shrink() : Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 24),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(Icons.hearing, size: 14, color: cs.outline),
-          const SizedBox(width: 6),
-          Flexible(child: Text('${m['text']}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
-        ]),
-      );
+  /// 环境输入：不是对方发的消息，也不是她的话——居中、安静地显示，她的回应（如果有）紧随其后。
+  /// 通道决定图标：语音（麦克风听到的）、子agent（送回的报告）、摘要（session_compact）、交接（session_new）。她判断不是对她说的环境声音（mode 为 ignored）不显示。
+  Widget _ambient(BuildContext context, Map m, ColorScheme cs) {
+    if (m['mode'] == 'ignored') return const SizedBox.shrink();
+    final ch = '${m['channel']}';
+    final icon = switch (ch) { '子agent' => Icons.smart_toy_outlined, '摘要' => Icons.compress, '交接' => Icons.swap_horiz, _ => Icons.hearing };
+    final long = ch == '子agent' || ch == '摘要' || ch == '交接';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 24),
+      child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, size: 14, color: cs.outline),
+        const SizedBox(width: 6),
+        Flexible(child: long
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(ch == '子agent' ? '子 agent 的报告' : ch == '摘要' ? '上下文已压缩，摘要' : '交接', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
+                RichMarkdown('${m['text']}'),
+              ])
+            : Text('${m['text']}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
+      ]),
+    );
+  }
 
   Widget _attachments(BuildContext context, List<Map> atts, bool me, ColorScheme cs) {
     final images = atts.where((a) => a['kind'] == 'image' && a['rel'] != null).toList();

@@ -201,6 +201,6 @@ String summarizeArgs(Object? args) {
 /// 工具卡片的一行说明（进行中的横幅用）：最近的工具与状态。
 String describeTurn(LiveTurn t) {
   final last = t.lastTool;
-  final where = t.origin == 'dream' ? '做梦（整理记忆）' : t.origin == 'think' ? '醒来思考' : '对话';
+  final where = t.origin == 'dream' ? '做梦（整理记忆）' : t.origin == 'think' ? '醒来思考' : t.origin == 'agent' ? '子 agent' : '对话';
   return '$where · ${t.status == 'queued' ? '排队中' : '第 ${t.step} 步'}${last != null ? ' · ${last['name']}（${_statusLabel[last['status']] ?? last['status']}）' : ''}${t.live.isNotEmpty ? ' · 正在写…' : ''}';
 }

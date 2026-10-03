@@ -7,7 +7,7 @@ import '../process.dart';
 import '../widgets.dart';
 import 'wake.dart';
 
-const kinds = {'think': ('思考', Icons.psychology), 'dream': ('梦', Icons.nights_stay), 'chat': ('对话', Icons.chat), 'doze': ('小憩', Icons.snooze), 'sleep': ('入睡', Icons.bedtime), 'wake': ('醒来', Icons.wb_sunny), 'approval': ('审批', Icons.gavel), 'stop': ('急停', Icons.pan_tool), 'boot': ('苏醒', Icons.power_settings_new), 'safe': ('安全模式', Icons.warning), 'hear': ('听见', Icons.hearing), 'tool': ('工具', Icons.handyman), 'identity': ('身份', Icons.badge)};
+const kinds = {'think': ('思考', Icons.psychology), 'dream': ('梦', Icons.nights_stay), 'chat': ('对话', Icons.chat), 'doze': ('小憩', Icons.snooze), 'sleep': ('入睡', Icons.bedtime), 'wake': ('醒来', Icons.wb_sunny), 'approval': ('审批', Icons.gavel), 'stop': ('急停', Icons.pan_tool), 'boot': ('苏醒', Icons.power_settings_new), 'safe': ('安全模式', Icons.warning), 'hear': ('听见', Icons.hearing), 'tool': ('工具', Icons.handyman), 'identity': ('身份', Icons.badge), 'agent': ('子 agent', Icons.smart_toy_outlined), 'session': ('会话', Icons.forum_outlined)};
 
 class FlowPage extends StatefulWidget {
   const FlowPage({super.key});

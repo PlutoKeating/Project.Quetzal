@@ -68,7 +68,7 @@ class LiveWakeTile extends StatelessWidget {
   Widget build(BuildContext context) => Card(
         child: ListTile(
           leading: const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-          title: Text(t.origin == 'dream' ? '她在做梦…' : '她醒着，在想事情…'),
+          title: Text(t.origin == 'dream' ? '她在做梦…' : t.origin == 'agent' ? '她派出的子 agent 在工作…' : '她醒着，在想事情…'),
           subtitle: Text('${describeTurn(t)}\n${plainPreview(t.text)}', maxLines: 2, overflow: TextOverflow.ellipsis),
           trailing: const Icon(Icons.visibility_outlined),
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WakePage(turn: t.id))),
@@ -163,7 +163,7 @@ class _WakePageState extends State<WakePage> {
   @override
   Widget build(BuildContext context) {
     final e = entry, d = (e?['detail'] as Map?) ?? {}, t = live;
-    final kind = '${e?['kind'] ?? (t?.origin == 'dream' ? 'dream' : 'think')}';
+    final kind = '${e?['kind'] ?? (t?.origin == 'dream' ? 'dream' : t?.origin == 'agent' ? 'agent' : 'think')}';
     final k = wakeKinds[kind] ?? (kind, Icons.circle);
     final cs = Theme.of(context).colorScheme, tt = Theme.of(context).textTheme;
     final items = (d['process'] as List?)?.cast<Map>() ?? (t?.items ?? itemsFromSteps((d['steps'] as List?) ?? []));
@@ -171,7 +171,7 @@ class _WakePageState extends State<WakePage> {
     final reason = '${d['reason'] ?? t?.text ?? ''}';
     return Scaffold(
       appBar: AppBar(
-        title: Text(e != null ? '${e['title']}' : (t?.origin == 'dream' ? '她在做梦' : '她在想事情'), maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(e != null ? '${e['title']}' : (t?.origin == 'dream' ? '她在做梦' : t?.origin == 'agent' ? '子 agent 在工作' : '她在想事情'), maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [Padding(padding: const EdgeInsets.only(right: 12), child: Center(child: Chip(avatar: Icon(k.$2, size: 16), label: Text(k.$1), visualDensity: VisualDensity.compact)))],
       ),
       body: Column(children: [
