@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """生成品牌图片：官网分享图 public/og.png（1200×630）与仓库 README 横幅 ../docs/assets/readme/banner.png（1600×560）。
-颜色取自 designSystem.ts 的深色方案（手动同步：bg、fg、fg-muted、accent）。
+颜色取自 designSystem.ts 的深色方案（手动同步：bg、fg、fg-muted、accent、orb-*）。
+标志是光团：与 OrbMark、favicon、控制台图标同一颗球（左上光源、明度偏移、高光点、光晕）。
 用法：python3 scripts/gen-brand-images.py <Inter-SemiBold.ttf> <Inter-Regular.ttf> [NotoSansCJK.ttc]
-依赖 Pillow。字体文件不入库（Inter 见 public/fonts/LICENSE-Inter.txt；CJK 用系统 Noto Sans CJK）。"""
+依赖 Pillow、numpy。字体文件不入库（Inter 见 public/fonts/LICENSE-Inter.txt；静态实例可用 fontTools 从 public/fonts/InterVariable.woff2
+生成：instancer.instantiateVariableFont(font, {"wght": 600})；CJK 用系统 Noto Sans CJK）。"""
 import sys
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 BG, FG, MUTED, ACCENT = "#0e0f11", "#e8e4dd", "#a9a49c", "#f0a35e"
@@ -20,12 +23,35 @@ def canvas(w, h, glow_box):
     img.paste(glow.filter(ImageFilter.GaussianBlur(110)), (0, 0), glow.filter(ImageFilter.GaussianBlur(110)))
     return img
 
-def lamp(d, x, y, r=11):
-    d.ellipse((x - r, y - r, x + r, y + r), fill=ACCENT)
+ORB_HI, ORB_MID, ORB, ORB_RIM = "#fffefc", "#ffd3ab", "#ffb26e", "#fa7600"  # designSystem 的 orb-* 色标
+
+def _hx(h): return np.array([int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)])
+def _ramp(t, stops):
+    out = np.zeros(t.shape + (len(stops[0][1]),))
+    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+        m = (t >= p0) & (t <= p1); k = ((t[m] - p0) / (p1 - p0))[:, None]; out[m] = c0 * (1 - k) + c1 * k
+    out[t > stops[-1][0]] = stops[-1][1]; return out
+
+def lamp(img, x, y, r=11, ss=4):
+    """在 img 的 (x, y) 处画一颗半径 r 的光团：光晕 2.2r（0.64 → 0.19 → 0）、球体以左上 0.38r 为光源半径 1.38r、白高光点 -0.42r 半径 0.2r。"""
+    R = int(r * 2.2) + 2; n = R * 2 * ss; c = n / 2; rr = r * ss
+    yy, xx = np.mgrid[0:n, 0:n] + .5
+    d = np.hypot(xx - c, yy - c)
+    ga = _ramp(np.clip(d / (2.2 * rr), 0, 1), [(0, np.array([.64])), (.55, np.array([.19])), (1, np.array([0.]))])[..., 0]
+    rgb = _hx(ORB) * ga[..., None]; a = ga.copy()
+    inside = np.clip(rr + .5 - d, 0, 1)
+    ts = np.clip(np.hypot(xx - (c - .38 * rr), yy - (c - .38 * rr)) / (1.38 * rr), 0, 1)
+    sph = _ramp(ts, [(0, _hx(ORB_HI)), (.25, _hx(ORB_MID)), (.6, _hx(ORB)), (1, _hx(ORB_RIM))])
+    rgb = rgb * (1 - inside[..., None]) + sph * inside[..., None]; a = a + inside * (1 - a)
+    ha = np.clip(1 - np.hypot(xx - (c - .42 * rr), yy - (c - .42 * rr)) / (.2 * rr), 0, 1) * .95 * inside
+    rgb = rgb * (1 - ha[..., None]) + ha[..., None]
+    rgb = np.where(a[..., None] > 1e-6, rgb / np.maximum(a, 1e-6)[..., None], 0)
+    layer = Image.fromarray(np.dstack([np.clip(rgb, 0, 1) * 255, np.clip(a, 0, 1) * 255]).astype(np.uint8), "RGBA").resize((R * 2, R * 2), Image.LANCZOS)
+    img.paste(layer, (int(x - R), int(y - R)), layer)
 
 # 1) 分享图
 img = canvas(1200, 630, (760, -140, 1260, 360)); d = ImageDraw.Draw(img)
-lamp(d, 107, 107); d.text((134, 86), "Windler", font=ImageFont.truetype(semibold, 40), fill=FG)
+lamp(img, 107, 107, 13); d.text((134, 86), "Windler", font=ImageFont.truetype(semibold, 40), fill=FG)
 d.text((96, 190), SLOGAN[0], font=ImageFont.truetype(semibold, 76), fill=FG)
 d.text((96, 280), SLOGAN[1], font=ImageFont.truetype(semibold, 76), fill=FG)
 if cjk: d.text((96, 390), ZH, font=ImageFont.truetype(cjk, 40, index=0), fill=MUTED)
@@ -35,7 +61,7 @@ img.save("public/og.png", optimize=True); print("public/og.png")
 
 # 2) README 横幅：更宽，右侧留给光斑，底部一枚「官网」胶囊
 img = canvas(1600, 560, (1060, -160, 1700, 480)); d = ImageDraw.Draw(img)
-lamp(d, 123, 113, 12); d.text((152, 90), "Windler", font=ImageFont.truetype(semibold, 44), fill=FG)
+lamp(img, 123, 113, 14); d.text((152, 90), "Windler", font=ImageFont.truetype(semibold, 44), fill=FG)
 d.text((112, 190), SLOGAN[0], font=ImageFont.truetype(semibold, 84), fill=FG)
 d.text((112, 288), SLOGAN[1], font=ImageFont.truetype(semibold, 84), fill=FG)
 if cjk: d.text((112, 404), ZH, font=ImageFont.truetype(cjk, 38, index=0), fill=MUTED)
