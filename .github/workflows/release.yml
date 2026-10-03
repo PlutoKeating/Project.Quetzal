@@ -49,14 +49,16 @@ jobs:
       - name: 构建运行基座并内置进 App（npm ci + test + build）
         run: console/tool/bundle-runtime.sh
 
+      # 步骤级 if 里不能引用 secrets 上下文（GitHub 会直接判定工作流文件无效，一个 job 都不跑），
+      # 所以先把密钥放进步骤 env，在 shell 里判断是否为空。
       - name: 写入正式签名（有 Secrets 时）
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          if [ -z "$KS_B64" ]; then echo "没有配置签名 Secrets，退回 debug 签名"; exit 0; fi
           echo "$KS_B64" | base64 -d > console/android/release.keystore
           cat > console/android/key.properties <<EOP
           storeFile=release.keystore
