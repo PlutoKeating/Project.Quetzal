@@ -32,17 +32,29 @@ export default function Home() {
 
   return (
     <>
-      {/* 1 · Hero：slogan 与一句引言 */}
+      {/* 1 · Hero：左边是名片（名字 + 一句定义）、标语、三个认知锚点与入口；右边是一具示例身体此刻的样子，坐在光斑里 */}
       <section className="relative overflow-hidden border-b border-border">
         <Breath className="-right-32 -top-24 sm:-right-16 sm:top-0 landscape:short:-top-40" />
-        <Container className="relative flex min-h-[calc(100dvh-var(--ds-header-height))] flex-col justify-center gap-6 py-16 sm:py-24 short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
-          <Eyebrow>{t.hero.eyebrow}</Eyebrow>
-          <h1 className="max-w-4xl whitespace-pre-line text-3xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
-          <p className={cx("max-w-3xl whitespace-pre-line text-xl text-fg-muted", lang === "zh" ? "font-serif italic" : "")}>{t.hero.titleAlt}</p>
-          <Lead className="max-w-prose">{t.hero.lead}</Lead>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
-            <ButtonLink variant="ghost" size="lg" to={localized(lang, "/features")}>{t.hero.features} →</ButtonLink>
+        <Container className="relative grid min-h-[calc(100dvh-var(--ds-header-height))] items-center gap-10 py-16 sm:py-24 short:min-h-0 short:py-10 lg:grid-cols-[1.4fr_1fr] lg:gap-16"> {/* ds-allow：高度表达式只引用变量；栅格比例 */}
+          <div className="flex flex-col gap-6">
+            <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-2xl font-semibold tracking-tight text-fg">Quetzal</span>
+              <span className="text-sm text-secondary-fg">{t.hero.eyebrow}</span>
+            </p>
+            <h1 className="max-w-4xl whitespace-pre-line text-3xl font-semibold tracking-tight sm:text-5xl">{t.hero.title}</h1>
+            <p className={cx("max-w-3xl whitespace-pre-line text-xl text-fg-muted", lang === "zh" ? "font-serif italic" : "")}>{t.hero.titleAlt}</p>
+            <Lead className="max-w-prose">{t.hero.lead}</Lead>
+            <ul className="flex flex-col gap-2 text-sm text-fg-muted sm:flex-row sm:flex-wrap sm:gap-x-6">
+              {t.hero.anchors.map((a) => <li key={a.k} className="flex items-baseline gap-2"><StatusDot alive className="shrink-0 translate-y-px" /><span><span className="font-medium text-fg">{a.k}</span> {a.t}</span></li>)}
+            </ul>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
+              <ButtonLink variant="ghost" size="lg" to={localized(lang, "/features")}>{t.hero.features} →</ButtonLink>
+            </div>
+          </div>
+          <div className="flex flex-col gap-3">
+            <ExampleBody t={t.now} events={t.day.entries.map((e) => e.time)} className="shadow-md" />
+            <p className="text-xs text-fg-subtle text-pretty">{t.now.lead}</p>
           </div>
         </Container>
       </section>
@@ -115,29 +127,17 @@ export default function Home() {
           </ul>
           <div className="grid gap-8 md:grid-cols-2">
             <Reveal className="flex flex-col gap-3 border-t border-border pt-5">
+              <p className="font-medium text-fg">{t.why.bridge.title}</p>
+              <p className="text-sm text-fg-muted text-pretty"><span className="font-medium text-fg">{t.why.bridge.k}</span> {t.why.bridge.text}</p>
+              <Link to={localized(lang, t.why.link)} className="text-sm text-link underline-offset-4 hover:underline">{t.why.learnMore} →</Link>
+            </Reveal>
+            <Reveal delay={1} className="flex flex-col gap-3 border-t border-border pt-5">
               <p className="font-medium text-fg">{t.why.notFor.title}</p>
               <ul className="flex flex-col gap-2 text-sm text-fg-muted">
                 {t.why.notFor.items.map((it) => <li key={it.k} className="grid grid-cols-[0.75rem_1fr] gap-2"><span aria-hidden className="mt-2 inline-block size-1.5 rounded-full bg-fg-subtle" /><span><span className="font-medium text-fg">{it.k}</span> {it.t}</span></li>)}
               </ul>
             </Reveal>
-            <Reveal delay={1} className="flex flex-col gap-3 border-t border-border pt-5">
-              <p className="font-medium text-fg">{t.why.bridge.title}</p>
-              <p className="text-sm text-fg-muted text-pretty"><span className="font-medium text-fg">{t.why.bridge.k}</span> {t.why.bridge.text}</p>
-              <Link to={localized(lang, t.why.link)} className="text-sm text-link underline-offset-4 hover:underline">{t.why.learnMore} →</Link>
-            </Reveal>
           </div>
-        </Container>
-      </Section>
-
-      {/* 4 · 它此刻（示例身体） */}
-      <Section>
-        <Container className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-center"> {/* ds-allow：栅格比例 */}
-          <Reveal className="flex flex-col gap-4">
-            <Eyebrow>{t.now.eyebrow}</Eyebrow>
-            <Heading>{t.now.heading}</Heading>
-            <Lead>{t.now.lead}</Lead>
-          </Reveal>
-          <Reveal delay={1}><ExampleBody t={t.now} events={t.day.entries.map((e) => e.time)} /></Reveal>
         </Container>
       </Section>
 
