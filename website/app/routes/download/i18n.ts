@@ -5,7 +5,7 @@ export const messages = defineMessages({
     title: "下载 · Quetzal",
     description: "下载 Quetzal App。所有版本都来自 GitHub Releases，这一页实时读取最新发布。",
     eyebrow: "下载",
-    heading: "装进一台闲置的安卓手机",
+    heading: "装进一台旧手机",
     lead: "Quetzal App 内置运行基座。装好 App，跟着向导走。",
     latest: {
       eyebrow: "最新版本",

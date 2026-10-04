@@ -11,7 +11,7 @@ export const cx = (...parts: Array<string | false | null | undefined>) => parts.
 type ContainerProps = ComponentPropsWithoutRef<"div"> & { width?: "prose" | "content" | "wide" };
 export function Container({ width = "content", className, ...rest }: ContainerProps) {
   const w = width === "prose" ? "max-w-prose" : width === "wide" ? "max-w-wide" : "max-w-content";
-  return <div className={cx("mx-auto w-full px-5 sm:px-8", w, className)} {...rest} />;
+  return <div className={cx("mx-auto w-full px-7 sm:px-8", w, className)} {...rest} />;
 }
 
 type SectionProps = ComponentPropsWithoutRef<"section"> & { tone?: "plain" | "elevated"; tight?: boolean };

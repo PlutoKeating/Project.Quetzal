@@ -26,7 +26,7 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface-glass backdrop-blur-glass">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-30 focus:rounded-md focus:bg-fg focus:px-3 focus:py-1 focus:text-bg">{t.skip}</a>
-      <div className="mx-auto flex h-(--ds-header-height) max-w-wide items-center justify-between gap-4 px-5 sm:px-8">
+      <div className="mx-auto flex h-(--ds-header-height) max-w-wide items-center justify-between gap-4 px-7 sm:px-8">
         <Link to={localized(lang, "/")} className="flex items-center gap-2.5 text-fg" aria-label="Quetzal">
           <Wordmark />
         </Link>
@@ -47,7 +47,7 @@ export function SiteHeader() {
       </div>
       {open && (
         <nav id="mobile-nav" aria-label="Primary" className="border-t border-border bg-bg-elevated md:hidden">
-          <ul className="mx-auto flex max-w-wide flex-col px-5 py-3 sm:px-8">
+          <ul className="mx-auto flex max-w-wide flex-col px-7 py-3 sm:px-8">
             {navItems.map((n) => (
               <li key={n.key}><NavLink to={localized(lang, n.path)} className={({ isActive }) => cx("block rounded-md px-3 py-2.5 text-base", isActive ? "text-fg" : "text-fg-muted")}>{t.nav[n.key]}</NavLink></li>
             ))}
