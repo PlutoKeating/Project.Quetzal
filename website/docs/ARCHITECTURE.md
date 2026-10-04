@@ -37,6 +37,7 @@ flowchart LR
 
 ## 3.1 首页的示意与「活着」
 
+- **示意图的窄屏规则**：`Frame` 在容器窄于 480px 时把 SVG 文字按比例放大（最多 1.5 倍）补偿缩小，所以**同一行不能左右并排放两段文字**（名字与说明、键与值都上下两行、左对齐），单行文字按放大 1.5 倍后仍须放进画布；文案改长时要在 320 / 360 / 412 宽度下核对。
 - **三条带子** `components/figure.tsx` 的 `WakeCompare`（hero 与亮点页 01 共用）：Codex / Claude Code 只在你调用时有点；Hermes / OpenClaw 每 30 分钟一个 heartbeat 刻度；Quetzal 是随清醒度起伏的随机醒来点与大段睡眠。对照口径经查证：Hermes 有 cron，OpenClaw 有 heartbeat（默认 30 分钟）与 cron。
 - **凭证小字**：`lib/github.ts` 的 `fetchRepoStats` 取星标与最新版本（星标少于 10 时只显示 GitHub）。
 

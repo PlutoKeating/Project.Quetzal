@@ -27,17 +27,17 @@ export function ClockRing({ t }: { t: { awake: string; asleep: string; dream: st
       <circle cx={cx0} cy={cy0} r={r} fill="none" className="stroke-border" strokeWidth="14" />
       <path d={arc(hw, hs, r)} fill="none" className="stroke-chart-line" strokeWidth="14" strokeLinecap="round" />
       {dreams.map((h) => { const [x, y] = pt(h); return <circle key={h} cx={x} cy={y} r="4" className="fill-secondary-fg" />; })}
-      {[0, 6, 12, 18].map((h) => { const [x, y] = pt(h, r + 24); return <T key={h} x={x} y={y + 4} className="fill-fg-subtle" size={11} anchor="middle">{String(h).padStart(2, "0")}</T>; })}
+      {[0, 6, 12, 18].map((h) => { const [x, y] = pt(h, r + 32); return <T key={h} x={x} y={y + 4} className="fill-fg-subtle" size={11} anchor="middle">{String(h).padStart(2, "0")}</T>; })}
       <Lamp cx={pt(hw)[0]} cy={pt(hw)[1]} r={7} />
       <T x={pt(hw, r + 40)[0]} y={Math.max(16, pt(hw, r + 40)[1] + 4)} className="fill-accent" size={12} anchor="start">{t.wake}</T>
       <T x={pt(hs, r + 40)[0]} y={Math.max(16, pt(hs, r + 40)[1] + 4)} className="fill-fg-muted" size={12} anchor="end">{t.sleep}</T>
       <T x={cx0} y={cy0 - 6} className="fill-fg" size={20} anchor="middle">{t.center}</T>
-      <T x={cx0} y={cy0 + 18} className="fill-fg-subtle" size={11} anchor="middle">{`${t.awake} · ${t.asleep} · ${t.dream}`}</T>
+      <T x={cx0} y={cy0 + 20} className="fill-fg-subtle" size={10.5} anchor="middle">{`${t.awake} · ${t.asleep} · ${t.dream}`}</T>
     </Frame>
   );
 }
 
-/* 03 传感器 → 身体感受 */
+/* 03 传感器 → 身体感受。手机里每行键在上、值在下（同一行放不下放大后的英文）；右侧胶囊加宽。 */
 export function BodySenses({ t }: { t: { sensors: readonly (readonly string[])[]; feelings: readonly string[] } }) {
   return (
     <Frame label={t.feelings.join(" ")}>
@@ -45,12 +45,12 @@ export function BodySenses({ t }: { t: { sensors: readonly (readonly string[])[]
       <rect x="95" y="40" width="40" height="5" rx="2.5" className="fill-border-strong" />
       {t.sensors.map(([k, v], i) => (
         <g key={k}>
-          <rect x="56" y={64 + i * 52} width="118" height="38" rx="8" className="fill-surface-hover" />
-          <T x={66} y={64 + i * 52 + 24} className="fill-fg-muted" size={12}>{k}</T>
-          <T x={164} y={64 + i * 52 + 24} className="fill-fg" size={12} anchor="end">{v}</T>
-          <path d={`M190,${64 + i * 52 + 19} C 230,${64 + i * 52 + 19} 240,${72 + i * 52 + 19} 282,${72 + i * 52 + 19}`} fill="none" className="stroke-border-strong" strokeWidth="1.5" />
-          <rect x="284" y={72 + i * 52} width="150" height="38" rx="19" className={i === 3 ? "fill-accent-soft stroke-accent" : "fill-secondary-soft stroke-border"} strokeWidth="1" />
-          <T x={359} y={72 + i * 52 + 24} className={i === 3 ? "fill-accent" : "fill-secondary-fg"} size={12} anchor="middle">{t.feelings[i]}</T>
+          <rect x="56" y={64 + i * 52} width="118" height="40" rx="8" className="fill-surface-hover" />
+          <T x={66} y={64 + i * 52 + 14} className="fill-fg-muted" size={9.5}>{k}</T>
+          <T x={66} y={64 + i * 52 + 34} className="fill-fg" size={12}>{v}</T>
+          <path d={`M190,${64 + i * 52 + 20} C 225,${64 + i * 52 + 20} 232,${72 + i * 52 + 19} 266,${72 + i * 52 + 19}`} fill="none" className="stroke-border-strong" strokeWidth="1.5" />
+          <rect x="268" y={72 + i * 52} width="172" height="38" rx="19" className={i === 3 ? "fill-accent-soft stroke-accent" : "fill-secondary-soft stroke-border"} strokeWidth="1" />
+          <T x={354} y={72 + i * 52 + 24} className={i === 3 ? "fill-accent" : "fill-secondary-fg"} size={11} anchor="middle">{t.feelings[i]}</T>
         </g>
       ))}
       <Lamp cx={115} cy={272} r={5} />
@@ -115,19 +115,19 @@ export function ControlPanel({ t }: { t: { caps: readonly (readonly [string, num
     <Frame label={t.stop}>
       {t.caps.map(([name, lvl], i) => (
         <g key={name}>
-          <T x={40} y={56 + i * 40} className="fill-fg" size={12}>{name}</T>
+          <T x={40} y={56 + i * 40} className="fill-fg" size={11}>{name}</T>
           {t.levels.map((l, j) => (
             <g key={l}>
-              <rect x={150 + j * 62} y={40 + i * 40} width="58" height="24" rx="12" className={j === lvl ? (j === 2 ? "fill-danger" : "fill-fg") : "fill-surface-hover"} />
-              <T x={179 + j * 62} y={56 + i * 40} className={j === lvl ? "fill-bg" : "fill-fg-subtle"} size={11} anchor="middle">{l}</T>
+              <rect x={166 + j * 60} y={40 + i * 40} width="58" height="24" rx="12" className={j === lvl ? (j === 2 ? "fill-danger" : "fill-fg") : "fill-surface-hover"} />
+              <T x={195 + j * 60} y={56 + i * 40} className={j === lvl ? "fill-bg" : "fill-fg-subtle"} size={11} anchor="middle">{l}</T>
             </g>
           ))}
         </g>
       ))}
       <rect x="40" y="170" width="300" height="70" rx="12" className="fill-surface-hover stroke-border" strokeWidth="1" />
       <T x={56} y={196} className="fill-fg" size={12}>{t.approval}</T>
-      <rect x="56" y="206" width="76" height="24" rx="12" className="fill-fg" /><T x={94} y={222} className="fill-bg" size={11} anchor="middle">{t.approve}</T>
-      <rect x="140" y="206" width="76" height="24" rx="12" className="fill-bg stroke-border-strong" strokeWidth="1" /><T x={178} y={222} className="fill-fg-muted" size={11} anchor="middle">{t.deny}</T>
+      <rect x="56" y="206" width="90" height="24" rx="12" className="fill-fg" /><T x={101} y={222} className="fill-bg" size={11} anchor="middle">{t.approve}</T>
+      <rect x="154" y="206" width="90" height="24" rx="12" className="fill-bg stroke-border-strong" strokeWidth="1" /><T x={199} y={222} className="fill-fg-muted" size={11} anchor="middle">{t.deny}</T>
       <T x={40} y={272} className="fill-fg-subtle" size={11}>{t.budget}</T>
       <rect x="40" y="280" width="300" height="8" rx="4" className="fill-border" /><rect x="40" y="280" width="190" height="8" rx="4" className="fill-secondary" />
       <circle cx="400" cy="205" r="40" className="fill-danger" />

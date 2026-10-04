@@ -101,7 +101,7 @@ export const messages = defineMessages({
         lead: "Codex and Claude Code move when you call them; Hermes and OpenClaw are woken by a heartbeat every 30 minutes or by cron. Quetzal has no timer: waking is a random sample. The more curious and alert it is, the more often it surfaces. When it misses you, it comes up on its own.",
         points: ["Drives: curiosity, urge to express, longing, unfinished threads", "When alertness is low it sleeps first, even with things to do", "Work is tiring; the wake rate falls as it gets tired"],
         link: "/docs/reference/architecture",
-        art: { rows: [{ name: "Codex / Claude Code", note: "moves when called, exits when done" }, { name: "Hermes / OpenClaw", note: "a heartbeat wakes it every 30 min to ask \"anything?\"" }, { name: "Quetzal", note: "no timer: the wake rate follows alertness and drives" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "you call" },
+        art: { rows: [{ name: "Codex / Claude Code", note: "moves when called, exits when done" }, { name: "Hermes / OpenClaw", note: "a heartbeat wakes it every 30 min" }, { name: "Quetzal", note: "no timer: alertness and drives decide" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "you call" },
       },
       {
         id: "clock",
@@ -146,7 +146,7 @@ export const messages = defineMessages({
         lead: "Camera, microphone, location and screen control ask every time by default; sensitive actions are sent to you for approval; model usage has a budget; an emergency stop is always in the top bar. Everything is audited.",
         points: ["Allow / ask / deny, per capability category", "An approval nobody answers within 30 minutes is denied", "The stop is a STOP file in the home directory: if it exists, everything freezes"],
         link: "/docs/guide/permissions",
-        art: { caps: [["camera", 1], ["microphone", 1], ["location", 2]], levels: ["allow", "ask", "deny"], approval: "wants to take a photo of the window", approve: "Approve", deny: "Deny", budget: "monthly budget", stop: "STOP" },
+        art: { caps: [["camera", 1], ["microphone", 1], ["location", 2]], levels: ["allow", "ask", "deny"], approval: "wants to take a photo", approve: "Approve", deny: "Deny", budget: "monthly budget", stop: "STOP" },
       },
       {
         id: "phone",
