@@ -17,7 +17,8 @@ src/
 ├── crypto.ts             供应商 Key 的 AES-256-GCM 加密
 ├── version.ts            版本号
 ├── ops.ts                统一操作层：网关与飞书共用，修改类操作全部审计
-├── gateway.ts            本地网关：/health、配对、WebSocket RPC 与推送
+├── gateway.ts            本地网关：/health、配对、本机登录、WebSocket RPC 与推送、静态文件
+├── web.ts                网页控制台：托管 current/web/（QUETZAL_WEB_DIR 可覆盖，单页回退、ETag）；判定「同一台机器上的浏览器」（回环地址 + 本机 Host + 本机 Origin）给 GET /auth/local
 ├── body/
 │   ├── adapter.ts        身体适配器接口（与设备仓库的唯一边界）+ 通用适配器
 │   └── twin.ts           身体数字孪生：采样、身体感受、sense 事件、感官循环；「身体」段落含她自己的进程 pid

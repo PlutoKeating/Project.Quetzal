@@ -17,7 +17,7 @@ Quetzal is not bound to any particular agent. An agent's identity is one file, `
 | `color` | Theme color `#RRGGBB`; the app's colors follow it |
 | `language` | Preferred language (BCP 47, e.g. `en`) |
 
-## Changing it in the app
+## Changing it in the console
 
 **Control → Identity**: display name, identifier, pronouns, description, theme color, preferred language. Saving writes to her soul directory; with a soul repository connected it becomes a commit synced to every body.
 

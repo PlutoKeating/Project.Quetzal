@@ -45,7 +45,8 @@ description: Terms that recur throughout the Quetzal documentation — runtime, 
 | vault | 保密库 | `QUETZAL_HOME/vault/`, local storage for secret values, never synced |
 | done spell | 结束口令 | The random phrase `done-xxxxxx` marking the end of a secret input |
 | gateway | 网关 | The runtime's local interface at `127.0.0.1:7788`: HTTP + WebSocket RPC |
-| pairing code | 配对码 | Six digits, valid five minutes, for an app on another device to connect to the gateway |
+| pairing code | 配对码 | Six digits, valid five minutes, for a console on another device to connect to the gateway; a browser on the same machine needs none (the gateway lets it in directly) |
+| web console | 网页控制台 | The console as a web page, served by the runtime's gateway (`http://127.0.0.1:7788/`) and laid out for a wide screen; installed on Linux machines by the npm package |
 | ignite | 点火 | The app re-running the boot script through Termux when the runtime is offline |
 | safe mode | 安全模式 | Protective state after more than five starts in ten minutes: gateway and Feishu only |
 | Now | 此刻 | The app's home page: state, drives, the thought she wants to share |

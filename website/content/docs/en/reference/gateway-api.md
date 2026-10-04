@@ -1,6 +1,6 @@
 ---
 title: Gateway API
-description: The local gateway's HTTP endpoints, WebSocket RPC and push events, and the method list. The Quetzal app and the Feishu channel use exactly this.
+description: The local gateway's HTTP endpoints, WebSocket RPC and push events, and the method list. The Quetzal app, the web console and the Feishu channel use exactly this.
 ---
 
 ## Overview

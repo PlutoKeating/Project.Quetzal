@@ -47,6 +47,8 @@ mindmap
 
 > [!TIP]
 > :bulb: 全程不需要电脑，也不需要会命令行。唯一要你亲手做的，是在 Termux 里粘贴一行命令——因为 Termux 的安全设计不允许别的应用代劳。
+>
+> 没有闲置手机、只有一台 Linux 电脑或服务器？`npx @plutokeating/quetzal` 一行装好，网页控制台在浏览器里打开即用，见 [Linux 与其他机器](/docs/advanced/other-machines)。
 
 ## 它和定时任务有什么不同
 

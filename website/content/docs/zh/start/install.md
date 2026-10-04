@@ -5,7 +5,7 @@ description: 在一台闲置的安卓手机上装好 Termux 三件套与 Quetzal
 
 ## 总览
 
-安装分四步：装 Termux 三件套 → 装 Quetzal App → 在 App 的向导里安装运行基座 → 让系统不要杀掉它。整个过程几分钟，下载几十 MB。
+安装分四步：装 Termux 三件套 → 装 Quetzal App → 在 App 的向导里安装运行基座 → 让系统不要杀掉它。整个过程几分钟，下载几十 MB。（装到 Linux 电脑或服务器上是另一条路：一行 `npx @plutokeating/quetzal`，见 [Linux 与其他机器](/docs/advanced/other-machines)。）
 
 ```mermaid
 flowchart TB

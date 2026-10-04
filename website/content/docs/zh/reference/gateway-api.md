@@ -1,6 +1,6 @@
 ---
 title: 网关 API
-description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方法一览。Quetzal App 与飞书通道使用的就是这一套。
+description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方法一览。Quetzal App、网页控制台与飞书通道使用的就是这一套。
 ---
 
 ## 概览

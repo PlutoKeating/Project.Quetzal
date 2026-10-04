@@ -20,7 +20,7 @@ One agent can live in several "bodies" at once: a runtime on a phone, a computer
 
 **Sync and versioning are fully automatic.** She neither needs to nor can operate it; she only perceives that "soul sync happened".
 
-## Connecting in the app
+## Connecting in the console
 
 1. Create a **private** repository on GitHub (recommended name `<agent>.soul`); it can be empty.
 2. **Control → Soul sync → Show public key**, then add that key under the repository's **Settings → Deploy keys** with **Allow write access** ticked.

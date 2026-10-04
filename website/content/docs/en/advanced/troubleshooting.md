@@ -57,6 +57,12 @@ She tells you she "entered safe mode": more than five starts in ten minutes. Onl
 | "Different identity, refusing to merge" | Another agent lives in that repository. Create a new one for this agent |
 | The two sides look out of sync | Sync is event-driven: wait for her next wake-up / conversation, or tap "Sync now" on the Soul sync page |
 
+## The web console (Linux)
+
+- `http://127.0.0.1:7788/` asks for a pairing code: the gateway waives it only for a browser on **the same machine** — a LAN IP or hostname does not count; use `127.0.0.1` or `localhost`. From another machine, forward the port with `ssh -L 7788:127.0.0.1:7788 <that machine>` and open the address locally, or pair from the app.
+- Blank page or boxes instead of Chinese: check the service with `npx @plutokeating/quetzal status` and hard-refresh the browser. The web build ships its own CJK font and needs no internet for it.
+- The browser did not open after installing: without a desktop session (server, ssh login) only the address is printed; try `npx @plutokeating/quetzal open`.
+
 ## Still stuck
 
 Open an issue at [GitHub Issues](https://github.com/PlutoKeating/Project.Quetzal/issues) describing the symptom, with the version shown under **Control → Service** and the relevant log (strip personal information from the log first).

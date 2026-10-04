@@ -19,7 +19,7 @@ description: 一键创建机器人、绑定你本人，然后在飞书单聊里�
 ```mermaid
 sequenceDiagram
   participant U as 你
-  participant A as Quetzal App
+  participant A as 控制台
   participant R as 运行基座
   participant F as 飞书
   U->>A: 点「开始」

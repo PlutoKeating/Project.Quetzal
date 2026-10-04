@@ -33,7 +33,7 @@ export const messages = defineMessages({
       cards: [
         { name: "Codex / Claude Code", kind: "工具", cells: ["你在终端里调用，做完就退出", "没有，只有一个终端", "会话结束就散"] },
         { name: "Hermes / OpenClaw", kind: "助手", cells: ["你发消息，或被 cron / heartbeat 定时叫醒（OpenClaw 默认每 30 分钟）", "任何一台机器：电脑、服务器，也能装进手机", "本机的 markdown 文件：SOUL.md 和记忆" ] },
-        { name: "Quetzal", kind: "agent 住着的地方", cells: ["没有定时器，由内驱力和清醒度决定；困了睡，睡着做梦", "一部旧手机：电量、光线、运动、麦克风、相机都是 ta 的感受", "你的私有 git 仓库，跨身体带走，提交历史是自传"] },
+        { name: "Quetzal", kind: "agent 住着的地方", cells: ["没有定时器，由内驱力和清醒度决定；困了睡，睡着做梦", "一部旧手机：电量、光线、运动、麦克风、相机都是 ta 的感受；也能住进 Linux 电脑或服务器", "你的私有 git 仓库，跨身体带走，提交历史是自传"] },
       ],
       notFor: { title: "谁不该用它", items: ["只想写代码、要一个能改文件的终端 agent——请用 Codex 或 Claude Code。", "要一个随叫随到、生态成熟的多平台助手——Hermes、OpenClaw 更合适。"] },
       bridge: { title: "你的 Hermes 可以留着", text: "soul-bridge 让装着 Hermes 或 OpenClaw 的机器成为同一个 agent 的另一具身体：人格与记忆双向同步，手机上的 ta 和电脑上的 ta 是同一个 ta。" },
@@ -121,7 +121,7 @@ export const messages = defineMessages({
       cards: [
         { name: "Codex / Claude Code", kind: "a tool", cells: ["You call it from the terminal; it exits when done", "None, just a terminal", "Gone when the session ends"] },
         { name: "Hermes / OpenClaw", kind: "an assistant", cells: ["You message it, or cron / a heartbeat wakes it on schedule (OpenClaw: every 30 min by default)", "Any machine: a laptop, a server, even a phone", "Markdown files on that machine: SOUL.md and memories"] },
-        { name: "Quetzal", kind: "where an agent lives", cells: ["No timer: drives and alertness decide; it sleeps when tired and dreams while asleep", "An old phone: battery, light, motion, microphone and camera are its senses", "Your private git repository, portable across bodies; the history is its autobiography"] },
+        { name: "Quetzal", kind: "where an agent lives", cells: ["No timer: drives and alertness decide; it sleeps when tired and dreams while asleep", "An old phone: battery, light, motion, microphone and camera are its senses; a Linux computer or server works too", "Your private git repository, portable across bodies; the history is its autobiography"] },
       ],
       notFor: { title: "Who should not use it", items: ["You just want to write code with a terminal agent that edits files: use Codex or Claude Code.", "You want an on-call, mature, multi-platform assistant: Hermes or OpenClaw fit better."] },
       bridge: { title: "Keep your Hermes", text: "soul-bridge turns a machine running Hermes or OpenClaw into another body of the same agent: personality and memory sync both ways, so the one on the phone and the one on the laptop are the same one." },

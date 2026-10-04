@@ -19,7 +19,7 @@ With Feishu connected she has a second place to talk to you. Everything in Feish
 ```mermaid
 sequenceDiagram
   participant U as You
-  participant A as Quetzal app
+  participant A as Console
   participant R as Runtime
   participant F as Feishu
   U->>A: Tap "Start"

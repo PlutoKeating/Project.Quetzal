@@ -59,7 +59,7 @@ ExecStart=/usr/bin/node --enable-source-maps /opt/quetzal/main.cjs
 Restart=always
 ```
 
-控制台连接这样的机器：把网关端口转发到控制台所在设备（例如 `adb reverse` 或 ssh 隧道），或在 `config/quetzal.json` 里把 `gateway.host` 设为 `0.0.0.0`，在 App 里填网关地址并用配对码配对。配对码通过适配器的系统通知下发，没有 `notify` 的适配器需要部署者从 `QUETZAL_HOME/secrets/gateway.token` 读出令牌填入。
+控制台连接这样的机器：把控制台的 Web 构建（`console/tool/build-web.sh` → `build/web`）放到 `main.cjs` 旁边的 `web/` 或用 `QUETZAL_WEB_DIR` 指定，网关就托管网页控制台，这台机器的浏览器打开即登录；或者把网关端口转发到控制台所在设备（例如 `adb reverse` 或 ssh 隧道），或在 `config/quetzal.json` 里把 `gateway.host` 设为 `0.0.0.0`，在 App 里填网关地址并用配对码配对。配对码通过适配器的系统通知下发，没有 `notify` 的适配器需要部署者从 `QUETZAL_HOME/secrets/gateway.token` 读出令牌填入。
 
 构建 Quetzal App：
 

@@ -43,7 +43,7 @@ STOP                     emergency stop flag: if present, everything freezes
 | `gateway.port` | `7788` | Gateway port |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | `""` / `""` / `zh-CN-XiaoxiaoNeural` / `""` / `0%` / `0%` / `100` / `audio-24khz-48kbitrate-mono-mp3` | Azure Speech (key in `secrets/azure_speech_key`) |
 
-All of these are editable from the app; no file editing required.
+All of these are editable from the console (phone app or web version); no file editing required.
 
 ## Environment variables
 
@@ -74,11 +74,11 @@ Packages: `nodejs-lts termux-services termux-api git openssh`. Only the last thr
 The npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal`) follows these, mirroring Android:
 
 ```
-~/quetzal/releases/<version>/           main.cjs, linux.mjs
+~/quetzal/releases/<version>/           main.cjs, linux.mjs, web/ (the web console; the gateway serves current/web/)
 ~/quetzal/current → releases/…          the running version
 ~/quetzal/previous → releases/…         the previous version (for rollback)
 ~/.config/systemd/user/quetzal.service  systemd user service: QUETZAL_HOME, QUETZAL_ADAPTER=~/quetzal/current/linux.mjs, Restart=always
 journalctl --user -u quetzal            logs (npx @plutokeating/quetzal logs)
 ```
 
-Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` in `config/quetzal.json`.
+Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` in `config/quetzal.json`. After installing, the web console opens at `http://127.0.0.1:7788/` (`npx @plutokeating/quetzal open`), with no pairing code on the same machine.

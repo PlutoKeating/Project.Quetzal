@@ -12,7 +12,7 @@ description: Four protocols, several providers and keys, a global call order wit
 | `anthropic-messages` | The Anthropic Messages API |
 | `google-generative-ai` | Google Gemini |
 
-## Configuring in the app
+## Configuring in the console (phone app or web version, the same interface)
 
 **Control → Models**. The configuration is edited as a draft and saved as a whole:
 

@@ -12,7 +12,7 @@ description: 四种协议、多供应商多 Key、全局调用顺序与自动故
 | `anthropic-messages` | Anthropic Messages 接口 |
 | `google-generative-ai` | Google Gemini |
 
-## 在 App 里配置
+## 在控制台里配置（手机 App 或网页版，同一份界面）
 
 **控制 → 模型**。配置以「草稿」方式编辑，点保存时整份提交：
 

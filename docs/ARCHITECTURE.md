@@ -35,7 +35,7 @@ flowchart TB
   GW --> OPS
   FS --> OPS
   FS -- 对话 --> BRAIN
-  GW <--> APP["控制台 App"]
+  GW <--> APP["控制台：App / 网页版"]
   MEM <-- git --> SOUL[("灵魂仓库（私有 git）")]
   HEART & BRAIN & GUARD --> STORE
 ```

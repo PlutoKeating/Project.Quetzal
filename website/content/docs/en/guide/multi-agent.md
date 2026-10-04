@@ -1,11 +1,11 @@
 ---
 title: Multiple agents
-description: Connect several runtimes in one app and switch with a tap; where pairing codes come from; running several agents on one device.
+description: Connect several runtimes in one console and switch with a tap; where pairing codes come from; running several agents on one device.
 ---
 
-## One app, several agents
+## One console, several agents
 
-The Quetzal app keeps several connections, each to one runtime (one agent in one body). Tap the name in the top bar → **Switch agent**; wording and theme color follow.
+The console (the phone app, or the web version on a Linux machine) keeps several connections, each to one runtime (one agent in one body). Tap the name in the top bar on the phone, or the avatar in the top-left corner on the web → **Switch agent**; wording and theme color follow.
 
 ```mermaid
 flowchart TB
@@ -27,7 +27,7 @@ Top-bar name → **Connect a new agent**:
 3. Enter the code → paired. The app stores the token and reconnects automatically from then on.
 
 > [!NOTE]
-> A runtime installed on **this phone** by the wizard needs no pairing code: the install script hands the token straight to the app.
+> A runtime installed on **this phone** by the wizard needs no pairing code: the install script hands the token straight to the app. Nor does the web console when it connects to the runtime on **the machine that serves it**: it is logged in as soon as it opens.
 
 A code becomes invalid after five wrong attempts or on expiry; just request a new one.
 

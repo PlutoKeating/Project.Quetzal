@@ -47,6 +47,8 @@ You need:
 
 > [!TIP]
 > :bulb: No computer and no command-line skills are required. The only thing you do by hand is paste one line into Termux, because Termux's security model does not let another app do that for you.
+>
+> No spare phone, just a Linux computer or server? `npx @plutokeating/quetzal` installs it in one line and the web console opens in your browser; see [Linux and other machines](/docs/advanced/other-machines).
 
 ## How it differs from a scheduled task
 

@@ -43,7 +43,7 @@ STOP                     急停标志：存在即冻结一切行动
 | `gateway.port` | `7788` | 网关端口 |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | `""` / `""` / `zh-CN-XiaoxiaoNeural` / `""` / `0%` / `0%` / `100` / `audio-24khz-48kbitrate-mono-mp3` | Azure 语音（密钥在 `secrets/azure_speech_key`） |
 
-所有这些都能在 App 里改，不需要手编文件。
+所有这些都能在控制台（手机 App 或网页版）里改，不需要手编文件。
 
 ## 环境变量
 
@@ -74,11 +74,11 @@ $PREFIX/var/log/sv/quetzal/       日志（svlogd 自动轮转）
 npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按此约定工作，与安卓同构：
 
 ```
-~/quetzal/releases/<版本>/              main.cjs、linux.mjs
+~/quetzal/releases/<版本>/              main.cjs、linux.mjs、web/（网页控制台，网关托管 current/web/）
 ~/quetzal/current → releases/…          运行中的版本
 ~/quetzal/previous → releases/…         上一版（回退用）
 ~/.config/systemd/user/quetzal.service  systemd 用户服务：QUETZAL_HOME、QUETZAL_ADAPTER=~/quetzal/current/linux.mjs，Restart=always
 journalctl --user -u quetzal            日志（npx @plutokeating/quetzal logs）
 ```
 
-要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）自动切回 `previous`。`--lan` 把 `config/quetzal.json` 的 `gateway.host` 写为 `0.0.0.0`。
+要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）自动切回 `previous`。`--lan` 把 `config/quetzal.json` 的 `gateway.host` 写为 `0.0.0.0`。装完在浏览器里打开 `http://127.0.0.1:7788/`（`npx @plutokeating/quetzal open`），同一台机器免配对码。
