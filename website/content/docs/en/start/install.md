@@ -75,4 +75,4 @@ Android kills background apps. The last wizard step guides you to:
 
 Open Quetzal's **Now** page to see her state and drives. She will not wake until you configure a model. Continue with [First steps](/docs/start/first-steps).
 
-**Upgrading**: when you install a newer APK later, the app notices its bundled runtime is newer than the running one and offers a one-tap upgrade. See [Upgrade and rollback](/docs/guide/upgrade).
+**Upgrading**: when a new release is out, the app says so at the top; **Control → Service → Quetzal App → Download and install** installs the new app in one tap, and the new app then upgrades its bundled runtime. See [Upgrade and rollback](/docs/guide/upgrade).

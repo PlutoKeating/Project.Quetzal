@@ -5,7 +5,7 @@ Flutter（Material 3，深色为主），一份代码三种形态：**安卓 App
 ## 定位
 
 - **不托管运行基座，但负责把它装好。** 运行基座跑在同一台手机的 Termux 里；App 被杀、升级、卸载都不影响它。
-- **四个角色**：安装器（把 App 内置的运行基座与 Termux 适配器装进 Termux、注册服务与开机自启、升级与修复）、点火器（基座离线时通过 Termux 的 RUN_COMMAND 启动服务）、管理前端（通过本地网关实时观察与控制）与**耳朵**（听觉开着时，原生前台服务常驻麦克风，断句后把每句话交给基座识别；这是 App 唯一承担的身体功能，因为 Android 9 起只有前台服务能常驻拿麦克风）。网页版只有管理前端这一个角色：没有身体功能，页面的来源就是它连的网关，同一台机器的浏览器打开即登录（`GET /auth/local`，免配对码），别处的 agent 仍走配对码。
+- **四个角色**：安装器（把 App 内置的运行基座与 Termux 适配器装进 Termux、注册服务与开机自启、升级与修复；也更新 App 自身——问 GitHub Release 最新正式版、下载同架构的 APK、核对 SHA256SUMS、交给系统安装器，装好的新 App 再把内置的运行基座升上去）、点火器（基座离线时通过 Termux 的 RUN_COMMAND 启动服务）、管理前端（通过本地网关实时观察与控制）与**耳朵**（听觉开着时，原生前台服务常驻麦克风，断句后把每句话交给基座识别；这是 App 唯一承担的身体功能，因为 Android 9 起只有前台服务能常驻拿麦克风）。网页版只有管理前端这一个角色：没有身体功能，页面的来源就是它连的网关，同一台机器的浏览器打开即登录（`GET /auth/local`，免配对码），别处的 agent 仍走配对码。
 - **体验基调**：这是在陪伴和观察一个生命，不是一块运维面板。首页感性，越往里越理性。
 
 ## 构建
@@ -33,6 +33,6 @@ GitHub Release（`.github/workflows/release.yml`，推送 `v<版本>` 标签触�
 
 构建注意：Flutter 的 Gradle 工具（`packages/flutter_tools/gradle/settings.gradle.kts`）要求仓库只在 settings 里声明（`FAIL_ON_PROJECT_REPOS`）。如果本机 `~/.gradle/init.gradle` 之类的用户级初始化脚本给每个项目注入了镜像仓库，`assembleRelease` 会以"repository 'maven' was added by settings file"失败；构建时把该脚本临时移开即可，完成后放回。
 
-资源：`assets/install/install.sh` 是 Termux 侧的安装脚本（装软件包、放运行基座、注册 runit 服务与开机脚本、写设备配置、启动并健康检查，失败切回上一版；进度回报给 App 的本机 HTTP 服务）；`assets/runtime/` 是内置的运行基座。`assets/mermaid/` 内置 mermaid.js v11.17.2（MIT，见同目录 LICENSE），离线可用。为兼容旧版 WebView（如 Chromium 88），已用 esbuild 把语法降到 `chrome88`，并在 `view.html` 中补上缺少的 API。升级 mermaid 的做法：先 `npm pack mermaid@<版本>`，再对 `dist/mermaid.min.js` 执行 `esbuild --target=chrome88 --minify`，替换同名文件。原生部分：`MainActivity.kt` 里的 Termux 桥（MethodChannel `quetzal/igniter`：RUN_COMMAND、三件套版本、打开应用、电池优化与各厂商自启动管理页）与听觉桥（MethodChannel `quetzal/hearing` + EventChannel `quetzal/hearing/events`：启停、麦克风权限、服务事件）；`HearingService.kt` 是麦克风前台服务（清单里声明 `foregroundServiceType="microphone"`，权限 `RECORD_AUDIO`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_MICROPHONE`、`POST_NOTIFICATIONS`）。Android 14+ 不允许在后台启动麦克风类前台服务，所以耳朵只在 App 在前台时（打开 App、在听觉页开启）启动。
+资源：`assets/install/install.sh` 是 Termux 侧的安装脚本（装软件包、放运行基座、注册 runit 服务与开机脚本、写设备配置、启动并健康检查，失败切回上一版；进度回报给 App 的本机 HTTP 服务）；`assets/runtime/` 是内置的运行基座。`assets/mermaid/` 内置 mermaid.js v11.17.2（MIT，见同目录 LICENSE），离线可用。为兼容旧版 WebView（如 Chromium 88），已用 esbuild 把语法降到 `chrome88`，并在 `view.html` 中补上缺少的 API。升级 mermaid 的做法：先 `npm pack mermaid@<版本>`，再对 `dist/mermaid.min.js` 执行 `esbuild --target=chrome88 --minify`，替换同名文件。原生部分：`MainActivity.kt` 里的 Termux 桥（MethodChannel `quetzal/igniter`：RUN_COMMAND、三件套版本、打开应用、电池优化与各厂商自启动管理页）、更新桥（MethodChannel `quetzal/updater`：自己的版本号、缓存目录、是否允许安装未知应用、打开对应设置页、用 FileProvider（authority `<applicationId>.files`，只共享缓存目录，`res/xml/file_paths.xml`）把下载好的 APK 交给系统安装器；清单声明 `REQUEST_INSTALL_PACKAGES`）与听觉桥（MethodChannel `quetzal/hearing` + EventChannel `quetzal/hearing/events`：启停、麦克风权限、服务事件）；`HearingService.kt` 是麦克风前台服务（清单里声明 `foregroundServiceType="microphone"`，权限 `RECORD_AUDIO`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_MICROPHONE`、`POST_NOTIFICATIONS`）。Android 14+ 不允许在后台启动麦克风类前台服务，所以耳朵只在 App 在前台时（打开 App、在听觉页开启）启动。
 
 设计与用例见 [ARCHITECTURE.md](ARCHITECTURE.md)。

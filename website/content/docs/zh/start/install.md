@@ -75,4 +75,4 @@ flowchart TB
 
 打开 Quetzal 的「此刻」页，你会看到 ta 的状态与驱动力。在给 ta 配置模型之前 ta 不会醒来。接着看 [第一步](/docs/start/first-steps)。
 
-**升级**：以后装新版 APK 后，App 发现内置的运行基座比运行中的新，会提示一键升级；详见 [升级与回退](/docs/guide/upgrade)。
+**升级**：以后有新版时 App 会在顶部提示，**控制 → 服务 → Quetzal App →「下载并安装」**一键装好新 App，新 App 再把内置的运行基座升上去；详见 [升级与回退](/docs/guide/upgrade)。

@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 未发布
+
+- **App 自己更新**：安卓 App 启动时问 GitHub 有没有新的正式版（每 6 小时一次），有就在顶部提示「Quetzal App 有新版本」；**控制 → 服务 → Quetzal App** 一节可随时「检查新版本」，「下载并安装」一键完成：下载 `quetzal-<版本>-android-arm64.apk` 到缓存目录（进度条）、核对 SHA256SUMS、交给系统安装器（首次先带去系统设置允许 Quetzal 安装应用，回来再点「安装」）；连不上 GitHub 时「去下载页」手动下载。装好的新 App 打开后，发现内置的运行基座比运行中的新，直接进安装向导的升级一步，两层升级都不用再找 APK。原生新增 MethodChannel `quetzal/updater` 与 FileProvider（只共享缓存目录），清单声明 `REQUEST_INSTALL_PACKAGES`；Dart 侧新依赖 `crypto`（核对 SHA256，原本已是间接依赖）。
+- **Self-updating app**: on launch the Android app asks GitHub for the latest release (once every 6 hours) and shows "A new Quetzal app version is available" at the top; the new **Control → Service → Quetzal App** section can **check for updates** any time and **download and install** in one tap: it downloads `quetzal-<version>-android-arm64.apk` into the cache directory (progress bar), checks it against SHA256SUMS and hands it to the system installer (the first time it opens the system settings so you can allow Quetzal to install apps; come back and tap Install); when GitHub is unreachable, **Download page** lets you fetch the APK by hand. When the new app opens and finds its bundled runtime newer than the running one, it goes straight to the upgrade step of the setup wizard, so neither layer needs hunting for an APK any more. Native side: a new MethodChannel `quetzal/updater` and a FileProvider (cache directory only); the manifest declares `REQUEST_INSTALL_PACKAGES`; Dart gains the `crypto` dependency (SHA256; it was already a transitive dependency).
+
 ## 0.6.2
 
 - **API Key 形状校验**：保存 Key 时拒绝含非 ASCII 字符、空格换行或太短的值并说明原因（典型事故：把一句聊天粘进了遮挡的 Key 输入框，之后所有模型调用都报一句看不懂的 ByteString 错误）；控制台添加 Key 的对话框加「显示」眼睛与实时提示；调用层把这类底层报错翻译成「API Key 粘错了，请重新添加」。
