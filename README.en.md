@@ -1,4 +1,4 @@
-<a href="https://quetzal.plutokeating.beer/en"><img src="docs/assets/readme/banner.png" alt="Quetzal · Not running. Living. Living like wind. · quetzal.plutokeating.beer" width="100%" /></a>
+<a href="https://quetzal.plutokeating.beer/en"><img src="docs/assets/readme/banner.png" alt="Quetzal · Not running, but living. Living like wind. · quetzal.plutokeating.beer" width="100%" /></a>
 
 <div align="center">
 

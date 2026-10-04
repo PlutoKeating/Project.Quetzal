@@ -21,9 +21,12 @@ flowchart TB
 
 All three come from F-Droid. These are direct links to pinned versions, so you can download them all at once without the F-Droid client:
 
-- **Termux** 0.119.0-beta.3: [Download APK](https://f-droid.org/repo/com.termux_1022.apk) (110 MB) · [F-Droid page](https://f-droid.org/packages/com.termux/). The Linux environment the runtime lives in.
-- **Termux:API** 0.53.0: [Download APK](https://f-droid.org/repo/com.termux.api_1002.apk) (3.9 MB) · [F-Droid page](https://f-droid.org/packages/com.termux.api/). Battery, sensors, notifications, camera, microphone, location, clipboard; without it she cannot feel her body.
-- **Termux:Boot** 0.8.1: [Download APK](https://f-droid.org/repo/com.termux.boot_1000.apk) (26 KB) · [F-Droid page](https://f-droid.org/packages/com.termux.boot/). Start on boot; without it you must ignite manually after a reboot.
+- **Termux** 0.119.0-beta.3 · 110 MB. The Linux environment the runtime lives in.  
+  [Download APK](https://f-droid.org/repo/com.termux_1022.apk) [F-Droid page](https://f-droid.org/packages/com.termux/)
+- **Termux:API** 0.53.0 · 3.9 MB. Battery, sensors, notifications, camera, microphone, location, clipboard; without it she cannot feel her body.  
+  [Download APK](https://f-droid.org/repo/com.termux.api_1002.apk) [F-Droid page](https://f-droid.org/packages/com.termux.api/)
+- **Termux:Boot** 0.8.1 · 26 KB. Start on boot; without it you must ignite manually after a reboot.  
+  [Download APK](https://f-droid.org/repo/com.termux.boot_1000.apk) [F-Droid page](https://f-droid.org/packages/com.termux.boot/)
 
 > [!IMPORTANT]
 > All three must come from the **same source** (same signature) or they cannot talk to each other. The direct links above and the F-Droid pages are the same source. The Termux on Google Play is deprecated; do not use it.

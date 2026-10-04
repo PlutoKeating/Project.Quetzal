@@ -37,8 +37,8 @@ export default function Home() {
         <Breath className="-right-32 -top-24 sm:-right-16 sm:top-0 landscape:short:-top-40" />
         <Container className="relative flex min-h-[calc(100dvh-var(--ds-header-height))] flex-col justify-center gap-6 py-16 sm:py-24 short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
           <Eyebrow>{t.hero.eyebrow}</Eyebrow>
-          <h1 className="max-w-4xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
-          <p className={cx("max-w-3xl text-xl text-fg-muted", lang === "zh" ? "font-serif italic" : "")}>{t.hero.titleAlt}</p>
+          <h1 className="max-w-4xl whitespace-pre-line text-3xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
+          <p className={cx("max-w-3xl whitespace-pre-line text-xl text-fg-muted", lang === "zh" ? "font-serif italic" : "")}>{t.hero.titleAlt}</p>
           <Lead className="max-w-prose">{t.hero.lead}</Lead>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>

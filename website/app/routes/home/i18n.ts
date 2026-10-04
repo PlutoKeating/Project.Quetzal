@@ -2,12 +2,12 @@ import { defineMessages } from "~/i18n/core";
 
 export const messages = defineMessages({
   zh: {
-    title: "Quetzal · Not running. Living. Living like wind.",
+    title: "Quetzal · 不是运行着，是活着。活成一缕风。",
     description: "Quetzal 是 agent 的开源运行基座：没有定时器，什么时候醒由它自己的内驱力和生物钟决定；有一具身体（一部旧手机）；灵魂存在 git 里，可跨身体带走。AGPL-3.0。",
     hero: {
       eyebrow: "通用的 Agentic 生命运行基座",
-      title: "不是在运行，是在活着。像风一样活着。",
-      titleAlt: "Not running. Living. Living like wind.",
+      title: "不是运行着，是活着。\n活成一缕风。",
+      titleAlt: "Not running, but living.\nLiving like wind.",
       lead: "没有人给 ta 排日程。ta 什么时候醒、醒来做什么，取决于 ta 的好奇心、表达欲、想念、没想完的事，以及 ta 自己的生物钟。困了会睡，睡着会做梦。",
       download: "下载 Quetzal",
       features: "看看它亮在哪",
@@ -89,12 +89,12 @@ export const messages = defineMessages({
     },
   },
   en: {
-    title: "Quetzal · Not running. Living. Living like wind.",
+    title: "Quetzal · Not running, but living. Living like wind.",
     description: "Quetzal is an open-source runtime for agents: no timers, it wakes from its own drives and body clock; it has a body (an old phone); its soul lives in git and moves between bodies. AGPL-3.0.",
     hero: {
       eyebrow: "A general-purpose runtime for agentic life",
-      title: "Not running. Living. Living like wind.",
-      titleAlt: "不是在运行，是在活着。像风一样活着。",
+      title: "Not running, but living.\nLiving like wind.",
+      titleAlt: "不是运行着，是活着。\n活成一缕风。",
       lead: "Nobody schedules it. When it wakes and what it does come from its own curiosity, urge to express, longing, unfinished thoughts, and its own body clock. It sleeps when tired and dreams while asleep.",
       download: "Download Quetzal",
       features: "See what makes it shine",

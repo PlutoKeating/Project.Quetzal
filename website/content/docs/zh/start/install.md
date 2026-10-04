@@ -21,9 +21,12 @@ flowchart TB
 
 三个应用都来自 F-Droid。下面是固定版本的直链，没有 F-Droid 客户端也能一次下完：
 
-- **Termux** 0.119.0-beta.3：[下载 APK](https://f-droid.org/repo/com.termux_1022.apk)（110 MB）· [F-Droid 页面](https://f-droid.org/packages/com.termux/)。运行基座所在的 Linux 环境。
-- **Termux:API** 0.53.0：[下载 APK](https://f-droid.org/repo/com.termux.api_1002.apk)（3.9 MB）· [F-Droid 页面](https://f-droid.org/packages/com.termux.api/)。电量、传感器、通知、相机、麦克风、定位、剪贴板；没有它 ta 感知不到身体。
-- **Termux:Boot** 0.8.1：[下载 APK](https://f-droid.org/repo/com.termux.boot_1000.apk)（26 KB）· [F-Droid 页面](https://f-droid.org/packages/com.termux.boot/)。开机自动启动；没有它重启后要手动点火。
+- **Termux** 0.119.0-beta.3 · 110 MB。运行基座所在的 Linux 环境。  
+  [下载 APK](https://f-droid.org/repo/com.termux_1022.apk) [F-Droid 页面](https://f-droid.org/packages/com.termux/)
+- **Termux:API** 0.53.0 · 3.9 MB。电量、传感器、通知、相机、麦克风、定位、剪贴板；没有它 ta 感知不到身体。  
+  [下载 APK](https://f-droid.org/repo/com.termux.api_1002.apk) [F-Droid 页面](https://f-droid.org/packages/com.termux.api/)
+- **Termux:Boot** 0.8.1 · 26 KB。开机自动启动；没有它重启后要手动点火。  
+  [下载 APK](https://f-droid.org/repo/com.termux.boot_1000.apk) [F-Droid 页面](https://f-droid.org/packages/com.termux.boot/)
 
 > [!IMPORTANT]
 > 三个必须来自**同一来源**（签名一致），否则它们之间无法通信。上面的直链与 F-Droid 页面是同一来源。Google Play 上的 Termux 已废弃，不要用。

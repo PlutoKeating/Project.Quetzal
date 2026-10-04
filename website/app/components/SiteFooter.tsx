@@ -15,7 +15,7 @@ export function SiteFooter() {
       <Container width="wide" className="grid gap-10 py-12 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr] short:py-8">
         <div className="flex flex-col gap-3">
           <Wordmark />
-          <p className="max-w-xs text-sm text-fg-muted">{t.footer.tagline}</p>
+          <p className="max-w-xs whitespace-pre-line text-sm text-fg-muted">{t.footer.tagline}</p>
           <p className="text-xs text-fg-subtle">© {new Date().getFullYear()} PlutoKeating · {t.footer.license}</p>
         </div>
         <nav aria-label={t.footer.sections} className={col}>

@@ -12,7 +12,7 @@ import rehypeKatex from "rehype-katex";
 import rehypeSlug from "rehype-slug";
 import { Link } from "react-router";
 import "katex/dist/katex.min.css";
-import { cx } from "~/design-system/components";
+import { buttonClass, cx } from "~/design-system/components";
 import { useMessages } from "~/i18n/core";
 import { CodeBlock } from "./CodeBlock";
 import { Mermaid } from "./Mermaid";
@@ -69,6 +69,8 @@ export function Markdown({ source, className, onHeadings, linkBase }: MarkdownPr
     code: ({ className: cn, children, ...rest }) => <code className={cx("md-inline-code", cn)} {...rest}>{children}</code>,
     a: ({ href = "", children, node: _n, ...rest }) => {
       if (href.startsWith("#")) return <a href={href} {...rest}>{children}</a>;
+      // 安装包直链（.apk）渲染成轻量小按钮：在文档里形成视觉锚点
+      if (/\.apk$/i.test(href)) return <a href={href} className={cx(buttonClass("secondary", "sm"), "no-underline")} {...rest}>{children} ↓</a>;
       if (isExternal(href)) return <a href={href} target="_blank" rel="noreferrer noopener" {...rest}>{children}</a>;
       const to = linkBase ? linkBase(href) : href;
       return <Link to={to} {...rest}>{children}</Link>;

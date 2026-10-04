@@ -8,7 +8,7 @@ export const shellMessages = defineMessages({
     close: "关闭",
     theme: { label: "外观", system: "跟随系统", light: "浅色", dark: "深色" },
     footer: {
-      tagline: "Not running. Living. Living like wind.",
+      tagline: "不是运行着，是活着。\n活成一缕风。",
       sections: "板块",
       project: "项目",
       legal: "法律",
@@ -29,7 +29,7 @@ export const shellMessages = defineMessages({
     close: "Close",
     theme: { label: "Appearance", system: "System", light: "Light", dark: "Dark" },
     footer: {
-      tagline: "Not running. Living. Living like wind.",
+      tagline: "Not running, but living.\nLiving like wind.",
       sections: "Sections",
       project: "Project",
       legal: "Legal",

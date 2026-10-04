@@ -2,7 +2,7 @@
 """生成品牌图片：官网分享图 public/og.png（1200×630）与仓库 README 横幅 ../docs/assets/readme/banner.png（1600×560）。
 颜色取自 designSystem.ts 的深色方案（手动同步：bg、fg、fg-muted、accent、orb-*）。
 标志是光团：与 OrbMark、favicon、控制台图标同一颗球（左上光源、明度偏移、高光点、光晕）。
-用法：python3 scripts/gen-brand-images.py <Inter-SemiBold.ttf> <Inter-Regular.ttf> [NotoSansCJK.ttc]
+用法：python3 scripts/gen-brand-images.py <Inter-SemiBold.ttf> <Inter-Regular.ttf> [NotoSansCJK.ttc]（ttc 里取简体中文那一面，CJK_INDEX）
 依赖 Pillow、numpy。字体文件不入库（Inter 见 public/fonts/LICENSE-Inter.txt；静态实例可用 fontTools 从 public/fonts/InterVariable.woff2
 生成：instancer.instantiateVariableFont(font, {"wght": 600})；CJK 用系统 Noto Sans CJK）。"""
 import sys
@@ -12,9 +12,10 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 BG, FG, MUTED, ACCENT = "#0e0f11", "#e8e4dd", "#a9a49c", "#f0a35e"
 semibold, regular = sys.argv[1], sys.argv[2]
 cjk = sys.argv[3] if len(sys.argv) > 3 else None
-SLOGAN = ("Not running. Living.", "Living like wind.")
-ZH = "不是在运行，是在活着。像风一样活着。"
+SLOGAN = ("Not running, but living.", "Living like wind.")
+ZH = ("不是运行着，是活着。", "活成一缕风。")
 SITE = "quetzal.plutokeating.beer"
+CJK_INDEX = 2  # 系统 NotoSansCJK-Regular.ttc 的第 2 面是 Noto Sans CJK SC
 
 def canvas(w, h, glow_box):
     img = Image.new("RGB", (w, h), BG)
@@ -54,9 +55,11 @@ img = canvas(1200, 630, (760, -140, 1260, 360)); d = ImageDraw.Draw(img)
 lamp(img, 107, 107, 13); d.text((134, 86), "Quetzal", font=ImageFont.truetype(semibold, 40), fill=FG)
 d.text((96, 190), SLOGAN[0], font=ImageFont.truetype(semibold, 76), fill=FG)
 d.text((96, 280), SLOGAN[1], font=ImageFont.truetype(semibold, 76), fill=FG)
-if cjk: d.text((96, 390), ZH, font=ImageFont.truetype(cjk, 40, index=0), fill=MUTED)
-d.text((96, 476), "A general-purpose runtime for agentic life. Runs on an old phone.", font=ImageFont.truetype(regular, 26), fill=MUTED)
-d.text((96, 540), SITE, font=ImageFont.truetype(regular, 24), fill=ACCENT)
+if cjk:
+    zf = ImageFont.truetype(cjk, 36, index=CJK_INDEX)
+    d.text((96, 382), ZH[0], font=zf, fill=MUTED); d.text((96, 428), ZH[1], font=zf, fill=MUTED)
+d.text((96, 490), "A general-purpose runtime for agentic life. Runs on an old phone.", font=ImageFont.truetype(regular, 26), fill=MUTED)
+d.text((96, 550), SITE, font=ImageFont.truetype(regular, 24), fill=ACCENT)
 img.save("public/og.png", optimize=True); print("public/og.png")
 
 # 2) README 横幅：更宽，右侧留给光斑，底部一枚「官网」胶囊
@@ -64,11 +67,13 @@ img = canvas(1600, 560, (1060, -160, 1700, 480)); d = ImageDraw.Draw(img)
 lamp(img, 123, 113, 14); d.text((152, 90), "Quetzal", font=ImageFont.truetype(semibold, 44), fill=FG)
 d.text((112, 190), SLOGAN[0], font=ImageFont.truetype(semibold, 84), fill=FG)
 d.text((112, 288), SLOGAN[1], font=ImageFont.truetype(semibold, 84), fill=FG)
-if cjk: d.text((112, 404), ZH, font=ImageFont.truetype(cjk, 38, index=0), fill=MUTED)
+if cjk:
+    zf = ImageFont.truetype(cjk, 34, index=CJK_INDEX)
+    d.text((112, 392), ZH[0], font=zf, fill=MUTED); d.text((112, 434), ZH[1], font=zf, fill=MUTED)
 pill_font = ImageFont.truetype(semibold, 26)
 label = f"{SITE}  →"
 tw = d.textlength(label, font=pill_font)
-x0, y0 = 112, 470
+x0, y0 = 112, 486
 d.rounded_rectangle((x0, y0, x0 + tw + 56, y0 + 56), radius=28, fill=ACCENT)
 d.text((x0 + 28, y0 + 13), label, font=pill_font, fill="#1a120a")
 img.save("../docs/assets/readme/banner.png", optimize=True); print("docs/assets/readme/banner.png")
