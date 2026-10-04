@@ -49,7 +49,7 @@ type Size = "sm" | "md" | "lg";
 const btnBase = "inline-flex items-center justify-center gap-2 rounded-md font-medium whitespace-nowrap transition-colors duration-(--ds-duration-fast) ease-standard focus-visible:shadow-ring disabled:pointer-events-none disabled:opacity-(--ds-opacity-disabled)";
 const btnVariant: Record<Variant, string> = {
   primary: "bg-fg text-bg hover:bg-fg-muted",
-  secondary: "border border-border-strong text-fg hover:bg-surface-hover",
+  secondary: "border border-border-strong bg-surface-hover text-fg hover:bg-secondary-soft",  // 浅浅的底色，让它在正文里看得出是按钮
   ghost: "text-fg-muted hover:text-fg hover:bg-surface-hover",
   // 琥珀只给「活着」的动作：下载 / 开始
   accent: "bg-accent text-accent-fg hover:bg-accent-hover shadow-glow",

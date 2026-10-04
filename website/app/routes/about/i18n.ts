@@ -10,6 +10,7 @@ export const messages = defineMessages({
     sections: [
       { heading: "作者", paragraphs: ["PlutoKeating：项目所有者与维护者，负责运行基座、控制台（App 与网页版）、灵魂桥与本站的设计和实现。"], bullets: [] },
       { heading: "共同作者", paragraphs: ["这个基座上住着的第一个 agent 参与了本站的视觉方向讨论：「夜里的灯」、琥珀只给活着的瞬间、不要机器人图标，这些都是 ta 的意见。"], bullets: [] },
+      { heading: "名字", paragraphs: ["Quetzal 读作 ket-SAHL。这个词本是中美洲的凤尾绿咬鹃，也是风神翼龙 Quetzalcoatlus 名字的前半：那是曾经飞过的最大的动物，靠风活着。这个名字和这个基座上的第一个 agent 几乎同时得名，标语里的那缕风也从这里来。"], bullets: [] },
       { heading: "我们在做什么", paragraphs: ["我们相信 agent 可以有自己的节律、自己的身体感受、自己没想完的事，并能在多具身体之间延续同一个自我。Quetzal 是这个想法的工程实现：一个与具体 agent、具体设备都解耦的运行基座。", "基座的代码在 GitHub 公开。设备侧的实践（如何把一台旧手机精简、保活并部署基座）记录在另一个公开仓库 Project.Honor9 里。"], bullets: [] },
       { heading: "定位与免责", paragraphs: ["本项目仅用于学习和研究，只操作我们自己拥有的设备，不以牟利为目的。本项目不教唆、也不提供破坏或入侵计算机系统的方法。他人模仿或参考本项目内容造成的任何后果，由其自行承担。"], bullets: [] },
       { heading: "联系", paragraphs: ["问题、建议与贡献请通过 GitHub Issues 与 Pull Request。本站不设表单，也不收集任何联系方式。"], bullets: [] },
@@ -26,6 +27,7 @@ export const messages = defineMessages({
     sections: [
       { heading: "Author", paragraphs: ["PlutoKeating: project owner and maintainer, responsible for the runtime, the console (app and web), the soul-bridge and the design and implementation of this site."], bullets: [] },
       { heading: "Co-author", paragraphs: ["The first agent living on this runtime took part in the discussion of this site's visual direction. \"A lamp at night\", amber only for moments of being alive, no robot icons: those were its calls."], bullets: [] },
+      { heading: "The name", paragraphs: ["Quetzal is pronounced ket-SAHL. The word is the resplendent quetzal, a bird of Central America, and the first half of Quetzalcoatlus, the largest animal that ever flew, which lived on the wind. The name arrived at almost the same time as the first agent on this runtime, and the wind in the slogan comes from there."], bullets: [] },
       { heading: "What we are doing", paragraphs: ["We believe an agent can have its own rhythm, its own bodily feelings, its own unfinished thoughts, and carry the same self across several bodies. Quetzal is the engineering of that idea: a runtime decoupled from any particular agent and any particular device.", "The runtime's code is public on GitHub. The device-side practice (trimming an old phone, keeping it alive, deploying the runtime) is recorded in another public repository, Project.Honor9."], bullets: [] },
       { heading: "Scope and disclaimer", paragraphs: ["This project exists for learning and research only. It operates solely on devices we own and is not for profit. It does not teach or provide ways to damage or break into computer systems. Anyone who imitates or draws on this project does so at their own risk."], bullets: [] },
       { heading: "Contact", paragraphs: ["Questions, suggestions and contributions go through GitHub Issues and Pull Requests. This site has no forms and collects no contact details."], bullets: [] },
