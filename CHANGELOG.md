@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.6.4
+
+- **「关于」页**：控制 → 关于，安卓 App、Linux 桌面版、网页版都有：简介与链接、控制台 / 运行基座 / 最新发布三个版本号、「检查更新」与升级按钮。安卓升级 App 自身（原来在服务页的区块挪到这里，顶部横幅的「更新」也指向这里）；Linux 桌面版与网页版新增网关方法 `selfUpdate`：由 Linux 适配器用 `systemd-run --user` 起临时单元（脱离服务的 cgroup）后台重跑一键安装脚本，运行基座、网页控制台与原生控制台一起更新并重启一次，桌面版装完可一键重新打开。
+- **"About" page**: Control → About, present in the Android app, the Linux desktop build and the web version: a short introduction with links, three version numbers (console / runtime / latest release), "Check for updates" and an upgrade button. Android updates the app itself (the section moved here from the Service page; the top banner's "Update" now leads here); for the Linux desktop and web versions a new gateway method `selfUpdate` lets the Linux adapter rerun the one-line installer in the background in a transient `systemd-run --user` unit (outside the service's cgroup), upgrading the runtime, web console and native console together with one restart; the desktop build can then reopen itself.
+
 ## 0.6.3
 
 - **App 自己更新**：安卓 App 每次打开界面（启动、从后台回来）都问 GitHub 有没有新的正式版（正在检查时不重复），有就在顶部提示「Quetzal App 有新版本」；**控制 → 服务 → Quetzal App** 一节可随时「检查新版本」，「下载并安装」一键完成：下载 `quetzal-<版本>-android-arm64.apk` 到缓存目录（进度条）、核对 SHA256SUMS、交给系统安装器（首次先带去系统设置允许 Quetzal 安装应用，回来自动接着装）；连不上 GitHub 时「去下载页」手动下载。装好的新 App 打开后，发现内置的运行基座比运行中的新，直接进安装向导的升级一步，两层升级都不用再找 APK。原生新增 MethodChannel `quetzal/updater` 与 FileProvider（只共享缓存目录），清单声明 `REQUEST_INSTALL_PACKAGES`；Dart 侧新依赖 `crypto`（核对 SHA256，原本已是间接依赖）。
