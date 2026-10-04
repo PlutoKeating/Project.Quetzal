@@ -147,10 +147,11 @@ export async function fetchReleases(options: { force?: boolean } = {}): Promise<
     if (cached) return cached;
   }
   // 先走官网自己的镜像源（/api/releases：Cloudflare 边缘缓存，资产地址已改写为 /dl/ 镜像，GitHub 连不上的网络也能用），不行再直连 GitHub
+  // 镜像源的 403 / 429 是它自己对 GitHub 的额度用完了（Cloudflare 出口 IP 共享），与访客无关：照样退回直连，访客自己的额度另算
   let res: Response;
   try {
     res = await fetch(SITE_RELEASES_API, { headers: { Accept: "application/json" } });
-    if (!res.ok && res.status !== 403 && res.status !== 429) throw new Error(`site ${res.status}`);
+    if (!res.ok) throw new Error(`site ${res.status}`);
   } catch {
     try {
       res = await fetch(RELEASES_API, { headers: { Accept: "application/vnd.github+json" } });

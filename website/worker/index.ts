@@ -4,11 +4,12 @@
 //   /api/releases[/latest]      GitHub 发布接口的镜像（匿名 60 次 / 小时 / IP 是对 Cloudflare 出口算的，所以边缘缓存 5 分钟；
 //                               设置 Secret GITHUB_TOKEN 可提高到 5000 次 / 小时）。返回的 JSON 把每个资产的 browser_download_url
 //                               改写为上面的 /dl/ 地址，原地址放在 github_download_url，客户端先走官网、失败再退回 GitHub。
+//                               另存一份 7 天的陈旧副本：上游限流或出错时用它顶上（X-Upstream: stale），页面与 App 不至于空白。
 // 没有任何账号、令牌写在这里；GITHUB_TOKEN 是可选的 Worker Secret（wrangler secret put GITHUB_TOKEN）。
 const REPO = "PlutoKeating/Project.Quetzal";
 const TAG = /^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/;
 const ASSET = /^(?:quetzal-[A-Za-z0-9.+-]+\.(?:apk|tar\.gz)|SHA256SUMS(?:-[a-z0-9-]+)?)$/;
-const API_TTL = 300, DL_TTL = 7 * 86400;
+const API_TTL = 300, DL_TTL = 7 * 86400, STALE_TTL = 7 * 86400;
 
 interface Env { ASSETS: { fetch(req: Request): Promise<Response> }; GITHUB_TOKEN?: string }
 interface Ctx { waitUntil(p: Promise<unknown>): void }
@@ -59,15 +60,19 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
   const latest = url.pathname.endsWith("/latest");
   const cache = cacheOf();
   const key = new Request(`${url.origin}${url.pathname}`, { method: "GET" });
+  const staleKey = new Request(`${url.origin}${url.pathname}?stale=1`, { method: "GET" });
   const hit = await cache.match(key);
   if (hit) return withHeaders(hit, request.method === "HEAD");
   const upstream = `https://api.github.com/repos/${REPO}/releases${latest ? "/latest" : "?per_page=30"}`;
   const h: Record<string, string> = { "User-Agent": "quetzal-site-mirror", Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
   if (env.GITHUB_TOKEN) h.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
+  // 上游失败（连不上、限流、5xx）：有陈旧副本就用它，没有才把错误原样给出去（客户端据此退回直连 GitHub）
+  const stale = async () => { const s = await cache.match(staleKey); if (!s) return undefined; const r = withHeaders(s, request.method === "HEAD"); r.headers.set("X-Upstream", "stale"); r.headers.set("Cache-Control", "public, max-age=60"); return r; };
   let res: Response;
   try { res = await fetch(upstream, { headers: h }); }
-  catch (e) { return text(502, `连不上 GitHub 接口：${(e as Error).message}`); }
+  catch (e) { return (await stale()) ?? text(502, `连不上 GitHub 接口：${(e as Error).message}`); }
   if (!res.ok) {
+    const s = await stale(); if (s) return s;
     const headers = cors(new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }));
     for (const k of ["x-ratelimit-remaining", "x-ratelimit-reset"]) { const v = res.headers.get(k); if (v) headers.set(k, v); }
     return new Response(await res.text(), { status: res.status, headers });
@@ -85,7 +90,8 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
   const body = JSON.stringify(Array.isArray(data) ? data.map((r) => rewrite(r as Record<string, unknown>)) : rewrite(data as Record<string, unknown>));
   const headers = cors(new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${API_TTL}`, "X-Upstream": "github" }));
   const out = new Response(body, { status: 200, headers });
-  ctx.waitUntil(cache.put(key, out.clone()));
+  const staleCopy = new Response(body, { status: 200, headers: new Headers({ ...Object.fromEntries(headers), "Cache-Control": `public, max-age=${STALE_TTL}` }) });
+  ctx.waitUntil(Promise.all([cache.put(key, out.clone()), cache.put(staleKey, staleCopy)]));
   return withHeaders(out, request.method === "HEAD");
 }
 
