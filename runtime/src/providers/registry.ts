@@ -35,6 +35,18 @@ export function publicView(c = loadProviders()): ProviderConfig {
 
 export class ConfigError extends Error { code: string; constructor(code: string, message: string) { super(message); this.code = code; } }
 
+/** API Key 的形状检查：HTTP 头只能放 Latin1，实际的 Key 都是可打印 ASCII 且没有空白。粘错成聊天内容、带了换行或引号时在这里就拦住，而不是等到请求时报一句看不懂的 ByteString 错误。返回错误说明，合法为空。 */
+export function keyProblem(secret: string): string | undefined {
+  const s = secret.trim();
+  if (s.length < 8) return "太短，不像 API Key";
+  if (/[^\x21-\x7e]/.test(s)) {
+    const bad = s.match(/[^\x21-\x7e]/)![0];
+    return bad === " " || bad === "\t" || bad === "\n" || bad === "\r" ? "含有空格或换行，不像 API Key——是不是多复制了什么？" : `含有非 ASCII 字符（如「${bad}」），不像 API Key——是不是把别的文字粘进来了？`;
+  }
+  if (/^(Bearer|sk-)?\s*$/i.test(s)) return "不像 API Key";
+  return undefined;
+}
+
 export function saveProviders(draft: ProviderConfig, expected: string, actor = "console"): ProviderConfig {
   const current = loadProviders();
   if (expected !== configVersion(current)) throw new ConfigError("STALE_CONFIG", "配置已被其他地方修改，请刷新后重试（你的修改仍保留在页面上）");
@@ -53,7 +65,12 @@ export function saveProviders(draft: ProviderConfig, expected: string, actor = "
     return {
       ...p, name: p.name.trim(),
       keys: p.keys.map((k) => {
-        if (k.secret) return { id: k.id, label: k.label, enabled: k.enabled, lastFour: k.secret.slice(-4), ciphertext: encrypt(k.secret, p.id) };
+        if (k.secret) {
+          const why = keyProblem(k.secret);
+          if (why) throw new ConfigError("INVALID_KEY", `${p.name}：Key「${k.label}」${why}`);
+          const secret = k.secret.trim();
+          return { id: k.id, label: k.label, enabled: k.enabled, lastFour: secret.slice(-4), ciphertext: encrypt(secret, p.id) };
+        }
         const ok = old?.keys.find((o) => o.id === k.id);
         if (!ok) throw new ConfigError("INVALID_KEY", `${p.name}：新 Key 必须填写密钥`);
         return { ...ok, label: k.label, enabled: k.enabled };

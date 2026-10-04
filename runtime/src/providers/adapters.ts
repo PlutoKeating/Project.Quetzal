@@ -31,7 +31,9 @@ async function sse(url: string, headers: Record<string, string>, body: unknown, 
     if (why === "session") throw new ProviderError("会话已中止", 0, true);
     if (why === "idle") throw new ProviderError(`网络错误：超时（${LLM_IDLE_MS / 1000} 秒没有收到任何数据）`);
     if (why === "max") throw new ProviderError(`网络错误：超时（单次调用超过 ${LLM_MAX_MS / 60_000} 分钟）`);
-    throw new ProviderError(`网络错误：${e?.message ?? e}`);
+    const msg = String(e?.message ?? e);
+    if (/ByteString/.test(msg)) throw new ProviderError("请求头含有非 ASCII 字符（多半是 API Key 粘错了：请到模型页重新添加 Key）");
+    throw new ProviderError(`网络错误：${msg}`);
   };
   try {
     let res: Response;

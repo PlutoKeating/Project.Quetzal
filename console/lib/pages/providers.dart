@@ -206,20 +206,42 @@ class _ProviderCardState extends State<_ProviderCard> {
     changed();
   }
 
+  /// Key 的形状检查（与运行基座 registry.keyProblem 一致）：HTTP 头只能放 ASCII，粘错成聊天内容、带了空格换行时当场指出，不等到请求时报看不懂的错。
+  static String? keyProblem(String raw) {
+    final s = raw.trim();
+    if (s.length < 8) return '太短，不像 API Key';
+    final bad = RegExp(r'[^\x21-\x7e]').firstMatch(s);
+    if (bad != null) {
+      final c = bad.group(0)!;
+      return RegExp(r'\s').hasMatch(c) ? 'Key 里有空格或换行，不像 API Key——是不是多复制了什么？' : 'Key 里有非 ASCII 字符（如「$c」），不像 API Key——是不是把别的文字粘进来了？';
+    }
+    return null;
+  }
+
   Future<void> _addKey() async {
     final label = TextEditingController(text: keys.isEmpty ? 'prod' : 'key${keys.length + 1}'), secret = TextEditingController();
-    final ok = await showDialog<bool>(context: context, builder: (x) => AlertDialog(
+    var show = false;
+    String? problem;
+    final ok = await showDialog<bool>(context: context, builder: (x) => StatefulBuilder(builder: (x, setDialog) => AlertDialog(
       title: const Text('添加 Key'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         TextField(controller: label, decoration: const InputDecoration(labelText: '标签')),
-        TextField(controller: secret, obscureText: true, decoration: const InputDecoration(labelText: 'API Key')),
+        // 默认遮挡，但可以点眼睛看一眼粘进来的是不是 Key（粘错成一句聊天是常见事故）
+        TextField(
+          controller: secret, obscureText: !show, autocorrect: false, enableSuggestions: false,
+          onChanged: (v) => setDialog(() => problem = v.trim().isEmpty ? null : keyProblem(v)),
+          decoration: InputDecoration(labelText: 'API Key', errorText: problem, errorMaxLines: 3,
+              suffixIcon: IconButton(tooltip: show ? '隐藏' : '显示', icon: Icon(show ? Icons.visibility_off : Icons.visibility), onPressed: () => setDialog(() => show = !show))),
+        ),
         const SizedBox(height: 8),
         const Text('保存后只显示末四位；密钥在设备上加密保存。', style: TextStyle(fontSize: 12)),
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('添加'))],
-    ));
-    if (ok == true && secret.text.trim().length >= 8) { keys.add({'id': _uuid(), 'label': label.text.trim(), 'lastFour': '', 'enabled': true, 'secret': secret.text.trim()}); changed(); }
-    else if (ok == true && mounted) { toast(context, 'Key 太短'); }
+    )));
+    if (ok != true) return;
+    final why = keyProblem(secret.text);
+    if (why != null) { if (mounted) toast(context, why); return; }
+    keys.add({'id': _uuid(), 'label': label.text.trim(), 'lastFour': '', 'enabled': true, 'secret': secret.text.trim()}); changed();
   }
 
   Future<void> _customModel() async {
