@@ -84,8 +84,10 @@ Added by the one-line installer:
 ~/quetzal/npm/                          private npm prefix for @plutokeating/quetzal (lib/node_modules/…/dist/quetzal.mjs)
 ~/quetzal/install.log                   install log
 ~/.local/bin/quetzal                    the command: runs the quetzal.mjs above with the Node chosen at install time
-~/.local/bin/quetzal-console            launcher: a Chromium-family browser opens the console as its own window (--app, profile ~/quetzal/state/console-browser)
-~/.local/share/applications/quetzal.desktop, ~/.local/share/icons/hicolor/{512x512,192x192}/apps/quetzal.png   app-list entry and icons
+~/quetzal/console/<version>/, console/current → …   native console (Flutter Linux desktop build, executable quetzal-console; downloaded from the GitHub Release)
+~/.local/bin/quetzal-console            launcher: starts the native console when present, otherwise a Chromium-family browser opens the console as its own window (--app, profile ~/quetzal/state/console-browser)
+~/.local/share/applications/xyz.quetzal.console.desktop, ~/.local/share/icons/hicolor/{512x512,192x192}/apps/xyz.quetzal.console.png   app-list entry and icons
+~/.config/systemd/user/quetzal.service.d/quetzal-off.conf   written when the supervision switch is off (Restart=no)
 Without systemd: ~/quetzal/bin/quetzal-supervise (supervisor loop), ~/quetzal/state/supervise.{pid,lock}, ~/quetzal/logs/runtime.log, crontab @reboot, ~/.config/autostart/quetzal-runtime.desktop
 ```
 

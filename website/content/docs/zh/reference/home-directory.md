@@ -84,8 +84,10 @@ journalctl --user -u quetzal            日志（quetzal logs）
 ~/quetzal/npm/                          npm 包 @plutokeating/quetzal 的独立前缀（lib/node_modules/…/dist/quetzal.mjs）
 ~/quetzal/install.log                   安装日志
 ~/.local/bin/quetzal                    命令：固定用安装时的 node 跑上面的 quetzal.mjs
-~/.local/bin/quetzal-console            启动器：Chromium 系浏览器以独立窗口（--app，资料目录 ~/quetzal/state/console-browser）打开控制台
-~/.local/share/applications/quetzal.desktop、~/.local/share/icons/hicolor/{512x512,192x192}/apps/quetzal.png   应用列表项与图标
+~/quetzal/console/<版本>/、console/current → …   原生控制台（Flutter Linux 桌面版，可执行文件 quetzal-console；从 GitHub Release 下载）
+~/.local/bin/quetzal-console            启动器：有原生控制台就启动它，否则 Chromium 系浏览器以独立窗口（--app，资料目录 ~/quetzal/state/console-browser）打开
+~/.local/share/applications/xyz.quetzal.console.desktop、~/.local/share/icons/hicolor/{512x512,192x192}/apps/xyz.quetzal.console.png   应用列表项与图标
+~/.config/systemd/user/quetzal.service.d/quetzal-off.conf   守护开关关闭时写入（Restart=no）
 没有 systemd 时：~/quetzal/bin/quetzal-supervise（守护循环）、~/quetzal/state/supervise.{pid,lock}、~/quetzal/logs/runtime.log、crontab @reboot、~/.config/autostart/quetzal-runtime.desktop
 ```
 

@@ -85,7 +85,7 @@ More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other mach
 | Directory | Contents |
 |---|---|
 | [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and two platform-level body adapters: Termux (Android) and Linux |
-| [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears) and the web version (desktop browser, served by the runtime) |
+| [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears), the web version (desktop browser, served by the runtime) and the Linux desktop app (native window, installed by the one-line installer) |
 | [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux installer (systemd user service) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |
 | [`website/`](website/docs/README.md) | Website and docs site |

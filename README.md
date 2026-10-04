@@ -85,7 +85,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 | 目录 | 内容 |
 |---|---|
 | [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与两个平台级身体适配器：Termux（安卓）、Linux |
-| [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）与网页版（电脑浏览器，由运行基座托管） |
+| [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）、网页版（电脑浏览器，由运行基座托管）与 Linux 桌面版（原生窗口，一键安装脚本自动装） |
 | [`cli/`](cli/docs/README.md) | 一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |
 | [`website/`](website/docs/README.md) | 官网与文档站 |
