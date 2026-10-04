@@ -1,5 +1,7 @@
 // 本地网关：HTTP + WebSocket（JSON-RPC 风格），缺省只监听 127.0.0.1（配置 gateway.host 可对局域网开放），令牌认证。控制台 App 与主机工具都通过它访问 agent。
 //   GET  /health                 → { ok, version, mode }（无需令牌，供点火器探活）
+//   GET  /auth/local             → { ok, token }：只给同一台机器上的浏览器（网页控制台免配对码），见 web.ts
+//   GET  /…                      → 网页控制台的静态文件（current/web/ 存在时），见 web.ts
 //   WS   /rpc?token=<令牌>        → 请求 {id, method, params} / 响应 {id, result | error} / 推送 {event, data}
 import http from "node:http";
 import fs from "node:fs";
@@ -17,6 +19,7 @@ import { log } from "./log.ts";
 import { adapter } from "./body/twin.ts";
 import { hear, hearStream } from "./voice/hearing.ts";
 import { mediaFile } from "./voice/player.ts";
+import { webDir, isLocalBrowser, serveWeb } from "./web.ts";
 
 export function gatewayToken(): string {
   let t = readSecret("gateway.token");
@@ -51,7 +54,15 @@ export function startGateway(safeMode: boolean) {
   };
   const readBody = (req: http.IncomingMessage) => new Promise<any>((r) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
 
+  const web = webDir();
+  if (web) log("gateway", `网页控制台：${web}`);
   const server = http.createServer(async (req, res) => {
+    // 同一台机器上的浏览器直接拿令牌（网页控制台打开即登录）；跨源时允许本机其他端口的页面读取（开发时 flutter run）
+    if (req.method === "GET" && req.url === "/auth/local") {
+      if (!isLocalBrowser(req)) return json(res, 403, { ok: false, message: "只有这台机器上的浏览器可以直接登录；别的设备请用配对码" });
+      if (req.headers.origin) res.setHeader("access-control-allow-origin", req.headers.origin);
+      return json(res, 200, { ok: true, token });
+    }
     if (req.method === "POST" && req.url === "/pair/start") {
       pairing = { code: String(crypto.randomInt(100000, 1000000)), until: Date.now() + 5 * 60_000, tries: 0 };
       const text = `控制台配对码：${pairing.code}（5 分钟内有效）`;
@@ -117,6 +128,7 @@ export function startGateway(safeMode: boolean) {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ ok: true, version: VERSION, safeMode, mode: safeMode ? "safe" : status().heart.mode }));
     }
+    if (web && serveWeb(web, req, res)) return;
     res.writeHead(404).end();
   });
   const wss = new WebSocketServer({ noServer: true });
