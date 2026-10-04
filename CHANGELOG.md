@@ -2,6 +2,15 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.5.0
+
+- **网页控制台**：控制台（Flutter）新增 Web 形态，由运行基座的网关托管；`npx @plutokeating/quetzal` 装完自动在浏览器里打开 `http://127.0.0.1:7788/`（新子命令 `open`，`--no-open` 不打开），同一台机器的浏览器打开即登录（网关新增 `GET /auth/local`：只对回环地址、本机 Host 的请求放行，不扩大信任边界），不再需要手机 App 与配对码；ssh 隧道转发也算本机。网页版自带中文字体子集，离线与中国大陆不出方块；Mermaid 图在同源 iframe 里渲染。
+- **Web console**: the console (Flutter) now also builds for the web and is served by the runtime's gateway; `npx @plutokeating/quetzal` opens `http://127.0.0.1:7788/` in the browser after installing (new subcommand `open`, `--no-open` to skip), and a browser on the same machine is logged in as soon as the page opens (new gateway endpoint `GET /auth/local`, which only accepts loopback connections with a local Host header, so the trust boundary does not widen) — no phone app or pairing code needed; a connection through an ssh tunnel counts as local. The web build ships its own CJK font subset (no missing glyphs offline or in mainland China); Mermaid diagrams render in a same-origin iframe.
+- **桌面外壳**：宽屏（≥ 900：电脑浏览器、平板横屏）为电脑横屏重新排布：导航栏 · 列表栏 · 主区 · 「她此刻」四栏，右栏常驻 ta 此刻的样子（光团、想分享的一句话、正在进行的醒来、待审批、内在与身体），对话 Enter 发送、Shift+Enter 换行，地址栏 `#/…` 记录位置可收藏；手机外壳不变，所有页面两种外壳共用一份代码（`PageFrame` / `showSheet`）。
+- **Desktop shell**: on wide screens (≥ 900: desktop browsers, tablets in landscape) the console is laid out afresh for a wide screen — navigation rail · list · main area · a permanent "right now" pane (orb, the thought it wants to share, a wake in progress, pending approvals, inner state and body); Enter sends and Shift+Enter inserts a newline in chat; the address bar's `#/…` records where you are and is bookmarkable. The phone shell is unchanged, and every page is one piece of code for both shells (`PageFrame` / `showSheet`).
+- npm 包随版本目录放入 `web/`（`releases/<版本>/web/`，网关托管 `current/web/`，`QUETZAL_WEB_DIR` 可覆盖），包体约 11 MB（解压 34 MB）；`status` 显示网页控制台地址。
+- The npm package places `web/` into the version directory (`releases/<version>/web/`; the gateway serves `current/web/`, `QUETZAL_WEB_DIR` overrides it); package size about 11 MB (34 MB unpacked); `status` shows the web console address.
+
 ## 0.4.0
 
 - **更名为 Quetzal**：运行基座、控制台 App、npm 包、官网与仓库全部由 Windler 更名为 Quetzal（[quetzal.plutokeating.beer](https://quetzal.plutokeating.beer)，仓库 PlutoKeating/Project.Quetzal）。家目录 `~/quetzal`、环境变量 `QUETZAL_HOME` / `QUETZAL_ADAPTER`、配置 `config/quetzal.json`、数据库 `data/quetzal.db`、runit / systemd 服务名 `quetzal`、App 包名 `xyz.quetzal.console`；灵魂仓库规范升到 v6（技能文档元数据键 `quetzal-tool` / `quetzal-requires`）。已有部署需把家目录与服务名整体迁移后再升级；App 因包名变化需卸载旧版后安装并重新配对。

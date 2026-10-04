@@ -55,7 +55,8 @@ jobs:
       - name: 构建运行基座并内置进 App（npm ci + test + build）
         run: console/tool/bundle-runtime.sh
 
-      - name: 构建 npm 包 @plutokeating/quetzal（内置运行基座与 Linux 适配器）
+      # cli 的 build 会调用 console/tool/build-web.sh 构建网页控制台（需要上面装好的 Flutter），放进 dist/runtime/web/
+      - name: 构建 npm 包 @plutokeating/quetzal（内置运行基座、Linux 适配器与网页控制台）
         working-directory: cli
         run: |
           npm ci --no-audit --no-fund
