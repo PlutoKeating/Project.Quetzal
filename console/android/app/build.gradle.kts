@@ -62,4 +62,5 @@ flutter {
 
 dependencies {
     implementation("com.github.gkonovalov.android-vad:webrtc:2.0.10") // WebRTC VAD（MIT）：听觉的断句，纯 Kotlin，无模型文件
+    implementation("androidx.core:core:1.13.1") // FileProvider：App 自身更新时把下载好的 APK 交给系统安装器
 }

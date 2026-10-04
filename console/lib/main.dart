@@ -14,6 +14,7 @@ import 'pages/pairing.dart';
 import 'pages/agents.dart';
 import 'pages/setup.dart';
 import 'installer.dart';
+import 'updater.dart';
 import 'hearing.dart';
 import 'platform/caps.dart';
 import 'platform/fonts.dart' as fonts;
@@ -86,6 +87,11 @@ class _ShellState extends State<Shell> {
   int tab = 0;
   String? bundled; // App 内置的运行基座版本：与运行中的不同时提示升级（本机部署才有意义）
   ShellMode? _mode;
+  bool _runtimeAfterAppUpdate = false; // 刚更新了 App 自身：内置的运行基座比运行中的新时自动进向导，少点一下
+
+  void _onUpdater() { if (mounted) setState(() {}); }
+  @override
+  void dispose() { appUpdater.removeListener(_onUpdater); super.dispose(); }
 
   /// 窗口从窄变宽：手机外壳推入的页面（对话、设置……）还压在根 Navigator 上，会盖住整个桌面外壳；收起它们，桌面外壳按 nav 的位置接着显示。
   @override
@@ -101,7 +107,12 @@ class _ShellState extends State<Shell> {
   @override
   void initState() {
     super.initState();
-    if (hasBody) Installer.bundledVersion().then((v) { if (mounted) setState(() => bundled = v); });
+    if (hasBody) {
+      Installer.bundledVersion().then((v) { if (mounted) setState(() => bundled = v); });
+      appUpdater.addListener(_onUpdater);
+      appUpdater.autoCheck(); // App 自身有没有新版（每 6 小时问一次 GitHub）
+      appUpdater.justUpdated().then((yes) { if (yes && mounted) setState(() => _runtimeAfterAppUpdate = true); }); // 刚装完新 App：等连上就直接进向导升级运行基座
+    }
     api.events.listen((e) {
       if (!mounted || ShellScope.isDesktop(context)) return; // 桌面外壳自己处理
       if (e.name == 'say') toast(context, '${api.name}：${plainPreview('${e.data}')}');
@@ -115,6 +126,11 @@ class _ShellState extends State<Shell> {
       listenable: api,
       builder: (context, _) {
         if (api.conn == Conn.unpaired) return const PairingPage();
+        final runtimeOutdated = bundled != null && api.conn == Conn.online && api.status['version'] != null && api.status['version'] != bundled && api.base.contains('127.0.0.1');
+        if (_runtimeAfterAppUpdate && runtimeOutdated) {
+          _runtimeAfterAppUpdate = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))); });
+        }
         if (ShellScope.isDesktop(context)) return const DesktopShell();
         final pages = [const HomePage(), const FlowPage(), const MemoryPage(), const ControlPage()];
         return Scaffold(
@@ -125,9 +141,15 @@ class _ShellState extends State<Shell> {
           body: Column(children: [
             if (api.conn != Conn.online) const OfflineBanner(),
             if (api.safeMode) const Banner0(text: '基座处于安全模式（反复崩溃后）：只能查看与管理，不会醒来。', color: Colors.orange),
-            if (bundled != null && api.conn == Conn.online && api.status['version'] != null && api.status['version'] != bundled && api.base.contains('127.0.0.1'))
+            if (runtimeOutdated)
               Banner0(text: 'App 内置的运行基座是 $bundled，正在运行的是 ${api.status['version']}。', color: Colors.blueGrey,
-                  action: FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('升级'))),
+                  action: FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('升级')))
+            else if (appUpdater.hasUpdate && !appUpdater.dismissed && appUpdater.state != UpdateState.handedOff)
+              Banner0(text: 'Quetzal App 有新版本 ${appUpdater.latest!.version}（现在是 ${appUpdater.current}）。', color: Colors.blueGrey,
+                  action: Row(mainAxisSize: MainAxisSize.min, children: [
+                    FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServicePage())), child: const Text('更新')),
+                    IconButton(onPressed: () => setState(() => appUpdater.dismissed = true), icon: const Icon(Icons.close, size: 18), tooltip: '这次先不'),
+                  ])),
             Expanded(child: pages[tab]),
           ]),
           bottomNavigationBar: NavigationBar(

@@ -4,8 +4,11 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.core.content.FileProvider
+import java.io.File
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -17,6 +20,8 @@ import io.flutter.plugin.common.MethodChannel
  *    需要 Termux 的 ~/.termux/termux.properties 中 allow-external-apps=true，并授予本应用 RUN_COMMAND 权限。
  *  - 三件套检测、打开应用、系统的电池优化 / 各厂商自启动管理页（保活引导）。
  * 听觉桥（MethodChannel quetzal/hearing + EventChannel quetzal/hearing/events）：启停耳朵（HearingService）、麦克风权限、服务事件。
+ * 更新桥（MethodChannel quetzal/updater）：App 自身的更新——自己的版本号、缓存目录、是否允许安装未知应用、打开对应设置页、
+ *  用 FileProvider 把下载好的 APK 交给系统安装器（Dart 侧 updater.dart 负责问 GitHub、下载与校验）。
  */
 class MainActivity : FlutterActivity() {
     private val perm = "com.termux.permission.RUN_COMMAND"
@@ -47,6 +52,28 @@ class MainActivity : FlutterActivity() {
             }
             override fun onCancel(args: Any?) { hearingSink = null; HearingService.listener = null }
         })
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quetzal/updater").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "version" -> result.success(version(packageName))
+                "cacheDir" -> result.success(cacheDir.absolutePath)
+                "canInstall" -> result.success(Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())
+                "requestInstallPermission" -> {
+                    if (Build.VERSION.SDK_INT >= 26) startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                    result.success(null)
+                }
+                "install" -> {
+                    try {
+                        val uri = FileProvider.getUriForFile(this, "$packageName.files", File(call.argument<String>("path")!!))
+                        startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("INSTALL_FAILED", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quetzal/igniter").setMethodCallHandler { call, result ->
             when (call.method) {
                 "packageVersion" -> result.success(version(call.argument<String>("pkg")!!))

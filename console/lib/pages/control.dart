@@ -13,6 +13,7 @@ import 'setup.dart';
 import 'tools.dart';
 import 'hearing.dart';
 import '../installer.dart';
+import '../updater.dart';
 import '../platform/caps.dart';
 
 /// 控制菜单的一项：手机上推入页面，桌面列表栏里点选后在主区打开。
@@ -487,6 +488,7 @@ class ServicePage extends StatelessWidget {
               if (!hasBody) Text(isDesktop ? '升级：在这台机器上再跑一次安装命令（curl -fsSL https://quetzal.plutokeating.beer/install | bash），运行基座与这个控制台一起更新。' : '网页版由运行基座自己托管；升级在装它的那台机器上再跑一次安装命令（curl -fsSL https://quetzal.plutokeating.beer/install | bash）或 npx @plutokeating/quetzal。'),
             ]),
             const _SupervisionSection(),
+            if (hasBody) const AppUpdateSection(),
             Section('操作', [
               Wrap(spacing: 8, children: [
                 if (hasBody) FilledButton.tonal(onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); }, child: const Text('点火')),
@@ -500,6 +502,46 @@ class ServicePage extends StatelessWidget {
           ]);
         }),
       );
+}
+
+/// Quetzal App 自身的更新（只在安卓）：问 GitHub 最新正式版 → 一键下载、核对、交给系统安装器。装好新 App 后运行基座的升级由外壳横幅接管。
+class AppUpdateSection extends StatefulWidget {
+  const AppUpdateSection({super.key});
+  @override
+  State<AppUpdateSection> createState() => _AppUpdateSectionState();
+}
+
+class _AppUpdateSectionState extends State<AppUpdateSection> {
+  @override
+  void initState() { super.initState(); if (appUpdater.current == null) appUpdater.currentVersion().then((_) { if (mounted) setState(() {}); }); }
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(listenable: appUpdater, builder: (context, _) {
+    final u = appUpdater, r = u.latest, t = Theme.of(context).textTheme;
+    final busy = u.state == UpdateState.checking || u.state == UpdateState.downloading || u.state == UpdateState.verifying;
+    return Section('Quetzal App', [
+      Text('当前版本：${u.current ?? '-'}${u.state == UpdateState.upToDate ? '，已是最新' : ''}'),
+      if (u.state == UpdateState.available && r != null) Text('新版本 ${r.version}${r.sizeText.isEmpty ? '' : '（${r.sizeText}）'}。装好后打开 Quetzal，它会提示把运行基座也升级到新版，记忆与配置都保留。'),
+      if (u.state == UpdateState.downloading) ...[
+        Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: LinearProgressIndicator(value: u.progress < 0 ? null : u.progress)),
+        Text(u.progress < 0 ? '下载中' : '下载中 ${(u.progress * 100).toStringAsFixed(0)}%', style: t.bodySmall),
+      ],
+      if (u.state == UpdateState.verifying) Text('核对安装包', style: t.bodySmall),
+      if (u.state == UpdateState.needPermission) const Text('系统需要你允许 Quetzal 安装应用：在刚打开的设置页里开启，回到这里再点「安装」。安装包已经下载好了。'),
+      if (u.state == UpdateState.handedOff) const Text('已交给系统安装器。安装完成后打开 Quetzal，它会接着把运行基座升级到新版。'),
+      if (u.state == UpdateState.failed && u.error != null) Text(u.error!, style: t.bodyMedium?.copyWith(color: Colors.red)),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, runSpacing: 4, children: [
+        if (u.state == UpdateState.available || u.state == UpdateState.needPermission || u.state == UpdateState.handedOff)
+          FilledButton.icon(onPressed: busy ? null : () => u.state == UpdateState.available ? u.downloadAndInstall() : u.install(),
+              icon: const Icon(Icons.system_update), label: Text(u.state == UpdateState.available ? '下载并安装' : '安装')),
+        if (u.state == UpdateState.failed && r != null && u.hasUpdate) FilledButton.tonal(onPressed: u.downloadAndInstall, child: const Text('重试')),
+        if (u.state != UpdateState.available && u.state != UpdateState.needPermission)
+          OutlinedButton(onPressed: busy ? null : u.check, child: Text(u.state == UpdateState.checking ? '检查中' : '检查新版本')),
+        if (r != null) TextButton(onPressed: () => launchUrl(Uri.parse(r.url), mode: LaunchMode.externalApplication), child: const Text('发布说明')),
+        if (u.state == UpdateState.failed) TextButton(onPressed: () => launchUrl(Uri.parse(downloadPage), mode: LaunchMode.externalApplication), child: const Text('去下载页')),
+      ]),
+    ]);
+  });
 }
 
 /// 守护开关：开机自启 + 退出后自动重启，一个开关管两件事。由身体适配器实现（Linux：systemd 用户服务或守护循环；安卓：runit + Termux:Boot）；没有守护者的身体不显示。

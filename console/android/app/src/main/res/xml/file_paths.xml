@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 共享的目录：只有缓存目录（App 更新下载的 APK 放在 cache/update/），系统安装器凭临时授予的 content:// URI 读取。 -->
+<paths>
+    <cache-path name="cache" path="." />
+</paths>
