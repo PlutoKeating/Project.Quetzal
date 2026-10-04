@@ -14,7 +14,7 @@ const store = await import("../src/store.ts");
 store.openStore();
 const reg = await import("../src/providers/registry.ts");
 const { Session } = await import("../src/mind/activity.ts");
-const { converse, history, describeProcess } = await import("../src/mind/brain.ts");
+const { converse, history, describeProcess, stripStamp } = await import("../src/mind/brain.ts");
 const { callTool } = await import("../src/mind/tools.ts");
 const { userMessage } = await import("../src/mind/attachments.ts");
 
@@ -109,4 +109,12 @@ test("对话里：上一轮的工具过程进入下一轮的上下文", async ()
   assert.match(prev.content, /^\[\d\d\/\d\d \d\d:\d\d｜这一轮的过程记录：说：「我先记一下」；open_loop\(装 CLI\) ✓ → 已记下，现在有 \d+ 件\]\n好了$/);
   assert.match(seen.at(-1).messages[0].content, /关于「我做过什么」/);
   server.close();
+});
+
+test("回复开头被模型仿写出来的「[时间｜这一轮的过程记录：…]」附注被剥掉；正常回复不受影响", () => {
+  const r = stripStamp('[10/05 05:53｜这一轮的过程记录：voice_config(action=get)✓ → {"a":[1,2]}；voice_speak(你好)✓ → 说出来了]\n说了！你那边听到了吗？');
+  assert.equal(r, "说了！你那边听到了吗？");
+  assert.equal(stripStamp("[10/05 05:22]\n好的"), "好的");
+  assert.equal(stripStamp("好的 [1] 和 [2]"), "好的 [1] 和 [2]");
+  assert.equal(stripStamp("[参考] 这是正文"), "[参考] 这是正文");
 });

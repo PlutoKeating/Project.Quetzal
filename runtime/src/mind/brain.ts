@@ -83,6 +83,7 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
       continue;
     } finally { s.endLLM(); }
     s.flush();
+    r.text = stripStamp(r.text);
     s.emit({ kind: "text", step: i + 1, text: r.text, final: !r.toolCalls.length });
     tokens += r.usage.input + r.usage.output; model = r.model;
     text = r.text || text;
@@ -190,6 +191,14 @@ const enter = () => { if (chatting++ === 0 && !isBusy()) { markBusy(true); ownsB
 const leave = () => { if (--chatting === 0 && ownsBusy) { ownsBusy = false; markBusy(false); } };
 
 const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n) + "…" : x; };
+
+/**
+ * 模型偶尔会照着历史里的格式，在回复开头自己写一段「[10/05 05:22｜这一轮的过程记录：…]」——那是基座附在她历史回复前的附注（见 history），
+ * 不是她的话；过程本身控制台已经渲染成工具卡片。系统提示里说了不要写，弱一些的模型仍会写，所以这里兜底剥掉（附注是单行的，到行尾最后一个 ] 为止）。
+ */
+export function stripStamp(text: string): string {
+  return text.replace(/^\s*\[\d{1,2}\/\d{1,2} \d{1,2}:\d{2}(?:[｜|][^\n]*)?\]\s*/u, "");
+}
 const stamp = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 
 /**
