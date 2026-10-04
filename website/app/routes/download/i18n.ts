@@ -3,7 +3,7 @@ import { defineMessages } from "~/i18n/core";
 export const messages = defineMessages({
   zh: {
     title: "下载 · Quetzal",
-    description: "下载 Quetzal App 与运行基座。所有版本都来自 GitHub Releases，这一页实时读取最新发布。",
+    description: "下载 Quetzal App。所有版本都来自 GitHub Releases，这一页实时读取最新发布。",
     eyebrow: "下载",
     heading: "装进一台闲置的安卓手机",
     lead: "Quetzal App 内置运行基座与 Termux 身体适配器。装好 App，剩下的交给它的安装向导。",
@@ -13,12 +13,10 @@ export const messages = defineMessages({
       stable: "稳定版",
       publishedOn: "发布于",
       downloadApk: "下载 Quetzal App",
-      downloadRuntime: "下载运行基座包",
       checksums: "SHA256 校验值",
       downloads: "次下载",
       viewOnGithub: "在 GitHub 查看这个版本",
       noApk: "这个版本没有附带 APK，请在 GitHub 上查看资产。",
-      otherAssets: "其他文件",
     },
     prereq: {
       eyebrow: "安装前提",
@@ -47,7 +45,8 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux 与其他机器",
       heading: "装到一台 Linux 电脑或服务器上",
-      body: "一台 Linux 电脑或服务器，一行命令就能让 ta 住进去：npx @plutokeating/quetzal。以后再运行一次就是升级。装好之后，手机上的 App 可以直接连上这台机器，设置和聊天都在 App 里完成。",
+      body: ["一台 Linux 电脑或服务器，一行命令就能让 ta 住进去：", "。以后再运行一次就是升级。装好之后，手机上的 App 可以直接连上这台机器，设置和聊天都在 App 里完成。"],
+      command: "npx @plutokeating/quetzal",
       link: "Linux 与其他机器",
     },
     state: {
@@ -63,7 +62,7 @@ export const messages = defineMessages({
   },
   en: {
     title: "Download · Quetzal",
-    description: "Download the Quetzal app and runtime. Every version comes from GitHub Releases; this page reads the latest release live.",
+    description: "Download the Quetzal app. Every version comes from GitHub Releases; this page reads the latest release live.",
     eyebrow: "Download",
     heading: "Install it on a spare Android phone",
     lead: "The Quetzal app bundles the runtime and the Termux body adapter. Install the app, and its setup wizard does the rest.",
@@ -73,12 +72,10 @@ export const messages = defineMessages({
       stable: "Stable",
       publishedOn: "Published",
       downloadApk: "Download Quetzal app",
-      downloadRuntime: "Download runtime package",
       checksums: "SHA256 checksums",
       downloads: "downloads",
       viewOnGithub: "View this release on GitHub",
       noApk: "This release ships no APK; see its assets on GitHub.",
-      otherAssets: "Other files",
     },
     prereq: {
       eyebrow: "Before you install",
@@ -107,7 +104,8 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux and other machines",
       heading: "Install on a Linux computer or server",
-      body: "One command gives ta a home on a Linux computer or server: npx @plutokeating/quetzal. Run it again later to upgrade. Once installed, the app on your phone connects straight to that machine, and everything else happens in the app.",
+      body: ["One command gives ta a home on a Linux computer or server: ", ". Run it again later to upgrade. Once installed, the app on your phone connects straight to that machine, and everything else happens in the app."],
+      command: "npx @plutokeating/quetzal",
       link: "Linux and other machines",
     },
     state: {

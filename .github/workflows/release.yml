@@ -1,7 +1,6 @@
 # 发版：推送 v<版本> 标签 → 测试并构建运行基座与 App → 创建 GitHub Release。
 # 资产命名（官网下载页按此识别）：
 #   quetzal-<版本>-android-arm64.apk     Quetzal App（内置运行基座与 Termux 身体适配器）
-#   quetzal-runtime-<版本>.tar.gz        运行基座 main.cjs + termux.mjs + linux.mjs（部署到其他机器）
 #   SHA256SUMS
 # 同时把 cli/ 发布为 npm 包 @plutokeating/quetzal（npx @plutokeating/quetzal 安装到 Linux）：仓库 Secrets 里提供 NPM_TOKEN（Automation 令牌）；缺少则跳过 npm 发布。
 # 发布说明：CHANGELOG.md 里「## <版本>」小节（没有则只用 GitHub 自动生成的提交摘要）。
@@ -94,7 +93,6 @@ jobs:
         run: |
           mkdir -p out
           cp console/build/app/outputs/flutter-apk/app-release.apk "out/quetzal-$V-android-arm64.apk"
-          tar -czf "out/quetzal-runtime-$V.tar.gz" -C runtime/dist main.cjs termux.mjs linux.mjs
           (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
 
       - name: 提取发布说明（CHANGELOG.md 的对应小节）
@@ -124,5 +122,4 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             out/quetzal-*.apk
-            out/quetzal-runtime-*.tar.gz
             out/SHA256SUMS

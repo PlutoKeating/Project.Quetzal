@@ -152,7 +152,7 @@ export default function Download() {
             <Heading size="md">{t.other.heading}</Heading>
           </div>
           <div className="flex flex-col gap-4">
-            <p className="text-fg-muted text-pretty">{t.other.body}</p>
+            <p className="text-fg-muted text-pretty">{t.other.body[0]}<code className="whitespace-nowrap font-mono text-fg">{t.other.command}</code>{t.other.body[1]}</p>
             <ButtonLink to={localized(lang, "/docs/advanced/other-machines")} variant="secondary" size="sm" className="self-start">{t.other.link} →</ButtonLink>
           </div>
         </Container>
@@ -186,7 +186,7 @@ function History({ releases, t, fmtDate, lang }: { releases: Release[]; t: Retur
               <time dateTime={r.publishedAt} className="text-xs text-fg-subtle">{fmtDate(r.publishedAt)}</time>
             </div>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm sm:justify-end">
-              {r.assets.map((a) => (
+              {r.assets.filter((a) => a.kind === "apk").map((a) => (
                 <li key={a.name}><ExternalLink href={a.url} className="no-underline hover:underline">{a.name}</ExternalLink> <span className="text-fg-subtle">{formatBytes(a.size, lang)}</span></li>
               ))}
             </ul>

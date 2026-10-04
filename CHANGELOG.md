@@ -12,8 +12,8 @@
 - **`npx @plutokeating/quetzal`**: a new npm package `@plutokeating/quetzal` (source in `cli/`) installs the runtime on any Linux machine: the bundled `main.cjs` and `linux.mjs` go into `~/quetzal/releases/<version>/` (the same current / previous layout as the Android installer), a systemd user service is registered and started, and a failed health check rolls back automatically; running it again upgrades. Subcommands `status`, `logs`, `rollback`, `uninstall [--purge]` and `run` (foreground, for machines without systemd). All configuration still happens in the console app.
 - 网关新增 `gateway.host`（缺省 `127.0.0.1`）；`npx @plutokeating/quetzal --lan` 把它设为 `0.0.0.0`，手机上的 App 直接填 Linux 机器的地址连接，配对码仍是门槛。
 - The gateway gains `gateway.host` (default `127.0.0.1`); `npx @plutokeating/quetzal --lan` sets it to `0.0.0.0` so the app on your phone can connect to the Linux machine's address directly, with the pairing code still as the gate.
-- 发版工作流同时发布 npm 包（仓库 Secrets `NPM_TOKEN`，缺少时跳过），运行基座压缩包里加入 `linux.mjs`。
-- The release workflow also publishes the npm package (repository secret `NPM_TOKEN`; skipped when absent), and the runtime tarball now includes `linux.mjs`.
+- 发版工作流同时发布 npm 包（仓库 Secrets `NPM_TOKEN`，缺少时跳过）；不再单独发布运行基座压缩包，Linux 机器一律用 npm 包安装，官网下载页只列 App。
+- The release workflow also publishes the npm package (repository secret `NPM_TOKEN`; skipped when absent); the standalone runtime tarball is no longer published — Linux machines install from npm, and the website download page lists only the app.
 
 ## 0.3.3
 
