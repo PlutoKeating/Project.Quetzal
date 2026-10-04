@@ -163,7 +163,6 @@ export default function Download() {
           <div className="flex min-w-0 flex-col gap-4">
             <CommandLine command={t.other.command} copy={t.other.copy} copied={t.other.copied} />
             <p className="text-fg-muted text-pretty">{t.other.body}</p>
-            <p className="text-sm text-fg-subtle text-pretty">{t.other.alt} <code className="font-mono text-fg-muted">{t.other.altCommand}</code></p>
             <TextLink to={localized(lang, "/docs/advanced/other-machines")} className="self-start text-sm">{t.other.link} →</TextLink>
           </div>
         </Container>

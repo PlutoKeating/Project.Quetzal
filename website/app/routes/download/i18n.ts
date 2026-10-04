@@ -47,10 +47,8 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux 与其他机器",
       heading: "装到一台 Linux 电脑或服务器上",
-      body: "一行命令，ta 就住进去了：缺的依赖自动补齐（Node.js 经 nvm、git），注册开机自启与崩溃自动重启的服务，应用列表里多一个「Quetzal」，装好后浏览器打开网页控制台，设置和聊天都在里面，不需要手机。再运行一次就是升级。",
+      body: "一行命令装好，浏览器自动打开网页控制台；再运行一次就是升级。",
       command: "curl -fsSL https://quetzal.plutokeating.beer/install | bash",
-      alt: "已经有 Node.js 22.13+ 与 git，只想要最简：",
-      altCommand: "npx @plutokeating/quetzal",
       copy: "复制",
       copied: "已复制",
       link: "Linux 与其他机器",
@@ -112,10 +110,8 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux and other machines",
       heading: "Install on a Linux computer or server",
-      body: "One command and it moves in: missing dependencies are installed (Node.js via nvm, git), a service that starts at boot and restarts after a crash is registered, a Quetzal entry appears in your app list, and the web console opens in your browser; settings and conversations happen there, no phone needed. Run it again to upgrade.",
+      body: "One command installs it and opens the web console in your browser; run it again to upgrade.",
       command: "curl -fsSL https://quetzal.plutokeating.beer/install | bash",
-      alt: "Already have Node.js 22.13+ and git and want the bare minimum:",
-      altCommand: "npx @plutokeating/quetzal",
       copy: "Copy",
       copied: "Copied",
       link: "Linux and other machines",
