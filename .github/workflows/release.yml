@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -104,15 +105,6 @@ jobs:
           fi
           [ -s out/NOTES.md ] || : > out/NOTES.md
 
-      - name: 发布 npm 包（有 NPM_TOKEN 时）
-        working-directory: cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "没有配置 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
-          TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
-          npm publish ../out-npm/plutokeating-quetzal-*.tgz --access public --tag "$TAG"
-
       - name: 创建 Release
         uses: softprops/action-gh-release@v3
         with:
@@ -123,3 +115,22 @@ jobs:
           files: |
             out/quetzal-*.apk
             out/SHA256SUMS
+
+      - name: 发布到 GitHub Packages（仓库的 Packages 栏目；用 GITHUB_TOKEN，总是执行）
+        working-directory: cli
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # setup-node 写入的 .npmrc 引用了这个变量，缺省会让 npm 报错
+        run: |
+          echo "//npm.pkg.github.com/:_authToken=$GH_TOKEN" >> ~/.npmrc
+          TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
+          npm publish ../out-npm/plutokeating-quetzal-*.tgz --registry https://npm.pkg.github.com --tag "$TAG"
+
+      - name: 发布到 npmjs.com（有 NPM_TOKEN 时；令牌须是 Granular Access Token 且允许绕过 2FA）
+        working-directory: cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "没有配置 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
+          TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
+          npm publish ../out-npm/plutokeating-quetzal-*.tgz --access public --tag "$TAG"
