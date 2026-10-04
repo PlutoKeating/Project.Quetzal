@@ -67,14 +67,22 @@ class Api extends ChangeNotifier {
     final origin = loc.pageOrigin;
     if (origin != null && !profiles.any((x) => x.base == origin)) { current = Profile(id: _newId(), label: '', base: origin); profiles.insert(0, current!); }
     await _persist();
-    if (current!.token.isEmpty && current!.base == origin) await localLogin();
+    if (current!.token.isEmpty && canLocalLogin(current!)) await localLogin();
     connect();
   }
 
-  /// 网页版：同一台机器上的浏览器直接向网关要令牌（GET /auth/local）。成功返回 true；别的机器会被拒绝，退回配对码。
+  /// 这个连接能不能免配对码：网页版连托管自己的网关；桌面版连本机（回环地址）的网关。网关只对回环连接放行（GET /auth/local）。
+  static bool canLocalLogin(Profile p) {
+    if (loc.pageOrigin != null) return p.base == loc.pageOrigin;
+    if (!isDesktop) return false;
+    final h = Uri.tryParse(p.base)?.host ?? '';
+    return h == '127.0.0.1' || h == 'localhost' || h == '::1';
+  }
+
+  /// 同一台机器上的控制台直接向网关要令牌（GET /auth/local）。成功返回 true；别的机器会被拒绝，退回配对码。
   Future<bool> localLogin() async {
     final c = current;
-    if (c == null || loc.pageOrigin == null || c.base != loc.pageOrigin) return false;
+    if (c == null || !canLocalLogin(c)) return false;
     try {
       final j = await _http('GET', '/auth/local');
       if (j['token'] is String) { c.token = j['token'] as String; await _persist(); return true; }
@@ -251,7 +259,7 @@ class Api extends ChangeNotifier {
 
   /// 点火：让 Termux 启动运行基座服务，然后等待网关恢复。只有安卓 App 能做。
   Future<String?> ignite() async {
-    if (!hasBody) return '网页版不能点火：在装运行基座的那台机器上 quetzal start，或在手机的 Quetzal App 里点火';
+    if (!hasBody) return '这个控制台不能点火：在装运行基座的那台机器上 quetzal start，或在手机的 Quetzal App 里点火';
     conn = Conn.igniting; notifyListeners();
     final err = await Igniter.ignite();
     if (err != null) { conn = Conn.offline; lastError = err; notifyListeners(); return err; }

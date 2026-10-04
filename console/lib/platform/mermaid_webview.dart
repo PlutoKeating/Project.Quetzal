@@ -1,5 +1,7 @@
 // 安卓：WebView 加载内置的 view.html 渲染，高度自适应；点击全屏查看（可缩放）。
+// Linux 桌面版没有 WebView 实现（webview_flutter 不支持 Linux）：退化为显示 Mermaid 源码。
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -13,12 +15,14 @@ class MermaidView extends StatefulWidget {
 
 class _MermaidViewState extends State<MermaidView> {
   static final _heights = <String, double>{}; // 渲染过的图记住高度，列表回滚时不跳动
+  static final supported = Platform.isAndroid; // 只有安卓有 WebView 插件
   late final WebViewController c;
   String? error;
 
   @override
   void initState() {
     super.initState();
+    if (!supported) return;
     c = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.transparent)
@@ -43,6 +47,17 @@ class _MermaidViewState extends State<MermaidView> {
 
   @override
   Widget build(BuildContext context) {
+    if (!supported) {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.outlineVariant), borderRadius: BorderRadius.circular(8)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Mermaid 图（桌面版不渲染，源码如下；网页版与手机 App 可看图）', style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+          const SizedBox(height: 6),
+          SelectableText(widget.code, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+        ]),
+      );
+    }
     if (widget.fullscreen) return WebViewWidget(controller: c);
     if (error != null) {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

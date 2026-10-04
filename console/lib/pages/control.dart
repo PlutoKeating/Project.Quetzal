@@ -456,7 +456,7 @@ class ServicePage extends StatelessWidget {
               Text('系统：已运行 ${sys['uptimeH'] ?? '-'} 小时 · 负载 ${sys['load1'] ?? '-'} · 空闲内存 ${sys['memFreeMB'] ?? '-'} MB · 存储余量 ${sys['storageFreeGB'] ?? '-'} GB'),
               Text('模型：${((s['models'] as List?) ?? []).join('、')}'),
               if (hasBody) FutureBuilder(future: Installer.bundledVersion(), builder: (_, v) => Text('App 内置的运行基座：${v.data ?? '（无）'}${v.data != null && s['version'] != null && v.data != s['version'] ? '，与运行中的不同，可升级' : ''}')),
-              if (!hasBody) const Text('网页版由运行基座自己托管；升级在装它的那台机器上再跑一次安装命令（curl -fsSL https://quetzal.plutokeating.beer/install | bash）或 npx @plutokeating/quetzal。'),
+              if (!hasBody) Text(isDesktop ? '升级：在这台机器上再跑一次安装命令（curl -fsSL https://quetzal.plutokeating.beer/install | bash），运行基座与这个控制台一起更新。' : '网页版由运行基座自己托管；升级在装它的那台机器上再跑一次安装命令（curl -fsSL https://quetzal.plutokeating.beer/install | bash）或 npx @plutokeating/quetzal。'),
             ]),
             const _SupervisionSection(),
             Section('操作', [

@@ -13,8 +13,8 @@ lib/
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
 ├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble
-├── platform/          平台差异（条件导入，`*_io.dart` 安卓 / `*_web.dart` 网页）：caps（有没有身体）、net（HTTP：dart:io / XMLHttpRequest）、location（页面来源、URL #片段、标题）、
-│                      fonts（网页版加载自带的中文子集）、mermaid（安卓 WebView / 网页 iframe，同一份 assets/mermaid/view.html，postMessage 桥）
+├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、net（HTTP：dart:io / XMLHttpRequest）、
+│                      location（页面来源、URL #片段、标题）、fonts（网页版加载自带的中文子集）、mermaid（安卓 WebView / 网页 iframe，同一份 assets/mermaid/view.html，postMessage 桥；Linux 桌面版没有 WebView，退化为显示源码）
 ├── shell/
 │   ├── nav.dart       桌面外壳的位置（区 / 子项 / 条目），网页版与 URL 的 #片段互相同步
 │   └── desktop.dart   桌面外壳：导航栏 · 列表栏 · 主区（嵌套 Navigator）· 她此刻
@@ -35,8 +35,10 @@ lib/
 tool/
 ├── bundle-runtime.sh  把运行基座内置进 APK（assets/runtime/）
 ├── build-web.sh       网页版构建（build/web）
+├── build-linux.sh     Linux 桌面版构建（build/quetzal-<版本>-linux-<架构>-console.tar.gz）
 └── gen-cjk-font.py    网页版的中文字体子集（web/fonts/）
 web/                   网页版的壳：index.html、manifest、图标、fonts/
+linux/                 Linux 桌面版的运行壳（flutter create 生成，只改了：BINARY_NAME quetzal-console、APPLICATION_ID xyz.quetzal.console（GTK 以它作 Wayland app_id 与 X11 WM_CLASS，桌面项按它配图标）、窗口标题 Quetzal、1280×800、背景 #202020、图标名 xyz.quetzal.console）
 ```
 
 状态管理只用 `ChangeNotifier`（全局 `api`、跟踪进行中醒来的 `wakes`、桌面位置 `nav`）+ `ListenableBuilder`，不引入额外框架。**同一份页面在两种外壳里都成立**：二级页面一律用 `PageFrame`，手机上它是 Scaffold + AppBar，桌面主区里它是一行标题；弹出面板一律用 `showSheet`，手机是底部面板，桌面是居中对话框；气泡与过程卡片按 `PaneWidth`（所在面板的宽度）而不是窗口宽度限制自己。
