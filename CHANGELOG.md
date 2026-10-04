@@ -4,8 +4,8 @@
 
 ## 0.6.6
 
-- **下载走官网代理**：GitHub 在不少网络里连不上，官网加了一个 Worker：`/dl/<tag>/<文件>` 代理 Release 资产（APK、Linux 控制台包、校验值，边缘缓存 7 天），`/api/releases[/latest]` 代理发布接口（缓存 5 分钟，资产地址改写为 `/dl/`）。App 的更新检查与 APK 下载、一键安装脚本的原生控制台下载、官网下载页都先走官网代理，失败再直连 GitHub。
-- **Downloads through the website proxy**: GitHub is unreachable on many networks, so the website gained a Worker: `/dl/<tag>/<file>` proxies release assets (APK, Linux console packages, checksums; edge-cached for 7 days) and `/api/releases[/latest]` proxies the releases API (cached 5 minutes, asset URLs rewritten to `/dl/`). The app's update check and APK download, the installer's native console download and the download page all try the website proxy first and fall back to GitHub.
+- **下载走官网镜像源**：GitHub 在不少网络里连不上，官网加了一个 Worker：`/dl/<tag>/<文件>` 是 Release 资产的镜像（APK、Linux 控制台包、校验值，边缘缓存 7 天），`/api/releases[/latest]` 是发布接口的镜像（缓存 5 分钟，资产地址改写为 `/dl/`）。App 的更新检查与 APK 下载、一键安装脚本的原生控制台下载、官网下载页都先走镜像源，失败再直连 GitHub。前端与 App 的文案不描述下载来源。
+- **Downloads through the website mirror**: GitHub is unreachable on many networks, so the website gained a Worker: `/dl/<tag>/<file>` mirrors release assets (APK, Linux console packages, checksums; edge-cached for 7 days) and `/api/releases[/latest]` mirrors the releases API (cached 5 minutes, asset URLs rewritten to `/dl/`). The app's update check and APK download, the installer's native console download and the download page all try the mirror first and fall back to GitHub. The website and app copy do not describe download sources.
 
 ## 0.6.5
 

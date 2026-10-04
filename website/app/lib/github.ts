@@ -6,7 +6,7 @@
 export const GITHUB_OWNER = "PlutoKeating";
 export const GITHUB_REPO_NAME = "Project.Quetzal";
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO_NAME}/releases?per_page=30`;
-/** 官网自己的代理（worker/index.ts）：同源，预渲染页面在浏览器里请求；开发服务器没有它，会退回 GitHub。 */
+/** 官网自己的镜像源（worker/index.ts）：同源，预渲染页面在浏览器里请求；开发服务器没有它，会退回 GitHub。 */
 export const SITE_RELEASES_API = "/api/releases";
 
 const CACHE_KEY = "quetzal.releases";
@@ -146,7 +146,7 @@ export async function fetchReleases(options: { force?: boolean } = {}): Promise<
     const cached = readCache();
     if (cached) return cached;
   }
-  // 先走官网自己的代理（/api/releases：Cloudflare 边缘缓存，资产地址已改写为 /dl/ 代理，GitHub 连不上的网络也能用），不行再直连 GitHub
+  // 先走官网自己的镜像源（/api/releases：Cloudflare 边缘缓存，资产地址已改写为 /dl/ 镜像，GitHub 连不上的网络也能用），不行再直连 GitHub
   let res: Response;
   try {
     res = await fetch(SITE_RELEASES_API, { headers: { Accept: "application/json" } });

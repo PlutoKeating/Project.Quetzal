@@ -13,7 +13,7 @@ import 'platform/caps.dart';
 
 const githubRepo = 'PlutoKeating/Project.Quetzal';
 const latestReleaseApi = 'https://api.github.com/repos/$githubRepo/releases/latest';
-/// 官网的代理（website/worker/index.ts）：GitHub 在不少网络里连不上，先问它；它返回的资产地址已指向官网的 /dl/ 代理，原地址在 github_download_url。
+/// 官网的镜像源（website/worker/index.ts）：GitHub 在不少网络里连不上，先问它；它返回的资产地址已指向官网的 /dl/ 镜像，原地址在 github_download_url。
 const siteOrigin = 'https://quetzal.plutokeating.beer';
 const siteLatestApi = '$siteOrigin/api/releases/latest';
 const downloadPage = 'https://quetzal.plutokeating.beer/download';
@@ -46,7 +46,7 @@ Map<String, String> parseSums(String text) {
 class AppRelease {
   final String version, tag, url;
   final String? apkUrl, apkName, sumsUrl;
-  final String? apkUrlFallback, sumsUrlFallback; // 官网代理给出的原 GitHub 地址：代理失败时退回
+  final String? apkUrlFallback, sumsUrlFallback; // 镜像源给出的原 GitHub 地址：镜像失败时退回
   final int apkSize;
   AppRelease({required this.version, required this.tag, required this.url, this.apkUrl, this.apkName, this.sumsUrl, this.apkSize = 0, this.apkUrlFallback, this.sumsUrlFallback});
 
@@ -113,7 +113,7 @@ class AppUpdater extends ChangeNotifier {
     try {
       await currentVersion();
       Map j;
-      try { j = await fetchJson(Uri.parse(siteLatestApi)); } catch (_) { j = await fetchJson(Uri.parse(latestReleaseApi)); } // 官网代理优先，退回 GitHub
+      try { j = await fetchJson(Uri.parse(siteLatestApi)); } catch (_) { j = await fetchJson(Uri.parse(latestReleaseApi)); } // 官网镜像源优先，退回 GitHub
       latest = AppRelease.fromJson(j);
       state = hasUpdate ? UpdateState.available : UpdateState.upToDate;
     } catch (e) { _fail('$e'); return; }
@@ -132,7 +132,7 @@ class AppUpdater extends ChangeNotifier {
         final f = File('${dir.path}/${r.apkName}');
         Future<String> dl(String u) => download(Uri.parse(u), f, onProgress: (got, total) { progress = total > 0 ? got / total : -1; notifyListeners(); });
         String sha;
-        try { sha = await dl(r.apkUrl!); } catch (e) { if (r.apkUrlFallback == null || r.apkUrlFallback == r.apkUrl) rethrow; progress = 0; notifyListeners(); sha = await dl(r.apkUrlFallback!); } // 代理失败退回 GitHub
+        try { sha = await dl(r.apkUrl!); } catch (e) { if (r.apkUrlFallback == null || r.apkUrlFallback == r.apkUrl) rethrow; progress = 0; notifyListeners(); sha = await dl(r.apkUrlFallback!); } // 镜像失败退回 GitHub
         state = UpdateState.verifying; notifyListeners();
         if (r.sumsUrl != null) {
           List<int> raw;
@@ -192,10 +192,10 @@ class AppUpdater extends ChangeNotifier {
       final req = await c.getUrl(url);
       if (accept != null) req.headers.set(HttpHeaders.acceptHeader, accept);
       final res = await req.close().timeout(const Duration(seconds: 30));
-      if (res.statusCode == 403 || res.statusCode == 429) throw 'GitHub 接口限流，稍后再试';
-      if (res.statusCode != 200) throw 'HTTP ${res.statusCode}（${url.host}）';
+      if (res.statusCode == 403 || res.statusCode == 429) throw '更新服务暂时繁忙，稍后再试';
+      if (res.statusCode != 200) throw 'HTTP ${res.statusCode}';
       return await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b));
-    } on SocketException { throw '连不上 ${url.host}'; } on TimeoutException { throw '${url.host} 响应超时'; } finally { c.close(force: true); }
+    } on SocketException { throw '网络连接失败'; } on TimeoutException { throw '网络响应超时'; } finally { c.close(force: true); }
   }
 
   /// 下载到文件，边写边报进度，返回内容的 SHA256（十六进制）。跟随 GitHub 资产的 302 跳转。

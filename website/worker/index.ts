@@ -1,7 +1,7 @@
 // 官网的 Worker：只接管两类路径，其余全部交给静态资源（wrangler.jsonc 的 run_worker_first 只把这两类路由到这里）。
-//   /dl/<tag>/<资产名>         代理 GitHub Release 的资产下载（APK、Linux 控制台包、校验值）：GitHub 在不少网络里连不上，官网走 Cloudflare 能到。
-//                               只放行本仓库、符合命名的资产，不是开放代理；按 tag 不可变，Cloudflare 边缘缓存 7 天。
-//   /api/releases[/latest]      代理 GitHub 的发布接口（匿名 60 次 / 小时 / IP 是对 Cloudflare 出口算的，所以边缘缓存 5 分钟；
+//   /dl/<tag>/<资产名>         GitHub Release 资产的镜像源（APK、Linux 控制台包、校验值）：GitHub 在不少网络里连不上，官网走 Cloudflare 能到。
+//                               只镜像本仓库、符合命名的资产，不转发其他地址；按 tag 不可变，Cloudflare 边缘缓存 7 天。
+//   /api/releases[/latest]      GitHub 发布接口的镜像（匿名 60 次 / 小时 / IP 是对 Cloudflare 出口算的，所以边缘缓存 5 分钟；
 //                               设置 Secret GITHUB_TOKEN 可提高到 5000 次 / 小时）。返回的 JSON 把每个资产的 browser_download_url
 //                               改写为上面的 /dl/ 地址，原地址放在 github_download_url，客户端先走官网、失败再退回 GitHub。
 // 没有任何账号、令牌写在这里；GITHUB_TOKEN 是可选的 Worker Secret（wrangler secret put GITHUB_TOKEN）。
@@ -33,14 +33,14 @@ export default {
 /** /dl/<tag>/<资产名> → github.com/<仓库>/releases/download/<tag>/<资产名>（跟随到 objects.githubusercontent.com 的跳转），边缘缓存。 */
 async function download(url: URL, request: Request, ctx: Ctx): Promise<Response> {
   const [, , tag, asset, extra] = url.pathname.split("/");
-  if (!tag || !asset || extra !== undefined || !TAG.test(tag) || !ASSET.test(asset)) return text(404, "只代理本项目发布页的资产：/dl/<tag>/<文件名>");
+  if (!tag || !asset || extra !== undefined || !TAG.test(tag) || !ASSET.test(asset)) return text(404, "只镜像本项目发布页的资产：/dl/<tag>/<文件名>");
   const cache = cacheOf();
   const key = new Request(`${url.origin}/dl/${tag}/${asset}`, { method: "GET" });
   const hit = await cache.match(key);
   if (hit) return withHeaders(hit, request.method === "HEAD");
   const upstream = `https://github.com/${REPO}/releases/download/${tag}/${asset}`;
   let res: Response;
-  try { res = await fetch(upstream, { redirect: "follow", headers: { "User-Agent": "quetzal-site-proxy" } }); }
+  try { res = await fetch(upstream, { redirect: "follow", headers: { "User-Agent": "quetzal-site-mirror" } }); }
   catch (e) { return text(502, `连不上 GitHub：${(e as Error).message}`); }
   if (!res.ok) return text(res.status === 404 ? 404 : 502, `GitHub 返回 ${res.status}`);
   const headers = cors(new Headers());
@@ -54,7 +54,7 @@ async function download(url: URL, request: Request, ctx: Ctx): Promise<Response>
   return withHeaders(out, request.method === "HEAD");
 }
 
-/** /api/releases 与 /api/releases/latest：代理 api.github.com，改写资产地址，边缘缓存 5 分钟。 */
+/** /api/releases 与 /api/releases/latest：镜像 api.github.com，改写资产地址，边缘缓存 5 分钟。 */
 async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise<Response> {
   const latest = url.pathname.endsWith("/latest");
   const cache = cacheOf();
@@ -62,7 +62,7 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
   const hit = await cache.match(key);
   if (hit) return withHeaders(hit, request.method === "HEAD");
   const upstream = `https://api.github.com/repos/${REPO}/releases${latest ? "/latest" : "?per_page=30"}`;
-  const h: Record<string, string> = { "User-Agent": "quetzal-site-proxy", Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+  const h: Record<string, string> = { "User-Agent": "quetzal-site-mirror", Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
   if (env.GITHUB_TOKEN) h.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
   let res: Response;
   try { res = await fetch(upstream, { headers: h }); }

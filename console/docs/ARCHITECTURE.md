@@ -9,7 +9,7 @@ lib/
 ├── igniter.dart       Termux 桥：RUN_COMMAND 执行、三件套检测与版本、打开应用、电池优化 / 自启动管理页（安卓）
 ├── hearing.dart       听觉桥：启停原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing）、权限、服务事件；跟随基座 status.hearing.listening，只对本机的 agent（安卓；网页版只跟着状态显示）
 ├── installer.dart     安装器：127.0.0.1 临时 HTTP 服务（提供 assets/install/install.sh 与 assets/runtime/*，接收脚本回报的进度、令牌）、探测 Termux 是否接受指令（安卓）
-├── updater.dart       App 自身的更新（安卓）：先问官网代理 `quetzal.plutokeating.beer/api/releases/latest`（资产地址已改写为官网 `/dl/` 代理，GitHub 连不上的网络也能用），失败退回 GitHub `releases/latest`（正式版；每次打开界面——启动与从后台回来——都问一次，正在检查时不重复）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk` 到缓存目录（进度）→ 核对 SHA256SUMS → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」，新 App 启动后直接进向导升级运行基座
+├── updater.dart       App 自身的更新（安卓）：先问官网镜像源 `quetzal.plutokeating.beer/api/releases/latest`（资产地址已改写为官网 `/dl/` 镜像，GitHub 连不上的网络也能用），失败退回 GitHub `releases/latest`（正式版；每次打开界面——启动与从后台回来——都问一次，正在检查时不重复）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk` 到缓存目录（进度）→ 核对 SHA256SUMS → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」，新 App 启动后直接进向导升级运行基座
 ├── widgets.dart       外壳模式（ShellScope）、页面框架（PageFrame：手机是 Scaffold + AppBar，桌面是主区里的一行标题）、面板宽度（PaneWidth）、底部面板 / 对话框（showSheet）、光团、驱动力条、连接状态、急停、离线横幅、分节卡片、提示
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）

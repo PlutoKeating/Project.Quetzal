@@ -53,11 +53,11 @@ class _AboutPageState extends State<AboutPage> {
   Future<void> _check() async {
     setState(() { checking = true; checkError = null; });
     try {
-      // 官网代理优先（GitHub 连不上的网络也能用），退回 GitHub
+      // 官网镜像源优先，退回 GitHub
       net.HttpReply r;
-      try { r = await net.request('GET', siteLatestApi, timeout: const Duration(seconds: 15)); if (r.status >= 400) throw '官网代理 ${r.status}'; }
+      try { r = await net.request('GET', siteLatestApi, timeout: const Duration(seconds: 15)); if (r.status >= 400) throw '镜像源 ${r.status}'; }
       catch (_) { r = await net.request('GET', latestReleaseApi, timeout: const Duration(seconds: 15)); }
-      if (r.status >= 400) throw 'GitHub 返回 ${r.status}${r.status == 403 ? '（匿名接口限流，稍后再试）' : ''}';
+      if (r.status >= 400) throw '读取发布信息失败（${r.status}）${r.status == 403 ? '，稍后再试' : ''}';
       final rel = AppRelease.fromJson(jsonDecode(r.body) as Map);
       if (mounted) setState(() => latest = rel);
     } catch (e) { if (mounted) setState(() => checkError = '$e'); }

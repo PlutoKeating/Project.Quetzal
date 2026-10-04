@@ -522,7 +522,7 @@ start_supervisor() {
 NATIVE=""   # 原生控制台的可执行文件（装上了才非空）
 LAUNCHER=""
 REPO_DL="https://github.com/PlutoKeating/Project.Quetzal/releases/download"
-SITE_DL="$SITE/dl"   # 官网的下载代理（Cloudflare 边缘缓存）：GitHub 连不上的网络先走它
+SITE_DL="$SITE/dl"   # 官网的镜像源（Cloudflare 边缘缓存）：GitHub 连不上的网络先走它
 download_console() { # 版本 架构 目标目录：下载同版本的原生控制台并解包（顶层目录 quetzal-console/ 去掉）
   local v=$1 arch=$2 dir=$3 tmp="$3.tar.gz"
   rm -rf "$dir.part" "$tmp"; mkdir -p "$dir.part"

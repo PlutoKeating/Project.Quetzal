@@ -11,7 +11,7 @@ export const messages = defineMessages({
     sections: [
       { heading: "1. 本网站", paragraphs: ["本网站是纯静态站点，没有账号、没有表单、没有服务端数据库，不设置 Cookie，不加载任何统计、广告或第三方字体脚本。"], bullets: [
         "语言与外观偏好保存在你浏览器的 localStorage 里（键 quetzal.lang、quetzal.theme），只在你的设备上，随时可在浏览器中清除。",
-        "下载页由你的浏览器直接向 GitHub 公开 API（api.github.com）请求版本信息；该请求受 GitHub 的隐私政策约束。结果在 sessionStorage 缓存 10 分钟。",
+        "下载页由你的浏览器向本站请求版本信息与安装包；本站不记录你的身份，不设 Cookie，结果只在你的浏览器会话里缓存 10 分钟。",
         "本网站托管在 Cloudflare。Cloudflare 作为托管与网络服务商可能按其隐私政策处理连接日志（如 IP 地址）；本项目不读取、不保存这些日志。",
         "字体（Inter）由本站自托管，不向第三方请求。",
       ] },
@@ -37,7 +37,7 @@ export const messages = defineMessages({
     sections: [
       { heading: "1. This website", paragraphs: ["This is a purely static site: no accounts, no forms, no server-side database, no cookies, and no analytics, advertising or third-party font scripts."], bullets: [
         "Your language and appearance preferences are stored in your browser's localStorage (keys quetzal.lang and quetzal.theme), only on your device, and can be cleared in the browser at any time.",
-        "The download page requests release information directly from the public GitHub API (api.github.com) from your browser; that request is covered by GitHub's privacy policy. Results are cached in sessionStorage for 10 minutes.",
+        "The download page requests release information and packages from this site in your browser; this site does not record who you are, sets no cookies, and the result is cached only in your browser session for 10 minutes.",
         "The site is hosted on Cloudflare. As the hosting and network provider, Cloudflare may process connection logs (such as IP addresses) under its own privacy policy; this project does not read or keep those logs.",
         "The typeface (Inter) is self-hosted; nothing is requested from third parties.",
       ] },
