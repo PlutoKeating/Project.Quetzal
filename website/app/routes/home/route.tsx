@@ -134,7 +134,7 @@ export default function Home() {
             <Heading>{t.now.heading}</Heading>
             <Lead>{t.now.lead}</Lead>
           </Reveal>
-          <Reveal delay={1}><ExampleBody t={t.now} /></Reveal>
+          <Reveal delay={1}><ExampleBody t={t.now} events={t.day.entries.map((e) => e.time)} /></Reveal>
         </Container>
       </Section>
 
