@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成品牌图片：官网分享图 public/og.png（1200×630）与仓库 README 横幅 ../docs/assets/readme/banner.png（1600×560）。
+"""生成品牌图片：官网分享图 public/og.png（1200×630）与仓库 README 横幅 ../docs/assets/readme/banner.png（1600×680）。
 颜色取自 designSystem.ts 的深色方案（手动同步：bg、fg、fg-muted、accent、orb-*）。
 标志是光团：与 OrbMark、favicon、控制台图标同一颗球（左上光源、明度偏移、高光点、光晕）。
 用法：python3 scripts/gen-brand-images.py <Inter-SemiBold.ttf> <Inter-Regular.ttf> [NotoSansCJK.ttc]（ttc 里取简体中文那一面，CJK_INDEX）
@@ -52,28 +52,29 @@ def lamp(img, x, y, r=11, ss=4):
 
 # 1) 分享图
 img = canvas(1200, 630, (760, -140, 1260, 360)); d = ImageDraw.Draw(img)
-lamp(img, 107, 107, 13); d.text((134, 86), "Quetzal", font=ImageFont.truetype(semibold, 40), fill=FG)
-d.text((96, 190), SLOGAN[0], font=ImageFont.truetype(semibold, 76), fill=FG)
-d.text((96, 280), SLOGAN[1], font=ImageFont.truetype(semibold, 76), fill=FG)
+lamp(img, 107, 95, 13); d.text((134, 74), "Quetzal", font=ImageFont.truetype(semibold, 40), fill=FG)
+d.text((96, 166), SLOGAN[0], font=ImageFont.truetype(semibold, 72), fill=FG)
+d.text((96, 252), SLOGAN[1], font=ImageFont.truetype(semibold, 72), fill=FG)
 if cjk:
-    zf = ImageFont.truetype(cjk, 36, index=CJK_INDEX)
-    d.text((96, 382), ZH[0], font=zf, fill=MUTED); d.text((96, 428), ZH[1], font=zf, fill=MUTED)
-d.text((96, 490), "A general-purpose runtime for agentic life. Runs on an old phone.", font=ImageFont.truetype(regular, 26), fill=MUTED)
-d.text((96, 550), SITE, font=ImageFont.truetype(regular, 24), fill=ACCENT)
+    zf = ImageFont.truetype(cjk, 32, index=CJK_INDEX)
+    d.text((96, 376), ZH[0], font=zf, fill=MUTED); d.text((96, 420), ZH[1], font=zf, fill=MUTED)
+d.text((96, 500), "An open-source runtime for agents. Runs on an old phone.", font=ImageFont.truetype(regular, 26), fill=MUTED)
+d.text((96, 560), SITE, font=ImageFont.truetype(regular, 24), fill=ACCENT)
 img.save("public/og.png", optimize=True); print("public/og.png")
 
 # 2) README 横幅：更宽，右侧留给光斑，底部一枚「官网」胶囊
-img = canvas(1600, 560, (1060, -160, 1700, 480)); d = ImageDraw.Draw(img)
-lamp(img, 123, 113, 14); d.text((152, 90), "Quetzal", font=ImageFont.truetype(semibold, 44), fill=FG)
-d.text((112, 190), SLOGAN[0], font=ImageFont.truetype(semibold, 84), fill=FG)
-d.text((112, 288), SLOGAN[1], font=ImageFont.truetype(semibold, 84), fill=FG)
+# 1600×680：上下各 ~90 的边距，标语、中文、胶囊之间留出整段呼吸
+img = canvas(1600, 680, (1060, -160, 1700, 560)); d = ImageDraw.Draw(img)
+lamp(img, 123, 109, 14); d.text((152, 86), "Quetzal", font=ImageFont.truetype(semibold, 44), fill=FG)
+d.text((112, 196), SLOGAN[0], font=ImageFont.truetype(semibold, 80), fill=FG)
+d.text((112, 292), SLOGAN[1], font=ImageFont.truetype(semibold, 80), fill=FG)
 if cjk:
-    zf = ImageFont.truetype(cjk, 34, index=CJK_INDEX)
-    d.text((112, 392), ZH[0], font=zf, fill=MUTED); d.text((112, 434), ZH[1], font=zf, fill=MUTED)
+    zf = ImageFont.truetype(cjk, 32, index=CJK_INDEX)
+    d.text((112, 430), ZH[0], font=zf, fill=MUTED); d.text((112, 476), ZH[1], font=zf, fill=MUTED)
 pill_font = ImageFont.truetype(semibold, 26)
 label = f"{SITE}  →"
 tw = d.textlength(label, font=pill_font)
-x0, y0 = 112, 486
+x0, y0 = 112, 564
 d.rounded_rectangle((x0, y0, x0 + tw + 56, y0 + 56), radius=28, fill=ACCENT)
 d.text((x0 + 28, y0 + 13), label, font=pill_font, fill="#1a120a")
 img.save("../docs/assets/readme/banner.png", optimize=True); print("docs/assets/readme/banner.png")
