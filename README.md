@@ -68,13 +68,13 @@
 2. 装 **Quetzal App**。
 3. 打开 App，选「在这台手机上安装 Quetzal」，跟着向导走。
 
-**一台 Linux 电脑或服务器**（Node.js 22.13 以上）
+**一台 Linux 电脑或服务器**
 
 ```bash
-npx @plutokeating/quetzal
+curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-装好后浏览器会打开网页控制台（`http://127.0.0.1:7788/`），同一台机器打开即登录。模型、身份、授权、飞书、灵魂仓库、对话都在里面完成。再运行一次就是升级；`--lan` 让手机上的 App 也能连这台机器。
+缺的依赖自动补齐（Node.js 经 nvm、git），注册开机自启、崩溃自动重启的服务（systemd 用户服务；没有 systemd 的机器用自带的守护循环），应用列表里多一个「Quetzal」，装好后浏览器打开网页控制台（`http://127.0.0.1:7788/`），同一台机器打开即登录。模型、身份、授权、飞书、灵魂仓库、对话都在里面完成。再运行一次就是升级；`bash -s -- --lan` 让手机上的 App 也能连这台机器。已有 Node.js 22.13+ 与 git 时也可以只用 `npx @plutokeating/quetzal`。
 
 更多：[文档](https://quetzal.plutokeating.beer/zh/docs) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · 一台旧手机上的完整实践 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 
@@ -86,7 +86,7 @@ npx @plutokeating/quetzal
 |---|---|
 | [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与两个平台级身体适配器：Termux（安卓）、Linux |
 | [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）与网页版（电脑浏览器，由运行基座托管） |
-| [`cli/`](cli/docs/README.md) | npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
+| [`cli/`](cli/docs/README.md) | 一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |
 | [`website/`](website/docs/README.md) | 官网与文档站 |
 | [`docs/`](docs/) | [快速开始](docs/QUICK_START.md) · [架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [灵魂同步](docs/SOUL_SYNC.md) · [仓库规范](docs/SOUL_REPO_SPEC.md) |

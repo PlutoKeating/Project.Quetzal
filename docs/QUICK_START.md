@@ -26,7 +26,15 @@
 
 ## 3. 在一台 Linux 电脑或服务器上安装（使用者）
 
-笔记本、小主机、树莓派、云主机都行，只要有 Node.js 22.13+（内置 `node:sqlite`）与 git：
+笔记本、小主机、树莓派、云主机都行。一行命令，缺什么补什么：
+
+```bash
+curl -fsSL https://quetzal.plutokeating.beer/install | bash                   # 依赖（git、经 nvm 的 Node.js 22）→ npm 包 → 守护（systemd 用户服务，没有 systemd 用自带守护循环 + crontab @reboot）→ 应用列表里的「Quetzal」→ 打开控制台
+curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --lan       # 选项：--lan --no-open --no-desktop --home DIR --version X --cn|--no-cn --lang zh|en
+curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall # 卸载（--purge 连家目录）
+```
+
+装完终端里有 `quetzal` 命令（`status` / `logs -f` / `open` / `rollback`）。脚本是 `cli/install.sh`，官网构建时复制为 `/install`。已经有 Node.js 22.13+（内置 `node:sqlite`）与 git、只想要 npm 包本身时：
 
 ```bash
 npx @plutokeating/quetzal            # 安装：内置的运行基座、Linux 身体适配器与网页控制台放进 ~/quetzal，注册 systemd 用户服务并启动，健康检查失败自动切回上一版；有桌面时顺手打开浏览器

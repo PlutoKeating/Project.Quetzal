@@ -68,13 +68,13 @@ One builds an assistant, the other a runtime for a living agent. They work toget
 2. Install the **Quetzal app**.
 3. Open the app, choose "Install Quetzal on this phone" and follow the wizard.
 
-**A Linux computer or server** (Node.js 22.13 or later)
+**A Linux computer or server**
 
 ```bash
-npx @plutokeating/quetzal
+curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-The web console then opens in your browser (`http://127.0.0.1:7788/`), logged in on the same machine. Models, identity, permissions, Feishu, the soul repository and conversations all happen there. Run the command again to upgrade; `--lan` also lets the phone app connect to this machine.
+Missing dependencies are installed (Node.js via nvm, git), a service that starts at boot and restarts after a crash is registered (a systemd user service; a built-in supervisor loop on machines without systemd), a Quetzal entry appears in your app list, and the web console opens in your browser (`http://127.0.0.1:7788/`), logged in on the same machine. Models, identity, permissions, Feishu, the soul repository and conversations all happen there. Run it again to upgrade; `bash -s -- --lan` lets the phone app connect to this machine too. With Node.js 22.13+ and git already present, `npx @plutokeating/quetzal` alone works as well.
 
 More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · a complete account on one old phone, [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 
@@ -86,7 +86,7 @@ More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other mach
 |---|---|
 | [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and two platform-level body adapters: Termux (Android) and Linux |
 | [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears) and the web version (desktop browser, served by the runtime) |
-| [`cli/`](cli/docs/README.md) | npm package `@plutokeating/quetzal`: the Linux installer (systemd user service) |
+| [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux installer (systemd user service) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |
 | [`website/`](website/docs/README.md) | Website and docs site |
 | [`docs/`](docs/) | [Quick start](docs/QUICK_START.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Soul sync](docs/SOUL_SYNC.md) · [Repository spec](docs/SOUL_REPO_SPEC.md) |
