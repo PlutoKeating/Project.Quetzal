@@ -70,7 +70,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
   int get _nextOrder => _orderedModels.fold<int>(-1, (a, m) => max(a, (m['sortOrder'] as num).toInt())) + 1;
 
   Future<void> _addProvider() async {
-    final picked = await showModalBottomSheet<Map>(context: context, isScrollControlled: true, builder: (_) => _ProviderPicker(load: _catalog));
+    final picked = await showSheet<Map>(context, (_, scroll) => _ProviderPicker(load: _catalog, scroll: scroll), initial: 0.85);
     if (picked == null) return;
     setState(() => providers.add({
       'id': _uuid(), 'catalogId': picked['id'] ?? 'custom', 'name': picked['name'] ?? '自定义供应商', 'baseUrl': picked['api'] ?? 'https://',
@@ -86,8 +86,8 @@ class _ProvidersPageState extends State<ProvidersPage> {
     return PopScope(
       canPop: !dirty,
       onPopInvokedWithResult: (didPop, _) async { if (!didPop && await confirm(context, '有未保存的修改', '离开将丢弃这些修改。') && context.mounted) { setState(() => draft = jsonDecode(jsonEncode(saved))); Navigator.pop(context); } },
-      child: Scaffold(
-        appBar: AppBar(title: const Text('模型'), actions: [IconButton(tooltip: '添加供应商', icon: const Icon(Icons.add), onPressed: _addProvider)]),
+      child: PageFrame(
+        title: '模型', actions: [IconButton(tooltip: '添加供应商', icon: const Icon(Icons.add), onPressed: _addProvider)],
         body: saved == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.only(bottom: 100), children: [
           Padding(
             padding: const EdgeInsets.all(12),
@@ -128,7 +128,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
             ),
           ]),
         ]),
-        bottomSheet: saved == null ? null : Material(
+        bottom: saved == null ? null : Material(
           elevation: 8,
           color: dirty ? Colors.orange.withValues(alpha: 0.15) : Theme.of(context).colorScheme.surfaceContainer,
           child: SafeArea(child: Padding(
@@ -331,7 +331,8 @@ class _ProviderCardState extends State<_ProviderCard> {
 
 class _ProviderPicker extends StatefulWidget {
   final Future<List> Function({bool refresh}) load;
-  const _ProviderPicker({required this.load});
+  final ScrollController? scroll;
+  const _ProviderPicker({required this.load, this.scroll});
   @override
   State<_ProviderPicker> createState() => _ProviderPickerState();
 }
@@ -345,15 +346,15 @@ class _ProviderPickerState extends State<_ProviderPicker> {
   @override
   Widget build(BuildContext context) {
     final shown = (list ?? []).cast<Map>().where((p) => q.isEmpty || '${p['name']} ${p['id']}'.toLowerCase().contains(q.toLowerCase())).take(60).toList();
-    return DraggableScrollableSheet(
-      expand: false, initialChildSize: 0.85,
-      builder: (_, scroll) => Column(children: [
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.85,
+      child: Column(children: [
         Padding(padding: const EdgeInsets.all(12), child: TextField(autofocus: true, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '搜索供应商（DeepSeek、OpenRouter、Anthropic…）', border: OutlineInputBorder()), onChanged: (v) => setState(() => q = v))),
         ListTile(leading: const Icon(Icons.edit), title: const Text('自定义供应商'), subtitle: const Text('任意 OpenAI 兼容 / Anthropic / Gemini 接口'), onTap: () => Navigator.pop(context, <String, dynamic>{})),
         const Divider(height: 1),
         Expanded(child: list == null
             ? Center(child: error != null ? Text(error!) : const CircularProgressIndicator())
-            : ListView(controller: scroll, children: [
+            : ListView(controller: widget.scroll, children: [
                 for (final p in shown) ListTile(title: Text('${p['name']}'), subtitle: Text('${p['api']}\n${(p['models'] as List).length} 个模型 · ${protocols[p['protocol']] ?? p['protocol']}', maxLines: 2), onTap: () => Navigator.pop(context, p)),
               ])),
       ]),

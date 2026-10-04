@@ -60,32 +60,46 @@ class WakeWatch extends ChangeNotifier {
 
 final wakes = WakeWatch();
 
-/// 首页与心流页的入口：她正在思考 / 做梦时出现，点开只读地看她在做什么。
+/// 首页与心流页的入口：她正在思考 / 做梦时出现，点开只读地看她在做什么。onTap 缺省为推入 WakePage；桌面外壳改为在主区打开。
 class LiveWakeTile extends StatelessWidget {
   final LiveTurn t;
-  const LiveWakeTile(this.t, {super.key});
+  final VoidCallback? onTap;
+  final bool selected;
+  const LiveWakeTile(this.t, {super.key, this.onTap, this.selected = false});
+  static String titleOf(LiveTurn t) => t.origin == 'dream' ? '她在做梦…' : t.origin == 'agent' ? '她派出的子 agent 在工作…' : '她醒着，在想事情…';
   @override
   Widget build(BuildContext context) => Card(
         child: ListTile(
+          selected: selected,
           leading: const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-          title: Text(t.origin == 'dream' ? '她在做梦…' : t.origin == 'agent' ? '她派出的子 agent 在工作…' : '她醒着，在想事情…'),
+          title: Text(titleOf(t)),
           subtitle: Text('${describeTurn(t)}\n${plainPreview(t.text)}', maxLines: 2, overflow: TextOverflow.ellipsis),
           trailing: const Icon(Icons.visibility_outlined),
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WakePage(turn: t.id))),
+          onTap: onTap ?? () => Navigator.push(context, MaterialPageRoute(builder: (_) => WakePage(turn: t.id))),
         ),
       );
 }
 
-/// 只读的过程页。entry：时间线里已保存的记录；turn：进行中的一轮的标识（二者给一个）。
-class WakePage extends StatefulWidget {
+/// 手机：只读的过程页。entry：时间线里已保存的记录；turn：进行中的一轮的标识（二者给一个）。
+class WakePage extends StatelessWidget {
   final Map? entry;
   final String? turn;
   const WakePage({super.key, this.entry, this.turn}) : assert(entry != null || turn != null);
   @override
-  State<WakePage> createState() => _WakePageState();
+  Widget build(BuildContext context) => WakeView(entry: entry, turn: turn, framed: true);
 }
 
-class _WakePageState extends State<WakePage> {
+/// 醒来记录的内容。framed：套上 PageFrame（标题 + 种类）；桌面外壳的主区直接用它。
+class WakeView extends StatefulWidget {
+  final Map? entry;
+  final String? turn;
+  final bool framed;
+  const WakeView({super.key, this.entry, this.turn, this.framed = false}) : assert(entry != null || turn != null);
+  @override
+  State<WakeView> createState() => _WakeViewState();
+}
+
+class _WakeViewState extends State<WakeView> {
   Map? entry;
   LiveTurn? live;
   bool finished = false, missing = false;
@@ -108,6 +122,12 @@ class _WakePageState extends State<WakePage> {
       life = AppLifecycleListener(onResume: () async { await api.ensureAlive(); _resync(); });
       _resync();
     }
+  }
+
+  @override
+  void didUpdateWidget(WakeView old) {
+    super.didUpdateWidget(old);
+    if (old.entry != widget.entry && widget.turn == null) setState(() { entry = widget.entry; finished = true; }); // 桌面：列表里换了一条
   }
 
   @override
@@ -169,14 +189,10 @@ class _WakePageState extends State<WakePage> {
     final items = (d['process'] as List?)?.cast<Map>() ?? (t?.items ?? itemsFromSteps((d['steps'] as List?) ?? []));
     final steps = (d['steps'] as List?)?.cast<Map>() ?? const [];
     final reason = '${d['reason'] ?? t?.text ?? ''}';
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(e != null ? '${e['title']}' : (t?.origin == 'dream' ? '她在做梦' : t?.origin == 'agent' ? '子 agent 在工作' : '她在想事情'), maxLines: 1, overflow: TextOverflow.ellipsis),
-        actions: [Padding(padding: const EdgeInsets.only(right: 12), child: Center(child: Chip(avatar: Icon(k.$2, size: 16), label: Text(k.$1), visualDensity: VisualDensity.compact)))],
-      ),
-      body: Column(children: [
+    final title = e != null ? '${e['title']}' : (t?.origin == 'dream' ? '她在做梦' : t?.origin == 'agent' ? '子 agent 在工作' : '她在想事情');
+    final body = LayoutBuilder(builder: (context, box) => PaneWidth(width: box.maxWidth, child: Column(children: [
         Expanded(
-          child: ListView(padding: const EdgeInsets.all(12), children: [
+          child: ListView(padding: EdgeInsets.symmetric(horizontal: ShellScope.isDesktop(context) ? 24 : 12, vertical: 12), children: [
             if (missing) const Padding(padding: EdgeInsets.all(32), child: Text('这一轮已经结束，没有找到保存的记录。', textAlign: TextAlign.center)),
             // 缘起：为什么醒来、想做什么（对话则是对方说的话）
             if (kind == 'chat' && d['text'] != null) Align(alignment: Alignment.centerRight, child: Bubble('${d['text']}', me: true, channel: d['channel']))
@@ -216,11 +232,16 @@ class _WakePageState extends State<WakePage> {
             child: Row(children: [
               Icon(Icons.visibility_outlined, size: 16, color: cs.outline),
               const SizedBox(width: 8),
-              Expanded(child: Text(kind == 'chat' ? '这是一次对话的记录，只读。要继续说话，去这个会话里。' : '这是她自己的时间：只能看，不能插话。想说话，去首页「聊天」。', style: tt.bodySmall?.copyWith(color: cs.outline))),
+              Expanded(child: Text(kind == 'chat' ? '这是一次对话的记录，只读。要继续说话，去这个会话里。' : '这是她自己的时间：只能看，不能插话。想说话，去「对话」。', style: tt.bodySmall?.copyWith(color: cs.outline))),
             ]),
           ),
         ),
-      ]),
+      ])));
+    if (!widget.framed) return body;
+    return PageFrame(
+      title: title,
+      actions: [Padding(padding: const EdgeInsets.only(right: 12), child: Center(child: Chip(avatar: Icon(k.$2, size: 16), label: Text(k.$1), visualDensity: VisualDensity.compact)))],
+      body: body,
     );
   }
 }

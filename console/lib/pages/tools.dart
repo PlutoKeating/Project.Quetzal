@@ -28,8 +28,8 @@ class _ToolsPageState extends State<ToolsPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(title: const Text('工具')),
+    return PageFrame(
+      title: '工具',
       body: loading ? const Center(child: CircularProgressIndicator()) : RefreshIndicator(onRefresh: _load, child: ListView(children: [
         Padding(padding: const EdgeInsets.all(16), child: Text('${api.name} 把做熟了的流程写成工具，之后像内置工具一样直接调用。实现只在这具身体上；意图文档（技能，SKILL.md）随记忆同步，别的身体可以按文档自己实现。这里只能看、停用与删除，改代码由她自己来。')),
         if (tools.isEmpty && skills.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('她还没有造过工具', textAlign: TextAlign.center)),
@@ -80,8 +80,8 @@ class _ToolDetailPageState extends State<ToolDetailPage> {
     final th = Theme.of(context).textTheme;
     final m = (t?['manifest'] as Map?) ?? {};
     final impl = t?['manifest'] != null;
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.name), actions: [
+    return PageFrame(
+      title: widget.name, actions: [
         if (impl) IconButton(tooltip: '删除', icon: const Icon(Icons.delete_outline), onPressed: () async {
           final also = await showDialog<bool>(context: context, builder: (x) => AlertDialog(
             title: Text('删除工具 ${widget.name}？'),
@@ -92,7 +92,7 @@ class _ToolDetailPageState extends State<ToolDetailPage> {
           final r = await act(context, () => api.call<String>('tools.delete', {'name': widget.name, 'skill': also}));
           if (r != null && context.mounted) { toast(context, r); Navigator.pop(context); }
         }),
-      ]),
+      ],
       body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(16), children: [
         if (t == null) const Text('没有这个工具，也没有技能文档'),
         if (impl) ...[

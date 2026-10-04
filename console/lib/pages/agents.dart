@@ -18,10 +18,11 @@ class AgentSwitcher extends ApiWidget {
       );
 }
 
-void showAgentSheet(BuildContext context) => showModalBottomSheet(context: context, builder: (_) => const _AgentSheet());
+void showAgentSheet(BuildContext context) => showSheet(context, (_, scroll) => _AgentSheet(scroll: scroll), initial: 0.5, maxWidth: 520);
 
 class _AgentSheet extends StatefulWidget {
-  const _AgentSheet();
+  final ScrollController? scroll;
+  const _AgentSheet({this.scroll});
   @override
   State<_AgentSheet> createState() => _AgentSheetState();
 }
@@ -44,7 +45,7 @@ class _AgentSheetState extends State<_AgentSheet> {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-        child: ListView(shrinkWrap: true, children: [
+        child: ListView(shrinkWrap: true, controller: widget.scroll, children: [
           const ListTile(title: Text('切换 agent'), subtitle: Text('每个 agent 有自己的运行基座、身份与灵魂')),
           for (final p in api.profiles)
             ListTile(
@@ -67,7 +68,7 @@ class _AgentSheetState extends State<_AgentSheet> {
               final c = TextEditingController(text: 'http://127.0.0.1:7789');
               final ok = await showDialog<bool>(context: context, builder: (x) => AlertDialog(
                 title: const Text('网关地址'),
-                content: TextField(controller: c, decoration: const InputDecoration(helperText: '同一设备上的另一个 agent 通常使用不同端口')),
+                content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(helperText: '另一台机器填它的地址（如 http://192.168.1.8:7788）；同一设备上的另一个 agent 通常用不同端口')),
                 actions: [TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('下一步'))],
               ));
               if (ok == true) { await api.addProfile(c.text.trim()); if (context.mounted) Navigator.pop(context); }
@@ -105,8 +106,8 @@ class _IdentityPageState extends State<IdentityPage> {
   @override
   Widget build(BuildContext context) {
     final a = this.a;
-    return Scaffold(
-      appBar: AppBar(title: const Text('身份')),
+    return PageFrame(
+      title: '身份',
       body: a == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
         if (a['seed'] == true) const Banner0(text: '这是自动生成的初始身份。给她 / 他 / 它起个名字吧。', color: Colors.amber),
         for (final e in {'displayName': '显示名', 'name': '标识符（小写字母、数字、连字符）', 'pronouns': '代词（可空）', 'description': '一句话简介', 'language': '偏好语言（如 zh-CN）'}.entries)
@@ -156,8 +157,8 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('记忆历史')),
+  Widget build(BuildContext context) => PageFrame(
+        title: '记忆历史',
         body: RefreshIndicator(
           onRefresh: _load,
           child: ListView(children: [
@@ -182,8 +183,8 @@ class _Commit extends StatelessWidget {
   final VoidCallback onReverted;
   const _Commit(this.c, {required this.onReverted});
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text('${c['short']}'), actions: [
+  Widget build(BuildContext context) => PageFrame(
+        title: '${c['short']}', actions: [
           TextButton(
             onPressed: () async {
               if (!await confirm(context, '撤销这次变更', '会生成一个反向提交（历史仍然保留），所有身体都会同步。她会知道有人撤销了这段变更。')) return;
@@ -193,7 +194,7 @@ class _Commit extends StatelessWidget {
             },
             child: const Text('撤销'),
           ),
-        ]),
+        ],
         body: FutureBuilder<String>(
           future: api.call<String>('soulShow', {'hash': c['hash']}),
           builder: (_, s) => s.hasData

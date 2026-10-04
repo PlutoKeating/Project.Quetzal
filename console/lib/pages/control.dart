@@ -13,38 +13,65 @@ import 'setup.dart';
 import 'tools.dart';
 import 'hearing.dart';
 import '../installer.dart';
+import '../platform/caps.dart';
 
+/// 控制菜单的一项：手机上推入页面，桌面列表栏里点选后在主区打开。
+class ControlItem {
+  final String id, group, title;
+  final IconData icon;
+  final String Function() subtitle;
+  final Widget Function() page;
+  final int Function()? badge;
+  const ControlItem(this.id, this.group, this.icon, this.title, this.subtitle, this.page, {this.badge});
+}
+
+/// 所有控制页，按组：身份 → 日常 → 安全 → 连接 → 运维，越往下越偏技术。
+List<ControlItem> controlItems() {
+  final s = api.status;
+  final hearing = (s['hearing'] as Map?) ?? {};
+  return [
+    ControlItem('identity', '身份', Icons.badge, '身份', () => '${api.name} · 名字、代词、简介、主题色', () => const IdentityPage()),
+    ControlItem('autonomy', '日常', Icons.self_improvement, '自主性', () => '活跃度 ${s['activity'] ?? 1}× · ${s['paused'] == true ? '已暂停' : '进行中'}', () => const AutonomyPage()),
+    ControlItem('approvals', '日常', Icons.gavel, '审批', () => '${api.approvals.length} 个待处理', () => const ApprovalsPage(), badge: () => api.approvals.length),
+    ControlItem('tools', '日常', Icons.handyman, '工具', () => '她自己造的工具与技能文档：查看、停用、删除', () => const ToolsPage()),
+    ControlItem('permissions', '安全', Icons.verified_user, '能力授权', () => '她能做什么、需要问你什么', () => const PermissionsPage()),
+    ControlItem('budget', '安全', Icons.savings, '预算', () => '今日 ${(s['usage'] as Map?)?['tokens'] ?? 0} tokens', () => const BudgetPage()),
+    ControlItem('audit', '安全', Icons.receipt_long, '审计日志', () => '每一次动作与修改', () => const AuditPage()),
+    ControlItem('secrets', '安全', Icons.key, '保密库', () => '你保密交给她的密码、令牌：她能用，看不到明文', () => const SecretsPage()),
+    ControlItem('providers', '连接', Icons.hub, '模型', () => '${(s['models'] as List?)?.length ?? 0} 个可用模型 · 供应商、Key 与顺序', () => const ProvidersPage()),
+    ControlItem('feishu', '连接', Icons.send, '飞书', () => '一键扫码接入，在飞书里和她说话', () => const FeishuPage()),
+    ControlItem('voice', '连接', Icons.record_voice_over, '语音', () => 'Azure 语音：她的声音、音色与风格（她自己也可以调）', () => const VoicePage()),
+    ControlItem('hearing', '连接', Icons.hearing, '听觉', () => hearing['enabled'] == true ? (hearing['listening'] == true ? '开着：手机在听' : '开着，此刻没在听') : '关着 · 让她用麦克风听你说话', () => const HearingPage()),
+    ControlItem('soul', '连接', Icons.cloud_sync, '灵魂同步', () => '与其他身体共享人格与记忆', () => const SoulPage()),
+    ControlItem('history', '连接', Icons.history, '记忆历史', () => '每一次变更来自哪具身体，可查看与撤销', () => const HistoryPage()),
+    ControlItem('service', '运维', Icons.monitor_heart, '服务', () => '版本 ${s['version'] ?? '-'} · 身体 ${s['body'] ?? '-'}（${s['adapter'] ?? '-'}）', () => const ServicePage()),
+  ];
+}
+
+/// 控制菜单：手机 Tab 页；桌面列表栏（selected / onSelect 给桌面用）。
 class ControlPage extends ApiWidget {
-  const ControlPage({super.key});
+  final String? selected;
+  final void Function(ControlItem item)? onSelect;
+  const ControlPage({super.key, this.selected, this.onSelect});
   @override
   Widget view(BuildContext context) {
-    void go(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
-    Widget item(IconData i, String t, String s, Widget page, {int badge = 0}) => ListTile(
-          leading: Badge(isLabelVisible: badge > 0, label: Text('$badge'), child: Icon(i)),
-          title: Text(t), subtitle: Text(s), trailing: const Icon(Icons.chevron_right), onTap: () => go(page));
-    Widget header(String t) => Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4), child: Text(t, style: Theme.of(context).textTheme.labelLarge));
-    final s = api.status;
-    return ListView(children: [
-      header('身份'),
-      item(Icons.badge, '身份', '${api.name} · 名字、代词、简介、主题色', const IdentityPage()),
-      header('日常'),
-      item(Icons.self_improvement, '自主性', '活跃度 ${s['activity'] ?? 1}× · ${s['paused'] == true ? '已暂停' : '进行中'}', const AutonomyPage()),
-      item(Icons.gavel, '审批', '${api.approvals.length} 个待处理', const ApprovalsPage(), badge: api.approvals.length),
-      item(Icons.handyman, '工具', '她自己造的工具与技能文档：查看、停用、删除', const ToolsPage()),
-      header('安全'),
-      item(Icons.verified_user, '能力授权', '她能做什么、需要问你什么', const PermissionsPage()),
-      item(Icons.savings, '预算', '今日 ${(s['usage'] as Map?)?['tokens'] ?? 0} tokens', const BudgetPage()),
-      item(Icons.receipt_long, '审计日志', '每一次动作与修改', const AuditPage()),
-      item(Icons.key, '保密库', '你保密交给她的密码、令牌：她能用，看不到明文', const SecretsPage()),
-      header('连接'),
-      item(Icons.hub, '模型', '${(s['models'] as List?)?.length ?? 0} 个可用模型 · 供应商、Key 与顺序', const ProvidersPage()),
-      item(Icons.send, '飞书', '一键扫码接入，在飞书里和她说话', const FeishuPage()),
-      item(Icons.record_voice_over, '语音', 'Azure 语音：她的声音、音色与风格（她自己也可以调）', const VoicePage()),
-      item(Icons.hearing, '听觉', (s['hearing'] as Map?)?['enabled'] == true ? ((s['hearing'] as Map)['listening'] == true ? '开着：这台手机在听' : '开着，此刻没在听') : '关着 · 让她用麦克风听你说话', const HearingPage()),
-      item(Icons.cloud_sync, '灵魂同步', '与其他身体共享人格与记忆', const SoulPage()),
-      item(Icons.history, '记忆历史', '每一次变更来自哪具身体，可查看与撤销', const HistoryPage()),
-      header('运维'),
-      item(Icons.monitor_heart, '服务', '版本 ${s['version'] ?? '-'} · 身体 ${s['body'] ?? '-'}（${s['adapter'] ?? '-'}）', const ServicePage()),
+    final desktop = ShellScope.isDesktop(context);
+    Widget header(String t) => Padding(padding: EdgeInsets.fromLTRB(16, desktop ? 12 : 16, 16, 4), child: Text(t, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: desktop ? Theme.of(context).colorScheme.onSurfaceVariant : null)));
+    final items = controlItems();
+    String? group;
+    return ListView(padding: EdgeInsets.only(bottom: desktop ? 24 : 0), children: [
+      for (final it in items) ...[
+        if (it.group != group) header(group = it.group),
+        ListTile(
+          dense: desktop,
+          selected: selected == it.id,
+          leading: Badge(isLabelVisible: (it.badge?.call() ?? 0) > 0, label: Text('${it.badge?.call() ?? 0}'), child: Icon(it.icon, size: desktop ? 20 : null)),
+          title: Text(it.title),
+          subtitle: desktop ? null : Text(it.subtitle()),
+          trailing: desktop ? null : const Icon(Icons.chevron_right),
+          onTap: () => onSelect != null ? onSelect!(it) : Navigator.push(context, MaterialPageRoute(builder: (_) => it.page())),
+        ),
+      ],
     ]);
   }
 }
@@ -53,8 +80,8 @@ class ControlPage extends ApiWidget {
 class AutonomyPage extends StatelessWidget {
   const AutonomyPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('自主性')),
+  Widget build(BuildContext context) => PageFrame(
+        title: '自主性',
         body: ListenableBuilder(listenable: api, builder: (context, _) {
           final s = api.status, h = api.heart, p = (h['personality'] as Map?) ?? {};
           final activity = ((s['activity'] ?? 1) as num).toDouble();
@@ -97,24 +124,43 @@ class _Param extends StatelessWidget {
 class ApprovalsPage extends StatelessWidget {
   const ApprovalsPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('审批')),
+  Widget build(BuildContext context) => PageFrame(
+        title: '审批',
         body: ListenableBuilder(listenable: api, builder: (context, _) => ListView(children: [
           if (api.approvals.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('没有待处理的请求', textAlign: TextAlign.center)),
-          for (final a in api.approvals)
-            Section('${a['action']}', [
-              Text('理由', style: Theme.of(context).textTheme.labelLarge),
-              RichMarkdown('${a['reason']}'),
-              const SizedBox(height: 6),
-              Text('参数', style: Theme.of(context).textTheme.labelLarge),
-              SelectableText(_json(a['args']), style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace')),
-              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                TextButton(onPressed: () => act(context, () => api.call('decide', {'id': a['id'], 'approve': false})), child: const Text('拒绝')),
-                FilledButton(onPressed: () => act(context, () => api.call('decide', {'id': a['id'], 'approve': true})), child: const Text('批准')),
-              ]),
-            ]),
+          for (final a in api.approvals) ApprovalCard(a as Map),
         ])),
       );
+}
+
+/// 一条待审批：理由（Markdown）、参数、批准 / 拒绝。compact：只有理由与按钮（「她此刻」面板）。
+class ApprovalCard extends StatelessWidget {
+  final Map a;
+  final bool compact;
+  const ApprovalCard(this.a, {super.key, this.compact = false});
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final buttons = Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+      TextButton(onPressed: () => act(context, () => api.call('decide', {'id': a['id'], 'approve': false})), child: const Text('拒绝')),
+      FilledButton(onPressed: () => act(context, () => api.call('decide', {'id': a['id'], 'approve': true})), child: const Text('批准')),
+    ]);
+    if (compact) {
+      return Padding(padding: const EdgeInsets.only(bottom: 4), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('${a['action']}', style: t.titleSmall),
+        Text(plainPreview('${a['reason']}'), maxLines: 3, overflow: TextOverflow.ellipsis, style: t.bodySmall),
+        buttons,
+      ]));
+    }
+    return Section('${a['action']}', [
+      Text('理由', style: t.labelLarge),
+      RichMarkdown('${a['reason']}'),
+      const SizedBox(height: 6),
+      Text('参数', style: t.labelLarge),
+      SelectableText(_json(a['args']), style: t.bodySmall?.copyWith(fontFamily: 'monospace')),
+      buttons,
+    ]);
+  }
 }
 
 // ---------------------------------------------------------------- 能力授权
@@ -130,8 +176,8 @@ class _PermissionsPageState extends State<PermissionsPage> {
   void initState() { super.initState(); _load(); }
   Future<void> _load() async { final r = await act(context, () => api.call<List>('permissions')); if (mounted && r != null) setState(() => perms = r); }
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('能力授权')),
+  Widget build(BuildContext context) => PageFrame(
+        title: '能力授权',
         body: ListView(children: [
           const Padding(padding: EdgeInsets.all(16), child: Text('她调用每一类能力前都会经过这里。选「询问」时，她会先请求你批准（控制台与飞书都能批准）。')),
           for (final p in perms)
@@ -167,8 +213,8 @@ class _BudgetPageState extends State<BudgetPage> {
   @override
   Widget build(BuildContext context) {
     final b = this.b;
-    return Scaffold(
-      appBar: AppBar(title: const Text('预算')),
+    return PageFrame(
+      title: '预算',
       body: b == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
         Section('今日用量', [
           Text('${b['usage']['tokens']} / ${b['dailyTokens']} tokens'),
@@ -194,8 +240,8 @@ class _BudgetPageState extends State<BudgetPage> {
 class AuditPage extends StatelessWidget {
   const AuditPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('审计日志')),
+  Widget build(BuildContext context) => PageFrame(
+        title: '审计日志',
         body: FutureBuilder<List>(
           future: api.call<List>('audit', {'limit': 200}),
           builder: (_, s) => !s.hasData
@@ -220,8 +266,8 @@ class _AuditDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    return Scaffold(
-      appBar: AppBar(title: Text('${a['actor']} · ${a['action']}')),
+    return PageFrame(
+      title: '${a['actor']} · ${a['action']}',
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Text('${hm(a['ts'])}${'${a['reason'] ?? ''}'.isNotEmpty ? ' · ${a['reason']}' : ''}', style: t.bodySmall),
         const SizedBox(height: 12),
@@ -259,8 +305,8 @@ class _SecretsPageState extends State<SecretsPage> {
   @override
   Widget build(BuildContext context) {
     final list = this.list;
-    return Scaffold(
-      appBar: AppBar(title: const Text('保密库')),
+    return PageFrame(
+      title: '保密库',
       body: list == null ? const Center(child: CircularProgressIndicator()) : ListView(children: [
         Padding(padding: const EdgeInsets.all(16), child: Text('${api.name} 需要密码、令牌、密钥时，会在对话里请你「保密输入」：你发的内容不进入对话，直接存到这里。她只能在命令里按路径引用，看不到明文；这里也不显示内容。它们只在这具身体上，不会同步到别的身体。')),
         if (list.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('还没有保密值', textAlign: TextAlign.center)),
@@ -308,8 +354,8 @@ class _FeishuPageState extends State<FeishuPage> {
   @override
   Widget build(BuildContext context) {
     final st = this.st;
-    return Scaffold(
-      appBar: AppBar(title: const Text('飞书')),
+    return PageFrame(
+      title: '飞书',
       body: st == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
         Section('状态', [
           ListTile(contentPadding: EdgeInsets.zero, leading: Icon(st['connected'] == true ? Icons.check_circle : Icons.cancel, color: st['connected'] == true ? Colors.green : Colors.grey),
@@ -363,8 +409,8 @@ class _SoulPageState extends State<SoulPage> {
   @override
   Widget build(BuildContext context) {
     final cfg = this.cfg, st = (cfg?['status'] as Map?) ?? {};
-    return Scaffold(
-      appBar: AppBar(title: const Text('灵魂同步')),
+    return PageFrame(
+      title: '灵魂同步',
       body: cfg == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
         const Padding(padding: EdgeInsets.all(4), child: Text('她可以同时住在多具身体里（例如另一台运行 Hermes 的设备）。所有身体共享一个私有 git 仓库：人格、常驻记忆、笔记与日记。每次醒来前拉取，醒来后推送。')),
         Section('本机', [
@@ -398,8 +444,8 @@ class _SoulPageState extends State<SoulPage> {
 class ServicePage extends StatelessWidget {
   const ServicePage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('服务')),
+  Widget build(BuildContext context) => PageFrame(
+        title: '服务',
         body: ListenableBuilder(listenable: api, builder: (context, _) {
           final s = api.status, p = api.physical, sys = (p['system'] as Map?) ?? {};
           return ListView(children: [
@@ -409,12 +455,13 @@ class ServicePage extends StatelessWidget {
               Text('身体：${s['body'] ?? '-'} · 适配器 ${s['adapter'] ?? '-'}'),
               Text('系统：已运行 ${sys['uptimeH'] ?? '-'} 小时 · 负载 ${sys['load1'] ?? '-'} · 空闲内存 ${sys['memFreeMB'] ?? '-'} MB · 存储余量 ${sys['storageFreeGB'] ?? '-'} GB'),
               Text('模型：${((s['models'] as List?) ?? []).join('、')}'),
-              FutureBuilder(future: Installer.bundledVersion(), builder: (_, v) => Text('App 内置的运行基座：${v.data ?? '（无）'}${v.data != null && s['version'] != null && v.data != s['version'] ? '，与运行中的不同，可升级' : ''}')),
+              if (hasBody) FutureBuilder(future: Installer.bundledVersion(), builder: (_, v) => Text('App 内置的运行基座：${v.data ?? '（无）'}${v.data != null && s['version'] != null && v.data != s['version'] ? '，与运行中的不同，可升级' : ''}')),
+              if (!hasBody) const Text('网页版由运行基座自己托管；升级在装它的那台机器上再运行一次 npx @plutokeating/quetzal。'),
             ]),
             Section('操作', [
               Wrap(spacing: 8, children: [
-                FilledButton.tonal(onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); }, child: const Text('点火')),
-                FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('升级 / 重装')),
+                if (hasBody) FilledButton.tonal(onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); }, child: const Text('点火')),
+                if (hasBody) FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('升级 / 重装')),
                 FilledButton.tonal(onPressed: () async { if (await confirm(context, '重启基座', '重启运行基座进程？约 5 秒后恢复。') && context.mounted) await act(context, () => api.call('restart'), ok: '正在重启'); }, child: const Text('重启')),
                 OutlinedButton(onPressed: () async {
                   if (await confirm(context, '重新配对', '将清除本机保存的令牌，需要重新获取配对码。')) await api.saveSettings(token: '');
@@ -466,8 +513,8 @@ class _VoicePageState extends State<VoicePage> {
   @override
   Widget build(BuildContext context) {
     final st = this.st;
-    return Scaffold(
-      appBar: AppBar(title: const Text('语音')),
+    return PageFrame(
+      title: '语音',
       body: st == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
         Section('状态', [
           ListTile(contentPadding: EdgeInsets.zero, leading: Icon(st['configured'] == true ? Icons.check_circle : Icons.info_outline, color: st['configured'] == true ? Colors.green : Colors.grey),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../hearing.dart';
 import '../widgets.dart';
+import '../platform/caps.dart';
 
 class HearingPage extends StatefulWidget {
   const HearingPage({super.key});
@@ -31,23 +32,25 @@ class _HearingPageState extends State<HearingPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(title: const Text('听觉')),
+    return PageFrame(
+      title: '听觉',
       body: st == null ? const Center(child: CircularProgressIndicator()) : ListenableBuilder(listenable: hearing, builder: (context, _) {
         final s = st!;
         final reasons = (s['reasons'] as List?)?.cast<String>() ?? [];
         final last = hearing.lastHeard ?? (s['last'] as Map?);
         return ListView(padding: const EdgeInsets.only(bottom: 24), children: [
-          Padding(padding: const EdgeInsets.all(16), child: Text('开着时，这台手机的控制台常驻用麦克风听（通知栏有「Quetzal 在听」）。听到有人说话就转成文字交给 ${api.name}，在会话里显示为「环境声音」；是不是在对她说、要不要回应，由她自己判断。识别用「语音」页里的 Azure 密钥。')),
+          Padding(padding: const EdgeInsets.all(16), child: Text(hasBody
+              ? '开着时，这台手机的控制台常驻用麦克风听（通知栏有「Quetzal 在听」）。听到有人说话就转成文字交给 ${api.name}，在会话里显示为「环境声音」；是不是在对她说、要不要回应，由她自己判断。识别用「语音」页里的 Azure 密钥。'
+              : '耳朵在手机上的 Quetzal App 里（Android 的前台服务常驻麦克风）；网页版没有麦克风。这里能开关与调整参数，手机 App 连着同一个 agent 时会跟着执行。识别用「语音」页里的 Azure 密钥。')),
           SwitchListTile(
             title: const Text('开启听觉'), subtitle: Text(reasons.isEmpty ? (hearing.running ? '正在听' : '基座已就绪，等待本机开麦克风') : '没在听：${reasons.join('、')}'),
             value: s['enabled'] == true, onChanged: (v) => _set({'enabled': v}),
           ),
-          if (!hearing.granted) ListTile(
+          if (hasBody && !hearing.granted) ListTile(
             leading: Icon(Icons.mic_off, color: cs.error), title: const Text('还没有麦克风权限'), subtitle: const Text('点这里授权；拒绝过的话去系统设置里打开'),
             onTap: () async { await Hearing.requestPermission(); await Future.delayed(const Duration(seconds: 2)); await hearing.refreshPermission(); hearing.sync(); },
           ),
-          if (!HearingController.local(api.base)) const ListTile(leading: Icon(Icons.info_outline), title: Text('当前连接的 agent 不在这台手机上'), subtitle: Text('耳朵只给本机的 agent 用；连回本机的 agent 后再开')),
+          if (hasBody && !HearingController.local(api.base)) const ListTile(leading: Icon(Icons.info_outline), title: Text('当前连接的 agent 不在这台手机上'), subtitle: Text('耳朵只给本机的 agent 用；连回本机的 agent 后再开')),
           if (hearing.error != null) ListTile(leading: Icon(Icons.error_outline, color: cs.error), title: Text(hearing.error!)),
           Section('此刻', [
             Row(children: [

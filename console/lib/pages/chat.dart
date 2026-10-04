@@ -7,10 +7,13 @@
 //   「完成 / 重填 / 取消」按钮与发回结束口令等价。状态来自 secret 推送，重建界面时从 secrets.pending 取回。
 //   滚动：打开即在最底部；在底部时新内容自动跟随；上滑后右下角出现「回到底部」，有新内容时变亮并显示「新消息」。
 //   气泡、工具卡片与进行中的一轮（LiveTurn）在 process.dart 里，与只读的「醒来记录」页共用。
+//   ChatView 是对话的全部内容（记录、过程、输入）；ChatPage 在手机上给它套 AppBar，桌面外壳把它放进主区。
+//   桌面：Enter 发送、Shift+Enter 换行；内容宽度由外壳限制（PaneWidth）。
 import 'dart:async';
 import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../api.dart';
 import '../widgets.dart';
 import '../markdown.dart';
@@ -31,6 +34,7 @@ class _Pending {
   _Pending(this.name, this.size);
 }
 
+/// 手机：一个会话一页。
 class ChatPage extends StatefulWidget {
   final String conv, title;
   const ChatPage({super.key, required this.conv, this.title = '对话'});
@@ -39,6 +43,36 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
+  late String title = widget.title;
+  @override
+  Widget build(BuildContext context) => PageFrame(
+        title: title,
+        actions: [
+          IconButton(tooltip: '新会话', icon: const Icon(Icons.add_comment_outlined), onPressed: () async {
+            final s = await act(context, () => api.call<Map>('sessions.create'));
+            if (s != null && context.mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: '${s['id']}', title: '${s['title']}')));
+          }),
+          IconButton(tooltip: '全部会话', icon: const Icon(Icons.forum_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SessionsPage(current: widget.conv)))),
+        ],
+        body: ChatView(
+          conv: widget.conv,
+          onTitle: (t) => setState(() => title = t),
+          onSwitch: (to, t) => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: to, title: t))),
+        ),
+      );
+}
+
+/// 一个会话的全部内容：记录、进行中的过程、附件、输入框。onTitle：标题随后端更新；onSwitch：她用 session_new 切到了新会话。
+class ChatView extends StatefulWidget {
+  final String conv;
+  final void Function(String title)? onTitle;
+  final void Function(String conv, String title)? onSwitch;
+  const ChatView({super.key, required this.conv, this.onTitle, this.onSwitch});
+  @override
+  State<ChatView> createState() => _ChatViewState();
+}
+
+class _ChatViewState extends State<ChatView> {
   final msgs = <Map>[];
   final turns = <String, LiveTurn>{};
   final local = <String, Map>{}; // 刚发出、后端还没确认的话（turn → 消息）
@@ -48,7 +82,7 @@ class _ChatPageState extends State<ChatPage> {
   final scroll = ScrollController();
   final subs = <StreamSubscription>[];
   late final AppLifecycleListener life;
-  String title = '';
+  final focus = FocusNode();
   bool atBottom = true, unread = false, wasOnline = true, loading = true;
   String mode = 'steer'; // 她正在工作时发消息的方式
   Map? secret; // 这个会话进行中的保密输入（pass_secret）
@@ -59,7 +93,6 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-    title = widget.title;
     scroll.addListener(_onScroll);
     subs.add(api.events.where((e) => e.name == 'activity').listen(_onActivity));
     subs.add(api.events.where((e) => e.name == 'say').listen((_) { if (widget.conv == 'inbox') _resync(); }));
@@ -68,7 +101,7 @@ class _ChatPageState extends State<ChatPage> {
     subs.add(api.events.where((e) => e.name == 'session.switch').listen((e) { // 她用 session_new 切到了新会话：跟着切过去
       final s = e.data as Map;
       if (s['from'] != widget.conv || s['done'] == true || !mounted) return;
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: '${s['to']}', title: '${s['title']}')));
+      widget.onSwitch?.call('${s['to']}', '${s['title']}');
     }));
     subs.add(api.events.where((e) => e.name == 'session.switch' && (e.data as Map)['to'] == widget.conv && (e.data as Map)['done'] == true).listen((_) => _resync())); // 回复落进了这个新会话
     api.addListener(_onConn);
@@ -77,10 +110,22 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   @override
+  void didUpdateWidget(ChatView old) {
+    super.didUpdateWidget(old);
+    if (old.conv != widget.conv) { // 桌面外壳复用同一个 ChatView 切换会话
+      msgs.clear(); turns.clear(); local.clear(); finished.clear(); files.clear();
+      secret = null; heard = null; loading = true; atBottom = true; unread = false;
+      setState(() {});
+      _resync(first: true);
+    }
+  }
+
+  @override
   void dispose() {
     for (final s in subs) { s.cancel(); }
     api.removeListener(_onConn);
     life.dispose();
+    focus.dispose();
     super.dispose();
   }
 
@@ -107,9 +152,9 @@ class _ChatPageState extends State<ChatPage> {
           ..clear()
           ..addEntries(r[1].cast<Map>().where((t) => t['conv'] == widget.conv && t['origin'] == 'chat' && !finished.contains(t['turn'])).map((t) => MapEntry('${t['turn']}', LiveTurn.snapshot(t))));
         local.removeWhere((k, _) => turns.containsKey(k) || msgs.any((m) => m['role'] == 'user' && m['text'] == local[k]!['text']));
-        if (me.isNotEmpty) title = '${me.first['title']}';
         loading = false;
       });
+      if (me.isNotEmpty) widget.onTitle?.call('${me.first['title']}');
       _changed(force: first);
     } catch (_) {
       if (mounted) setState(() => loading = false);
@@ -211,7 +256,7 @@ class _ChatPageState extends State<ChatPage> {
       if (!mounted) return;
       setState(() => files.add(p));
       try {
-        p.file = await api.upload(f.name, f.readAsByteStream(), size, onProgress: (v) { if (mounted) setState(() => p.progress = v); });
+        p.file = await api.upload(f.name, await f.readAsBytes(), onProgress: (v) { if (mounted) setState(() => p.progress = v); });
       } catch (e) {
         p.error = '$e';
       }
@@ -224,6 +269,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _send() async {
     if (secret != null) return _sendSecret(input.text);
     final text = input.text.trim();
+    focus.requestFocus();
     final ready = files.where((f) => f.file != null).map((f) => f.file!).toList();
     if ((text.isEmpty && ready.isEmpty) || uploading) return;
     final turn = '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}${Random().nextInt(1 << 30).toRadixString(36)}';
@@ -287,15 +333,8 @@ class _ChatPageState extends State<ChatPage> {
       for (final m in local.values) _message(context, m, cs),
       if (heard != null) _heardLive(context, heard!, cs),
     ];
-    return Scaffold(
-      appBar: AppBar(title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis), actions: [
-        IconButton(tooltip: '新会话', icon: const Icon(Icons.add_comment_outlined), onPressed: () async {
-          final s = await act(context, () => api.call<Map>('sessions.create'));
-          if (s != null && context.mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: '${s['id']}', title: '${s['title']}')));
-        }),
-        IconButton(tooltip: '全部会话', icon: const Icon(Icons.forum_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SessionsPage(current: widget.conv)))),
-      ]),
-      body: Column(children: [
+    final desktop = ShellScope.isDesktop(context);
+    return LayoutBuilder(builder: (context, box) => PaneWidth(width: box.maxWidth, child: Column(children: [
         Expanded(
           child: Stack(children: [
             loading
@@ -310,7 +349,7 @@ class _ChatPageState extends State<ChatPage> {
                       }
                       return false;
                     },
-                    child: ListView(controller: scroll, padding: const EdgeInsets.all(12), children: rows.isEmpty ? [const Padding(padding: EdgeInsets.all(48), child: Text('说点什么吧', textAlign: TextAlign.center))] : rows),
+                    child: ListView(controller: scroll, padding: EdgeInsets.symmetric(horizontal: desktop ? 24 : 12, vertical: 12), children: rows.isEmpty ? [const Padding(padding: EdgeInsets.all(48), child: Text('说点什么吧', textAlign: TextAlign.center))] : rows),
                   ),
             if (!atBottom)
               Positioned(
@@ -326,12 +365,22 @@ class _ChatPageState extends State<ChatPage> {
         ListenableBuilder(listenable: hearing, builder: (context, _) => hearing.caption == null ? const SizedBox.shrink() : _listening(cs)), // 耳朵开着：让对方知道她在听
         SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(children: [
+            padding: EdgeInsets.fromLTRB(desktop ? 20 : 8, 8, desktop ? 20 : 8, desktop ? 16 : 8),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
               if (secret == null) IconButton(tooltip: '附件（最多 $maxFiles 个）', icon: const Icon(Icons.attach_file), onPressed: _pick),
               Expanded(
                 child: secret == null
-                    ? TextField(controller: input, minLines: 1, maxLines: 4, decoration: const InputDecoration(hintText: '说点什么', border: OutlineInputBorder()), onSubmitted: (_) => _send())
+                    ? (desktop
+                        // 桌面：Enter 发送，Shift+Enter 换行
+                        ? KeyboardListener(
+                            focusNode: FocusNode(skipTraversal: true),
+                            onKeyEvent: (e) {
+                              if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.enter && !HardwareKeyboard.instance.isShiftPressed) { _send(); }
+                            },
+                            child: TextField(controller: input, focusNode: focus, minLines: 1, maxLines: 8, textInputAction: TextInputAction.newline,
+                                decoration: const InputDecoration(hintText: '说点什么（Enter 发送，Shift+Enter 换行）', border: OutlineInputBorder()),
+                                onChanged: (v) { if (v.endsWith('\n') && !HardwareKeyboard.instance.isShiftPressed) input.text = v.substring(0, v.length - 1); }))
+                        : TextField(controller: input, focusNode: focus, minLines: 1, maxLines: 4, decoration: const InputDecoration(hintText: '说点什么', border: OutlineInputBorder()), onSubmitted: (_) => _send()))
                     // 保密输入：默认遮挡（单行）；多行的值先点眼睛显示再粘贴
                     : TextField(controller: input, obscureText: !reveal, minLines: 1, maxLines: reveal ? 6 : 1, autocorrect: false, enableSuggestions: false, onSubmitted: reveal ? null : (_) => _send(),
                         decoration: InputDecoration(hintText: _secretHint(secret!), border: const OutlineInputBorder(), prefixIcon: const Icon(Icons.lock_outline),
@@ -355,8 +404,7 @@ class _ChatPageState extends State<ChatPage> {
             ]),
           ),
         ),
-      ]),
-    );
+      ])));
   }
 
   static String _secretHint(Map s) {
@@ -480,14 +528,16 @@ class _ChatPageState extends State<ChatPage> {
     final others = atts.where((a) => !images.contains(a)).toList();
     return Container(
       margin: const EdgeInsets.only(top: 4),
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+      constraints: BoxConstraints(maxWidth: PaneWidth.of(context) * 0.8),
       child: Column(crossAxisAlignment: me ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
         if (images.isNotEmpty)
           Wrap(spacing: 4, runSpacing: 4, alignment: me ? WrapAlignment.end : WrapAlignment.start, children: [
             for (final a in images)
               GestureDetector(
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: Text('${a['name']}')),
-                    body: InteractiveViewer(maxScale: 6, child: Center(child: Image.network(api.fileUrl('${a['rel']}'))))))),
+                onTap: () => showDialog(context: context, builder: (x) => Dialog.fullscreen(child: Column(children: [
+                    AppBar(title: Text('${a['name']}'), leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(x))),
+                    Expanded(child: InteractiveViewer(maxScale: 6, child: Center(child: Image.network(api.fileUrl('${a['rel']}'))))),
+                  ]))),
                 child: ClipRRect(borderRadius: BorderRadius.circular(8),
                     child: Image.network(api.fileUrl('${a['rel']}'), width: 96, height: 96, fit: BoxFit.cover,
                         errorBuilder: (_, _, _) => Container(width: 96, height: 96, color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image)))),

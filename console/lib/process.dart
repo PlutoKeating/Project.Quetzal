@@ -5,6 +5,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'markdown.dart';
+import 'widgets.dart';
 
 /// 进行中的一轮（由后端快照与推送事件共同维护）。
 class LiveTurn {
@@ -69,7 +70,7 @@ class Bubble extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.all(10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+        constraints: BoxConstraints(maxWidth: PaneWidth.of(context) * 0.8),
         decoration: BoxDecoration(color: me ? cs.primaryContainer : cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           RichMarkdown(text, live: live),
@@ -94,7 +95,7 @@ class ProcessView extends StatelessWidget {
     var k = 0; // 第几个工具调用（finish 不算），用来对应 steps
     return Container(
       margin: const EdgeInsets.only(top: 4),
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.9),
+      constraints: BoxConstraints(maxWidth: PaneWidth.of(context) * 0.9),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (final x in items.where((x) => x['type'] != 'steer'))
           if (x['type'] == 'text') // 她中途说的话：正常的消息气泡
@@ -149,12 +150,7 @@ void showToolDetail(BuildContext context, Map x, Map? step) {
     try { return const JsonEncoder.withIndent('  ').convert(v); } catch (_) { return '$v'; }
   }
   final args = step?['args'], result = step?['result'] ?? x['result'];
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    builder: (_) => DraggableScrollableSheet(
-      expand: false, initialChildSize: 0.6, maxChildSize: 0.95,
-      builder: (_, scroll) => ListView(controller: scroll, padding: const EdgeInsets.all(16), children: [
+  showSheet(context, (_, scroll) => ListView(controller: scroll, padding: const EdgeInsets.all(16), children: [
         Row(children: [
           ProcessView.statusIcon(x['status'], Theme.of(context).colorScheme),
           const SizedBox(width: 8),
@@ -176,9 +172,7 @@ void showToolDetail(BuildContext context, Map x, Map? step) {
         if ('${result ?? ''}'.isEmpty) Text('（无）', style: t.bodySmall) else RawOrMarkdown('$result'),
         if (step == null && x['status'] != 'running') Padding(padding: const EdgeInsets.only(top: 8), child: Text('这里只有结果的第一行；完整参数与结果在心流里这一轮的记录中。', style: t.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline))),
         const SizedBox(height: 24),
-      ]),
-    ),
-  );
+      ]));
 }
 
 /// 时间线里的 steps（无 process 的旧记录）折成工具卡片，让旧的醒来记录也能按同一种方式回放。

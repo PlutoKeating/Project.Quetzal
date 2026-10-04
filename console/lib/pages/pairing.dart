@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../igniter.dart';
 import '../widgets.dart';
+import '../platform/caps.dart';
 import 'agents.dart';
 import 'setup.dart';
 
@@ -23,21 +24,26 @@ class _PairingPageState extends State<PairingPage> {
   @override
   void initState() { super.initState(); _probe(); }
 
-  Future<void> _probe() async { final ok = await api.health(); final t = await Igniter.available(); if (mounted) setState(() { alive = ok; termux = t; }); }
+  Future<void> _probe() async {
+    final ok = await api.health();
+    final t = hasBody && await Igniter.available();
+    if (mounted) setState(() { alive = ok; termux = t; });
+    if (ok && isWeb && await api.localLogin()) api.connect(); // 网页版：同一台机器直接登录
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     return Scaffold(
       body: SafeArea(
-        child: ListView(padding: const EdgeInsets.all(24), children: [
+        child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 560), child: ListView(padding: const EdgeInsets.all(24), children: [
           const SizedBox(height: 24),
           const Center(child: Orb(mode: 'asleep', alertness: 0.5)),
           Text('连接一个 agent', style: t.headlineSmall, textAlign: TextAlign.center),
           const SizedBox(height: 8),
           Text('控制台会找到运行基座，并通过配对码与它建立信任。', style: t.bodyMedium, textAlign: TextAlign.center),
           const SizedBox(height: 24),
-          if (alive == false && api.profiles.length <= 1) Card(child: ListTile(
+          if (hasBody && alive == false && api.profiles.length <= 1) Card(child: ListTile(
             leading: const Icon(Icons.phone_android),
             title: const Text('在这台手机上安装 Quetzal'),
             subtitle: Text(termux ? '已装 Termux，几分钟装好，自动连接' : '需要先安装 Termux；向导会一步步带你完成'),
@@ -48,7 +54,7 @@ class _PairingPageState extends State<PairingPage> {
             leading: Icon(alive == true ? Icons.check_circle : alive == false ? Icons.error : Icons.hourglass_empty, color: alive == true ? Colors.green : alive == false ? Colors.red : null),
             title: Text(alive == true ? '找到了运行中的运行基座' : alive == false ? '没有找到运行中的运行基座' : '正在寻找…'),
             subtitle: Text(api.base),
-            trailing: alive == false
+            trailing: alive == false && hasBody
                 ? FilledButton.tonal(
                     onPressed: busy ? null : () async {
                       setState(() => busy = true);
@@ -72,7 +78,7 @@ class _PairingPageState extends State<PairingPage> {
               },
             ),
           if (requested) ...[
-            Text('配对码已通过系统通知（以及已绑定的飞书）发出，5 分钟内有效。', style: t.bodySmall),
+            Text(isWeb ? '配对码已发到运行基座所在机器的桌面通知（以及已绑定的飞书）；没有桌面的机器从 quetzal logs 里看。5 分钟内有效。' : '配对码已通过系统通知（以及已绑定的飞书）发出，5 分钟内有效。', style: t.bodySmall),
             const SizedBox(height: 8),
             TextField(controller: code, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: '6 位配对码', border: OutlineInputBorder())),
             FilledButton(
@@ -84,10 +90,10 @@ class _PairingPageState extends State<PairingPage> {
           const SizedBox(height: 24),
           if (api.profiles.length > 1) TextButton(onPressed: () => showAgentSheet(context), child: const Text('切换到其他 agent')),
           ExpansionTile(initiallyExpanded: api.profiles.length > 1, title: const Text('网关地址'), children: [
-            TextField(controller: base, decoration: const InputDecoration(labelText: '网关地址', helperText: '默认 http://127.0.0.1:7788；同一台设备上的其他 agent 使用各自的端口')),
+            TextField(controller: base, decoration: InputDecoration(labelText: '网关地址', helperText: isWeb ? '默认是托管这个页面的网关；别的机器填它的地址（需对局域网开放，npx @plutokeating/quetzal --lan）' : '默认 http://127.0.0.1:7788；同一台设备上的其他 agent 使用各自的端口')),
             TextButton(onPressed: () async { await api.saveSettings(base: base.text.trim()); _probe(); }, child: const Text('保存并重新探测')),
           ]),
-        ]),
+        ]))),
       ),
     );
   }

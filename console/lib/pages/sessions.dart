@@ -15,14 +15,29 @@ Future<void> openChat(BuildContext context) async {
   if (s != null && context.mounted) await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatPage(conv: '${s['id']}', title: '${s['title']}')));
 }
 
-class SessionsPage extends StatefulWidget {
+/// 手机：会话列表页。
+class SessionsPage extends StatelessWidget {
   final String? current;
   const SessionsPage({super.key, this.current});
   @override
-  State<SessionsPage> createState() => _SessionsPageState();
+  Widget build(BuildContext context) => SessionsList(
+        current: current,
+        framed: true,
+        onOpen: (s) => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: '${s['id']}', title: '${s['title']}'))),
+      );
 }
 
-class _SessionsPageState extends State<SessionsPage> {
+/// 会话列表：新建、打开、重命名、归档与找回。framed：手机上套 AppBar 与新建按钮；桌面列表栏里直接用。
+class SessionsList extends StatefulWidget {
+  final String? current;
+  final bool framed;
+  final void Function(Map session) onOpen;
+  const SessionsList({super.key, this.current, required this.onOpen, this.framed = false});
+  @override
+  State<SessionsList> createState() => _SessionsListState();
+}
+
+class _SessionsListState extends State<SessionsList> {
   List<Map> sessions = [];
   Set<String> running = {};
   bool archived = false;
@@ -32,11 +47,18 @@ class _SessionsPageState extends State<SessionsPage> {
   void initState() {
     super.initState();
     _load();
-    sub = api.events.where((e) => e.name == 'activity' && const ['start', 'done', 'error'].contains((e.data as Map)['kind'])).listen((_) => _load());
+    sub = api.events.where((e) => (e.name == 'activity' && const ['start', 'done', 'error'].contains((e.data as Map)['kind'])) || e.name == 'session.switch' || e.name == 'say').listen((_) => _load());
+    api.addListener(_onConn);
   }
 
+  bool _wasOnline = true;
+  void _onConn() { final on = api.conn == Conn.online; if (on && !_wasOnline) _load(); _wasOnline = on; }
+
   @override
-  void dispose() { sub?.cancel(); super.dispose(); }
+  void dispose() { sub?.cancel(); api.removeListener(_onConn); super.dispose(); }
+
+  /// 外部（桌面外壳）要求刷新。
+  void reload() => _load();
 
   Future<void> _load() async {
     try {
@@ -49,7 +71,7 @@ class _SessionsPageState extends State<SessionsPage> {
     } catch (_) {}
   }
 
-  void _open(Map s) => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: '${s['id']}', title: '${s['title']}')));
+  void _open(Map s) => widget.onOpen(s);
 
   Future<void> _new() async {
     final s = await act(context, () => api.call<Map>('sessions.create'));
@@ -73,38 +95,52 @@ class _SessionsPageState extends State<SessionsPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(title: Text(archived ? '已归档的会话' : '会话'), actions: [
-        IconButton(tooltip: archived ? '返回会话' : '已归档', icon: Icon(archived ? Icons.forum : Icons.inventory_2_outlined), onPressed: () { setState(() => archived = !archived); _load(); }),
-      ]),
-      floatingActionButton: archived ? null : FloatingActionButton.extended(onPressed: _new, icon: const Icon(Icons.add_comment), label: const Text('新会话')),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: sessions.isEmpty
-            ? ListView(children: [Padding(padding: const EdgeInsets.all(48), child: Text(archived ? '没有归档的会话' : '还没有会话', textAlign: TextAlign.center))])
-            : ListView.builder(
-                padding: const EdgeInsets.only(bottom: 96),
-                itemCount: sessions.length,
-                itemBuilder: (_, i) {
-                  final s = sessions[i], live = running.contains(s['id']), cur = s['id'] == widget.current;
-                  return ListTile(
-                    selected: cur,
-                    leading: live ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.chat_bubble_outline, color: cs.outline),
-                    title: Text('${s['title']}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('${live ? '进行中 · ' : ''}${hm(s['updated'])} · ${s['count']} 条${'${s['last'] ?? ''}'.isEmpty ? '' : '\n${plainPreview('${s['last']}')}'}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                    isThreeLine: '${s['last'] ?? ''}'.isNotEmpty,
-                    onTap: () => _open(s),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (v) => v == 'rename' ? _rename(s) : _archive(s, v == 'archive'),
-                      itemBuilder: (_) => [
-                        const PopupMenuItem(value: 'rename', child: Text('重命名')),
-                        PopupMenuItem(value: archived ? 'restore' : 'archive', child: Text(archived ? '找回' : '归档')),
-                      ],
-                    ),
-                  );
-                },
-              ),
-      ),
+    final desktop = ShellScope.isDesktop(context);
+    final list = sessions.isEmpty
+        ? ListView(children: [Padding(padding: const EdgeInsets.all(48), child: Text(archived ? '没有归档的会话' : '还没有会话', textAlign: TextAlign.center, style: TextStyle(color: cs.outline)))])
+        : ListView.builder(
+            padding: EdgeInsets.only(bottom: widget.framed ? 96 : 24),
+            itemCount: sessions.length,
+            itemBuilder: (_, i) {
+              final s = sessions[i], live = running.contains(s['id']), cur = s['id'] == widget.current;
+              return ListTile(
+                selected: cur,
+                dense: desktop,
+                leading: live ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.chat_bubble_outline, size: desktop ? 18 : null, color: cs.outline),
+                title: Text('${s['title']}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text('${live ? '进行中 · ' : ''}${hm(s['updated'])} · ${s['count']} 条${'${s['last'] ?? ''}'.isEmpty ? '' : '\n${plainPreview('${s['last']}')}'}', maxLines: 2, overflow: TextOverflow.ellipsis),
+                isThreeLine: '${s['last'] ?? ''}'.isNotEmpty,
+                onTap: () => _open(s),
+                trailing: PopupMenuButton<String>(
+                  iconSize: desktop ? 18 : null,
+                  onSelected: (v) => v == 'rename' ? _rename(s) : _archive(s, v == 'archive'),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'rename', child: Text('重命名')),
+                    PopupMenuItem(value: archived ? 'restore' : 'archive', child: Text(archived ? '找回' : '归档')),
+                  ],
+                ),
+              );
+            },
+          );
+    if (!widget.framed) {
+      // 桌面列表栏：顶部一行「会话 · 新建 · 已归档」
+      return Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 6, 2),
+          child: Row(children: [
+            Expanded(child: Text(archived ? '已归档' : '会话', style: Theme.of(context).textTheme.labelLarge?.copyWith(color: cs.onSurfaceVariant))),
+            IconButton(tooltip: archived ? '返回会话' : '已归档', iconSize: 18, visualDensity: VisualDensity.compact, icon: Icon(archived ? Icons.forum_outlined : Icons.inventory_2_outlined), onPressed: () { setState(() => archived = !archived); _load(); }),
+            if (!archived) IconButton(tooltip: '新会话', iconSize: 18, visualDensity: VisualDensity.compact, icon: const Icon(Icons.add_comment_outlined), onPressed: _new),
+          ]),
+        ),
+        Expanded(child: list),
+      ]);
+    }
+    return PageFrame(
+      title: archived ? '已归档的会话' : '会话',
+      actions: [IconButton(tooltip: archived ? '返回会话' : '已归档', icon: Icon(archived ? Icons.forum : Icons.inventory_2_outlined), onPressed: () { setState(() => archived = !archived); _load(); })],
+      fab: archived ? null : FloatingActionButton.extended(onPressed: _new, icon: const Icon(Icons.add_comment), label: const Text('新会话')),
+      body: RefreshIndicator(onRefresh: _load, child: list),
     );
   }
 }

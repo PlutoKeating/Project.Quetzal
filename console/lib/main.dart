@@ -1,4 +1,6 @@
 // Quetzal 控制台：观察、交流、调节与管理任意 agent。只是前端，不托管运行基座；可保存多个 agent 连接并一键切换。
+//   同一份代码出两种形态：安卓 App（手机外壳：底部 Tab + 逐页推入；也是安装器与耳朵）与网页版（由运行基座的网关托管，在电脑浏览器里打开）。
+//   外壳按宽度选：窄屏是手机外壳，宽屏（≥ desktopBreakpoint）是桌面外壳（shell/desktop.dart）；平板横屏也用桌面外壳。
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'markdown.dart';
@@ -13,15 +15,21 @@ import 'pages/agents.dart';
 import 'pages/setup.dart';
 import 'installer.dart';
 import 'hearing.dart';
+import 'platform/caps.dart';
+import 'platform/fonts.dart' as fonts;
+import 'platform/location.dart' as loc;
+import 'shell/desktop.dart';
 
 /// 暗色模式的背景：固定 RGB(32,32,32)，与主题色无关。
 const darkBackground = Color(0xFF202020);
 
-void main() {
+void main() async {
+  loc.claimUrl(); // 网页版：URL 的 #片段由桌面外壳的 Nav 管理，Flutter 不改写
   WidgetsFlutterBinding.ensureInitialized();
+  await fonts.loadFonts(); // 网页版：自带的中文字体子集；安卓什么都不做
   api.init();
   wakes.start(); // 跟踪她正在进行的醒来（首页与心流页的只读入口）
-  hearing.start(); // 耳朵：跟随基座的听觉开关启停本机的麦克风前台服务
+  hearing.start(); // 耳朵：安卓上跟随基座的听觉开关启停本机的麦克风前台服务；网页版只跟着状态显示
   runApp(const ConsoleApp());
 }
 
@@ -48,6 +56,7 @@ class ConsoleApp extends StatelessWidget {
         colorScheme: scheme,
         scaffoldBackgroundColor: b == Brightness.dark ? darkBackground : null,
         useMaterial3: true,
+        fontFamily: fonts.fontFamily,
         cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
       );
     }
@@ -59,6 +68,8 @@ class ConsoleApp extends StatelessWidget {
         theme: theme(Brightness.light),
         darkTheme: theme(Brightness.dark),
         themeMode: ThemeMode.dark,
+        // 外壳模式随窗口宽度：所有页面（含推入的二级页）都从这里得知自己在哪种外壳里
+        builder: (context, child) => ShellScope(mode: MediaQuery.sizeOf(context).width >= desktopBreakpoint ? ShellMode.desktop : ShellMode.phone, child: child!),
         home: const Shell(),
       ),
     );
@@ -77,9 +88,9 @@ class _ShellState extends State<Shell> {
   @override
   void initState() {
     super.initState();
-    Installer.bundledVersion().then((v) { if (mounted) setState(() => bundled = v); });
+    if (hasBody) Installer.bundledVersion().then((v) { if (mounted) setState(() => bundled = v); });
     api.events.listen((e) {
-      if (!mounted) return;
+      if (!mounted || ShellScope.isDesktop(context)) return; // 桌面外壳自己处理
       if (e.name == 'say') toast(context, '${api.name}：${plainPreview('${e.data}')}');
       if (e.name == 'approval' && (e.data as Map)['status'] == 'pending') toast(context, '她请求批准：${(e.data as Map)['action']}');
     });
@@ -91,6 +102,7 @@ class _ShellState extends State<Shell> {
       listenable: api,
       builder: (context, _) {
         if (api.conn == Conn.unpaired) return const PairingPage();
+        if (ShellScope.isDesktop(context)) return const DesktopShell();
         final pages = [const HomePage(), const FlowPage(), const MemoryPage(), const ControlPage()];
         return Scaffold(
           appBar: AppBar(

@@ -1,10 +1,81 @@
-// 通用组件：状态光团、驱动力条、连接状态、急停、离线横幅、提示。
+// 通用组件：外壳模式与页面框架、状态光团、驱动力条、连接状态、急停、离线横幅、提示。
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'api.dart';
 
+/// 外壳模式：窄屏（手机）是底部 Tab + 逐页推入；宽屏（电脑浏览器、平板横屏）是导航栏 + 列表栏 + 主区 + 「她此刻」。
+enum ShellMode { phone, desktop }
+
+/// 宽度达到这个值用桌面外壳。
+const desktopBreakpoint = 900.0;
+
+class ShellScope extends InheritedWidget {
+  final ShellMode mode;
+  const ShellScope({super.key, required this.mode, required super.child});
+  static ShellMode of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<ShellScope>()?.mode ?? ShellMode.phone;
+  static bool isDesktop(BuildContext context) => of(context) == ShellMode.desktop;
+  @override
+  bool updateShouldNotify(ShellScope old) => old.mode != mode;
+}
+
+/// 一个页面：手机上是 Scaffold + AppBar（可推入 / 返回）；桌面主区里是一行标题（嵌套导航里有上一页时带返回）+ 内容。
+/// 所有二级页面都用它，同一份内容在两种外壳里都成立。
+class PageFrame extends StatelessWidget {
+  final String title;
+  final List<Widget> actions;
+  final Widget body;
+  final Widget? bottom; // 贴底的保存栏之类
+  final Widget? fab;
+  final Widget? leading;
+  const PageFrame({super.key, required this.title, required this.body, this.actions = const [], this.bottom, this.fab, this.leading});
+  @override
+  Widget build(BuildContext context) {
+    if (!ShellScope.isDesktop(context)) {
+      return Scaffold(appBar: AppBar(title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis), actions: actions, leading: leading), body: body, bottomSheet: bottom, floatingActionButton: fab);
+    }
+    final cs = Theme.of(context).colorScheme;
+    final canPop = Navigator.of(context).canPop();
+    return Column(children: [
+      SizedBox(
+        height: 52,
+        child: Row(children: [
+          const SizedBox(width: 12),
+          leading ?? (canPop ? IconButton(tooltip: '返回', icon: const Icon(Icons.arrow_back, size: 20), onPressed: () => Navigator.of(context).pop()) : const SizedBox.shrink()),
+          const SizedBox(width: 8),
+          Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium)),
+          ...actions,
+          const SizedBox(width: 12),
+        ]),
+      ),
+      Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.4)),
+      Expanded(child: fab == null ? body : Stack(children: [body, Positioned(right: 24, bottom: 24, child: fab!)])),
+      ?bottom,
+    ]);
+  }
+}
+
+/// 当前内容面板的宽度：桌面上气泡与过程卡片按主区（而不是整个窗口）的宽度限制自己。
+class PaneWidth extends InheritedWidget {
+  final double width;
+  const PaneWidth({super.key, required this.width, required super.child});
+  static double of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<PaneWidth>()?.width ?? MediaQuery.sizeOf(context).width;
+  @override
+  bool updateShouldNotify(PaneWidth old) => old.width != width;
+}
+
+/// 从底部升起的面板（手机）或居中的对话框（桌面）。builder 收到的 ScrollController 只在手机上非空（可拖动的面板需要它）。
+Future<T?> showSheet<T>(BuildContext context, Widget Function(BuildContext context, ScrollController? scroll) builder, {double initial = 0.6, double maxWidth = 720}) {
+  if (ShellScope.isDesktop(context)) {
+    return showDialog<T>(context: context, builder: (c) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: MediaQuery.sizeOf(c).height * 0.85), child: builder(c, null))));
+  }
+  return showModalBottomSheet<T>(context: context, isScrollControlled: true, builder: (c) =>
+      DraggableScrollableSheet(expand: false, initialChildSize: initial, maxChildSize: 0.95, builder: (c, scroll) => builder(c, scroll)));
+}
+
 void toast(BuildContext context, String text) =>
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating, width: ShellScope.isDesktop(context) ? 440 : null));
 
 /// 调用一个操作并在失败时提示；成功时可选提示。
 Future<T?> act<T>(BuildContext context, Future<T> Function() f, {String? ok}) async {
@@ -37,7 +108,8 @@ String hm(num ts) {
 class Orb extends StatefulWidget {
   final String mode; // asleep / awake / active / stopped
   final double alertness;
-  const Orb({super.key, required this.mode, required this.alertness});
+  final double size;
+  const Orb({super.key, required this.mode, required this.alertness, this.size = 200});
   @override
   State<Orb> createState() => _OrbState();
 }
@@ -61,7 +133,7 @@ class _OrbState extends State<Orb> with SingleTickerProviderStateMixin {
     return RepaintBoundary(
       child: AnimatedBuilder(
         animation: c,
-        builder: (_, _) => CustomPaint(size: const Size.square(200), painter: _OrbPainter(c.value * speed, color, widget.mode, widget.alertness)),
+        builder: (_, _) => CustomPaint(size: Size.square(widget.size), painter: _OrbPainter(c.value * speed, color, widget.mode, widget.alertness)),
       ),
     );
   }
