@@ -134,7 +134,7 @@ banner() {
 SPIN_PID=""
 cleanup() { [[ -n "$SPIN_PID" ]] && kill "$SPIN_PID" 2>/dev/null; printf '\r\033[2K' 2>/dev/null; printf '\n  %s\n' "$(t '已中止。' 'Aborted.')"; exit 130; }
 can_fractional_sleep() { sleep 0.1 2>/dev/null; }
-run_step() { run_try "$@" || die "$1 $(t '失败' 'failed')"; }
+run_step() { FATAL=1 run_try "$@" || die "$1 $(t '失败' 'failed')"; }
 run_try() { # 文案 命令…：在后台跑命令，前台转圈；成功 ✓ 返回 0，失败 ! 返回 1（由调用方决定是否致命；致命的由 run_step 打 ✗）
   local label=$1; shift
   local rc=0
@@ -156,7 +156,7 @@ run_try() { # 文案 命令…：在后台跑命令，前台转圈；成功 ✓ 
     "$@" </dev/null >>"$LOG" 2>&1 || rc=$?
   fi
   if (( rc == 0 )); then ok "$label"; return 0; fi
-  warn "$label $(t '没有完成' 'did not complete')"; return 1
+  (( ${FATAL:-0} )) || warn "$label $(t '没有完成' 'did not complete')"; return 1
 }
 run_tty() { # 需要终端交互的命令（sudo 问密码）：不转圈，输出进日志，密码提示由 sudo 自己写到终端
   local label=$1; shift
@@ -345,6 +345,11 @@ ensure_node() {
   if [[ -n $NODE ]] || find_node; then NPM="$(dirname "$NODE")/npm"; [[ -x $NPM ]] || NPM=$(command -v npm); ok "Node.js $NODE_VER $I_DOT $NODE_FROM"; return; fi
   local direct; direct=$(node_direct_arch)
   if [[ -n $direct ]]; then
+    # musl 版 Node 动态链接 libstdc++，Alpine 基础系统没有：先装上
+    if [[ $PM == apk ]] && ! ls /usr/lib/libstdc++.so.6 >/dev/null 2>&1; then
+      need_root_runner || die "$(t '需要管理员权限安装 libstdc++（apk），但没有 sudo / doas。' 'Installing libstdc++ (apk) needs root, but neither sudo nor doas exists.')"
+      if [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1; then run_step "$(t '安装 libstdc++（apk）' 'Installing libstdc++ (apk)')" pkg_install libstdc++; else run_tty "$(t '安装 libstdc++（apk）' 'Installing libstdc++ (apk)')" pkg_install libstdc++; fi
+    fi
     run_step "$(t "下载 Node.js $NODE_MAJOR（linux-$direct，Node.js 官方的 unofficial-builds）" "Downloading Node.js $NODE_MAJOR (linux-$direct, Node.js unofficial-builds)")" node_direct_install "$direct"
     NODE="$HOME_DIR/node/current/bin/node"; node_ok "$NODE" || die "$(t '下载的 Node.js 跑不起来' 'The downloaded Node.js does not run')"
     NODE_FROM="unofficial-builds"
@@ -375,7 +380,8 @@ NPM_PREFIX=""; QCLI=""
 npm_install_pkg() {
   local reg=()
   [[ $MIRROR == cn ]] && reg=(--registry=https://registry.npmmirror.com)
-  "$NPM" install -g --prefix "$NPM_PREFIX" --no-fund --no-audit --loglevel=error "${reg[@]}" "$PKG@$VERSION"
+  # npm 的 shebang 是 #!/usr/bin/env node：直接下载的 Node 不在 PATH 里，这里把它的目录放到最前面
+  PATH="$(dirname "$NODE"):$PATH" "$NPM" install -g --prefix "$NPM_PREFIX" --no-fund --no-audit --loglevel=error "${reg[@]}" "$PKG@$VERSION"
 }
 cli_install() {
   local args=(install --home "$HOME_DIR" --no-open)
@@ -653,10 +659,10 @@ uninstall() {
   if [[ -e "$HOME_DIR/console/current" ]]; then ok "$(t '原生控制台已移除' 'Native console removed')"; did=1; fi
   rm -rf "${HOME_DIR:?}/console"
   have update-desktop-database && update-desktop-database "${XDG_DATA_HOME:-$HOME/.local/share}/applications" >/dev/null 2>&1 || true
-  if (( PURGE )); then rm -rf "$HOME_DIR"; ok "$(t "已删除 $HOME_DIR（配置、记忆、对话都没有了；灵魂仓库里的内容仍在远端）" "Deleted $HOME_DIR (configuration, memories and conversations are gone; the soul repository remains remote)")"
+  if (( PURGE )); then [[ -e "$HOME_DIR/node/current" ]] && did=1; rm -rf "$HOME_DIR"; ok "$(t "已删除 $HOME_DIR（配置、记忆、对话都没有了；灵魂仓库里的内容仍在远端）" "Deleted $HOME_DIR (configuration, memories and conversations are gone; the soul repository remains remote)")"
   else rm -rf "${HOME_DIR:?}/npm" "${HOME_DIR:?}/bin" "$HOME_DIR/state/supervise.pid" "$HOME_DIR/state/supervise.lock" 2>/dev/null; ok "$(t "保留了 $HOME_DIR（配置、记忆、对话）；要一起删除加 --purge" "Kept $HOME_DIR (configuration, memories, conversations); add --purge to delete it too")"; fi
   note "$(t 'nvm、Node.js、git 不动。' 'nvm, Node.js and git are left in place.')"
-  (( did )) || note "$(t '没有发现已安装的内容。' 'Nothing installed was found.')"
+  (( did || PURGE )) || note "$(t '没有发现已安装的内容。' 'Nothing installed was found.')"
   say ""
 }
 
