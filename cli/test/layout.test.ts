@@ -70,7 +70,7 @@ test("整个子目录（网页控制台 web/）随版本放入，重复放入时
   assert.ok(!fs.existsSync(path.join(dir, "web.part")));
 });
 
-test("家目录迁移：没有显式指定、~/.quetzal 不存在、~/quetzal 里有老安装时才搬；指定了 QUETZAL_HOME 或目录已存在都不搬", () => {
+test("家目录迁移：目标不存在且 ~/quetzal 里有老安装时搬（默认或指定位置都搬）；目标已存在或就是老目录则不搬", () => {
   const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-home-"));
   const saved = { HOME: process.env.HOME, QUETZAL_HOME: process.env.QUETZAL_HOME };
   process.env.HOME = fakeHome; delete process.env.QUETZAL_HOME;
@@ -81,7 +81,8 @@ test("家目录迁移：没有显式指定、~/.quetzal 不存在、~/quetzal �
     fs.mkdirSync(path.join(fakeHome, "quetzal", "config"), { recursive: true });
     fs.writeFileSync(path.join(fakeHome, "quetzal", "config", "quetzal.json"), "{}");
     assert.equal(needsMigration(home), true);
-    process.env.QUETZAL_HOME = "/elsewhere"; assert.equal(needsMigration(home), false); delete process.env.QUETZAL_HOME;
+    assert.equal(needsMigration(path.join(fakeHome, "elsewhere")), true); // 指定了别的位置也搬（一台机器只有一个服务）
+    assert.equal(needsMigration(path.join(fakeHome, "quetzal")), false); // 目标就是老目录：不动
     assert.equal(migrateHome(home), path.join(fakeHome, "quetzal"));
     assert.ok(fs.existsSync(path.join(home, "config", "quetzal.json")));
     assert.equal(needsMigration(home), false); // 已经搬过

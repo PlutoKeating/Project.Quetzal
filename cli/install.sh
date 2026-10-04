@@ -196,12 +196,13 @@ parse_args() {
   done
 }
 
-# 0.6.7 之前 Linux 的家目录是 ~/quetzal：没有显式指定、~/.quetzal 还不存在、老目录里有装过的痕迹时，整目录搬过来（配置、记忆、对话原样保留）。
+# 0.6.7 之前 Linux 的家目录是 ~/quetzal：目标家目录（默认 ~/.quetzal，或用户指定的位置）还不存在、老目录里有装过的痕迹时，整目录搬过去
+# （配置、记忆、对话原样保留）。一台机器只有一个 quetzal 服务，不存在「老的留着再装一个新的」的情形，所以显式指定位置时同样搬。
 # 必须在建新目录之前做，并先停掉老的服务 / 守护循环（它们记着老路径）；之后安装流程会用新路径重写服务单元、垫片、启动器与开机项。
 DEFAULT_HOME=0
 migrate_legacy_home() {
-  (( DEFAULT_HOME )) || return 0
   local old="$HOME/quetzal"
+  [[ "$HOME_DIR" == "$old" ]] && return 0
   [[ -e "$HOME_DIR" ]] && return 0
   [[ -e "$old/config/quetzal.json" || -d "$old/releases" ]] || return 0
   have systemctl && systemctl --user stop quetzal >/dev/null 2>&1 || true
