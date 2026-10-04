@@ -2,7 +2,7 @@ import type { Route } from "./+types/route";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useMessages, isLang, DEFAULT_LANG, localized, useLang } from "~/i18n/core";
-import { Badge, Breath, ButtonAnchor, ButtonLink, Card, Container, Eyebrow, Heading, Lead, Reveal, Section, StatusDot, cx } from "~/design-system/components";
+import { Badge, Breath, ButtonAnchor, ButtonLink, Card, Container, Eyebrow, Heading, Lead, OrbMark, Reveal, Section, StatusDot, cx } from "~/design-system/components";
 import { GITHUB_REPO } from "~/components/i18n";
 import { WakeCompare } from "~/components/figure";
 import { fetchRepoStats, type RepoStats } from "~/lib/github";
@@ -36,9 +36,12 @@ export default function Home() {
       <section className="relative overflow-hidden border-b border-border">
         <Breath className="-right-32 -top-24 sm:-right-16 sm:top-0 landscape:short:-top-40" />
         <Container className="relative flex min-h-[calc(100dvh-var(--ds-header-height))] flex-col justify-center gap-6 py-16 sm:py-24 short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
-          <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="text-2xl font-semibold tracking-tight text-fg">Quetzal</span>
-            <span className="text-sm text-secondary-fg">{t.hero.eyebrow}</span>
+          {/* 名片：光团 · 名字 · 细竖线 · 类别。与顶栏的标志同一颗球 */}
+          <p className="flex items-center gap-3">
+            <OrbMark size={14} />
+            <span className="text-lg font-medium tracking-wide text-fg">Quetzal</span>
+            <span aria-hidden className="h-4 w-px bg-border-strong" />
+            <span className="text-xs font-medium uppercase tracking-wide text-secondary-fg">{t.hero.eyebrow}</span>
           </p>
           <h1 className="max-w-4xl whitespace-pre-line text-3xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
           <p className={cx("max-w-3xl whitespace-pre-line text-xl text-fg-muted", lang === "zh" ? "font-serif italic" : "")}>{t.hero.titleAlt}</p>
