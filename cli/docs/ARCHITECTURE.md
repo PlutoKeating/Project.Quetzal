@@ -34,12 +34,12 @@ flowchart LR
 ## 设备上的文件
 
 ```
-~/quetzal/releases/<版本>/main.cjs、linux.mjs、web/   （web/ 为网页控制台，网关托管 current/web/）
-（一键安装脚本另有 ~/quetzal/npm/、~/.local/bin/quetzal、quetzal-console、quetzal.desktop 等，见 README）
-~/quetzal/current → releases/<版本>           运行中的版本
-~/quetzal/previous → releases/<版本>          上一版
-~/.config/systemd/user/quetzal.service        ExecStart=<安装时的 node> --enable-source-maps ~/quetzal/current/main.cjs
-                                              Environment=QUETZAL_HOME、QUETZAL_ADAPTER=~/quetzal/current/linux.mjs
+~/.quetzal/releases/<版本>/main.cjs、linux.mjs、web/   （web/ 为网页控制台，网关托管 current/web/）
+（一键安装脚本另有 ~/.quetzal/npm/、~/.local/bin/quetzal、quetzal-console、quetzal.desktop 等，见 README）
+~/.quetzal/current → releases/<版本>           运行中的版本
+~/.quetzal/previous → releases/<版本>          上一版
+~/.config/systemd/user/quetzal.service        ExecStart=<安装时的 node> --enable-source-maps ~/.quetzal/current/main.cjs
+                                              Environment=QUETZAL_HOME、QUETZAL_ADAPTER=~/.quetzal/current/linux.mjs
 ```
 
 `QUETZAL_HOME` 可用 `--home` 或环境变量改；单元文件里写的是绝对路径。`ExecStart` 用安装时运行 npx 的那个 node（`process.execPath`），nvm 之类的用户级 Node 也能被服务找到。
@@ -47,6 +47,6 @@ flowchart LR
 ## 约定
 
 - 不碰运行基座的其他配置：模型、授权、飞书、灵魂仓库都在控制台里；这里只写 `body`（没有时）与 `gateway.host`（显式 `--lan` / `--no-lan` 时）。
-- 服务不依赖 npx 缓存：运行的文件全部在 `~/quetzal/releases/` 里，npx 缓存被清掉也不影响。
+- 服务不依赖 npx 缓存：运行的文件全部在 `~/.quetzal/releases/` 里，npx 缓存被清掉也不影响。
 - 没有 systemd 用户实例时不自造守护者：放好文件后提示 `quetzal run`，由容器编排或部署者自己的守护者负责重启。
 - 令牌永不打印；配对码由适配器通知与服务日志承载。本机浏览器的登录由网关自己判定（`GET /auth/local`），命令行不经手令牌。

@@ -1,6 +1,6 @@
 # console · 控制台（安卓 App 与网页版）
 
-Flutter（Material 3，深色为主），一份代码三种形态：**安卓 App**（应用 ID `xyz.quetzal.console`，应用名「Quetzal」；也是安装器与耳朵）、**网页版**（`flutter build web`，由运行基座的网关托管，在电脑浏览器里打开 `http://127.0.0.1:7788/`，随 npm 包 `@plutokeating/quetzal` 一起装到 Linux 机器上）与 **Linux 桌面版**（`flutter build linux`，原生 GTK 窗口，应用 id 同为 `xyz.quetzal.console`，可执行文件 `quetzal-console`；发版时打成 `quetzal-<版本>-linux-{x64,arm64}-console.tar.gz`（x64 与 arm64 两个 CI job；LoongArch 上游 Flutter 不支持），一键安装脚本在有桌面的机器上下载到 `~/quetzal/console/`，应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标，不借浏览器）。网页版与桌面版都只是管理前端，没有身体功能；连本机网关都免配对码（`GET /auth/local` 对回环连接放行）。外壳按窗口宽度选：窄屏是手机外壳（底部 Tab + 逐页推入），宽屏（≥ 900）是为电脑横屏从头设计的桌面外壳（导航栏 · 列表栏 · 主区 · 她此刻），见 [ARCHITECTURE.md §2](ARCHITECTURE.md)。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
+Flutter（Material 3，深色为主），一份代码三种形态：**安卓 App**（应用 ID `xyz.quetzal.console`，应用名「Quetzal」；也是安装器与耳朵）、**网页版**（`flutter build web`，由运行基座的网关托管，在电脑浏览器里打开 `http://127.0.0.1:7788/`，随 npm 包 `@plutokeating/quetzal` 一起装到 Linux 机器上）与 **Linux 桌面版**（`flutter build linux`，原生 GTK 窗口，应用 id 同为 `xyz.quetzal.console`，可执行文件 `quetzal-console`；发版时打成 `quetzal-<版本>-linux-{x64,arm64}-console.tar.gz`（x64 与 arm64 两个 CI job；LoongArch 上游 Flutter 不支持），一键安装脚本在有桌面的机器上下载到 `~/.quetzal/console/`，应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标，不借浏览器）。网页版与桌面版都只是管理前端，没有身体功能；连本机网关都免配对码（`GET /auth/local` 对回环连接放行）。外壳按窗口宽度选：窄屏是手机外壳（底部 Tab + 逐页推入），宽屏（≥ 900）是为电脑横屏从头设计的桌面外壳（导航栏 · 列表栏 · 主区 · 她此刻），见 [ARCHITECTURE.md §2](ARCHITECTURE.md)。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
 
 ## 定位
 
@@ -19,7 +19,7 @@ tool/build-web.sh             # 网页版 → build/web（不入库）：引擎�
 tool/build-linux.sh           # Linux 桌面版 → build/quetzal-<版本>-linux-<x64|arm64>-console.tar.gz（不入库）：需要 clang、cmake、ninja、pkg-config、libgtk-3-dev；同样挪开 assets/runtime
 ```
 
-网页版由 `../cli/tool/bundle-runtime.sh` 调用上面的脚本并复制进 npm 包的 `dist/runtime/web/`，安装器再放到 `~/quetzal/current/web/`，网关托管。Flutter 不在 PATH 里时 `FLUTTER=<路径> tool/build-web.sh`。本机调试：`flutter run -d chrome` 连一个运行中的网关也能免配对码（网关对本机其他端口的页面也放行）。
+网页版由 `../cli/tool/bundle-runtime.sh` 调用上面的脚本并复制进 npm 包的 `dist/runtime/web/`，安装器再放到 `~/.quetzal/current/web/`，网关托管。Flutter 不在 PATH 里时 `FLUTTER=<路径> tool/build-web.sh`。本机调试：`flutter run -d chrome` 连一个运行中的网关也能免配对码（网关对本机其他端口的页面也放行）。
 
 **中文字体**：CanvasKit 用不了系统字体，缺字时会去 Google 下载 Noto，离线或在中国大陆会变成方块；所以网页版启动时从网关加载自带的子集 `web/fonts/NotoSansCJKsc-subset.otf`（约 3 MB，GB2312 全部汉字 + 常用符号，OFL，由 `tool/gen-cjk-font.py` 从系统的 Noto Sans CJK 生成），只在网页版加载，APK 不含。
 

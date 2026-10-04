@@ -6,10 +6,10 @@
 #   2. 补齐依赖：git、curl、tar、ca-certificates（缺什么装什么，用这台机器自己的包管理器）；
 #      Node.js 22.13+：没有就经 nvm 装（nvm 装进 ~/.nvm，不碰系统的 node）；musl（Alpine）与 NixOS 用发行版自己的包；
 #      龙芯（loongarch64）、RISC-V、armv6l 这些官方不出二进制的架构，从 Node.js 的 unofficial-builds 直接下载到 ~/quetzal/node/
-#   3. 把 npm 包 @plutokeating/quetzal 装进 ~/quetzal/npm（独立前缀，不污染全局），由它放好运行基座与网页控制台
+#   3. 把 npm 包 @plutokeating/quetzal 装进 ~/.quetzal/npm（独立前缀，不污染全局），由它放好运行基座与网页控制台
 #   4. 守护：systemd 用户服务（开机自启、退出 3 秒后重启、未登录也运行）；没有 systemd 的机器退回到
 #      自带的守护循环 + crontab @reboot + 桌面自启动项，不装任何额外的服务框架
-#   5. 桌面：从 GitHub Release 下载同版本的原生控制台（Flutter Linux 桌面版，不借浏览器）放到 ~/quetzal/console/，
+#   5. 桌面：下载同版本的原生控制台（Flutter Linux 桌面版，不借浏览器）放到 ~/.quetzal/console/，
 #      应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标；没有原生包（旧版本、arm64、下载失败）时退回用浏览器打开
 #   6. 打开网页控制台 http://127.0.0.1:7788/（同一台机器的浏览器打开即登录）
 #
@@ -17,7 +17,7 @@
 #   --lan            QUETZAL_LAN=1         网关对局域网开放（手机上的 App 直接连这台机器；只在可信的局域网里）
 #   --no-open        QUETZAL_NO_OPEN=1     装完不打开浏览器
 #   --no-desktop     QUETZAL_NO_DESKTOP=1  不写应用列表的快捷方式
-#   --home DIR       QUETZAL_HOME=DIR      家目录（默认 ~/quetzal）
+#   --home DIR       QUETZAL_HOME=DIR      家目录（默认 ~/.quetzal；0.6.7 之前装在 ~/quetzal 的会自动整目录搬过来）
 #   --version X.Y.Z  QUETZAL_VERSION=…     装指定版本的 npm 包（默认 latest）
 #   --cn | --no-cn   QUETZAL_MIRROR=cn|off 强制使用 / 不使用中国大陆镜像（默认自动：直连 nodejs.org 不通才用）
 #   --uninstall [--purge]                  卸载：服务、守护循环、快捷方式、npm 包；--purge 连家目录（配置、记忆、对话）一起删
@@ -196,6 +196,22 @@ parse_args() {
   done
 }
 
+# 0.6.7 之前 Linux 的家目录是 ~/quetzal：没有显式指定、~/.quetzal 还不存在、老目录里有装过的痕迹时，整目录搬过来（配置、记忆、对话原样保留）。
+# 必须在建新目录之前做，并先停掉老的服务 / 守护循环（它们记着老路径）；之后安装流程会用新路径重写服务单元、垫片、启动器与开机项。
+DEFAULT_HOME=0
+migrate_legacy_home() {
+  (( DEFAULT_HOME )) || return 0
+  local old="$HOME/quetzal"
+  [[ -e "$HOME_DIR" ]] && return 0
+  [[ -e "$old/config/quetzal.json" || -d "$old/releases" ]] || return 0
+  have systemctl && systemctl --user stop quetzal >/dev/null 2>&1 || true
+  local pid; pid=$(cat "$old/state/supervise.pid" 2>/dev/null || true)
+  [[ -n $pid ]] && kill -TERM "$pid" 2>/dev/null || true
+  sleep 1
+  mv "$old" "$HOME_DIR" || die "$(t "没能把 $old 搬到 $HOME_DIR" "Could not move $old to $HOME_DIR")"
+  ok "$(t "家目录从 $old 搬到了 $HOME_DIR（配置、记忆、对话原样保留；想放别处请设 QUETZAL_HOME）" "Home directory moved from $old to $HOME_DIR (configuration, memories and conversations kept; set QUETZAL_HOME to use another place)")"
+}
+
 # ---------------------------------------------------------------- 1. 这台机器
 OS_NAME=""; ARCH=""; PM=""; DISTRO_ID=""; LIBC=glibc; HAS_SYSTEMD=0; HAS_SESSION=0; HAS_DESKTOP=0; IS_WSL=0; IS_CONTAINER=0; USER_NAME=""
 detect_machine() {
@@ -310,7 +326,7 @@ install_nvm() {
 }
 nvm_install_node() { set +u; nvm_env || return 1; nvm install "$NODE_MAJOR" --no-progress && nvm alias default "$NODE_MAJOR" >/dev/null; local rc=$?; set -u; return $rc; }
 # 官方不出二进制的架构：Node.js 项目的 unofficial-builds（https://unofficial-builds.nodejs.org）有 loong64（龙芯）、riscv64、armv6l、x64/arm64 的 musl 版。
-# 直接下载对应版本到 ~/quetzal/node/<版本>/，不经 nvm（nvm 不认识这些架构，会退回到几小时的源码编译）。
+# 直接下载对应版本到 ~/.quetzal/node/<版本>/，不经 nvm（nvm 不认识这些架构，会退回到几小时的源码编译）。
 UNOFFICIAL="https://unofficial-builds.nodejs.org/download/release"
 node_direct_arch() { # 这台机器该用 unofficial-builds 的哪个标签；空 = 不需要（官方有二进制）
   [[ -n "${QUETZAL_NODE_ARCH:-}" ]] && { printf '%s' "$QUETZAL_NODE_ARCH"; return; }
@@ -340,7 +356,7 @@ find_node() {
   return 1
 }
 ensure_node() {
-  # 之前直接下载过的（~/quetzal/node/current）
+  # 之前直接下载过的（~/.quetzal/node/current）
   if [[ -z $NODE && -x "$HOME_DIR/node/current/bin/node" ]] && node_ok "$HOME_DIR/node/current/bin/node"; then NODE="$HOME_DIR/node/current/bin/node"; NODE_FROM="unofficial-builds"; fi
   if [[ -n $NODE ]] || find_node; then NPM="$(dirname "$NODE")/npm"; [[ -x $NPM ]] || NPM=$(command -v npm); ok "Node.js $NODE_VER $I_DOT $NODE_FROM"; return; fi
   local direct; direct=$(node_direct_arch)
@@ -375,7 +391,7 @@ ensure_node() {
   ok "Node.js $NODE_VER $I_DOT $NODE_FROM"
 }
 
-# ---------------------------------------------------------------- 3. 运行基座（npm 包装进 ~/quetzal/npm，由它完成版本目录、配置、systemd、健康检查）
+# ---------------------------------------------------------------- 3. 运行基座（npm 包装进 ~/.quetzal/npm，由它完成版本目录、配置、systemd、健康检查）
 NPM_PREFIX=""; QCLI=""
 npm_install_pkg() {
   local reg=()
@@ -567,7 +583,7 @@ install_desktop() {
   IFS= read -r -d '' tpl <<'EOF' || true
 #!/usr/bin/env bash
 # Quetzal 控制台启动器（由安装脚本生成）：应用列表里的「Quetzal」点开就是它。
-# 有原生控制台（~/quetzal/console/current/quetzal-console，Flutter Linux 桌面版）就直接启动它——窗口有 Quetzal 自己的图标；
+# 有原生控制台（~/.quetzal/console/current/quetzal-console，Flutter Linux 桌面版）就直接启动它——窗口有 Quetzal 自己的图标；
 # 没有（旧版本、arm64、下载失败）就用浏览器打开网页控制台：Chromium 系以独立窗口（--app）打开，否则用默认浏览器。
 # 服务没在跑就先拉起来。
 HOME_DIR='__HOME_DIR__'
@@ -673,12 +689,13 @@ main() {
   parse_args "$@"
   pick_lang; setup_term
   trap cleanup INT TERM
-  [[ -n $HOME_DIR ]] || HOME_DIR="$HOME/quetzal"
+  [[ -n $HOME_DIR ]] || { HOME_DIR="$HOME/.quetzal"; DEFAULT_HOME=1; }
   case "$HOME_DIR" in /*) ;; *) HOME_DIR="$PWD/$HOME_DIR";; esac
   if [[ $MODE == uninstall ]]; then detect_machine; uninstall; exit 0; fi
 
   banner
   detect_machine
+  migrate_legacy_home
   mkdir -p "$HOME_DIR" || die "$(t "建不了家目录 $HOME_DIR" "Cannot create $HOME_DIR")"
   LOG="$HOME_DIR/install.log"; { printf '\n== %s install.sh\n' "$(date 2>/dev/null)"; } >>"$LOG" 2>/dev/null || LOG=$(mktemp 2>/dev/null || echo /tmp/quetzal-install.log)
 

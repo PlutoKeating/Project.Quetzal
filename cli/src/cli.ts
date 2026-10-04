@@ -28,7 +28,7 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
   version            包与内置运行基座的版本
 
 选项：
-  --home DIR         家目录（默认 $QUETZAL_HOME 或 ~/quetzal）
+  --home DIR         家目录（默认 $QUETZAL_HOME 或 ~/.quetzal；0.6.7 前的 ~/quetzal 会自动搬过来）
   --lan | --no-lan   网关对局域网开放（手机上的 App 直接连这台机器）/ 只监听本机（默认不改）
   --force            已是同一版本也重新安装
   --no-open          装完不自动打开浏览器

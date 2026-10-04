@@ -1,7 +1,7 @@
 // Linux 身体的守护开关：开机自启 + 退出后自动重启，一个开关管两件事。
 //   systemd 用户服务（npm 包 / 一键安装脚本注册的 quetzal.service）：开 = enable 且没有 Restart=no 的覆盖片段；
 //     关 = disable + 写覆盖片段 ~/.config/systemd/user/quetzal.service.d/quetzal-off.conf（Restart=no），daemon-reload 后对运行中的服务立即生效。
-//   守护循环（没有 systemd 的机器，一键安装脚本写的 ~/quetzal/bin/quetzal-supervise）：开关是标志文件 state/supervise.off——
+//   守护循环（没有 systemd 的机器，一键安装脚本写的 ~/.quetzal/bin/quetzal-supervise）：开关是标志文件 state/supervise.off——
 //     循环看到它就暂停拉起（自己不退出），同时增删 crontab 的 @reboot 行与桌面自启动项。
 //   两者都没有（手动部署）：不可用，控制台不显示开关。
 import fs from "node:fs";
@@ -11,7 +11,7 @@ import type { SupervisionState } from "../../src/body/adapter.ts";
 import { run, have } from "./linux.ts";
 
 const UNIT = "quetzal";
-const home = () => process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal");
+const home = () => process.env.QUETZAL_HOME ?? path.join(os.homedir(), ".quetzal");
 const configDir = () => process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config");
 const unitFile = () => path.join(configDir(), "systemd", "user", `${UNIT}.service`);
 const dropIn = () => path.join(configDir(), "systemd", "user", `${UNIT}.service.d`, "quetzal-off.conf");

@@ -13,10 +13,10 @@ A phone is the best body; a laptop, a small home server, a Raspberry Pi or a clo
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-The only prerequisites are Linux, `curl` (or `wget`) and bash 4+. Everything else missing gets installed. Architectures: x86_64 and arm64 get everything, native console included; on architectures without official Node binaries, such as LoongArch (loongarch64), RISC-V and armv6l, the script downloads the matching Node 22 from the Node.js project's [unofficial-builds](https://unofficial-builds.nodejs.org) into `~/quetzal/node/`, so the runtime and the web console work as usual, only without the native console (upstream Flutter does not support LoongArch yet), and the app-list entry opens the browser. Afterwards:
+The only prerequisites are Linux, `curl` (or `wget`) and bash 4+. Everything else missing gets installed. Architectures: x86_64 and arm64 get everything, native console included; on architectures without official Node binaries, such as LoongArch (loongarch64), RISC-V and armv6l, the script downloads the matching Node 22 from the Node.js project's [unofficial-builds](https://unofficial-builds.nodejs.org) into `~/.quetzal/node/`, so the runtime and the web console work as usual, only without the native console (upstream Flutter does not support LoongArch yet), and the app-list entry opens the browser. Afterwards:
 
 - The **web console** `http://127.0.0.1:7788/` is open in your browser, logged in without a pairing code on the same machine; models, identity, permissions, Feishu, the soul repository and conversations all live there (section 2).
-- Your app list has a **Quetzal** entry (the orb icon) that opens the **native console** (the Flutter Linux desktop build, downloaded from the GitHub Release of the same version into `~/quetzal/console/`); the taskbar, Alt-Tab and the activities overview all show Quetzal's own icon, independent of any browser. When no native package exists for this version (arm64, older releases) or the download fails, it falls back to the browser: Chromium-family browsers open it as a separate window, Firefox opens it in the default browser, and the taskbar then shows the browser's icon.
+- Your app list has a **Quetzal** entry (the orb icon) that opens the **native console** (the Flutter Linux desktop build, downloaded from the GitHub Release of the same version into `~/.quetzal/console/`); the taskbar, Alt-Tab and the activities overview all show Quetzal's own icon, independent of any browser. When no native package exists for this version (arm64, older releases) or the download fails, it falls back to the browser: Chromium-family browsers open it as a separate window, Firefox opens it in the default browser, and the taskbar then shows the browser's icon.
 - The terminal has a `quetzal` command (`~/.local/bin/quetzal`, available in new terminals): `quetzal status` / `logs -f` / `open` / `rollback` / `uninstall`.
 - It starts by itself at boot and comes back within 3 seconds after a crash or kill; running the same command again upgrades.
 
@@ -26,9 +26,9 @@ What the installer does, step by step (idempotent):
 |---|---|
 | This machine | Detects the distribution, architecture, package manager (apt / dnf / yum / pacman / zypper / apk / xbps), whether a systemd user instance exists, whether there is a desktop, WSL / container |
 | Dependencies | Installs `git`, `curl`, `tar` and CA certificates with the machine's own package manager when missing (`sudo` / `doas` asks for a password once if needed; root installs directly). **Node.js 22.13+**: a new enough one on PATH (with npm) is used as is; otherwise [nvm](https://github.com/nvm-sh/nvm) goes into `~/.nvm` and installs Node.js 22 (the system Node is untouched). musl systems such as Alpine and NixOS cannot run nvm's official binaries: Alpine gets `apk add nodejs npm`, NixOS needs Node provided beforehand. If nodejs.org is unreachable the mainland-China mirror (npmmirror) is used automatically |
-| Runtime | Installs the npm package `@plutokeating/quetzal` into `~/quetzal/npm` (its own prefix, nothing global), which places the version directory, default configuration, systemd service, health check and rollback (see 1.1) |
-| Supervision | With a systemd user instance: the `systemd --user` service `quetzal`, `Restart=always`, plus `loginctl enable-linger` so it runs without a login session (asks for a password once if administrator rights are needed). Without one (Alpine / Void / Devuan, containers, WSL without systemd): a small supervisor loop `~/quetzal/bin/quetzal-supervise` (restarts 3 s after any exit, flock keeps it single), started at boot via `crontab @reboot` and a desktop autostart entry; no extra service framework is installed |
-| Desktop | Only with a desktop environment: downloads the native console of the same version into `~/quetzal/console/<version>/` (`console/current` points at it; on old distributions where `ldd` reports missing libraries it gives up and falls back to the browser), icons into `~/.local/share/icons/hicolor/` (`xyz.quetzal.console.png`), the launcher `~/.local/bin/quetzal-console` (native first, browser otherwise), and `~/.local/share/applications/xyz.quetzal.console.desktop` |
+| Runtime | Installs the npm package `@plutokeating/quetzal` into `~/.quetzal/npm` (its own prefix, nothing global), which places the version directory, default configuration, systemd service, health check and rollback (see 1.1) |
+| Supervision | With a systemd user instance: the `systemd --user` service `quetzal`, `Restart=always`, plus `loginctl enable-linger` so it runs without a login session (asks for a password once if administrator rights are needed). Without one (Alpine / Void / Devuan, containers, WSL without systemd): a small supervisor loop `~/.quetzal/bin/quetzal-supervise` (restarts 3 s after any exit, flock keeps it single), started at boot via `crontab @reboot` and a desktop autostart entry; no extra service framework is installed |
+| Desktop | Only with a desktop environment: downloads the native console of the same version into `~/.quetzal/console/<version>/` (`console/current` points at it; on old distributions where `ldd` reports missing libraries it gives up and falls back to the browser), icons into `~/.local/share/icons/hicolor/` (`xyz.quetzal.console.png`), the launcher `~/.local/bin/quetzal-console` (native first, browser otherwise), and `~/.local/share/applications/xyz.quetzal.console.desktop` |
 | Finish | Opens the console when there is a graphical session; prints the address, the supervision mode and the common commands. On a server it prints `ssh -L 7788:127.0.0.1:7788 <this machine>` |
 
 Options go after `bash -s --`; each has an environment variable too:
@@ -38,33 +38,33 @@ Options go after `bash -s --`; each has an environment variable too:
 | `--lan` | `QUETZAL_LAN=1` | Open the gateway to the LAN so the phone app can connect to this machine directly (trusted networks only) |
 | `--no-open` | `QUETZAL_NO_OPEN=1` | Do not open the browser afterwards |
 | `--no-desktop` | `QUETZAL_NO_DESKTOP=1` | Skip the app-list shortcut |
-| `--home DIR` | `QUETZAL_HOME=DIR` | Home directory (default `~/quetzal`) |
+| `--home DIR` | `QUETZAL_HOME=DIR` | Home directory (default `~/.quetzal`; installs made before 0.6.7 under `~/quetzal` are moved to `~/.quetzal` automatically the next time the installer runs, keeping configuration, memories and conversations) |
 | `--version X.Y.Z` | `QUETZAL_VERSION=X.Y.Z` | Install a specific version (default latest) |
 | `--cn` / `--no-cn` | `QUETZAL_MIRROR=cn` / `off` | Force the mainland-China mirror on / off (auto-detected by default) |
 | `--lang zh` / `en` | `QUETZAL_LANG=zh` / `en` | Interface language (default follows the system locale: Simplified / Traditional Chinese show Chinese, anything else English) |
-| `--uninstall [--purge]` | — | Remove the service, supervisor loop, shortcuts and npm package; `--purge` also deletes `~/quetzal` (configuration, memories, conversations). nvm, Node.js and git stay |
+| `--uninstall [--purge]` | — | Remove the service, supervisor loop, shortcuts and npm package; `--purge` also deletes `~/.quetzal` (configuration, memories, conversations). nvm, Node.js and git stay |
 
 ```bash
 curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --lan        # with options
 curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall  # uninstall
 ```
 
-The script's source is [`cli/install.sh`](https://github.com/PlutoKeating/Project.Quetzal/blob/main/cli/install.sh) in the repository; the website build copies it verbatim to `/install`, and it is also available at `https://raw.githubusercontent.com/PlutoKeating/Project.Quetzal/main/cli/install.sh`. The install log is `~/quetzal/install.log`.
+The script's source is [`cli/install.sh`](https://github.com/PlutoKeating/Project.Quetzal/blob/main/cli/install.sh) in the repository; the website build copies it verbatim to `/install`, and it is also available at `https://raw.githubusercontent.com/PlutoKeating/Project.Quetzal/main/cli/install.sh`. The install log is `~/.quetzal/install.log`.
 
 > [!NOTE]
-> The service uses the absolute path of the Node chosen at install time (for nvm that is `~/.nvm/versions/node/v22.x/bin/node`), so `nvm uninstall 22` later breaks the service; rerunning the install command fixes it. On machines without systemd the `quetzal stop` / `logs` subcommands do not apply: stop with `kill $(cat ~/quetzal/state/supervise.pid)`, and the log is `~/quetzal/logs/runtime.log`.
+> The service uses the absolute path of the Node chosen at install time (for nvm that is `~/.nvm/versions/node/v22.x/bin/node`), so `nvm uninstall 22` later breaks the service; rerunning the install command fixes it. On machines without systemd the `quetzal stop` / `logs` subcommands do not apply: stop with `kill $(cat ~/.quetzal/state/supervise.pid)`, and the log is `~/.quetzal/logs/runtime.log`.
 
 ### 1.1 Just the npm package: `npx @plutokeating/quetzal`
 
 If you already have Node.js 22.13+ (`node:sqlite` needs no flag from this version on) and git, and do not want a desktop shortcut, the npm package alone is enough; the one-line installer calls it internally.
 
 ```bash
-npx @plutokeating/quetzal            # install: the runtime, the Linux body adapter and the web console go into ~/quetzal, a systemd user service is registered and started, then the console opens in the browser
+npx @plutokeating/quetzal            # install: the runtime, the Linux body adapter and the web console go into ~/.quetzal, a systemd user service is registered and started, then the console opens in the browser
 npx @plutokeating/quetzal open       # open the web console again, http://127.0.0.1:7788/
 npx @plutokeating/quetzal --lan      # also open the gateway to the LAN so the app on your phone can connect to this machine directly (trusted networks only)
 ```
 
-What it does: it copies the bundled `main.cjs`, `linux.mjs` and the web console `web/` into `~/quetzal/releases/<version>/` and points `current` at it (the same directory convention as on the phone); writes `~/.config/systemd/user/quetzal.service` (restart on exit), starts it and waits for `/health`; if there is no response within 40 seconds it switches back to the previous version. On a first install with a desktop it opens the browser (`--no-open` to skip). Running `npx @plutokeating/quetzal` again upgrades.
+What it does: it copies the bundled `main.cjs`, `linux.mjs` and the web console `web/` into `~/.quetzal/releases/<version>/` and points `current` at it (the same directory convention as on the phone); writes `~/.config/systemd/user/quetzal.service` (restart on exit), starts it and waits for `/health`; if there is no response within 40 seconds it switches back to the previous version. On a first install with a desktop it opens the browser (`--no-open` to skip). Running `npx @plutokeating/quetzal` again upgrades.
 
 Common commands (after the one-line install, `npx @plutokeating/quetzal` can be replaced by `quetzal`):
 
@@ -75,7 +75,7 @@ Common commands (after the one-line install, `npx @plutokeating/quetzal` can be 
 | `npx @plutokeating/quetzal logs -f` | Service log (journald) |
 | `npx @plutokeating/quetzal rollback` | Switch back to the previous version and restart |
 | `npx @plutokeating/quetzal stop` / `start` / `restart` | Service control |
-| `npx @plutokeating/quetzal uninstall [--purge]` | Remove the service; `--purge` also deletes `~/quetzal` (configuration, memories, conversations) |
+| `npx @plutokeating/quetzal uninstall [--purge]` | Remove the service; `--purge` also deletes `~/.quetzal` (configuration, memories, conversations) |
 | `npx @plutokeating/quetzal run` | No systemd user instance (containers, WSL without systemd): run in the foreground under your own supervisor |
 
 > [!NOTE]
@@ -111,14 +111,14 @@ cd Project.Quetzal/runtime
 npm ci
 npm test            # unit tests
 npm run build       # produces dist/main.cjs (single file, dependencies bundled), dist/termux.mjs and dist/linux.mjs
-QUETZAL_HOME=~/quetzal node --enable-source-maps dist/main.cjs
+QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 
 Environment variables:
 
 | Variable | Meaning |
 |---|---|
-| `QUETZAL_HOME` | Home directory (default `~/quetzal`): configuration, secrets, data and the soul directory |
+| `QUETZAL_HOME` | Home directory (default `~/.quetzal`): configuration, secrets, data and the soul directory |
 | `QUETZAL_ADAPTER` | Path to a body adapter module; unset means the generic adapter (OS information only, no sensors) |
 
 The runtime only handles its own logic; **process supervision is external**: if it exits, restart it. A systemd user service, for example:

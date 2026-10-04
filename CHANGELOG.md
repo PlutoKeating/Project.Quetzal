@@ -4,6 +4,8 @@
 
 ## 0.6.7
 
+- **Linux 家目录改为 `~/.quetzal`**：运行基座、npm 包与一键安装脚本在 Linux 上的缺省家目录从 `~/quetzal` 改为 `~/.quetzal`（安卓 / Termux 仍是 `~/quetzal`），`QUETZAL_HOME` 环境变量或 `--home` 可改到任意位置。0.6.7 之前装在 `~/quetzal` 的，再跑一次安装命令（或 `npx @plutokeating/quetzal`）会先停服务、整目录搬到 `~/.quetzal`、重写服务与快捷方式，配置、记忆、对话原样保留。
+- **Linux home directory is now `~/.quetzal`**: the runtime, the npm package and the one-line installer default to `~/.quetzal` instead of `~/quetzal` on Linux (Android / Termux stays at `~/quetzal`); `QUETZAL_HOME` or `--home` moves it anywhere. Installs made before 0.6.7 under `~/quetzal` are migrated the next time the install command (or `npx @plutokeating/quetzal`) runs: the service is stopped, the whole directory is moved to `~/.quetzal`, and the service and shortcuts are rewritten with configuration, memories and conversations intact.
 - **文案**：App 的更新器与「关于」页的错误提示不再带来源或主机名（「更新服务暂时繁忙」「网络连接失败」），与官网下载页一致：前端与 App 都不描述下载来源。
 - **Copy**: error messages in the app's updater and About page no longer mention a source or host name ("update service busy", "network connection failed"), matching the download page: neither the website nor the app describes where downloads come from.
 

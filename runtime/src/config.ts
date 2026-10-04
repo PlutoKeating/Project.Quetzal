@@ -3,7 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-export const HOME = process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal");
+/** 家目录缺省：Termux（安卓）沿用 ~/quetzal（安卓安装器、runit 服务与开机脚本都按此约定）；其他机器（Linux 等）是 ~/.quetzal。环境变量 QUETZAL_HOME 优先。 */
+export const isTermux = /com\.termux/.test(process.env.PREFIX ?? "");
+export const defaultHome = () => path.join(os.homedir(), isTermux ? "quetzal" : ".quetzal");
+export const HOME = process.env.QUETZAL_HOME ?? defaultHome();
 export const paths = {
   home: HOME,
   config: path.join(HOME, "config"),

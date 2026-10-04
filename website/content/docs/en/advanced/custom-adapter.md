@@ -61,7 +61,7 @@ export default adapter;
 
 ```bash
 npx esbuild my-adapter.ts --bundle --platform=node --target=node22 --format=esm --outfile=my-adapter.mjs
-QUETZAL_HOME=~/quetzal QUETZAL_ADAPTER=$PWD/my-adapter.mjs node --enable-source-maps main.cjs
+QUETZAL_HOME=~/.quetzal QUETZAL_ADAPTER=$PWD/my-adapter.mjs node --enable-source-maps main.cjs
 ```
 
 The path can also go into the `adapter` field of `config/quetzal.json`.

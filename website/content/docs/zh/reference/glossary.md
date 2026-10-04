@@ -54,4 +54,4 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 主动消息 | proactive message | ta 自己醒来时用 `send_message` 发出的消息 |
 | hands | hands | 预留的屏幕与应用操作接口（尚未实现） |
 | Termux 三件套 | Termux trio | Termux、Termux:API、Termux:Boot，必须来自同一来源 |
-| 家目录 | QUETZAL_HOME | 运行基座的全部数据所在，默认 `~/quetzal` |
+| 家目录 | QUETZAL_HOME | 运行基座的全部数据所在，默认安卓 `~/quetzal`、Linux `~/.quetzal`，可用环境变量改 |

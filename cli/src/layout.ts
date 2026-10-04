@@ -10,7 +10,21 @@ import path from "node:path";
 
 export interface Layout { home: string; releases: string; current: string; previous: string; config: string }
 
-export const defaultHome = () => process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal");
+export const defaultHome = () => process.env.QUETZAL_HOME ?? path.join(os.homedir(), ".quetzal");
+/** 0.6.7 之前 Linux 的家目录是 ~/quetzal：没有显式指定家目录、新目录还不存在、老目录里有装过的痕迹时，整目录搬到 ~/.quetzal。 */
+export const legacyHome = () => path.join(os.homedir(), "quetzal");
+export function needsMigration(home: string): boolean {
+  if (process.env.QUETZAL_HOME || home !== defaultHome()) return false;
+  if (fs.existsSync(home)) return false;
+  const old = legacyHome();
+  return fs.existsSync(path.join(old, "config", "quetzal.json")) || fs.existsSync(path.join(old, "releases"));
+}
+/** 把老家目录搬到新位置（调用方先停掉服务）。返回老路径。 */
+export function migrateHome(home: string): string {
+  const old = legacyHome();
+  fs.renameSync(old, home);
+  return old;
+}
 
 export function layout(home: string): Layout {
   return { home, releases: path.join(home, "releases"), current: path.join(home, "current"), previous: path.join(home, "previous"), config: path.join(home, "config", "quetzal.json") };

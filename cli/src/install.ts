@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Layout, layout, versionOf, putRelease, switchTo, rollback, prune, readConfig, patchConfig, defaultBody } from "./layout.ts";
+import { type Layout, layout, versionOf, putRelease, switchTo, rollback, prune, readConfig, patchConfig, defaultBody, needsMigration, migrateHome } from "./layout.ts";
 import * as svc from "./service.ts";
 import { waitHealthy } from "./health.ts";
 
@@ -51,6 +51,11 @@ export function writeDefaults(l: Layout, lan?: boolean) {
 
 export async function install(o: Options, say: Say): Promise<void> {
   const l = layout(o.home);
+  if (needsMigration(o.home)) { // 老安装在 ~/quetzal：先停服务，整目录搬到 ~/.quetzal，下面重写单元文件时路径就是新的
+    if (svc.isInstalled()) await svc.stop();
+    const old = migrateHome(o.home);
+    say(`家目录从 ${old} 搬到了 ${o.home}（配置、记忆、对话原样保留；要用别的位置请设 QUETZAL_HOME 或 --home）`);
+  }
   fs.mkdirSync(l.releases, { recursive: true });
   const { version, changed, before } = placeRelease(l, o.force);
   say(!changed ? `运行基座 ${version} 已是内置版本` : before === version ? `重新安装 ${version}` : before ? `升级：${before} → ${version}` : `安装运行基座 ${version}`);

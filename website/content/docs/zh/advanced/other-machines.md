@@ -13,10 +13,10 @@ description: 一台 Linux 电脑或服务器一行 curl 命令就能成为身体
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余缺什么它补什么。架构：x86_64 与 arm64 全功能（含原生控制台）；龙芯（loongarch64）、RISC-V、armv6l 这些官方 Node 不出二进制的架构，脚本从 Node.js 项目的 [unofficial-builds](https://unofficial-builds.nodejs.org) 直接下载对应的 Node 22 到 `~/quetzal/node/`，运行基座与网页控制台照常可用，只是没有原生控制台（Flutter 上游尚不支持 LoongArch），桌面项用浏览器打开。装完之后：
+前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余缺什么它补什么。架构：x86_64 与 arm64 全功能（含原生控制台）；龙芯（loongarch64）、RISC-V、armv6l 这些官方 Node 不出二进制的架构，脚本从 Node.js 项目的 [unofficial-builds](https://unofficial-builds.nodejs.org) 直接下载对应的 Node 22 到 `~/.quetzal/node/`，运行基座与网页控制台照常可用，只是没有原生控制台（Flutter 上游尚不支持 LoongArch），桌面项用浏览器打开。装完之后：
 
 - 浏览器里打开了**网页控制台** `http://127.0.0.1:7788/`，同一台机器免配对码，模型、身份、授权、飞书、灵魂仓库、对话都在里面（第 2 节）。
-- 应用列表里多了一个 **Quetzal**（光团图标），点开是**原生控制台**（Flutter Linux 桌面版，从 GitHub Release 下载同版本的包放在 `~/quetzal/console/`），任务栏、Alt-Tab、活动概览都是 Quetzal 自己的图标，与浏览器无关。这个版本没有原生包（arm64、旧版本）或下载失败时退回浏览器打开：Chromium 系以独立窗口打开，只有 Firefox 时用默认浏览器，此时任务栏显示的是浏览器的图标。
+- 应用列表里多了一个 **Quetzal**（光团图标），点开是**原生控制台**（Flutter Linux 桌面版，从 GitHub Release 下载同版本的包放在 `~/.quetzal/console/`），任务栏、Alt-Tab、活动概览都是 Quetzal 自己的图标，与浏览器无关。这个版本没有原生包（arm64、旧版本）或下载失败时退回浏览器打开：Chromium 系以独立窗口打开，只有 Firefox 时用默认浏览器，此时任务栏显示的是浏览器的图标。
 - 终端里多了 `quetzal` 命令（`~/.local/bin/quetzal`，新开的终端生效）：`quetzal status` / `logs -f` / `open` / `rollback` / `uninstall`。
 - 它在开机时自己起来，崩溃或被杀后 3 秒内自己回来；再跑一次同一条命令就是升级。
 
@@ -26,9 +26,9 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 |---|---|
 | 这台机器 | 认出发行版、架构、包管理器（apt / dnf / yum / pacman / zypper / apk / xbps）、有没有 systemd 用户实例、有没有桌面、是不是 WSL / 容器 |
 | 依赖 | 缺 `git`、`curl`、`tar`、CA 证书就用这台机器自己的包管理器装（需要时 `sudo` / `doas` 会问一次密码，root 直接装）。**Node.js 22.13+**：PATH 上已有够新的（且带 npm）就用；否则装 [nvm](https://github.com/nvm-sh/nvm) 到 `~/.nvm` 并装 Node.js 22（不碰系统的 Node）；Alpine 这类 musl 系统与 NixOS 跑不了 nvm 的官方二进制，Alpine 用 `apk add nodejs npm`，NixOS 请先自备 Node。直连 nodejs.org 不通时自动改用国内镜像（npmmirror） |
-| 运行基座 | 把 npm 包 `@plutokeating/quetzal` 装进 `~/quetzal/npm`（独立前缀，不污染全局 npm），由它完成版本目录、缺省配置、systemd 服务、健康检查与失败回滚（见 1.1） |
-| 守护 | 有 systemd 用户实例：`systemd --user` 服务 `quetzal`，`Restart=always`，并 `loginctl enable-linger`（没登录也运行；需要管理员权限时会问一次密码）。没有（Alpine / Void / Devuan、容器、未开 systemd 的 WSL）：写一个几十行的守护循环 `~/quetzal/bin/quetzal-supervise`（退出 3 秒后重启，flock 保证只有一个），开机靠 `crontab @reboot` 与桌面自启动项，不安装任何额外的服务框架 |
-| 桌面 | 有桌面环境才做：下载同版本的原生控制台到 `~/quetzal/console/<版本>/`（`console/current` 指向它；旧发行版 `ldd` 缺库就放弃，退回浏览器），图标放进 `~/.local/share/icons/hicolor/`（`xyz.quetzal.console.png`），启动器 `~/.local/bin/quetzal-console`（优先原生，否则浏览器），桌面项 `~/.local/share/applications/xyz.quetzal.console.desktop` |
+| 运行基座 | 把 npm 包 `@plutokeating/quetzal` 装进 `~/.quetzal/npm`（独立前缀，不污染全局 npm），由它完成版本目录、缺省配置、systemd 服务、健康检查与失败回滚（见 1.1） |
+| 守护 | 有 systemd 用户实例：`systemd --user` 服务 `quetzal`，`Restart=always`，并 `loginctl enable-linger`（没登录也运行；需要管理员权限时会问一次密码）。没有（Alpine / Void / Devuan、容器、未开 systemd 的 WSL）：写一个几十行的守护循环 `~/.quetzal/bin/quetzal-supervise`（退出 3 秒后重启，flock 保证只有一个），开机靠 `crontab @reboot` 与桌面自启动项，不安装任何额外的服务框架 |
+| 桌面 | 有桌面环境才做：下载同版本的原生控制台到 `~/.quetzal/console/<版本>/`（`console/current` 指向它；旧发行版 `ldd` 缺库就放弃，退回浏览器），图标放进 `~/.local/share/icons/hicolor/`（`xyz.quetzal.console.png`），启动器 `~/.local/bin/quetzal-console`（优先原生，否则浏览器），桌面项 `~/.local/share/applications/xyz.quetzal.console.desktop` |
 | 收尾 | 有图形会话就打开控制台；打印地址、守护方式与常用命令。服务器上会给出 `ssh -L 7788:127.0.0.1:7788 <这台机器>` |
 
 选项跟在 `bash -s --` 后面，也都有对应的环境变量：
@@ -38,33 +38,33 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 | `--lan` | `QUETZAL_LAN=1` | 网关对局域网开放，手机上的 App 直接填这台机器的地址连接（只在可信的局域网里） |
 | `--no-open` | `QUETZAL_NO_OPEN=1` | 装完不打开浏览器 |
 | `--no-desktop` | `QUETZAL_NO_DESKTOP=1` | 不写应用列表的快捷方式 |
-| `--home DIR` | `QUETZAL_HOME=DIR` | 家目录（默认 `~/quetzal`） |
+| `--home DIR` | `QUETZAL_HOME=DIR` | 家目录（默认 `~/.quetzal`；0.6.7 之前装在 `~/quetzal` 的，再跑一次安装会自动整目录搬到 `~/.quetzal`，配置、记忆、对话原样保留） |
 | `--version X.Y.Z` | `QUETZAL_VERSION=X.Y.Z` | 装指定版本（默认 latest） |
 | `--cn` / `--no-cn` | `QUETZAL_MIRROR=cn` / `off` | 强制用 / 不用中国大陆镜像（默认自动探测） |
 | `--lang zh` / `en` | `QUETZAL_LANG=zh` / `en` | 界面语言（默认看系统语言：简体 / 繁体中文显示中文，其余英文） |
-| `--uninstall [--purge]` | — | 卸载服务、守护循环、快捷方式与 npm 包；`--purge` 连 `~/quetzal`（配置、记忆、对话）一起删。nvm、Node.js、git 不动 |
+| `--uninstall [--purge]` | — | 卸载服务、守护循环、快捷方式与 npm 包；`--purge` 连 `~/.quetzal`（配置、记忆、对话）一起删。nvm、Node.js、git 不动 |
 
 ```bash
 curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --lan        # 带选项
 curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall  # 卸载
 ```
 
-脚本的源码在仓库的 [`cli/install.sh`](https://github.com/PlutoKeating/Project.Quetzal/blob/main/cli/install.sh)，官网构建时原样复制到 `/install`；也可以从 `https://raw.githubusercontent.com/PlutoKeating/Project.Quetzal/main/cli/install.sh` 取。安装日志在 `~/quetzal/install.log`。
+脚本的源码在仓库的 [`cli/install.sh`](https://github.com/PlutoKeating/Project.Quetzal/blob/main/cli/install.sh)，官网构建时原样复制到 `/install`；也可以从 `https://raw.githubusercontent.com/PlutoKeating/Project.Quetzal/main/cli/install.sh` 取。安装日志在 `~/.quetzal/install.log`。
 
 > [!NOTE]
-> 服务用安装时选定的那个 Node 的绝对路径（nvm 装的在 `~/.nvm/versions/node/v22.x/bin/node`），所以之后 `nvm uninstall 22` 会让服务起不来，再跑一次安装命令即可修复。没有 systemd 的机器上 `quetzal stop` / `logs` 这两个子命令不可用：停止用 `kill $(cat ~/quetzal/state/supervise.pid)`，日志在 `~/quetzal/logs/runtime.log`。
+> 服务用安装时选定的那个 Node 的绝对路径（nvm 装的在 `~/.nvm/versions/node/v22.x/bin/node`），所以之后 `nvm uninstall 22` 会让服务起不来，再跑一次安装命令即可修复。没有 systemd 的机器上 `quetzal stop` / `logs` 这两个子命令不可用：停止用 `kill $(cat ~/.quetzal/state/supervise.pid)`，日志在 `~/.quetzal/logs/runtime.log`。
 
 ### 1.1 只要 npm 包：`npx @plutokeating/quetzal`
 
 已经有 Node.js 22.13+（内置 `node:sqlite` 从这个版本起不需要标志）与 git、也不需要桌面快捷方式时，可以只用 npm 包；一键安装脚本内部调用的也是它。
 
 ```bash
-npx @plutokeating/quetzal            # 安装：运行基座、Linux 身体适配器与网页控制台放进 ~/quetzal，注册 systemd 用户服务并启动，然后在浏览器里打开控制台
+npx @plutokeating/quetzal            # 安装：运行基座、Linux 身体适配器与网页控制台放进 ~/.quetzal，注册 systemd 用户服务并启动，然后在浏览器里打开控制台
 npx @plutokeating/quetzal open       # 再次打开网页控制台 http://127.0.0.1:7788/
 npx @plutokeating/quetzal --lan      # 让网关对局域网开放，手机上的 App 也能直接填这台机器的地址连接（只在可信的局域网里）
 ```
 
-它做了什么：把包里内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/quetzal/releases/<版本>/`，`current` 指向它（与手机上的目录约定相同）；写 `~/.config/systemd/user/quetzal.service`（退出即重启），启动并等 `/health`；40 秒内没有响应就切回上一版。第一次装好、有桌面时自动打开浏览器（`--no-open` 不打开）。再运行一次 `npx @plutokeating/quetzal` 就是升级。
+它做了什么：把包里内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/.quetzal/releases/<版本>/`，`current` 指向它（与手机上的目录约定相同）；写 `~/.config/systemd/user/quetzal.service`（退出即重启），启动并等 `/health`；40 秒内没有响应就切回上一版。第一次装好、有桌面时自动打开浏览器（`--no-open` 不打开）。再运行一次 `npx @plutokeating/quetzal` 就是升级。
 
 常用命令（一键安装之后，`npx @plutokeating/quetzal` 可以换成 `quetzal`）：
 
@@ -75,7 +75,7 @@ npx @plutokeating/quetzal --lan      # 让网关对局域网开放，手机上�
 | `npx @plutokeating/quetzal logs -f` | 服务日志（journald） |
 | `npx @plutokeating/quetzal rollback` | 切回上一版并重启 |
 | `npx @plutokeating/quetzal stop` / `start` / `restart` | 服务控制 |
-| `npx @plutokeating/quetzal uninstall [--purge]` | 移除服务；`--purge` 连 `~/quetzal`（配置、记忆、对话）一起删 |
+| `npx @plutokeating/quetzal uninstall [--purge]` | 移除服务；`--purge` 连 `~/.quetzal`（配置、记忆、对话）一起删 |
 | `npx @plutokeating/quetzal run` | 没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）：前台运行，交给你自己的守护者 |
 
 > [!NOTE]
@@ -111,14 +111,14 @@ cd Project.Quetzal/runtime
 npm ci
 npm test            # 单元测试
 npm run build       # 生成 dist/main.cjs（单文件，已内置依赖）、dist/termux.mjs 与 dist/linux.mjs
-QUETZAL_HOME=~/quetzal node --enable-source-maps dist/main.cjs
+QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 
 环境变量：
 
 | 变量 | 说明 |
 |---|---|
-| `QUETZAL_HOME` | 家目录（默认 `~/quetzal`），配置、密钥、数据、灵魂目录都在这里 |
+| `QUETZAL_HOME` | 家目录（默认 `~/.quetzal`），配置、密钥、数据、灵魂目录都在这里 |
 | `QUETZAL_ADAPTER` | 身体适配器模块路径；不设则用通用适配器（只有操作系统信息，没有传感器） |
 
 基座只负责自身逻辑，**进程守护交给外部**：退出即重启。systemd 用户服务示例：

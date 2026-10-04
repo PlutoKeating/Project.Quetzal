@@ -54,4 +54,4 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | proactive message | 主动消息 | A message she sends with `send_message` when waking on her own |
 | hands | hands | The reserved screen-and-apps interface (not yet implemented) |
 | Termux trio | Termux 三件套 | Termux, Termux:API, Termux:Boot, all from the same source |
-| home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives, default `~/quetzal` |
+| home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives; default `~/quetzal` on Android and `~/.quetzal` on Linux, overridable |

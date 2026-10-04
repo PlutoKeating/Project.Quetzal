@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { layout, putRelease, switchTo, rollback, prune, versionOf, patchConfig, readConfig, defaultBody } from "../src/layout.ts";
+import { layout, putRelease, switchTo, rollback, prune, versionOf, patchConfig, readConfig, defaultBody, needsMigration, migrateHome, defaultHome } from "../src/layout.ts";
 
 function fixture() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-cli-"));
@@ -68,4 +68,22 @@ test("整个子目录（网页控制台 web/）随版本放入，重复放入时
   assert.equal(fs.readFileSync(path.join(dir, "web", "index.html"), "utf8"), "<html>v2</html>");
   assert.ok(!fs.existsSync(path.join(dir, "web", "assets")), "旧文件不残留");
   assert.ok(!fs.existsSync(path.join(dir, "web.part")));
+});
+
+test("家目录迁移：没有显式指定、~/.quetzal 不存在、~/quetzal 里有老安装时才搬；指定了 QUETZAL_HOME 或目录已存在都不搬", () => {
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-home-"));
+  const saved = { HOME: process.env.HOME, QUETZAL_HOME: process.env.QUETZAL_HOME };
+  process.env.HOME = fakeHome; delete process.env.QUETZAL_HOME;
+  try {
+    const home = defaultHome();
+    assert.equal(path.basename(home), ".quetzal");
+    assert.equal(needsMigration(home), false); // 什么都没有
+    fs.mkdirSync(path.join(fakeHome, "quetzal", "config"), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, "quetzal", "config", "quetzal.json"), "{}");
+    assert.equal(needsMigration(home), true);
+    process.env.QUETZAL_HOME = "/elsewhere"; assert.equal(needsMigration(home), false); delete process.env.QUETZAL_HOME;
+    assert.equal(migrateHome(home), path.join(fakeHome, "quetzal"));
+    assert.ok(fs.existsSync(path.join(home, "config", "quetzal.json")));
+    assert.equal(needsMigration(home), false); // 已经搬过
+  } finally { process.env.HOME = saved.HOME; if (saved.QUETZAL_HOME) process.env.QUETZAL_HOME = saved.QUETZAL_HOME; }
 });

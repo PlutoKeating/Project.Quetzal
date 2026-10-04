@@ -3,7 +3,7 @@ title: Home directory and configuration
 description: The layout of QUETZAL_HOME, every key in config/quetzal.json, and the file conventions of the Android / Termux deployment.
 ---
 
-## `QUETZAL_HOME` (default `~/quetzal`)
+## `QUETZAL_HOME` (default: `~/quetzal` on Android / Termux, `~/.quetzal` on Linux and other machines; both overridable with the environment variable)
 
 ```
 config/quetzal.json      runtime configuration (editable from the app)
@@ -71,24 +71,24 @@ Packages: `nodejs-lts termux-services termux-api git openssh`. Only the last thr
 
 ## Linux / npm deployment conventions
 
-The npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal`) follows these, mirroring Android; the one-line installer (`curl -fsSL https://quetzal.plutokeating.beer/install | bash`) adds a few things on top:
+The npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal`) follows these, mirroring Android (the Linux home directory defaults to `~/.quetzal`, changeable with `QUETZAL_HOME` or `--home`; installs made before 0.6.7 under `~/quetzal` are moved over automatically the next time the installer runs); the one-line installer (`curl -fsSL https://quetzal.plutokeating.beer/install | bash`) adds a few things on top:
 
 ```
-~/quetzal/releases/<version>/           main.cjs, linux.mjs, web/ (the web console; the gateway serves current/web/)
-~/quetzal/current → releases/…          the running version
-~/quetzal/previous → releases/…         the previous version (for rollback)
-~/.config/systemd/user/quetzal.service  systemd user service: QUETZAL_HOME, QUETZAL_ADAPTER=~/quetzal/current/linux.mjs, Restart=always
+~/.quetzal/releases/<version>/           main.cjs, linux.mjs, web/ (the web console; the gateway serves current/web/)
+~/.quetzal/current → releases/…          the running version
+~/.quetzal/previous → releases/…         the previous version (for rollback)
+~/.config/systemd/user/quetzal.service  systemd user service: QUETZAL_HOME, QUETZAL_ADAPTER=~/.quetzal/current/linux.mjs, Restart=always
 journalctl --user -u quetzal            logs (quetzal logs)
 
 Added by the one-line installer:
-~/quetzal/npm/                          private npm prefix for @plutokeating/quetzal (lib/node_modules/…/dist/quetzal.mjs)
-~/quetzal/install.log                   install log
+~/.quetzal/npm/                          private npm prefix for @plutokeating/quetzal (lib/node_modules/…/dist/quetzal.mjs)
+~/.quetzal/install.log                   install log
 ~/.local/bin/quetzal                    the command: runs the quetzal.mjs above with the Node chosen at install time
-~/quetzal/console/<version>/, console/current → …   native console (Flutter Linux desktop build, executable quetzal-console; downloaded from the GitHub Release)
-~/.local/bin/quetzal-console            launcher: starts the native console when present, otherwise a Chromium-family browser opens the console as its own window (--app, profile ~/quetzal/state/console-browser)
+~/.quetzal/console/<version>/, console/current → …   native console (Flutter Linux desktop build, executable quetzal-console; downloaded from the GitHub Release)
+~/.local/bin/quetzal-console            launcher: starts the native console when present, otherwise a Chromium-family browser opens the console as its own window (--app, profile ~/.quetzal/state/console-browser)
 ~/.local/share/applications/xyz.quetzal.console.desktop, ~/.local/share/icons/hicolor/{512x512,192x192}/apps/xyz.quetzal.console.png   app-list entry and icons
 ~/.config/systemd/user/quetzal.service.d/quetzal-off.conf   written when the supervision switch is off (Restart=no)
-Without systemd: ~/quetzal/bin/quetzal-supervise (supervisor loop), ~/quetzal/state/supervise.{pid,lock}, ~/quetzal/logs/runtime.log, crontab @reboot, ~/.config/autostart/quetzal-runtime.desktop
+Without systemd: ~/.quetzal/bin/quetzal-supervise (supervisor loop), ~/.quetzal/state/supervise.{pid,lock}, ~/.quetzal/logs/runtime.log, crontab @reboot, ~/.config/autostart/quetzal-runtime.desktop
 ```
 
 Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` in `config/quetzal.json`. After installing, the web console opens at `http://127.0.0.1:7788/` (`npx @plutokeating/quetzal open`), with no pairing code on the same machine.

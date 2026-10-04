@@ -10,7 +10,7 @@ import { run, start, have, first, readText, prettyName, pickBattery, pickThermal
 import * as supervise from "./supervise.ts";
 import { upgrade } from "./upgrade.ts";
 
-const MEDIA = path.join(process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal"), "data", "media");
+const MEDIA = path.join(process.env.QUETZAL_HOME ?? path.join(os.homedir(), ".quetzal"), "data", "media"); // Linux 的家目录缺省 ~/.quetzal（服务里总是由 QUETZAL_HOME 指定）
 const POWER = "/sys/class/power_supply";
 const THERMAL = "/sys/class/thermal";
 

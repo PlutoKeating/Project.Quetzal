@@ -2,7 +2,7 @@
 // 它会把运行基座、网页控制台与原生控制台升到最新发布，并重启服务。
 //   必须脱离 quetzal 服务的 cgroup 运行：systemd 用户服务 KillMode=mixed，重启时会杀掉服务里剩下的所有进程，
 //   安装脚本若是服务的子进程就会在重启服务的那一步把自己杀掉。所以有 systemd 就用 systemd-run 起一个临时单元；
-//   没有（守护循环模式）就 setsid + nohup 脱离即可。输出进 ~/quetzal/logs/upgrade.log。
+//   没有（守护循环模式）就 setsid + nohup 脱离即可。输出进 ~/.quetzal/logs/upgrade.log。
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { have, run } from "./linux.ts";
 
 export const INSTALL_URL = "https://quetzal.plutokeating.beer/install";
-const home = () => process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal");
+const home = () => process.env.QUETZAL_HOME ?? path.join(os.homedir(), ".quetzal");
 
 /** 要执行的 shell 命令：下载脚本并以 --no-open 运行，日志追加到 logs/upgrade.log。 */
 export function upgradeShell(logFile: string, url = INSTALL_URL): string {

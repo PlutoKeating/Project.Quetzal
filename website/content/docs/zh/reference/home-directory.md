@@ -3,7 +3,7 @@ title: 家目录与配置
 description: QUETZAL_HOME 的目录结构、config/quetzal.json 的全部配置项，以及安卓 / Termux 部署的文件约定。
 ---
 
-## `QUETZAL_HOME`（默认 `~/quetzal`）
+## `QUETZAL_HOME`（默认：安卓 / Termux `~/quetzal`，Linux 等其他机器 `~/.quetzal`；都可用环境变量改）
 
 ```
 config/quetzal.json      运行配置（App 可改）
@@ -71,24 +71,24 @@ $PREFIX/var/log/sv/quetzal/       日志（svlogd 自动轮转）
 
 ## Linux / npm 部署约定
 
-npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按此约定工作，与安卓同构；一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）在它之上再加几样：
+npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按此约定工作，与安卓同构（Linux 的家目录缺省 `~/.quetzal`，`QUETZAL_HOME` 或 `--home` 可改；0.6.7 之前装在 `~/quetzal` 的，再跑一次安装会自动整目录搬过来）；一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）在它之上再加几样：
 
 ```
-~/quetzal/releases/<版本>/              main.cjs、linux.mjs、web/（网页控制台，网关托管 current/web/）
-~/quetzal/current → releases/…          运行中的版本
-~/quetzal/previous → releases/…         上一版（回退用）
-~/.config/systemd/user/quetzal.service  systemd 用户服务：QUETZAL_HOME、QUETZAL_ADAPTER=~/quetzal/current/linux.mjs，Restart=always
+~/.quetzal/releases/<版本>/              main.cjs、linux.mjs、web/（网页控制台，网关托管 current/web/）
+~/.quetzal/current → releases/…          运行中的版本
+~/.quetzal/previous → releases/…         上一版（回退用）
+~/.config/systemd/user/quetzal.service  systemd 用户服务：QUETZAL_HOME、QUETZAL_ADAPTER=~/.quetzal/current/linux.mjs，Restart=always
 journalctl --user -u quetzal            日志（quetzal logs）
 
 一键安装脚本另有：
-~/quetzal/npm/                          npm 包 @plutokeating/quetzal 的独立前缀（lib/node_modules/…/dist/quetzal.mjs）
-~/quetzal/install.log                   安装日志
+~/.quetzal/npm/                          npm 包 @plutokeating/quetzal 的独立前缀（lib/node_modules/…/dist/quetzal.mjs）
+~/.quetzal/install.log                   安装日志
 ~/.local/bin/quetzal                    命令：固定用安装时的 node 跑上面的 quetzal.mjs
-~/quetzal/console/<版本>/、console/current → …   原生控制台（Flutter Linux 桌面版，可执行文件 quetzal-console；从 GitHub Release 下载）
-~/.local/bin/quetzal-console            启动器：有原生控制台就启动它，否则 Chromium 系浏览器以独立窗口（--app，资料目录 ~/quetzal/state/console-browser）打开
+~/.quetzal/console/<版本>/、console/current → …   原生控制台（Flutter Linux 桌面版，可执行文件 quetzal-console；从 GitHub Release 下载）
+~/.local/bin/quetzal-console            启动器：有原生控制台就启动它，否则 Chromium 系浏览器以独立窗口（--app，资料目录 ~/.quetzal/state/console-browser）打开
 ~/.local/share/applications/xyz.quetzal.console.desktop、~/.local/share/icons/hicolor/{512x512,192x192}/apps/xyz.quetzal.console.png   应用列表项与图标
 ~/.config/systemd/user/quetzal.service.d/quetzal-off.conf   守护开关关闭时写入（Restart=no）
-没有 systemd 时：~/quetzal/bin/quetzal-supervise（守护循环）、~/quetzal/state/supervise.{pid,lock}、~/quetzal/logs/runtime.log、crontab @reboot、~/.config/autostart/quetzal-runtime.desktop
+没有 systemd 时：~/.quetzal/bin/quetzal-supervise（守护循环）、~/.quetzal/state/supervise.{pid,lock}、~/.quetzal/logs/runtime.log、crontab @reboot、~/.config/autostart/quetzal-runtime.desktop
 ```
 
 要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）自动切回 `previous`。`--lan` 把 `config/quetzal.json` 的 `gateway.host` 写为 `0.0.0.0`。装完在浏览器里打开 `http://127.0.0.1:7788/`（`npx @plutokeating/quetzal open`），同一台机器免配对码。

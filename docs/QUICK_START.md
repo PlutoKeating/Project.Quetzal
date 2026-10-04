@@ -37,7 +37,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall # 
 装完终端里有 `quetzal` 命令（`status` / `logs -f` / `open` / `rollback`）。脚本是 `cli/install.sh`，官网构建时复制为 `/install`。已经有 Node.js 22.13+（内置 `node:sqlite`）与 git、只想要 npm 包本身时：
 
 ```bash
-npx @plutokeating/quetzal            # 安装：内置的运行基座、Linux 身体适配器与网页控制台放进 ~/quetzal，注册 systemd 用户服务并启动，健康检查失败自动切回上一版；有桌面时顺手打开浏览器
+npx @plutokeating/quetzal            # 安装：内置的运行基座、Linux 身体适配器与网页控制台放进 ~/.quetzal（家目录，QUETZAL_HOME 可改），注册 systemd 用户服务并启动，健康检查失败自动切回上一版；有桌面时顺手打开浏览器
 npx @plutokeating/quetzal open       # 再次打开网页控制台 http://127.0.0.1:7788/
 npx @plutokeating/quetzal --lan      # 让网关对局域网开放：手机上的 Quetzal App 也能直接填这台机器的地址连接（只在可信的局域网里）
 npx @plutokeating/quetzal status     # 版本、服务、健康、网页控制台地址；logs -f 看日志；rollback 回滚；uninstall [--purge] 卸载
@@ -54,7 +54,7 @@ cd runtime
 npm ci
 npm test          # 单元测试
 npm run build     # 生成 dist/main.cjs（单文件，已内置依赖）、dist/termux.mjs（安卓 / Termux 身体适配器）与 dist/linux.mjs（Linux 身体适配器）
-QUETZAL_HOME=~/quetzal node --enable-source-maps dist/main.cjs
+QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 
 生产环境请交给进程守护者（runit、systemd……），退出即重启。示例（systemd 用户服务）：

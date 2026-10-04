@@ -79,8 +79,8 @@ interface BodyAdapter {
 | `notify()` | System notification with an "Open Quetzal" button (`QUETZAL_CONSOLE_ACTIVITY`, default `xyz.quetzal.console/.MainActivity`) |
 | `playAudio()` | `termux-media-player` |
 | Tools | `take_photo` (camera), `record_audio` (microphone), `location` (location), `vibrate` / `torch` / `clipboard` / `read_sensor` (device) |
-| Upgrade from the console `upgrade()` | Reruns `curl -fsSL …/install \| bash -s -- --no-open` in the background: with systemd via a transient `systemd-run --user` unit (outside the quetzal service's cgroup, otherwise restarting the service would kill it), otherwise via `setsid`; log `~/quetzal/logs/upgrade.log` |
-| Supervision switch `supervision` | The systemd user service `quetzal.service` (off = `systemctl --user disable` + a drop-in `quetzal.service.d/quetzal-off.conf` with `Restart=no`, effective right after daemon-reload); without systemd, the one-line installer's supervisor loop `~/quetzal/bin/quetzal-supervise` (off = the flag file `state/supervise.off`, which pauses the loop, + removing the crontab `@reboot` line and the desktop autostart entry); with neither (manual deployment) `available=false` |
+| Upgrade from the console `upgrade()` | Reruns `curl -fsSL …/install \| bash -s -- --no-open` in the background: with systemd via a transient `systemd-run --user` unit (outside the quetzal service's cgroup, otherwise restarting the service would kill it), otherwise via `setsid`; log `~/.quetzal/logs/upgrade.log` |
+| Supervision switch `supervision` | The systemd user service `quetzal.service` (off = `systemctl --user disable` + a drop-in `quetzal.service.d/quetzal-off.conf` with `Restart=no`, effective right after daemon-reload); without systemd, the one-line installer's supervisor loop `~/.quetzal/bin/quetzal-supervise` (off = the flag file `state/supervise.off`, which pauses the loop, + removing the crontab `@reboot` line and the desktop autostart entry); with neither (manual deployment) `available=false` |
 | `speak` | Not provided (many phones lack a system TTS); speech comes from the runtime's `voice_speak` |
 | Media location | `QUETZAL_HOME/data/media/` |
 
