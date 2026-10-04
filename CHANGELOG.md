@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.6.7
+
+- **文案**：App 的更新器与「关于」页的错误提示不再带来源或主机名（「更新服务暂时繁忙」「网络连接失败」），与官网下载页一致：前端与 App 都不描述下载来源。
+- **Copy**: error messages in the app's updater and About page no longer mention a source or host name ("update service busy", "network connection failed"), matching the download page: neither the website nor the app describes where downloads come from.
+
 ## 0.6.6
 
 - **下载走官网镜像源**：GitHub 在不少网络里连不上，官网加了一个 Worker：`/dl/<tag>/<文件>` 是 Release 资产的镜像（APK、Linux 控制台包、校验值，边缘缓存 7 天），`/api/releases[/latest]` 是发布接口的镜像（缓存 5 分钟，资产地址改写为 `/dl/`）。App 的更新检查与 APK 下载、一键安装脚本的原生控制台下载、官网下载页都先走镜像源，失败再直连 GitHub。前端与 App 的文案不描述下载来源。
