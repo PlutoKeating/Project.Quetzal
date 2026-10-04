@@ -29,7 +29,7 @@
 | 部署命令 | `npx wrangler deploy` |
 | 分支控制（生产分支） | `main` |
 | 构建变量 | 无（Node 版本由 `.nvmrc` 决定；如需显式指定可加 `NODE_VERSION=22`） |
-| Build watch paths | 建议 Include `website/**`，这样 runtime / console 的提交不会触发官网构建 |
+| Build watch paths | 建议 Include `website/**` 与 `cli/install.sh`，这样 runtime / console 的提交不会触发官网构建，而一键安装脚本的改动会（它由构建复制到 `/install`） |
 | 非生产分支构建 | 开启即得到预览地址 |
 
 生产的 workers.dev 地址为 `quetzal.<账号>.workers.dev`（账号子域不写在仓库里）。
@@ -42,7 +42,8 @@ Settings → **Domains & Routes**（自定义域和路由）→ **Add** → Cust
 
 ## 4. 构建产物与请求路径
 
-- `npm run build`：生成主题变量 → 设计系统检查 → `react-router build`（预渲染到 `build/client/`）→ `postbuild`（`404.html`、`sitemap.xml`）。
+- `npm run build`：生成主题变量 → 设计系统检查 → `react-router build`（预渲染到 `build/client/`）→ `postbuild`（`404.html`、`sitemap.xml`、把 `../cli/install.sh` 原样复制为 `install`，并写 `_headers` 让 `/install` 以 `text/plain` 返回、缓存 5 分钟）。
+- **`/install`**：Linux 一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）。源码只有 `cli/install.sh` 一份；Workers Builds 的根目录是 `/website`，但克隆的是整个仓库，所以构建能读到 `../cli/install.sh`，缺了就构建失败。`html_handling = drop-trailing-slash` 下无扩展名的 `/install` 直接命中同名文件。镜像地址是 GitHub raw。
 - `wrangler.jsonc`：`assets.directory = ./build/client`；`html_handling = auto-trailing-slash`（`/en/docs` 与 `/en/docs/` 都命中 `en/docs/index.html`）；`not_found_handling = 404-page`。
 - 没有 Worker 脚本、没有 KV / D1 / 环境密钥。下载页的数据由访客浏览器直接请求 GitHub 公开 API（匿名，每 IP 每小时 60 次），结果在 sessionStorage 缓存 10 分钟。
 
@@ -72,3 +73,4 @@ npm run preview          # wrangler dev，按 wrangler.jsonc 本地托管 build/
 
 - 2026-10-04：建立 `website/`，确定 Workers 静态资源托管方案（原计划 Cloudflare Pages，改为 Workers）。
 - 2026-10-04：所有者在 Cloudflare 创建 Worker `quetzal` 并连接仓库（根目录 `/website`，分支 `main`），添加自定义域 `quetzal.plutokeating.beer`；`wrangler.jsonc` 的 `name` 随之改为 `quetzal`。
+- 2026-10-05：新增 `/install`（Linux 一键安装脚本，构建时从 `cli/install.sh` 复制）与 `_headers`；Build watch paths 需加上 `cli/install.sh`。

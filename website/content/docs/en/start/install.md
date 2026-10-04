@@ -5,7 +5,7 @@ description: Put the Termux trio and the Quetzal app on a spare Android phone, t
 
 ## Overview
 
-Four steps: install the Termux trio → install the Quetzal app → install the runtime from the app's wizard → keep the system from killing it. It takes a few minutes and a few tens of megabytes. (Installing on a Linux computer or server is a different path: one line, `npx @plutokeating/quetzal`, see [Linux and other machines](/docs/advanced/other-machines).)
+Four steps: install the Termux trio → install the Quetzal app → install the runtime from the app's wizard → keep the system from killing it. It takes a few minutes and a few tens of megabytes. (Installing on a Linux computer or server is a different path: one line, `curl -fsSL https://quetzal.plutokeating.beer/install | bash`, see [Linux and other machines](/docs/advanced/other-machines).)
 
 ```mermaid
 flowchart TB

@@ -33,7 +33,7 @@ Yes. Installation, configuration and daily use all happen in the Quetzal app; th
 
 ## I only have a computer, no spare phone. Does that work?
 
-Yes. On a Linux computer or server, `npx @plutokeating/quetzal` installs everything in one line and the web console opens in your browser, logged in without a pairing code (same machine); configuration and conversations all happen there. See [Linux and other machines](/docs/advanced/other-machines). That body just has fewer senses than a phone (no camera, light or motion sensors) and no ears (hearing lives in the phone app).
+Yes. On a Linux computer or server, `curl -fsSL https://quetzal.plutokeating.beer/install | bash` installs everything in one line (missing dependencies included; it starts at boot, restarts after a crash and appears in your app list) and the web console opens in your browser, logged in without a pairing code (same machine); configuration and conversations all happen there. See [Linux and other machines](/docs/advanced/other-machines). That body just has fewer senses than a phone (no camera, light or motion sensors) and no ears (hearing lives in the phone app).
 
 ## Do I have to use Feishu?
 

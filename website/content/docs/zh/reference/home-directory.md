@@ -71,14 +71,22 @@ $PREFIX/var/log/sv/quetzal/       日志（svlogd 自动轮转）
 
 ## Linux / npm 部署约定
 
-npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按此约定工作，与安卓同构：
+npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按此约定工作，与安卓同构；一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）在它之上再加几样：
 
 ```
 ~/quetzal/releases/<版本>/              main.cjs、linux.mjs、web/（网页控制台，网关托管 current/web/）
 ~/quetzal/current → releases/…          运行中的版本
 ~/quetzal/previous → releases/…         上一版（回退用）
 ~/.config/systemd/user/quetzal.service  systemd 用户服务：QUETZAL_HOME、QUETZAL_ADAPTER=~/quetzal/current/linux.mjs，Restart=always
-journalctl --user -u quetzal            日志（npx @plutokeating/quetzal logs）
+journalctl --user -u quetzal            日志（quetzal logs）
+
+一键安装脚本另有：
+~/quetzal/npm/                          npm 包 @plutokeating/quetzal 的独立前缀（lib/node_modules/…/dist/quetzal.mjs）
+~/quetzal/install.log                   安装日志
+~/.local/bin/quetzal                    命令：固定用安装时的 node 跑上面的 quetzal.mjs
+~/.local/bin/quetzal-console            启动器：Chromium 系浏览器以独立窗口（--app，资料目录 ~/quetzal/state/console-browser）打开控制台
+~/.local/share/applications/quetzal.desktop、~/.local/share/icons/hicolor/{512x512,192x192}/apps/quetzal.png   应用列表项与图标
+没有 systemd 时：~/quetzal/bin/quetzal-supervise（守护循环）、~/quetzal/state/supervise.{pid,lock}、~/quetzal/logs/runtime.log、crontab @reboot、~/.config/autostart/quetzal-runtime.desktop
 ```
 
 要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）自动切回 `previous`。`--lan` 把 `config/quetzal.json` 的 `gateway.host` 写为 `0.0.0.0`。装完在浏览器里打开 `http://127.0.0.1:7788/`（`npx @plutokeating/quetzal open`），同一台机器免配对码。

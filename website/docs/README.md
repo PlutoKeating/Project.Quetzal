@@ -25,7 +25,7 @@ website/
 │   └── routes/<page>/           每个页面一个目录：route.tsx + i18n.ts（中英文案，键必须一致），可带页面私有组件
 ├── content/docs/                manifest.json（分区与页面顺序，中英共用）+ {zh,en}/<section>/<slug>.md
 ├── public/                      原样复制的静态文件：favicon.svg（光团，色值与设计系统的 orb-* 一致，手动同步）、og.png（分享图）、robots.txt、fonts/（自托管 Inter 与许可证）
-├── scripts/                     gen-tokens（生成主题变量）、lint-tokens（禁止硬编码）、postbuild（404.html、sitemap）；品牌图：gen-brand-images.py（分享图 og.png 与仓库 README 横幅，标志为光团；需 Pillow + numpy，Inter 静态字体可用 fontTools 从 public/fonts/InterVariable.woff2 实例化）、gen-architecture-svg.py 与 gen-bodyclock-svg.ts（README 的架构图与生物钟图，输出到 ../docs/assets/readme/）
+├── scripts/                     gen-tokens（生成主题变量）、lint-tokens（禁止硬编码）、postbuild（404.html、sitemap、把 ../cli/install.sh 复制为 /install 并写 _headers）；品牌图：gen-brand-images.py（分享图 og.png 与仓库 README 横幅，标志为光团；需 Pillow + numpy，Inter 静态字体可用 fontTools 从 public/fonts/InterVariable.woff2 实例化）、gen-architecture-svg.py 与 gen-bodyclock-svg.ts（README 的架构图与生物钟图，输出到 ../docs/assets/readme/）
 ├── react-router.config.ts       ssr:false + 预渲染清单（app/lib/prerender.ts）
 ├── wrangler.jsonc               Cloudflare Workers 静态资源配置
 └── docs/                        本目录：README / ARCHITECTURE / DEVOPS
@@ -50,6 +50,6 @@ website/
 | `npm run tokens` | 由 designSystem.ts 生成 tokens.generated.css |
 | `npm run lint:tokens` | 扫描 app/ 的硬编码视觉参数 |
 | `npm run typecheck` | `react-router typegen` + `tsc` |
-| `npm run build` | 预构建（tokens + lint）→ 预渲染 → postbuild（404.html、sitemap.xml） |
+| `npm run build` | 预构建（tokens + lint）→ 预渲染 → postbuild（404.html、sitemap.xml、`/install` 与 `_headers`） |
 | `npm run preview` | `wrangler dev`：按 wrangler.jsonc 本地托管 build/client |
 | `npm run check` | typecheck + build，提交前跑一遍 |

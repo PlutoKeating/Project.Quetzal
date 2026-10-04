@@ -1,15 +1,62 @@
 ---
 title: Linux 与其他机器
-description: 一台 Linux 电脑或服务器一行命令 npx @plutokeating/quetzal 就能成为身体，装完在浏览器里打开网页控制台；其他能跑 Node.js 22.13+ 与 git 的机器也可以手动部署。
+description: 一台 Linux 电脑或服务器一行 curl 命令就能成为身体：自动补齐依赖、注册开机自启与崩溃重启的服务、应用列表里多一个 Quetzal，装完在浏览器里打开网页控制台；其他能跑 Node.js 22.13+ 与 git 的机器也可以手动部署。
 ---
 
 ## 适用场景
 
-手机是最合适的身体；一台笔记本、家里的小主机、树莓派、云服务器也都能跑运行基座。Linux 机器有现成的安装器；别的系统按第 3 节手动部署。
+手机是最合适的身体；一台笔记本、家里的小主机、树莓派、云服务器也都能跑运行基座。Linux 机器有现成的一键安装；别的系统按第 4 节手动部署。
 
-## 1. Linux：`npx @plutokeating/quetzal`
+## 1. Linux：一行命令
 
-要求：Linux，Node.js 22.13+（内置 `node:sqlite` 从这个版本起不需要标志），git。
+```bash
+curl -fsSL https://quetzal.plutokeating.beer/install | bash
+```
+
+前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余缺什么它补什么。装完之后：
+
+- 浏览器里打开了**网页控制台** `http://127.0.0.1:7788/`，同一台机器免配对码，模型、身份、授权、飞书、灵魂仓库、对话都在里面（第 2 节）。
+- 应用列表里多了一个 **Quetzal**（光团图标），点开就是控制台；有 Chromium 系浏览器（Chrome / Chromium / Edge / Brave / Vivaldi，含 Flatpak 版）时以独立窗口打开，任务栏显示 Quetzal 的图标；只有 Firefox 时用默认浏览器打开。
+- 终端里多了 `quetzal` 命令（`~/.local/bin/quetzal`，新开的终端生效）：`quetzal status` / `logs -f` / `open` / `rollback` / `uninstall`。
+- 它在开机时自己起来，崩溃或被杀后 3 秒内自己回来；再跑一次同一条命令就是升级。
+
+安装器一步一步做了什么（幂等）：
+
+| 步骤 | 做什么 |
+|---|---|
+| 这台机器 | 认出发行版、架构、包管理器（apt / dnf / yum / pacman / zypper / apk / xbps）、有没有 systemd 用户实例、有没有桌面、是不是 WSL / 容器 |
+| 依赖 | 缺 `git`、`curl`、`tar`、CA 证书就用这台机器自己的包管理器装（需要时 `sudo` / `doas` 会问一次密码，root 直接装）。**Node.js 22.13+**：PATH 上已有够新的（且带 npm）就用；否则装 [nvm](https://github.com/nvm-sh/nvm) 到 `~/.nvm` 并装 Node.js 22（不碰系统的 Node）；Alpine 这类 musl 系统与 NixOS 跑不了 nvm 的官方二进制，Alpine 用 `apk add nodejs npm`，NixOS 请先自备 Node。直连 nodejs.org 不通时自动改用国内镜像（npmmirror） |
+| 运行基座 | 把 npm 包 `@plutokeating/quetzal` 装进 `~/quetzal/npm`（独立前缀，不污染全局 npm），由它完成版本目录、缺省配置、systemd 服务、健康检查与失败回滚（见 1.1） |
+| 守护 | 有 systemd 用户实例：`systemd --user` 服务 `quetzal`，`Restart=always`，并 `loginctl enable-linger`（没登录也运行；需要管理员权限时会问一次密码）。没有（Alpine / Void / Devuan、容器、未开 systemd 的 WSL）：写一个几十行的守护循环 `~/quetzal/bin/quetzal-supervise`（退出 3 秒后重启，flock 保证只有一个），开机靠 `crontab @reboot` 与桌面自启动项，不安装任何额外的服务框架 |
+| 桌面 | 有桌面环境才做：图标放进 `~/.local/share/icons/hicolor/`，启动器 `~/.local/bin/quetzal-console`，`~/.local/share/applications/quetzal.desktop` |
+| 收尾 | 有图形会话就打开控制台；打印地址、守护方式与常用命令。服务器上会给出 `ssh -L 7788:127.0.0.1:7788 <这台机器>` |
+
+选项跟在 `bash -s --` 后面，也都有对应的环境变量：
+
+| 选项 | 环境变量 | 作用 |
+|---|---|---|
+| `--lan` | `QUETZAL_LAN=1` | 网关对局域网开放，手机上的 App 直接填这台机器的地址连接（只在可信的局域网里） |
+| `--no-open` | `QUETZAL_NO_OPEN=1` | 装完不打开浏览器 |
+| `--no-desktop` | `QUETZAL_NO_DESKTOP=1` | 不写应用列表的快捷方式 |
+| `--home DIR` | `QUETZAL_HOME=DIR` | 家目录（默认 `~/quetzal`） |
+| `--version X.Y.Z` | `QUETZAL_VERSION=X.Y.Z` | 装指定版本（默认 latest） |
+| `--cn` / `--no-cn` | `QUETZAL_MIRROR=cn` / `off` | 强制用 / 不用中国大陆镜像（默认自动探测） |
+| `--lang zh` / `en` | `QUETZAL_LANG=zh` / `en` | 界面语言（默认看系统语言：简体 / 繁体中文显示中文，其余英文） |
+| `--uninstall [--purge]` | — | 卸载服务、守护循环、快捷方式与 npm 包；`--purge` 连 `~/quetzal`（配置、记忆、对话）一起删。nvm、Node.js、git 不动 |
+
+```bash
+curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --lan        # 带选项
+curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall  # 卸载
+```
+
+脚本的源码在仓库的 [`cli/install.sh`](https://github.com/PlutoKeating/Project.Quetzal/blob/main/cli/install.sh)，官网构建时原样复制到 `/install`；也可以从 `https://raw.githubusercontent.com/PlutoKeating/Project.Quetzal/main/cli/install.sh` 取。安装日志在 `~/quetzal/install.log`。
+
+> [!NOTE]
+> 服务用安装时选定的那个 Node 的绝对路径（nvm 装的在 `~/.nvm/versions/node/v22.x/bin/node`），所以之后 `nvm uninstall 22` 会让服务起不来，再跑一次安装命令即可修复。没有 systemd 的机器上 `quetzal stop` / `logs` 这两个子命令不可用：停止用 `kill $(cat ~/quetzal/state/supervise.pid)`，日志在 `~/quetzal/logs/runtime.log`。
+
+### 1.1 只要 npm 包：`npx @plutokeating/quetzal`
+
+已经有 Node.js 22.13+（内置 `node:sqlite` 从这个版本起不需要标志）与 git、也不需要桌面快捷方式时，可以只用 npm 包；一键安装脚本内部调用的也是它。
 
 ```bash
 npx @plutokeating/quetzal            # 安装：运行基座、Linux 身体适配器与网页控制台放进 ~/quetzal，注册 systemd 用户服务并启动，然后在浏览器里打开控制台
@@ -19,7 +66,7 @@ npx @plutokeating/quetzal --lan      # 让网关对局域网开放，手机上�
 
 它做了什么：把包里内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/quetzal/releases/<版本>/`，`current` 指向它（与手机上的目录约定相同）；写 `~/.config/systemd/user/quetzal.service`（退出即重启），启动并等 `/health`；40 秒内没有响应就切回上一版。第一次装好、有桌面时自动打开浏览器（`--no-open` 不打开）。再运行一次 `npx @plutokeating/quetzal` 就是升级。
 
-常用命令：
+常用命令（一键安装之后，`npx @plutokeating/quetzal` 可以换成 `quetzal`）：
 
 | 命令 | 作用 |
 |---|---|
@@ -45,14 +92,14 @@ Linux 适配器一切靠探测：笔记本有电量与充电状态，CPU 温度�
 - **免配对码**：同一台机器上的浏览器打开即登录（网关只对回环地址、Host 为本机名的请求放行，见 [网关 API](/docs/reference/gateway-api)）。
 - **没有桌面的服务器**：`ssh -L 7788:127.0.0.1:7788 <服务器>` 转发端口后，在本机浏览器打开同样的地址；隧道过来的连接对网关来说也是本机。
 - **地址栏记录位置**（`#/chat/<会话>`、`#/control/providers`……），可收藏、可前进后退。
-- 网页版没有麦克风与安装器：听觉在手机 App 上；升级在这台机器上再运行一次 `npx @plutokeating/quetzal`。
+- 网页版没有麦克风与安装器：听觉在手机 App 上；升级在这台机器上再跑一次安装命令（或 `npx @plutokeating/quetzal`）。
 
 ## 3. 用手机上的 App 连接 Linux 机器（可选）
 
 - 装的时候加了 `--lan`：在 App 里 **连接新的 agent** → 填 `http://<这台机器的地址>:7788` → **申请配对码**。
 - 没有加：网关只监听 `127.0.0.1`，先转发端口（手机经 USB 连着这台机器时 `adb reverse tcp:7788 tcp:7788`，或一条 ssh 隧道），再在 App 里填 `http://127.0.0.1:7788`。随时可以 `npx @plutokeating/quetzal --lan` 改成开放。
 
-配对码在这台机器上弹桌面通知，同时写进服务日志；没有桌面的服务器从 `npx @plutokeating/quetzal logs` 里看。
+配对码在这台机器上弹桌面通知，同时写进服务日志；没有桌面的服务器从 `quetzal logs` 里看。
 
 ## 4. 其他机器：手动部署
 

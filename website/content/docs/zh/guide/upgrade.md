@@ -1,11 +1,11 @@
 ---
 title: 升级与回退
-description: 装新版 APK 即升级运行基座；Linux 上再运行一次 npx；健康检查失败自动回退上一版；服务页的重启与重装。
+description: 装新版 APK 即升级运行基座；Linux 上再跑一次安装命令；健康检查失败自动回退上一版；服务页的重启与重装。
 ---
 
 ## 升级
 
-**Linux 机器**：再运行一次 `npx @plutokeating/quetzal`，新版本（含网页控制台）放进新的版本目录，健康检查通过才切换，失败自动切回；`npx @plutokeating/quetzal rollback` 手动回退。
+**Linux 机器**：再跑一次安装命令 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`（或 `npx @plutokeating/quetzal`），新版本（含网页控制台）放进新的版本目录，健康检查通过才切换，失败自动切回；`quetzal rollback` 手动回退。
 
 **手机**：Quetzal App 内置了运行基座。装新版 APK 后，App 发现内置的版本比运行中的新，会在首页提示**一键升级**；也可以在 **控制 → 服务 → 升级 / 重装** 手动触发。
 

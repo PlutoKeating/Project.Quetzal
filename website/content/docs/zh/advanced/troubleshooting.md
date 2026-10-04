@@ -60,8 +60,11 @@ ta 主动告诉你"进入了安全模式"：10 分钟内启动超过 5 次。此
 ## 网页控制台（Linux）
 
 - 打开 `http://127.0.0.1:7788/` 要配对码：网关只对**同一台机器**的浏览器免配对码；用局域网 IP 或主机名访问就不算；改用 `127.0.0.1` 或 `localhost`。从别的机器访问，请 `ssh -L 7788:127.0.0.1:7788 <那台机器>` 转发后在本机浏览器打开，或在 App 里用配对码。
-- 页面空白或中文是方块：`npx @plutokeating/quetzal status` 看服务是否运行；浏览器强制刷新。网页版自带中文字体，不依赖外网。
-- 装完没有自动打开浏览器：没有桌面会话（服务器、ssh 登录）时只打印地址；`npx @plutokeating/quetzal open` 再试。
+- 页面空白或中文是方块：`quetzal status` 看服务是否运行；浏览器强制刷新。网页版自带中文字体，不依赖外网。
+- 装完没有自动打开浏览器：没有桌面会话（服务器、ssh 登录）时只打印地址；`quetzal open` 再试。
+- 一键安装脚本中途失败：它会打印日志尾巴，完整日志在 `~/quetzal/install.log`；修好原因后再跑一次同一条命令即可（幂等）。`apt` 被锁住多半是系统正在后台更新，等几分钟。Alpine 请先 `apk add bash curl`；NixOS 请先自备 Node.js 22.13+（nvm 的二进制跑不了）。
+- 重启后 ta 没醒：`loginctl show-user $USER -p Linger` 不是 `yes` 就执行 `sudo loginctl enable-linger $USER`（没有登录会话时用户服务默认不跑）。没有 systemd 的机器看 `crontab -l` 里有没有 `@reboot …/quetzal-supervise`，没有 cron 守护进程的话开机后手动跑一次。
+- 应用列表里的「Quetzal」打开的是普通浏览器标签、任务栏没有 Quetzal 图标：独立窗口需要 Chromium 系浏览器（Chrome / Chromium / Edge / Brave / Vivaldi）；只有 Firefox 时用默认浏览器打开。
 
 ## 还是不行
 

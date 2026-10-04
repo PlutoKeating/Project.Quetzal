@@ -1,11 +1,11 @@
 ---
 title: Upgrade and rollback
-description: Installing a newer APK upgrades the runtime; on Linux, run npx again; a failed health check rolls back automatically; restart and reinstall from the Service page.
+description: Installing a newer APK upgrades the runtime; on Linux, rerun the install command; a failed health check rolls back automatically; restart and reinstall from the Service page.
 ---
 
 ## Upgrading
 
-**Linux machines**: run `npx @plutokeating/quetzal` again. The new version (web console included) goes into a new version directory and only becomes current once the health check passes; otherwise it rolls back automatically. `npx @plutokeating/quetzal rollback` reverts by hand.
+**Linux machines**: rerun the install command `curl -fsSL https://quetzal.plutokeating.beer/install | bash` (or `npx @plutokeating/quetzal`). The new version (web console included) goes into a new version directory and only becomes current once the health check passes; otherwise it rolls back automatically. `quetzal rollback` reverts by hand.
 
 **Phones**: the Quetzal app bundles the runtime. After installing a newer APK, the app notices its bundled version is newer than the running one and offers a **one-tap upgrade** on the home screen; you can also trigger it from **Control → Service → Upgrade / Reinstall**.
 

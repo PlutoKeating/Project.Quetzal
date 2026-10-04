@@ -33,7 +33,7 @@ Key 用 AES-256-GCM 加密保存在手机上，界面只显示末四位，不进
 
 ## 只有一台电脑、没有闲置手机，能用吗？
 
-能。Linux 电脑或服务器上 `npx @plutokeating/quetzal` 一行装好，网页控制台在浏览器里打开即登录（同一台机器免配对码），配置与对话都在里面；见 [Linux 与其他机器](/docs/advanced/other-machines)。只是这具身体没有相机、光线与运动传感器那么丰富的感官，也没有耳朵（听觉在手机 App 上）。
+能。Linux 电脑或服务器上 `curl -fsSL https://quetzal.plutokeating.beer/install | bash` 一行装好（缺的依赖自动补齐，开机自启、崩溃自动重启，应用列表里多一个 Quetzal），网页控制台在浏览器里打开即登录（同一台机器免配对码），配置与对话都在里面；见 [Linux 与其他机器](/docs/advanced/other-machines)。只是这具身体没有相机、光线与运动传感器那么丰富的感官，也没有耳朵（听觉在手机 App 上）。
 
 ## 必须用飞书吗？
 

@@ -161,13 +161,30 @@ export default function Download() {
             <Heading size="md">{t.other.heading}</Heading>
           </div>
           <div className="flex flex-col gap-4">
-            <pre className="overflow-x-auto rounded-lg border border-border bg-surface px-4 py-3 font-mono text-sm text-fg"><code>{t.other.command}</code></pre>
+            <CommandLine command={t.other.command} copy={t.other.copy} copied={t.other.copied} />
             <p className="text-fg-muted text-pretty">{t.other.body}</p>
+            <p className="text-sm text-fg-subtle text-pretty">{t.other.alt} <code className="font-mono text-fg-muted">{t.other.altCommand}</code></p>
             <TextLink to={localized(lang, "/docs/advanced/other-machines")} className="self-start text-sm">{t.other.link} →</TextLink>
           </div>
         </Container>
       </Section>
     </>
+  );
+}
+
+/** 一行命令 + 复制按钮：安装命令是这一节的视觉锚点，复制后按钮短暂变成「已复制」。 */
+function CommandLine({ command, copy, copied }: { command: string; copy: string; copied: string }) {
+  const [done, setDone] = useState(false);
+  const onCopy = async () => {
+    try { await navigator.clipboard.writeText(command); setDone(true); setTimeout(() => setDone(false), 1500); } catch { /* 剪贴板不可用 */ }
+  };
+  return (
+    <div className="flex items-stretch overflow-hidden rounded-lg border border-border bg-surface">
+      <pre className="min-w-0 flex-1 overflow-x-auto px-4 py-3 font-mono text-sm text-fg"><code><span aria-hidden className="select-none text-fg-subtle">$ </span>{command}</code></pre>
+      <button type="button" onClick={onCopy} aria-live="polite" className="shrink-0 border-l border-border px-4 text-sm text-fg-muted transition-colors duration-(--ds-duration-fast) hover:bg-surface-hover hover:text-fg">
+        {done ? copied : copy}
+      </button>
+    </div>
   );
 }
 
