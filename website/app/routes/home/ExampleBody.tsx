@@ -1,21 +1,26 @@
 /**
- * 示例身体：全部由浏览器里的生物钟模型按本地时间推算，不连接任何真实设备。
- * - 模式 / 清醒度 / 睡眠压力来自 lib/bodyClock（与运行基座相同的双过程模型）
- * - 电量、光线是按一天节律构造的示例曲线（夜里充电、白天放电；白天明亮、夜里昏暗）
+ * 示例身体：演示用，所有数值都是按访客的本地时间写死的曲线，不连接任何设备，也不运行模型。
+ * - 7:50 醒、22:20 睡；清醒度白天高、夜里低；睡眠压力白天积累、夜里回落
+ * - 电量夜里充电、白天放电；光线白天亮、夜里暗
  * - 「上次醒来」取示例时间线（首页「一天」一节）里当前时刻之前最近的一条：自然醒、思考、翻身、对话、做梦都是一次醒来
  * - 「住进来的第几天」从一个固定日期起算，只是为了让数字会变
  */
-import { useEffect, useMemo, useState } from "react";
-import { simulateDay, sampleAt } from "~/lib/bodyClock";
-import { Badge, StatusDot, cx } from "~/design-system/components";
+import { useEffect, useState } from "react";
+import { StatusDot, cx } from "~/design-system/components";
 
 type Labels = {
-  note: string; mode: { awake: string; asleep: string }; saying: { awake: string; asleep: string };
+  mode: { awake: string; asleep: string }; saying: { awake: string; asleep: string };
   fields: { alertness: string; pressure: string; battery: string; light: string; day: string; lastWake: string };
   units: { lux: string; day: string }; charging: string; ago: (m: number) => string;
 };
 
 const MOVED_IN = Date.UTC(2026, 8, 28); // 示例起算日：只决定「第几天」这个会变的数字
+const WAKE_AT = 7.85, SLEEP_AT = 22.3; // 示例作息：7:51 醒，22:18 睡
+const isAwake = (h: number) => h >= WAKE_AT && h < SLEEP_AT;
+/** 示例清醒度：醒着时从 0.55 爬到下午 4 点的 0.95 再回落到 0.4；睡着时 0.12–0.2。 */
+const alertness = (h: number) => (isAwake(h) ? 0.4 + 0.55 * Math.sin((Math.PI * (h - WAKE_AT)) / (SLEEP_AT - WAKE_AT)) : 0.12 + 0.08 * Math.abs(Math.sin((Math.PI * (h + 2)) / 10)));
+/** 示例睡眠压力：醒着时从 0.2 线性积累到 0.8；睡着时从 0.8 回落到 0.2。 */
+const pressure = (h: number) => (isAwake(h) ? 0.2 + 0.6 * ((h - WAKE_AT) / (SLEEP_AT - WAKE_AT)) : 0.8 - 0.6 * (((h < WAKE_AT ? h + 24 : h) - SLEEP_AT) / (24 - SLEEP_AT + WAKE_AT)));
 /** 示例电量：7 点满电，白天每小时掉约 3%，23 点后充电。 */
 const battery = (h: number) => (h < 7 || h >= 23 ? { level: Math.min(100, Math.round(70 + ((h < 7 ? h + 1 : h - 23) / 8) * 30)), charging: true } : { level: Math.round(100 - (h - 7) * 3.2), charging: false });
 /** 示例光线：夜里 3 lx，白天按日照曲线到 400 lx。 */
@@ -30,7 +35,6 @@ function lastWakeMinutes(times: string[], hour: number): number | null {
 }
 
 export function ExampleBody({ t, events, className }: { t: Labels; events: string[]; className?: string }) {
-  const samples = useMemo(() => simulateDay(), []);
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -39,7 +43,7 @@ export function ExampleBody({ t, events, className }: { t: Labels; events: strin
     return () => clearInterval(id);
   }, []);
   const hour = now ? now.getHours() + now.getMinutes() / 60 : null;
-  const s = hour == null ? null : sampleAt(samples, hour);
+  const s = hour == null ? null : { awake: isAwake(hour), alertness: alertness(hour), S: pressure(hour) };
   const bat = hour == null ? null : battery(hour);
   const days = now ? Math.max(1, Math.floor((now.getTime() - MOVED_IN) / 86_400_000)) : null;
   const woke = hour == null ? null : lastWakeMinutes(events, hour);
@@ -53,12 +57,9 @@ export function ExampleBody({ t, events, className }: { t: Labels; events: strin
   );
   return (
     <div className={cx("rounded-2xl border border-border bg-surface p-6 sm:p-8", className)}>
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <StatusDot alive={awake} />
-          <span className="text-2xl font-semibold tracking-tight">{s ? (awake ? t.mode.awake : t.mode.asleep) : "—"}</span>
-        </div>
-        <Badge tone="secondary">{t.note}</Badge>
+      <div className="flex items-center gap-3">
+        <StatusDot alive={awake} />
+        <span className="text-2xl font-semibold tracking-tight">{s ? (awake ? t.mode.awake : t.mode.asleep) : "—"}</span>
       </div>
       <p className="mt-2 text-fg-muted">{s ? (awake ? t.saying.awake : t.saying.asleep) : ""}</p>
       <dl className="mt-6">

@@ -101,7 +101,10 @@ export default function Home() {
                       {t.why.keys.map((k, j) => (
                         <div key={k} className="flex flex-col gap-1 py-3">
                           <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{k}</dt>
-                          <dd className={cx("text-sm text-pretty", mine ? "text-fg" : "text-fg-muted")}>{c.cells[j]}</dd>
+                          <dd className="text-sm text-pretty">
+                            <span className={cx("font-medium", mine ? "text-fg" : "text-fg")}>{c.cells[j].k}</span>{" "}
+                            <span className="text-fg-muted">{c.cells[j].t}</span>
+                          </dd>
                         </div>
                       ))}
                     </dl>
@@ -114,12 +117,12 @@ export default function Home() {
             <Reveal className="flex flex-col gap-3 border-t border-border pt-5">
               <p className="font-medium text-fg">{t.why.notFor.title}</p>
               <ul className="flex flex-col gap-2 text-sm text-fg-muted">
-                {t.why.notFor.items.map((it) => <li key={it} className="grid grid-cols-[0.75rem_1fr] gap-2"><span aria-hidden className="mt-2 inline-block size-1.5 rounded-full bg-fg-subtle" /><span>{it}</span></li>)}
+                {t.why.notFor.items.map((it) => <li key={it.k} className="grid grid-cols-[0.75rem_1fr] gap-2"><span aria-hidden className="mt-2 inline-block size-1.5 rounded-full bg-fg-subtle" /><span><span className="font-medium text-fg">{it.k}</span> {it.t}</span></li>)}
               </ul>
             </Reveal>
             <Reveal delay={1} className="flex flex-col gap-3 border-t border-border pt-5">
               <p className="font-medium text-fg">{t.why.bridge.title}</p>
-              <p className="text-sm text-fg-muted text-pretty">{t.why.bridge.text}</p>
+              <p className="text-sm text-fg-muted text-pretty"><span className="font-medium text-fg">{t.why.bridge.k}</span> {t.why.bridge.text}</p>
               <Link to={localized(lang, t.why.link)} className="text-sm text-link underline-offset-4 hover:underline">{t.why.learnMore} →</Link>
             </Reveal>
           </div>

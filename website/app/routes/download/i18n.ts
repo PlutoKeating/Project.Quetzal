@@ -6,7 +6,7 @@ export const messages = defineMessages({
     description: "下载 Quetzal App。所有版本都来自 GitHub Releases，这一页实时读取最新发布。",
     eyebrow: "下载",
     heading: "装进一台闲置的安卓手机",
-    lead: "Quetzal App 内置运行基座与 Termux 身体适配器。装好 App，剩下的交给它的安装向导。",
+    lead: "Quetzal App 内置运行基座。装好 App，跟着向导走。",
     latest: {
       eyebrow: "最新版本",
       prerelease: "预览版",
@@ -28,7 +28,9 @@ export const messages = defineMessages({
       apiDesc: "传感器、通知、相机、麦克风等身体能力",
       boot: "Termux:Boot",
       bootDesc: "开机自启，重启后 ta 自己醒来",
-      requirements: "要求：Android 7 以上，arm64 处理器。",
+      apk: "直接下载 APK",
+      page: "F-Droid 页面",
+      requirements: "要求：Android 7 以上，arm64 处理器。直链是 F-Droid 仓库里的固定版本，三个一起下完就能装。",
       guide: "完整安装步骤",
     },
     notes: {
@@ -45,7 +47,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux 与其他机器",
       heading: "装到一台 Linux 电脑或服务器上",
-      body: ["一台 Linux 电脑或服务器，一行命令就能让 ta 住进去：", "。装好后网页控制台在浏览器里自动打开，设置和聊天都在里面，不需要手机；以后再运行一次就是升级。"],
+      body: "一行命令，ta 就住进去了。装好后浏览器会打开网页控制台，设置和聊天都在里面，不需要手机。再运行一次就是升级。",
       command: "npx @plutokeating/quetzal",
       link: "Linux 与其他机器",
     },
@@ -65,7 +67,7 @@ export const messages = defineMessages({
     description: "Download the Quetzal app. Every version comes from GitHub Releases; this page reads the latest release live.",
     eyebrow: "Download",
     heading: "Install it on a spare Android phone",
-    lead: "The Quetzal app bundles the runtime and the Termux body adapter. Install the app, and its setup wizard does the rest.",
+    lead: "The Quetzal app bundles the runtime. Install it and follow the wizard.",
     latest: {
       eyebrow: "Latest release",
       prerelease: "Pre-release",
@@ -87,7 +89,9 @@ export const messages = defineMessages({
       apiDesc: "Body abilities: sensors, notifications, camera, microphone",
       boot: "Termux:Boot",
       bootDesc: "Starts at boot, so it wakes up by itself after a reboot",
-      requirements: "Requirements: Android 7 or later, arm64 processor.",
+      apk: "Download APK",
+      page: "F-Droid page",
+      requirements: "Requirements: Android 7 or later, arm64 processor. The direct links point to pinned versions in the F-Droid repository; download all three and install.",
       guide: "Full installation guide",
     },
     notes: {
@@ -104,7 +108,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux and other machines",
       heading: "Install on a Linux computer or server",
-      body: ["One command gives it a home on a Linux computer or server: ", ". The web console then opens in your browser; settings and conversations all happen there, no phone needed. Run the command again later to upgrade."],
+      body: "One command and it moves in. The web console then opens in your browser; settings and conversations happen there, no phone needed. Run it again to upgrade.",
       command: "npx @plutokeating/quetzal",
       link: "Linux and other machines",
     },

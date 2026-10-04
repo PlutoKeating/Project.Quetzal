@@ -19,16 +19,14 @@ flowchart TB
 
 ## 1. Install the Termux trio
 
-Install these three apps from [F-Droid](https://f-droid.org/packages/com.termux/) (or Termux's GitHub releases):
+All three come from F-Droid. These are direct links to pinned versions, so you can download them all at once without the F-Droid client:
 
-| App | Role |
-|---|---|
-| **Termux** | The Linux environment the runtime lives in |
-| **Termux:API** | Battery, sensors, notifications, camera, microphone, location, clipboard. Without it she cannot feel her body |
-| **Termux:Boot** | Start on boot (without it you must ignite manually after a reboot) |
+- **Termux** 0.119.0-beta.3: [Download APK](https://f-droid.org/repo/com.termux_1022.apk) (110 MB) · [F-Droid page](https://f-droid.org/packages/com.termux/). The Linux environment the runtime lives in.
+- **Termux:API** 0.53.0: [Download APK](https://f-droid.org/repo/com.termux.api_1002.apk) (3.9 MB) · [F-Droid page](https://f-droid.org/packages/com.termux.api/). Battery, sensors, notifications, camera, microphone, location, clipboard; without it she cannot feel her body.
+- **Termux:Boot** 0.8.1: [Download APK](https://f-droid.org/repo/com.termux.boot_1000.apk) (26 KB) · [F-Droid page](https://f-droid.org/packages/com.termux.boot/). Start on boot; without it you must ignite manually after a reboot.
 
 > [!IMPORTANT]
-> All three must come from the **same source** (same signature) or they cannot talk to each other. The Termux on Google Play is deprecated; do not use it.
+> All three must come from the **same source** (same signature) or they cannot talk to each other. The direct links above and the F-Droid pages are the same source. The Termux on Google Play is deprecated; do not use it.
 
 After installing, **open Termux once** and wait for it to finish initializing (the first launch unpacks the environment and takes a little while).
 
