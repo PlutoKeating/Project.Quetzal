@@ -1,8 +1,9 @@
 # 发版：推送 v<版本> 标签 → 测试并构建运行基座与 App → 创建 GitHub Release。
 # 资产命名（官网下载页按此识别）：
 #   windler-<版本>-android-arm64.apk     Windler App（内置运行基座与 Termux 身体适配器）
-#   windler-runtime-<版本>.tar.gz        运行基座 main.cjs + termux.mjs（部署到其他机器）
+#   windler-runtime-<版本>.tar.gz        运行基座 main.cjs + termux.mjs + linux.mjs（部署到其他机器）
 #   SHA256SUMS
+# 同时把 cli/ 发布为 npm 包 windler（npx windler 安装到 Linux）：仓库 Secrets 里提供 NPM_TOKEN（Automation 令牌）；缺少则跳过 npm 发布。
 # 发布说明：CHANGELOG.md 里「## <版本>」小节（没有则只用 GitHub 自动生成的提交摘要）。
 # 依赖的 action 都用 Node 24 运行时的大版本（checkout v7、setup-node v7、setup-java v6、action-gh-release v3），避免弃用警告。
 # 正式签名：仓库 Secrets 里提供 ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD；
@@ -22,21 +23,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: 校验版本号一致（标签 = runtime/package.json = console/pubspec.yaml）
+      - name: 校验版本号一致（标签 = runtime/package.json = console/pubspec.yaml = cli/package.json）
         id: ver
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           RT=$(node -p "require('./runtime/package.json').version")
           APP=$(sed -n 's/^version: *\([0-9][0-9.]*\).*/\1/p' console/pubspec.yaml)
-          echo "tag=$TAG runtime=$RT app=$APP"
-          [ "$TAG" = "$RT" ] && [ "$TAG" = "$APP" ] || { echo "版本号不一致"; exit 1; }
+          CLI=$(node -p "require('./cli/package.json').version")
+          echo "tag=$TAG runtime=$RT app=$APP cli=$CLI"
+          [ "$TAG" = "$RT" ] && [ "$TAG" = "$APP" ] && [ "$TAG" = "$CLI" ] || { echo "版本号不一致"; exit 1; }
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
           cache: npm
-          cache-dependency-path: runtime/package-lock.json
+          cache-dependency-path: |
+            runtime/package-lock.json
+            cli/package-lock.json
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -49,6 +54,14 @@ jobs:
 
       - name: 构建运行基座并内置进 App（npm ci + test + build）
         run: console/tool/bundle-runtime.sh
+
+      - name: 构建 npm 包 windler（内置运行基座与 Linux 适配器）
+        working-directory: cli
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+          npm pack --pack-destination ../out-npm
 
       # 步骤级 if 里不能引用 secrets 上下文（GitHub 会直接判定工作流文件无效，一个 job 都不跑），
       # 所以先把密钥放进步骤 env，在 shell 里判断是否为空。
@@ -81,7 +94,7 @@ jobs:
         run: |
           mkdir -p out
           cp console/build/app/outputs/flutter-apk/app-release.apk "out/windler-$V-android-arm64.apk"
-          tar -czf "out/windler-runtime-$V.tar.gz" -C runtime/dist main.cjs termux.mjs
+          tar -czf "out/windler-runtime-$V.tar.gz" -C runtime/dist main.cjs termux.mjs linux.mjs
           (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
 
       - name: 提取发布说明（CHANGELOG.md 的对应小节）
@@ -92,6 +105,15 @@ jobs:
             awk -v v="## $V" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md > out/NOTES.md
           fi
           [ -s out/NOTES.md ] || : > out/NOTES.md
+
+      - name: 发布 npm 包（有 NPM_TOKEN 时）
+        working-directory: cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "没有配置 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
+          TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
+          npm publish ../out-npm/windler-*.tgz --access public --tag "$TAG"
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v3

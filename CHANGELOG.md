@@ -2,6 +2,17 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.4.0
+
+- **Linux 身体**：新的平台级身体适配器 `runtime/adapters/linux/`（构建为 `dist/linux.mjs`）——电量、充电与电池温度读 `/sys/class/power_supply`（跳过蓝牙鼠标等外设电池），CPU 温度放进 extra；桌面通知（`notify-send`，同时写进服务日志）、播放（`pw-play` / `paplay` / `ffplay` / `mpv`）、工具 `take_photo`、`record_audio`、`screenshot`（hands）、`clipboard`、`open`，有什么程序用什么，没有图形界面的服务器上相关工具直接说明。
+- **Linux body**: a new platform-level body adapter `runtime/adapters/linux/` (built as `dist/linux.mjs`) — battery level, charging state and battery temperature from `/sys/class/power_supply` (peripheral batteries such as Bluetooth mice are skipped), CPU temperature in extra; desktop notifications (`notify-send`, also written to the service log), playback (`pw-play` / `paplay` / `ffplay` / `mpv`), and the tools `take_photo`, `record_audio`, `screenshot` (hands), `clipboard` and `open`, using whatever programs are present; on a headless server the desktop tools explain themselves instead of failing.
+- **`npx windler`**：新的 npm 包 `windler`（源码在 `cli/`）把运行基座装到任意 Linux 机器：内置的 `main.cjs` 与 `linux.mjs` 放进 `~/windler/releases/<版本>/`（与 Android 安装器相同的 current / previous 约定），注册 systemd 用户服务并启动，健康检查失败自动切回上一版；再运行一次即升级。子命令 `status`、`logs`、`rollback`、`uninstall [--purge]`、`run`（没有 systemd 时前台运行）。配置仍全部在控制台 App 里完成。
+- **`npx windler`**: a new npm package `windler` (source in `cli/`) installs the runtime on any Linux machine: the bundled `main.cjs` and `linux.mjs` go into `~/windler/releases/<version>/` (the same current / previous layout as the Android installer), a systemd user service is registered and started, and a failed health check rolls back automatically; running it again upgrades. Subcommands `status`, `logs`, `rollback`, `uninstall [--purge]` and `run` (foreground, for machines without systemd). All configuration still happens in the console app.
+- 网关新增 `gateway.host`（缺省 `127.0.0.1`）；`npx windler --lan` 把它设为 `0.0.0.0`，手机上的 App 直接填 Linux 机器的地址连接，配对码仍是门槛。
+- The gateway gains `gateway.host` (default `127.0.0.1`); `npx windler --lan` sets it to `0.0.0.0` so the app on your phone can connect to the Linux machine's address directly, with the pairing code still as the gate.
+- 发版工作流同时发布 npm 包（仓库 Secrets `NPM_TOKEN`，缺少时跳过），运行基座压缩包里加入 `linux.mjs`。
+- The release workflow also publishes the npm package (repository secret `NPM_TOKEN`; skipped when absent), and the runtime tarball now includes `linux.mjs`.
+
 ## 0.3.3
 
 - 修复：0.3.2 的飞书执行过程卡片全部发送失败（卡片 JSON 被多包了一层，飞书报 parse card json err），看起来像她没有运行工具。
