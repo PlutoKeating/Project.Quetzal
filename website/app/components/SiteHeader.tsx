@@ -36,9 +36,9 @@ export function SiteHeader() {
           ))}
           <a href={GITHUB_REPO} target="_blank" rel="noreferrer noopener" className={linkClass({ isActive: false })}>{t.nav.github} ↗</a>
         </nav>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <LangSwitch />
-          <ThemeToggle className="hidden sm:inline-flex" />
+          <ThemeToggle className="max-sm:hidden" />
           <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-controls="mobile-nav" aria-label={open ? t.close : t.menu}
             className="inline-flex size-9 items-center justify-center rounded-full border border-border text-fg-muted hover:bg-surface-hover hover:text-fg md:hidden">
             <span aria-hidden className="text-lg leading-none">{open ? "×" : "≡"}</span>

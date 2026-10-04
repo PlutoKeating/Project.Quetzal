@@ -116,21 +116,22 @@ jobs:
             out/quetzal-*.apk
             out/SHA256SUMS
 
+      # 两个 registry 各用一份独立的 npm 用户配置：带作用域的包按 @作用域:registry 决定发到哪、用哪条凭据，--registry 参数不改变凭据查找
       - name: 发布到 GitHub Packages（仓库的 Packages 栏目；用 GITHUB_TOKEN，总是执行）
         working-directory: cli
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # setup-node 写入的 .npmrc 引用了这个变量，缺省会让 npm 报错
         run: |
-          echo "//npm.pkg.github.com/:_authToken=$GH_TOKEN" >> "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"  # setup-node 把用户配置指到了 NPM_CONFIG_USERCONFIG
+          printf '@plutokeating:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$GH_TOKEN" > "$RUNNER_TEMP/npmrc-github"
           TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
-          npm publish ../out-npm/plutokeating-quetzal-*.tgz --registry https://npm.pkg.github.com --tag "$TAG"
+          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc-github" npm publish ../out-npm/plutokeating-quetzal-*.tgz --tag "$TAG"
 
       - name: 发布到 npmjs.com（有 NPM_TOKEN 时；令牌须是 Granular Access Token 且允许绕过 2FA）
         working-directory: cli
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "没有配置 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
+          if [ -z "$NPM_TOKEN" ]; then echo "没有配置 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
+          printf '@plutokeating:registry=https://registry.npmjs.org\n//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/npmrc-npmjs"
           TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
-          npm publish ../out-npm/plutokeating-quetzal-*.tgz --access public --tag "$TAG"
+          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc-npmjs" npm publish ../out-npm/plutokeating-quetzal-*.tgz --access public --tag "$TAG"

@@ -13,7 +13,7 @@ export function LangSwitch() {
           onClick={() => storeLang(l)}
           hrefLang={l}
           aria-current={l === lang ? "true" : undefined}
-          className={`rounded-full px-3 py-1 transition-colors duration-(--ds-duration-fast) ${l === lang ? "bg-accent text-accent-fg" : "text-fg-muted hover:text-fg"}`}
+          className={`whitespace-nowrap rounded-full px-2.5 py-1 transition-colors duration-(--ds-duration-fast) sm:px-3 ${l === lang ? "bg-accent text-accent-fg" : "text-fg-muted hover:text-fg"}`}
         >
           {LANG_LABEL[l]}
         </Link>
