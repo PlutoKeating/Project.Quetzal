@@ -517,7 +517,7 @@ class _AppUpdateSectionState extends State<AppUpdateSection> {
   @override
   Widget build(BuildContext context) => ListenableBuilder(listenable: appUpdater, builder: (context, _) {
     final u = appUpdater, r = u.latest, t = Theme.of(context).textTheme;
-    final busy = u.state == UpdateState.checking || u.state == UpdateState.downloading || u.state == UpdateState.verifying;
+    final busy = u.busy;
     return Section('Quetzal App', [
       Text('当前版本：${u.current ?? '-'}${u.state == UpdateState.upToDate ? '，已是最新' : ''}'),
       if (u.state == UpdateState.available && r != null) Text('新版本 ${r.version}${r.sizeText.isEmpty ? '' : '（${r.sizeText}）'}。装好后打开 Quetzal，它会提示把运行基座也升级到新版，记忆与配置都保留。'),

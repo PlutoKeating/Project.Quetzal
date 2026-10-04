@@ -9,7 +9,7 @@ lib/
 ├── igniter.dart       Termux 桥：RUN_COMMAND 执行、三件套检测与版本、打开应用、电池优化 / 自启动管理页（安卓）
 ├── hearing.dart       听觉桥：启停原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing）、权限、服务事件；跟随基座 status.hearing.listening，只对本机的 agent（安卓；网页版只跟着状态显示）
 ├── installer.dart     安装器：127.0.0.1 临时 HTTP 服务（提供 assets/install/install.sh 与 assets/runtime/*，接收脚本回报的进度、令牌）、探测 Termux 是否接受指令（安卓）
-├── updater.dart       App 自身的更新（安卓）：GitHub `releases/latest`（正式版；启动时每 6 小时问一次）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk` 到缓存目录（进度）→ 核对 SHA256SUMS → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」，新 App 启动后直接进向导升级运行基座
+├── updater.dart       App 自身的更新（安卓）：GitHub `releases/latest`（正式版；每次打开界面——启动与从后台回来——都问一次，正在检查时不重复）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk` 到缓存目录（进度）→ 核对 SHA256SUMS → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」，新 App 启动后直接进向导升级运行基座
 ├── widgets.dart       外壳模式（ShellScope）、页面框架（PageFrame：手机是 Scaffold + AppBar，桌面是主区里的一行标题）、面板宽度（PaneWidth）、底部面板 / 对话框（showSheet）、光团、驱动力条、连接状态、急停、离线横幅、分节卡片、提示
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
@@ -140,7 +140,7 @@ flowchart TB
 | 控制 · 灵魂同步 | 本机状态、立即同步、显示部署公钥、填写仓库地址并接入、让 Hermes 接入的说明 |
 | 控制 · 保密库 | 你通过保密输入交给她的值：名字、说明、时间、来源通道与大小，不显示内容；删除（二次确认） |
 | 控制 · 审批 / 审计 | 审批：理由（Markdown）与参数（JSON）；审计日志：列表一行预览，点开看完整参数与输出 |
-| 控制 · 服务 | 连接、版本、身体、系统资源、可用模型、App 内置的运行基座版本；「Quetzal App」一节（安卓）：当前版本、检查新版本、新版本的大小与「下载并安装」（下载进度 → 核对 → 系统安装器；首次要在系统设置里允许 Quetzal 安装应用，回来再点「安装」）、发布说明、失败时去下载页；点火、升级 / 重装（进安装向导）、重启、重新配对。网页版没有点火与升级（那是安卓安装器的事，Linux 上再运行一次 `npx @plutokeating/quetzal` 即升级） |
+| 控制 · 服务 | 连接、版本、身体、系统资源、可用模型、App 内置的运行基座版本；「Quetzal App」一节（安卓）：当前版本、检查新版本、新版本的大小与「下载并安装」（下载进度 → 核对 → 系统安装器；首次要在系统设置里允许 Quetzal 安装应用，从设置页回来自动接着装）、发布说明、失败时去下载页；点火、升级 / 重装（进安装向导）、重启、重新配对。网页版没有点火与升级（那是安卓安装器的事，Linux 上再运行一次 `npx @plutokeating/quetzal` 即升级） |
 | 安装向导 | 五步卡片：① 三件套（版本检测、下载链接）② 授权 RUN_COMMAND（系统弹窗）③ 在 Termux 粘贴一行开启外部调用（复制并打开 Termux；「检测」让 Termux 回连本机 HTTP 服务确认）④ 安装 / 升级（六个子步骤的进度、失败时显示脚本日志尾部与重试）⑤ 保活引导（忽略电池优化、电池优化名单、厂商自启动管理、打开一次 Termux:Boot）。安装完成时脚本把网关令牌交给控制台，自动连接，不需要配对码。App 升级后内置版本与运行中的不同时，外壳顶部出现「升级」横幅；App 自身有新版时（GitHub 最新正式版比运行中的 App 新）出现「Quetzal App 有新版本 X」横幅，「更新」进服务页，可关掉（本次运行内） |
 
 视觉：Material 3，种子色取当前 agent 的主题色（默认 `#F0A35E`，与官网设计系统的琥珀 accent 一致），默认深色；暗色模式下主色（按钮、进度条）直接用 agent 的主题色、其上文字用设计系统的 accent-fg `#1A120A`，而不是 M3 从种子推导的淡色；暗色背景固定为中性灰 `#202020`（RGB 32,32,32），各层容器为同一灰阶，不随主题色偏色；光团是主题色提高饱和度与亮度后的发光体（集中高光、压暗边缘、外层光晕；睡着时略沉、思考时更亮、急停变红）；动效表达状态、少用文字；光团用 `RepaintBoundary` 隔离重绘。

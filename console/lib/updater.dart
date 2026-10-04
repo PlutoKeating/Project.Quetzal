@@ -66,8 +66,7 @@ enum UpdateState { idle, checking, upToDate, available, downloading, verifying, 
 
 class AppUpdater extends ChangeNotifier {
   static const _ch = MethodChannel('quetzal/updater');
-  static const _prefCheckedAt = 'appUpdate.checkedAt', _prefInstalling = 'appUpdate.installingFrom';
-  static const autoCheckEvery = Duration(hours: 6);
+  static const _prefInstalling = 'appUpdate.installingFrom';
 
   UpdateState state = UpdateState.idle;
   String? current; // 正在运行的 App 版本（versionName）
@@ -84,25 +83,32 @@ class AppUpdater extends ChangeNotifier {
     try { return current = await _ch.invokeMethod<String>('version'); } catch (_) { return null; }
   }
 
-  /// 启动时的自动检查：隔 autoCheckEvery 才问一次 GitHub（匿名接口每小时每 IP 60 次，省着用）。
+  /// 正在忙（检查、下载、核对中）：不重复发起。
+  bool get busy => state == UpdateState.checking || state == UpdateState.downloading || state == UpdateState.verifying;
+
+  /// 每次打开界面（启动、从后台回来）都检查一次；正在忙或正等用户去设置里允许安装时不打扰。
   Future<void> autoCheck() async {
-    if (!hasBody) return;
-    final p = await SharedPreferences.getInstance();
-    final at = DateTime.fromMillisecondsSinceEpoch(p.getInt(_prefCheckedAt) ?? 0);
-    if (DateTime.now().difference(at) < autoCheckEvery) { await currentVersion(); return; }
+    if (!hasBody || busy || state == UpdateState.needPermission) return;
     await check();
   }
 
-  /// 问 GitHub 最新的正式版（`releases/latest` 不含预览版与草稿）。
+  /// 从后台回来：刚从「允许安装未知应用」的设置页回来就接着装；否则照常检查新版。
+  Future<void> onResume() async {
+    if (state == UpdateState.needPermission) {
+      if (await _ch.invokeMethod<bool>('canInstall') ?? false) await install();
+      return;
+    }
+    await autoCheck();
+  }
+
+  /// 问 GitHub 最新的正式版（`releases/latest` 不含预览版与草稿）。同一时刻只有一个检查在进行。
   Future<void> check() async {
-    if (!hasBody || state == UpdateState.checking || state == UpdateState.downloading) return;
+    if (!hasBody || busy) return;
     state = UpdateState.checking; error = null; notifyListeners();
     try {
       await currentVersion();
       final j = await fetchJson(Uri.parse(latestReleaseApi));
       latest = AppRelease.fromJson(j);
-      final p = await SharedPreferences.getInstance();
-      await p.setInt(_prefCheckedAt, DateTime.now().millisecondsSinceEpoch);
       state = hasUpdate ? UpdateState.available : UpdateState.upToDate;
     } catch (e) { _fail('$e'); return; }
     notifyListeners();

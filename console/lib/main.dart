@@ -83,7 +83,7 @@ class Shell extends StatefulWidget {
   State<Shell> createState() => _ShellState();
 }
 
-class _ShellState extends State<Shell> {
+class _ShellState extends State<Shell> with WidgetsBindingObserver {
   int tab = 0;
   String? bundled; // App 内置的运行基座版本：与运行中的不同时提示升级（本机部署才有意义）
   ShellMode? _mode;
@@ -91,7 +91,9 @@ class _ShellState extends State<Shell> {
 
   void _onUpdater() { if (mounted) setState(() {}); }
   @override
-  void dispose() { appUpdater.removeListener(_onUpdater); super.dispose(); }
+  void dispose() { appUpdater.removeListener(_onUpdater); WidgetsBinding.instance.removeObserver(this); super.dispose(); }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) { if (s == AppLifecycleState.resumed && hasBody) appUpdater.onResume(); }
 
   /// 窗口从窄变宽：手机外壳推入的页面（对话、设置……）还压在根 Navigator 上，会盖住整个桌面外壳；收起它们，桌面外壳按 nav 的位置接着显示。
   @override
@@ -110,7 +112,8 @@ class _ShellState extends State<Shell> {
     if (hasBody) {
       Installer.bundledVersion().then((v) { if (mounted) setState(() => bundled = v); });
       appUpdater.addListener(_onUpdater);
-      appUpdater.autoCheck(); // App 自身有没有新版（每 6 小时问一次 GitHub）
+      WidgetsBinding.instance.addObserver(this); // 从后台回来时再检查一次 / 接着装
+      appUpdater.autoCheck(); // App 自身有没有新版：每次打开界面都问一次 GitHub（正在检查时不重复）
       appUpdater.justUpdated().then((yes) { if (yes && mounted) setState(() => _runtimeAfterAppUpdate = true); }); // 刚装完新 App：等连上就直接进向导升级运行基座
     }
     api.events.listen((e) {

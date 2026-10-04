@@ -9,7 +9,7 @@ description: The app finds new releases and installs them in one tap, then upgra
 
 **Phones**: two layers, both one tap inside the app.
 
-1. **The app itself**: on launch the app asks GitHub for the latest release (once every 6 hours) and shows "A new Quetzal app version is available" at the top. Tap **Update** to reach **Control → Service → Quetzal App**, then **Download and install**: it downloads the APK, checks its SHA256 and hands it to the system installer. The first time, the system settings open so you can allow Quetzal to install apps; come back and tap **Install**. You can also **Check for updates** there any time; if GitHub is unreachable, **Download page** lets you fetch the APK by hand and the rest is the same.
+1. **The app itself**: every time you open the app it asks GitHub for the latest release and shows "A new Quetzal app version is available" at the top. Tap **Update** to reach **Control → Service → Quetzal App**, then **Download and install**: it downloads the APK, checks its SHA256 and hands it to the system installer. The first time, the system settings open so you can allow Quetzal to install apps; installation continues when you come back. You can also **Check for updates** there any time; if GitHub is unreachable, **Download page** lets you fetch the APK by hand and the rest is the same.
 2. **The runtime**: the Quetzal app bundles the runtime. When the new app opens and notices its bundled version is newer than the running one, it goes straight to the upgrade step of the setup wizard (or offers a **one-tap upgrade** on the home screen); you can also trigger it from **Control → Service → Upgrade / Reinstall**.
 
 Upgrading runs the same idempotent script as installation:
