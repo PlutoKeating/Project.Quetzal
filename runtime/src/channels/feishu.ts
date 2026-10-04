@@ -66,7 +66,7 @@ async function onCardAction(d: any) {
 const progressByConv = new Map<string, ProgressCards>();
 function progress(chatId: string, replyTo: string, session: string, conv: string) {
   const p = new ProgressCards({
-    send: async (to, data) => (await channel!.send(chatId, { card: { type: "raw", data } as any }, to ? { replyTo: to } : undefined))?.messageId,
+    send: async (to, data) => (await channel!.send(chatId, { card: data as any }, to ? { replyTo: to } : undefined))?.messageId, // 卡片 JSON 直接作为 card（{type:"raw"} 只用于卡片回调的返回）
     update: (id, data) => channel!.updateCard(id, data as any),
   }, replyTo, session, (m) => log("feishu", m));
   bus.on("activity", p.onActivity);

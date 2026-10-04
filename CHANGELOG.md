@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.3.3
+
+- 修复：0.3.2 的飞书执行过程卡片全部发送失败（卡片 JSON 被多包了一层，飞书报 parse card json err），看起来像她没有运行工具。
+- Fix: in 0.3.2 every Feishu progress card failed to send (the card JSON was wrapped one level too deep and Feishu rejected it), which made it look as if the agent had not run any tools.
+
 ## 0.3.2
 
 - 飞书：插话时执行过程卡片按插话分段——上面的卡片定格，新的一段作为回复你那条消息的新卡片在下面继续，最后的回复也接在最后一条插话下面；耳朵听到的话并入时同样分段。与控制台的分段显示一致。
