@@ -7,7 +7,7 @@ description: Turn a new device into a body with a few dozen lines of TypeScript 
 
 The runtime core does not know whether it runs on a phone, a Raspberry Pi or a server. Everything about the device — sensor sampling, system notifications, playing audio, device actions — comes from the **body adapter**. An adapter is an independently built ES module whose default export is a `BodyAdapter`.
 
-The repository ships one platform-level reference implementation: `runtime/adapters/termux/` (any Android phone + Termux:API, sensors detected by name), built as `dist/termux.mjs`.
+The repository ships two platform-level reference implementations: `runtime/adapters/termux/` (any Android phone + Termux:API, sensors detected by name), built as `dist/termux.mjs`, and `runtime/adapters/linux/` (any Linux machine: battery and temperature from `/sys`, desktop tools by detecting available programs), built as `dist/linux.mjs`.
 
 ## The interface
 

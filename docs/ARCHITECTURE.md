@@ -43,7 +43,7 @@ flowchart TB
 设计原则：
 
 - **单进程、模块化**：模块之间通过进程内事件总线（`bus.ts`）和少量函数调用耦合，便于单独测试。
-- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由适配器提供。仓库内自带一个平台级适配器 `runtime/adapters/termux/`（任意安卓手机 + Termux:API，传感器按名字探测），不含任何具体机型的实现。
+- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由适配器提供。仓库内自带两个平台级适配器：`runtime/adapters/termux/`（任意安卓手机 + Termux:API，传感器按名字探测）与 `runtime/adapters/linux/`（任意 Linux 机器：电池与温度读 `/sys`，桌面工具按可用程序探测），都不含任何具体机型的实现。
 - **状态全部落盘**：心脏状态、时间线、审计、用量在 SQLite，人格与记忆在灵魂目录。进程重启只相当于"睡了一觉"。
 - **所有控制入口共用一个操作层**（`ops.ts`）：控制台和飞书的行为完全一致，都经过审计。
 
@@ -349,6 +349,7 @@ flowchart LR
 
 - 基座只负责自身逻辑，**进程守护交给外部**（runit、systemd 等）：进程退出即被重新拉起。
 - **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
-- 部署者提供：Node.js 22+、`WINDLER_HOME`、可选的 `WINDLER_ADAPTER`（适配器模块路径）、进程守护者。
+- 部署者提供：Node.js 22.13+（`node:sqlite` 从这个版本起不需要标志）、`WINDLER_HOME`、可选的 `WINDLER_ADAPTER`（适配器模块路径）、进程守护者。
 - **Android + Termux 部署约定**（Windler App 的安装器与点火器按此约定工作，脚本在 `console/assets/install/install.sh`）：软件包 `nodejs-lts termux-services termux-api git openssh`；版本目录 `~/windler/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/windler/current` → 运行中的版本，`~/windler/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/windler`（`run` 以 `WINDLER_ADAPTER=$HOME/windler/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/windler/`；开机脚本 `~/.termux/boot/windler`（唤醒锁 + 启动 runit）；`termux.properties` 中 `allow-external-apps=true`。安装器在 App 内开一个 127.0.0.1 的临时 HTTP 服务提供脚本与运行基座文件、接收进度；脚本通过 Termux 的 `RUN_COMMAND` 执行，完成后把 `secrets/gateway.token` 交给控制台，同一台手机上不需要配对码。健康检查 40 秒不通过自动切回 `previous`。
-- **配置缺省**：`body` 由安装器写为机型名，`timezone` 取系统时区；相机、麦克风、定位、操作屏幕默认「每次询问」；听觉默认关闭。
+- **Linux + npm 部署约定**（npm 包 `windler`，源码在 `cli/`，与 Android 约定同构）：`npx windler` 把包内置的 `main.cjs`、`linux.mjs` 放进 `~/windler/releases/<版本>/`，`current` / `previous` 同上；守护者是 systemd 用户服务 `~/.config/systemd/user/windler.service`（`ExecStart=<安装时的 node> --enable-source-maps ~/windler/current/main.cjs`，`WINDLER_ADAPTER=~/windler/current/linux.mjs`，`Restart=always`），日志在 journald；尝试 `loginctl enable-linger` 让服务在没有登录会话时也运行。健康检查 40 秒且 `/health` 的版本相符才算成功，否则切回 `previous`。`--lan` 把 `gateway.host` 写为 `0.0.0.0`，手机上的 App 直接连这台机器；配对码由适配器的 `notify` 弹桌面通知并写进服务日志。没有 systemd 用户实例时只放文件，提示 `windler run` 前台运行。
+- **配置缺省**：`body` 由安装器写为机型名（Android）或主机名（Linux），`timezone` 取系统时区；相机、麦克风、定位、操作屏幕默认「每次询问」；听觉默认关闭；网关只监听本机。

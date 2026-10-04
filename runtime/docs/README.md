@@ -1,11 +1,11 @@
 # runtime · 运行基座
 
-TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），打包为单文件 `dist/main.cjs`。`adapters/termux/` 是安卓手机（Termux + Termux:API）的身体适配器，打包为 `dist/termux.mjs`，随 Windler App 内置。
+TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），打包为单文件 `dist/main.cjs`。两个平台级身体适配器：`adapters/termux/`（安卓手机，Termux + Termux:API）打包为 `dist/termux.mjs`，随 Windler App 内置；`adapters/linux/`（任意 Linux 电脑或服务器：电池与温度读 `/sys`，通知、播放、截图、剪贴板、相机、录音按可用程序探测）打包为 `dist/linux.mjs`，随 npm 包 `windler`（`../cli`）内置。
 
 | 命令 | 作用 |
 |---|---|
-| `npm test` | 单元与集成测试（心脏数学、记忆语义、灵魂 git 合并、供应商保存与故障转移、保密传递、自造工具、听觉） |
-| `npm run build` | 类型检查 + esbuild 打包（`dist/main.cjs` 与 `dist/termux.mjs`） |
+| `npm test` | 单元与集成测试（心脏数学、记忆语义、灵魂 git 合并、供应商保存与故障转移、保密传递、自造工具、听觉、两个适配器的探测逻辑） |
+| `npm run build` | 类型检查 + esbuild 打包（`dist/main.cjs`、`dist/termux.mjs`、`dist/linux.mjs`） |
 | `npm run dev` | 以 `./.dev` 为家目录直接运行源码 |
 
 运行时依赖只有四个：`ws`（网关）、`@larksuiteoapi/node-sdk`（飞书长连接、交互卡片、一键创建机器人）、`jpeg-js`（纯 JS 的 JPEG 编解码：手机上没有 ffmpeg / ImageMagick 时也能把大照片缩小后交给模型）与 `microsoft-cognitiveservices-speech-sdk`（听觉的流式识别：裸 WebSocket 协议的社区实现都已弃用，官方 SDK 是 Node 下的标准做法，打包后约 1 MB）。

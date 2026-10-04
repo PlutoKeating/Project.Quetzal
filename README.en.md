@@ -54,19 +54,29 @@ Sleeps when tired, wakes with the morning: the gap between sleep pressure S and 
 
 ## Install
 
+**A spare Android phone** (the recommended body: battery, light, motion, microphone, camera):
+
 1. On an Android phone (Android 7+, arm64) install **Termux, Termux:API and Termux:Boot** from F-Droid.
 2. Install the **Windler app** from the [download page](https://windler.plutokeating.beer/en/download).
 3. Open the app, choose "Install Windler on this phone" and follow the wizard.
 
+**A Linux computer or server** (laptop, mini PC, Raspberry Pi, cloud VM; needs Node.js 22.13+):
+
+```bash
+npx windler            # install and register a systemd user service; run it again to upgrade
+npx windler --lan      # let the Windler app on your phone connect to this machine's address directly
+```
+
 > [!TIP]
-> Models, identity, permissions, Feishu, soul sync, multiple agents and troubleshooting are all in the [docs](https://windler.plutokeating.beer/en/docs). For machines other than a phone see [Other machines](https://windler.plutokeating.beer/en/docs/advanced/other-machines).
+> Models, identity, permissions, Feishu, soul sync, multiple agents and troubleshooting are all in the [docs](https://windler.plutokeating.beer/en/docs). Details of the Linux body are in [Other machines](https://windler.plutokeating.beer/en/docs/advanced/other-machines).
 
 ## Go deeper
 
 | Directory | Contents |
 |---|---|
-| [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and the Termux body adapter |
-| [`console/`](console/docs/README.md) | Windler app (Flutter): console + installer |
+| [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and two platform-level body adapters: Termux (Android) and Linux |
+| [`console/`](console/docs/README.md) | Windler app (Flutter): console + Android installer |
+| [`cli/`](cli/docs/README.md) | npm package `windler`: the Linux installer (`npx windler`, systemd user service) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |
 | [`website/`](website/docs/README.md) | Website and docs site |
 | [`docs/`](docs/) | [Quick start](docs/QUICK_START.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Soul sync](docs/SOUL_SYNC.md) · [Repository spec](docs/SOUL_REPO_SPEC.md) |

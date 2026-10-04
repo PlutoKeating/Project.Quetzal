@@ -68,3 +68,17 @@ $PREFIX/var/log/sv/windler/        logs (rotated by svlogd)
 ```
 
 Packages: `nodejs-lts termux-services termux-api git openssh`. Only the last three versions are kept. A health check failing for 40 seconds switches back to `previous`.
+
+## Linux / npm deployment conventions
+
+The npm package `windler` (`npx windler`) follows these, mirroring Android:
+
+```
+~/windler/releases/<version>/           main.cjs, linux.mjs
+~/windler/current → releases/…          the running version
+~/windler/previous → releases/…         the previous version (for rollback)
+~/.config/systemd/user/windler.service  systemd user service: WINDLER_HOME, WINDLER_ADAPTER=~/windler/current/linux.mjs, Restart=always
+journalctl --user -u windler            logs (npx windler logs)
+```
+
+Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` in `config/windler.json`.

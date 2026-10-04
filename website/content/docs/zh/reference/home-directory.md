@@ -68,3 +68,17 @@ $PREFIX/var/log/sv/windler/       日志（svlogd 自动轮转）
 ```
 
 软件包：`nodejs-lts termux-services termux-api git openssh`。只保留最近 3 个版本。健康检查 40 秒不通过自动切回 `previous`。
+
+## Linux / npm 部署约定
+
+npm 包 `windler`（`npx windler`）按此约定工作，与安卓同构：
+
+```
+~/windler/releases/<版本>/              main.cjs、linux.mjs
+~/windler/current → releases/…          运行中的版本
+~/windler/previous → releases/…         上一版（回退用）
+~/.config/systemd/user/windler.service  systemd 用户服务：WINDLER_HOME、WINDLER_ADAPTER=~/windler/current/linux.mjs，Restart=always
+journalctl --user -u windler            日志（npx windler logs）
+```
+
+要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）自动切回 `previous`。`--lan` 把 `config/windler.json` 的 `gateway.host` 写为 `0.0.0.0`。

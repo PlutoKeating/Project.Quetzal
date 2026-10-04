@@ -80,4 +80,20 @@ interface BodyAdapter {
 | `speak` | Not provided (many phones lack a system TTS); speech comes from the runtime's `voice_speak` |
 | Media location | `WINDLER_HOME/data/media/` |
 
-It is a **platform-level** adapter: any Android phone plus Termux:API, everything by detection, with no device-specific code. To write a new one see [Custom body adapter](/docs/advanced/custom-adapter).
+It is a **platform-level** adapter: any Android phone plus Termux:API, everything by detection, with no device-specific code.
+
+## The Linux adapter (`runtime/adapters/linux/`, built as `dist/linux.mjs`)
+
+Installed by the npm package `windler` (`npx windler`); platform-level too: any Linux computer or server, everything by detection.
+
+| Capability | Implementation |
+|---|---|
+| `sample()` | `/sys/class/power_supply`: level / charging / health (peripheral batteries such as Bluetooth mice are skipped; "Not charging" with mains online counts as charging), the battery's own temperature (`temp`, rare on laptops); `extra`: CPU temperature (`/sys/class/thermal`, not treated as body temperature) and power source. Desktops and servers without a battery report extra only |
+| `describe` | Distribution (`/etc/os-release`), laptop or not, desktop session or not, camera (`/dev/video0`) and sound card (`/proc/asound/cards`) |
+| `notify()` | `notify-send` when a desktop is present; always written to stdout (the service log) too, so a headless machine reads the pairing code from `windler logs` |
+| `playAudio()` / `stopAudio()` | `pw-play` / `paplay` / `ffplay` / `mpv`, plus `aplay` for WAV; plays in the background and returns at once |
+| Tools | `take_photo` (camera: `ffmpeg` on `/dev/video0`), `record_audio` (microphone: `arecord` / `pw-record` / `parecord` / `ffmpeg`, WAV), `screenshot` (hands: `grim` / `gnome-screenshot` / `spectacle` on Wayland, `scrot` / `gnome-screenshot` / `spectacle` / `import` on X11), `clipboard` (device: `wl-clipboard` / `xclip` / `xsel`), `open` (device: `xdg-open`) |
+| `speak` | Not provided; speech comes from the runtime's `voice_speak` |
+| Media location | `WINDLER_HOME/data/media/` |
+
+On a headless server the screenshot, clipboard and open tools simply say that the machine has no graphical session instead of failing. To write a new one see [Custom body adapter](/docs/advanced/custom-adapter).

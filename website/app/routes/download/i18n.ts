@@ -45,10 +45,10 @@ export const messages = defineMessages({
       count: "个版本",
     },
     other: {
-      eyebrow: "其他机器",
-      heading: "部署到不是手机的地方",
-      body: "运行基座包里是单文件的 main.cjs 与 Termux 身体适配器 termux.mjs。任何能跑 Node.js 22 与 git 的机器都可以成为 ta 的身体，交给 runit、systemd 之类的进程守护者即可。",
-      link: "部署到其他机器",
+      eyebrow: "Linux 与其他机器",
+      heading: "装到一台 Linux 电脑或服务器上",
+      body: "有 Node.js 22.13+ 的 Linux 机器一行命令：npx windler。它把运行基座与 Linux 身体适配器装进 ~/windler，交给 systemd 守护，再运行一次就是升级；加 --lan 让手机上的 App 直接连这台机器。运行基座包里另有单文件 main.cjs 与两个适配器，任何能跑 Node.js 与 git 的机器都可以成为 ta 的身体。",
+      link: "Linux 与其他机器",
     },
     state: {
       loading: "正在从 GitHub 读取最新发布…",
@@ -105,10 +105,10 @@ export const messages = defineMessages({
       count: "releases",
     },
     other: {
-      eyebrow: "Other machines",
-      heading: "Deploy somewhere that is not a phone",
-      body: "The runtime package contains the single-file main.cjs and the Termux body adapter termux.mjs. Any machine with Node.js 22 and git can be a body; hand it to a process supervisor such as runit or systemd.",
-      link: "Deploy to other machines",
+      eyebrow: "Linux and other machines",
+      heading: "Install on a Linux computer or server",
+      body: "On a Linux machine with Node.js 22.13+ it is one command: npx windler. It installs the runtime and the Linux body adapter into ~/windler under a systemd user service; run it again to upgrade, add --lan to let the app on your phone connect directly. The runtime package also ships the single-file main.cjs with both adapters, so any machine with Node.js and git can be a body.",
+      link: "Linux and other machines",
     },
     state: {
       loading: "Reading the latest release from GitHub…",

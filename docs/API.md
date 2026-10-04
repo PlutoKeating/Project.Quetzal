@@ -4,7 +4,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 ## 1. 网关
 
-只监听 `127.0.0.1:<gateway.port>`（默认 7788）。
+缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788）；配置 `gateway.host` 为 `0.0.0.0` 可对局域网开放（`npx windler --lan`），此时配对码与令牌是唯一门槛，只在可信的局域网里这样做。
 
 ### 1.1 HTTP
 
@@ -202,11 +202,13 @@ interface RawSample {
 
 约束：
 
-- 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带的 `runtime/adapters/termux/`（安卓手机 + Termux:API）是参考实现，构建为 `dist/termux.mjs`，由 Windler App 的安装器随运行基座一起放到手机上；
+- 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带两个平台级实现：`runtime/adapters/termux/`（安卓手机 + Termux:API）构建为 `dist/termux.mjs`，由 Windler App 的安装器随运行基座放到手机上；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `windler` 随运行基座放到 `~/windler/current/`；
 - 适配器从 `WINDLER_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理。
 
 Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Windler」按钮）、`playAudio()` / `stopAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`WINDLER_HOME`（媒体保存位置 `data/media/`）、`WINDLER_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.windler.console/.MainActivity`）。
+
+Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/power_supply`，跳过蓝牙鼠标等外设电池；`charging` 在「Not charging」且外接电源在线时也为真）、电池自身温度（`temp` 节点，笔记本少有），`extra` 里的 CPU 温度（`/sys/class/thermal`，不冒充体温，因为心脏与听觉按手机电池的 45°C 抑制）与电源来源；`describe` 含发行版（`/etc/os-release`）、是否笔记本、有没有桌面、摄像头与声卡；`notify()`（有桌面时 `notify-send`，同时写到标准输出即服务日志，没有桌面的机器从日志里看配对码）、`playAudio()` / `stopAudio()`（`pw-play` / `paplay` / `ffplay` / `mpv`，WAV 还可 `aplay`）；工具 `take_photo`（camera：`ffmpeg` + `/dev/video0`）、`record_audio`（microphone：`arecord` / `pw-record` / `parecord` / `ffmpeg`）、`screenshot`（hands：Wayland 下 `grim` / `gnome-screenshot` / `spectacle`，X11 下 `scrot` / `gnome-screenshot` / `spectacle` / `import`）、`clipboard`（device：`wl-clipboard` / `xclip` / `xsel`）、`open`（device：`xdg-open`）。没有图形界面时与界面相关的工具直接说明，不报错崩溃。同样不提供 `speak`。环境变量只有 `WINDLER_HOME`。
 
 ## 3. 配置项（`config/windler.json`）
 
@@ -221,6 +223,6 @@ Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`term
 | `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
-| `gateway.port` | 7788 | 网关端口 |
+| `gateway.port` / `gateway.host` | 7788 / `127.0.0.1` | 网关端口与监听地址；`0.0.0.0` 对局域网开放（Linux 安装器的 `--lan`） |
 | `hearing.enabled` / `windowMin` / `sensitivity` / `language` / `minChars` | false / 10 / 2 / ""（取她的偏好语言）/ 2 | 听觉：开关；最近会话多少分钟内有更新就并入（0 为每句新开）；灵敏度 1 迟钝 / 2 适中 / 3 灵敏（App 的 VAD 模式）；识别语言；短于此字数当没听清 |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |

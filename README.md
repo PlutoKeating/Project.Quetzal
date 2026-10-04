@@ -54,19 +54,29 @@ Codex、Claude Code 是你叫它才动、做完就退出的工具；Hermes、Ope
 
 ## 装上它
 
+**一部旧安卓手机**（推荐的身体：有电量、光线、运动、麦克风、相机）：
+
 1. 安卓手机（Android 7+，arm64）从 F-Droid 装 **Termux、Termux:API、Termux:Boot**。
 2. 从 [下载页](https://windler.plutokeating.beer/zh/download) 装 **Windler App**。
 3. 打开 App，选「在这台手机上安装 Windler」，跟着向导走。
 
+**一台 Linux 电脑或服务器**（笔记本、小主机、树莓派、云主机；需要 Node.js 22.13+）：
+
+```bash
+npx windler            # 安装，注册 systemd 用户服务；再运行一次就是升级
+npx windler --lan      # 让手机上的 Windler App 直接填这台机器的地址连接
+```
+
 > [!TIP]
-> 配模型、身份、授权、飞书、灵魂同步、多 agent、排错，都在 [文档](https://windler.plutokeating.beer/zh/docs)。手机之外的机器见 [部署到其他机器](https://windler.plutokeating.beer/zh/docs/advanced/other-machines)。
+> 配模型、身份、授权、飞书、灵魂同步、多 agent、排错，都在 [文档](https://windler.plutokeating.beer/zh/docs)。Linux 身体的细节见 [部署到其他机器](https://windler.plutokeating.beer/zh/docs/advanced/other-machines)。
 
 ## 看得更深
 
 | 目录 | 内容 |
 |---|---|
-| [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与 Termux 身体适配器 |
-| [`console/`](console/docs/README.md) | Windler App（Flutter）：控制台 + 安装器 |
+| [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与两个平台级身体适配器：Termux（安卓）、Linux |
+| [`console/`](console/docs/README.md) | Windler App（Flutter）：控制台 + 安卓安装器 |
+| [`cli/`](cli/docs/README.md) | npm 包 `windler`：Linux 安装器（`npx windler`，systemd 用户服务） |
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |
 | [`website/`](website/docs/README.md) | 官网与文档站 |
 | [`docs/`](docs/) | [快速开始](docs/QUICK_START.md) · [架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [灵魂同步](docs/SOUL_SYNC.md) · [仓库规范](docs/SOUL_REPO_SPEC.md) |

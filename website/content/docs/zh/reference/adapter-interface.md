@@ -80,4 +80,20 @@ interface BodyAdapter {
 | `speak` | 不提供（很多手机没有系统 TTS）；说话由运行基座的 `voice_speak` 完成 |
 | 媒体位置 | `WINDLER_HOME/data/media/` |
 
-它是**平台级**适配器：任意安卓手机 + Termux:API，一切靠探测，不含任何具体机型的实现。写一个新适配器见 [自定义身体适配器](/docs/advanced/custom-adapter)。
+它是**平台级**适配器：任意安卓手机 + Termux:API，一切靠探测，不含任何具体机型的实现。
+
+## Linux 适配器（`runtime/adapters/linux/`，构建为 `dist/linux.mjs`）
+
+随 npm 包 `windler` 安装（`npx windler`），同样是平台级：任意 Linux 电脑或服务器，一切靠探测。
+
+| 能力 | 实现 |
+|---|---|
+| `sample()` | `/sys/class/power_supply`：电量 / 充电 / 健康（跳过蓝牙鼠标等外设电池；「Not charging」且外接电源在线算充电），电池自身温度（`temp`，笔记本少有）；`extra`：CPU 温度（`/sys/class/thermal`，不当作体温）、电源来源。台式机与服务器没有电池就只有 extra |
+| `describe` | 发行版（`/etc/os-release`）、是否笔记本、有没有桌面、摄像头（`/dev/video0`）与声卡（`/proc/asound/cards`） |
+| `notify()` | 有桌面时 `notify-send`；同时写到标准输出（服务日志），没有桌面的机器从 `windler logs` 看配对码 |
+| `playAudio()` / `stopAudio()` | `pw-play` / `paplay` / `ffplay` / `mpv`，WAV 还可 `aplay`；后台播放，立即返回 |
+| 工具 | `take_photo`（camera：`ffmpeg` 读 `/dev/video0`）、`record_audio`（microphone：`arecord` / `pw-record` / `parecord` / `ffmpeg`，WAV）、`screenshot`（hands：Wayland 下 `grim` / `gnome-screenshot` / `spectacle`，X11 下 `scrot` / `gnome-screenshot` / `spectacle` / `import`）、`clipboard`（device：`wl-clipboard` / `xclip` / `xsel`）、`open`（device：`xdg-open`） |
+| `speak` | 不提供；说话由运行基座的 `voice_speak` 完成 |
+| 媒体位置 | `WINDLER_HOME/data/media/` |
+
+没有图形界面的服务器上，截图、剪贴板、打开网址这些工具会直接说明「这台电脑没有图形界面」，不报错。写一个新适配器见 [自定义身体适配器](/docs/advanced/custom-adapter)。

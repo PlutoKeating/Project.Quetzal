@@ -7,7 +7,7 @@ description: 用几十行 TypeScript 让一台新设备成为身体——实现 
 
 运行基座的核心不知道自己跑在手机、树莓派还是服务器上。设备的一切——传感器采样、系统通知、播放声音、设备动作——都由**身体适配器**提供。适配器是一个独立构建的 ES 模块，默认导出一个 `BodyAdapter` 对象。
 
-仓库自带一个平台级的参考实现：`runtime/adapters/termux/`（任意安卓手机 + Termux:API，传感器按名字探测），构建为 `dist/termux.mjs`。
+仓库自带两个平台级的参考实现：`runtime/adapters/termux/`（任意安卓手机 + Termux:API，传感器按名字探测），构建为 `dist/termux.mjs`；`runtime/adapters/linux/`（任意 Linux 机器，电池与温度读 `/sys`，桌面工具按可用程序探测），构建为 `dist/linux.mjs`。
 
 ## 接口
 

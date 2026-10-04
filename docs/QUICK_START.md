@@ -24,15 +24,27 @@
 7. **听觉（可选）**：控制 → 语音 填好 Azure 语音的密钥与区域后，控制 → 听觉 → 授予麦克风权限 → 开启。之后这台手机常驻用麦克风听（通知栏有「Windler 在听」），听到的话以「环境声音」进入会话，她自己判断是不是对她说的、要不要回应；她也可能用声音回答你。
 8. **多个 agent**：点顶栏的名字 →「连接新的 agent」，填入另一个运行基座的网关地址，申请配对码（通过那台设备的系统通知下发）并配对，之后一键切换。
 
-## 3. 部署到其他机器（部署者）
+## 3. 在一台 Linux 电脑或服务器上安装（使用者）
 
-任何能跑 Node.js 22+ 与 git 的机器都能成为身体。
+笔记本、小主机、树莓派、云主机都行，只要有 Node.js 22.13+（内置 `node:sqlite`）与 git：
+
+```bash
+npx windler            # 安装：内置的运行基座与 Linux 身体适配器放进 ~/windler，注册 systemd 用户服务并启动，健康检查失败自动切回上一版
+npx windler --lan      # 让网关对局域网开放：手机上的 Windler App 直接填这台机器的地址连接（只在可信的局域网里）
+npx windler status     # 版本、服务、健康；logs -f 看日志；rollback 回滚；uninstall [--purge] 卸载
+```
+
+再运行一次 `npx windler` 就是升级。之后在 App 里 **连接新的 agent** → 填 `http://<这台机器的地址>:7788` → **申请配对码**：配对码在这台机器上弹桌面通知；没有桌面的服务器从 `npx windler logs` 里看。装好之后的一切仍然在 App 里完成（第 2 节）。没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）用 `npx windler run` 前台运行，交给自己的守护者。npm 包的实现在 [`cli/`](../cli/docs/README.md)。
+
+## 4. 部署到其他机器（部署者）
+
+任何能跑 Node.js 22.13+ 与 git 的机器都能成为身体。
 
 ```bash
 cd runtime
 npm ci
 npm test          # 单元测试
-npm run build     # 生成 dist/main.cjs（单文件，已内置依赖）与 dist/termux.mjs（安卓 / Termux 身体适配器）
+npm run build     # 生成 dist/main.cjs（单文件，已内置依赖）、dist/termux.mjs（安卓 / Termux 身体适配器）与 dist/linux.mjs（Linux 身体适配器）
 WINDLER_HOME=~/windler node --enable-source-maps dist/main.cjs
 ```
 
@@ -46,7 +58,7 @@ ExecStart=/usr/bin/node --enable-source-maps /opt/windler/main.cjs
 Restart=always
 ```
 
-控制台连接这样的机器：把网关端口转发到控制台所在设备（例如 `adb reverse` 或 ssh 隧道），在 App 里填网关地址并用配对码配对。配对码通过适配器的系统通知下发，没有 `notify` 的适配器需要部署者从 `WINDLER_HOME/secrets/gateway.token` 读出令牌填入。
+控制台连接这样的机器：把网关端口转发到控制台所在设备（例如 `adb reverse` 或 ssh 隧道），或在 `config/windler.json` 里把 `gateway.host` 设为 `0.0.0.0`，在 App 里填网关地址并用配对码配对。配对码通过适配器的系统通知下发，没有 `notify` 的适配器需要部署者从 `WINDLER_HOME/secrets/gateway.token` 读出令牌填入。
 
 构建 Windler App：
 
@@ -58,9 +70,10 @@ flutter build apk --release --target-platform android-arm64
 
 正式签名把密钥信息放在 `console/android/key.properties`（不入库，见 `build.gradle.kts`），没有时用 debug 签名。
 
-## 4. 开发
+## 5. 开发
 
 ```bash
 cd runtime && npm run dev      # 以 ./.dev 为家目录直接运行 TypeScript
 cd console && flutter run      # 连接设备调试控制台
+cd cli && npm run build && node dist/windler.mjs status --home /tmp/w   # 构建 npm 包并用独立家目录试装
 ```
