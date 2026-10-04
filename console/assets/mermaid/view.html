@@ -1,5 +1,6 @@
 <!doctype html>
-<!-- Mermaid 渲染页：由控制台的 MermaidView 加载（mermaid.min.js 为 v11.17.2，MIT 许可，见同目录 LICENSE；已用 esbuild 降级到 chrome88 语法以兼容旧 WebView）。 -->
+<!-- Mermaid 渲染页：由控制台的 MermaidView 加载（mermaid.min.js 为 v11.17.2，MIT 许可，见同目录 LICENSE；已用 esbuild 降级到 chrome88 语法以兼容旧 WebView）。
+     两种宿主：安卓 WebView（JavaScript 通道 Out；宿主调用 render()）与网页版的 iframe（postMessage：收 {id, render, dark, fit}，回 {id, h | error}）。 -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -10,7 +11,9 @@
   #c svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
 </style>
 <script>
-  window.onerror = (msg, src, line) => { try { Out.postMessage(JSON.stringify({ error: "脚本错误：" + msg + " @" + line, ua: navigator.userAgent })); } catch (e) {} };
+  window.onerror = (msg, src, line) => { try { post({ error: "脚本错误：" + msg + " @" + line, ua: navigator.userAgent }); } catch (e) {} };
+  let tag = null; // 网页版宿主给这个 iframe 的标识，回报时带上
+  const post = (o) => { if (tag) o.id = tag; const s = JSON.stringify(o); if (window.Out) Out.postMessage(s); else if (window.parent !== window) parent.postMessage(s, "*"); };
 </script>
 <script>
   // 旧版 WebView（如 Chromium 88）缺少的 API；mermaid.min.js 已用 esbuild 把语法降到 chrome88
@@ -24,7 +27,6 @@
 <body>
 <div id="c"></div>
 <script>
-  const post = (o) => Out.postMessage(JSON.stringify(o));
   let n = 0;
   async function render(code, dark, fit) {
     if (typeof mermaid === "undefined") return post({ error: "mermaid.js 未能加载", ua: navigator.userAgent });
@@ -39,6 +41,12 @@
       post({ error: String((e && e.message) || e).slice(0, 300) });
     }
   }
+  window.addEventListener("message", (e) => { // 网页版宿主
+    let m; try { m = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch (err) { return; }
+    if (!m || m.render == null) return;
+    tag = m.id || tag;
+    render(m.render, !!m.dark, m.fit !== false);
+  });
   post({ ready: true });
 </script>
 </body>

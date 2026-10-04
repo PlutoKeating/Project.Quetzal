@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'api.dart';
+import 'platform/caps.dart';
 
 class Hearing {
   static const _ch = MethodChannel('quetzal/hearing');
@@ -37,6 +38,7 @@ class HearingController extends ChangeNotifier {
   String? get caption {
     final h = (api.status['hearing'] as Map?) ?? {};
     if (h['enabled'] != true) return null;
+    if (!hasBody) return h['listening'] == true ? '耳朵在手机 App 上，在听' : '耳朵在手机 App 上，此刻没开'; // 网页版没有麦克风
     if (!running) { final r = (h['reasons'] as List?)?.cast<String>() ?? []; return r.isEmpty ? (granted ? '耳朵没开' : '耳朵没开：没有麦克风权限') : '没在听：${r.join('、')}'; }
     if (DateTime.now().millisecondsSinceEpoch < speakingUntil) return '她在说话（可以直接插嘴）';
     if (speaking) return '有人在说话…';
@@ -50,7 +52,7 @@ class HearingController extends ChangeNotifier {
 
   void start() {
     api.addListener(sync);
-    Hearing.events.listen(_onEvent, onError: (_) {});
+    if (hasBody) Hearing.events.listen(_onEvent, onError: (_) {});
     api.events.where((e) => e.name == 'speaking').listen((e) { // 她在说话到 until 为止（对方插嘴时基座会把 until 提前到现在）
       final until = ((e.data as Map)['until'] as num).toInt();
       speakingUntil = until; speaking = false; pending = false;
@@ -70,16 +72,18 @@ class HearingController extends ChangeNotifier {
       if (h['status'] == 'partial' || h['status'] == 'final') { speaking = h['status'] == 'partial'; pending = h['status'] == 'final'; notifyListeners(); }
       if (h['status'] == 'kept' || h['status'] == 'ignored' || h['status'] == 'dropped') { pending = false; notifyListeners(); }
     });
+    if (!hasBody) return;
     AppLifecycleListener(onResume: () => refreshPermission().then((_) => sync())); // 从系统设置授权回来
     refreshPermission().then((_) => sync());
   }
 
-  Future<bool> refreshPermission() async { granted = await Hearing.hasPermission(); running = await Hearing.isRunning(); notifyListeners(); return granted; }
+  Future<bool> refreshPermission() async { if (!hasBody) return false; granted = await Hearing.hasPermission(); running = await Hearing.isRunning(); notifyListeners(); return granted; }
 
   static bool local(String base) => base.contains('127.0.0.1') || base.contains('localhost');
 
   /// 基座想听、本机有权限、agent 在本机 → 开；否则关。没权限时每次都重查（权限可能在设置里或经 adb 刚被授予）。
   Future<void> sync() async {
+    if (!hasBody) return;
     if (!granted) granted = await Hearing.hasPermission();
     final h = (api.status['hearing'] as Map?) ?? {};
     final want = h['listening'] == true && api.conn == Conn.online && granted && local(api.base);

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <!-- 网页版控制台的壳：由运行基座的网关托管在 /，Flutter 的 --base-href 填入下面的 base。 -->
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Quetzal 控制台：观察、交流、调节与管理住在这台机器上的 agent">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#202020">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Quetzal">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <title>Quetzal</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html, body { margin: 0; height: 100%; background: #202020; }
+    /* 引擎与字体加载期间：一盏安静的灯 */
+    #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+    #boot i { width: 56px; height: 56px; border-radius: 50%; background: radial-gradient(circle at 38% 38%, #ffd3a1, #f0a35e 55%, #a85f1e); box-shadow: 0 0 48px 10px rgba(240, 163, 94, 0.28); animation: breath 4s ease-in-out infinite; }
+    @keyframes breath { 0%, 100% { opacity: .78; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.04); } }
+    @media (prefers-reduced-motion: reduce) { #boot i { animation: none; } }
+  </style>
+</head>
+<body>
+  <div id="boot"><i></i></div>
+  <script>
+    // Flutter 第一帧画出来后移除启动占位
+    window.addEventListener('flutter-first-frame', () => { const b = document.getElementById('boot'); if (b) b.remove(); });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

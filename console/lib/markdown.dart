@@ -1,15 +1,15 @@
 // 完整的 Markdown 渲染：GFM（标题、列表、任务列表、表格、代码块、引用、链接、删除线…）
 // + LaTeX 公式（行内 $…$ / \(…\)，独立 $$…$$ / \[…\]，原生排版）
-// + Mermaid 图（```mermaid：流程图、时序图、甘特图、类图、状态图、思维导图、框图、饼图……，在 WebView 中用内置的 mermaid.js 渲染，离线可用）。
+// + Mermaid 图（```mermaid：流程图、时序图、甘特图、类图、状态图、思维导图、框图、饼图……，用内置的 mermaid.js 渲染，离线可用；安卓在 WebView 里，网页版在 iframe 里，见 platform/mermaid.dart）。
 // 做法：先把 Mermaid 代码块与独立公式块切成单独的片段，其余交给 Markdown；行内公式通过自定义语法进入 Markdown。
 // 控制台里凡是她写的文字（回复、日记、笔记、记忆条目、想分享的一句话、理由）都经 RichMarkdown 渲染；工具输出经 RawOrMarkdown；只能放一行的地方用 plainPreview。
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'platform/mermaid.dart';
+export 'platform/mermaid.dart' show MermaidView;
 
 /// 片段：markdown / mermaid / math（独立公式）。
 typedef Segment = ({String kind, String text});
@@ -175,65 +175,4 @@ class RichMarkdown extends StatelessWidget {
         builders: {'math': _MathBuilder()},
         onTapLink: (_, href, _) { if (href != null) launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication); },
       );
-}
-
-/// Mermaid 图：WebView 加载内置的 mermaid.js 渲染，高度自适应；点击全屏查看（可缩放）。
-class MermaidView extends StatefulWidget {
-  final String code;
-  final bool fullscreen;
-  const MermaidView(this.code, {super.key, this.fullscreen = false});
-  @override
-  State<MermaidView> createState() => _MermaidViewState();
-}
-
-class _MermaidViewState extends State<MermaidView> {
-  static final _heights = <String, double>{}; // 渲染过的图记住高度，列表回滚时不跳动
-  late final WebViewController c;
-  String? error;
-
-  @override
-  void initState() {
-    super.initState();
-    c = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.transparent)
-      ..enableZoom(widget.fullscreen)
-      ..addJavaScriptChannel('Out', onMessageReceived: _onMessage)
-      ..setOnConsoleMessage((m) => debugPrint('mermaid console: ${m.message}'))
-      ..loadFlutterAsset('assets/mermaid/view.html');
-  }
-
-  void _onMessage(JavaScriptMessage m) {
-    final j = jsonDecode(m.message) as Map;
-    if (j['error'] != null) debugPrint('mermaid: ${j['error']} ${j['ua'] ?? ''}');
-    if (j['ready'] == true) {
-      final dark = Theme.of(context).brightness == Brightness.dark;
-      c.runJavaScript('render(${jsonEncode(widget.code)}, $dark, ${!widget.fullscreen})');
-    } else if (j['h'] != null && mounted) {
-      setState(() => _heights[widget.code] = (j['h'] as num).toDouble() + 8);
-    } else if (j['error'] != null && mounted) {
-      setState(() => error = '${j['error']}');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.fullscreen) return WebViewWidget(controller: c);
-    if (error != null) {
-      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('图表无法渲染：$error', style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
-        SelectableText(widget.code, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-      ]);
-    }
-    final h = _heights[widget.code] ?? 160;
-    return SizedBox(
-      height: h,
-      child: Stack(children: [
-        WebViewWidget(controller: c),
-        // 覆盖一层：点击全屏，纵向拖动仍交给列表
-        Positioned.fill(child: GestureDetector(behavior: HitTestBehavior.translucent, onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => Scaffold(appBar: AppBar(title: const Text('图表')), body: MermaidView(widget.code, fullscreen: true)))))),
-      ]),
-    );
-  }
 }
