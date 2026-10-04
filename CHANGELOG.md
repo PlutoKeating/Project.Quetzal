@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.6.5
+
+- **回复里的「过程记录」附注**：基座在她的历史回复前附的「[时间｜这一轮的过程记录：…]」只是给模型看的附注，有的模型会照着格式写进新回复，于是气泡开头出现一段原始记录（过程本身已是工具卡片）。现在基座在回复进入事件与入库前把仿写的附注剥掉。
+- **The "process record" note in replies**: the "[time｜this turn's process record: …]" note the runtime attaches before her earlier replies is only for the model; some models copy the format into new replies, so a raw record showed up at the top of the bubble (the process is already rendered as tool cards). The runtime now strips a mimicked note before the text is broadcast and stored.
+
 ## 0.6.4
 
 - **「关于」页**：控制 → 关于，安卓 App、Linux 桌面版、网页版都有：简介与链接、控制台 / 运行基座 / 最新发布三个版本号、「检查更新」与升级按钮。安卓升级 App 自身（原来在服务页的区块挪到这里，顶部横幅的「更新」也指向这里）；Linux 桌面版与网页版新增网关方法 `selfUpdate`：由 Linux 适配器用 `systemd-run --user` 起临时单元（脱离服务的 cgroup）后台重跑一键安装脚本，运行基座、网页控制台与原生控制台一起更新并重启一次，桌面版装完可一键重新打开。
