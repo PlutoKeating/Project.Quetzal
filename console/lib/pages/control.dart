@@ -399,36 +399,64 @@ class SoulPage extends StatefulWidget {
 class _SoulPageState extends State<SoulPage> {
   Map? cfg;
   String? pub;
-  final remote = TextEditingController();
+  String mode = 'deploy'; // 访问方式：deploy 本机部署密钥 / custom 指定私钥 / system 系统 ssh 配置
+  final remote = TextEditingController(), keyPath = TextEditingController();
   @override
   void initState() { super.initState(); _load(); }
   Future<void> _load() async {
     final r = await act(context, () => api.call<Map>('soulConfig'));
-    if (mounted && r != null) setState(() { cfg = r; remote.text = '${r['remote']}'; });
+    if (mounted && r != null) setState(() { cfg = r; remote.text = '${r['remote']}'; mode = '${r['sshMode'] ?? 'deploy'}'; keyPath.text = '${r['sshKeyPath'] ?? ''}'; });
+  }
+  Future<void> _connect() async {
+    await act(context, () => api.call('setSoulConfig', {'remote': remote.text.trim(), 'sshMode': mode, 'sshKeyPath': keyPath.text.trim()}), ok: '已接入');
+    _load();
   }
   @override
   Widget build(BuildContext context) {
-    final cfg = this.cfg, st = (cfg?['status'] as Map?) ?? {};
+    final cfg = this.cfg;
     return PageFrame(
       title: '灵魂同步',
       body: cfg == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
         const Padding(padding: EdgeInsets.all(4), child: Text('她可以同时住在多具身体里（例如另一台运行 Hermes 的设备）。所有身体共享一个私有 git 仓库：人格、常驻记忆、笔记与日记。每次醒来前拉取，醒来后推送。')),
-        Section('本机', [
-          Text('身体名称：${cfg['body']}'),
-          Text('上次拉取：${(st['lastPull'] ?? 0) == 0 ? '从未' : hm(st['lastPull'])}　上次推送：${(st['lastPush'] ?? 0) == 0 ? '从未' : hm(st['lastPush'])}'),
-          if ('${st['lastError'] ?? ''}'.isNotEmpty) Text('${st['lastError']}', style: const TextStyle(color: Colors.red)),
-          FilledButton.tonal(onPressed: () async { await act(context, () => api.call('syncSoul'), ok: '已同步'); _load(); }, child: const Text('立即同步')),
-        ]),
-        Section('1. 本机的访问密钥', [
-          const Text('把下面的公钥添加到灵魂仓库网页的「Deploy keys」，并勾选「允许写入」。'),
-          if (pub != null) SelectableText(pub!, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-          TextButton(onPressed: () async { final k = await act(context, () => api.call<String>('soulKey')); if (mounted) setState(() => pub = k); }, child: Text(pub == null ? '显示公钥' : '已生成')),
+        // 本机状态跟着 status.soul 实时刷新（后台的同步也会更新这里），不只在打开页面时取一次
+        ListenableBuilder(listenable: api, builder: (context, _) {
+          final st = (api.status['soul'] as Map?) ?? (cfg['status'] as Map?) ?? {};
+          return Section('本机', [
+            Text('身体名称：${cfg['body']}'),
+            Text('上次拉取：${(st['lastPull'] ?? 0) == 0 ? '从未' : hm(st['lastPull'])}　上次推送：${(st['lastPush'] ?? 0) == 0 ? '从未' : hm(st['lastPush'])}'),
+            if ('${st['lastError'] ?? ''}'.isNotEmpty) Text('${st['lastError']}', style: const TextStyle(color: Colors.red)),
+            FilledButton.tonal(onPressed: () async { await act(context, () => api.call('syncSoul'), ok: '已同步'); _load(); }, child: const Text('立即同步')),
+          ]);
+        }),
+        Section('1. 访问仓库用哪把钥匙', [
+          SegmentedButton<String>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: 'deploy', label: Text('本机部署密钥')),
+              ButtonSegment(value: 'custom', label: Text('指定私钥')),
+              ButtonSegment(value: 'system', label: Text('系统 ssh 配置')),
+            ],
+            selected: {mode},
+            onSelectionChanged: (v) => setState(() => mode = v.first),
+          ),
+          const SizedBox(height: 10),
+          if (mode == 'deploy') ...[
+            const Text('每具身体一把专属的 ed25519 密钥，在本机生成。把下面的公钥添加到灵魂仓库网页的「Deploy keys」，并勾选「允许写入」。'),
+            if (pub != null) SelectableText(pub!, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+            TextButton(onPressed: () async { final k = await act(context, () => api.call<String>('soulKey')); if (mounted) setState(() => pub = k); }, child: Text(pub == null ? '显示公钥' : '已生成')),
+          ],
+          if (mode == 'custom') ...[
+            const Text('用你已有的一把私钥（只用它，不回退到 ssh-agent）。路径在运行基座所在的机器上，支持 ~。'),
+            const SizedBox(height: 8),
+            TextField(controller: keyPath, decoration: const InputDecoration(labelText: '私钥路径，例如 ~/.ssh/id_ed25519', border: OutlineInputBorder())),
+          ],
+          if (mode == 'system') const Text('不指定私钥，交给运行基座所在机器的 ~/.ssh/config（Host 别名、IdentityFile）与 ssh-agent。注意：运行基座以服务方式在后台运行，往往拿不到你登录会话的 ssh-agent，建议在 ~/.ssh/config 里为这个 Host 写明 IdentityFile。'),
         ]),
         Section('2. 灵魂仓库地址', [
-          TextField(controller: remote, decoration: const InputDecoration(labelText: '例如 git@github.com:你的用户名/<agent>.soul.git', border: OutlineInputBorder())),
+          TextField(controller: remote, decoration: const InputDecoration(labelText: '例如 git@github.com:你的用户名/<agent>.soul.git（~/.ssh/config 里的 Host 别名也可以）', border: OutlineInputBorder())),
           const SizedBox(height: 8),
-          FilledButton(onPressed: () async { await act(context, () => api.call('setSoulConfig', {'remote': remote.text.trim()}), ok: '已接入'); _load(); }, child: const Text('接入')),
-          const Text('仓库必须是私有的。首次接入时，若仓库里已有另一具身体的人格，会直接采用它，并合并两边的记忆。', style: TextStyle(fontSize: 12)),
+          FilledButton(onPressed: _connect, child: const Text('接入')),
+          const Text('仓库必须是私有的。首次接入时，若仓库里已有另一具身体的人格，会直接采用它，并合并两边的记忆。改了钥匙方式也点「接入」保存。', style: TextStyle(fontSize: 12)),
         ]),
         Section('3. 让 Hermes / OpenClaw 也住进来', [
           const Text('在装有 Hermes Agent 或 OpenClaw 的机器上，把下面这句话发给它。它会自己安装 soul-bridge，之后人格与记忆全自动同步，随时可以拔出。'),

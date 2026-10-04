@@ -16,12 +16,13 @@ let repo: SoulRepo | undefined;
 let key = "";
 /** 按当前配置取得仓库对象（配置变化时重建）。 */
 function r(): SoulRepo {
-  const k = `${config.soul.remote}|${config.soul.branch}|${config.body}`;
+  const k = `${config.soul.remote}|${config.soul.branch}|${config.body}|${config.soul.sshMode}|${config.soul.sshKeyPath}`;
   if (!repo || k !== key) {
     const prev = repo?.status;
     repo = new SoulRepo({
       dir: paths.soul, remote: config.soul.remote, branch: config.soul.branch, body: config.body,
-      sshKey: path.join(paths.secrets, "soul_ed25519"),
+      sshKey: sshKeyFor(config.soul),
+      statusFile: path.join(paths.state, "soul-status.json"), // 重启后「上次拉取 / 推送」不归零
       author: () => ({ name: `${identity().displayName} (${config.body})`, email: `${identity().name}@${config.body}.local` }),
       isSeedSoul: (t) => t.trim() === seedSoul(identity().displayName).trim(),
       seedIdentity: () => defaultIdentity(),
@@ -35,7 +36,14 @@ function r(): SoulRepo {
   return repo;
 }
 
-export const syncStatus = () => ({ ...r().status, remote: config.soul.remote, branch: config.soul.branch });
+/** 按配置决定访问远端的私钥：deploy = 本机专属部署私钥；custom = 使用者指定（支持 ~）；system = 不指定，交给 ~/.ssh/config 与 ssh-agent。 */
+export function sshKeyFor(s: { sshMode?: string; sshKeyPath?: string }): string | undefined {
+  if (s.sshMode === "system") return undefined;
+  if (s.sshMode === "custom") { const p = (s.sshKeyPath ?? "").trim(); return p ? (p.startsWith("~/") ? path.join(process.env.HOME ?? "", p.slice(2)) : p) : undefined; }
+  return path.join(paths.secrets, "soul_ed25519");
+}
+
+export const syncStatus = () => ({ ...r().status, remote: config.soul.remote, branch: config.soul.branch, sshMode: config.soul.sshMode, sshKeyPath: config.soul.sshKeyPath });
 
 /** 接入灵魂仓库：克隆或初始化，并按规范补齐目录结构（见 docs/SOUL_REPO_SPEC.md）。 */
 export async function ensureSoul() {

@@ -100,20 +100,20 @@ export const ops = {
   note: (a: { name: string }) => mem.readNote(a.name),
   search: (a: { query: string }) => mem.search(a.query),
   syncSoul: async (_: unknown, actor: string) => { await soul.pull(); await soul.push(`${actor} 触发同步`); return soul.syncStatus(); },
-  soulConfig: () => ({ remote: config.soul.remote, branch: config.soul.branch, body: config.body, status: soul.syncStatus() }),
-  setSoulConfig: async (a: { remote?: string; branch?: string }, actor: string) => {
+  // 访问方式 sshMode：deploy（本机专属部署密钥，默认）/ custom（sshKeyPath 指定的私钥）/ system（~/.ssh/config 与 ssh-agent）
+  soulConfig: () => ({ remote: config.soul.remote, branch: config.soul.branch, sshMode: config.soul.sshMode, sshKeyPath: config.soul.sshKeyPath, body: config.body, status: soul.syncStatus() }),
+  setSoulConfig: async (a: { remote?: string; branch?: string; sshMode?: "deploy" | "custom" | "system"; sshKeyPath?: string }, actor: string) => {
     const bad = a.remote ? checkRemote(a.remote) : undefined; // 规范 §7：只允许 SSH 地址
     if (bad) throw new Error(bad);
-    saveConfig({ soul: a }); audit(actor, "soul.config", "", a, "ok");
+    if (a.sshMode && !["deploy", "custom", "system"].includes(a.sshMode)) throw new Error("sshMode 只能是 deploy、custom 或 system");
+    if (a.sshMode === "custom" && !(a.sshKeyPath ?? config.soul.sshKeyPath).trim()) throw new Error("指定私钥时要填私钥路径");
+    saveConfig({ soul: a }); audit(actor, "soul.config", "", { ...a }, "ok");
+    if (config.soul.sshMode === "deploy") await ensureSoulKey(); // 先点「接入」后点「显示公钥」也行：部署密钥不在就先生成
     await soul.ensureSoul(); await soul.pull(); await soul.push("接入灵魂仓库");
     return soul.syncStatus();
   },
   /** 生成（或读取）本机访问灵魂仓库用的 SSH 部署密钥，返回公钥，贴到 Git 托管平台的 Deploy keys（勾选写权限）即可。 */
-  soulKey: async () => {
-    const key = `${paths.secrets}/soul_ed25519`;
-    if (!fs.existsSync(key)) await run("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", `quetzal@${config.body}`, "-f", key]);
-    return fs.readFileSync(`${key}.pub`, "utf8").trim();
-  },
+  soulKey: () => ensureSoulKey(),
 
   providers: () => ({ config: publicView(), version: configVersion() }),
   saveProviders: (a: { config: ProviderConfig; expected: string }, actor: string) => ({ config: saveProviders(a.config, a.expected, actor), version: configVersion() }),
@@ -171,6 +171,13 @@ export const ops = {
     return adapter.supervision.status();
   },
 };
+
+/** 本机访问灵魂仓库的部署密钥：没有就生成（ed25519，无口令），返回公钥。 */
+async function ensureSoulKey(): Promise<string> {
+  const key = `${paths.secrets}/soul_ed25519`;
+  if (!fs.existsSync(key)) await run("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", `quetzal@${config.body}`, "-f", key]);
+  return fs.readFileSync(`${key}.pub`, "utf8").trim();
+}
 
 export type OpName = keyof typeof ops;
 export async function invoke(name: string, args: any, actor: string) {

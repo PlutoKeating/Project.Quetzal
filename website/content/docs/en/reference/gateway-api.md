@@ -90,7 +90,7 @@ By default the gateway listens only on `127.0.0.1:<gateway.port>` (default 7788;
 | `memory` / `editMemory` / `setSoul` | Resident memory and personality |
 | `journalList` / `journal` | Journal |
 | `notes` / `note` / `search` | Notes and retrieval |
-| `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | Soul repository address (SSH only), local public key, sync now |
+| `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | Soul repository address (SSH only) and access mode `sshMode` (`deploy` / `custom` + `sshKeyPath` / `system`), local public key, sync now |
 | `agent` / `setAgent` | Identity |
 | `bodies` | Registered bodies |
 | `soulHistory` / `soulShow` / `soulRevert` | Memory history, diff, revert |

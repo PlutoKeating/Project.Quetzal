@@ -5,6 +5,7 @@
 实现会强制执行其中可以机器检查的部分：远端地址与私钥检查、固定内容补齐。
 
 版本历史：
+- **v7**：§7 认证：默认仍是每具身体一把部署密钥，新增部署者显式选择的两种方式——指定私钥、系统 ssh 配置（`~/.ssh/config` + ssh-agent）；远端地址允许 ssh 配置里的 Host 别名。v6 仓库无需迁移即符合 v7。
 - **v6**：运行基座更名为 Quetzal，§3.12 技能文档 `metadata` 里的键改为 `quetzal-tool` 与 `quetzal-requires`（原 `windler-tool` / `windler-requires`）；实现只写新键名，读取时不依赖这两个键。v5 仓库无需迁移即符合 v6。
 - **v5**：§2 新增可选目录 `skills/`（§3.12）：agent 沉淀的技能文档，采用 [Agent Skills](https://agentskills.io/specification) 开放标准的 `SKILL.md`，Hermes Agent 与 OpenClaw 可直接读取；只放意图说明，不放实现代码。v4 仓库无需迁移即符合 v5。
 - **v4**：§6 取消全部内容检查；§1 允许顶层出现规范外的条目。灵魂仓库按设计只能是私有仓库（§7 只允许部署私钥访问），记忆里出现 IP、电话、密钥都是她自己的事，实现**不得**因内容拒绝提交；此前的检查曾两次把她的记忆挡在本地数天（版本号被当成 IP）。v3 仓库无需迁移即符合 v4。
@@ -55,7 +56,7 @@
 ### 3.1 `.soul-spec.json`（固定内容）
 
 ```json
-{ "spec": "soul-repo", "version": 6 }
+{ "spec": "soul-repo", "version": 7 }
 ```
 
 ### 3.2 `.gitattributes`（固定内容）
@@ -202,11 +203,10 @@ metadata:
 
 实现侧的配置（API Key、网关令牌、飞书凭据、部署私钥）保存在实现自己的密钥目录中，与灵魂仓库分离——这是为了换身体时不必跟着走，不是因为不能放。
 
-## 7. 认证：必须使用私钥（SSH 部署密钥）
+## 7. 认证：必须用 SSH；默认每具身体一把部署密钥，部署者可改用自己的钥匙（v7）
 
-- 远端地址**必须**是 SSH 形式：`git@<host>:<owner>/<repo>.git` 或 `ssh://git@<host>/<owner>/<repo>.git`。**不得**使用 HTTPS、个人访问令牌或密码。
-- **每具身体一把专属密钥**：ed25519，在本机生成。私钥只存放在本机、权限 `0600`（运行基座为 `QUETZAL_HOME/secrets/soul_ed25519`，灵魂桥为 `~/.agent-soul/<agent>/id_ed25519`），**不得**提交到任何仓库，**不得**在身体之间复制。
-- 公钥以 **Deploy key（勾选 Allow write access）** 的形式添加到该灵魂仓库。**不得**使用个人账号的 SSH 密钥，保证每把密钥只能访问这一个仓库。
-- 实现访问远端时**必须**只使用这把私钥：`ssh -i <私钥> -o IdentitiesOnly=yes`。不得回退到 ssh-agent 或默认密钥。私钥不存在时拒绝访问远端，不静默回退。
+- 远端地址**必须**是 SSH 形式：`git@<host>:<owner>/<repo>.git` 或 `ssh://git@<host>/<owner>/<repo>.git`；`~/.ssh/config` 里的 Host 别名（如 `git@github-personal:owner/repo.git`）也可以。**不得**使用 HTTPS、个人访问令牌或密码。
+- **默认：每具身体一把专属密钥**：ed25519，在本机生成。私钥只存放在本机、权限 `0600`（运行基座为 `QUETZAL_HOME/secrets/soul_ed25519`，灵魂桥为 `~/.agent-soul/<agent>/id_ed25519`），**不得**提交到任何仓库，**不得**在身体之间复制。公钥以 **Deploy key（勾选 Allow write access）** 的形式添加到该灵魂仓库，每把密钥只能访问这一个仓库，吊销只需删掉它。实现访问远端时只使用这把私钥：`ssh -i <私钥> -o IdentitiesOnly=yes`，不回退到 ssh-agent 或默认密钥；私钥不存在时拒绝访问远端并明确提示，不静默回退。
+- **部署者可以改用自己的钥匙**（v7 起，由部署者在实现的配置里显式选择，默认不生效）：（a）**指定私钥**：仍是 `ssh -i <该私钥> -o IdentitiesOnly=yes`，只用它；（b）**系统 ssh 配置**：不传 `-i`，钥匙由该机器的 `~/.ssh/config`（IdentityFile）与 ssh-agent 决定。这两种方式把访问范围交给了部署者自己的钥匙，实现**必须**在界面上说明这一点，且仍然不得把任何私钥写进灵魂仓库。
 - **吊销**某具身体：在仓库 Settings → Deploy keys 删除它的公钥。
 - 例外：只在自动化测试中，可以通过环境变量 `SOUL_ALLOW_LOCAL_REMOTE=1` 使用本地路径作为远端。

@@ -21,7 +21,7 @@ test("接入时补齐固定目录树与固定内容", async () => {
   for (const f of [".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "agent.json", "SOUL.md", "memories/MEMORY.md", "memories/USER.md", "journal/.gitkeep", "notes/.gitkeep", "bodies/.gitkeep"])
     assert.ok(fs.existsSync(path.join(d, f)), f);
   for (const [f, text] of Object.entries(FIXED_FILES)) assert.equal(fs.readFileSync(path.join(d, f), "utf8"), text);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, ".soul-spec.json"), "utf8")), { spec: "soul-repo", version: 6 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, ".soul-spec.json"), "utf8")), { spec: "soul-repo", version: 7 });
   assert.match(execFileSync("git", ["-C", d, "log", "--oneline"]).toString(), /补齐灵魂仓库规范结构/);
 });
 
@@ -36,11 +36,11 @@ test("远端必须是 SSH 地址", () => {
   if (prev) process.env.SOUL_ALLOW_LOCAL_REMOTE = prev;
 });
 
-test("缺少部署私钥时拒绝访问远端，不回退到其他凭据", async () => {
+test("部署私钥不存在时拒绝访问远端，不回退到其他凭据", async () => {
   const r = repo(path.join(tmp(), "soul"), "git@github.com:alice/kaoru.soul.git");
   const res = await r.pull();
   assert.equal(res.merged, false);
-  assert.match(r.status.lastError, /缺少部署私钥/);
+  assert.match(r.status.lastError, /私钥 .* 不存在，拒绝访问远端/);
 });
 
 test("内容不做任何检查：密钥、IP、手机号照样提交（私有仓库，规范 §6）", async () => {

@@ -108,7 +108,7 @@ sequenceDiagram
 ## 5. 使用 GitHub 私有仓库
 
 1. 为每个 agent 创建一个**私有**仓库（如 `<用户>/<agent>.soul`），可以是空仓库。
-2. 每具身体一把 **Deploy key**（勾选 Allow write access）：运行基座在控制台「灵魂同步」页显示公钥；桥接在 `init` 时输出公钥。拔掉某具身体时，删掉它的 Deploy key 即可吊销。
+2. 默认每具身体一把 **Deploy key**（勾选 Allow write access）：运行基座在控制台「灵魂同步」页显示公钥；桥接在 `init` 时输出公钥。拔掉某具身体时，删掉它的 Deploy key 即可吊销。部署者也可以在同一页改为**指定私钥**或**系统 ssh 配置**（`~/.ssh/config` + ssh-agent，地址可用 Host 别名），见规范 §7（v7）。同步状态（上次拉取 / 推送 / 最近错误）落在 `state/soul-status.json`，重启不归零；git 的报错会翻译成提示（例如公钥未加到 Deploy keys）。
 3. 第一具接入的身体把现有人格与记忆导入仓库；之后的身体接入时，若本地只有种子身份与种子人格，会直接采用仓库里的。
 4. 仓库里只有人格与记忆；API Key、飞书凭据、令牌等一律不进入灵魂仓库。
 

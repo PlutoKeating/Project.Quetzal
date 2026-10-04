@@ -90,7 +90,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `memory` / `editMemory` / `setSoul` | 常驻记忆与人格 |
 | `journalList` / `journal` | 日记 |
 | `notes` / `note` / `search` | 笔记与检索 |
-| `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | 灵魂仓库地址（只接受 SSH）、本机公钥、立即同步 |
+| `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | 灵魂仓库地址（只接受 SSH）与访问方式 `sshMode`（`deploy` / `custom` + `sshKeyPath` / `system`）、本机公钥、立即同步 |
 | `agent` / `setAgent` | 身份 |
 | `bodies` | 登记的身体 |
 | `soulHistory` / `soulShow` / `soulRevert` | 记忆历史、差异、撤销 |

@@ -61,14 +61,12 @@ Author `<displayName> (<body>)`, email `<name>@<body>.local`; message `<descript
 
 Implementations **must not** redact, privacy-check or otherwise inspect content, and must not refuse a commit because of content. Protection comes from access control, not inspection. Implementation-side configuration (keys, tokens, Feishu credentials, deploy private keys) lives in the implementation's own secrets directory, separate from the soul repository.
 
-## Authentication: deploy private key only
+## Authentication: SSH only; a deploy key per body by default, your own key if you choose (v7)
 
-- The remote address **must** be SSH (`git@host:owner/repo.git` or `ssh://git@host/owner/repo.git`); no HTTPS, personal tokens or passwords.
-- **One dedicated ed25519 key per body**, generated locally, private key mode `0600`, never committed, never copied between bodies.
-- The public key is added to that repository as a **deploy key with Allow write access**; personal SSH keys are not allowed.
-- Remote access uses `ssh -i <key> -o IdentitiesOnly=yes` with no fallback to ssh-agent; if the key is missing, remote access is refused.
-- To revoke a body, delete its deploy key.
+- The remote address **must** be SSH (`git@host:owner/repo.git` or `ssh://git@host/owner/repo.git`; a Host alias from `~/.ssh/config` works too); no HTTPS, personal tokens or passwords.
+- **Default: one dedicated ed25519 key per body**, generated locally, private key mode `0600`, never committed, never copied between bodies; its public key is added to that repository as a **deploy key with Allow write access**; remote access uses `ssh -i <key> -o IdentitiesOnly=yes` with no fallback to ssh-agent, and a missing key refuses remote access with a clear message. To revoke a body, delete its deploy key.
+- **The deployer may explicitly switch to their own key**: a specified private key (still used exclusively), or the system ssh configuration (no `-i`; `~/.ssh/config` and ssh-agent decide). Selectable on the console's Soul sync page.
 
 ## Version history
 
-v4 removes all content checks and allows extra top-level entries; v3 clarified what counts as an IP address; v2 removed the resident-memory limit and made notes a tree; v1 was the first release. Older repositories need no migration.
+v7 adds the deployer-selectable "specified key" and "system ssh configuration" modes to authentication; v4 removes all content checks and allows extra top-level entries; v3 clarified what counts as an IP address; v2 removed the resident-memory limit and made notes a tree; v1 was the first release. Older repositories need no migration.

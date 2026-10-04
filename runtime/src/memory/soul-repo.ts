@@ -12,8 +12,9 @@ import { execFile } from "node:child_process";
 import { mergeEntries } from "./entries.ts";
 
 export interface SoulRepoOptions {
+  statusFile?: string; // 同步状态的落盘位置（可选）：lastPull / lastPush / lastError
   dir: string; remote: string; branch: string; body: string;
-  sshKey: string; // 本身体专属的部署私钥（规范 §7：必须存在，且只使用它）
+  sshKey?: string; // 访问远端用的私钥（规范 §7）：本身体专属的部署私钥或使用者指定的私钥，必须存在且只用它；不给（undefined）= 交给系统的 ssh 配置与 ssh-agent
   seedIdentity?: () => object; // agent.json 缺失时生成的身份
   seedSoul?: (displayName: string) => string; // SOUL.md 缺失时生成的人格
   author: () => { name: string; email: string };
@@ -23,7 +24,7 @@ export interface SoulRepoOptions {
 }
 
 const LEASE_MS = 30 * 60_000;
-export const SPEC = { spec: "soul-repo", version: 6 };
+export const SPEC = { spec: "soul-repo", version: 7 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",
@@ -62,18 +63,46 @@ export interface PullResult {
   resolved: { file: string; kept: "local" | "remote"; how: string }[]; // 自动解决的冲突
 }
 
+/** 把 git / ssh 的原始报错翻译成使用者看得懂的一句话（原文截断附在后面，便于排查）。 */
+export function friendlyGitError(err: string): string {
+  const raw = err.trim().replace(/\s+/g, " ").slice(0, 200);
+  if (/Permission denied \(publickey\)|Could not read from remote repository/i.test(err)) return `远端拒绝了本机的部署公钥：请把「本机的访问密钥」里的公钥添加到灵魂仓库的 Deploy keys（勾选允许写入）。原文：${raw}`;
+  if (/Could not resolve hostname|Network is unreachable|Connection timed out|Connection refused/i.test(err)) return `连不上灵魂仓库所在的服务器（网络或地址问题）。原文：${raw}`;
+  if (/Host key verification failed/i.test(err)) return `服务器的主机密钥与之前记录的不一致，已拒绝连接（known_hosts）。原文：${raw}`;
+  if (/Repository not found|does not appear to be a git repository/i.test(err)) return `远端没有这个仓库，或这把部署密钥没有它的访问权。原文：${raw}`;
+  return raw;
+}
+
 export class SoulRepo {
-  status = { lastPull: 0, lastPush: 0, lastError: "" };
+  // 同步状态落在 statusFile（有的话），重启后页面上的「上次拉取 / 上次推送」不会归零；任何字段一改就写盘
+  status: { lastPull: number; lastPush: number; lastError: string };
   o: SoulRepoOptions;
-  constructor(o: SoulRepoOptions) { this.o = o; }
+  constructor(o: SoulRepoOptions) {
+    this.o = o;
+    let init = { lastPull: 0, lastPush: 0, lastError: "" };
+    if (o.statusFile) { try { init = { ...init, ...JSON.parse(fs.readFileSync(o.statusFile, "utf8")) }; } catch {} }
+    this.status = this.tracked(init);
+  }
+  private tracked(s: { lastPull: number; lastPush: number; lastError: string }) {
+    return new Proxy(s, { set: (t, k, v) => { (t as any)[k] = v; this.persistStatus(); return true; } });
+  }
+  private persistStatus() {
+    const f = this.o.statusFile; if (!f) return;
+    try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify({ lastPull: this.status.lastPull, lastPush: this.status.lastPush, lastError: this.status.lastError })); } catch {}
+  }
 
   private p = (...a: string[]) => path.join(this.o.dir, ...a);
   private ref = () => `origin/${this.o.branch}`;
   git(...args: string[]): Promise<{ code: number; out: string; err: string }> {
     const env = { ...process.env };
-    // 规范 §7：只使用本身体专属的部署私钥，不回退到 ssh-agent 或默认密钥
-    env.GIT_SSH_COMMAND = `ssh -i ${this.o.sshKey} -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=accept-new`;
-    delete env.SSH_AUTH_SOCK;
+    if (this.o.sshKey) {
+      // 规范 §7：只使用指定的这把私钥（本身体专属的部署私钥，或使用者指定的私钥），不回退到 ssh-agent 或默认密钥；~/.ssh/config 里的 Host 别名、HostName、Port 仍然生效
+      env.GIT_SSH_COMMAND = `ssh -i ${this.o.sshKey} -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=accept-new`;
+      delete env.SSH_AUTH_SOCK;
+    } else {
+      // 系统 ssh 配置：钥匙由 ~/.ssh/config（IdentityFile）与 ssh-agent 决定
+      env.GIT_SSH_COMMAND = "ssh -o StrictHostKeyChecking=accept-new";
+    }
     env.GIT_TERMINAL_PROMPT = "0";
     return new Promise((resolve) => execFile("git", ["-C", this.o.dir, ...args], { env, timeout: 120_000, maxBuffer: 16 << 20 }, (e: any, out, err) =>
       resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: String(out), err: String(err || e?.message || "") })));
@@ -86,7 +115,7 @@ export class SoulRepo {
     if (!this.o.remote) return false;
     const bad = checkRemote(this.o.remote);
     if (bad) { this.status.lastError = bad; return false; }
-    if (!isLocal(this.o.remote) && !fs.existsSync(this.o.sshKey)) { this.status.lastError = `缺少部署私钥 ${this.o.sshKey}，拒绝访问远端`; return false; }
+    if (!isLocal(this.o.remote) && this.o.sshKey && !fs.existsSync(this.o.sshKey)) { this.status.lastError = `私钥 ${this.o.sshKey} 不存在，拒绝访问远端（在「灵魂同步」页生成部署密钥、改用别的私钥，或改用系统 ssh 配置）`; return false; }
     return true;
   }
 
@@ -180,7 +209,7 @@ export class SoulRepo {
     const f = await this.git("fetch", "origin", this.o.branch);
     if (f.code !== 0) {
       if (/couldn't find remote ref/i.test(f.err)) return none; // 远端还是空仓库
-      this.status.lastError = f.err.slice(0, 300); return none;
+      this.status.lastError = friendlyGitError(f.err); return none;
     }
     const behind = await this.git("rev-list", "--count", `HEAD..${this.ref()}`);
     if (behind.code === 0 && behind.out.trim() === "0") { this.status.lastPull = Date.now(); this.status.lastError = ""; return none; }
@@ -223,7 +252,7 @@ export class SoulRepo {
     if (!this.remoteReady() || this.status.lastError.startsWith("拒绝提交")) return;
     let r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
     if (r.code !== 0 && (await this.pull()).merged) r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
-    if (r.code !== 0) this.status.lastError = r.err.slice(0, 300);
+    if (r.code !== 0) this.status.lastError = friendlyGitError(r.err);
     else if (changed) { this.status.lastPush = Date.now(); this.status.lastError = ""; }
   }
 

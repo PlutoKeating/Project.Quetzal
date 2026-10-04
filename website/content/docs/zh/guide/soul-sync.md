@@ -23,7 +23,7 @@ description: 把人格与记忆放进一个私有 git 仓库，让同一个 agen
 ## 在控制台里接入
 
 1. 在 GitHub 网页创建一个**私有**仓库（推荐命名 `<agent 短名>.soul`），可以是空仓库。
-2. **控制 → 灵魂同步 → 显示公钥**，把这把公钥添加到仓库的 **Settings → Deploy keys**，勾选 **Allow write access**。
+2. **控制 → 灵魂同步 → 显示公钥**，把这把公钥添加到仓库的 **Settings → Deploy keys**，勾选 **Allow write access**。（也可以在「访问仓库用哪把钥匙」里改为**指定私钥**或**系统 ssh 配置**：后者交给运行基座所在机器的 `~/.ssh/config` 与 ssh-agent，地址可以用 config 里的 Host 别名；基座在后台以服务运行，通常拿不到登录会话的 ssh-agent，请为该 Host 写明 IdentityFile。）
 3. 填入仓库的 **SSH 地址**（`git@github.com:你/<agent>.soul.git`）→ **接入**。
 
 之后同步全自动。每具身体一把专属的部署密钥，拔掉某具身体只需删掉它的 Deploy key。
