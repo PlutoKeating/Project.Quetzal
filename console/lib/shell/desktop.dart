@@ -1,10 +1,13 @@
 // 桌面外壳（电脑浏览器、平板横屏）：四栏——导航栏 · 列表栏 · 主区 · 她此刻。
 //   导航栏（72）：当前 agent（点击切换）、对话 / 心流 / 记忆 / 控制、急停。
-//   列表栏（280）：这一区的索引——会话、经历、记忆目录、控制菜单；点选后主区显示。
-//   主区：对话、一次醒来的完整过程、一篇日记或笔记、一页设置；二级页面在主区内推入 / 返回（嵌套的 Navigator）。
-//   她此刻（320）：光团与状态、她想分享的一句话、正在进行的醒来、待审批、戳一下、内在与身体；永远在那里，不随主区变化。
+//   列表栏（默认 280，可拖）：这一区的索引——会话、经历、记忆目录、控制菜单；点选后主区显示。
+//   主区（至少 420）：对话、一次醒来的完整过程、一篇日记或笔记、一页设置；二级页面在主区内推入 / 返回（嵌套的 Navigator）。
+//   她此刻（默认 320，可拖）：光团与状态、她想分享的一句话、正在进行的醒来、待审批、戳一下、内在与身体；永远在那里，不随主区变化。
+//   两条分隔线可以拖动，宽度记在本机；窗口不够宽时先压两侧到最小，再收起「她此刻」（导航栏多出一个「此刻」按钮，点开是对话框）。
 //   手机上的所有内容组件都原样复用，这里只是把它们放在一起。
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 import '../widgets.dart';
 import '../hearing.dart';
@@ -19,7 +22,9 @@ import '../pages/sessions.dart';
 import '../pages/wake.dart';
 import 'nav.dart';
 
-const _rail = 72.0, _list = 280.0, _presence = 320.0;
+const _rail = 72.0;
+const _listMin = 200.0, _listMax = 480.0, _presenceMin = 260.0, _presenceMax = 520.0, _mainMin = 420.0;
+const _splitter = 9.0; // 分隔线的可抓取宽度（画出来仍是 1 像素）
 
 class DesktopShell extends StatefulWidget {
   const DesktopShell({super.key});
@@ -29,10 +34,20 @@ class DesktopShell extends StatefulWidget {
 
 class _DesktopShellState extends State<DesktopShell> {
   final feed = FlowFeed(); // 心流：列表栏与主区共用同一份时间线
+  double listW = 280, presenceW = 320; // 用户拖出来的宽度（记在本机）
+  bool presenceOpen = true; // 用户有没有主动收起「她此刻」
 
   @override
   void initState() {
     super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (!mounted) return;
+      setState(() {
+        listW = (p.getDouble('desktop.list') ?? listW).clamp(_listMin, _listMax);
+        presenceW = (p.getDouble('desktop.presence') ?? presenceW).clamp(_presenceMin, _presenceMax);
+        presenceOpen = p.getBool('desktop.presenceOpen') ?? true;
+      });
+    });
     nav.addListener(_onNav);
     api.events.listen((e) {
       if (!mounted) return;
@@ -47,6 +62,16 @@ class _DesktopShellState extends State<DesktopShell> {
   void _onNav() { if (mounted) setState(() {}); _title(); }
   void _title() => loc.setTitle('${api.name} · ${const {'chat': '对话', 'flow': '心流', 'memory': '记忆', 'control': '控制'}[nav.section]}');
 
+  Future<void> _save() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setDouble('desktop.list', listW);
+    await p.setDouble('desktop.presence', presenceW);
+    await p.setBool('desktop.presenceOpen', presenceOpen);
+  }
+
+  /// 「她此刻」收起时从导航栏打开：居中的对话框，内容与右栏完全相同。
+  void _presenceDialog() => showSheet(context, (c, _) => const SizedBox(width: 360, child: _PresencePane()), maxWidth: 360);
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -58,15 +83,32 @@ class _DesktopShellState extends State<DesktopShell> {
           if (api.conn != Conn.online) const OfflineBanner(),
           if (api.safeMode) const Banner0(text: '基座处于安全模式（反复崩溃后）：只能查看与管理，不会醒来。', color: Colors.orange),
           Expanded(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              const SizedBox(width: _rail, child: _Rail()),
-              line,
-              SizedBox(width: _list, child: _ListPane(feed: feed)),
-              line,
-              Expanded(child: _MainArea(feed: feed)),
-              line,
-              const SizedBox(width: _presence, child: _PresencePane()),
-            ]),
+            child: LayoutBuilder(builder: (context, box) {
+              // 分配宽度：主区至少 _mainMin。不够时先把「她此刻」压到最小，再压列表栏，仍不够就收起「她此刻」
+              final total = box.maxWidth - _rail - 1 - _splitter;
+              var list = listW.clamp(_listMin, _listMax), pres = presenceW.clamp(_presenceMin, _presenceMax);
+              var fits = presenceOpen && total - _splitter - list - pres >= _mainMin;
+              if (presenceOpen && !fits) {
+                pres = max(_presenceMin, total - _splitter - list - _mainMin);
+                if (total - _splitter - list - pres < _mainMin) list = max(_listMin, total - _splitter - pres - _mainMin);
+                fits = total - _splitter - list - pres >= _mainMin;
+              }
+              if (!fits) { pres = 0; if (total - list < _mainMin) list = max(_listMin, total - _mainMin); }
+              final roomForPresence = total - _splitter - _listMin - _presenceMin >= _mainMin;
+              return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                SizedBox(width: _rail, child: _Rail(presenceShown: fits, onPresence: () {
+                  if (roomForPresence) { setState(() => presenceOpen = !presenceOpen); _save(); } else { _presenceDialog(); }
+                })),
+                line,
+                SizedBox(width: list, child: _ListPane(feed: feed)),
+                _Splitter(onDrag: (dx) => setState(() => listW = (list + dx).clamp(_listMin, _listMax)), onEnd: _save),
+                Expanded(child: _MainArea(feed: feed)),
+                if (fits) ...[
+                  _Splitter(onDrag: (dx) => setState(() => presenceW = (pres - dx).clamp(_presenceMin, _presenceMax)), onEnd: _save),
+                  SizedBox(width: pres, child: const _PresencePane()),
+                ],
+              ]);
+            }),
           ),
         ]),
       ),
@@ -74,9 +116,45 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 }
 
+/// 可拖动的分隔线：画 1 像素，抓取区 9 像素，悬停与拖动时变成主题色。
+class _Splitter extends StatefulWidget {
+  final void Function(double dx) onDrag;
+  final VoidCallback onEnd;
+  const _Splitter({required this.onDrag, required this.onEnd});
+  @override
+  State<_Splitter> createState() => _SplitterState();
+}
+
+class _SplitterState extends State<_Splitter> {
+  bool hover = false, dragging = false;
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final on = hover || dragging;
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeLeftRight,
+      onEnter: (_) => setState(() => hover = true),
+      onExit: (_) => setState(() => hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (_) => setState(() => dragging = true),
+        onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
+        onHorizontalDragEnd: (_) { setState(() => dragging = false); widget.onEnd(); },
+        onHorizontalDragCancel: () => setState(() => dragging = false),
+        child: SizedBox(
+          width: _splitter,
+          child: Center(child: AnimatedContainer(duration: const Duration(milliseconds: 120), width: on ? 2 : 1, color: on ? cs.primary.withValues(alpha: 0.8) : cs.outlineVariant.withValues(alpha: 0.35))),
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------- 导航栏
 class _Rail extends StatelessWidget {
-  const _Rail();
+  final bool presenceShown;
+  final VoidCallback onPresence;
+  const _Rail({required this.presenceShown, required this.onPresence});
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -96,6 +174,9 @@ class _Rail extends StatelessWidget {
       _dest(context, 'memory', Icons.auto_stories_outlined, Icons.auto_stories, '记忆'),
       _dest(context, 'control', Icons.tune_outlined, Icons.tune, '控制', badge: api.approvals.length),
       const Spacer(),
+      // 「她此刻」：窗口够宽时是右栏的开关，不够宽（右栏自动收起）时点开对话框
+      IconButton(tooltip: presenceShown ? '收起「她此刻」' : '她此刻', icon: Icon(presenceShown ? Icons.brightness_3 : Icons.brightness_3_outlined, size: 20, color: presenceShown ? cs.primary : cs.onSurfaceVariant), onPressed: onPresence),
+      const SizedBox(height: 6),
       const StopButton(),
       const SizedBox(height: 6),
       Text(switch (api.conn) { Conn.online => '在线', Conn.connecting => '连接中', Conn.igniting => '点火中', Conn.offline => '离线', Conn.unpaired => '未配对' },

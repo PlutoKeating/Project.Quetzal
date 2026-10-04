@@ -85,6 +85,19 @@ class Shell extends StatefulWidget {
 class _ShellState extends State<Shell> {
   int tab = 0;
   String? bundled; // App 内置的运行基座版本：与运行中的不同时提示升级（本机部署才有意义）
+  ShellMode? _mode;
+
+  /// 窗口从窄变宽：手机外壳推入的页面（对话、设置……）还压在根 Navigator 上，会盖住整个桌面外壳；收起它们，桌面外壳按 nav 的位置接着显示。
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final m = ShellScope.of(context);
+    if (_mode == ShellMode.phone && m == ShellMode.desktop) {
+      final navigator = Navigator.of(context);
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) navigator.popUntil((r) => r.isFirst); });
+    }
+    _mode = m;
+  }
   @override
   void initState() {
     super.initState();

@@ -48,6 +48,7 @@ class Api extends ChangeNotifier {
   bool safeMode = false;
 
   WebSocketChannel? _ws;
+  StreamSubscription? _wsSub; // 当前连接的监听；换连接时注销，旧连接迟到的关闭事件不再影响状态
   int _seq = 0;
   final _pending = <int, Completer<dynamic>>{};
   final _events = StreamController<GatewayEvent>.broadcast();
@@ -159,7 +160,10 @@ class Api extends ChangeNotifier {
   // ---------- WebSocket
   void connect() {
     _retry?.cancel();
-    _ws?.sink.close();
+    // 先注销旧连接的监听再关闭它：否则旧连接的 onDone 会迟到，把刚连上的新连接误判为断开，再次重连……
+    // 形成每隔几秒闪一下「不在线」的循环（每轮约一次握手的时间）
+    _wsSub?.cancel(); _wsSub = null;
+    _ws?.sink.close(); _ws = null;
     if (token.isEmpty) { conn = Conn.unpaired; notifyListeners(); return; }
     conn = conn == Conn.igniting ? Conn.igniting : Conn.connecting;
     notifyListeners();
@@ -167,15 +171,17 @@ class Api extends ChangeNotifier {
     final ws = WebSocketChannel.connect(Uri.parse(url));
     _ws = ws;
     ws.ready.then((_) async {
+      if (_ws != ws) return; // 等待握手期间已经换了连接
       conn = Conn.online; lastError = ''; _backoff = 1;
       notifyListeners();
       await refresh();
-    }).catchError((e) => _lost('$e'));
-    ws.stream.listen(_onMessage, onDone: () => _lost('连接断开'), onError: (e) => _lost('$e'));
+    }).catchError((e) { if (_ws == ws) _lost('$e'); });
+    _wsSub = ws.stream.listen(_onMessage, onDone: () { if (_ws == ws) _lost('连接断开'); }, onError: (e) { if (_ws == ws) _lost('$e'); });
   }
 
   void _lost(String why) {
     if (conn == Conn.unpaired) return;
+    _wsSub?.cancel(); _wsSub = null; _ws = null; // 这条连接已经没用了；同一条连接的 onError 与 onDone 只算一次
     lastError = why;
     if (conn != Conn.igniting) conn = Conn.offline;
     for (final c in _pending.values) { if (!c.isCompleted) c.completeError(RpcError('OFFLINE', '未连接')); }

@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api.dart';
 import '../widgets.dart';
+import '../shell/nav.dart';
 import '../markdown.dart';
 import '../process.dart';
 import '../hearing.dart';
@@ -44,6 +45,8 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   late String title = widget.title;
+  @override
+  void initState() { super.initState(); nav.go('chat', id: widget.conv); } // 记下位置：窗口变宽切到桌面外壳时接着这个会话
   @override
   Widget build(BuildContext context) => PageFrame(
         title: title,
