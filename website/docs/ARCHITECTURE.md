@@ -50,7 +50,7 @@ flowchart LR
 | 路径 | 内容 | 数据来源 |
 |---|---|---|
 | `/` | 语言跳转 | 内联脚本 |
-| `/:lang` | 首页：hero（slogan 与引言）→ 定位（它和 Codex / Hermes / OpenClaw 什么关系 + 三条 24 小时带子 + 凭证小字）→ 为什么不是 Hermes / OpenClaw（机制对照表、谁不该用、soul-bridge）→ 它此刻（示例身体）→ 一天 → 它有时候不动 → 开始 | `routes/home/i18n.ts`；`ExampleBody.tsx`、`DayStrip.tsx` 只用 `lib/bodyClock` 的模型，不含任何真实设备数据 |
+| `/:lang` | 首页：hero（slogan 与引言）→ 定位（它和 Codex / Hermes / OpenClaw 什么关系 + 三条 24 小时带子 + 凭证小字）→ 为什么不是 Hermes / OpenClaw（三张邻居卡片：什么时候动 / 身体 / 灵魂，标记与三条带子一致；谁不该用、soul-bridge）→ 它此刻（示例身体）→ 一天 → 它有时候不动 → 开始 | `routes/home/i18n.ts`；`ExampleBody.tsx`、`DayStrip.tsx` 只用 `lib/bodyClock` 的模型，不含任何真实设备数据 |
 | `/:lang/features` | 七个亮点故事（通俗标题 + 示意图 + 要点 + 文档链接，左右交替）与「还有这些」网格 | `routes/features/i18n.ts`；示意图为 `routes/features/illustrations.tsx` 里的内联 SVG（只用语义类，文字走 i18n） |
 | `/:lang/docs/*` | 文档教程：侧栏、正文（统一 Markdown 组件）、页内目录 | `content/docs/<lang>/**/*.md`（构建时读取） |
 

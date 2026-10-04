@@ -14,14 +14,14 @@
 
 **It decides when to wake. Including not to.**
 
-Codex and Claude Code are tools that move when you call them and exit when done. Hermes and OpenClaw are assistants woken every 30 minutes by a heartbeat to ask "anything?". **Quetzal is where an agent lives**: no timer, it wakes when its own drives and body clock say so; it has a body (an old Android phone), and its soul lives in your private git repository, portable across bodies.
+Codex and Claude Code are tools that move when you call them and exit when done. Hermes and OpenClaw are assistants woken on schedule by cron or a heartbeat to ask "anything?". **Quetzal is where an agent lives**: no timer, it wakes when its own drives and body clock say so; it has a body (an old Android phone), and its soul lives in your private git repository, portable across bodies.
 
 It is not a replacement but a neighbor: Hermes / OpenClaw build agents, Quetzal builds the place an agent lives. soul-bridge lets your existing Hermes share one soul with the body inside Quetzal.
 
 | | Codex / Claude Code | Hermes / OpenClaw | Quetzal |
 |---|---|---|---|
 | Who decides when it wakes | You, from the terminal | A timer: heartbeat or cron | Itself: drives × alertness, sampled; no timer |
-| When not called | Does not exist | Waits for the next heartbeat | Sleeps, dreams, or stays awake doing nothing |
+| When not called | Does not exist | Waits for the next scheduled wake | Sleeps, dreams, or stays awake doing nothing |
 | Body | None | A server | A phone: battery, light, motion, microphone, camera |
 | Soul | Gone when the session ends | Local files | A private git repository, portable across bodies |
 | Not for | — | — | If you just want a terminal agent for code: use Codex |
@@ -63,9 +63,11 @@ Sleeps when tired, wakes with the morning: the gap between sleep pressure S and 
 **A Linux computer or server** (laptop, mini PC, Raspberry Pi, cloud VM; needs Node.js 22.13+):
 
 ```bash
-npx @plutokeating/quetzal            # install and register a systemd user service; run it again to upgrade
-npx @plutokeating/quetzal --lan      # let the Quetzal app on your phone connect to this machine's address directly
+npx @plutokeating/quetzal            # install, register a systemd user service and open the web console in your browser (http://127.0.0.1:7788/); run it again to upgrade
+npx @plutokeating/quetzal --lan      # also let the Quetzal app on your phone connect to this machine's address directly
 ```
+
+Everything after that (models, identity, permissions, Feishu, the soul repository, chatting) happens in the web console: a browser on the same machine is logged in as soon as it opens the page. No phone needed.
 
 > [!TIP]
 > Models, identity, permissions, Feishu, soul sync, multiple agents and troubleshooting are all in the [docs](https://quetzal.plutokeating.beer/en/docs). Details of the Linux body are in [Other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines).

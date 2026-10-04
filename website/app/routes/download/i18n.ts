@@ -45,7 +45,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux 与其他机器",
       heading: "装到一台 Linux 电脑或服务器上",
-      body: ["一台 Linux 电脑或服务器，一行命令就能让 ta 住进去：", "。以后再运行一次就是升级。装好之后，手机上的 App 可以直接连上这台机器，设置和聊天都在 App 里完成。"],
+      body: ["一台 Linux 电脑或服务器，一行命令就能让 ta 住进去：", "。装好后网页控制台在浏览器里自动打开，设置和聊天都在里面，不需要手机；以后再运行一次就是升级。"],
       command: "npx @plutokeating/quetzal",
       link: "Linux 与其他机器",
     },
@@ -104,7 +104,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux and other machines",
       heading: "Install on a Linux computer or server",
-      body: ["One command gives ta a home on a Linux computer or server: ", ". Run it again later to upgrade. Once installed, the app on your phone connects straight to that machine, and everything else happens in the app."],
+      body: ["One command gives it a home on a Linux computer or server: ", ". The web console then opens in your browser — settings and conversations all happen there, no phone needed; run the command again later to upgrade."],
       command: "npx @plutokeating/quetzal",
       link: "Linux and other machines",
     },

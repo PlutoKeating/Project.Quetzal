@@ -75,7 +75,7 @@ export default function Download() {
                     {totalDownloads > 0 && <span className="text-fg-subtle"> · {fmtNum(totalDownloads)} {t.latest.downloads}</span>}
                   </p>
                 </div>
-                <div className="flex w-full flex-col items-stretch gap-3 lg:w-auto lg:min-w-[22rem] lg:items-end"> {/* ds-allow：宽度不是视觉参数 */}
+                <div className="flex w-full min-w-0 flex-col items-stretch gap-3 lg:w-auto lg:min-w-[22rem] lg:items-end"> {/* ds-allow：宽度不是视觉参数 */}
                   {apk ? (
                     <AssetButton asset={apk} label={t.latest.downloadApk} variant="accent" lang={lang} />
                   ) : (
@@ -163,9 +163,10 @@ export default function Download() {
 
 function AssetButton({ asset, label, variant, lang }: { asset: ReleaseAsset; label: string; variant: "accent" | "secondary"; lang: "zh" | "en" }) {
   return (
-    <ButtonAnchor href={asset.url} variant={variant} size="lg" className="h-auto w-full flex-col items-start gap-1 px-6 py-4 text-left whitespace-normal">
-      <span className="text-lg">{label}</span>
-      <span className={cx("font-mono text-xs font-normal break-all", variant === "accent" ? "opacity-(--ds-opacity-muted)" : "text-fg-muted")}>{asset.name} · {formatBytes(asset.size, lang)}</span>
+    <ButtonAnchor href={asset.url} variant={variant} size="lg" className="h-auto w-full min-w-0 max-w-full flex-col items-start gap-1 px-6 py-4 text-left">
+      {/* 按钮基类是 nowrap，换行只能写在子元素上，否则同属性类的先后顺序决定谁生效 */}
+      <span className="whitespace-normal text-lg">{label}</span>
+      <span className={cx("block w-full whitespace-normal break-all font-mono text-xs font-normal", variant === "accent" ? "opacity-(--ds-opacity-muted)" : "text-fg-muted")}>{asset.name} · {formatBytes(asset.size, lang)}</span>
     </ButtonAnchor>
   );
 }

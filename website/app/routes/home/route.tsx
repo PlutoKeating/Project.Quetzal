@@ -2,7 +2,7 @@ import type { Route } from "./+types/route";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useMessages, isLang, DEFAULT_LANG, localized, useLang } from "~/i18n/core";
-import { Badge, Breath, ButtonAnchor, ButtonLink, Container, Eyebrow, Heading, Lead, Reveal, Section, StatusDot, cx } from "~/design-system/components";
+import { Badge, Breath, ButtonAnchor, ButtonLink, Card, Container, Eyebrow, Heading, Lead, Reveal, Section, StatusDot, cx } from "~/design-system/components";
 import { GITHUB_REPO } from "~/components/i18n";
 import { WakeCompare } from "~/components/figure";
 import { fetchRepoStats, type RepoStats } from "~/lib/github";
@@ -14,6 +14,13 @@ export const meta: Route.MetaFunction = ({ params }) => {
   const m = messages[isLang(params.lang) ? params.lang : DEFAULT_LANG];
   return [{ title: m.title }, { name: "description", content: m.description }, { property: "og:title", content: m.title }, { property: "og:description", content: m.description }];
 };
+
+/** 三条带子的小标记：你叫它（灰点）· heartbeat（刻度）· Quetzal（呼吸的状态灯）。定位行与邻居卡片共用。 */
+function BandMark({ i }: { i: number }) {
+  if (i === 0) return <span className="size-2.5 rounded-full bg-fg-subtle" />;
+  if (i === 1) return <span className="flex gap-0.5">{[0, 1, 2].map((k) => <span key={k} className="h-3 w-0.5 bg-fg-subtle" />)}</span>;
+  return <StatusDot alive />;
+}
 
 export default function Home() {
   const t = useMessages(messages);
@@ -49,11 +56,7 @@ export default function Home() {
             <dl className="flex flex-col divide-y divide-border border-y border-border">
               {t.position.rows.map((r, i) => (
                 <div key={r.name} className="grid grid-cols-[1.5rem_1fr] gap-x-3 py-4">
-                  <span aria-hidden className="mt-1.5 flex items-center">
-                    {i === 0 && <span className="size-2.5 rounded-full bg-fg-subtle" />}
-                    {i === 1 && <span className="flex gap-0.5">{[0, 1, 2].map((k) => <span key={k} className="h-3 w-0.5 bg-fg-subtle" />)}</span>}
-                    {i === 2 && <StatusDot alive />}
-                  </span>
+                  <span aria-hidden className="mt-1.5 flex items-center"><BandMark i={i} /></span>
                   <div className="flex flex-col gap-1">
                     <dt className="flex flex-wrap items-baseline gap-x-2"><span className={cx("font-medium", i === 2 ? "text-fg" : "text-fg-muted")}>{r.name}</span><span className="text-xs text-fg-subtle">{r.kind}</span></dt>
                     <dd className={cx("text-pretty", i === 2 ? "text-fg" : "text-fg-muted")}>{r.text}</dd>
@@ -73,7 +76,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 3 · 为什么不是 Hermes / OpenClaw */}
+      {/* 3 · 为什么不是 Hermes / OpenClaw：三张卡，同样三个问题，标记与三条带子一致 */}
       <Section id="why" tone="elevated" className="scroll-mt-(--ds-header-height)">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
@@ -81,25 +84,32 @@ export default function Home() {
             <Heading>{t.why.heading}</Heading>
             <Lead>{t.why.lead}</Lead>
           </Reveal>
-          <Reveal as="div" className="overflow-x-auto rounded-xl border border-border bg-surface">
-            <table className="w-full min-w-[40rem] border-collapse text-sm"> {/* ds-allow：表格最小宽度 */}
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-fg-subtle">
-                  {t.why.cols.map((c, i) => <th key={i} scope="col" className={cx("px-4 py-3 font-medium", i === 3 && "text-fg")}>{c}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {t.why.rows.map((r) => (
-                  <tr key={r[0]} className="border-b border-border last:border-0 align-top">
-                    <th scope="row" className="px-4 py-3 text-left font-medium text-fg-muted">{r[0]}</th>
-                    <td className="px-4 py-3 text-fg-subtle">{r[1]}</td>
-                    <td className="px-4 py-3 text-fg-subtle">{r[2]}</td>
-                    <td className="px-4 py-3 text-fg">{r[3]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Reveal>
+          <ul className="grid gap-4 md:grid-cols-3">
+            {t.why.cards.map((c, i) => {
+              const mine = i === 2;
+              return (
+                <Reveal as="li" key={c.name} delay={i as 0 | 1 | 2} className="flex">
+                  <Card className={cx("flex w-full flex-col gap-5", mine ? "border-border-strong shadow-md" : "bg-bg-elevated")}>
+                    <div className="flex items-center gap-3">
+                      <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-surface"><BandMark i={i} /></span>
+                      <div className="flex min-w-0 flex-col">
+                        <span className={cx("font-medium", mine ? "text-fg" : "text-fg-muted")}>{c.name}</span>
+                        <span className="text-xs text-fg-subtle">{c.kind}</span>
+                      </div>
+                    </div>
+                    <dl className="flex flex-col divide-y divide-border border-t border-border">
+                      {t.why.keys.map((k, j) => (
+                        <div key={k} className="flex flex-col gap-1 py-3">
+                          <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{k}</dt>
+                          <dd className={cx("text-sm text-pretty", mine ? "text-fg" : "text-fg-muted")}>{c.cells[j]}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </Card>
+                </Reveal>
+              );
+            })}
+          </ul>
           <div className="grid gap-8 md:grid-cols-2">
             <Reveal className="flex flex-col gap-3 border-t border-border pt-5">
               <p className="font-medium text-fg">{t.why.notFor.title}</p>
