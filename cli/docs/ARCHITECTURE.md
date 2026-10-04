@@ -13,6 +13,7 @@ test/
 ├── layout.test.ts   放入、切换、回滚、清理；配置只改安装需要的键
 └── service.test.ts  单元文件内容
 tool/bundle-runtime.sh   构建 ../runtime 并把 main.cjs、linux.mjs、VERSION 放进 dist/runtime/（校验版本号一致）；调用 ../console/tool/build-web.sh 把网页控制台放进 dist/runtime/web/
+install.sh               一键安装脚本（curl -fsSL https://quetzal.plutokeating.beer/install | bash）：依赖 → nvm/Node → 本包 → 守护（systemd 或自带守护循环）→ 桌面项；不进 npm 包，官网构建时复制为 /install。见 README「一键安装脚本」
 ```
 
 ## 安装流程
@@ -34,6 +35,7 @@ flowchart LR
 
 ```
 ~/quetzal/releases/<版本>/main.cjs、linux.mjs、web/   （web/ 为网页控制台，网关托管 current/web/）
+（一键安装脚本另有 ~/quetzal/npm/、~/.local/bin/quetzal、quetzal-console、quetzal.desktop 等，见 README）
 ~/quetzal/current → releases/<版本>           运行中的版本
 ~/quetzal/previous → releases/<版本>          上一版
 ~/.config/systemd/user/quetzal.service        ExecStart=<安装时的 node> --enable-source-maps ~/quetzal/current/main.cjs
