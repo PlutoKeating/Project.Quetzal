@@ -156,11 +156,11 @@ export default function Download() {
       {/* 其他机器：命令本身是视觉锚点 */}
       <Section>
         <Container className="grid gap-6 lg:grid-cols-[1fr_1.4fr] lg:gap-12"> {/* ds-allow：栅格比例 */}
-          <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-2">
             <Eyebrow>{t.other.eyebrow}</Eyebrow>
             <Heading size="md">{t.other.heading}</Heading>
           </div>
-          <div className="flex flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
             <CommandLine command={t.other.command} copy={t.other.copy} copied={t.other.copied} />
             <p className="text-fg-muted text-pretty">{t.other.body}</p>
             <p className="text-sm text-fg-subtle text-pretty">{t.other.alt} <code className="font-mono text-fg-muted">{t.other.altCommand}</code></p>
@@ -180,7 +180,8 @@ function CommandLine({ command, copy, copied }: { command: string; copy: string;
   };
   return (
     <div className="flex items-stretch overflow-hidden rounded-lg border border-border bg-surface">
-      <pre className="min-w-0 flex-1 overflow-x-auto px-4 py-3 font-mono text-sm text-fg"><code><span aria-hidden className="select-none text-fg-subtle">$ </span>{command}</code></pre>
+      {/* 命令可以折行：窄处换行，不出横向滚动条 */}
+      <pre className="min-w-0 flex-1 whitespace-pre-wrap break-all px-4 py-3 font-mono text-sm leading-relaxed text-fg"><code><span aria-hidden className="select-none text-fg-subtle">$ </span>{command}</code></pre>
       <button type="button" onClick={onCopy} aria-live="polite" className="shrink-0 border-l border-border px-4 text-sm text-fg-muted transition-colors duration-(--ds-duration-fast) hover:bg-surface-hover hover:text-fg">
         {done ? copied : copy}
       </button>
