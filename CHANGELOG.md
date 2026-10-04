@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.6.6
+
+- **下载走官网代理**：GitHub 在不少网络里连不上，官网加了一个 Worker：`/dl/<tag>/<文件>` 代理 Release 资产（APK、Linux 控制台包、校验值，边缘缓存 7 天），`/api/releases[/latest]` 代理发布接口（缓存 5 分钟，资产地址改写为 `/dl/`）。App 的更新检查与 APK 下载、一键安装脚本的原生控制台下载、官网下载页都先走官网代理，失败再直连 GitHub。
+- **Downloads through the website proxy**: GitHub is unreachable on many networks, so the website gained a Worker: `/dl/<tag>/<file>` proxies release assets (APK, Linux console packages, checksums; edge-cached for 7 days) and `/api/releases[/latest]` proxies the releases API (cached 5 minutes, asset URLs rewritten to `/dl/`). The app's update check and APK download, the installer's native console download and the download page all try the website proxy first and fall back to GitHub.
+
 ## 0.6.5
 
 - **回复里的「过程记录」附注**：基座在她的历史回复前附的「[时间｜这一轮的过程记录：…]」只是给模型看的附注，有的模型会照着格式写进新回复，于是气泡开头出现一段原始记录（过程本身已是工具卡片）。现在基座在回复进入事件与入库前把仿写的附注剥掉。
