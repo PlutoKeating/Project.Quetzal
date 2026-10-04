@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.6.1
+
+- **灵魂同步**：访问仓库的钥匙可选——本机部署密钥（默认不变）、指定私钥路径、系统 ssh 配置（`~/.ssh/config` + ssh-agent，地址可用 Host 别名）；规范 §7 升到 v7。先点「接入」后点「显示公钥」也行：部署密钥不在会先生成。同步状态落盘（`state/soul-status.json`），重启后「上次拉取 / 推送」不再归零；页面跟着后台同步实时刷新；git 报错翻译成提示（如公钥未加到 Deploy keys）。
+- **Soul sync**: the key used to reach the repository is now a choice — the local deploy key (default, unchanged), a specified private key path, or the system ssh configuration (`~/.ssh/config` + ssh-agent; the address may use a Host alias); spec §7 is now v7. Tapping "Connect" before "Show public key" works too: the deploy key is generated first when missing. Sync status is persisted (`state/soul-status.json`) so "last pull / push" no longer reset after a restart; the page refreshes live as background syncs happen; git errors are translated into hints (e.g. public key not added to Deploy keys).
+
 ## 0.6.0
 
 - **Linux 一键安装**：`curl -fsSL https://quetzal.plutokeating.beer/install | bash`（`cli/install.sh`，官网构建时复制为 `/install`）。认出发行版与包管理器（apt / dnf / yum / pacman / zypper / apk / xbps），缺的 git / curl / tar / CA 证书用系统自己的包管理器装，Node.js 22.13+ 没有就经 nvm 装（Alpine 用 apk，直连 nodejs.org 不通自动切 npmmirror）；npm 包装进 `~/quetzal/npm` 独立前缀，`~/.local/bin/quetzal` 命令固定用安装时的 node；守护：systemd 用户服务并确保 `loginctl enable-linger`（没登录也运行），没有 systemd 的机器（Alpine / Void、容器、未开 systemd 的 WSL）退回自带守护循环 + `crontab @reboot` + 桌面自启动项，不装任何服务框架；有桌面时应用列表里多一个「Quetzal」（光团图标，Chromium 系浏览器以独立窗口打开控制台，任务栏显示 Quetzal 图标）；终端界面中英双语（简繁中文显示中文）、彩色、带半格字符画的光团与进度转圈；选项 `--lan --no-open --no-desktop --home --version --cn/--no-cn --lang`，`--uninstall [--purge]` 卸载。在 debian-slim、ubuntu（非 root + sudo）、fedora、archlinux、alpine 容器里验证。官网下载页的 Linux 命令改为这一行并加复制按钮，文档同步。
