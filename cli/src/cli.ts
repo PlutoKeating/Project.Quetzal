@@ -18,7 +18,7 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
 
 命令（不给命令 = install）：
   install            安装或升级到包里内置的版本，注册 systemd 用户服务并启动；失败自动切回上一版；有桌面时顺手打开网页控制台
-  open               在浏览器里打开网页控制台（http://127.0.0.1:<端口>/）
+  open               打开控制台：有原生控制台（一键安装脚本装的）就启动它，否则在浏览器里打开网页版（http://127.0.0.1:<端口>/）
   run                前台运行（没有 systemd 时用；Ctrl-C 退出）
   status             版本、服务与健康状态
   logs [-f] [-n N]   服务日志（journald）；-f 持续输出
@@ -75,12 +75,19 @@ async function status(home: string) {
   say(`网页控制台 ${hasConsole(l) ? `${consoleUrl(l)}（quetzal open）` : "（这个版本没有内置网页控制台）"}`);
 }
 
-/** 在默认浏览器里打开网页控制台；没有桌面（服务器、ssh 会话）就只打印地址。 */
+/** 打开控制台：一键安装脚本装了原生控制台（<家目录>/console/current/quetzal-console）就启动它，否则在默认浏览器里打开网页控制台；没有桌面（服务器、ssh 会话）就只打印地址。 */
 async function open(home: string): Promise<void> {
   const l = layout(home);
   const url = consoleUrl(l);
-  if (!hasConsole(l)) { say(`这个版本没有内置网页控制台；网关在 ${url}`); return; }
   if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) { say(`没有桌面会话：在有浏览器的机器上打开 ${url}（需要先 ssh -L ${gatewayPort(l)}:127.0.0.1:${gatewayPort(l)} 转发端口）`); return; }
+  const native = path.join(l.home, "console", "current", "quetzal-console");
+  if (fs.existsSync(native)) {
+    const n = spawn(native, [], { stdio: "ignore", detached: true });
+    n.on("error", (e) => say(`原生控制台启动失败（${e.message}）：请手动打开 ${url}`));
+    n.on("spawn", () => { n.unref(); say("已打开原生控制台"); });
+    return;
+  }
+  if (!hasConsole(l)) { say(`这个版本没有内置网页控制台；网关在 ${url}`); return; }
   const p = spawn("xdg-open", [url], { stdio: "ignore", detached: true });
   p.on("error", () => say(`打不开浏览器（没有 xdg-open）：请手动打开 ${url}`));
   p.on("spawn", () => { p.unref(); say(`已在浏览器里打开 ${url}`); });

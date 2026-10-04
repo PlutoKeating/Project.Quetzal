@@ -8,7 +8,8 @@
 #   3. 把 npm 包 @plutokeating/quetzal 装进 ~/quetzal/npm（独立前缀，不污染全局），由它放好运行基座与网页控制台
 #   4. 守护：systemd 用户服务（开机自启、退出 3 秒后重启、未登录也运行）；没有 systemd 的机器退回到
 #      自带的守护循环 + crontab @reboot + 桌面自启动项，不装任何额外的服务框架
-#   5. 桌面：应用列表里加「Quetzal」（图标、点开就是控制台，Chromium 系浏览器以独立窗口打开，任务栏显示 Quetzal 图标）
+#   5. 桌面：从 GitHub Release 下载同版本的原生控制台（Flutter Linux 桌面版，不借浏览器）放到 ~/quetzal/console/，
+#      应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标；没有原生包（旧版本、arm64、下载失败）时退回用浏览器打开
 #   6. 打开网页控制台 http://127.0.0.1:7788/（同一台机器的浏览器打开即登录）
 #
 # 选项（curl … | bash -s -- <选项>）与等价的环境变量：
@@ -131,7 +132,8 @@ banner() {
 SPIN_PID=""
 cleanup() { [[ -n "$SPIN_PID" ]] && kill "$SPIN_PID" 2>/dev/null; printf '\r\033[2K' 2>/dev/null; printf '\n  %s\n' "$(t '已中止。' 'Aborted.')"; exit 130; }
 can_fractional_sleep() { sleep 0.1 2>/dev/null; }
-run_step() { # 文案 命令…：在后台跑命令，前台转圈；成功 ✓，失败 ✗ + 日志
+run_step() { run_try "$@" || die "$1 $(t '失败' 'failed')"; }
+run_try() { # 文案 命令…：在后台跑命令，前台转圈；成功 ✓ 返回 0，失败 ! 返回 1（由调用方决定是否致命；致命的由 run_step 打 ✗）
   local label=$1; shift
   local rc=0
   if (( TTY && COLOR )); then
@@ -151,7 +153,8 @@ run_step() { # 文案 命令…：在后台跑命令，前台转圈；成功 ✓
     printf '  %s %s\n' "$I_RUN" "$label"
     "$@" </dev/null >>"$LOG" 2>&1 || rc=$?
   fi
-  if (( rc == 0 )); then ok "$label"; else die "$label $(t '失败' 'failed')"; fi
+  if (( rc == 0 )); then ok "$label"; return 0; fi
+  warn "$label $(t '没有完成' 'did not complete')"; return 1
 }
 run_tty() { # 需要终端交互的命令（sudo 问密码）：不转圈，输出进日志，密码提示由 sudo 自己写到终端
   local label=$1; shift
@@ -164,6 +167,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 # 取网页（curl 或 wget，哪个在用哪个）：fetch_ok URL（只看通不通）、fetch_text URL（内容到标准输出）
 fetch_ok()   { if have curl; then curl -fsSL -m "${2:-6}" -o /dev/null "$1" 2>/dev/null; elif have wget; then wget -q -T "${2:-6}" -O /dev/null "$1" 2>/dev/null; else return 1; fi; }
+fetch_file()   { if have curl; then curl -fsSL -m "${3:-300}" -o "$2" "$1" 2>>"${LOG:-/dev/null}"; elif have wget; then wget -q -T "${3:-300}" -O "$2" "$1" 2>>"${LOG:-/dev/null}"; else return 1; fi; }
 fetch_text() { if have curl; then curl -fsSL -m "${2:-6}" "$1" 2>>"${LOG:-/dev/null}"; elif have wget; then wget -q -T "${2:-6}" -O - "$1" 2>>"${LOG:-/dev/null}"; else return 1; fi; }
 
 # ---------------------------------------------------------------- 参数
@@ -479,22 +483,56 @@ start_supervisor() {
   disown 2>/dev/null || true
 }
 
-# ---------------------------------------------------------------- 5. 桌面：应用列表里的「Quetzal」
+# ---------------------------------------------------------------- 5. 桌面：原生控制台 + 应用列表里的「Quetzal」
+NATIVE=""   # 原生控制台的可执行文件（装上了才非空）
 LAUNCHER=""
+REPO_DL="https://github.com/PlutoKeating/Project.Quetzal/releases/download"
+download_console() { # 版本 架构 目标目录：下载同版本的原生控制台并解包（顶层目录 quetzal-console/ 去掉）
+  local v=$1 arch=$2 dir=$3 tmp="$3.tar.gz"
+  rm -rf "$dir.part" "$tmp"; mkdir -p "$dir.part"
+  fetch_file "$REPO_DL/v$v/quetzal-$v-linux-$arch-console.tar.gz" "$tmp" 600 || return 1
+  tar -xzf "$tmp" -C "$dir.part" --strip-components=1 || return 1
+  rm -f "$tmp"
+  [[ -x "$dir.part/quetzal-console" ]] || return 1
+  # 发行版太旧（glibc / GTK 版本不够）时装了也起不来：ldd 有缺失就放弃，退回浏览器
+  if have ldd && ldd "$dir.part/quetzal-console" 2>/dev/null | grep -q "not found"; then ldd "$dir.part/quetzal-console" >>"$LOG" 2>&1; return 1; fi
+  rm -rf "$dir"; mv "$dir.part" "$dir"
+}
+install_native_console() {
+  local v; v=$(installed_version); [[ -n $v ]] || return 0
+  local arch; case "$ARCH" in x86_64|amd64) arch=x64;; aarch64|arm64) arch=arm64;; *) note "$(t "没有 $ARCH 架构的原生控制台，桌面项用浏览器打开" "No native console for $ARCH; the app-list entry opens the browser")"; return 0;; esac
+  local base="$HOME_DIR/console" dir="$HOME_DIR/console/$v"
+  mkdir -p "$base"
+  if [[ ! -x "$dir/quetzal-console" ]]; then
+    if ! run_try "$(t "下载原生控制台 $v（Linux 桌面版）" "Downloading the native console $v (Linux desktop)")" download_console "$v" "$arch" "$dir"; then
+      rm -rf "$dir.part" "$dir.tar.gz"
+      note "$(t "这个版本没有可用的原生控制台（或下载失败）：桌面项改用浏览器打开；下次升级会再试" "No usable native console for this version (or the download failed): the app-list entry opens the browser instead; the next upgrade will retry")"
+      return 0
+    fi
+  fi
+  ln -sfn "$dir" "$base/current"
+  local d; for d in "$base"/*/; do d=${d%/}; [[ $d == "$dir" || $(basename "$d") == current ]] || rm -rf "$d"; done  # 只留当前版本
+  NATIVE="$base/current/quetzal-console"
+  ok "$(t "原生控制台 $v 就位：应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标" "Native console $v in place: Quetzal's own icon in the app list, taskbar and Alt-Tab")"
+}
 install_desktop() {
   (( HAS_DESKTOP && DESKTOP )) || return 0
-  local icon_src="$HOME_DIR/current/web/icons" apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications" icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" icon_name=quetzal size
+  install_native_console
+  local icon_src="$HOME_DIR/current/web/icons" apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications" icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" icon_name=xyz.quetzal.console size
   mkdir -p "$apps" "$HOME/.local/bin"
   if [[ -f $icon_src/Icon-512.png ]]; then
-    for size in 512 192; do mkdir -p "$icons/${size}x${size}/apps"; cp -f "$icon_src/Icon-$size.png" "$icons/${size}x${size}/apps/quetzal.png" 2>/dev/null || true; done
+    for size in 512 192; do mkdir -p "$icons/${size}x${size}/apps"; cp -f "$icon_src/Icon-$size.png" "$icons/${size}x${size}/apps/xyz.quetzal.console.png" 2>/dev/null || true; done
   else icon_name=applications-internet; fi
+  # 早期版本写的桌面项与图标名（quetzal.desktop / quetzal.png）：换成新名字，避免应用列表里出现两个
+  rm -f "$apps/quetzal.desktop" "$icons/512x512/apps/quetzal.png" "$icons/192x192/apps/quetzal.png"
   LAUNCHER="$HOME/.local/bin/quetzal-console"
   local tpl
   IFS= read -r -d '' tpl <<'EOF' || true
 #!/usr/bin/env bash
 # Quetzal 控制台启动器（由安装脚本生成）：应用列表里的「Quetzal」点开就是它。
-# Chromium 系浏览器以独立窗口（--app，独立的资料目录，窗口类 Quetzal → 任务栏显示 Quetzal 图标）打开网页控制台；
-# 没有的话用默认浏览器打开。服务没在跑就先拉起来。
+# 有原生控制台（~/quetzal/console/current/quetzal-console，Flutter Linux 桌面版）就直接启动它——窗口有 Quetzal 自己的图标；
+# 没有（旧版本、arm64、下载失败）就用浏览器打开网页控制台：Chromium 系以独立窗口（--app）打开，否则用默认浏览器。
+# 服务没在跑就先拉起来。
 HOME_DIR='__HOME_DIR__'
 port=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$HOME_DIR/config/quetzal.json" 2>/dev/null | head -n1)
 url="http://127.0.0.1:${port:-7788}/"
@@ -503,16 +541,17 @@ if ! alive; then
   systemctl --user start quetzal >/dev/null 2>&1 || { [ -x "$HOME_DIR/bin/quetzal-supervise" ] && ( setsid "$HOME_DIR/bin/quetzal-supervise" >/dev/null 2>&1 </dev/null & ); }
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do alive && break; sleep 0.5; done
 fi
+if [ -x "$HOME_DIR/console/current/quetzal-console" ]; then exec "$HOME_DIR/console/current/quetzal-console" "$@"; fi
 profile="$HOME_DIR/state/console-browser"
 for b in google-chrome google-chrome-stable chromium chromium-browser brave-browser microsoft-edge microsoft-edge-stable vivaldi-stable vivaldi; do
   if command -v "$b" >/dev/null 2>&1; then
-    exec "$b" --app="$url" --class=Quetzal --user-data-dir="$profile" --no-first-run --no-default-browser-check >/dev/null 2>&1
+    exec "$b" --app="$url" --user-data-dir="$profile" --no-first-run --no-default-browser-check >/dev/null 2>&1
   fi
 done
 if command -v flatpak >/dev/null 2>&1; then
   for id in com.google.Chrome org.chromium.Chromium com.brave.Browser com.microsoft.Edge com.vivaldi.Vivaldi; do
     if flatpak info "$id" >/dev/null 2>&1; then
-      exec flatpak run "$id" --app="$url" --class=Quetzal --user-data-dir="$profile" --no-first-run --no-default-browser-check >/dev/null 2>&1
+      exec flatpak run "$id" --app="$url" --user-data-dir="$profile" --no-first-run --no-default-browser-check >/dev/null 2>&1
     fi
   done
 fi
@@ -522,7 +561,9 @@ echo "$url"
 EOF
   tpl=${tpl//__HOME_DIR__/$HOME_DIR}
   printf '%s' "$tpl" >"$LAUNCHER"; chmod 755 "$LAUNCHER"
-  cat >"$apps/quetzal.desktop" <<EOF
+  # 文件名 xyz.quetzal.console.desktop：原生控制台的 Wayland app_id 与 X11 WM_CLASS 都是 GTK 应用 id xyz.quetzal.console，桌面按文件名或 StartupWMClass 配图标。
+  # 浏览器退路的窗口配不上，任务栏显示的是浏览器图标（已知限制）
+  cat >"$apps/xyz.quetzal.console.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Quetzal
@@ -533,19 +574,20 @@ Icon=$icon_name
 Terminal=false
 Categories=Network;Utility;
 Keywords=agent;quetzal;
-StartupNotify=false
-StartupWMClass=Quetzal
+StartupNotify=true
+StartupWMClass=xyz.quetzal.console
 EOF
   have update-desktop-database && update-desktop-database "$apps" >>"$LOG" 2>&1 || true
   have gtk-update-icon-cache && gtk-update-icon-cache -f -t "$icons" >>"$LOG" 2>&1 || true
-  ok "$(t '应用列表里有「Quetzal」了：图标 · 点开就是控制台' 'Quetzal is in the app list: icon · opens the console')"
+  if [[ -n $NATIVE ]]; then ok "$(t '应用列表里有「Quetzal」了：点开就是原生控制台' 'Quetzal is in the app list: it opens the native console')"
+  else ok "$(t '应用列表里有「Quetzal」了：点开在浏览器里打开控制台' 'Quetzal is in the app list: it opens the console in the browser')"; fi
 }
 
 # ---------------------------------------------------------------- 6. 收尾
 open_console() {
   (( OPEN && HAS_SESSION )) || return 0
   local url; url="http://127.0.0.1:$(gateway_port_or_default)/"
-  if [[ -n $LAUNCHER && -x $LAUNCHER ]]; then ( "$LAUNCHER" >/dev/null 2>&1 </dev/null & ) && ok "$(t '已打开控制台' 'Console opened')"
+  if [[ -n $LAUNCHER && -x $LAUNCHER ]]; then ( "$LAUNCHER" >/dev/null 2>&1 </dev/null & ) && ok "$(t "已打开控制台$( [[ -n $NATIVE ]] && t '（原生窗口）' ' (native window)' )" "Console opened$( [[ -n $NATIVE ]] && printf ' (native window)' )")"
   elif have xdg-open; then ( xdg-open "$url" >/dev/null 2>&1 </dev/null & ) && ok "$(t '已在浏览器里打开控制台' 'Console opened in the browser')"; fi
 }
 summary() {
@@ -576,9 +618,11 @@ uninstall() {
   local pid; pid=$(cat "$HOME_DIR/state/supervise.pid" 2>/dev/null || true)
   if [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null; then kill -TERM "$pid" 2>/dev/null || true; ok "$(t '守护循环已停止' 'Supervisor loop stopped')"; did=1; fi
   if have crontab && crontab -l 2>/dev/null | grep -q quetzal-supervise; then crontab -l 2>/dev/null | grep -v quetzal-supervise | crontab - 2>/dev/null || true; ok "$(t '已移除 crontab 的开机项' 'crontab @reboot entry removed')"; did=1; fi
-  local f; for f in "$HOME/.config/autostart/quetzal-runtime.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/quetzal.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps/quetzal.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/192x192/apps/quetzal.png" "$HOME/.local/bin/quetzal-console" "$HOME/.local/bin/quetzal" "$HOME/.config/fish/conf.d/quetzal.fish"; do
+  local f; for f in "$HOME/.config/autostart/quetzal-runtime.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/quetzal.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/xyz.quetzal.console.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps/quetzal.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/192x192/apps/quetzal.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps/xyz.quetzal.console.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/192x192/apps/xyz.quetzal.console.png" "$HOME/.local/bin/quetzal-console" "$HOME/.local/bin/quetzal" "$HOME/.config/fish/conf.d/quetzal.fish" "$HOME/.config/systemd/user/quetzal.service.d/quetzal-off.conf"; do
     [[ -e $f ]] && { rm -f "$f"; did=1; }
   done
+  if [[ -e "$HOME_DIR/console/current" ]]; then ok "$(t '原生控制台已移除' 'Native console removed')"; did=1; fi
+  rm -rf "${HOME_DIR:?}/console"
   have update-desktop-database && update-desktop-database "${XDG_DATA_HOME:-$HOME/.local/share}/applications" >/dev/null 2>&1 || true
   if (( PURGE )); then rm -rf "$HOME_DIR"; ok "$(t "已删除 $HOME_DIR（配置、记忆、对话都没有了；灵魂仓库里的内容仍在远端）" "Deleted $HOME_DIR (configuration, memories and conversations are gone; the soul repository remains remote)")"
   else rm -rf "${HOME_DIR:?}/npm" "${HOME_DIR:?}/bin" "$HOME_DIR/state/supervise.pid" "$HOME_DIR/state/supervise.lock" 2>/dev/null; ok "$(t "保留了 $HOME_DIR（配置、记忆、对话）；要一起删除加 --purge" "Kept $HOME_DIR (configuration, memories, conversations); add --purge to delete it too")"; fi
