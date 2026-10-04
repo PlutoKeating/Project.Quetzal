@@ -31,6 +31,10 @@ Built-in tools: memory and notes, recall, web search and fetch, viewing images, 
 
 Yes. Installation, configuration and daily use all happen in the Quetzal app; the one command-line moment is pasting a single line into Termux to allow external apps.
 
+## I only have a computer, no spare phone. Does that work?
+
+Yes. On a Linux computer or server, `npx @plutokeating/quetzal` installs everything in one line and the web console opens in your browser, logged in without a pairing code (same machine); configuration and conversations all happen there. See [Linux and other machines](/docs/advanced/other-machines). That body just has fewer senses than a phone (no camera, light or motion sensors) and no ears (hearing lives in the phone app).
+
 ## Do I have to use Feishu?
 
 No. The app is a complete console on its own. Feishu is an optional second entry point.

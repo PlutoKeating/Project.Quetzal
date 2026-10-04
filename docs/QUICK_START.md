@@ -13,7 +13,7 @@
    - 最后按提示把 Termux 系列与 Quetzal 加入电池优化的忽略名单，并在厂商的自启动管理里放行；有锁屏密码的手机，重启后要解锁一次她才会醒来。
 4. 之后的一切都在 App 里完成，见第 2 节。**升级**：装新版 APK 后，App 发现内置的运行基座比运行中的新，会提示一键升级（控制 → 服务 →「升级 / 重装」也可以），失败自动回退。
 
-## 2. 之后的一切都在控制台里完成
+## 2. 之后的一切都在控制台里完成（手机上是 Quetzal App，Linux 机器上是网页控制台，同一份界面）
 
 1. **配置模型**：控制 → 模型 → 添加供应商（从目录选择或自定义）→ 添加 Key → 勾选模型 → 保存 → 测试连通 → 在「全局模型顺序」里拖动排序，可把一个便宜的模型设为「内省」模型。配置好之后，她就会按自己的节律开始醒来。
 2. **身份**：控制 → 身份，给 agent 起名字、选主题色（写入它的灵魂仓库，所有身体同步）。没有灵魂仓库时，身份与人格先存在本机的灵魂目录里。
@@ -29,12 +29,13 @@
 笔记本、小主机、树莓派、云主机都行，只要有 Node.js 22.13+（内置 `node:sqlite`）与 git：
 
 ```bash
-npx @plutokeating/quetzal            # 安装：内置的运行基座与 Linux 身体适配器放进 ~/quetzal，注册 systemd 用户服务并启动，健康检查失败自动切回上一版
-npx @plutokeating/quetzal --lan      # 让网关对局域网开放：手机上的 Quetzal App 直接填这台机器的地址连接（只在可信的局域网里）
-npx @plutokeating/quetzal status     # 版本、服务、健康；logs -f 看日志；rollback 回滚；uninstall [--purge] 卸载
+npx @plutokeating/quetzal            # 安装：内置的运行基座、Linux 身体适配器与网页控制台放进 ~/quetzal，注册 systemd 用户服务并启动，健康检查失败自动切回上一版；有桌面时顺手打开浏览器
+npx @plutokeating/quetzal open       # 再次打开网页控制台 http://127.0.0.1:7788/
+npx @plutokeating/quetzal --lan      # 让网关对局域网开放：手机上的 Quetzal App 也能直接填这台机器的地址连接（只在可信的局域网里）
+npx @plutokeating/quetzal status     # 版本、服务、健康、网页控制台地址；logs -f 看日志；rollback 回滚；uninstall [--purge] 卸载
 ```
 
-再运行一次 `npx @plutokeating/quetzal` 就是升级。之后在 App 里 **连接新的 agent** → 填 `http://<这台机器的地址>:7788` → **申请配对码**：配对码在这台机器上弹桌面通知；没有桌面的服务器从 `npx @plutokeating/quetzal logs` 里看。装好之后的一切仍然在 App 里完成（第 2 节）。没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）用 `npx @plutokeating/quetzal run` 前台运行，交给自己的守护者。npm 包的实现在 [`cli/`](../cli/docs/README.md)。
+装好之后的一切（第 2 节的全部配置，以及对话）都在**网页控制台**里完成：这台机器上的浏览器打开 `http://127.0.0.1:7788/` 即登录，不需要配对码也不需要手机。它就是 Quetzal App 的网页版，为电脑横屏重新排布（导航栏 · 列表栏 · 主区 · 她此刻），功能与 App 一致；地址栏的 `#/…` 记录位置，可收藏。再运行一次 `npx @plutokeating/quetzal` 就是升级。没有桌面的服务器：`ssh -L 7788:127.0.0.1:7788 <服务器>` 转发端口后在本机浏览器打开同样的地址（同一台机器的判定看连接来源，隧道算本机）。手机上的 App 也可以连这台机器：**连接新的 agent** → 填 `http://<这台机器的地址>:7788` → **申请配对码**（配对码弹桌面通知，没有桌面的从 `npx @plutokeating/quetzal logs` 里看）。没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）用 `npx @plutokeating/quetzal run` 前台运行，交给自己的守护者。npm 包的实现在 [`cli/`](../cli/docs/README.md)。
 
 ## 4. 部署到其他机器（部署者）
 

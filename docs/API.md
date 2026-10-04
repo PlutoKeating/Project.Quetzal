@@ -4,13 +4,15 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 ## 1. 网关
 
-缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788）；配置 `gateway.host` 为 `0.0.0.0` 可对局域网开放（`npx @plutokeating/quetzal --lan`），此时配对码与令牌是唯一门槛，只在可信的局域网里这样做。
+缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788）；配置 `gateway.host` 为 `0.0.0.0` 可对局域网开放（`npx @plutokeating/quetzal --lan`），此时配对码与令牌是唯一门槛，只在可信的局域网里这样做。`main.cjs` 旁边有 `web/index.html`（npm 安装器放的网页控制台；或环境变量 `QUETZAL_WEB_DIR` 指定）时，网关同时托管这些静态文件：`GET /` 就是控制台。
 
 ### 1.1 HTTP
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌，供点火器探活 |
+| GET | `/auth/local` | `{ok, token}`：只给**同一台机器上的浏览器**（连接来自回环地址、Host 是本机名、Origin（若有）也是本机），网页控制台打开即登录；其他来源 403。任何本机进程本来就读得到 `secrets/gateway.token`，所以这不扩大信任边界；ssh 隧道转发来的连接也算本机 |
+| GET | `/<静态文件>` | 网页控制台（`web/` 目录存在时）：`/` → `index.html`，没有扩展名的未知路径也回退到 `index.html`（单页应用），带 ETag |
 | POST | `/pair/start` | 生成 6 位配对码（5 分钟有效），通过适配器的系统通知与飞书下发 |
 | POST | `/pair/finish` | `{code}` → `{ok, token}`；错误码 403（不正确）、410（失效或尝试超过 5 次） |
 | GET | `/media/<文件名>?token=<令牌>` | 她的声音：控制台 App 取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |

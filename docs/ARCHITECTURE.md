@@ -342,6 +342,7 @@ flowchart LR
 | 入口 | 方式 | 说明 |
 |---|---|---|
 | 控制台 App | 本地网关 WebSocket | 见 [console 文档](../console/docs/README.md) |
+| 网页控制台 | 网关托管的静态页面（`current/web/`）+ 同一个 WebSocket | 控制台的 Flutter Web 构建，为电脑横屏重新排布；同一台机器的浏览器经 `GET /auth/local` 免配对码登录（`web.ts`） |
 | 飞书 | 长连接（无需公网） | 单聊自动推送「此刻」卡片；机器人菜单事件；卡片按钮与表单直接调用操作层，原地刷新卡片 |
 | 主机 | 端口转发到网关 | 与控制台同一套 API |
 
@@ -351,5 +352,5 @@ flowchart LR
 - **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
 - 部署者提供：Node.js 22.13+（`node:sqlite` 从这个版本起不需要标志）、`QUETZAL_HOME`、可选的 `QUETZAL_ADAPTER`（适配器模块路径）、进程守护者。
 - **Android + Termux 部署约定**（Quetzal App 的安装器与点火器按此约定工作，脚本在 `console/assets/install/install.sh`）：软件包 `nodejs-lts termux-services termux-api git openssh`；版本目录 `~/quetzal/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/quetzal/current` → 运行中的版本，`~/quetzal/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/quetzal`（`run` 以 `QUETZAL_ADAPTER=$HOME/quetzal/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/quetzal/`；开机脚本 `~/.termux/boot/quetzal`（唤醒锁 + 启动 runit）；`termux.properties` 中 `allow-external-apps=true`。安装器在 App 内开一个 127.0.0.1 的临时 HTTP 服务提供脚本与运行基座文件、接收进度；脚本通过 Termux 的 `RUN_COMMAND` 执行，完成后把 `secrets/gateway.token` 交给控制台，同一台手机上不需要配对码。健康检查 40 秒不通过自动切回 `previous`。
-- **Linux + npm 部署约定**（npm 包 `@plutokeating/quetzal`，源码在 `cli/`，与 Android 约定同构）：`npx @plutokeating/quetzal` 把包内置的 `main.cjs`、`linux.mjs` 放进 `~/quetzal/releases/<版本>/`，`current` / `previous` 同上；守护者是 systemd 用户服务 `~/.config/systemd/user/quetzal.service`（`ExecStart=<安装时的 node> --enable-source-maps ~/quetzal/current/main.cjs`，`QUETZAL_ADAPTER=~/quetzal/current/linux.mjs`，`Restart=always`），日志在 journald；尝试 `loginctl enable-linger` 让服务在没有登录会话时也运行。健康检查 40 秒且 `/health` 的版本相符才算成功，否则切回 `previous`。`--lan` 把 `gateway.host` 写为 `0.0.0.0`，手机上的 App 直接连这台机器；配对码由适配器的 `notify` 弹桌面通知并写进服务日志。没有 systemd 用户实例时只放文件，提示 `quetzal run` 前台运行。
+- **Linux + npm 部署约定**（npm 包 `@plutokeating/quetzal`，源码在 `cli/`，与 Android 约定同构）：`npx @plutokeating/quetzal` 把包内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/quetzal/releases/<版本>/`，`current` / `previous` 同上；网关托管 `current/web/`（`QUETZAL_WEB_DIR` 可覆盖），装完有桌面时自动打开浏览器，`quetzal open` 再次打开；守护者是 systemd 用户服务 `~/.config/systemd/user/quetzal.service`（`ExecStart=<安装时的 node> --enable-source-maps ~/quetzal/current/main.cjs`，`QUETZAL_ADAPTER=~/quetzal/current/linux.mjs`，`Restart=always`），日志在 journald；尝试 `loginctl enable-linger` 让服务在没有登录会话时也运行。健康检查 40 秒且 `/health` 的版本相符才算成功，否则切回 `previous`。`--lan` 把 `gateway.host` 写为 `0.0.0.0`，手机上的 App 直接连这台机器；配对码由适配器的 `notify` 弹桌面通知并写进服务日志。没有 systemd 用户实例时只放文件，提示 `quetzal run` 前台运行。
 - **配置缺省**：`body` 由安装器写为机型名（Android）或主机名（Linux），`timezone` 取系统时区；相机、麦克风、定位、操作屏幕默认「每次询问」；听觉默认关闭；网关只监听本机。

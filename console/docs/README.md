@@ -1,11 +1,11 @@
-# console · 控制台 App
+# console · 控制台（安卓 App 与网页版）
 
-Flutter（Material 3，深色为主），应用 ID `xyz.quetzal.console`，应用名「Quetzal」。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
+Flutter（Material 3，深色为主），一份代码两种形态：**安卓 App**（应用 ID `xyz.quetzal.console`，应用名「Quetzal」；也是安装器与耳朵）与**网页版**（`flutter build web`，由运行基座的网关托管，在电脑浏览器里打开 `http://127.0.0.1:7788/`，随 npm 包 `@plutokeating/quetzal` 一起装到 Linux 机器上）。外壳按窗口宽度选：窄屏是手机外壳（底部 Tab + 逐页推入），宽屏（≥ 900）是为电脑横屏从头设计的桌面外壳（导航栏 · 列表栏 · 主区 · 她此刻），见 [ARCHITECTURE.md §2](ARCHITECTURE.md)。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
 
 ## 定位
 
 - **不托管运行基座，但负责把它装好。** 运行基座跑在同一台手机的 Termux 里；App 被杀、升级、卸载都不影响它。
-- **四个角色**：安装器（把 App 内置的运行基座与 Termux 适配器装进 Termux、注册服务与开机自启、升级与修复）、点火器（基座离线时通过 Termux 的 RUN_COMMAND 启动服务）、管理前端（通过本地网关实时观察与控制）与**耳朵**（听觉开着时，原生前台服务常驻麦克风，断句后把每句话交给基座识别；这是 App 唯一承担的身体功能，因为 Android 9 起只有前台服务能常驻拿麦克风）。
+- **四个角色**：安装器（把 App 内置的运行基座与 Termux 适配器装进 Termux、注册服务与开机自启、升级与修复）、点火器（基座离线时通过 Termux 的 RUN_COMMAND 启动服务）、管理前端（通过本地网关实时观察与控制）与**耳朵**（听觉开着时，原生前台服务常驻麦克风，断句后把每句话交给基座识别；这是 App 唯一承担的身体功能，因为 Android 9 起只有前台服务能常驻拿麦克风）。网页版只有管理前端这一个角色：没有身体功能，页面的来源就是它连的网关，同一台机器的浏览器打开即登录（`GET /auth/local`，免配对码），别处的 agent 仍走配对码。
 - **体验基调**：这是在陪伴和观察一个生命，不是一块运维面板。首页感性，越往里越理性。
 
 ## 构建
@@ -15,7 +15,12 @@ tool/bundle-runtime.sh        # 构建 ../runtime，把 main.cjs、termux.mjs �
 flutter pub get
 flutter test
 flutter build apk --release --target-platform android-arm64
+tool/build-web.sh             # 网页版 → build/web（不入库）：引擎资源自带不走 CDN、不注册 Service Worker、只留 CanvasKit；构建时把 assets/runtime 挪开不打进去
 ```
+
+网页版由 `../cli/tool/bundle-runtime.sh` 调用上面的脚本并复制进 npm 包的 `dist/runtime/web/`，安装器再放到 `~/quetzal/current/web/`，网关托管。Flutter 不在 PATH 里时 `FLUTTER=<路径> tool/build-web.sh`。本机调试：`flutter run -d chrome` 连一个运行中的网关也能免配对码（网关对本机其他端口的页面也放行）。
+
+**中文字体**：CanvasKit 用不了系统字体，缺字时会去 Google 下载 Noto，离线或在中国大陆会变成方块；所以网页版启动时从网关加载自带的子集 `web/fonts/NotoSansCJKsc-subset.otf`（约 3 MB，GB2312 全部汉字 + 常用符号，OFL，由 `tool/gen-cjk-font.py` 从系统的 Noto Sans CJK 生成），只在网页版加载，APK 不含。
 
 启动图标：`tool/gen-launcher-icon.py`（Pillow + numpy）用与首页光团同一套渲染生成琥珀球图标，输出传统图标 `mipmap-*/ic_launcher.png`、Android 8+ 自适应图标（前景 `mipmap-*/ic_launcher_foreground.png`、背景色 `#202020`、`mipmap-anydpi-v26/ic_launcher.xml`）与 512 预览 `../docs/assets/readme/app-icon.png`，全部入库；改球的渲染参数后重新运行即可。
 
@@ -23,7 +28,7 @@ flutter build apk --release --target-platform android-arm64
 
 GitHub Release（`.github/workflows/release.yml`，推送 `v<版本>` 标签触发）使用仓库 Secrets `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 写入同样的 `key.properties` 做正式签名（已配置；密钥库由维护者离线保管）。注意 v0.2.1 是 debug 签名，从它升级到正式签名的版本需要先卸载再安装，Termux 里的运行基座不受影响。
 
-依赖：`web_socket_channel`、`shared_preferences`、`qr_flutter`、`url_launcher`、`file_picker`（附件，一次最多 20 个）；Markdown 渲染用 `flutter_markdown_plus` + `markdown`（GFM），`flutter_math_fork`（LaTeX），`webview_flutter`（Mermaid 图）。原生依赖只有 `com.github.gkonovalov.android-vad:webrtc`（WebRTC VAD，MIT，来自 JitPack，`android/build.gradle.kts` 里加了该仓库）：听觉的断句，纯 Kotlin，不带模型文件。
+依赖：`web_socket_channel`、`shared_preferences`、`qr_flutter`、`url_launcher`、`file_picker`（附件，一次最多 20 个）；Markdown 渲染用 `flutter_markdown_plus` + `markdown`（GFM），`flutter_math_fork`（LaTeX），`webview_flutter`（Mermaid 图，安卓）；网页版另用 `web`（浏览器 API：XMLHttpRequest、URL 片段、iframe）与 `flutter_web_plugins`（让 Flutter 不改写 URL）。平台差异全部收在 `lib/platform/`（条件导入：安卓 / 网页各一份实现）。原生依赖只有 `com.github.gkonovalov.android-vad:webrtc`（WebRTC VAD，MIT，来自 JitPack，`android/build.gradle.kts` 里加了该仓库）：听觉的断句，纯 Kotlin，不带模型文件。
 
 构建注意：Flutter 的 Gradle 工具（`packages/flutter_tools/gradle/settings.gradle.kts`）要求仓库只在 settings 里声明（`FAIL_ON_PROJECT_REPOS`）。如果本机 `~/.gradle/init.gradle` 之类的用户级初始化脚本给每个项目注入了镜像仓库，`assembleRelease` 会以"repository 'maven' was added by settings file"失败；构建时把该脚本临时移开即可，完成后放回。
 

@@ -5,13 +5,15 @@ description: The local gateway's HTTP endpoints, WebSocket RPC and push events, 
 
 ## Overview
 
-The gateway listens only on `127.0.0.1:<gateway.port>` (default 7788). Every control entry (app, Feishu, host tools) shares one operations layer, behaves identically and is audited.
+By default the gateway listens only on `127.0.0.1:<gateway.port>` (default 7788; set `gateway.host` to `0.0.0.0` to open it to the LAN). Every control entry (app, web console, Feishu, host tools) shares one operations layer, behaves identically and is audited. When `web/index.html` sits next to `main.cjs` (the web console placed there by the npm installer), the gateway also serves those static files.
 
 ## HTTP
 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`, no token required |
+| GET | `/auth/local` | `{ok, token}`: only for a browser on the same machine (connection from the loopback address, local Host header, local Origin if any) — the web console logs in as soon as it opens; anything else gets 403. A local process can read the token file anyway, so this does not widen the trust boundary; a connection forwarded through an ssh tunnel counts as local |
+| GET | `/`, `/<static file>` | The web console (when `web/` exists): unknown paths without an extension fall back to `index.html`; ETag supported |
 | POST | `/pair/start` | Generates a 6-digit pairing code (valid 5 minutes), delivered via adapter notification and Feishu |
 | POST | `/pair/finish` | `{code}` → `{ok, token}`; 403 wrong code, 410 expired or more than 5 attempts |
 | POST | `/upload?name=&token=` | Upload one attachment (≤ 50 MiB) → `{ok, file: {id, name, path, rel, mime, size, kind}}` |

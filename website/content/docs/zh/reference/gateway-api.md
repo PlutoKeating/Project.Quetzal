@@ -5,13 +5,15 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 
 ## 概览
 
-网关只监听 `127.0.0.1:<gateway.port>`（默认 7788）。所有控制入口（App、飞书、主机工具）共用同一个操作层，行为一致、都写审计。
+网关缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788；`gateway.host` 设为 `0.0.0.0` 可对局域网开放）。所有控制入口（App、网页控制台、飞书、主机工具）共用同一个操作层，行为一致、都写审计。`main.cjs` 旁边有 `web/index.html`（npm 安装器放的网页控制台）时，网关同时托管这些静态文件。
 
 ## HTTP
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌 |
+| GET | `/auth/local` | `{ok, token}`：只给同一台机器上的浏览器（连接来自回环地址、Host 是本机名、Origin 若有也是本机），网页控制台打开即登录；其他来源 403。本机进程本来就读得到令牌文件，所以不扩大信任边界；ssh 隧道转发来的连接也算本机 |
+| GET | `/`、`/<静态文件>` | 网页控制台（`web/` 存在时）：没有扩展名的未知路径回退到 `index.html`，带 ETag |
 | POST | `/pair/start` | 生成 6 位配对码（5 分钟有效），通过适配器通知与飞书下发 |
 | POST | `/pair/finish` | `{code}` → `{ok, token}`；403 不正确、410 失效或尝试超过 5 次 |
 | POST | `/upload?name=&token=` | 上传一个附件（≤ 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind}}` |
