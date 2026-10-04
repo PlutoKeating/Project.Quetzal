@@ -2,7 +2,8 @@
 # 资产命名（官网下载页按此识别）：
 #   quetzal-<版本>-android-arm64.apk     Quetzal App（内置运行基座与 Termux 身体适配器）
 #   quetzal-<版本>-linux-x64-console.tar.gz   Linux 桌面版控制台（原生窗口；一键安装脚本在有桌面的机器上自动下载，见 cli/install.sh）
-#   SHA256SUMS、SHA256SUMS-linux
+#   quetzal-<版本>-linux-arm64-console.tar.gz（同上，arm64）
+#   SHA256SUMS、SHA256SUMS-linux-x64、SHA256SUMS-linux-arm64
 # 同时把 cli/ 发布为 npm 包 @plutokeating/quetzal（npx @plutokeating/quetzal 安装到 Linux）：仓库 Secrets 里提供 NPM_TOKEN（Automation 令牌）；缺少则跳过 npm 发布。
 # 发布说明：CHANGELOG.md 里「## <版本>」小节（没有则只用 GitHub 自动生成的提交摘要）。
 # 依赖的 action 都用 Node 24 运行时的大版本（checkout v7、setup-node v7、setup-java v6、action-gh-release v3），避免弃用警告。
@@ -138,27 +139,37 @@ jobs:
           TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
           NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc-npmjs" npm publish ../out-npm/plutokeating-quetzal-*.tgz --access public --tag "$TAG"
 
-  # Linux 桌面版控制台：单独一个 job，在最老的仍受支持的 Ubuntu 上构建（glibc / GTK 越老，能跑的发行版越多），附加到上面创建的 Release
+  # Linux 桌面版控制台：x64 与 arm64 各一个，在最老的仍受支持的 Ubuntu 上构建（glibc / GTK 越老，能跑的发行版越多），附加到上面创建的 Release。
+  # arm64 运行器上 Flutter 没有预打包的 SDK 下载，改为 git clone 同一版本的标签（Flutter 的 dart-sdk 与引擎工件有 linux-arm64 版）。
+  # 龙芯（loongarch64）：Flutter 上游不支持，没有原生控制台；运行基座与网页控制台由安装脚本从 Node 的 unofficial-builds 取 Node 后照常运行。
   linux-console:
     needs: release
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: 3.47.x
-          cache: true
+      - name: Flutter（与 release job 同一版本：x64 用 action，arm64 用 git clone 标签）
+        run: |
+          git clone --depth 1 --branch 3.47.5 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
       - name: 桌面构建依赖
         run: sudo apt-get update -qq && sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
-      - name: 构建（console/tool/build-linux.sh → quetzal-<版本>-linux-x64-console.tar.gz）
-        run: console/tool/build-linux.sh
+      - name: 构建（console/tool/build-linux.sh → quetzal-<版本>-linux-${{ matrix.arch }}-console.tar.gz）
+        run: flutter precache --linux && console/tool/build-linux.sh
       - name: 校验值
         working-directory: console/build
-        run: sha256sum quetzal-*-linux-*-console.tar.gz > SHA256SUMS-linux && cat SHA256SUMS-linux
+        run: sha256sum quetzal-*-linux-*-console.tar.gz > SHA256SUMS-linux-${{ matrix.arch }} && cat SHA256SUMS-linux-${{ matrix.arch }}
       - name: 附加到 Release
         uses: softprops/action-gh-release@v3
         with:
           files: |
             console/build/quetzal-*-linux-*-console.tar.gz
-            console/build/SHA256SUMS-linux
+            console/build/SHA256SUMS-linux-${{ matrix.arch }}

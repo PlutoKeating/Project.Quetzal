@@ -4,7 +4,8 @@
 # 做什么（幂等，再跑一次就是升级）：
 #   1. 看清这台机器：发行版、架构、包管理器、有没有 systemd 用户实例、有没有桌面
 #   2. 补齐依赖：git、curl、tar、ca-certificates（缺什么装什么，用这台机器自己的包管理器）；
-#      Node.js 22.13+：没有就经 nvm 装（nvm 装进 ~/.nvm，不碰系统的 node）；musl（Alpine）与 NixOS 用发行版自己的包
+#      Node.js 22.13+：没有就经 nvm 装（nvm 装进 ~/.nvm，不碰系统的 node）；musl（Alpine）与 NixOS 用发行版自己的包；
+#      龙芯（loongarch64）、RISC-V、armv6l 这些官方不出二进制的架构，从 Node.js 的 unofficial-builds 直接下载到 ~/quetzal/node/
 #   3. 把 npm 包 @plutokeating/quetzal 装进 ~/quetzal/npm（独立前缀，不污染全局），由它放好运行基座与网页控制台
 #   4. 守护：systemd 用户服务（开机自启、退出 3 秒后重启、未登录也运行）；没有 systemd 的机器退回到
 #      自带的守护循环 + crontab @reboot + 桌面自启动项，不装任何额外的服务框架
@@ -21,6 +22,7 @@
 #   --cn | --no-cn   QUETZAL_MIRROR=cn|off 强制使用 / 不使用中国大陆镜像（默认自动：直连 nodejs.org 不通才用）
 #   --uninstall [--purge]                  卸载：服务、守护循环、快捷方式、npm 包；--purge 连家目录（配置、记忆、对话）一起删
 #   --lang zh|en     QUETZAL_LANG=zh|en    界面语言（默认看 LANG）
+#                    QUETZAL_NODE_ARCH=…   强制从 unofficial-builds 下载这个架构标签的 Node（如 loong64、riscv64、x64-musl），平时不用
 #
 # 这个文件是源码（cli/install.sh）；官网构建时原样复制为 https://quetzal.plutokeating.beer/install，
 # 镜像地址 https://raw.githubusercontent.com/PlutoKeating/Project.Quetzal/main/cli/install.sh。
@@ -307,6 +309,26 @@ install_nvm() {
   fetch_text "$url" 60 | bash
 }
 nvm_install_node() { set +u; nvm_env || return 1; nvm install "$NODE_MAJOR" --no-progress && nvm alias default "$NODE_MAJOR" >/dev/null; local rc=$?; set -u; return $rc; }
+# 官方不出二进制的架构：Node.js 项目的 unofficial-builds（https://unofficial-builds.nodejs.org）有 loong64（龙芯）、riscv64、armv6l、x64/arm64 的 musl 版。
+# 直接下载对应版本到 ~/quetzal/node/<版本>/，不经 nvm（nvm 不认识这些架构，会退回到几小时的源码编译）。
+UNOFFICIAL="https://unofficial-builds.nodejs.org/download/release"
+node_direct_arch() { # 这台机器该用 unofficial-builds 的哪个标签；空 = 不需要（官方有二进制）
+  [[ -n "${QUETZAL_NODE_ARCH:-}" ]] && { printf '%s' "$QUETZAL_NODE_ARCH"; return; }
+  case "$ARCH" in loongarch64|loong64) printf 'loong64';; riscv64) printf 'riscv64';; armv6l) printf 'armv6l';; esac
+}
+node_direct_install() { # 架构标签：选 unofficial-builds 里最新的 v22 并解包
+  local arch=$1 index ver dir tmp
+  index=$(fetch_text "$UNOFFICIAL/index.json" 60) || return 1
+  ver=$(printf '%s' "$index" | tr '}' '\n' | grep "\"version\":\"v$NODE_MAJOR\." | grep "\"linux-$arch\"" | head -n1 | sed 's/.*"version":"\(v[0-9.]*\)".*/\1/')
+  [[ -n $ver ]] || { echo "unofficial-builds 没有 linux-$arch 的 v$NODE_MAJOR" >>"$LOG"; return 1; }
+  dir="$HOME_DIR/node/$ver"; tmp="$HOME_DIR/node/download.tar.gz"
+  mkdir -p "$HOME_DIR/node"; rm -rf "$dir.part" "$tmp"; mkdir -p "$dir.part"
+  fetch_file "$UNOFFICIAL/$ver/node-$ver-linux-$arch.tar.gz" "$tmp" 900 || return 1
+  tar -xzf "$tmp" -C "$dir.part" --strip-components=1 || return 1
+  rm -f "$tmp"; rm -rf "$dir"; mv "$dir.part" "$dir"
+  "$dir/bin/node" -v >>"$LOG" 2>&1 || return 1
+  ln -sfn "$dir" "$HOME_DIR/node/current"
+}
 find_node() {
   local cand
   if cand=$(command -v node 2>/dev/null) && node_ok "$cand"; then NODE=$cand; case "$cand" in */.nvm/*|*/nvm/*) NODE_FROM=nvm;; *) NODE_FROM="$(t '系统' 'system')";; esac; return 0; fi
@@ -318,8 +340,15 @@ find_node() {
   return 1
 }
 ensure_node() {
-  if find_node; then NPM="$(dirname "$NODE")/npm"; [[ -x $NPM ]] || NPM=$(command -v npm); ok "Node.js $NODE_VER $I_DOT $NODE_FROM"; return; fi
-  if [[ $LIBC == musl || $DISTRO_ID == *nixos* ]]; then
+  # 之前直接下载过的（~/quetzal/node/current）
+  if [[ -z $NODE && -x "$HOME_DIR/node/current/bin/node" ]] && node_ok "$HOME_DIR/node/current/bin/node"; then NODE="$HOME_DIR/node/current/bin/node"; NODE_FROM="unofficial-builds"; fi
+  if [[ -n $NODE ]] || find_node; then NPM="$(dirname "$NODE")/npm"; [[ -x $NPM ]] || NPM=$(command -v npm); ok "Node.js $NODE_VER $I_DOT $NODE_FROM"; return; fi
+  local direct; direct=$(node_direct_arch)
+  if [[ -n $direct ]]; then
+    run_step "$(t "下载 Node.js $NODE_MAJOR（linux-$direct，Node.js 官方的 unofficial-builds）" "Downloading Node.js $NODE_MAJOR (linux-$direct, Node.js unofficial-builds)")" node_direct_install "$direct"
+    NODE="$HOME_DIR/node/current/bin/node"; node_ok "$NODE" || die "$(t '下载的 Node.js 跑不起来' 'The downloaded Node.js does not run')"
+    NODE_FROM="unofficial-builds"
+  elif [[ $LIBC == musl || $DISTRO_ID == *nixos* ]]; then
     # 官方二进制是 glibc 的，nvm 在 musl 上只能从源码编译；NixOS 没有 FHS。用发行版自己的包。
     if [[ $PM == apk ]]; then
       need_root_runner || die "$(t '需要管理员权限安装 nodejs npm（apk），但没有 sudo / doas。' 'Installing nodejs npm (apk) needs root, but neither sudo nor doas exists.')"
@@ -500,7 +529,7 @@ download_console() { # 版本 架构 目标目录：下载同版本的原生控�
 }
 install_native_console() {
   local v; v=$(installed_version); [[ -n $v ]] || return 0
-  local arch; case "$ARCH" in x86_64|amd64) arch=x64;; aarch64|arm64) arch=arm64;; *) note "$(t "没有 $ARCH 架构的原生控制台，桌面项用浏览器打开" "No native console for $ARCH; the app-list entry opens the browser")"; return 0;; esac
+  local arch; case "$ARCH" in x86_64|amd64) arch=x64;; aarch64|arm64) arch=arm64;; *) note "$(t "$ARCH 架构暂无原生控制台（Flutter 上游还不支持），桌面项用浏览器打开，功能相同" "No native console for $ARCH yet (upstream Flutter does not support it); the app-list entry opens the browser, same features")"; return 0;; esac
   local base="$HOME_DIR/console" dir="$HOME_DIR/console/$v"
   mkdir -p "$base"
   if [[ ! -x "$dir/quetzal-console" ]]; then

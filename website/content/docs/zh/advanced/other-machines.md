@@ -13,7 +13,7 @@ description: 一台 Linux 电脑或服务器一行 curl 命令就能成为身体
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余缺什么它补什么。装完之后：
+前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余缺什么它补什么。架构：x86_64 与 arm64 全功能（含原生控制台）；龙芯（loongarch64）、RISC-V、armv6l 这些官方 Node 不出二进制的架构，脚本从 Node.js 项目的 [unofficial-builds](https://unofficial-builds.nodejs.org) 直接下载对应的 Node 22 到 `~/quetzal/node/`，运行基座与网页控制台照常可用，只是没有原生控制台（Flutter 上游尚不支持 LoongArch），桌面项用浏览器打开。装完之后：
 
 - 浏览器里打开了**网页控制台** `http://127.0.0.1:7788/`，同一台机器免配对码，模型、身份、授权、飞书、灵魂仓库、对话都在里面（第 2 节）。
 - 应用列表里多了一个 **Quetzal**（光团图标），点开是**原生控制台**（Flutter Linux 桌面版，从 GitHub Release 下载同版本的包放在 `~/quetzal/console/`），任务栏、Alt-Tab、活动概览都是 Quetzal 自己的图标，与浏览器无关。这个版本没有原生包（arm64、旧版本）或下载失败时退回浏览器打开：Chromium 系以独立窗口打开，只有 Firefox 时用默认浏览器，此时任务栏显示的是浏览器的图标。

@@ -13,7 +13,7 @@ A phone is the best body; a laptop, a small home server, a Raspberry Pi or a clo
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-The only prerequisites are Linux, `curl` (or `wget`) and bash 4+. Everything else missing gets installed. Afterwards:
+The only prerequisites are Linux, `curl` (or `wget`) and bash 4+. Everything else missing gets installed. Architectures: x86_64 and arm64 get everything, native console included; on architectures without official Node binaries, such as LoongArch (loongarch64), RISC-V and armv6l, the script downloads the matching Node 22 from the Node.js project's [unofficial-builds](https://unofficial-builds.nodejs.org) into `~/quetzal/node/`, so the runtime and the web console work as usual, only without the native console (upstream Flutter does not support LoongArch yet), and the app-list entry opens the browser. Afterwards:
 
 - The **web console** `http://127.0.0.1:7788/` is open in your browser, logged in without a pairing code on the same machine; models, identity, permissions, Feishu, the soul repository and conversations all live there (section 2).
 - Your app list has a **Quetzal** entry (the orb icon) that opens the **native console** (the Flutter Linux desktop build, downloaded from the GitHub Release of the same version into `~/quetzal/console/`); the taskbar, Alt-Tab and the activities overview all show Quetzal's own icon, independent of any browser. When no native package exists for this version (arm64, older releases) or the download fails, it falls back to the browser: Chromium-family browsers open it as a separate window, Firefox opens it in the default browser, and the taskbar then shows the browser's icon.

@@ -1,6 +1,6 @@
 # console · 控制台（安卓 App 与网页版）
 
-Flutter（Material 3，深色为主），一份代码三种形态：**安卓 App**（应用 ID `xyz.quetzal.console`，应用名「Quetzal」；也是安装器与耳朵）、**网页版**（`flutter build web`，由运行基座的网关托管，在电脑浏览器里打开 `http://127.0.0.1:7788/`，随 npm 包 `@plutokeating/quetzal` 一起装到 Linux 机器上）与 **Linux 桌面版**（`flutter build linux`，原生 GTK 窗口，应用 id 同为 `xyz.quetzal.console`，可执行文件 `quetzal-console`；发版时打成 `quetzal-<版本>-linux-x64-console.tar.gz`，一键安装脚本在有桌面的机器上下载到 `~/quetzal/console/`，应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标，不借浏览器）。网页版与桌面版都只是管理前端，没有身体功能；连本机网关都免配对码（`GET /auth/local` 对回环连接放行）。外壳按窗口宽度选：窄屏是手机外壳（底部 Tab + 逐页推入），宽屏（≥ 900）是为电脑横屏从头设计的桌面外壳（导航栏 · 列表栏 · 主区 · 她此刻），见 [ARCHITECTURE.md §2](ARCHITECTURE.md)。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
+Flutter（Material 3，深色为主），一份代码三种形态：**安卓 App**（应用 ID `xyz.quetzal.console`，应用名「Quetzal」；也是安装器与耳朵）、**网页版**（`flutter build web`，由运行基座的网关托管，在电脑浏览器里打开 `http://127.0.0.1:7788/`，随 npm 包 `@plutokeating/quetzal` 一起装到 Linux 机器上）与 **Linux 桌面版**（`flutter build linux`，原生 GTK 窗口，应用 id 同为 `xyz.quetzal.console`，可执行文件 `quetzal-console`；发版时打成 `quetzal-<版本>-linux-{x64,arm64}-console.tar.gz`（x64 与 arm64 两个 CI job；LoongArch 上游 Flutter 不支持），一键安装脚本在有桌面的机器上下载到 `~/quetzal/console/`，应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标，不借浏览器）。网页版与桌面版都只是管理前端，没有身体功能；连本机网关都免配对码（`GET /auth/local` 对回环连接放行）。外壳按窗口宽度选：窄屏是手机外壳（底部 Tab + 逐页推入），宽屏（≥ 900）是为电脑横屏从头设计的桌面外壳（导航栏 · 列表栏 · 主区 · 她此刻），见 [ARCHITECTURE.md §2](ARCHITECTURE.md)。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
 
 ## 定位
 
