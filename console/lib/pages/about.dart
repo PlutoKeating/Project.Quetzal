@@ -11,7 +11,7 @@ import '../api.dart';
 import '../installer.dart';
 import '../platform/caps.dart';
 import '../platform/net.dart' as net;
-import '../updater.dart' show AppRelease, compareVersions, latestReleaseApi, githubRepo;
+import '../updater.dart' show AppRelease, compareVersions, latestReleaseApi, siteLatestApi, githubRepo;
 import '../widgets.dart';
 import 'control.dart' show AppUpdateSection;
 import 'setup.dart';
@@ -53,7 +53,10 @@ class _AboutPageState extends State<AboutPage> {
   Future<void> _check() async {
     setState(() { checking = true; checkError = null; });
     try {
-      final r = await net.request('GET', latestReleaseApi, timeout: const Duration(seconds: 15));
+      // 官网代理优先（GitHub 连不上的网络也能用），退回 GitHub
+      net.HttpReply r;
+      try { r = await net.request('GET', siteLatestApi, timeout: const Duration(seconds: 15)); if (r.status >= 400) throw '官网代理 ${r.status}'; }
+      catch (_) { r = await net.request('GET', latestReleaseApi, timeout: const Duration(seconds: 15)); }
       if (r.status >= 400) throw 'GitHub 返回 ${r.status}${r.status == 403 ? '（匿名接口限流，稍后再试）' : ''}';
       final rel = AppRelease.fromJson(jsonDecode(r.body) as Map);
       if (mounted) setState(() => latest = rel);

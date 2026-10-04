@@ -13,6 +13,9 @@ import 'platform/caps.dart';
 
 const githubRepo = 'PlutoKeating/Project.Quetzal';
 const latestReleaseApi = 'https://api.github.com/repos/$githubRepo/releases/latest';
+/// 官网的代理（website/worker/index.ts）：GitHub 在不少网络里连不上，先问它；它返回的资产地址已指向官网的 /dl/ 代理，原地址在 github_download_url。
+const siteOrigin = 'https://quetzal.plutokeating.beer';
+const siteLatestApi = '$siteOrigin/api/releases/latest';
 const downloadPage = 'https://quetzal.plutokeating.beer/download';
 const apkArch = 'arm64'; // 发版工作流只出 quetzal-<版本>-android-arm64.apk（见 .github/workflows/release.yml）
 
@@ -43,8 +46,9 @@ Map<String, String> parseSums(String text) {
 class AppRelease {
   final String version, tag, url;
   final String? apkUrl, apkName, sumsUrl;
+  final String? apkUrlFallback, sumsUrlFallback; // 官网代理给出的原 GitHub 地址：代理失败时退回
   final int apkSize;
-  AppRelease({required this.version, required this.tag, required this.url, this.apkUrl, this.apkName, this.sumsUrl, this.apkSize = 0});
+  AppRelease({required this.version, required this.tag, required this.url, this.apkUrl, this.apkName, this.sumsUrl, this.apkSize = 0, this.apkUrlFallback, this.sumsUrlFallback});
 
   /// 从 GitHub `releases/latest` 的 JSON 挑出 APK（`-android-<arch>.apk`，没有同架构的就退到任意 .apk）与 SHA256SUMS。
   factory AppRelease.fromJson(Map j, {String arch = apkArch}) {
@@ -57,6 +61,7 @@ class AppRelease {
       version: tag.replaceFirst(RegExp(r'^[vV]'), ''), tag: tag, url: '${j['html_url'] ?? 'https://github.com/$githubRepo/releases'}',
       apkUrl: apk?['browser_download_url'] as String?, apkName: apk?['name'] as String?, apkSize: (apk?['size'] as num?)?.toInt() ?? 0,
       sumsUrl: sums?['browser_download_url'] as String?,
+      apkUrlFallback: apk?['github_download_url'] as String?, sumsUrlFallback: sums?['github_download_url'] as String?,
     );
   }
   String get sizeText => apkSize <= 0 ? '' : '${(apkSize / 1048576).toStringAsFixed(apkSize >= 104857600 ? 0 : 1)} MB';
@@ -107,7 +112,8 @@ class AppUpdater extends ChangeNotifier {
     state = UpdateState.checking; error = null; notifyListeners();
     try {
       await currentVersion();
-      final j = await fetchJson(Uri.parse(latestReleaseApi));
+      Map j;
+      try { j = await fetchJson(Uri.parse(siteLatestApi)); } catch (_) { j = await fetchJson(Uri.parse(latestReleaseApi)); } // 官网代理优先，退回 GitHub
       latest = AppRelease.fromJson(j);
       state = hasUpdate ? UpdateState.available : UpdateState.upToDate;
     } catch (e) { _fail('$e'); return; }
@@ -124,12 +130,14 @@ class AppUpdater extends ChangeNotifier {
         final dir = Directory('${await _ch.invokeMethod<String>('cacheDir')}/update');
         if (await dir.exists()) await dir.delete(recursive: true); // 只留这一个包
         final f = File('${dir.path}/${r.apkName}');
-        final sha = await download(Uri.parse(r.apkUrl!), f, onProgress: (got, total) {
-          progress = total > 0 ? got / total : -1; notifyListeners();
-        });
+        Future<String> dl(String u) => download(Uri.parse(u), f, onProgress: (got, total) { progress = total > 0 ? got / total : -1; notifyListeners(); });
+        String sha;
+        try { sha = await dl(r.apkUrl!); } catch (e) { if (r.apkUrlFallback == null || r.apkUrlFallback == r.apkUrl) rethrow; progress = 0; notifyListeners(); sha = await dl(r.apkUrlFallback!); } // 代理失败退回 GitHub
         state = UpdateState.verifying; notifyListeners();
         if (r.sumsUrl != null) {
-          final sums = parseSums(utf8.decode(await fetchBytes(Uri.parse(r.sumsUrl!))));
+          List<int> raw;
+          try { raw = await fetchBytes(Uri.parse(r.sumsUrl!)); } catch (e) { if (r.sumsUrlFallback == null || r.sumsUrlFallback == r.sumsUrl) rethrow; raw = await fetchBytes(Uri.parse(r.sumsUrlFallback!)); }
+          final sums = parseSums(utf8.decode(raw));
           final want = sums[r.apkName];
           if (want != null && want != sha) { await f.delete(); throw '安装包校验不通过（SHA256 与发布页不一致），已删除'; }
         }

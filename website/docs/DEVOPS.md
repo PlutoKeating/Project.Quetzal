@@ -45,7 +45,10 @@ Settings → **Domains & Routes**（自定义域和路由）→ **Add** → Cust
 - `npm run build`：生成主题变量 → 设计系统检查 → `react-router build`（预渲染到 `build/client/`）→ `postbuild`（`404.html`、`sitemap.xml`、把 `../cli/install.sh` 原样复制为 `install`，并写 `_headers` 让 `/install` 以 `text/plain` 返回、缓存 5 分钟）。
 - **`/install`**：Linux 一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）。源码只有 `cli/install.sh` 一份；Workers Builds 的根目录是 `/website`，但克隆的是整个仓库，所以构建能读到 `../cli/install.sh`，缺了就构建失败。`html_handling = drop-trailing-slash` 下无扩展名的 `/install` 直接命中同名文件。镜像地址是 GitHub raw。
 - `wrangler.jsonc`：`assets.directory = ./build/client`；`html_handling = auto-trailing-slash`（`/en/docs` 与 `/en/docs/` 都命中 `en/docs/index.html`）；`not_found_handling = 404-page`。
-- 没有 Worker 脚本、没有 KV / D1 / 环境密钥。下载页的数据由访客浏览器直接请求 GitHub 公开 API（匿名，每 IP 每小时 60 次），结果在 sessionStorage 缓存 10 分钟。
+- `worker/index.ts`：只接管 `/dl/*` 与 `/api/*`（`wrangler.jsonc` 的 `run_worker_first`），其余路径仍由静态资源直接响应。
+  - `/dl/<tag>/<资产名>`：代理 GitHub Release 的资产（只放行本仓库、符合命名的 APK / Linux 控制台包 / 校验值，不是开放代理），Cloudflare 边缘缓存 7 天。App 的更新器、一键安装脚本、下载页都先走它，失败再直连 GitHub。流量经 Cloudflare（Workers 免费额度每天 10 万次请求，流量不计费）。
+  - `/api/releases`、`/api/releases/latest`：代理 GitHub 发布接口，边缘缓存 5 分钟，返回的 JSON 把 `browser_download_url` 改写为 `/dl/` 地址、原地址放在 `github_download_url`。匿名调用的 60 次 / 小时按 Cloudflare 出口 IP 计算，被所有访客共享；设置 Worker Secret **`GITHUB_TOKEN`**（`npx wrangler secret put GITHUB_TOKEN`，只读的细粒度令牌即可）可提高到 5000 次 / 小时。令牌只在 Cloudflare 里，不在仓库里。
+- 没有 KV / D1。下载页的数据由访客浏览器请求同源的 `/api/releases`（开发服务器没有 Worker，退回 GitHub 公开 API），结果在 sessionStorage 缓存 10 分钟。
 
 ## 5. 本地验证与手动部署
 
@@ -74,3 +77,4 @@ npm run preview          # wrangler dev，按 wrangler.jsonc 本地托管 build/
 - 2026-10-04：建立 `website/`，确定 Workers 静态资源托管方案（原计划 Cloudflare Pages，改为 Workers）。
 - 2026-10-04：所有者在 Cloudflare 创建 Worker `quetzal` 并连接仓库（根目录 `/website`，分支 `main`），添加自定义域 `quetzal.plutokeating.beer`；`wrangler.jsonc` 的 `name` 随之改为 `quetzal`。
 - 2026-10-05：新增 `/install`（Linux 一键安装脚本，构建时从 `cli/install.sh` 复制）与 `_headers`；Build watch paths 需加上 `cli/install.sh`。
+- 2026-10-05：加入 Worker 脚本 `worker/index.ts`，代理 GitHub Release 的下载（`/dl/*`）与发布接口（`/api/*`）；可选 Secret `GITHUB_TOKEN`。

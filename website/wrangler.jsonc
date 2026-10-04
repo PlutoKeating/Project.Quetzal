@@ -1,11 +1,15 @@
-// Cloudflare Workers（静态资源模式）：只托管 build/client/ 里的预渲染产物，没有 Worker 脚本。
-// 自定义域名在 Cloudflare 控制台的 Settings → Domains & Routes 里添加，不写在这里。
+// Cloudflare Workers：静态资源托管 build/client/ 里的预渲染产物；worker/index.ts 只接管 /dl/*（代理 GitHub Release 资产下载）
+// 与 /api/*（代理发布接口），其余路径不经过 Worker（run_worker_first 只列这两类）。
+// 自定义域名在 Cloudflare 控制台的 Settings → Domains & Routes 里添加，不写在这里；GITHUB_TOKEN 是可选的 Secret，不在这里。
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "quetzal",
   "compatibility_date": "2026-09-01",
+  "main": "worker/index.ts",
   "assets": {
     "directory": "./build/client",
+    "binding": "ASSETS",
+    "run_worker_first": ["/dl/*", "/api/*"],
     // 未知路径返回预渲染的 404.html（由 scripts/postbuild.mjs 从 /404 复制到根目录）
     "not_found_handling": "404-page",
     // 预渲染目录形如 /en/docs/index.html：/en/docs 直接命中，/en/docs/ 跳转到不带斜杠（站内链接一律不带斜杠）
