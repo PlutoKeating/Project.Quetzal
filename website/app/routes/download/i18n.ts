@@ -47,7 +47,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux 与其他机器",
       heading: "装到一台 Linux 电脑或服务器上",
-      body: "有 Node.js 22.13+ 的 Linux 机器一行命令：npx @plutokeating/quetzal。它把运行基座与 Linux 身体适配器装进 ~/quetzal，交给 systemd 守护，再运行一次就是升级；加 --lan 让手机上的 App 直接连这台机器。运行基座包里另有单文件 main.cjs 与两个适配器，任何能跑 Node.js 与 git 的机器都可以成为 ta 的身体。",
+      body: "一台 Linux 电脑或服务器，一行命令就能让 ta 住进去：npx @plutokeating/quetzal。以后再运行一次就是升级。装好之后，手机上的 App 可以直接连上这台机器，设置和聊天都在 App 里完成。",
       link: "Linux 与其他机器",
     },
     state: {
@@ -107,7 +107,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux and other machines",
       heading: "Install on a Linux computer or server",
-      body: "On a Linux machine with Node.js 22.13+ it is one command: npx @plutokeating/quetzal. It installs the runtime and the Linux body adapter into ~/quetzal under a systemd user service; run it again to upgrade, add --lan to let the app on your phone connect directly. The runtime package also ships the single-file main.cjs with both adapters, so any machine with Node.js and git can be a body.",
+      body: "One command gives ta a home on a Linux computer or server: npx @plutokeating/quetzal. Run it again later to upgrade. Once installed, the app on your phone connects straight to that machine, and everything else happens in the app.",
       link: "Linux and other machines",
     },
     state: {
