@@ -1,6 +1,6 @@
 ---
 title: Soul repository spec
-description: A summary of the soul repository specification (v4) — directory tree, file formats, merge rules, commit conventions and authentication.
+description: A summary of the soul repository specification (v4): directory tree, file formats, merge rules, commit conventions and authentication.
 ---
 
 ## Scope

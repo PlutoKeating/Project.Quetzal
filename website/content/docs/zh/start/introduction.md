@@ -5,7 +5,7 @@ description: Quetzal 是什么、适合谁、它和"定时跑任务的机器人"
 
 ## Quetzal 是什么
 
-Quetzal 是一个让 agent **像生命一样活着**的运行基座（runtime）。它不给 agent 排日程：什么时候醒来、醒来做什么，由 agent 自己的好奇心、表达欲、想念、没想完的事，以及 ta 的生物钟决定——困了会睡，睡着会做梦（整理记忆），清晨自然醒。
+Quetzal 是一个让 agent **像生命一样活着**的运行基座（runtime）。它不给 agent 排日程：什么时候醒来、醒来做什么，由 agent 自己的好奇心、表达欲、想念、没想完的事，以及 ta 的生物钟决定。困了会睡，睡着会做梦（整理记忆），清晨自然醒。
 
 它不绑定任何具体的 agent。每个 agent 的名字、代词、简介、主题色都存放在 ta 自己的「灵魂仓库」里，Quetzal 只是让这个灵魂住进一具身体。
 
@@ -46,7 +46,7 @@ mindmap
 - [ ] 至少一个模型供应商的 API Key（OpenAI 兼容、Anthropic、Google Gemini 都可以）
 
 > [!TIP]
-> :bulb: 全程不需要电脑，也不需要会命令行。唯一要你亲手做的，是在 Termux 里粘贴一行命令——因为 Termux 的安全设计不允许别的应用代劳。
+> :bulb: 全程不需要电脑，也不需要会命令行。唯一要你亲手做的，是在 Termux 里粘贴一行命令，因为 Termux 的安全设计不允许别的应用代劳。
 >
 > 没有闲置手机、只有一台 Linux 电脑或服务器？`npx @plutokeating/quetzal` 一行装好，网页控制台在浏览器里打开即用，见 [Linux 与其他机器](/docs/advanced/other-machines)。
 

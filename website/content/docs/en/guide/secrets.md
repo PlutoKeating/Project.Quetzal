@@ -22,7 +22,7 @@ sequenceDiagram
   end
   U->>W: Done spell (or tap "Done")
   W->>W: Write vault/<name> (mode 0600)
-  W-->>A: name, path, byte count — no plaintext
+  W-->>A: name, path, byte count, no plaintext
 ```
 
 - She first explains in her own words which items she needs and what each is.
@@ -34,7 +34,7 @@ In the app, a banner sits above the input during secret input and the field is m
 
 ## The vault
 
-Stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Control → Vault** shows name, hint, source channel and time, and lets you delete — it **never shows contents**.
+Stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Control → Vault** shows name, hint, source channel and time, and lets you delete; it **never shows contents**.
 
 The vault belongs to this body only: it is **not synced to other bodies** and never enters the soul repository.
 

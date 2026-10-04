@@ -1,6 +1,6 @@
 ---
 title: soul-bridge
-description: Make a machine running Hermes Agent or OpenClaw another body of the same agent — send one message to the agent there and it installs itself.
+description: Make a machine running Hermes Agent or OpenClaw another body of the same agent: send one message to the agent there and it installs itself.
 ---
 
 ## What it is
@@ -33,7 +33,7 @@ Step 3 of **Control → Soul sync** has a ready-made message. Copy it and send i
 3. run one `init` that does everything: generate a deploy key, add it with write access when `gh` or `GITHUB_TOKEN` is available, clone, import the existing personality and memory, install hooks and the background service, sync once;
 4. run `doctor` and fix what it suggests.
 
-Only when GitHub credentials are missing, git is missing with no sudo, or the same error fails three times does it send you one consolidated message — usually just **adding the deploy public key once on the GitHub website**.
+Only when GitHub credentials are missing, git is missing with no sudo, or the same error fails three times does it send you one consolidated message, usually just **adding the deploy public key once on the GitHub website**.
 
 > [!TIP]
 > You never need to open a terminal.
@@ -49,7 +49,7 @@ Only when GitHub credentials are missing, git is missing with no sudo, or the sa
 | Shared notes | — | `memory/notes/**.md` per file, both ways |
 | Takes effect | Next session | Next turn |
 
-The bridge **copies** files rather than symlinking and remembers a baseline on both sides: additions in the framework are kept, deletions are honoured, and entries cut by a character limit stay in the soul instead of being mistaken for deletions.
+The bridge **copies** files and remembers a baseline on both sides: additions in the framework are kept, deletions are honoured, and entries cut by a character limit stay in the soul instead of being mistaken for deletions.
 
 ## When it syncs
 

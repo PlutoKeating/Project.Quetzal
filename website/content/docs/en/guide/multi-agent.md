@@ -37,8 +37,8 @@ Each runtime instance has its own home directory and gateway port. A second agen
 
 ## One agent, several bodies
 
-That is a different thing: not several agents but **one soul in several bodies**. They share personality and memory through the soul repository and each writes its own journal. See [Soul sync](/docs/guide/soul-sync) and [soul-bridge](/docs/advanced/soul-bridge).
+That is a different case: **one soul in several bodies**. They share personality and memory through the soul repository and each writes its own journal. See [Soul sync](/docs/guide/soul-sync) and [soul-bridge](/docs/advanced/soul-bridge).
 
 ## Removing a connection
 
-From the switch list you can remove a connection. This only removes it from the app; the runtime and its memory are untouched.
+From the switch list you can remove a connection. This only removes it from the console; the runtime and its memory stay as they are.

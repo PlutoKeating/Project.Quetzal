@@ -1,6 +1,6 @@
 ---
 title: Glossary
-description: Terms that recur throughout the Quetzal documentation — runtime, body, adapter, heart, drives, soul repository, soul-bridge, guard, vault…
+description: Terms that recur throughout the Quetzal documentation: runtime, body, adapter, heart, drives, soul repository, soul-bridge, guard, vault…
 ---
 
 ## Terms

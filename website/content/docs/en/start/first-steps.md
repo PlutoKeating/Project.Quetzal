@@ -1,6 +1,6 @@
 ---
 title: First steps
-description: The first ten minutes after installing — configure a model, name her, poke her, chat a little, then watch her wake up on her own.
+description: The first ten minutes after installing: configure a model, name her, poke her, chat a little, then watch her wake up on her own.
 ---
 
 ## Checklist :white_check_mark:
@@ -24,7 +24,7 @@ description: The first ten minutes after installing — configure a model, name 
 Details in [Models and providers](/docs/guide/models).
 
 > [!TIP]
-> Once a model is configured she starts waking at her own rhythm. With no model she never wakes — that is the guard inhibiting her, not a fault.
+> Once a model is configured she starts waking at her own rhythm. With no model she never wakes: the guard holds her wake rate at zero.
 
 ## 2. Identity
 

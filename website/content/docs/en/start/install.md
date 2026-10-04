@@ -40,10 +40,10 @@ Download the latest APK from the [download page](/download) or GitHub Releases a
 
 Open Quetzal and choose **"Install Quetzal on this phone"** on the home screen. The wizard walks you through:
 
-1. **Install the Termux trio** — it checks that all three are installed and their versions match, and links to anything missing.
-2. **Allow Quetzal to send commands to Termux** — the system shows a "Run commands in Termux" permission request; allow it.
-3. **Allow external apps in Termux (the only manual step)** — tap "Copy and open Termux", then in Termux **long-press → Paste → Enter**. Go back to Quetzal and tap "I ran it, check". That line does exactly one thing: it writes `allow-external-apps=true` into Termux's settings so Quetzal can ask Termux to run the install script.
-4. **Install the runtime** — tap "Install". Inside Termux the wizard installs Node.js, runit, the Termux:API command-line tools and git; places the runtime bundled in the app; registers the runit service, logging and boot script; writes the body name and timezone; starts it and runs a health check. You see step-by-step progress. When done the app **connects automatically**; no pairing code is needed.
+1. **Install the Termux trio**: it checks that all three are installed and their versions match, and links to anything missing.
+2. **Allow Quetzal to send commands to Termux**: the system shows a "Run commands in Termux" permission request; allow it.
+3. **Allow external apps in Termux (the only manual step)**: tap "Copy and open Termux", then in Termux **long-press → Paste → Enter**. Go back to Quetzal and tap "I ran it, check". That line does exactly one thing: it writes `allow-external-apps=true` into Termux's settings so Quetzal can ask Termux to run the install script.
+4. **Install the runtime**: tap "Install". Inside Termux the wizard installs Node.js, runit, the Termux:API command-line tools and git; places the runtime bundled in the app; registers the runit service, logging and boot script; writes the body name and timezone; starts it and runs a health check. You see step-by-step progress. When done the app **connects automatically**; no pairing code is needed.
 
 > [!NOTE]
 > On networks where package downloads are slow (mainland China), the wizard picks a mirror automatically based on your system language. Keep Quetzal in the foreground during installation: the runtime files are served from the app.
@@ -61,6 +61,6 @@ Android kills background apps. The last wizard step guides you to:
 
 ## After installing
 
-Open Quetzal's **Now** page to see her state and drives. She will not wake until you configure a model — continue with [First steps](/docs/start/first-steps).
+Open Quetzal's **Now** page to see her state and drives. She will not wake until you configure a model. Continue with [First steps](/docs/start/first-steps).
 
 **Upgrading**: when you install a newer APK later, the app notices its bundled runtime is newer than the running one and offers a one-tap upgrade. See [Upgrade and rollback](/docs/guide/upgrade).

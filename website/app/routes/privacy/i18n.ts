@@ -6,7 +6,7 @@ export const messages = defineMessages({
     description: "Quetzal 官网不设账号、不用 Cookie、不加载统计脚本；Quetzal 软件的数据只留在你的设备与你选择的服务上。",
     eyebrow: "隐私政策",
     heading: "隐私政策",
-    lead: "一句话：本网站不收集你的个人信息。下面说明网站与软件各自会接触到什么。",
+    lead: "本网站不收集你的个人信息。下面说明网站与软件各自会接触到什么。",
     updated: "最近更新：2026 年 10 月 4 日",
     sections: [
       { heading: "1. 本网站", paragraphs: ["本网站是纯静态站点，没有账号、没有表单、没有服务端数据库，不设置 Cookie，不加载任何统计、广告或第三方字体脚本。"], bullets: [
@@ -32,7 +32,7 @@ export const messages = defineMessages({
     description: "The Quetzal website has no accounts, no cookies and no analytics; the Quetzal software keeps its data on your device and the services you choose.",
     eyebrow: "Privacy Policy",
     heading: "Privacy Policy",
-    lead: "In one sentence: this website does not collect your personal information. Below is what the site and the software each touch.",
+    lead: "This website does not collect your personal information. Below is what the site and the software each touch.",
     updated: "Last updated: October 4, 2026",
     sections: [
       { heading: "1. This website", paragraphs: ["This is a purely static site: no accounts, no forms, no server-side database, no cookies, and no analytics, advertising or third-party font scripts."], bullets: [

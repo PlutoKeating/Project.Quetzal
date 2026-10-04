@@ -104,7 +104,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux and other machines",
       heading: "Install on a Linux computer or server",
-      body: ["One command gives it a home on a Linux computer or server: ", ". The web console then opens in your browser — settings and conversations all happen there, no phone needed; run the command again later to upgrade."],
+      body: ["One command gives it a home on a Linux computer or server: ", ". The web console then opens in your browser; settings and conversations all happen there, no phone needed. Run the command again later to upgrade."],
       command: "npx @plutokeating/quetzal",
       link: "Linux and other machines",
     },

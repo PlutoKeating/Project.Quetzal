@@ -51,7 +51,7 @@ For "ask" categories she creates an approval when she wants to act. It is pushed
 
 **Control → Budget**: daily token cap, daily cost cap, minimum battery, maximum temperature. Defaults: 2,000,000 tokens / 5 USD / 15% / 45 °C.
 
-Exceeding them does not hard-stop her; it **inhibits**: budget spent ×0.05, overheating ×0.1, low battery and not charging ×0.2, offline ×0.5. She goes very quiet but still answers when you talk to her.
+Exceeding them **lowers her wake rate**: budget spent ×0.05, overheating ×0.1, low battery and not charging ×0.2, offline ×0.5. She goes very quiet but still answers when you talk to her.
 
 ## Emergency stop
 
@@ -63,4 +63,4 @@ The stop button in the top bar is **always visible**. Pressing it immediately de
 
 ## Idle walls
 
-What prevents runaway behaviour is not a step limit but **no-progress timers**: a model call with no data for 90 seconds fails and fails over; a session with no progress for 120 seconds is aborted. She can work on something long, as long as it keeps moving.
+Runaway behaviour is prevented by **no-progress timers**: a model call with no data for 90 seconds fails and fails over; a session with no progress for 120 seconds is aborted. She can work on something long, as long as it keeps moving.

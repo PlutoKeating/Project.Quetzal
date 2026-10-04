@@ -3,7 +3,7 @@ title: Identity
 description: Where the agent's name, pronouns, description, theme color and language live, how to change them, and what a "seed identity" is.
 ---
 
-## Identity is data, not code
+## Identity is a piece of data
 
 Quetzal is not bound to any particular agent. An agent's identity is one file, `agent.json`:
 

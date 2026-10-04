@@ -59,7 +59,7 @@ She tells you she "entered safe mode": more than five starts in ten minutes. Onl
 
 ## The web console (Linux)
 
-- `http://127.0.0.1:7788/` asks for a pairing code: the gateway waives it only for a browser on **the same machine** — a LAN IP or hostname does not count; use `127.0.0.1` or `localhost`. From another machine, forward the port with `ssh -L 7788:127.0.0.1:7788 <that machine>` and open the address locally, or pair from the app.
+- `http://127.0.0.1:7788/` asks for a pairing code: the gateway waives it only for a browser on **the same machine**; a LAN IP or hostname does not count. use `127.0.0.1` or `localhost`. From another machine, forward the port with `ssh -L 7788:127.0.0.1:7788 <that machine>` and open the address locally, or pair from the app.
 - Blank page or boxes instead of Chinese: check the service with `npx @plutokeating/quetzal status` and hard-refresh the browser. The web build ships its own CJK font and needs no internet for it.
 - The browser did not open after installing: without a desktop session (server, ssh login) only the address is printed; try `npx @plutokeating/quetzal open`.
 

@@ -12,7 +12,7 @@ By default the gateway listens only on `127.0.0.1:<gateway.port>` (default 7788;
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`, no token required |
-| GET | `/auth/local` | `{ok, token}`: only for a browser on the same machine (connection from the loopback address, local Host header, local Origin if any) — the web console logs in as soon as it opens; anything else gets 403. A local process can read the token file anyway, so this does not widen the trust boundary; a connection forwarded through an ssh tunnel counts as local |
+| GET | `/auth/local` | `{ok, token}`: only for a browser on the same machine (connection from the loopback address, local Host header, local Origin if any); the web console logs in as soon as it opens. anything else gets 403. A local process can read the token file anyway, so this does not widen the trust boundary; a connection forwarded through an ssh tunnel counts as local |
 | GET | `/`, `/<static file>` | The web console (when `web/` exists): unknown paths without an extension fall back to `index.html`; ETag supported |
 | POST | `/pair/start` | Generates a 6-digit pairing code (valid 5 minutes), delivered via adapter notification and Feishu |
 | POST | `/pair/finish` | `{code}` → `{ok, token}`; 403 wrong code, 410 expired or more than 5 attempts |

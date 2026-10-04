@@ -5,7 +5,7 @@ description: A Linux computer or server becomes a body with one command, npx @pl
 
 ## When this applies
 
-A phone is the best body, but not the only one. A laptop, a small home server, a Raspberry Pi or a cloud VM can run the runtime. Linux machines have a ready-made installer; other systems follow section 3 by hand.
+A phone is the best body; a laptop, a small home server, a Raspberry Pi or a cloud VM can run the runtime too. Linux machines have a ready-made installer; other systems follow section 3 by hand.
 
 ## 1. Linux: `npx @plutokeating/quetzal`
 
@@ -40,10 +40,10 @@ The Linux adapter detects everything: a laptop reports battery level and chargin
 
 ## 2. The web console: usable as soon as it is installed, no phone needed
 
-Open `http://127.0.0.1:7788/` — this is the Quetzal app as a web page, the same console laid out afresh for a wide screen: navigation (chat / flow / memory / control) and the current section's list on the left, what you are reading in the middle, and on the right, always, how it is right now (the orb, the thought it wants to share, a wake in progress, requests waiting for your approval, its inner state and body). Models, identity, permissions, Feishu, the soul repository and conversations all happen here, exactly as in the app.
+Open `http://127.0.0.1:7788/`. This is the Quetzal app as a web page, the same console laid out afresh for a wide screen: navigation (chat / flow / memory / control) and the current section's list on the left, what you are reading in the middle, and on the right, always, how it is right now (the orb, the thought it wants to share, a wake in progress, requests waiting for your approval, its inner state and body). Models, identity, permissions, Feishu, the soul repository and conversations all happen here, exactly as in the app.
 
 - **No pairing code**: a browser on the same machine is logged in as soon as the page opens (the gateway only accepts requests from the loopback address with a local Host header; see [Gateway API](/docs/reference/gateway-api)).
-- **Headless server**: forward the port with `ssh -L 7788:127.0.0.1:7788 <server>` and open the same address in your local browser — a tunnelled connection counts as local to the gateway.
+- **Headless server**: forward the port with `ssh -L 7788:127.0.0.1:7788 <server>` and open the same address in your local browser; a tunnelled connection counts as local to the gateway.
 - **The address bar records where you are** (`#/chat/<session>`, `#/control/providers`, …): bookmarkable, back and forward work.
 - The web version has no microphone and no installer: hearing lives in the phone app; to upgrade, run `npx @plutokeating/quetzal` again on this machine.
 

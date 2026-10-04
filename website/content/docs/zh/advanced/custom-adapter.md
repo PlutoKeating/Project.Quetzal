@@ -1,11 +1,11 @@
 ---
 title: 自定义身体适配器
-description: 用几十行 TypeScript 让一台新设备成为身体——实现 BodyAdapter 接口，独立构建，用 QUETZAL_ADAPTER 指定。
+description: 用几十行 TypeScript 让一台新设备成为身体：实现 BodyAdapter 接口，独立构建，用 QUETZAL_ADAPTER 指定。
 ---
 
 ## 适配器是什么
 
-运行基座的核心不知道自己跑在手机、树莓派还是服务器上。设备的一切——传感器采样、系统通知、播放声音、设备动作——都由**身体适配器**提供。适配器是一个独立构建的 ES 模块，默认导出一个 `BodyAdapter` 对象。
+运行基座的核心不知道自己跑在手机、树莓派还是服务器上。设备的一切（传感器采样、系统通知、播放声音、设备动作）都由**身体适配器**提供。适配器是一个独立构建的 ES 模块，默认导出一个 `BodyAdapter` 对象。
 
 仓库自带两个平台级的参考实现：`runtime/adapters/termux/`（任意安卓手机 + Termux:API，传感器按名字探测），构建为 `dist/termux.mjs`；`runtime/adapters/linux/`（任意 Linux 机器，电池与温度读 `/sys`，桌面工具按可用程序探测），构建为 `dist/linux.mjs`。
 
@@ -53,7 +53,7 @@ export default adapter;
 
 ## 约束
 
-- 适配器**只能 `import type`** 接口文件的类型，不得依赖核心的其他实现——构建时类型被擦除，产物不依赖核心。
+- 适配器**只能 `import type`** 接口文件的类型，不得依赖核心的其他实现；构建时类型被擦除，产物不依赖核心。
 - 工具的 `permission` 必须是闸门已知的类别，否则按「允许」处理。
 - 加载失败时核心回退到通用适配器（无传感器），并在日志里说明。
 

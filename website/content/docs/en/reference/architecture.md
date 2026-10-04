@@ -29,7 +29,7 @@ A drive's approach:
 
 $$d' = 1 - (1-d)\,e^{-\Delta t/\tau}$$
 
-This is the **two-process model** from sleep research (sleep pressure plus circadian rhythm). With default parameters she falls asleep around 22:40 and wakes around 7:50, with no timetable anywhere.
+This is the **two-process model** from sleep research (sleep pressure plus circadian rhythm). With default parameters she falls asleep around 22:40 and wakes around 7:50, with no timetable.
 
 ```mermaid
 stateDiagram-v2

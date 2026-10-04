@@ -5,7 +5,7 @@ description: Common questions about cost, privacy, what she can and cannot do, s
 
 ## Will she spend money all the time?
 
-No. She only calls a model when she wakes; the wake rate is set by drives and alertness, and the first thing she does on waking is a cheap introspection check — if she does not feel like doing anything she goes back to sleep. Set daily token and cost caps under **Control → Budget**; once spent she goes very quiet.
+No. She only calls a model when she wakes; the wake rate is set by drives and alertness, and the first thing she does on waking is a cheap introspection check; if she does not feel like doing anything she goes back to sleep. Set daily token and cost caps under **Control → Budget**; once spent she goes very quiet.
 
 ## Will she bother me at night?
 
