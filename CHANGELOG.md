@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.6.2
+
+- **API Key 形状校验**：保存 Key 时拒绝含非 ASCII 字符、空格换行或太短的值并说明原因（典型事故：把一句聊天粘进了遮挡的 Key 输入框，之后所有模型调用都报一句看不懂的 ByteString 错误）；控制台添加 Key 的对话框加「显示」眼睛与实时提示；调用层把这类底层报错翻译成「API Key 粘错了，请重新添加」。
+- **API key shape check**: saving a key now rejects values with non-ASCII characters, whitespace or too few characters, with a reason (the typical accident: a chat line pasted into the obscured key field, after which every model call fails with an opaque ByteString error); the add-key dialog gains a show/hide eye and live hints; the call layer translates that low-level error into "the API key was pasted wrong, add it again".
+
 ## 0.6.1
 
 - **灵魂同步**：访问仓库的钥匙可选——本机部署密钥（默认不变）、指定私钥路径、系统 ssh 配置（`~/.ssh/config` + ssh-agent，地址可用 Host 别名）；规范 §7 升到 v7。先点「接入」后点「显示公钥」也行：部署密钥不在会先生成。同步状态落盘（`state/soul-status.json`），重启后「上次拉取 / 推送」不再归零；页面跟着后台同步实时刷新；git 报错翻译成提示（如公钥未加到 Deploy keys）。
