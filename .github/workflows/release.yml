@@ -60,7 +60,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm test
           npm run build
-          npm pack --pack-destination ../out-npm
+          mkdir -p ../out-npm && npm pack --pack-destination ../out-npm
 
       # 步骤级 if 里不能引用 secrets 上下文（GitHub 会直接判定工作流文件无效，一个 job 都不跑），
       # 所以先把密钥放进步骤 env，在 shell 里判断是否为空。
