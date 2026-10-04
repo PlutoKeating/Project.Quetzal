@@ -1,4 +1,4 @@
-package xyz.windler.console
+package xyz.quetzal.console
 
 import android.Manifest
 import android.app.Notification
@@ -51,7 +51,7 @@ import java.util.concurrent.LinkedBlockingQueue
  */
 class HearingService : Service() {
     companion object {
-        const val CHANNEL_ID = "windler_hearing"
+        const val CHANNEL_ID = "quetzal_hearing"
         const val NOTIFICATION_ID = 7788
         private const val RATE = 16000
         private const val FRAME = 320 // 20ms
@@ -102,7 +102,7 @@ class HearingService : Service() {
         startForegroundCompat()
         if (thread == null) {
             running = true
-            thread = Thread({ loop() }, "windler-hearing").also { it.start() }
+            thread = Thread({ loop() }, "quetzal-hearing").also { it.start() }
             emit("state", mapOf("running" to true))
         } else {
             restartRequested = true // 参数变了：让采集线程重建 VAD
@@ -125,11 +125,11 @@ class HearingService : Service() {
     private fun startForegroundCompat() {
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "听觉", NotificationManager.IMPORTANCE_LOW).apply { description = "Windler 正在用麦克风听"; setShowBadge(false) })
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "听觉", NotificationManager.IMPORTANCE_LOW).apply { description = "Quetzal 正在用麦克风听"; setShowBadge(false) })
         }
         val open = android.app.PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
         val n: Notification = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL_ID) else @Suppress("DEPRECATION") Notification.Builder(this))
-            .setContentTitle("Windler 在听").setContentText("听到有人说话会转给她；在 App 的「听觉」里关闭")
+            .setContentTitle("Quetzal 在听").setContentText("听到有人说话会转给她；在 App 的「听觉」里关闭")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).setContentIntent(open).build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) else startForeground(NOTIFICATION_ID, n)
     }

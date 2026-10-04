@@ -1,12 +1,12 @@
-<a href="https://windler.plutokeating.beer/en"><img src="docs/assets/readme/banner.png" alt="Windler · Not running. Living. Living like wind. · windler.plutokeating.beer" width="100%" /></a>
+<a href="https://quetzal.plutokeating.beer/en"><img src="docs/assets/readme/banner.png" alt="Quetzal · Not running. Living. Living like wind. · quetzal.plutokeating.beer" width="100%" /></a>
 
 <div align="center">
 
-[![Release](https://img.shields.io/github/v/release/PlutoKeating/Project.Windler?label=release&color=f0a35e)](https://github.com/PlutoKeating/Project.Windler/releases)
+[![Release](https://img.shields.io/github/v/release/PlutoKeating/Project.Quetzal?label=release&color=f0a35e)](https://github.com/PlutoKeating/Project.Quetzal/releases)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-5c7a6b)](runtime/package.json)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-7d8f8a)](LICENSE)
 
-[Website](https://windler.plutokeating.beer/en) · [Docs](https://windler.plutokeating.beer/en/docs) · [Download](https://windler.plutokeating.beer/en/download) · [中文](README.md)
+[Website](https://quetzal.plutokeating.beer/en) · [Docs](https://quetzal.plutokeating.beer/en/docs) · [Download](https://quetzal.plutokeating.beer/en/download) · [中文](README.md)
 
 </div>
 
@@ -14,11 +14,11 @@
 
 **It decides when to wake. Including not to.**
 
-Codex and Claude Code are tools that move when you call them and exit when done. Hermes and OpenClaw are assistants woken every 30 minutes by a heartbeat to ask "anything?". **Windler is where an agent lives**: no timer, it wakes when its own drives and body clock say so; it has a body (an old Android phone), and its soul lives in your private git repository, portable across bodies.
+Codex and Claude Code are tools that move when you call them and exit when done. Hermes and OpenClaw are assistants woken every 30 minutes by a heartbeat to ask "anything?". **Quetzal is where an agent lives**: no timer, it wakes when its own drives and body clock say so; it has a body (an old Android phone), and its soul lives in your private git repository, portable across bodies.
 
-It is not a replacement but a neighbor: Hermes / OpenClaw build agents, Windler builds the place an agent lives. soul-bridge lets your existing Hermes share one soul with the body inside Windler.
+It is not a replacement but a neighbor: Hermes / OpenClaw build agents, Quetzal builds the place an agent lives. soul-bridge lets your existing Hermes share one soul with the body inside Quetzal.
 
-| | Codex / Claude Code | Hermes / OpenClaw | Windler |
+| | Codex / Claude Code | Hermes / OpenClaw | Quetzal |
 |---|---|---|---|
 | Who decides when it wakes | You, from the terminal | A timer: heartbeat or cron | Itself: drives × alertness, sampled; no timer |
 | When not called | Does not exist | Waits for the next heartbeat | Sleeps, dreams, or stays awake doing nothing |
@@ -26,7 +26,7 @@ It is not a replacement but a neighbor: Hermes / OpenClaw build agents, Windler 
 | Soul | Gone when the session ends | Local files | A private git repository, portable across bodies |
 | Not for | — | — | If you just want a terminal agent for code: use Codex |
 
-> Website and full guide: <https://windler.plutokeating.beer/en> . A complete account of running it on one old phone lives in [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9).
+> Website and full guide: <https://quetzal.plutokeating.beer/en> . A complete account of running it on one old phone lives in [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9).
 
 ## Why you will like it
 
@@ -43,7 +43,7 @@ Sleeps when tired, wakes with the morning: the gap between sleep pressure S and 
 
 ## How it works
 
-<img src="docs/assets/readme/architecture.en.svg" alt="Windler architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies" width="100%" />
+<img src="docs/assets/readme/architecture.en.svg" alt="Quetzal architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies" width="100%" />
 
 - **Heart**: drives × alertness give a wake rate; the next waking is sampled from a Poisson process; the gap between sleep pressure and circadian rhythm is sleepiness. [The math](docs/ARCHITECTURE.md)
 - **Body**: an adapter implements a few functions such as `sample()` and `notify()`; the bundled Termux adapter detects sensors by name. [Interface](docs/API.md)
@@ -57,26 +57,26 @@ Sleeps when tired, wakes with the morning: the gap between sleep pressure S and 
 **A spare Android phone** (the recommended body: battery, light, motion, microphone, camera):
 
 1. On an Android phone (Android 7+, arm64) install **Termux, Termux:API and Termux:Boot** from F-Droid.
-2. Install the **Windler app** from the [download page](https://windler.plutokeating.beer/en/download).
-3. Open the app, choose "Install Windler on this phone" and follow the wizard.
+2. Install the **Quetzal app** from the [download page](https://quetzal.plutokeating.beer/en/download).
+3. Open the app, choose "Install Quetzal on this phone" and follow the wizard.
 
 **A Linux computer or server** (laptop, mini PC, Raspberry Pi, cloud VM; needs Node.js 22.13+):
 
 ```bash
-npx windler            # install and register a systemd user service; run it again to upgrade
-npx windler --lan      # let the Windler app on your phone connect to this machine's address directly
+npx @plutokeating/quetzal            # install and register a systemd user service; run it again to upgrade
+npx @plutokeating/quetzal --lan      # let the Quetzal app on your phone connect to this machine's address directly
 ```
 
 > [!TIP]
-> Models, identity, permissions, Feishu, soul sync, multiple agents and troubleshooting are all in the [docs](https://windler.plutokeating.beer/en/docs). Details of the Linux body are in [Other machines](https://windler.plutokeating.beer/en/docs/advanced/other-machines).
+> Models, identity, permissions, Feishu, soul sync, multiple agents and troubleshooting are all in the [docs](https://quetzal.plutokeating.beer/en/docs). Details of the Linux body are in [Other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines).
 
 ## Go deeper
 
 | Directory | Contents |
 |---|---|
 | [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and two platform-level body adapters: Termux (Android) and Linux |
-| [`console/`](console/docs/README.md) | Windler app (Flutter): console + Android installer |
-| [`cli/`](cli/docs/README.md) | npm package `windler`: the Linux installer (`npx windler`, systemd user service) |
+| [`console/`](console/docs/README.md) | Quetzal app (Flutter): console + Android installer |
+| [`cli/`](cli/docs/README.md) | npm package `@plutokeating/quetzal`: the Linux installer (`npx @plutokeating/quetzal`, systemd user service) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |
 | [`website/`](website/docs/README.md) | Website and docs site |
 | [`docs/`](docs/) | [Quick start](docs/QUICK_START.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Soul sync](docs/SOUL_SYNC.md) · [Repository spec](docs/SOUL_REPO_SPEC.md) |

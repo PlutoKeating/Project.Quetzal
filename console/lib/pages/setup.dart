@@ -67,12 +67,12 @@ class _SetupPageState extends State<SetupPage> {
     final appsOk = vTermux != null;
     final step1 = appsOk, step2 = step1 && permitted == true, step3 = step2 && external == true;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.upgrade ? '升级 Windler' : '在这台手机上安装 Windler')),
+      appBar: AppBar(title: Text(widget.upgrade ? '升级 Quetzal' : '在这台手机上安装 Quetzal')),
       body: ListView(padding: const EdgeInsets.all(12), children: [
         Padding(padding: const EdgeInsets.fromLTRB(4, 4, 4, 12), child: Text(
           widget.upgrade
               ? 'App 内置的运行基座是 ${bundled ?? '（此构建没有内置）'}，安装后她会以新版本重新醒来，记忆与配置都保留。'
-              : 'Windler 把一台安卓手机变成 agent 的身体。运行基座装在 Termux 里，安装过程大约需要几分钟和几十 MB 下载。',
+              : 'Quetzal 把一台安卓手机变成 agent 的身体。运行基座装在 Termux 里，安装过程大约需要几分钟和几十 MB 下载。',
           style: t.bodyMedium)),
         _Step(n: 1, title: '安装 Termux 三件套', done: appsOk && vApi != null && vBoot != null, children: [
           _AppRow('Termux', vTermux, '运行环境', 'https://f-droid.org/packages/com.termux/'),
@@ -82,7 +82,7 @@ class _SetupPageState extends State<SetupPage> {
           Text('三个都要从同一来源安装（推荐 F-Droid，或 GitHub 发布页），Google Play 上的版本已废弃。', style: t.bodySmall),
           Row(children: [TextButton(onPressed: _check, child: const Text('重新检测'))]),
         ]),
-        _Step(n: 2, title: '允许 Windler 向 Termux 发指令', done: step2, enabled: step1, children: [
+        _Step(n: 2, title: '允许 Quetzal 向 Termux 发指令', done: step2, enabled: step1, children: [
           Text(permitted == true ? '已授权。' : '系统会弹出「在 Termux 中运行命令」的权限请求，请允许。', style: t.bodyMedium),
           if (permitted != true) Row(children: [FilledButton.tonal(onPressed: busy || !step1 ? null : _permit, child: const Text('授权'))]),
         ]),
@@ -124,10 +124,10 @@ class _SetupPageState extends State<SetupPage> {
           if (installer.done) Text('完成：运行基座 ${installer.last?.version} 已启动，控制台已自动连接。', style: t.bodyMedium),
         ]),
         _Step(n: 5, title: '让她不被系统杀掉', done: false, enabled: true, children: [
-          Text('安卓会清理后台应用。请把 Termux、Termux:Boot、Termux:API 和 Windler 加入电池优化的忽略名单，并在厂商的「自启动 / 后台运行」管理里放行。有锁屏密码的手机，重启后要解锁一次她才会醒来。', style: t.bodyMedium),
+          Text('安卓会清理后台应用。请把 Termux、Termux:Boot、Termux:API 和 Quetzal 加入电池优化的忽略名单，并在厂商的「自启动 / 后台运行」管理里放行。有锁屏密码的手机，重启后要解锁一次她才会醒来。', style: t.bodyMedium),
           const SizedBox(height: 6),
           Wrap(spacing: 8, children: [
-            OutlinedButton(onPressed: () => Igniter.requestIgnoreBattery().catchError((_) {}), child: const Text('忽略 Windler 的电池优化')),
+            OutlinedButton(onPressed: () => Igniter.requestIgnoreBattery().catchError((_) {}), child: const Text('忽略 Quetzal 的电池优化')),
             OutlinedButton(onPressed: () => Igniter.openBatterySettings().catchError((_) {}), child: const Text('电池优化名单')),
             OutlinedButton(onPressed: () => Igniter.openAutostart().catchError((_) {}), child: const Text('自启动管理')),
             if (vBoot != null) OutlinedButton(onPressed: () => Igniter.openApp(Igniter.termuxBoot).catchError((_) {}), child: const Text('打开一次 Termux:Boot')),

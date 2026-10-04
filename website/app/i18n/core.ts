@@ -5,14 +5,14 @@
  * - 语言在 URL 前缀里：/zh/…、/en/…。根路径 / 只负责把访客送到合适的语言。
  * - 每个路由目录自带 i18n.ts：`export const messages = defineMessages({ zh: {...}, en: {...} })`，
  *   zh 与 en 的键必须完全一致（由类型保证），页面用 `useMessages(messages)` 取当前语言的文案。
- * - 访客的选择记在 localStorage（键 windler.lang），只在根路径跳转与语言切换时读写；没有 Cookie，没有服务端。
+ * - 访客的选择记在 localStorage（键 quetzal.lang），只在根路径跳转与语言切换时读写；没有 Cookie，没有服务端。
  */
 import { createContext, useContext } from "react";
 
 export const LANGS = ["zh", "en"] as const;
 export type Lang = (typeof LANGS)[number];
 export const DEFAULT_LANG: Lang = "en";
-export const STORAGE_KEY = "windler.lang";
+export const STORAGE_KEY = "quetzal.lang";
 
 export const LANG_LABEL: Record<Lang, string> = { zh: "中文", en: "English" };
 export const HTML_LANG: Record<Lang, string> = { zh: "zh-CN", en: "en" };

@@ -1,4 +1,4 @@
-// 听觉桥：控制台当这具身体的耳朵（MethodChannel windler/hearing、EventChannel windler/hearing/events）。
+// 听觉桥：控制台当这具身体的耳朵（MethodChannel quetzal/hearing、EventChannel quetzal/hearing/events）。
 //   原生的 HearingService 常驻麦克风、系统降噪、WebRTC VAD 断句，把每句话直接 POST 到本机网关 /hear；这里只负责按基座的意愿启停它。
 //   基座的 status.hearing.listening 为真（开关开着、未急停、电量与温度在限制内、Azure 语音已配置）且 agent 在本机（127.0.0.1）时开耳朵，否则关。
 //   服务事件（说话开始 / 结束、识别结果、错误）只用于界面提示：首页光团旁的「在听」、听觉页的最近一句。
@@ -8,8 +8,8 @@ import 'package:flutter/widgets.dart';
 import 'api.dart';
 
 class Hearing {
-  static const _ch = MethodChannel('windler/hearing');
-  static const _ev = EventChannel('windler/hearing/events');
+  static const _ch = MethodChannel('quetzal/hearing');
+  static const _ev = EventChannel('quetzal/hearing/events');
   static Stream<Map<String, dynamic>>? _events;
   static Stream<Map<String, dynamic>> get events => _events ??= _ev.receiveBroadcastStream().map((e) => Map<String, dynamic>.from(e as Map)).asBroadcastStream();
 

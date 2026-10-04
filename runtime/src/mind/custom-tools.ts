@@ -1,5 +1,5 @@
 // 她自己造的工具：把做过多次、步骤稳定的流程沉淀为可直接调用的工具。
-//   实现只在这具身体上：WINDLER_HOME/tools/<名>/tool.json（名字、描述、参数 JSON Schema、能力类别、超时、依赖）+ tool.sh 或 tool.mjs。
+//   实现只在这具身体上：QUETZAL_HOME/tools/<名>/tool.json（名字、描述、参数 JSON Schema、能力类别、超时、依赖）+ tool.sh 或 tool.mjs。
 //   意图随灵魂同步：灵魂仓库 skills/<名>/SKILL.md，采用 Agent Skills 开放标准（YAML 头 name / description，正文自由）。
 //   其他身体（运行基座、Hermes、OpenClaw……）读到技能文档后，可以按文档在自己那里实现；本机有文档没实现时，系统提示会提醒她。
 //   热加载：每次组装工具表时按目录 mtime 重读，不用重启；缺依赖（requires 里的命令不存在）的工具不挂进工具表，只在提示里说明。
@@ -163,7 +163,7 @@ export function writeSkill(name: string, description: string, body: string, requ
   const text = parsed.name || parsed.description ? body.replace(/^---\r?\n([\s\S]*?)\r?\n---/, (_, head: string) => `---\n${head.replace(/^name:.*$/m, `name: ${skillName(name)}`)}\n---`) : [
     "---", `name: ${skillName(name)}`, `description: ${description.replace(/\s+/g, " ").slice(0, 1000)}`,
     ...(requires.length ? [`compatibility: 需要命令 ${requires.join("、")}`] : []),
-    "metadata:", "  windler-tool: " + name, ...(requires.length ? [`  windler-requires: ${requires.join(",")}`] : []),
+    "metadata:", "  quetzal-tool: " + name, ...(requires.length ? [`  quetzal-requires: ${requires.join(",")}`] : []),
     "---", "", body.trim(), "",
   ].join("\n");
   if (Buffer.byteLength(text) > MAX_FILE) throw new Error("技能文档不能超过 1 MiB");

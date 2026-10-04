@@ -1,6 +1,6 @@
 ---
 title: 自定义身体适配器
-description: 用几十行 TypeScript 让一台新设备成为身体——实现 BodyAdapter 接口，独立构建，用 WINDLER_ADAPTER 指定。
+description: 用几十行 TypeScript 让一台新设备成为身体——实现 BodyAdapter 接口，独立构建，用 QUETZAL_ADAPTER 指定。
 ---
 
 ## 适配器是什么
@@ -61,10 +61,10 @@ export default adapter;
 
 ```bash
 npx esbuild my-adapter.ts --bundle --platform=node --target=node22 --format=esm --outfile=my-adapter.mjs
-WINDLER_HOME=~/windler WINDLER_ADAPTER=$PWD/my-adapter.mjs node --enable-source-maps main.cjs
+QUETZAL_HOME=~/quetzal QUETZAL_ADAPTER=$PWD/my-adapter.mjs node --enable-source-maps main.cjs
 ```
 
-也可以写进配置 `config/windler.json` 的 `adapter` 字段。
+也可以写进配置 `config/quetzal.json` 的 `adapter` 字段。
 
 ## 采样如何变成感受
 
@@ -80,6 +80,6 @@ flowchart TB
 
 ## Termux 适配器提供了什么（参考）
 
-`sample()`：电量 / 充电 / 体温 / 健康、光照与运动（传感器按名字探测，没有就不报）；`notify()`（带「打开 Windler」按钮）、`playAudio()`；工具 `take_photo`、`record_audio`、`location`、`vibrate`、`torch`、`clipboard`、`read_sensor`。不提供 `speak`（很多手机没有系统 TTS），说话由运行基座的 `voice_speak`（Azure 语音）完成。
+`sample()`：电量 / 充电 / 体温 / 健康、光照与运动（传感器按名字探测，没有就不报）；`notify()`（带「打开 Quetzal」按钮）、`playAudio()`；工具 `take_photo`、`record_audio`、`location`、`vibrate`、`torch`、`clipboard`、`read_sensor`。不提供 `speak`（很多手机没有系统 TTS），说话由运行基座的 `voice_speak`（Azure 语音）完成。
 
 完整类型见 [适配器接口](/docs/reference/adapter-interface)。

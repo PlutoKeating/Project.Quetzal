@@ -1,6 +1,6 @@
 ---
 title: 网关 API
-description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方法一览。Windler App 与飞书通道使用的就是这一套。
+description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方法一览。Quetzal App 与飞书通道使用的就是这一套。
 ---
 
 ## 概览
@@ -116,4 +116,4 @@ interface ProviderConfig { providers: Provider[]; quickModelId?: string }
 **飞书**：`feishu.status`、`feishu.register`、`feishu.set`。
 
 > [!NOTE]
-> 这里是概览。字段级的完整描述见仓库里的 [docs/API.md](https://github.com/PlutoKeating/Project.Windler/blob/main/docs/API.md)，以代码为准。
+> 这里是概览。字段级的完整描述见仓库里的 [docs/API.md](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/API.md)，以代码为准。

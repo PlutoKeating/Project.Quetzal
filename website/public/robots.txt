@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://windler.plutokeating.beer/sitemap.xml
+Sitemap: https://quetzal.plutokeating.beer/sitemap.xml

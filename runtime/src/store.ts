@@ -7,7 +7,7 @@ import { bus, type TimelineEntry } from "./bus.ts";
 export let db: DatabaseSync;
 
 export function openStore() {
-  const f = path.join(paths.data, "windler.db");
+  const f = path.join(paths.data, "quetzal.db");
   db = new DatabaseSync(f);
   db.exec(`
     PRAGMA journal_mode=WAL;

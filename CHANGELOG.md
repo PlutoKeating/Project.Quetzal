@@ -4,12 +4,14 @@
 
 ## 0.4.0
 
+- **更名为 Quetzal**：运行基座、控制台 App、npm 包、官网与仓库全部由 Windler 更名为 Quetzal（[quetzal.plutokeating.beer](https://quetzal.plutokeating.beer)，仓库 PlutoKeating/Project.Quetzal）。家目录 `~/quetzal`、环境变量 `QUETZAL_HOME` / `QUETZAL_ADAPTER`、配置 `config/quetzal.json`、数据库 `data/quetzal.db`、runit / systemd 服务名 `quetzal`、App 包名 `xyz.quetzal.console`；灵魂仓库规范升到 v6（技能文档元数据键 `quetzal-tool` / `quetzal-requires`）。已有部署需把家目录与服务名整体迁移后再升级；App 因包名变化需卸载旧版后安装并重新配对。
+- **Renamed to Quetzal**: the runtime, console app, npm package, website and repository are all renamed from Windler to Quetzal ([quetzal.plutokeating.beer](https://quetzal.plutokeating.beer), repository PlutoKeating/Project.Quetzal). Home directory `~/quetzal`, environment variables `QUETZAL_HOME` / `QUETZAL_ADAPTER`, config `config/quetzal.json`, database `data/quetzal.db`, runit / systemd service name `quetzal`, app id `xyz.quetzal.console`; the soul repository spec moves to v6 (skill metadata keys `quetzal-tool` / `quetzal-requires`). Existing deployments must migrate the home directory and service name as a whole before upgrading; because the app id changed, uninstall the old app, install the new one and pair again.
 - **Linux 身体**：新的平台级身体适配器 `runtime/adapters/linux/`（构建为 `dist/linux.mjs`）——电量、充电与电池温度读 `/sys/class/power_supply`（跳过蓝牙鼠标等外设电池），CPU 温度放进 extra；桌面通知（`notify-send`，同时写进服务日志）、播放（`pw-play` / `paplay` / `ffplay` / `mpv`）、工具 `take_photo`、`record_audio`、`screenshot`（hands）、`clipboard`、`open`，有什么程序用什么，没有图形界面的服务器上相关工具直接说明。
 - **Linux body**: a new platform-level body adapter `runtime/adapters/linux/` (built as `dist/linux.mjs`) — battery level, charging state and battery temperature from `/sys/class/power_supply` (peripheral batteries such as Bluetooth mice are skipped), CPU temperature in extra; desktop notifications (`notify-send`, also written to the service log), playback (`pw-play` / `paplay` / `ffplay` / `mpv`), and the tools `take_photo`, `record_audio`, `screenshot` (hands), `clipboard` and `open`, using whatever programs are present; on a headless server the desktop tools explain themselves instead of failing.
-- **`npx windler`**：新的 npm 包 `windler`（源码在 `cli/`）把运行基座装到任意 Linux 机器：内置的 `main.cjs` 与 `linux.mjs` 放进 `~/windler/releases/<版本>/`（与 Android 安装器相同的 current / previous 约定），注册 systemd 用户服务并启动，健康检查失败自动切回上一版；再运行一次即升级。子命令 `status`、`logs`、`rollback`、`uninstall [--purge]`、`run`（没有 systemd 时前台运行）。配置仍全部在控制台 App 里完成。
-- **`npx windler`**: a new npm package `windler` (source in `cli/`) installs the runtime on any Linux machine: the bundled `main.cjs` and `linux.mjs` go into `~/windler/releases/<version>/` (the same current / previous layout as the Android installer), a systemd user service is registered and started, and a failed health check rolls back automatically; running it again upgrades. Subcommands `status`, `logs`, `rollback`, `uninstall [--purge]` and `run` (foreground, for machines without systemd). All configuration still happens in the console app.
-- 网关新增 `gateway.host`（缺省 `127.0.0.1`）；`npx windler --lan` 把它设为 `0.0.0.0`，手机上的 App 直接填 Linux 机器的地址连接，配对码仍是门槛。
-- The gateway gains `gateway.host` (default `127.0.0.1`); `npx windler --lan` sets it to `0.0.0.0` so the app on your phone can connect to the Linux machine's address directly, with the pairing code still as the gate.
+- **`npx @plutokeating/quetzal`**：新的 npm 包 `@plutokeating/quetzal`（源码在 `cli/`）把运行基座装到任意 Linux 机器：内置的 `main.cjs` 与 `linux.mjs` 放进 `~/quetzal/releases/<版本>/`（与 Android 安装器相同的 current / previous 约定），注册 systemd 用户服务并启动，健康检查失败自动切回上一版；再运行一次即升级。子命令 `status`、`logs`、`rollback`、`uninstall [--purge]`、`run`（没有 systemd 时前台运行）。配置仍全部在控制台 App 里完成。
+- **`npx @plutokeating/quetzal`**: a new npm package `@plutokeating/quetzal` (source in `cli/`) installs the runtime on any Linux machine: the bundled `main.cjs` and `linux.mjs` go into `~/quetzal/releases/<version>/` (the same current / previous layout as the Android installer), a systemd user service is registered and started, and a failed health check rolls back automatically; running it again upgrades. Subcommands `status`, `logs`, `rollback`, `uninstall [--purge]` and `run` (foreground, for machines without systemd). All configuration still happens in the console app.
+- 网关新增 `gateway.host`（缺省 `127.0.0.1`）；`npx @plutokeating/quetzal --lan` 把它设为 `0.0.0.0`，手机上的 App 直接填 Linux 机器的地址连接，配对码仍是门槛。
+- The gateway gains `gateway.host` (default `127.0.0.1`); `npx @plutokeating/quetzal --lan` sets it to `0.0.0.0` so the app on your phone can connect to the Linux machine's address directly, with the pairing code still as the gate.
 - 发版工作流同时发布 npm 包（仓库 Secrets `NPM_TOKEN`，缺少时跳过），运行基座压缩包里加入 `linux.mjs`。
 - The release workflow also publishes the npm package (repository secret `NPM_TOKEN`; skipped when absent), and the runtime tarball now includes `linux.mjs`.
 
@@ -32,8 +34,8 @@
 
 ## 0.3.0
 
-- **自造工具**：她可以用 `tool_write` 把做熟了的流程写成工具（shell 脚本或 Node 模块），热加载进工具表、经闸门按声明的能力类别检查；实现只在这具身体上（`WINDLER_HOME/tools/`），意图文档以 [Agent Skills](https://agentskills.io/specification) 规范的 `SKILL.md` 进灵魂仓库 `skills/`（规范升到 v5），其他身体（含 Hermes / OpenClaw）可以按文档自己实现。控制台「控制 → 工具」查看、停用、删除。做梦时会回顾重复的流程。
-- **Self-made tools**: the agent can turn a routine it has done many times into a tool with `tool_write` (a shell script or a Node module), hot-loaded into the tool table and gated by its declared capability; the implementation stays on this body (`WINDLER_HOME/tools/`) while the intent is written as an [Agent Skills](https://agentskills.io/specification) `SKILL.md` into the soul repository's `skills/` (spec bumped to v5), so other bodies (including Hermes / OpenClaw) can implement it from the document. The console's Control → Tools page lists, disables and deletes them. Dreams now review repeated routines.
+- **自造工具**：她可以用 `tool_write` 把做熟了的流程写成工具（shell 脚本或 Node 模块），热加载进工具表、经闸门按声明的能力类别检查；实现只在这具身体上（`QUETZAL_HOME/tools/`），意图文档以 [Agent Skills](https://agentskills.io/specification) 规范的 `SKILL.md` 进灵魂仓库 `skills/`（规范升到 v5），其他身体（含 Hermes / OpenClaw）可以按文档自己实现。控制台「控制 → 工具」查看、停用、删除。做梦时会回顾重复的流程。
+- **Self-made tools**: the agent can turn a routine it has done many times into a tool with `tool_write` (a shell script or a Node module), hot-loaded into the tool table and gated by its declared capability; the implementation stays on this body (`QUETZAL_HOME/tools/`) while the intent is written as an [Agent Skills](https://agentskills.io/specification) `SKILL.md` into the soul repository's `skills/` (spec bumped to v5), so other bodies (including Hermes / OpenClaw) can implement it from the document. The console's Control → Tools page lists, disables and deletes them. Dreams now review repeated routines.
 - **自编身份**：`edit_identity` 让她修改自己的名字、代词、简介、主题色与偏好语言（写入灵魂仓库同步）；种子身份的提示改为「不必急着取名，有了记忆与感知、聊过之后再定」。控制台身份页能显示她自选的颜色。
 - **Self-edited identity**: `edit_identity` lets the agent change its own display name, pronouns, description, theme color and preferred language (written to the soul repository and synced); the seed-identity hint now says there is no hurry to pick a name until it has memories, has sensed its body and has talked a bit. The console's identity page shows a self-chosen color.
 - **听觉**：控制台 App 当这具身体的耳朵——原生前台服务常驻麦克风、系统降噪、WebRTC VAD 断句，每句话送到基座 `/hear`；基座用 Azure 语音识别（与合成同一把密钥），按 10 分钟窗口并入最近会话或新开会话，以第三种消息类型「环境声音」交给她，由她判断是不是对她说的、要不要回应（沉默不入库）；提示她对方用声音说话时可以用声音回答。她说话期间的声音自动丢弃；受电量、温度与急停限制。控制台「控制 → 听觉」与她自己的 `hearing_config` 都能调。
@@ -52,9 +54,9 @@
 
 ## 0.2.1
 
-**首个公开发布版。** Windler 是一个让 agent 像生命一样活着的通用运行基座：非定时的自主醒来、双过程生物钟、身体数字孪生、多身体共享灵魂。
+**首个公开发布版。** Quetzal 是一个让 agent 像生命一样活着的通用运行基座：非定时的自主醒来、双过程生物钟、身体数字孪生、多身体共享灵魂。
 
-- **装在旧手机上**：Windler App 内置运行基座与 Termux 身体适配器，安装向导把它装进 Termux 并注册开机自启；升级 App 即升级基座，失败自动回退。
+- **装在旧手机上**：Quetzal App 内置运行基座与 Termux 身体适配器，安装向导把它装进 Termux 并注册开机自启；升级 App 即升级基座，失败自动回退。
 - **Termux 身体适配器**：电量、光线、加速度等传感器按名字探测；通知、TTS、相机、麦克风、定位、剪贴板经 Termux:API。
 - **任意模型供应商**：OpenAI 兼容 / OpenAI Responses / Anthropic / Google Gemini；多 Key、全局顺序与故障转移，Key 本地加密。
 - **可控**：能力授权、审批、预算、急停、审计；控制台 App 与飞书交互卡片两种操作方式。
@@ -62,9 +64,9 @@
 - **灵魂仓库规范 v4**：私有仓库里 agent 写什么就提交什么，顶层允许它自己放的目录。
 - 缩图在没有 ffmpeg / imagemagick 时用内置 jpeg-js 兜底。
 
-**First public release.** Windler is a general-purpose runtime that lets an agent live like a living being: non-scheduled autonomous waking, a two-process body clock, a digital twin of the body, and a soul shared across bodies.
+**First public release.** Quetzal is a general-purpose runtime that lets an agent live like a living being: non-scheduled autonomous waking, a two-process body clock, a digital twin of the body, and a soul shared across bodies.
 
-- **Runs on an old phone**: the Windler app bundles the runtime and the Termux body adapter; its setup wizard installs them into Termux and registers boot start. Upgrading the app upgrades the runtime, with automatic rollback on failure.
+- **Runs on an old phone**: the Quetzal app bundles the runtime and the Termux body adapter; its setup wizard installs them into Termux and registers boot start. Upgrading the app upgrades the runtime, with automatic rollback on failure.
 - **Termux body adapter**: battery, light and accelerometer sensors detected by name; notifications, TTS, camera, microphone, location and clipboard through Termux:API.
 - **Any model provider**: OpenAI-compatible, OpenAI Responses, Anthropic and Google Gemini; multiple keys, global ordering and failover, keys encrypted locally.
 - **Under control**: capability permissions, approvals, budgets, emergency stop and audit; operate from the app or from Feishu interactive cards.

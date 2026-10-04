@@ -1,4 +1,4 @@
-// npm 包 windler 的命令行入口：npx windler 安装或升级；其余子命令只做部署运维，agent 的一切配置都在控制台 App 里完成。
+// npm 包 @plutokeating/quetzal 的命令行入口：npx @plutokeating/quetzal 安装或升级；其余子命令只做部署运维，agent 的一切配置都在控制台 App 里完成。
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -12,9 +12,9 @@ const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL("../package.json", 
 const say = (s: string) => console.log(s);
 process.stdout.on("error", () => {}); // 输出被管道提前关闭（如 | head）时不报错
 
-const HELP = `windler ${pkg.version} —— 把 Windler 运行基座装到这台 Linux 机器上
+const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台 Linux 机器上
 
-用法：npx windler [命令] [选项]
+用法：npx @plutokeating/quetzal [命令] [选项]
 
 命令（不给命令 = install）：
   install            安装或升级到包里内置的版本，注册 systemd 用户服务并启动；失败自动切回上一版
@@ -27,12 +27,12 @@ const HELP = `windler ${pkg.version} —— 把 Windler 运行基座装到这台
   version            包与内置运行基座的版本
 
 选项：
-  --home DIR         家目录（默认 $WINDLER_HOME 或 ~/windler）
+  --home DIR         家目录（默认 $QUETZAL_HOME 或 ~/quetzal）
   --lan | --no-lan   网关对局域网开放（手机上的 App 直接连这台机器）/ 只监听本机（默认不改）
   --force            已是同一版本也重新安装
 
-装好之后的一切（模型、身份、授权、飞书、灵魂仓库）都在 Windler App 里完成：连接新的 agent → 填这台机器的地址 → 申请配对码。
-配对码会以桌面通知弹出；没有桌面的机器从 windler logs 里看。`;
+装好之后的一切（模型、身份、授权、飞书、灵魂仓库）都在 Quetzal App 里完成：连接新的 agent → 填这台机器的地址 → 申请配对码。
+配对码会以桌面通知弹出；没有桌面的机器从 quetzal logs 里看。`;
 
 function parse(argv: string[]) {
   const o: { cmd?: string; home: string; lan?: boolean; force: boolean; purge: boolean; follow: boolean; lines: number } =
@@ -57,7 +57,7 @@ function parse(argv: string[]) {
 function requireNode() {
   const [maj, min] = process.versions.node.split(".").map(Number);
   if (maj < 22 || (maj === 22 && min < 13)) throw new Error(`需要 Node.js 22.13 以上（内置 node:sqlite），当前 ${process.versions.node}`);
-  if (process.platform !== "linux") throw new Error("这个包只支持 Linux；其他系统请看 https://windler.plutokeating.beer");
+  if (process.platform !== "linux") throw new Error("这个包只支持 Linux；其他系统请看 https://quetzal.plutokeating.beer");
 }
 
 async function status(home: string) {
@@ -65,10 +65,10 @@ async function status(home: string) {
   const h = await health(gatewayPort(l));
   say(`家目录    ${l.home}`);
   say(`版本      ${versionOf(l.current) ?? "（未安装）"}${versionOf(l.previous) ? `（上一版 ${versionOf(l.previous)}）` : ""}`);
-  say(`服务      ${svc.isInstalled() ? ((await svc.isActive()) ? "运行中（systemd 用户服务 windler）" : "已安装，未运行") : "未安装"}`);
+  say(`服务      ${svc.isInstalled() ? ((await svc.isActive()) ? "运行中（systemd 用户服务 quetzal）" : "已安装，未运行") : "未安装"}`);
   say(`运行基座  ${h ? `${h.version} ${h.safeMode ? "安全模式" : h.mode}` : "没有响应"}`);
   const host = gatewayHost(l);
-  say(`网关      ${host}:${gatewayPort(l)}${host === "127.0.0.1" ? "（只监听本机；要让手机上的 App 直接连，执行 windler install --lan，或建 ssh 隧道）" : "（局域网可达）"}`);
+  say(`网关      ${host}:${gatewayPort(l)}${host === "127.0.0.1" ? "（只监听本机；要让手机上的 App 直接连，执行 quetzal install --lan，或建 ssh 隧道）" : "（局域网可达）"}`);
 }
 
 /** 前台运行 current 版本：没有 systemd 的机器用，或者调试。 */
@@ -76,7 +76,7 @@ async function runForeground(home: string) {
   const l = layout(home);
   placeRelease(l);
   const child = spawn(process.execPath, ["--enable-source-maps", path.join(l.current, "main.cjs")], {
-    cwd: l.current, stdio: "inherit", env: { ...process.env, WINDLER_HOME: l.home, WINDLER_ADAPTER: path.join(l.current, "linux.mjs") },
+    cwd: l.current, stdio: "inherit", env: { ...process.env, QUETZAL_HOME: l.home, QUETZAL_ADAPTER: path.join(l.current, "linux.mjs") },
   });
   for (const s of ["SIGINT", "SIGTERM"] as const) process.on(s, () => child.kill(s));
   return new Promise<number>((r) => child.on("exit", (c) => r(c ?? 1)));
@@ -86,7 +86,7 @@ async function main() {
   const o = parse(process.argv.slice(2));
   const cmd = o.cmd ?? "install";
   if (cmd === "help") return say(HELP);
-  if (cmd === "version") return say(`windler ${pkg.version}（内置运行基座 ${bundled().version}）`);
+  if (cmd === "version") return say(`quetzal ${pkg.version}（内置运行基座 ${bundled().version}）`);
   requireNode();
   const l = layout(o.home);
   switch (cmd) {

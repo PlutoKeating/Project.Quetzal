@@ -1,6 +1,6 @@
 # 运行架构
 
-本文用图文说明 Windler 运行基座的整体结构、每个部分的原理与实现方式。代码位置均相对于 `runtime/src/`。
+本文用图文说明 Quetzal 运行基座的整体结构、每个部分的原理与实现方式。代码位置均相对于 `runtime/src/`。
 
 ## 1. 总体结构
 
@@ -47,14 +47,14 @@ flowchart TB
 - **状态全部落盘**：心脏状态、时间线、审计、用量在 SQLite，人格与记忆在灵魂目录。进程重启只相当于"睡了一觉"。
 - **所有控制入口共用一个操作层**（`ops.ts`）：控制台和飞书的行为完全一致，都经过审计。
 
-## 2. 家目录（`WINDLER_HOME`，默认 `~/windler`）
+## 2. 家目录（`QUETZAL_HOME`，默认 `~/quetzal`）
 
 ```
-config/windler.json      运行配置（控制台可改）
+config/quetzal.json      运行配置（控制台可改）
 config/providers.json    模型供应商（Key 为密文）
 secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、feishu_secret、soul_ed25519
 vault/                   0700：保密库。对方通过 pass_secret 交给 agent 的保密值，每项一个 0600 文件；index.json 记录说明（见 §5.1）
-data/windler.db          SQLite：kv / timeline / messages / audit / usage
+data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
 soul/                    灵魂目录（git 仓库）
 state/starts.json        启动记录（熔断用）
@@ -234,7 +234,7 @@ sequenceDiagram
 - **结束口令**：调用时随机生成（`done-` 加 6 个字符），只用来标记"输入完毕"，本身不是秘密。发回口令即保存；`口令 重来` 清空重填，`口令 取消` 放弃。少发了就只保存已发的几项（结果里注明缺哪些），多发的不保存。10 分钟没有动静自动放弃。放弃时已收到的值直接丢弃——**只有结束口令才落盘**。
 - **截取点唯一**：所有通道的消息都经过 `converse`，它的第一步就是 `intake`：这个会话在保密输入中，消息就被消费掉，只返回一条不含内容的回执。保密值因此不会进入 `messages` 表、会话历史、进展事件、时间线与审计。每个会话同时最多一次保密输入；其他会话不受影响。
 - **通道的职责**：订阅 `secret` 事件提醒对方（`secretNotice` 给出通用的说明文字），并把回执发给对方。控制台在输入框上方显示提示条，输入框默认遮挡，「完成 / 重填 / 取消」按钮；飞书发一张随进展原地更新的卡片（带「输入完毕 / 取消」按钮），期间不下载附件、不加表情、不引用回复。飞书不允许机器人撤回对方的消息，所以结束时提醒对方自己撤回。
-- **保密库**：`WINDLER_HOME/vault/`（0700），每项一个文件（0600），文件名即名字（字母、数字、下划线、连字符），内容即值（多行的值以换行结尾）；同名覆盖。`index.json` 只记说明、时间与来源通道。它只属于这具身体：不在灵魂仓库里，不同步。系统提示的「保密库」段落列出现有各项的名字、说明与路径；控制台「保密库」页可以查看与删除（不显示内容）。
+- **保密库**：`QUETZAL_HOME/vault/`（0700），每项一个文件（0600），文件名即名字（字母、数字、下划线、连字符），内容即值（多行的值以换行结尾）；同名覆盖。`index.json` 只记说明、时间与来源通道。它只属于这具身体：不在灵魂仓库里，不同步。系统提示的「保密库」段落列出现有各项的名字、说明与路径；控制台「保密库」页可以查看与删除（不显示内容）。
 - **使用**：她在命令里按路径引用（`"$(cat 路径)"`、`< 路径`），不输出内容。
 - **兜底**：所有工具的输出在交给模型、写入审计之前经过 `redactSecrets`，出现的保密值（4 个字符以上；多行的值还按行）替换为 `‹secret:名字›`。这防的是无意泄露（`cat`、`env`、调试输出），挡不住刻意变换编码；她与基座是同一个系统用户，保密库对她的 shell 是可读的——"看不到明文"由协议、工具约定与输出替换共同保证，而不是操作系统级的隔离。
 - **只能在对话中调用**：自己醒来时没有在场的对方，工具会提示先约对方。
@@ -243,7 +243,7 @@ sequenceDiagram
 
 她可以把做过多次、步骤稳定、以后还会用的流程写成工具（`tool_write`），之后像内置工具一样直接调用：出现在工具表里、经闸门按声明的能力类别检查、写入审计。做梦任务里有一条提醒：回顾最近的工具调用，反复出现的 shell 流程可以沉淀。
 
-- **实现只在这具身体上**：`WINDLER_HOME/tools/<名>/tool.json`（名字、描述、参数 JSON Schema、能力类别、超时、依赖的命令、启用）+ `tool.sh`（参数以 JSON 从 stdin 传入，并展开为环境变量 `ARG_<名>`，stdout 即结果）或 `tool.mjs`（ES 模块，默认导出 `async (args, {dir, home}) => string`）。写入时校验名字、保留名、schema、语法（`sh -n` / `node --check`）、大小（1 MiB）；每次组装工具表时热加载，不用重启；声明的 `requires` 里有命令不存在时不挂载，只在系统提示里说明。
+- **实现只在这具身体上**：`QUETZAL_HOME/tools/<名>/tool.json`（名字、描述、参数 JSON Schema、能力类别、超时、依赖的命令、启用）+ `tool.sh`（参数以 JSON 从 stdin 传入，并展开为环境变量 `ARG_<名>`，stdout 即结果）或 `tool.mjs`（ES 模块，默认导出 `async (args, {dir, home}) => string`）。写入时校验名字、保留名、schema、语法（`sh -n` / `node --check`）、大小（1 MiB）；每次组装工具表时热加载，不用重启；声明的 `requires` 里有命令不存在时不挂载，只在系统提示里说明。
 - **意图随灵魂同步**：灵魂仓库 `skills/<名>/SKILL.md`，采用 [Agent Skills](https://agentskills.io/specification) 开放标准（规范 §3.12），Hermes / OpenClaw 直接能读。其他身体读到技能文档却没有本地实现时，系统提示会列出来，她可以按文档用 `tool_write` 在那具身体上实现。新工具必须同时写技能文档，改写可以不写。
 - **闸门**：新建、改写、删除归 `self_modify`；调用按工具自己声明的类别（只能是闸门已知的类别，缺省 `shell`）。控制台「控制 → 工具」只看、停用 / 启用与删除（可选连技能文档一起删），不在手机上编辑代码。
 - 任何参数（描述、schema、类别、超时、依赖）她都可以在认为需要时改。
@@ -294,7 +294,7 @@ soul/
 
 ```mermaid
 sequenceDiagram
-  participant A as 本机 Windler
+  participant A as 本机 Quetzal
   participant R as 灵魂仓库（私有 git）
   participant H as Hermes / OpenClaw（soul-bridge）
   H->>R: 记忆写入后、会话收尾、文件变化时同步
@@ -349,7 +349,7 @@ flowchart LR
 
 - 基座只负责自身逻辑，**进程守护交给外部**（runit、systemd 等）：进程退出即被重新拉起。
 - **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
-- 部署者提供：Node.js 22.13+（`node:sqlite` 从这个版本起不需要标志）、`WINDLER_HOME`、可选的 `WINDLER_ADAPTER`（适配器模块路径）、进程守护者。
-- **Android + Termux 部署约定**（Windler App 的安装器与点火器按此约定工作，脚本在 `console/assets/install/install.sh`）：软件包 `nodejs-lts termux-services termux-api git openssh`；版本目录 `~/windler/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/windler/current` → 运行中的版本，`~/windler/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/windler`（`run` 以 `WINDLER_ADAPTER=$HOME/windler/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/windler/`；开机脚本 `~/.termux/boot/windler`（唤醒锁 + 启动 runit）；`termux.properties` 中 `allow-external-apps=true`。安装器在 App 内开一个 127.0.0.1 的临时 HTTP 服务提供脚本与运行基座文件、接收进度；脚本通过 Termux 的 `RUN_COMMAND` 执行，完成后把 `secrets/gateway.token` 交给控制台，同一台手机上不需要配对码。健康检查 40 秒不通过自动切回 `previous`。
-- **Linux + npm 部署约定**（npm 包 `windler`，源码在 `cli/`，与 Android 约定同构）：`npx windler` 把包内置的 `main.cjs`、`linux.mjs` 放进 `~/windler/releases/<版本>/`，`current` / `previous` 同上；守护者是 systemd 用户服务 `~/.config/systemd/user/windler.service`（`ExecStart=<安装时的 node> --enable-source-maps ~/windler/current/main.cjs`，`WINDLER_ADAPTER=~/windler/current/linux.mjs`，`Restart=always`），日志在 journald；尝试 `loginctl enable-linger` 让服务在没有登录会话时也运行。健康检查 40 秒且 `/health` 的版本相符才算成功，否则切回 `previous`。`--lan` 把 `gateway.host` 写为 `0.0.0.0`，手机上的 App 直接连这台机器；配对码由适配器的 `notify` 弹桌面通知并写进服务日志。没有 systemd 用户实例时只放文件，提示 `windler run` 前台运行。
+- 部署者提供：Node.js 22.13+（`node:sqlite` 从这个版本起不需要标志）、`QUETZAL_HOME`、可选的 `QUETZAL_ADAPTER`（适配器模块路径）、进程守护者。
+- **Android + Termux 部署约定**（Quetzal App 的安装器与点火器按此约定工作，脚本在 `console/assets/install/install.sh`）：软件包 `nodejs-lts termux-services termux-api git openssh`；版本目录 `~/quetzal/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/quetzal/current` → 运行中的版本，`~/quetzal/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/quetzal`（`run` 以 `QUETZAL_ADAPTER=$HOME/quetzal/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/quetzal/`；开机脚本 `~/.termux/boot/quetzal`（唤醒锁 + 启动 runit）；`termux.properties` 中 `allow-external-apps=true`。安装器在 App 内开一个 127.0.0.1 的临时 HTTP 服务提供脚本与运行基座文件、接收进度；脚本通过 Termux 的 `RUN_COMMAND` 执行，完成后把 `secrets/gateway.token` 交给控制台，同一台手机上不需要配对码。健康检查 40 秒不通过自动切回 `previous`。
+- **Linux + npm 部署约定**（npm 包 `@plutokeating/quetzal`，源码在 `cli/`，与 Android 约定同构）：`npx @plutokeating/quetzal` 把包内置的 `main.cjs`、`linux.mjs` 放进 `~/quetzal/releases/<版本>/`，`current` / `previous` 同上；守护者是 systemd 用户服务 `~/.config/systemd/user/quetzal.service`（`ExecStart=<安装时的 node> --enable-source-maps ~/quetzal/current/main.cjs`，`QUETZAL_ADAPTER=~/quetzal/current/linux.mjs`，`Restart=always`），日志在 journald；尝试 `loginctl enable-linger` 让服务在没有登录会话时也运行。健康检查 40 秒且 `/health` 的版本相符才算成功，否则切回 `previous`。`--lan` 把 `gateway.host` 写为 `0.0.0.0`，手机上的 App 直接连这台机器；配对码由适配器的 `notify` 弹桌面通知并写进服务日志。没有 systemd 用户实例时只放文件，提示 `quetzal run` 前台运行。
 - **配置缺省**：`body` 由安装器写为机型名（Android）或主机名（Linux），`timezone` 取系统时区；相机、麦克风、定位、操作屏幕默认「每次询问」；听觉默认关闭；网关只监听本机。

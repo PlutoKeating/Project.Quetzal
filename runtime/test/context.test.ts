@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 
-process.env.WINDLER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "windler-ctx-"));
+process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-ctx-"));
 const { loadConfig } = await import("../src/config.ts");
 loadConfig();
 const store = await import("../src/store.ts");

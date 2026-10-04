@@ -4,7 +4,7 @@ set -eu
 cd "$(dirname "$0")/.."
 # 失败时把被静音的输出打出来（CI 里只看得到这里）
 ( cd ../runtime && { [ -d node_modules ] || npm ci --no-audit --no-fund 2>&1 | tail -20; } \
-  && { npm test --silent > /tmp/windler-runtime-test.log 2>&1 || { echo "runtime 测试失败："; tail -80 /tmp/windler-runtime-test.log; exit 1; }; } \
+  && { npm test --silent > /tmp/quetzal-runtime-test.log 2>&1 || { echo "runtime 测试失败："; tail -80 /tmp/quetzal-runtime-test.log; exit 1; }; } \
   && npm run build --silent )
 mkdir -p assets/runtime
 cp ../runtime/dist/main.cjs ../runtime/dist/termux.mjs assets/runtime/

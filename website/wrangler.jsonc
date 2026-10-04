@@ -2,7 +2,7 @@
 // 自定义域名在 Cloudflare 控制台的 Settings → Domains & Routes 里添加，不写在这里。
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "windler",
+  "name": "quetzal",
   "compatibility_date": "2026-09-01",
   "assets": {
     "directory": "./build/client",

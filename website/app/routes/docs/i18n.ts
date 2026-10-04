@@ -2,7 +2,7 @@ import { defineMessages } from "~/i18n/core";
 
 export const messages = defineMessages({
   zh: {
-    title: "文档 · Windler",
+    title: "文档 · Quetzal",
     docs: "文档",
     searchPlaceholder: "搜索文档…",
     searchHint: "搜索索引在构建后生成，本地开发时不可用。",
@@ -20,7 +20,7 @@ export const messages = defineMessages({
     backToDocs: "回到文档首页",
   },
   en: {
-    title: "Docs · Windler",
+    title: "Docs · Quetzal",
     docs: "Docs",
     searchPlaceholder: "Search docs…",
     searchHint: "The search index is generated at build time and is not available in local development.",

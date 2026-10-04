@@ -7,7 +7,7 @@ description: 运行基座的总体结构、心脏的数学（内驱力、生物�
 
 运行基座是**单进程 Node.js**（`dist/main.cjs`），模块之间通过进程内事件总线耦合，状态全部落盘（SQLite 与灵魂目录），进程重启只相当于"睡了一觉"。
 
-![Windler 架构总图：身体 → 运行基座（心脏 · 大脑 · 记忆 · 模型层 · 闸门）→ 灵魂仓库与其他身体](/img/architecture.zh.svg)
+![Quetzal 架构总图：身体 → 运行基座（心脏 · 大脑 · 记忆 · 模型层 · 闸门）→ 灵魂仓库与其他身体](/img/architecture.zh.svg)
 
 设计原则：**设备无关**（核心只认识适配器接口）、**所有控制入口共用一个操作层**（App 与飞书行为一致、都写审计）、**没有定时器驱动的行为**。
 
@@ -129,4 +129,4 @@ sequenceDiagram
 
 ## 进程契约
 
-进程守护交给外部（runit、systemd）；10 分钟内启动超过 5 次进入安全模式。部署者提供 Node.js 22+、`WINDLER_HOME`、可选的 `WINDLER_ADAPTER` 与守护者。
+进程守护交给外部（runit、systemd）；10 分钟内启动超过 5 次进入安全模式。部署者提供 Node.js 22+、`QUETZAL_HOME`、可选的 `QUETZAL_ADAPTER` 与守护者。

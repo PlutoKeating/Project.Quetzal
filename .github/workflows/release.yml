@@ -1,9 +1,9 @@
 # 发版：推送 v<版本> 标签 → 测试并构建运行基座与 App → 创建 GitHub Release。
 # 资产命名（官网下载页按此识别）：
-#   windler-<版本>-android-arm64.apk     Windler App（内置运行基座与 Termux 身体适配器）
-#   windler-runtime-<版本>.tar.gz        运行基座 main.cjs + termux.mjs + linux.mjs（部署到其他机器）
+#   quetzal-<版本>-android-arm64.apk     Quetzal App（内置运行基座与 Termux 身体适配器）
+#   quetzal-runtime-<版本>.tar.gz        运行基座 main.cjs + termux.mjs + linux.mjs（部署到其他机器）
 #   SHA256SUMS
-# 同时把 cli/ 发布为 npm 包 windler（npx windler 安装到 Linux）：仓库 Secrets 里提供 NPM_TOKEN（Automation 令牌）；缺少则跳过 npm 发布。
+# 同时把 cli/ 发布为 npm 包 @plutokeating/quetzal（npx @plutokeating/quetzal 安装到 Linux）：仓库 Secrets 里提供 NPM_TOKEN（Automation 令牌）；缺少则跳过 npm 发布。
 # 发布说明：CHANGELOG.md 里「## <版本>」小节（没有则只用 GitHub 自动生成的提交摘要）。
 # 依赖的 action 都用 Node 24 运行时的大版本（checkout v7、setup-node v7、setup-java v6、action-gh-release v3），避免弃用警告。
 # 正式签名：仓库 Secrets 里提供 ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD；
@@ -55,7 +55,7 @@ jobs:
       - name: 构建运行基座并内置进 App（npm ci + test + build）
         run: console/tool/bundle-runtime.sh
 
-      - name: 构建 npm 包 windler（内置运行基座与 Linux 适配器）
+      - name: 构建 npm 包 @plutokeating/quetzal（内置运行基座与 Linux 适配器）
         working-directory: cli
         run: |
           npm ci --no-audit --no-fund
@@ -93,8 +93,8 @@ jobs:
           V: ${{ steps.ver.outputs.version }}
         run: |
           mkdir -p out
-          cp console/build/app/outputs/flutter-apk/app-release.apk "out/windler-$V-android-arm64.apk"
-          tar -czf "out/windler-runtime-$V.tar.gz" -C runtime/dist main.cjs termux.mjs linux.mjs
+          cp console/build/app/outputs/flutter-apk/app-release.apk "out/quetzal-$V-android-arm64.apk"
+          tar -czf "out/quetzal-runtime-$V.tar.gz" -C runtime/dist main.cjs termux.mjs linux.mjs
           (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
 
       - name: 提取发布说明（CHANGELOG.md 的对应小节）
@@ -113,16 +113,16 @@ jobs:
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then echo "没有配置 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
           TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
-          npm publish ../out-npm/windler-*.tgz --access public --tag "$TAG"
+          npm publish ../out-npm/plutokeating-quetzal-*.tgz --access public --tag "$TAG"
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v3
         with:
-          name: Windler ${{ steps.ver.outputs.version }}
+          name: Quetzal ${{ steps.ver.outputs.version }}
           body_path: out/NOTES.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
-            out/windler-*.apk
-            out/windler-runtime-*.tar.gz
+            out/quetzal-*.apk
+            out/quetzal-runtime-*.tar.gz
             out/SHA256SUMS

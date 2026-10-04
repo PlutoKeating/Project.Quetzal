@@ -7,7 +7,7 @@ import path from "node:path";
 import http from "node:http";
 import type { SpeechConfig } from "../src/voice/azure.ts";
 
-process.env.WINDLER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "windler-hearing-"));
+process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-hearing-"));
 const { loadConfig, config } = await import("../src/config.ts");
 loadConfig();
 const store = await import("../src/store.ts");

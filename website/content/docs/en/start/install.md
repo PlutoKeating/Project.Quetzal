@@ -1,15 +1,15 @@
 ---
 title: Install
-description: Put the Termux trio and the Windler app on a spare Android phone, then let the wizard install the runtime inside Termux.
+description: Put the Termux trio and the Quetzal app on a spare Android phone, then let the wizard install the runtime inside Termux.
 ---
 
 ## Overview
 
-Four steps: install the Termux trio → install the Windler app → install the runtime from the app's wizard → keep the system from killing it. It takes a few minutes and a few tens of megabytes.
+Four steps: install the Termux trio → install the Quetzal app → install the runtime from the app's wizard → keep the system from killing it. It takes a few minutes and a few tens of megabytes.
 
 ```mermaid
 flowchart TB
-  A["1. Install the Termux trio<br/>same source"] --> B["2. Install the Windler app<br/>download page / Releases"] --> C
+  A["1. Install the Termux trio<br/>same source"] --> B["2. Install the Quetzal app<br/>download page / Releases"] --> C
   subgraph C["3. Follow the app wizard"]
     direction LR
     C1["Allow commands to Termux"] --> C2["Paste one line in Termux<br/>to allow external apps"] --> C3["Tap Install<br/>the rest is automatic"]
@@ -32,35 +32,35 @@ Install these three apps from [F-Droid](https://f-droid.org/packages/com.termux/
 
 After installing, **open Termux once** and wait for it to finish initializing (the first launch unpacks the environment and takes a little while).
 
-## 2. Install the Windler app
+## 2. Install the Quetzal app
 
 Download the latest APK from the [download page](/download) or GitHub Releases and install it. You may need to allow installing from unknown sources the first time.
 
 ## 3. Install the runtime with the wizard
 
-Open Windler and choose **"Install Windler on this phone"** on the home screen. The wizard walks you through:
+Open Quetzal and choose **"Install Quetzal on this phone"** on the home screen. The wizard walks you through:
 
 1. **Install the Termux trio** — it checks that all three are installed and their versions match, and links to anything missing.
-2. **Allow Windler to send commands to Termux** — the system shows a "Run commands in Termux" permission request; allow it.
-3. **Allow external apps in Termux (the only manual step)** — tap "Copy and open Termux", then in Termux **long-press → Paste → Enter**. Go back to Windler and tap "I ran it, check". That line does exactly one thing: it writes `allow-external-apps=true` into Termux's settings so Windler can ask Termux to run the install script.
+2. **Allow Quetzal to send commands to Termux** — the system shows a "Run commands in Termux" permission request; allow it.
+3. **Allow external apps in Termux (the only manual step)** — tap "Copy and open Termux", then in Termux **long-press → Paste → Enter**. Go back to Quetzal and tap "I ran it, check". That line does exactly one thing: it writes `allow-external-apps=true` into Termux's settings so Quetzal can ask Termux to run the install script.
 4. **Install the runtime** — tap "Install". Inside Termux the wizard installs Node.js, runit, the Termux:API command-line tools and git; places the runtime bundled in the app; registers the runit service, logging and boot script; writes the body name and timezone; starts it and runs a health check. You see step-by-step progress. When done the app **connects automatically**; no pairing code is needed.
 
 > [!NOTE]
-> On networks where package downloads are slow (mainland China), the wizard picks a mirror automatically based on your system language. Keep Windler in the foreground during installation: the runtime files are served from the app.
+> On networks where package downloads are slow (mainland China), the wizard picks a mirror automatically based on your system language. Keep Quetzal in the foreground during installation: the runtime files are served from the app.
 
 ## 4. Keep her alive
 
 Android kills background apps. The last wizard step guides you to:
 
-- add **Termux, Termux:Boot, Termux:API and Windler** to the **battery optimization ignore list**;
+- add **Termux, Termux:Boot, Termux:API and Quetzal** to the **battery optimization ignore list**;
 - **allow** them in your vendor's "autostart / background" manager;
 - **open Termux:Boot once** so the system registers it.
 
 > [!WARNING]
-> Phones with a lock screen password: Android's file-based encryption means Termux's data is unavailable until you **unlock once after a reboot**, so she only wakes after that first unlock. This is not a Windler limitation; it applies to anything running in Termux.
+> Phones with a lock screen password: Android's file-based encryption means Termux's data is unavailable until you **unlock once after a reboot**, so she only wakes after that first unlock. This is not a Quetzal limitation; it applies to anything running in Termux.
 
 ## After installing
 
-Open Windler's **Now** page to see her state and drives. She will not wake until you configure a model — continue with [First steps](/docs/start/first-steps).
+Open Quetzal's **Now** page to see her state and drives. She will not wake until you configure a model — continue with [First steps](/docs/start/first-steps).
 
 **Upgrading**: when you install a newer APK later, the app notices its bundled runtime is newer than the running one and offers a one-tap upgrade. See [Upgrade and rollback](/docs/guide/upgrade).

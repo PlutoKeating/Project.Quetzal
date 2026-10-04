@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const client = fileURLToPath(new URL("../build/client", import.meta.url));
-const origin = process.env.SITE_ORIGIN ?? "https://windler.plutokeating.beer";
+const origin = process.env.SITE_ORIGIN ?? "https://quetzal.plutokeating.beer";
 
 const notFound = join(client, "404", "index.html");
 if (existsSync(notFound)) copyFileSync(notFound, join(client, "404.html"));

@@ -44,7 +44,7 @@ class Installer extends ChangeNotifier {
 
   /// 安装器在 Termux 里执行的命令：先从控制台取回脚本再运行，脚本自己回报进度。
   static String command(int port, {bool cnMirror = false}) =>
-      'curl -fsS http://127.0.0.1:$port/install.sh -o "\$PREFIX/tmp/windler-install.sh" && bash "\$PREFIX/tmp/windler-install.sh" $port${cnMirror ? ' cn' : ''}';
+      'curl -fsS http://127.0.0.1:$port/install.sh -o "\$PREFIX/tmp/quetzal-install.sh" && bash "\$PREFIX/tmp/quetzal-install.sh" $port${cnMirror ? ' cn' : ''}';
 
   Future<void> start() async {
     if (_server != null) return;

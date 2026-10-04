@@ -7,23 +7,23 @@
 | 项目 | 值 |
 |---|---|
 | 托管 | Cloudflare **Workers**（静态资源模式，Workers Builds 连接 GitHub 仓库自动构建部署）。已于 2026-10-04 创建并连接 |
-| Worker 名 | `windler`（控制台项目名与 `wrangler.jsonc` 的 `name` 必须一致，否则控制台会提示不一致并可能自动开 PR 修正） |
-| 仓库 / 根目录 | Git 存储库 `PlutoKeating/Project.Windler`，根目录 `/website` |
+| Worker 名 | `quetzal`（控制台项目名与 `wrangler.jsonc` 的 `name` 必须一致，否则控制台会提示不一致并可能自动开 PR 修正） |
+| 仓库 / 根目录 | Git 存储库 `PlutoKeating/Project.Quetzal`，根目录 `/website` |
 | 构建 / 部署命令 | `npm run build` / `npx wrangler deploy` |
 | 生产分支（分支控制） | `main`（推送即自动构建部署；预览基础也取自 `main`） |
-| 预览 | 非 `main` 分支与 PR 自动生成预览地址（`<分支>-windler.<账号>.workers.dev`） |
-| 生产域名 | `windler.plutokeating.beer`（自定义域，类型「生产」，区域 `plutokeating.beer`，已添加；DNS 与证书由 Cloudflare 自动维护） |
+| 预览 | 非 `main` 分支与 PR 自动生成预览地址（`<分支>-quetzal.<账号>.workers.dev`） |
+| 生产域名 | `quetzal.plutokeating.beer`（自定义域，类型「生产」，区域 `plutokeating.beer`，已添加；DNS 与证书由 Cloudflare 自动维护） |
 | Node | 22（`.nvmrc`） |
 | 统计 / Cookie | 均无 |
 
 ## 2. 在 Cloudflare 创建项目（一次性，已完成）
 
-控制台 → **Workers & Pages** → **Create** → **Workers** 标签 → **Import a repository** → 授权 GitHub 并选择 `PlutoKeating/Project.Windler`。当前生效的配置（控制台 → Worker `windler` → Settings → Build）：
+控制台 → **Workers & Pages** → **Create** → **Workers** 标签 → **Import a repository** → 授权 GitHub 并选择 `PlutoKeating/Project.Quetzal`。当前生效的配置（控制台 → Worker `quetzal` → Settings → Build）：
 
 | 字段 | 值 |
 |---|---|
-| 项目 / Worker 名 | `windler` |
-| Git 存储库 | `PlutoKeating/Project.Windler` |
+| 项目 / Worker 名 | `quetzal` |
+| Git 存储库 | `PlutoKeating/Project.Quetzal` |
 | 根目录 | `/website` |
 | 构建命令 | `npm run build` |
 | 部署命令 | `npx wrangler deploy` |
@@ -32,13 +32,13 @@
 | Build watch paths | 建议 Include `website/**`，这样 runtime / console 的提交不会触发官网构建 |
 | 非生产分支构建 | 开启即得到预览地址 |
 
-生产的 workers.dev 地址为 `windler.<账号>.workers.dev`（账号子域不写在仓库里）。
+生产的 workers.dev 地址为 `quetzal.<账号>.workers.dev`（账号子域不写在仓库里）。
 
 ## 3. 域名（已完成）
 
-Settings → **Domains & Routes**（自定义域和路由）→ **Add** → Custom domain → `windler.plutokeating.beer`。现状：名称 `windler.plutokeating.beer`，类型「生产」，区域 `plutokeating.beer`。DNS 托管在同一账号的 Cloudflare，记录与证书自动创建维护。域名的增删改由仓库所有者操作，不在本仓库里记录任何 DNS 记录值。
+Settings → **Domains & Routes**（自定义域和路由）→ **Add** → Custom domain → `quetzal.plutokeating.beer`。现状：名称 `quetzal.plutokeating.beer`，类型「生产」，区域 `plutokeating.beer`。DNS 托管在同一账号的 Cloudflare，记录与证书自动创建维护。域名的增删改由仓库所有者操作，不在本仓库里记录任何 DNS 记录值。
 
-`scripts/postbuild.mjs` 生成的 `sitemap.xml` 与 `public/robots.txt` 使用的站点地址默认为 `https://windler.plutokeating.beer`，预览环境可用构建变量 `SITE_ORIGIN` 覆盖。
+`scripts/postbuild.mjs` 生成的 `sitemap.xml` 与 `public/robots.txt` 使用的站点地址默认为 `https://quetzal.plutokeating.beer`，预览环境可用构建变量 `SITE_ORIGIN` 覆盖。
 
 ## 4. 构建产物与请求路径
 
@@ -71,4 +71,4 @@ npm run preview          # wrangler dev，按 wrangler.jsonc 本地托管 build/
 ## 8. 变更记录
 
 - 2026-10-04：建立 `website/`，确定 Workers 静态资源托管方案（原计划 Cloudflare Pages，改为 Workers）。
-- 2026-10-04：所有者在 Cloudflare 创建 Worker `windler` 并连接仓库（根目录 `/website`，分支 `main`），添加自定义域 `windler.plutokeating.beer`；`wrangler.jsonc` 的 `name` 随之改为 `windler`。
+- 2026-10-04：所有者在 Cloudflare 创建 Worker `quetzal` 并连接仓库（根目录 `/website`，分支 `main`），添加自定义域 `quetzal.plutokeating.beer`；`wrangler.jsonc` 的 `name` 随之改为 `quetzal`。

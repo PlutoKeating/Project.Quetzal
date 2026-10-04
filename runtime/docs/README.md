@@ -1,6 +1,6 @@
 # runtime · 运行基座
 
-TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），打包为单文件 `dist/main.cjs`。两个平台级身体适配器：`adapters/termux/`（安卓手机，Termux + Termux:API）打包为 `dist/termux.mjs`，随 Windler App 内置；`adapters/linux/`（任意 Linux 电脑或服务器：电池与温度读 `/sys`，通知、播放、截图、剪贴板、相机、录音按可用程序探测）打包为 `dist/linux.mjs`，随 npm 包 `windler`（`../cli`）内置。
+TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），打包为单文件 `dist/main.cjs`。两个平台级身体适配器：`adapters/termux/`（安卓手机，Termux + Termux:API）打包为 `dist/termux.mjs`，随 Quetzal App 内置；`adapters/linux/`（任意 Linux 电脑或服务器：电池与温度读 `/sys`，通知、播放、截图、剪贴板、相机、录音按可用程序探测）打包为 `dist/linux.mjs`，随 npm 包 `@plutokeating/quetzal`（`../cli`）内置。
 
 | 命令 | 作用 |
 |---|---|
@@ -10,6 +10,6 @@ TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），
 
 运行时依赖只有四个：`ws`（网关）、`@larksuiteoapi/node-sdk`（飞书长连接、交互卡片、一键创建机器人）、`jpeg-js`（纯 JS 的 JPEG 编解码：手机上没有 ffmpeg / ImageMagick 时也能把大照片缩小后交给模型）与 `microsoft-cognitiveservices-speech-sdk`（听觉的流式识别：裸 WebSocket 协议的社区实现都已弃用，官方 SDK 是 Node 下的标准做法，打包后约 1 MB）。
 
-环境变量：`WINDLER_HOME`（家目录，默认 `~/windler`）、`WINDLER_ADAPTER`（身体适配器模块路径）。
+环境变量：`QUETZAL_HOME`（家目录，默认 `~/quetzal`）、`QUETZAL_ADAPTER`（身体适配器模块路径）。
 
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，接口见 [../../docs/API.md](../../docs/API.md)。

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 
-process.env.WINDLER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "windler-docs-"));
+process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-docs-"));
 const { loadConfig } = await import("../src/config.ts");
 loadConfig();
 const docs = await import("../src/mind/documents.ts");
@@ -86,7 +86,7 @@ test("附件：分类、保存、只按 uploads 内的路径解析", () => {
   assert.equal(a.name, "笔记.md");
   assert.ok(a.path.startsWith(att.uploadsDir()));
   assert.equal(att.fromUpload(a.rel)!.kind, "text");
-  assert.equal(att.fromUpload("../../config/windler.json"), undefined); // 越界
+  assert.equal(att.fromUpload("../../config/quetzal.json"), undefined); // 越界
 });
 
 test("附件：组装消息（图片进多模态、文本内联、文档给路径）", async () => {

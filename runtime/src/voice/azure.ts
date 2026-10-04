@@ -48,7 +48,7 @@ export async function synthesize(text: string, override: Partial<SpeechConfig> =
   const key = need(c);
   const res = await fetch(`${base(c)}/cognitiveservices/v1`, {
     method: "POST",
-    headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": c.format || "audio-24khz-48kbitrate-mono-mp3", "User-Agent": "windler" },
+    headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": c.format || "audio-24khz-48kbitrate-mono-mp3", "User-Agent": "quetzal" },
     body: ssml(text, c), signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) throw new Error(`Azure 语音合成失败：HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 200)}`);
@@ -80,7 +80,7 @@ export async function recognize(wav: Buffer, language: string): Promise<{ text: 
   const c = config.speech, key = need(c);
   const res = await fetch(sttUrl(c, language), {
     method: "POST",
-    headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000", Accept: "application/json", "User-Agent": "windler" },
+    headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000", Accept: "application/json", "User-Agent": "quetzal" },
     body: new Uint8Array(wav), signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`Azure 语音识别失败：HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 200)}`);

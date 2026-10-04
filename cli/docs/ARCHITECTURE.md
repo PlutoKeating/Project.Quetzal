@@ -21,8 +21,8 @@ tool/bundle-runtime.sh   构建 ../runtime 并把 main.cjs、linux.mjs、VERSION
 flowchart LR
   A["dist/runtime/<br/>main.cjs · linux.mjs · VERSION"] --> B["releases/<版本>/"]
   B --> C["previous ← current<br/>current ← 新版本"]
-  C --> D["config/windler.json<br/>body（主机名，仅首次）· gateway.host（--lan）"]
-  D --> E["~/.config/systemd/user/windler.service<br/>daemon-reload · enable · restart"]
+  C --> D["config/quetzal.json<br/>body（主机名，仅首次）· gateway.host（--lan）"]
+  D --> E["~/.config/systemd/user/quetzal.service<br/>daemon-reload · enable · restart"]
   E --> F{"40 秒内 /health<br/>且 version 相符?"}
   F -- 是 --> G["只保留 3 个版本"]
   F -- 否 --> H["切回 previous · restart · 报错"]
@@ -33,18 +33,18 @@ flowchart LR
 ## 设备上的文件
 
 ```
-~/windler/releases/<版本>/main.cjs、linux.mjs
-~/windler/current → releases/<版本>           运行中的版本
-~/windler/previous → releases/<版本>          上一版
-~/.config/systemd/user/windler.service        ExecStart=<安装时的 node> --enable-source-maps ~/windler/current/main.cjs
-                                              Environment=WINDLER_HOME、WINDLER_ADAPTER=~/windler/current/linux.mjs
+~/quetzal/releases/<版本>/main.cjs、linux.mjs
+~/quetzal/current → releases/<版本>           运行中的版本
+~/quetzal/previous → releases/<版本>          上一版
+~/.config/systemd/user/quetzal.service        ExecStart=<安装时的 node> --enable-source-maps ~/quetzal/current/main.cjs
+                                              Environment=QUETZAL_HOME、QUETZAL_ADAPTER=~/quetzal/current/linux.mjs
 ```
 
-`WINDLER_HOME` 可用 `--home` 或环境变量改；单元文件里写的是绝对路径。`ExecStart` 用安装时运行 npx 的那个 node（`process.execPath`），nvm 之类的用户级 Node 也能被服务找到。
+`QUETZAL_HOME` 可用 `--home` 或环境变量改；单元文件里写的是绝对路径。`ExecStart` 用安装时运行 npx 的那个 node（`process.execPath`），nvm 之类的用户级 Node 也能被服务找到。
 
 ## 约定
 
 - 不碰运行基座的其他配置：模型、授权、飞书、灵魂仓库都在控制台里；这里只写 `body`（没有时）与 `gateway.host`（显式 `--lan` / `--no-lan` 时）。
-- 服务不依赖 npx 缓存：运行的文件全部在 `~/windler/releases/` 里，npx 缓存被清掉也不影响。
-- 没有 systemd 用户实例时不自造守护者：放好文件后提示 `windler run`，由容器编排或部署者自己的守护者负责重启。
+- 服务不依赖 npx 缓存：运行的文件全部在 `~/quetzal/releases/` 里，npx 缓存被清掉也不影响。
+- 没有 systemd 用户实例时不自造守护者：放好文件后提示 `quetzal run`，由容器编排或部署者自己的守护者负责重启。
 - 令牌永不打印；配对码由适配器通知与服务日志承载。

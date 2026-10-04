@@ -29,7 +29,7 @@ Key 用 AES-256-GCM 加密保存在手机上，界面只显示末四位，不进
 
 ## 没有电脑能用吗？
 
-能。安装、配置、日常全部在 Windler App 里完成；唯一一次命令行是在 Termux 里粘贴一行开启外部调用。
+能。安装、配置、日常全部在 Quetzal App 里完成；唯一一次命令行是在 Termux 里粘贴一行开启外部调用。
 
 ## 必须用飞书吗？
 
@@ -41,7 +41,7 @@ Key 用 AES-256-GCM 加密保存在手机上，界面只显示末四位，不进
 
 ## 我的数据在哪里？
 
-全部在手机上 `WINDLER_HOME`（默认 `~/windler`）：配置、加密的 Key、SQLite 数据库（时间线、对话、审计、用量）、灵魂目录、保密库。接入灵魂仓库后，**只有人格与记忆**会推送到你自己的私有仓库。Windler 没有任何云端服务。
+全部在手机上 `QUETZAL_HOME`（默认 `~/quetzal`）：配置、加密的 Key、SQLite 数据库（时间线、对话、审计、用量）、灵魂目录、保密库。接入灵魂仓库后，**只有人格与记忆**会推送到你自己的私有仓库。Quetzal 没有任何云端服务。
 
 ## 可以同时跑两个 agent 吗？
 
@@ -60,4 +60,4 @@ Android 7 以上、arm64 的手机。需要能安装 Termux 三件套。越旧�
 
 ## 开源与许可？ :scroll:
 
-Windler 是 AGPL-3.0 开源项目，仅用于学习与研究。源码与 Releases 在 [GitHub](https://github.com/PlutoKeating/Project.Windler)。
+Quetzal 是 AGPL-3.0 开源项目，仅用于学习与研究。源码与 Releases 在 [GitHub](https://github.com/PlutoKeating/Project.Quetzal)。

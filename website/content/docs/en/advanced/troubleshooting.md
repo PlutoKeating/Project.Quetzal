@@ -9,8 +9,8 @@ description: Stuck installs, she never wakes, killed by the system, offline afte
 |---|---|
 | "Termux has not responded yet" | The line has not run successfully, or Termux is still initializing after its first launch. Open Termux, wait, paste and press Enter again, then tap "I ran it, check" |
 | "Failed to update package sources" | No network on the phone, or the mirror is down. Try another network; on mainland-China networks the wizard picks a mirror from your system language |
-| "Could not fetch the runtime version" | Windler was sent to the background during installation. Keep it in the foreground and retry |
-| "New version did not respond within 40 s, switched back" | The new version failed to start and was rolled back automatically. The log is at `$PREFIX/var/log/sv/windler/current` in Termux; feel free to open an issue on GitHub |
+| "Could not fetch the runtime version" | Quetzal was sent to the background during installation. Keep it in the foreground and retry |
+| "New version did not respond within 40 s, switched back" | The new version failed to start and was rolled back automatically. The log is at `$PREFIX/var/log/sv/quetzal/current` in Termux; feel free to open an issue on GitHub |
 | The three Termux apps do not see each other | They are not from the same source (different signatures). Uninstall all three and reinstall from one source |
 
 ## She never wakes
@@ -26,12 +26,12 @@ Check in order:
 ## Offline / killed by the system
 
 - When the **Now** page shows the offline banner, tap **Ignite**: the app re-runs the boot script through Termux.
-- Killed repeatedly: make sure Termux, Termux:Boot, Termux:API and Windler are all on the **battery optimization ignore list** and **allowed** in the vendor's autostart / background manager. Some vendor systems ship a separate power-saving component that ignores the whitelist; it has to be disabled in system settings ([Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) documents this for one old phone).
+- Killed repeatedly: make sure Termux, Termux:Boot, Termux:API and Quetzal are all on the **battery optimization ignore list** and **allowed** in the vendor's autostart / background manager. Some vendor systems ship a separate power-saving component that ignores the whitelist; it has to be disabled in system settings ([Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) documents this for one old phone).
 - **Offline after a reboot**: phones with a lock screen password must be unlocked once; Termux:Boot must have been opened once to receive the boot broadcast.
 
 ## Safe mode
 
-She tells you she "entered safe mode": more than five starts in ten minutes. Only the gateway and Feishu are up; no waking, no model calls. Usually a corrupted configuration or a provider-layer fault. Read the log (`$PREFIX/var/log/sv/windler/current` in Termux), fix the cause, then restart from **Control → Service**.
+She tells you she "entered safe mode": more than five starts in ten minutes. Only the gateway and Feishu are up; no waking, no model calls. Usually a corrupted configuration or a provider-layer fault. Read the log (`$PREFIX/var/log/sv/quetzal/current` in Termux), fix the cause, then restart from **Control → Service**.
 
 ## Models
 
@@ -59,4 +59,4 @@ She tells you she "entered safe mode": more than five starts in ten minutes. Onl
 
 ## Still stuck
 
-Open an issue at [GitHub Issues](https://github.com/PlutoKeating/Project.Windler/issues) describing the symptom, with the version shown under **Control → Service** and the relevant log (strip personal information from the log first).
+Open an issue at [GitHub Issues](https://github.com/PlutoKeating/Project.Quetzal/issues) describing the symptom, with the version shown under **Control → Service** and the relevant log (strip personal information from the log first).

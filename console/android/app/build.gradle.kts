@@ -11,7 +11,7 @@ val keyProps = Properties().apply { rootProject.file("key.properties").takeIf { 
 val hasKey = keyProps.containsKey("storeFile")
 
 android {
-    namespace = "xyz.windler.console"
+    namespace = "xyz.quetzal.console"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "xyz.windler.console"
+        applicationId = "xyz.quetzal.console"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

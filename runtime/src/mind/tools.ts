@@ -262,7 +262,7 @@ const core: Tool[] = [
   },
   {
     name: "tool_write", permission: "self_modify",
-    description: `新建或改写一个你自己的工具。把做过多次、步骤稳定、以后还会用的流程写成工具，之后就能像内置工具一样直接调用（出现在工具表里，经闸门按 permission 检查）。实现只在这具身体上（WINDLER_HOME/tools/<name>/）；意图文档 skill 随灵魂同步到其他身体，它们可以按文档自己实现，所以新工具必须写 skill。runtime=sh：source 是 shell 脚本，调用时参数以 JSON 从 stdin 传入，同时展开为环境变量 ARG_<参数名>（非字符串为 JSON），stdout 就是结果；runtime=node：source 是 ES 模块，默认导出 async (args, {dir, home}) => string，可以 import Node 内置模块。改写时只传要改的字段（name 必传）。所有参数以后都可以按需再改。`,
+    description: `新建或改写一个你自己的工具。把做过多次、步骤稳定、以后还会用的流程写成工具，之后就能像内置工具一样直接调用（出现在工具表里，经闸门按 permission 检查）。实现只在这具身体上（QUETZAL_HOME/tools/<name>/）；意图文档 skill 随灵魂同步到其他身体，它们可以按文档自己实现，所以新工具必须写 skill。runtime=sh：source 是 shell 脚本，调用时参数以 JSON 从 stdin 传入，同时展开为环境变量 ARG_<参数名>（非字符串为 JSON），stdout 就是结果；runtime=node：source 是 ES 模块，默认导出 async (args, {dir, home}) => string，可以 import Node 内置模块。改写时只传要改的字段（name 必传）。所有参数以后都可以按需再改。`,
     parameters: obj({
       name: str("工具名：小写字母开头，可含数字、下划线、连字符，最长 40"),
       description: str("给模型看的说明：做什么、什么时候用"),

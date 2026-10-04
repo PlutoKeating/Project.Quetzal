@@ -5,11 +5,11 @@ description: Connect several runtimes in one app and switch with a tap; where pa
 
 ## One app, several agents
 
-The Windler app keeps several connections, each to one runtime (one agent in one body). Tap the name in the top bar → **Switch agent**; wording and theme color follow.
+The Quetzal app keeps several connections, each to one runtime (one agent in one body). Tap the name in the top bar → **Switch agent**; wording and theme color follow.
 
 ```mermaid
 flowchart TB
-  APP["Windler app"]
+  APP["Quetzal app"]
   APP -- "local 127.0.0.1:7788" --> A["Runtime A<br/>(this phone)"]
   APP -- "forwarded port / tunnel" --> B["Runtime B<br/>(another device)"]
   APP -- "local 127.0.0.1:7789" --> C["Runtime C<br/>same phone, another home"]

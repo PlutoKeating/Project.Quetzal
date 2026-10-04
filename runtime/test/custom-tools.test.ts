@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-process.env.WINDLER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "windler-tools-"));
+process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-tools-"));
 const { loadConfig, paths } = await import("../src/config.ts");
 loadConfig();
 const store = await import("../src/store.ts");
@@ -44,7 +44,7 @@ test("sh 工具：参数经 stdin JSON 与环境变量传入，热加载进工�
   // 技能文档：Agent Skills 规范的 SKILL.md，进了灵魂目录
   const skill = fs.readFileSync(path.join(paths.soul, "skills", "greet", "SKILL.md"), "utf8");
   assert.match(skill, /^---\nname: greet\ndescription: 打招呼\n/);
-  assert.match(skill, /windler-tool: greet/);
+  assert.match(skill, /quetzal-tool: greet/);
   assert.match(skill, /## 用途/);
   assert.equal(ct.parseSkill(skill).description, "打招呼");
   // 工具表与审计

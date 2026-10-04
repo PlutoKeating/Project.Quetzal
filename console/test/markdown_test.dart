@@ -1,6 +1,6 @@
 // Markdown 片段切分：Mermaid 围栏与独立公式单独成段，其余代码围栏原样保留。
 import 'package:flutter_test/flutter_test.dart';
-import 'package:windler_console/markdown.dart';
+import 'package:quetzal_console/markdown.dart';
 
 void main() {
   test('Mermaid 围栏单独成段，其他代码围栏保留在 Markdown 中', () {

@@ -29,7 +29,7 @@ Built-in tools: memory and notes, recall, web search and fetch, viewing images, 
 
 ## Can I use it without a computer?
 
-Yes. Installation, configuration and daily use all happen in the Windler app; the one command-line moment is pasting a single line into Termux to allow external apps.
+Yes. Installation, configuration and daily use all happen in the Quetzal app; the one command-line moment is pasting a single line into Termux to allow external apps.
 
 ## Do I have to use Feishu?
 
@@ -41,7 +41,7 @@ No. Without one, identity, personality and memory live in the local soul directo
 
 ## Where is my data?
 
-All on the phone under `WINDLER_HOME` (default `~/windler`): configuration, encrypted keys, the SQLite database (timeline, conversations, audit, usage), the soul directory and the vault. With a soul repository connected, **only personality and memory** are pushed to your own private repository. Windler has no cloud service of any kind.
+All on the phone under `QUETZAL_HOME` (default `~/quetzal`): configuration, encrypted keys, the SQLite database (timeline, conversations, audit, usage), the soul directory and the vault. With a soul repository connected, **only personality and memory** are pushed to your own private repository. Quetzal has no cloud service of any kind.
 
 ## Can I run two agents at once?
 
@@ -60,4 +60,4 @@ Android 7 or newer, arm64, able to install the Termux trio. The older the phone,
 
 ## License? :scroll:
 
-Windler is open source under AGPL-3.0, for learning and research. Code and releases are on [GitHub](https://github.com/PlutoKeating/Project.Windler).
+Quetzal is open source under AGPL-3.0, for learning and research. Code and releases are on [GitHub](https://github.com/PlutoKeating/Project.Quetzal).

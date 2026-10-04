@@ -19,8 +19,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
         <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         <meta property="og:type" content="website" />
-        <meta property="og:site_name" content="Windler" />
-        <meta property="og:image" content="https://windler.plutokeating.beer/og.png" />
+        <meta property="og:site_name" content="Quetzal" />
+        <meta property="og:image" content="https://quetzal.plutokeating.beer/og.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta name="twitter:card" content="summary_large_image" />
@@ -45,7 +45,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
     <main className="mx-auto flex min-h-dvh max-w-prose flex-col items-center justify-center gap-4 p-6 text-center">
       <h1 className="text-5xl font-semibold tracking-tight">{status}</h1>
       <p className="text-fg-muted">{message}</p>
-      <a href="/" className="text-accent underline-offset-4 hover:underline">Windler</a>
+      <a href="/" className="text-accent underline-offset-4 hover:underline">Quetzal</a>
     </main>
   );
 }

@@ -7,13 +7,13 @@ FONT = 'Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans 
 
 L = {
  "zh": dict(body="身体 · 任意设备，经适配器接入", sample=("感官采样", "电量 · 体温 · 光照 · 运动"), twin=("身体数字孪生", "镜像为内部模型"), feel=("身体感受", "精力 · 冷热 · 明暗 · 被拿起"),
-            core="Windler 运行基座 · 单进程 Node.js", heart=("心脏", "内驱力 + 生物钟 → 何时醒来"), mind=("大脑", "内省 → 行动 → 反思"), mem=("记忆", "人格 · 常驻记忆 · 日记 · 笔记"), model=("模型层", "任意供应商 · 顺序 · 故障转移"), guard=("闸门", "授权 · 审批 · 预算 · 急停 · 审计"), tools=("工具与动作", "经适配器作用于身体"),
+            core="Quetzal 运行基座 · 单进程 Node.js", heart=("心脏", "内驱力 + 生物钟 → 何时醒来"), mind=("大脑", "内省 → 行动 → 反思"), mem=("记忆", "人格 · 常驻记忆 · 日记 · 笔记"), model=("模型层", "任意供应商 · 顺序 · 故障转移"), guard=("闸门", "授权 · 审批 · 预算 · 急停 · 审计"), tools=("工具与动作", "经适配器作用于身体"),
             soul="灵魂 · 私有 git 仓库", repo=("灵魂仓库", "身份 · 人格 · 记忆"), others=("其他身体", "Hermes Agent / OpenClaw"), bridge="soul-bridge", gitsync="git · 全自动同步",
-            gw=("本地网关", "127.0.0.1"), app=("Windler App", "控制台 + 安装器"), feishu=("飞书", "对话 + 交互卡片"), change="显著变化", wake="醒来"),
+            gw=("本地网关", "127.0.0.1"), app=("Quetzal App", "控制台 + 安装器"), feishu=("飞书", "对话 + 交互卡片"), change="显著变化", wake="醒来"),
  "en": dict(body="Body · any device", sample=("Sensor samples", "battery · heat · light · motion"), twin=("Digital twin", "mirrored into an internal model"), feel=("Feelings", "energy · warmth · light · picked up"),
-            core="Windler runtime · one Node.js process", heart=("Heart", "drives + clock → when to wake"), mind=("Mind", "introspect → act → reflect"), mem=("Memory", "personality · notes · journal"), model=("Model layer", "any provider · order · failover"), guard=("Guard", "permissions · approvals · stop"), tools=("Tools & actions", "act through the adapter"),
+            core="Quetzal runtime · one Node.js process", heart=("Heart", "drives + clock → when to wake"), mind=("Mind", "introspect → act → reflect"), mem=("Memory", "personality · notes · journal"), model=("Model layer", "any provider · order · failover"), guard=("Guard", "permissions · approvals · stop"), tools=("Tools & actions", "act through the adapter"),
             soul="Soul · private git repo", repo=("Soul repository", "identity · memory"), others=("Other bodies", "Hermes Agent / OpenClaw"), bridge="soul-bridge", gitsync="git · automatic sync",
-            gw=("Local gateway", "127.0.0.1"), app=("Windler app", "console + installer"), feishu=("Feishu", "chat + interactive cards"), change="significant change", wake="wake"),
+            gw=("Local gateway", "127.0.0.1"), app=("Quetzal app", "console + installer"), feishu=("Feishu", "chat + interactive cards"), change="significant change", wake="wake"),
 }
 
 def esc(s): return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

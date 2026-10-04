@@ -48,7 +48,7 @@ export async function install(o: Options, say: Say): Promise<void> {
   writeDefaults(l, o.lan);
 
   if (!(await svc.available())) {
-    say("没有可用的 systemd 用户实例（容器或未开启 systemd 的 WSL）：已放好文件，请用 `windler run` 前台运行，并交给你自己的进程守护者。");
+    say("没有可用的 systemd 用户实例（容器或未开启 systemd 的 WSL）：已放好文件，请用 `quetzal run` 前台运行，并交给你自己的进程守护者。");
     return;
   }
   await svc.install({ home: l.home, node: process.execPath });
@@ -58,8 +58,8 @@ export async function install(o: Options, say: Say): Promise<void> {
   const h = await waitHealthy(gatewayPort(l), version);
   if (!h) {
     const back = rollback(l);
-    if (back) { await svc.restart().catch(() => {}); throw new Error(`新版本 40 秒内没有响应，已切回 ${back}。日志：windler logs`); }
-    throw new Error("运行基座 40 秒内没有响应。日志：windler logs");
+    if (back) { await svc.restart().catch(() => {}); throw new Error(`新版本 40 秒内没有响应，已切回 ${back}。日志：quetzal logs`); }
+    throw new Error("运行基座 40 秒内没有响应。日志：quetzal logs");
   }
   say(`运行基座 ${h.version} 正常${h.safeMode ? "（安全模式：反复崩溃，请看日志）" : ""}。`);
   const removed = prune(l);

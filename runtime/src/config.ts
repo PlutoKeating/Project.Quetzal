@@ -1,9 +1,9 @@
-// 路径与运行配置。所有可调参数集中在 config/windler.json，缺省值在此定义。
+// 路径与运行配置。所有可调参数集中在 config/quetzal.json，缺省值在此定义。
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-export const HOME = process.env.WINDLER_HOME ?? path.join(os.homedir(), "windler");
+export const HOME = process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal");
 export const paths = {
   home: HOME,
   config: path.join(HOME, "config"),
@@ -69,7 +69,7 @@ export const defaults: Config = {
   hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "", minChars: 2 },
 };
 
-const file = () => path.join(paths.config, "windler.json");
+const file = () => path.join(paths.config, "quetzal.json");
 
 function merge<T>(base: T, over: unknown): T {
   if (typeof base !== "object" || base === null || Array.isArray(base)) return (over ?? base) as T;

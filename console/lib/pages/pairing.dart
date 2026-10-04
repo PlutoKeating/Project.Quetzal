@@ -39,7 +39,7 @@ class _PairingPageState extends State<PairingPage> {
           const SizedBox(height: 24),
           if (alive == false && api.profiles.length <= 1) Card(child: ListTile(
             leading: const Icon(Icons.phone_android),
-            title: const Text('在这台手机上安装 Windler'),
+            title: const Text('在这台手机上安装 Quetzal'),
             subtitle: Text(termux ? '已装 Termux，几分钟装好，自动连接' : '需要先安装 Termux；向导会一步步带你完成'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () async { await Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage())); _probe(); },

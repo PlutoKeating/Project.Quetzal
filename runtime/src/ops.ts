@@ -111,7 +111,7 @@ export const ops = {
   /** 生成（或读取）本机访问灵魂仓库用的 SSH 部署密钥，返回公钥，贴到 Git 托管平台的 Deploy keys（勾选写权限）即可。 */
   soulKey: async () => {
     const key = `${paths.secrets}/soul_ed25519`;
-    if (!fs.existsSync(key)) await run("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", `windler@${config.body}`, "-f", key]);
+    if (!fs.existsSync(key)) await run("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", `quetzal@${config.body}`, "-f", key]);
     return fs.readFileSync(`${key}.pub`, "utf8").trim();
   },
 

@@ -1,19 +1,19 @@
 // 家目录布局：与 Android 安装器完全一致的版本目录约定（releases/<版本>/、current、previous），切换、回滚、清理。
-//   WINDLER_HOME/
+//   QUETZAL_HOME/
 //   ├── releases/<版本>/main.cjs、linux.mjs    每个安装过的版本
 //   ├── current  → releases/<版本>              正在运行的版本
 //   ├── previous → releases/<版本>              上一个版本（回滚用）
-//   └── config/windler.json 等                  运行基座自己的家目录内容
+//   └── config/quetzal.json 等                  运行基座自己的家目录内容
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 export interface Layout { home: string; releases: string; current: string; previous: string; config: string }
 
-export const defaultHome = () => process.env.WINDLER_HOME ?? path.join(os.homedir(), "windler");
+export const defaultHome = () => process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal");
 
 export function layout(home: string): Layout {
-  return { home, releases: path.join(home, "releases"), current: path.join(home, "current"), previous: path.join(home, "previous"), config: path.join(home, "config", "windler.json") };
+  return { home, releases: path.join(home, "releases"), current: path.join(home, "current"), previous: path.join(home, "previous"), config: path.join(home, "config", "quetzal.json") };
 }
 
 const target = (link: string) => { try { return fs.readlinkSync(link); } catch { return undefined; } };

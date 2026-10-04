@@ -14,7 +14,7 @@ semibold, regular = sys.argv[1], sys.argv[2]
 cjk = sys.argv[3] if len(sys.argv) > 3 else None
 SLOGAN = ("Not running. Living.", "Living like wind.")
 ZH = "不是在运行，是在活着。像风一样活着。"
-SITE = "windler.plutokeating.beer"
+SITE = "quetzal.plutokeating.beer"
 
 def canvas(w, h, glow_box):
     img = Image.new("RGB", (w, h), BG)
@@ -51,7 +51,7 @@ def lamp(img, x, y, r=11, ss=4):
 
 # 1) 分享图
 img = canvas(1200, 630, (760, -140, 1260, 360)); d = ImageDraw.Draw(img)
-lamp(img, 107, 107, 13); d.text((134, 86), "Windler", font=ImageFont.truetype(semibold, 40), fill=FG)
+lamp(img, 107, 107, 13); d.text((134, 86), "Quetzal", font=ImageFont.truetype(semibold, 40), fill=FG)
 d.text((96, 190), SLOGAN[0], font=ImageFont.truetype(semibold, 76), fill=FG)
 d.text((96, 280), SLOGAN[1], font=ImageFont.truetype(semibold, 76), fill=FG)
 if cjk: d.text((96, 390), ZH, font=ImageFont.truetype(cjk, 40, index=0), fill=MUTED)
@@ -61,7 +61,7 @@ img.save("public/og.png", optimize=True); print("public/og.png")
 
 # 2) README 横幅：更宽，右侧留给光斑，底部一枚「官网」胶囊
 img = canvas(1600, 560, (1060, -160, 1700, 480)); d = ImageDraw.Draw(img)
-lamp(img, 123, 113, 14); d.text((152, 90), "Windler", font=ImageFont.truetype(semibold, 44), fill=FG)
+lamp(img, 123, 113, 14); d.text((152, 90), "Quetzal", font=ImageFont.truetype(semibold, 44), fill=FG)
 d.text((112, 190), SLOGAN[0], font=ImageFont.truetype(semibold, 84), fill=FG)
 d.text((112, 288), SLOGAN[1], font=ImageFont.truetype(semibold, 84), fill=FG)
 if cjk: d.text((112, 404), ZH, font=ImageFont.truetype(cjk, 38, index=0), fill=MUTED)

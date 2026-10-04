@@ -2,17 +2,17 @@ import { defineMessages } from "~/i18n/core";
 
 export const messages = defineMessages({
   zh: {
-    title: "下载 · Windler",
-    description: "下载 Windler App 与运行基座。所有版本都来自 GitHub Releases，这一页实时读取最新发布。",
+    title: "下载 · Quetzal",
+    description: "下载 Quetzal App 与运行基座。所有版本都来自 GitHub Releases，这一页实时读取最新发布。",
     eyebrow: "下载",
     heading: "装进一台闲置的安卓手机",
-    lead: "Windler App 内置运行基座与 Termux 身体适配器。装好 App，剩下的交给它的安装向导。",
+    lead: "Quetzal App 内置运行基座与 Termux 身体适配器。装好 App，剩下的交给它的安装向导。",
     latest: {
       eyebrow: "最新版本",
       prerelease: "预览版",
       stable: "稳定版",
       publishedOn: "发布于",
-      downloadApk: "下载 Windler App",
+      downloadApk: "下载 Quetzal App",
       downloadRuntime: "下载运行基座包",
       checksums: "SHA256 校验值",
       downloads: "次下载",
@@ -47,7 +47,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux 与其他机器",
       heading: "装到一台 Linux 电脑或服务器上",
-      body: "有 Node.js 22.13+ 的 Linux 机器一行命令：npx windler。它把运行基座与 Linux 身体适配器装进 ~/windler，交给 systemd 守护，再运行一次就是升级；加 --lan 让手机上的 App 直接连这台机器。运行基座包里另有单文件 main.cjs 与两个适配器，任何能跑 Node.js 与 git 的机器都可以成为 ta 的身体。",
+      body: "有 Node.js 22.13+ 的 Linux 机器一行命令：npx @plutokeating/quetzal。它把运行基座与 Linux 身体适配器装进 ~/quetzal，交给 systemd 守护，再运行一次就是升级；加 --lan 让手机上的 App 直接连这台机器。运行基座包里另有单文件 main.cjs 与两个适配器，任何能跑 Node.js 与 git 的机器都可以成为 ta 的身体。",
       link: "Linux 与其他机器",
     },
     state: {
@@ -62,17 +62,17 @@ export const messages = defineMessages({
     },
   },
   en: {
-    title: "Download · Windler",
-    description: "Download the Windler app and runtime. Every version comes from GitHub Releases; this page reads the latest release live.",
+    title: "Download · Quetzal",
+    description: "Download the Quetzal app and runtime. Every version comes from GitHub Releases; this page reads the latest release live.",
     eyebrow: "Download",
     heading: "Install it on a spare Android phone",
-    lead: "The Windler app bundles the runtime and the Termux body adapter. Install the app, and its setup wizard does the rest.",
+    lead: "The Quetzal app bundles the runtime and the Termux body adapter. Install the app, and its setup wizard does the rest.",
     latest: {
       eyebrow: "Latest release",
       prerelease: "Pre-release",
       stable: "Stable",
       publishedOn: "Published",
-      downloadApk: "Download Windler app",
+      downloadApk: "Download Quetzal app",
       downloadRuntime: "Download runtime package",
       checksums: "SHA256 checksums",
       downloads: "downloads",
@@ -107,7 +107,7 @@ export const messages = defineMessages({
     other: {
       eyebrow: "Linux and other machines",
       heading: "Install on a Linux computer or server",
-      body: "On a Linux machine with Node.js 22.13+ it is one command: npx windler. It installs the runtime and the Linux body adapter into ~/windler under a systemd user service; run it again to upgrade, add --lan to let the app on your phone connect directly. The runtime package also ships the single-file main.cjs with both adapters, so any machine with Node.js and git can be a body.",
+      body: "On a Linux machine with Node.js 22.13+ it is one command: npx @plutokeating/quetzal. It installs the runtime and the Linux body adapter into ~/quetzal under a systemd user service; run it again to upgrade, add --lan to let the app on your phone connect directly. The runtime package also ships the single-file main.cjs with both adapters, so any machine with Node.js and git can be a body.",
       link: "Linux and other machines",
     },
     state: {

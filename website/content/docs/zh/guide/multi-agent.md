@@ -5,11 +5,11 @@ description: 在 App 里连接多个运行基座、一键切换；配对码怎�
 
 ## 一个 App，多个 agent
 
-Windler App 可以保存多个连接，每个连接对应一个运行基座（一具身体里的一个 agent）。顶栏点名字 → **切换 agent**，界面的称呼与主题色随之变化。
+Quetzal App 可以保存多个连接，每个连接对应一个运行基座（一具身体里的一个 agent）。顶栏点名字 → **切换 agent**，界面的称呼与主题色随之变化。
 
 ```mermaid
 flowchart TB
-  APP["Windler App"]
+  APP["Quetzal App"]
   APP -- "本机 127.0.0.1:7788" --> A["运行基座 A<br/>（这台手机）"]
   APP -- "转发端口 / 隧道" --> B["运行基座 B<br/>（另一台设备）"]
   APP -- "本机 127.0.0.1:7789" --> C["运行基座 C<br/>同一台手机，另一个家目录"]

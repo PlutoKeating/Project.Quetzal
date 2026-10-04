@@ -1,13 +1,13 @@
 ---
 title: Glossary
-description: Terms that recur throughout the Windler documentation — runtime, body, adapter, heart, drives, soul repository, soul-bridge, guard, vault…
+description: Terms that recur throughout the Quetzal documentation — runtime, body, adapter, heart, drives, soul repository, soul-bridge, guard, vault…
 ---
 
 ## Terms
 
 | Term | Chinese | Meaning |
 |---|---|---|
-| runtime | 运行基座 | Windler's core program (single file `main.cjs`) that lets an agent live in a body |
+| runtime | 运行基座 | Quetzal's core program (single file `main.cjs`) that lets an agent live in a body |
 | agent | agent | The "she / he / it" living in the runtime; identity comes from `agent.json` in the soul repository |
 | body | 身体 | A device running a runtime (or soul-bridge); one agent may have several bodies |
 | body adapter | 身体适配器 | The only boundary between device and core: sampling, notifications, playback, device tools |
@@ -25,7 +25,7 @@ description: Terms that recur throughout the Windler documentation — runtime, 
 | steer / queue / interrupt | 插话 / 排队 / 打断 | Three ways a message is handled while she is working |
 | idle wall | 时间墙 | No-progress timers: 90 s per model call, 120 s per session |
 | soul | 灵魂 | The agent's personality and memory (`SOUL.md`, resident memory, journal, notes, identity) |
-| soul directory | 灵魂目录 | Local `WINDLER_HOME/soul/`, a git repository |
+| soul directory | 灵魂目录 | Local `QUETZAL_HOME/soul/`, a git repository |
 | soul repository | 灵魂仓库 | The private git repository shared by all bodies, `<agent>.soul` |
 | soul sync | 灵魂同步 | Fully automatic pull, merge and push by the runtime; she only perceives it |
 | soul-bridge | 灵魂桥 | The pluggable sync daemon installed on Hermes / OpenClaw machines |
@@ -42,7 +42,7 @@ description: Terms that recur throughout the Windler documentation — runtime, 
 | emergency stop | 急停 | The `STOP` file in the home directory; if present, everything freezes |
 | audit | 审计 | Records of tool calls, configuration changes, memory edits and approval decisions |
 | pass_secret | 保密传递 | The protocol for requesting credentials: you type in chat, nothing enters the conversation or context |
-| vault | 保密库 | `WINDLER_HOME/vault/`, local storage for secret values, never synced |
+| vault | 保密库 | `QUETZAL_HOME/vault/`, local storage for secret values, never synced |
 | done spell | 结束口令 | The random phrase `done-xxxxxx` marking the end of a secret input |
 | gateway | 网关 | The runtime's local interface at `127.0.0.1:7788`: HTTP + WebSocket RPC |
 | pairing code | 配对码 | Six digits, valid five minutes, for an app on another device to connect to the gateway |
@@ -53,4 +53,4 @@ description: Terms that recur throughout the Windler documentation — runtime, 
 | proactive message | 主动消息 | A message she sends with `send_message` when waking on her own |
 | hands | hands | The reserved screen-and-apps interface (not yet implemented) |
 | Termux trio | Termux 三件套 | Termux, Termux:API, Termux:Boot, all from the same source |
-| home directory | 家目录 | `WINDLER_HOME`, where all runtime data lives, default `~/windler` |
+| home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives, default `~/quetzal` |

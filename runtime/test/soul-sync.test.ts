@@ -7,7 +7,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 // 模拟：另一具身体（Hermes）已有人格与记忆，推到了一个裸仓库；本机首次接入
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "windler-soul-"));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-soul-"));
 const remote = path.join(tmp, "soul.git");
 const hermes = path.join(tmp, "hermes");
 const g = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, stdio: "pipe" }).toString();
@@ -19,7 +19,7 @@ fs.writeFileSync(path.join(hermes, "SOUL.md"), "# 神谷薰\n来自 Hermes 的�
 fs.writeFileSync(path.join(hermes, "memories/MEMORY.md"), "喜欢猫\n§\n住在海边\n");
 g(hermes, "add", "-A"); g(hermes, "commit", "-m", "hermes"); g(hermes, "remote", "add", "origin", remote); g(hermes, "push", "origin", "main");
 
-process.env.WINDLER_HOME = path.join(tmp, "home");
+process.env.QUETZAL_HOME = path.join(tmp, "home");
 const { loadConfig, saveConfig } = await import("../src/config.ts");
 loadConfig();
 const { openStore } = await import("../src/store.ts");
@@ -91,7 +91,7 @@ test("历史与撤销", async () => {
 
 test("人格冲突全自动解决：采用较新的版本，另一版本保留在历史中", async () => {
   g(hermes, "pull", "origin", "main");
-  fs.writeFileSync(path.join(process.env.WINDLER_HOME!, "soul/SOUL.md"), "# 本机版本\n");
+  fs.writeFileSync(path.join(process.env.QUETZAL_HOME!, "soul/SOUL.md"), "# 本机版本\n");
   await soul.push("本机改人格");
   await new Promise((r) => setTimeout(r, 1100)); // 让对方的提交时间更新
   fs.writeFileSync(path.join(hermes, "SOUL.md"), "# Hermes 较新的版本\n");
@@ -99,7 +99,7 @@ test("人格冲突全自动解决：采用较新的版本，另一版本保留�
   g(hermes, "pull", "--no-rebase", "-X", "ours", "origin", "main"); g(hermes, "push", "origin", "main");
   await soul.pull();
   assert.match(mem.soul(), /Hermes 较新的版本/);
-  assert.ok(!fs.existsSync(path.join(process.env.WINDLER_HOME!, "soul/SOUL.incoming.md")));
-  const log = execFileSync("git", ["-C", path.join(process.env.WINDLER_HOME!, "soul"), "log", "--all", "--full-history", "-p", "--", "SOUL.md"]).toString();
+  assert.ok(!fs.existsSync(path.join(process.env.QUETZAL_HOME!, "soul/SOUL.incoming.md")));
+  const log = execFileSync("git", ["-C", path.join(process.env.QUETZAL_HOME!, "soul"), "log", "--all", "--full-history", "-p", "--", "SOUL.md"]).toString();
   assert.match(log, /本机版本/);
 });

@@ -7,7 +7,7 @@ import path from "node:path";
 import { layout, putRelease, switchTo, rollback, prune, versionOf, patchConfig, readConfig, defaultBody } from "../src/layout.ts";
 
 function fixture() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "windler-cli-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-cli-"));
   const src = path.join(home, "src"); fs.mkdirSync(src);
   fs.writeFileSync(path.join(src, "main.cjs"), "// main"); fs.writeFileSync(path.join(src, "linux.mjs"), "// adapter");
   const files = ["main.cjs", "linux.mjs"].map((name) => ({ name, from: path.join(src, name) }));

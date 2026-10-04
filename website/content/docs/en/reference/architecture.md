@@ -7,7 +7,7 @@ description: The runtime's overall structure, the heart's mathematics (drives, b
 
 The runtime is a **single Node.js process** (`dist/main.cjs`). Modules are coupled through an in-process event bus, all state is on disk (SQLite and the soul directory), and a restart is just a nap.
 
-![Windler architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies](/img/architecture.en.svg)
+![Quetzal architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies](/img/architecture.en.svg)
 
 Design principles: **device-agnostic** (the core knows only the adapter interface), **one operations layer for every control entry** (app and Feishu behave identically and both audit), and **no timer-driven behaviour**.
 
@@ -129,4 +129,4 @@ Three permission levels per category; approvals time out as denial after 30 minu
 
 ## Process contract
 
-Supervision is external (runit, systemd); more than five starts in ten minutes enters safe mode. The deployer provides Node.js 22+, `WINDLER_HOME`, optionally `WINDLER_ADAPTER`, and a supervisor.
+Supervision is external (runit, systemd); more than five starts in ten minutes enters safe mode. The deployer provides Node.js 22+, `QUETZAL_HOME`, optionally `QUETZAL_ADAPTER`, and a supervisor.

@@ -9,8 +9,8 @@ description: 安装卡住、ta 不醒、被系统杀掉、重启后离线、安�
 |---|---|
 | 「Termux 还没有回应」 | 那一行还没执行成功，或 Termux 第一次打开还在初始化。打开 Termux 等它完成，重新粘贴回车，再点「我已执行，检测」 |
 | 「更新软件源失败」 | 手机网络不通，或软件源不可用。换网络重试；大陆网络下向导会按系统语言自动选用镜像源 |
-| 「取不到运行基座版本」 | 安装期间 Windler 被切到后台。保持它在前台重试 |
-| 「新版本 40 秒内没有响应，已切回上一版」 | 新版本启动失败，已自动回退。日志在 Termux 的 `$PREFIX/var/log/sv/windler/current`，可以到 GitHub 提 issue |
+| 「取不到运行基座版本」 | 安装期间 Quetzal 被切到后台。保持它在前台重试 |
+| 「新版本 40 秒内没有响应，已切回上一版」 | 新版本启动失败，已自动回退。日志在 Termux 的 `$PREFIX/var/log/sv/quetzal/current`，可以到 GitHub 提 issue |
 | 三件套互相不认 | 三个应用不是同一来源（签名不同）。全部卸载，从同一来源重装 |
 
 ## ta 一直不醒
@@ -26,12 +26,12 @@ description: 安装卡住、ta 不醒、被系统杀掉、重启后离线、安�
 ## 离线 / 被系统杀掉
 
 - 「此刻」页出现离线横幅时，点**点火**：App 通过 Termux 重新执行开机脚本。
-- 反复被杀：确认 Termux、Termux:Boot、Termux:API 与 Windler 都在**电池优化忽略名单**里，并在厂商的自启动 / 后台管理里**放行**。个别厂商系统有独立的"省电精灵"类组件会无视白名单，需要在系统设置里关闭或禁用它（[Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) 记录了一台旧手机上的做法）。
+- 反复被杀：确认 Termux、Termux:Boot、Termux:API 与 Quetzal 都在**电池优化忽略名单**里，并在厂商的自启动 / 后台管理里**放行**。个别厂商系统有独立的"省电精灵"类组件会无视白名单，需要在系统设置里关闭或禁用它（[Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) 记录了一台旧手机上的做法）。
 - **重启后离线**：有锁屏密码的手机要先解锁一次；Termux:Boot 要被打开过一次才会收到开机广播。
 
 ## 安全模式
 
-ta 主动告诉你"进入了安全模式"：10 分钟内启动超过 5 次。此时只开网关与飞书，不醒来、不调用模型。原因通常是配置损坏或模型层异常。看日志（Termux 里 `$PREFIX/var/log/sv/windler/current`），修复后在 **控制 → 服务** 重启。
+ta 主动告诉你"进入了安全模式"：10 分钟内启动超过 5 次。此时只开网关与飞书，不醒来、不调用模型。原因通常是配置损坏或模型层异常。看日志（Termux 里 `$PREFIX/var/log/sv/quetzal/current`），修复后在 **控制 → 服务** 重启。
 
 ## 模型相关
 
@@ -59,4 +59,4 @@ ta 主动告诉你"进入了安全模式"：10 分钟内启动超过 5 次。此
 
 ## 还是不行
 
-到 [GitHub Issues](https://github.com/PlutoKeating/Project.Windler/issues) 描述现象，附上 **控制 → 服务** 显示的版本与相关日志（请先去掉日志里的个人信息）。
+到 [GitHub Issues](https://github.com/PlutoKeating/Project.Quetzal/issues) 描述现象，附上 **控制 → 服务** 显示的版本与相关日志（请先去掉日志里的个人信息）。

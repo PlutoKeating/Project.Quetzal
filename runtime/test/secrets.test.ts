@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 
-process.env.WINDLER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "windler-secrets-"));
+process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-secrets-"));
 const { loadConfig, paths } = await import("../src/config.ts");
 loadConfig();
 const store = await import("../src/store.ts");
@@ -133,7 +133,7 @@ test("兜底：工具输出里出现的保密值被替换；保密库列表与�
   assert.ok(!systemPrompt().includes(TOKEN));
   assert.ok(!JSON.stringify(ops.secrets()).includes(TOKEN));
   assert.equal(ops["secrets.delete"]({ name: "cf_token" }, "控制台"), true);
-  assert.equal(ops["secrets.delete"]({ name: "../config/windler.json" }, "控制台"), false);
+  assert.equal(ops["secrets.delete"]({ name: "../config/quetzal.json" }, "控制台"), false);
   assert.ok(!ops.secrets().some((x) => x.name === "cf_token"));
   assert.equal((await callTool("shell", { command: `echo ${CF}` }, "测试")).text.includes(CF), true); // 删除后不再替换
 });

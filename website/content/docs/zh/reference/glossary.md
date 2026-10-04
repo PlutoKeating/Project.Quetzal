@@ -1,13 +1,13 @@
 ---
 title: 术语表
-description: Windler 文档里反复出现的名词：运行基座、身体、适配器、心脏、内驱力、灵魂仓库、灵魂桥、闸门、保密库……
+description: Quetzal 文档里反复出现的名词：运行基座、身体、适配器、心脏、内驱力、灵魂仓库、灵魂桥、闸门、保密库……
 ---
 
 ## 术语
 
 | 术语 | 英文 | 含义 |
 |---|---|---|
-| 运行基座 | runtime | Windler 的核心程序（单文件 `main.cjs`），让 agent 活在一具身体里 |
+| 运行基座 | runtime | Quetzal 的核心程序（单文件 `main.cjs`），让 agent 活在一具身体里 |
 | agent | agent | 住在运行基座里的那个"ta"；身份来自灵魂仓库的 `agent.json` |
 | 身体 | body | 运行着一个运行基座（或灵魂桥）的设备；同一个 agent 可以有多具身体 |
 | 身体适配器 | body adapter | 设备与核心之间唯一的边界：采样、通知、播放、设备工具 |
@@ -25,7 +25,7 @@ description: Windler 文档里反复出现的名词：运行基座、身体、�
 | 插话 / 排队 / 打断 | steer / queue / interrupt | ta 工作时你发消息的三种处理方式 |
 | 时间墙 | idle wall | 按「无进展」计时的保护：模型调用 90 秒、会话 120 秒 |
 | 灵魂 | soul | agent 的人格与记忆（`SOUL.md`、常驻记忆、日记、笔记、身份） |
-| 灵魂目录 | soul directory | 本机 `WINDLER_HOME/soul/`，一个 git 仓库 |
+| 灵魂目录 | soul directory | 本机 `QUETZAL_HOME/soul/`，一个 git 仓库 |
 | 灵魂仓库 | soul repository | 多具身体共享的私有 git 仓库，`<agent>.soul` |
 | 灵魂同步 | soul sync | 基座全自动的拉取、合并、推送；ta 只感知到它发生了 |
 | 灵魂桥 | soul-bridge | 装在 Hermes / OpenClaw 机器上的可插拔同步守护进程 |
@@ -42,7 +42,7 @@ description: Windler 文档里反复出现的名词：运行基座、身体、�
 | 急停 | emergency stop | 家目录里的 `STOP` 文件，存在即冻结一切行动 |
 | 审计 | audit | 工具调用、配置修改、记忆修改、审批决定的记录 |
 | 保密传递 | pass_secret | ta 索取凭据的协议：你在聊天框里发，内容不进对话与上下文 |
-| 保密库 | vault | `WINDLER_HOME/vault/`，保密值的本地存放处，不同步 |
+| 保密库 | vault | `QUETZAL_HOME/vault/`，保密值的本地存放处，不同步 |
 | 结束口令 | done spell | 保密输入时标记"输入完毕"的随机短语 `done-xxxxxx` |
 | 网关 | gateway | 运行基座的本地接口 `127.0.0.1:7788`：HTTP + WebSocket RPC |
 | 配对码 | pairing code | 6 位、5 分钟有效，用于另一台设备上的 App 连接网关 |
@@ -53,4 +53,4 @@ description: Windler 文档里反复出现的名词：运行基座、身体、�
 | 主动消息 | proactive message | ta 自己醒来时用 `send_message` 发出的消息 |
 | hands | hands | 预留的屏幕与应用操作接口（尚未实现） |
 | Termux 三件套 | Termux trio | Termux、Termux:API、Termux:Boot，必须来自同一来源 |
-| 家目录 | WINDLER_HOME | 运行基座的全部数据所在，默认 `~/windler` |
+| 家目录 | QUETZAL_HOME | 运行基座的全部数据所在，默认 `~/quetzal` |

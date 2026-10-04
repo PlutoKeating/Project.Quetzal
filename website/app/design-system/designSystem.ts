@@ -1,5 +1,5 @@
 /**
- * Windler 官网设计系统：全站唯一的视觉参数来源。
+ * Quetzal 官网设计系统：全站唯一的视觉参数来源。
  *
  * 规则：页面与组件里禁止出现任何字面量的色值、圆角、阴影、光效、透明度、模糊、时长。
  * 一切都从这里取：构建前由 scripts/gen-tokens.ts 生成 tokens.generated.css（CSS 变量 + Tailwind @theme），

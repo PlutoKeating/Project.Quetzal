@@ -1,18 +1,18 @@
 {
-  "name": "windler",
+  "name": "@plutokeating/quetzal",
   "version": "0.4.0",
   "type": "module",
   "license": "AGPL-3.0-only",
-  "description": "Windler：让 agent 像生命一样活着的运行基座。npx windler 把它装到这台 Linux 机器上并交给 systemd 守护",
-  "homepage": "https://windler.plutokeating.beer",
-  "repository": { "type": "git", "url": "git+https://github.com/PlutoKeating/Project.Windler.git", "directory": "cli" },
-  "keywords": ["agent", "windler", "runtime", "linux"],
-  "bin": { "windler": "dist/windler.mjs" },
+  "description": "Quetzal：让 agent 像生命一样活着的运行基座。npx @plutokeating/quetzal 把它装到这台 Linux 机器上并交给 systemd 守护",
+  "homepage": "https://quetzal.plutokeating.beer",
+  "repository": { "type": "git", "url": "git+https://github.com/PlutoKeating/Project.Quetzal.git", "directory": "cli" },
+  "keywords": ["agent", "quetzal", "runtime", "linux"],
+  "bin": { "quetzal": "dist/quetzal.mjs" },
   "files": ["dist"],
   "os": ["linux"],
   "engines": { "node": ">=22.13" },
   "scripts": {
-    "build": "tsc --noEmit && tool/bundle-runtime.sh && esbuild src/cli.ts --bundle --platform=node --target=node22 --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist/windler.mjs",
+    "build": "tsc --noEmit && tool/bundle-runtime.sh && esbuild src/cli.ts --bundle --platform=node --target=node22 --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist/quetzal.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts"
   },
   "devDependencies": {

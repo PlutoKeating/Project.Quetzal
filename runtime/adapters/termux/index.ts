@@ -1,4 +1,4 @@
-// Windler 身体适配器：任意安卓手机（Termux + Termux:API，无需 root）。
+// Quetzal 身体适配器：任意安卓手机（Termux + Termux:API，无需 root）。
 // 由控制台的安装器随运行基座一起放到手机上；只依赖 body/adapter.ts 的类型定义（构建时擦除）。
 // 设备差异全部靠探测：有什么传感器就报什么，没有 Termux:API 时采样为空、工具报错而不崩溃。
 import fs from "node:fs";
@@ -7,8 +7,8 @@ import path from "node:path";
 import type { BodyAdapter, AdapterTool, RawSample } from "../../src/body/adapter.ts";
 import { run, json, pickSensors } from "./termux.ts";
 
-const MEDIA = path.join(process.env.WINDLER_HOME ?? path.join(os.homedir(), "windler"), "data", "media");
-const CONSOLE_ACTIVITY = process.env.WINDLER_CONSOLE_ACTIVITY ?? "xyz.windler.console/.MainActivity";
+const MEDIA = path.join(process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal"), "data", "media");
+const CONSOLE_ACTIVITY = process.env.QUETZAL_CONSOLE_ACTIVITY ?? "xyz.quetzal.console/.MainActivity";
 let sensors: { light?: string; accel?: string } = {};
 let model = "";
 
@@ -105,8 +105,8 @@ const adapter: BodyAdapter = {
     };
   },
   async notify(title, text) {
-    await run("termux-notification", ["--id", "windler-say", "--title", title, "--content", text, "--priority", "high",
-      "--button1", "打开 Windler", "--button1-action", `am start -n ${CONSOLE_ACTIVITY}`]);
+    await run("termux-notification", ["--id", "quetzal-say", "--title", title, "--content", text, "--priority", "high",
+      "--button1", "打开 Quetzal", "--button1-action", `am start -n ${CONSOLE_ACTIVITY}`]);
   },
   // 播放音频（如语音合成的结果）：Termux:API 的媒体播放器，后台播放，立即返回
   async playAudio(file) {

@@ -1,6 +1,6 @@
 # console · 控制台 App
 
-Flutter（Material 3，深色为主），应用 ID `xyz.windler.console`，应用名「Windler」。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
+Flutter（Material 3，深色为主），应用 ID `xyz.quetzal.console`，应用名「Quetzal」。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
 
 ## 定位
 
@@ -27,6 +27,6 @@ GitHub Release（`.github/workflows/release.yml`，推送 `v<版本>` 标签触�
 
 构建注意：Flutter 的 Gradle 工具（`packages/flutter_tools/gradle/settings.gradle.kts`）要求仓库只在 settings 里声明（`FAIL_ON_PROJECT_REPOS`）。如果本机 `~/.gradle/init.gradle` 之类的用户级初始化脚本给每个项目注入了镜像仓库，`assembleRelease` 会以"repository 'maven' was added by settings file"失败；构建时把该脚本临时移开即可，完成后放回。
 
-资源：`assets/install/install.sh` 是 Termux 侧的安装脚本（装软件包、放运行基座、注册 runit 服务与开机脚本、写设备配置、启动并健康检查，失败切回上一版；进度回报给 App 的本机 HTTP 服务）；`assets/runtime/` 是内置的运行基座。`assets/mermaid/` 内置 mermaid.js v11.17.2（MIT，见同目录 LICENSE），离线可用。为兼容旧版 WebView（如 Chromium 88），已用 esbuild 把语法降到 `chrome88`，并在 `view.html` 中补上缺少的 API。升级 mermaid 的做法：先 `npm pack mermaid@<版本>`，再对 `dist/mermaid.min.js` 执行 `esbuild --target=chrome88 --minify`，替换同名文件。原生部分：`MainActivity.kt` 里的 Termux 桥（MethodChannel `windler/igniter`：RUN_COMMAND、三件套版本、打开应用、电池优化与各厂商自启动管理页）与听觉桥（MethodChannel `windler/hearing` + EventChannel `windler/hearing/events`：启停、麦克风权限、服务事件）；`HearingService.kt` 是麦克风前台服务（清单里声明 `foregroundServiceType="microphone"`，权限 `RECORD_AUDIO`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_MICROPHONE`、`POST_NOTIFICATIONS`）。Android 14+ 不允许在后台启动麦克风类前台服务，所以耳朵只在 App 在前台时（打开 App、在听觉页开启）启动。
+资源：`assets/install/install.sh` 是 Termux 侧的安装脚本（装软件包、放运行基座、注册 runit 服务与开机脚本、写设备配置、启动并健康检查，失败切回上一版；进度回报给 App 的本机 HTTP 服务）；`assets/runtime/` 是内置的运行基座。`assets/mermaid/` 内置 mermaid.js v11.17.2（MIT，见同目录 LICENSE），离线可用。为兼容旧版 WebView（如 Chromium 88），已用 esbuild 把语法降到 `chrome88`，并在 `view.html` 中补上缺少的 API。升级 mermaid 的做法：先 `npm pack mermaid@<版本>`，再对 `dist/mermaid.min.js` 执行 `esbuild --target=chrome88 --minify`，替换同名文件。原生部分：`MainActivity.kt` 里的 Termux 桥（MethodChannel `quetzal/igniter`：RUN_COMMAND、三件套版本、打开应用、电池优化与各厂商自启动管理页）与听觉桥（MethodChannel `quetzal/hearing` + EventChannel `quetzal/hearing/events`：启停、麦克风权限、服务事件）；`HearingService.kt` 是麦克风前台服务（清单里声明 `foregroundServiceType="microphone"`，权限 `RECORD_AUDIO`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_MICROPHONE`、`POST_NOTIFICATIONS`）。Android 14+ 不允许在后台启动麦克风类前台服务，所以耳朵只在 App 在前台时（打开 App、在听觉页开启）启动。
 
 设计与用例见 [ARCHITECTURE.md](ARCHITECTURE.md)。

@@ -1,10 +1,11 @@
-# 灵魂仓库规范（Soul Repository Specification）v5
+# 灵魂仓库规范（Soul Repository Specification）v6
 
 本规范定义用于灵魂同步的 git 仓库：它的目录树、固定内容、文件格式、提交约定与认证方式。它是 agent 自己的**私有**仓库，对内容不设任何检查。凡是读写灵魂仓库的实现（运行基座 `runtime/src/memory/soul-repo.ts`、灵魂桥 `bridge/`，以及将来的其他实现）都**必须**遵守。文中「必须 / 不得 / 应当 / 可以」对应 MUST / MUST NOT / SHOULD / MAY。
 
 实现会强制执行其中可以机器检查的部分：远端地址与私钥检查、固定内容补齐。
 
 版本历史：
+- **v6**：运行基座更名为 Quetzal，§3.12 技能文档 `metadata` 里的键改为 `quetzal-tool` 与 `quetzal-requires`（原 `windler-tool` / `windler-requires`）；实现只写新键名，读取时不依赖这两个键。v5 仓库无需迁移即符合 v6。
 - **v5**：§2 新增可选目录 `skills/`（§3.12）：agent 沉淀的技能文档，采用 [Agent Skills](https://agentskills.io/specification) 开放标准的 `SKILL.md`，Hermes Agent 与 OpenClaw 可直接读取；只放意图说明，不放实现代码。v4 仓库无需迁移即符合 v5。
 - **v4**：§6 取消全部内容检查；§1 允许顶层出现规范外的条目。灵魂仓库按设计只能是私有仓库（§7 只允许部署私钥访问），记忆里出现 IP、电话、密钥都是她自己的事，实现**不得**因内容拒绝提交；此前的检查曾两次把她的记忆挡在本地数天（版本号被当成 IP）。v3 仓库无需迁移即符合 v4。
 - v3：§6 明确 IP 地址只指能定位设备或个人的地址：版本号、回环与保留段、公共 DNS 服务器不算；检查结果带行号。v2 仓库无需迁移即符合 v3。
@@ -54,7 +55,7 @@
 ### 3.1 `.soul-spec.json`（固定内容）
 
 ```json
-{ "spec": "soul-repo", "version": 2 }
+{ "spec": "soul-repo", "version": 6 }
 ```
 
 ### 3.2 `.gitattributes`（固定内容）
@@ -147,7 +148,7 @@
 
 ### 3.12 `skills/<skill-name>/SKILL.md`（技能文档）
 
-agent 把做过多次、步骤稳定的流程沉淀为技能：**只同步意图**（用途、参数、实现思路、依赖、验证方法、坑），**不同步实现代码**——每具身体按文档在本地自己实现（运行基座：`WINDLER_HOME/tools/<名>/`；Hermes / OpenClaw：各自的 skills 目录）。格式遵循 Agent Skills 开放标准：
+agent 把做过多次、步骤稳定的流程沉淀为技能：**只同步意图**（用途、参数、实现思路、依赖、验证方法、坑），**不同步实现代码**——每具身体按文档在本地自己实现（运行基座：`QUETZAL_HOME/tools/<名>/`；Hermes / OpenClaw：各自的 skills 目录）。格式遵循 Agent Skills 开放标准：
 
 ```markdown
 ---
@@ -155,8 +156,8 @@ name: web-search
 description: 搜索网页并返回标题、链接与摘要。查资料、核实事实时用。
 compatibility: 需要命令 curl
 metadata:
-  windler-tool: web_search
-  windler-requires: curl
+  quetzal-tool: web_search
+  quetzal-requires: curl
 ---
 
 ## 用途
@@ -164,7 +165,7 @@ metadata:
 ```
 
 - 目录名与 `name` 相同：`^[a-z0-9]+(-[a-z0-9]+)*$`，最长 64 字符（运行基座把工具名里的 `_` 换成 `-` 得到它）。
-- `name`、`description` 必需；`compatibility`、`license`、`metadata`（字符串映射）可选。运行基座写入 `metadata.windler-tool`（对应的工具名）与 `metadata.windler-requires`（依赖的命令，逗号分隔），其他实现可以忽略。
+- `name`、`description` 必需；`compatibility`、`license`、`metadata`（字符串映射）可选。运行基座写入 `metadata.quetzal-tool`（对应的工具名）与 `metadata.quetzal-requires`（依赖的命令，逗号分隔），其他实现可以忽略。
 - 正文自由 Markdown；可以有 `references/` 等子目录（规范建议），但**不得**放可执行实现（实现是身体的，不是灵魂的）。
 - 合并规则：采用提交时间较新的一方，落选版本保留在历史中。
 
@@ -204,7 +205,7 @@ metadata:
 ## 7. 认证：必须使用私钥（SSH 部署密钥）
 
 - 远端地址**必须**是 SSH 形式：`git@<host>:<owner>/<repo>.git` 或 `ssh://git@<host>/<owner>/<repo>.git`。**不得**使用 HTTPS、个人访问令牌或密码。
-- **每具身体一把专属密钥**：ed25519，在本机生成。私钥只存放在本机、权限 `0600`（运行基座为 `WINDLER_HOME/secrets/soul_ed25519`，灵魂桥为 `~/.agent-soul/<agent>/id_ed25519`），**不得**提交到任何仓库，**不得**在身体之间复制。
+- **每具身体一把专属密钥**：ed25519，在本机生成。私钥只存放在本机、权限 `0600`（运行基座为 `QUETZAL_HOME/secrets/soul_ed25519`，灵魂桥为 `~/.agent-soul/<agent>/id_ed25519`），**不得**提交到任何仓库，**不得**在身体之间复制。
 - 公钥以 **Deploy key（勾选 Allow write access）** 的形式添加到该灵魂仓库。**不得**使用个人账号的 SSH 密钥，保证每把密钥只能访问这一个仓库。
 - 实现访问远端时**必须**只使用这把私钥：`ssh -i <私钥> -o IdentitiesOnly=yes`。不得回退到 ssh-agent 或默认密钥。私钥不存在时拒绝访问远端，不静默回退。
 - **吊销**某具身体：在仓库 Settings → Deploy keys 删除它的公钥。

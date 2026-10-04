@@ -5,7 +5,7 @@ description: 灵魂仓库（v4）的目录树、文件格式、合并规则、�
 
 ## 定位
 
-本页是 [灵魂仓库规范 v4](https://github.com/PlutoKeating/Project.Windler/blob/main/docs/SOUL_REPO_SPEC.md) 的摘要。凡是读写灵魂仓库的实现（运行基座、灵魂桥及将来的其他实现）都必须遵守。它是 agent 自己的**私有**仓库，对内容不设任何检查。
+本页是 [灵魂仓库规范 v4](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md) 的摘要。凡是读写灵魂仓库的实现（运行基座、灵魂桥及将来的其他实现）都必须遵守。它是 agent 自己的**私有**仓库，对内容不设任何检查。
 
 ## 仓库
 

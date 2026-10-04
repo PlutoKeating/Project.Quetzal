@@ -1,23 +1,23 @@
-// systemd 用户服务：写单元、启停、状态与日志。没有 systemd 用户实例（容器、未开 systemd 的 WSL）时由 install 流程提示改用 `windler run`。
+// systemd 用户服务：写单元、启停、状态与日志。没有 systemd 用户实例（容器、未开 systemd 的 WSL）时由 install 流程提示改用 `quetzal run`。
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 
-export const UNIT = "windler";
+export const UNIT = "quetzal";
 export const unitFile = () => path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "systemd", "user", `${UNIT}.service`);
 
 /** 单元文件内容：node 直接运行 current/main.cjs，适配器为 current/linux.mjs；退出即重启（熔断在运行基座内）。 */
 export function unitText(o: { home: string; node: string }): string {
-  return `# 由 npx windler 生成；改动会在下次 windler install 时被覆盖
+  return `# 由 npx @plutokeating/quetzal 生成；改动会在下次 quetzal install 时被覆盖
 [Unit]
-Description=Windler runtime
+Description=Quetzal runtime
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-Environment=WINDLER_HOME=${o.home}
-Environment=WINDLER_ADAPTER=${o.home}/current/linux.mjs
+Environment=QUETZAL_HOME=${o.home}
+Environment=QUETZAL_ADAPTER=${o.home}/current/linux.mjs
 WorkingDirectory=${o.home}/current
 ExecStart=${o.node} --enable-source-maps ${o.home}/current/main.cjs
 Restart=always

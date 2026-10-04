@@ -1,10 +1,10 @@
 {
-  "name": "windler-website",
+  "name": "quetzal-website",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
-  "description": "Windler 产品官网：React Router（预渲染为静态站）+ Tailwind CSS，部署在 Cloudflare Workers 静态资源",
+  "description": "Quetzal 产品官网：React Router（预渲染为静态站）+ Tailwind CSS，部署在 Cloudflare Workers 静态资源",
   "engines": {
     "node": ">=22.22.0"
   },

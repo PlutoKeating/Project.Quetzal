@@ -1,4 +1,4 @@
-package xyz.windler.console
+package xyz.quetzal.console
 
 import android.content.ComponentName
 import android.content.Intent
@@ -12,11 +12,11 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Termux 桥（MethodChannel windler/igniter）：
+ * Termux 桥（MethodChannel quetzal/igniter）：
  *  - run：通过 Termux 的 RUN_COMMAND 接口在 Termux 里后台执行一个程序（点火、安装器）。
  *    需要 Termux 的 ~/.termux/termux.properties 中 allow-external-apps=true，并授予本应用 RUN_COMMAND 权限。
  *  - 三件套检测、打开应用、系统的电池优化 / 各厂商自启动管理页（保活引导）。
- * 听觉桥（MethodChannel windler/hearing + EventChannel windler/hearing/events）：启停耳朵（HearingService）、麦克风权限、服务事件。
+ * 听觉桥（MethodChannel quetzal/hearing + EventChannel quetzal/hearing/events）：启停耳朵（HearingService）、麦克风权限、服务事件。
  */
 class MainActivity : FlutterActivity() {
     private val perm = "com.termux.permission.RUN_COMMAND"
@@ -24,7 +24,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "windler/hearing").setMethodCallHandler { call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quetzal/hearing").setMethodCallHandler { call, result ->
             when (call.method) {
                 "hasPermission" -> result.success(checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
                 "requestPermission" -> {
@@ -40,14 +40,14 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "windler/hearing/events").setStreamHandler(object : EventChannel.StreamHandler {
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "quetzal/hearing/events").setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(args: Any?, sink: EventChannel.EventSink) {
                 hearingSink = sink
                 HearingService.listener = { kind, data -> hearingSink?.success(mapOf("kind" to kind) + data) }
             }
             override fun onCancel(args: Any?) { hearingSink = null; HearingService.listener = null }
         })
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "windler/igniter").setMethodCallHandler { call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quetzal/igniter").setMethodCallHandler { call, result ->
             when (call.method) {
                 "packageVersion" -> result.success(version(call.argument<String>("pkg")!!))
                 "hasPermission" -> result.success(checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED)

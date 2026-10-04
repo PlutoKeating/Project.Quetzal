@@ -46,7 +46,7 @@ export const shellMessages = defineMessages({
   },
 });
 
-export const GITHUB_REPO = "https://github.com/PlutoKeating/Project.Windler";
+export const GITHUB_REPO = "https://github.com/PlutoKeating/Project.Quetzal";
 export const GITHUB_ISSUES = `${GITHUB_REPO}/issues`;
 export const GITHUB_RELEASES = `${GITHUB_REPO}/releases`;
 export const HONOR9_REPO = "https://github.com/PlutoKeating/Project.Honor9";

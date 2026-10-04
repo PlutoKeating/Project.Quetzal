@@ -1,6 +1,6 @@
 ---
 title: Gateway API
-description: The local gateway's HTTP endpoints, WebSocket RPC and push events, and the method list. The Windler app and the Feishu channel use exactly this.
+description: The local gateway's HTTP endpoints, WebSocket RPC and push events, and the method list. The Quetzal app and the Feishu channel use exactly this.
 ---
 
 ## Overview
@@ -116,4 +116,4 @@ interface ProviderConfig { providers: Provider[]; quickModelId?: string }
 **Feishu**: `feishu.status`, `feishu.register`, `feishu.set`.
 
 > [!NOTE]
-> This is an overview. Field-level detail is in the repository's [docs/API.md](https://github.com/PlutoKeating/Project.Windler/blob/main/docs/API.md); the code is authoritative.
+> This is an overview. Field-level detail is in the repository's [docs/API.md](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/API.md); the code is authoritative.

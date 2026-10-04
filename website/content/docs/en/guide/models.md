@@ -56,7 +56,7 @@ A few providers have extra conventions handled by separate compatibility modules
 
 ## How keys are stored
 
-- Keys are encrypted with **AES-256-GCM** on the phone; the master key lives in `WINDLER_HOME/secrets/`;
+- Keys are encrypted with **AES-256-GCM** on the phone; the master key lives in `QUETZAL_HOME/secrets/`;
 - Every interface returns only the **last four characters**;
 - Keys **never enter the soul repository**: they do not travel when she changes bodies; each body is configured separately.
 

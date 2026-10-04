@@ -1,11 +1,11 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Windler 安装脚本：由控制台 App 通过 Termux 的 RUN_COMMAND 下发并在 Termux 里执行；进度与结果回报给控制台的本机 HTTP 服务。
+# Quetzal 安装脚本：由控制台 App 通过 Termux 的 RUN_COMMAND 下发并在 Termux 里执行；进度与结果回报给控制台的本机 HTTP 服务。
 # 用法：install.sh <控制台端口> [cn]      cn = 使用中国大陆的软件源镜像
-# 幂等：可重复执行用于升级或修复。新版本放进 ~/windler/releases/<版本>/，切换后健康检查失败自动切回上一版。
+# 幂等：可重复执行用于升级或修复。新版本放进 ~/quetzal/releases/<版本>/，切换后健康检查失败自动切回上一版。
 set -u
 PORT=${1:?用法: install.sh <控制台端口> [cn]}; MIRROR=${2:-}
 BASE="http://127.0.0.1:$PORT"
-W=$HOME/windler; R=$W/releases; SV=$PREFIX/var/service/windler; LOG=$W/install.log
+W=$HOME/quetzal; R=$W/releases; SV=$PREFIX/var/service/quetzal; LOG=$W/install.log
 export DEBIAN_FRONTEND=noninteractive
 mkdir -p "$W" "$R"
 echo "== $(date) 安装开始（端口 $PORT，镜像 ${MIRROR:-默认}）" >>"$LOG"
@@ -41,26 +41,26 @@ node -e "require('fs').readFileSync('$R/$V/main.cjs')" || fail "运行基座文�
 
 # ---------- 3. 服务：runit 守护、日志轮转、开机脚本、允许控制台点火
 step service
-mkdir -p "$SV/log" "$PREFIX/var/log/sv/windler" "$HOME/.termux/boot"
+mkdir -p "$SV/log" "$PREFIX/var/log/sv/quetzal" "$HOME/.termux/boot"
 cat >"$SV/run" <<'RUN'
 #!/data/data/com.termux/files/usr/bin/sh
-# runit 服务：Windler 运行基座。退出即被 runit 重新拉起；熔断逻辑在运行基座内。
+# runit 服务：Quetzal 运行基座。退出即被 runit 重新拉起；熔断逻辑在运行基座内。
 exec 2>&1
-cd "$HOME/windler/current" || exit 1
-export WINDLER_ADAPTER="$HOME/windler/current/termux.mjs"
+cd "$HOME/quetzal/current" || exit 1
+export QUETZAL_ADAPTER="$HOME/quetzal/current/termux.mjs"
 exec node --enable-source-maps main.cjs
 RUN
 cat >"$SV/log/run" <<'RUN'
 #!/data/data/com.termux/files/usr/bin/sh
-exec svlogd -tt "$PREFIX/var/log/sv/windler"
+exec svlogd -tt "$PREFIX/var/log/sv/quetzal"
 RUN
-cat >"$HOME/.termux/boot/windler" <<'RUN'
+cat >"$HOME/.termux/boot/quetzal" <<'RUN'
 #!/data/data/com.termux/files/usr/bin/sh
-# Termux:Boot 开机脚本：保持 CPU 唤醒，启动 runit（windler 由其守护）
+# Termux:Boot 开机脚本：保持 CPU 唤醒，启动 runit（quetzal 由其守护）
 termux-wake-lock
 . $PREFIX/etc/profile.d/start-services.sh
 RUN
-chmod 700 "$SV/run" "$SV/log/run" "$HOME/.termux/boot/windler"
+chmod 700 "$SV/run" "$SV/log/run" "$HOME/.termux/boot/quetzal"
 grep -qs '^allow-external-apps *= *true' "$HOME/.termux/termux.properties" || { mkdir -p "$HOME/.termux"; echo 'allow-external-apps=true' >>"$HOME/.termux/termux.properties"; }
 
 # ---------- 4. 设备配置：身体名字（机型，公开的非唯一信息）与时区；只在还没有配置时写入，其余配置由控制台管理
@@ -69,11 +69,11 @@ MODEL=$(getprop ro.product.model 2>/dev/null | tr -c 'A-Za-z0-9-' '-' | sed -e '
 TZ_SYS=$(getprop persist.sys.timezone 2>/dev/null)
 mkdir -p "$W/config"
 MODEL="$MODEL" TZ_SYS="$TZ_SYS" node -e '
-const fs=require("fs"),f=process.env.HOME+"/windler/config/windler.json";let c={};try{c=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}
+const fs=require("fs"),f=process.env.HOME+"/quetzal/config/quetzal.json";let c={};try{c=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}
 if(!c.body||c.body==="default")c.body=(process.env.MODEL||"android").toLowerCase();
 if(!c.timezone&&process.env.TZ_SYS)c.timezone=process.env.TZ_SYS;
 fs.writeFileSync(f,JSON.stringify(c,null,2));console.log("body",c.body,"timezone",c.timezone||"(系统)")' >>"$LOG" 2>&1 || fail "写入配置失败"
-GW=$(node -e 'try{console.log(JSON.parse(require("fs").readFileSync(process.env.HOME+"/windler/config/windler.json","utf8")).gateway.port||7788)}catch{console.log(7788)}')
+GW=$(node -e 'try{console.log(JSON.parse(require("fs").readFileSync(process.env.HOME+"/quetzal/config/quetzal.json","utf8")).gateway.port||7788)}catch{console.log(7788)}')
 
 # ---------- 5. 切换版本并启动
 step start
@@ -91,9 +91,9 @@ step health
 ok=
 for i in $(seq 1 40); do curl -sf "http://127.0.0.1:$GW/health" >/dev/null 2>&1 && { ok=1; break; }; sleep 1; done
 if [ -z "$ok" ]; then
-  tail -n 30 "$PREFIX/var/log/sv/windler/current" >>"$LOG" 2>/dev/null
+  tail -n 30 "$PREFIX/var/log/sv/quetzal/current" >>"$LOG" 2>/dev/null
   if [ -n "$CUR" ] && [ -d "$CUR" ]; then ln -sfn "$CUR" "$W/current"; sv restart "$SV" >/dev/null 2>&1; fail "新版本 40 秒内没有响应，已切回上一版"; fi
-  fail "运行基座 40 秒内没有响应（日志在 $PREFIX/var/log/sv/windler/current）"
+  fail "运行基座 40 秒内没有响应（日志在 $PREFIX/var/log/sv/quetzal/current）"
 fi
 TOKEN=$(cat "$W/secrets/gateway.token" 2>/dev/null) || fail "读不到网关令牌"
 ( cd "$R" && ls -1t | tail -n +4 | xargs -r rm -rf )   # 只保留最近 3 个版本

@@ -1,16 +1,16 @@
 ---
 title: Home directory and configuration
-description: The layout of WINDLER_HOME, every key in config/windler.json, and the file conventions of the Android / Termux deployment.
+description: The layout of QUETZAL_HOME, every key in config/quetzal.json, and the file conventions of the Android / Termux deployment.
 ---
 
-## `WINDLER_HOME` (default `~/windler`)
+## `QUETZAL_HOME` (default `~/quetzal`)
 
 ```
-config/windler.json      runtime configuration (editable from the app)
+config/quetzal.json      runtime configuration (editable from the app)
 config/providers.json    model providers (keys encrypted)
 secrets/                 0700: master.key (key-encryption master), gateway.token, feishu_secret, soul_ed25519, azure_speech_key
 vault/                   0700: the vault, one 0600 file per item; index.json holds hints only
-data/windler.db          SQLite: kv / timeline / messages / audit / usage
+data/quetzal.db          SQLite: kv / timeline / messages / audit / usage
 data/catalog.json        cached public model catalog (models.dev)
 data/uploads/<date>/     chat attachments
 data/media/              photos and recordings she made (Termux adapter)
@@ -22,12 +22,12 @@ STOP                     emergency stop flag: if present, everything freezes
 > [!IMPORTANT]
 > `secrets/`, `vault/` and `config/providers.json` belong to this body only; they never enter the soul repository or sync. When backing up the phone, back up the whole home directory.
 
-## `config/windler.json`
+## `config/quetzal.json`
 
 | Key | Default | Meaning |
 |---|---|---|
 | `body` | `default` | Body name (journal directory); the installer writes the device model |
-| `adapter` | `""` | Adapter module path (the Termux deployment uses the `WINDLER_ADAPTER` environment variable instead) |
+| `adapter` | `""` | Adapter module path (the Termux deployment uses the `QUETZAL_ADAPTER` environment variable instead) |
 | `timezone` | System timezone (`Asia/Shanghai` if unavailable) | Timezone for the body clock and journal |
 | `heart.activity` | `1` | Activity knob (0–4) |
 | `heart.baseRatePerHour` | `4` | Saturated wake rate $\lambda_0$ |
@@ -49,21 +49,21 @@ All of these are editable from the app; no file editing required.
 
 | Variable | Meaning |
 |---|---|
-| `WINDLER_HOME` | Home directory |
-| `WINDLER_ADAPTER` | Body adapter module path |
-| `WINDLER_CONSOLE_ACTIVITY` | (Termux adapter) the activity opened by the notification button, default `xyz.windler.console/.MainActivity` |
+| `QUETZAL_HOME` | Home directory |
+| `QUETZAL_ADAPTER` | Body adapter module path |
+| `QUETZAL_CONSOLE_ACTIVITY` | (Termux adapter) the activity opened by the notification button, default `xyz.quetzal.console/.MainActivity` |
 
 ## Android / Termux deployment conventions
 
-The Windler app's installer and igniter follow these:
+The Quetzal app's installer and igniter follow these:
 
 ```
-~/windler/releases/<version>/      main.cjs, termux.mjs
-~/windler/current → releases/…     the running version
-~/windler/previous → releases/…    the previous version (for rollback)
-$PREFIX/var/service/windler/run    runit service: WINDLER_ADAPTER=$HOME/windler/current/termux.mjs
-$PREFIX/var/log/sv/windler/        logs (rotated by svlogd)
-~/.termux/boot/windler             boot script: termux-wake-lock + start runit
+~/quetzal/releases/<version>/      main.cjs, termux.mjs
+~/quetzal/current → releases/…     the running version
+~/quetzal/previous → releases/…    the previous version (for rollback)
+$PREFIX/var/service/quetzal/run    runit service: QUETZAL_ADAPTER=$HOME/quetzal/current/termux.mjs
+$PREFIX/var/log/sv/quetzal/        logs (rotated by svlogd)
+~/.termux/boot/quetzal             boot script: termux-wake-lock + start runit
 ~/.termux/termux.properties        allow-external-apps=true
 ```
 
@@ -71,14 +71,14 @@ Packages: `nodejs-lts termux-services termux-api git openssh`. Only the last thr
 
 ## Linux / npm deployment conventions
 
-The npm package `windler` (`npx windler`) follows these, mirroring Android:
+The npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal`) follows these, mirroring Android:
 
 ```
-~/windler/releases/<version>/           main.cjs, linux.mjs
-~/windler/current → releases/…          the running version
-~/windler/previous → releases/…         the previous version (for rollback)
-~/.config/systemd/user/windler.service  systemd user service: WINDLER_HOME, WINDLER_ADAPTER=~/windler/current/linux.mjs, Restart=always
-journalctl --user -u windler            logs (npx windler logs)
+~/quetzal/releases/<version>/           main.cjs, linux.mjs
+~/quetzal/current → releases/…          the running version
+~/quetzal/previous → releases/…         the previous version (for rollback)
+~/.config/systemd/user/quetzal.service  systemd user service: QUETZAL_HOME, QUETZAL_ADAPTER=~/quetzal/current/linux.mjs, Restart=always
+journalctl --user -u quetzal            logs (npx @plutokeating/quetzal logs)
 ```
 
-Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` in `config/windler.json`.
+Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` in `config/quetzal.json`.

@@ -5,7 +5,7 @@ description: Installing a newer APK upgrades the runtime; a failed health check 
 
 ## Upgrading
 
-The Windler app bundles the runtime. After installing a newer APK, the app notices its bundled version is newer than the running one and offers a **one-tap upgrade** on the home screen; you can also trigger it from **Control → Service → Upgrade / Reinstall**.
+The Quetzal app bundles the runtime. After installing a newer APK, the app notices its bundled version is newer than the running one and offers a **one-tap upgrade** on the home screen; you can also trigger it from **Control → Service → Upgrade / Reinstall**.
 
 Upgrading runs the same idempotent script as installation:
 

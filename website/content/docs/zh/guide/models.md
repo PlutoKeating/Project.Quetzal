@@ -56,7 +56,7 @@ flowchart TB
 
 ## Key 的保存
 
-- Key 用 **AES-256-GCM** 加密保存在手机上，主密钥在 `WINDLER_HOME/secrets/`；
+- Key 用 **AES-256-GCM** 加密保存在手机上，主密钥在 `QUETZAL_HOME/secrets/`；
 - 任何接口只返回**末四位**；
 - Key **不进入灵魂仓库**：换身体时不会跟着走，每具身体各自配置。
 

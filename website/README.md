@@ -1,6 +1,6 @@
-# website · Windler 产品官网
+# website · Quetzal 产品官网
 
-Windler 的产品官网源码：首页、亮点功能、文档教程（`/docs`）、下载页，以及 About / Terms / Privacy。纯前端，没有后端；构建时预渲染为静态 HTML，托管在 Cloudflare Workers（静态资源模式），线上地址 https://windler.plutokeating.beer 。
+Quetzal 的产品官网源码：首页、亮点功能、文档教程（`/docs`）、下载页，以及 About / Terms / Privacy。纯前端，没有后端；构建时预渲染为静态 HTML，托管在 Cloudflare Workers（静态资源模式），线上地址 https://quetzal.plutokeating.beer 。
 
 ```bash
 npm ci

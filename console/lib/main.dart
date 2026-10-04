@@ -1,4 +1,4 @@
-// Windler 控制台：观察、交流、调节与管理任意 agent。只是前端，不托管运行基座；可保存多个 agent 连接并一键切换。
+// Quetzal 控制台：观察、交流、调节与管理任意 agent。只是前端，不托管运行基座；可保存多个 agent 连接并一键切换。
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'markdown.dart';
@@ -54,7 +54,7 @@ class ConsoleApp extends StatelessWidget {
     return ListenableBuilder(
       listenable: api,
       builder: (context, _) => MaterialApp(
-        title: 'Windler',
+        title: 'Quetzal',
         debugShowCheckedModeBanner: false,
         theme: theme(Brightness.light),
         darkTheme: theme(Brightness.dark),

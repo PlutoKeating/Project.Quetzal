@@ -38,7 +38,7 @@ class _HearingPageState extends State<HearingPage> {
         final reasons = (s['reasons'] as List?)?.cast<String>() ?? [];
         final last = hearing.lastHeard ?? (s['last'] as Map?);
         return ListView(padding: const EdgeInsets.only(bottom: 24), children: [
-          Padding(padding: const EdgeInsets.all(16), child: Text('开着时，这台手机的控制台常驻用麦克风听（通知栏有「Windler 在听」）。听到有人说话就转成文字交给 ${api.name}，在会话里显示为「环境声音」；是不是在对她说、要不要回应，由她自己判断。识别用「语音」页里的 Azure 密钥。')),
+          Padding(padding: const EdgeInsets.all(16), child: Text('开着时，这台手机的控制台常驻用麦克风听（通知栏有「Quetzal 在听」）。听到有人说话就转成文字交给 ${api.name}，在会话里显示为「环境声音」；是不是在对她说、要不要回应，由她自己判断。识别用「语音」页里的 Azure 密钥。')),
           SwitchListTile(
             title: const Text('开启听觉'), subtitle: Text(reasons.isEmpty ? (hearing.running ? '正在听' : '基座已就绪，等待本机开麦克风') : '没在听：${reasons.join('、')}'),
             value: s['enabled'] == true, onChanged: (v) => _set({'enabled': v}),

@@ -5,7 +5,7 @@ description: A summary of the soul repository specification (v4) — directory t
 
 ## Scope
 
-This page summarizes the [Soul Repository Specification v4](https://github.com/PlutoKeating/Project.Windler/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
+This page summarizes the [Soul Repository Specification v4](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
 
 ## Repository
 

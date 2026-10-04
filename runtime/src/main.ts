@@ -35,7 +35,7 @@ async function main() {
   log("main", `运行基座 ${VERSION} 启动（身体：${config.body}，家目录：${paths.home}）${safeMode ? " —— 安全模式" : ""}`);
   process.on("unhandledRejection", (e: any) => log("main", `未处理的异常：${e?.stack ?? e}`));
 
-  await loadAdapter(config.adapter || process.env.WINDLER_ADAPTER);
+  await loadAdapter(config.adapter || process.env.QUETZAL_ADAPTER);
   startGateway(safeMode);
   wireFeishu();
   await startFeishu();

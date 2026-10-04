@@ -5,7 +5,7 @@ description: agent 的名字、代词、简介、主题色与语言存放在哪�
 
 ## 身份是数据，不是代码
 
-Windler 不绑定任何具体的 agent。一个 agent 的身份是一份 `agent.json`：
+Quetzal 不绑定任何具体的 agent。一个 agent 的身份是一份 `agent.json`：
 
 | 字段 | 含义 |
 |---|---|

@@ -6,7 +6,7 @@ const appDir = fileURLToPath(new URL("../app/", import.meta.url));
 
 export default function tsconfigPaths(): Plugin {
   return {
-    name: "windler-tsconfig-paths",
+    name: "quetzal-tsconfig-paths",
     config: () => ({ resolve: { alias: { "~": appDir.replace(/\/$/, "") } } }),
   };
 }

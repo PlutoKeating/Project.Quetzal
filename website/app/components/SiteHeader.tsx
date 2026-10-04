@@ -27,7 +27,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-20 border-b border-border bg-surface-glass backdrop-blur-glass">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-30 focus:rounded-md focus:bg-fg focus:px-3 focus:py-1 focus:text-bg">{t.skip}</a>
       <div className="mx-auto flex h-(--ds-header-height) max-w-wide items-center justify-between gap-4 px-5 sm:px-8">
-        <Link to={localized(lang, "/")} className="flex items-center gap-2.5 text-fg" aria-label="Windler">
+        <Link to={localized(lang, "/")} className="flex items-center gap-2.5 text-fg" aria-label="Quetzal">
           <Wordmark />
         </Link>
         <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">

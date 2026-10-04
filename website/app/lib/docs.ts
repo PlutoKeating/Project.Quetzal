@@ -65,4 +65,4 @@ export function getFlatPages(lang: Lang): NavPage[] {
 }
 
 export const editUrl = (lang: Lang, section: string, slug: string) =>
-  `https://github.com/PlutoKeating/Project.Windler/edit/main/website/content/docs/${lang}/${section}/${slug}.md`;
+  `https://github.com/PlutoKeating/Project.Quetzal/edit/main/website/content/docs/${lang}/${section}/${slug}.md`;

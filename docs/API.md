@@ -1,10 +1,10 @@
 # 接口
 
-Windler 对外有两类接口：**网关 API**（控制台、主机工具使用）和**身体适配器接口**（设备仓库实现）。
+Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用）和**身体适配器接口**（设备仓库实现）。
 
 ## 1. 网关
 
-缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788）；配置 `gateway.host` 为 `0.0.0.0` 可对局域网开放（`npx windler --lan`），此时配对码与令牌是唯一门槛，只在可信的局域网里这样做。
+缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788）；配置 `gateway.host` 为 `0.0.0.0` 可对局域网开放（`npx @plutokeating/quetzal --lan`），此时配对码与令牌是唯一门槛，只在可信的局域网里这样做。
 
 ### 1.1 HTTP
 
@@ -15,7 +15,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | POST | `/pair/finish` | `{code}` → `{ok, token}`；错误码 403（不正确）、410（失效或尝试超过 5 次） |
 | GET | `/media/<文件名>?token=<令牌>` | 她的声音：控制台 App 取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |
 | POST | `/hear?started=<毫秒时刻>&token=<令牌>[&stream=1&id=<标识>&bargein=1]` | 听觉。`bargein=1`：这句话打断了她的播放（App 本地已停播），以「打断」并入。`stream=1`：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输），基座用官方 SDK 流式识别，中间结果经 `hearing` 事件推送；否则请求体为一整句 WAV（最多 4 MiB）一次识别。→ `{ok, id, text, conv?, dropped?}`；`started` 为这句话开始的时刻，用于判断是不是她自己在说话（丢弃）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
-| POST | `/upload?name=<文件名>&token=<令牌>` | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `WINDLER_HOME/data/uploads/<日期>/` |
+| POST | `/upload?name=<文件名>&token=<令牌>` | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `QUETZAL_HOME/data/uploads/<日期>/` |
 | GET | `/uploads/<rel>?token=<令牌>` | 下载附件（控制台预览图片）；只能访问 uploads 目录内的文件 |
 
 ### 1.2 WebSocket `/rpc?token=<令牌>`
@@ -30,7 +30,7 @@ Windler 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `state` | 与 `status` 相同的完整状态（去抖 500ms） |
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
 | `approval` | 审批 `{id, action, reason, args, status}` |
-| `say` | Windler 主动说的话（字符串） |
+| `say` | Quetzal 主动说的话（字符串） |
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（太短、没听清、她自己在说话、没在听）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
@@ -202,20 +202,20 @@ interface RawSample {
 
 约束：
 
-- 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带两个平台级实现：`runtime/adapters/termux/`（安卓手机 + Termux:API）构建为 `dist/termux.mjs`，由 Windler App 的安装器随运行基座放到手机上；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `windler` 随运行基座放到 `~/windler/current/`；
-- 适配器从 `WINDLER_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
+- 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带两个平台级实现：`runtime/adapters/termux/`（安卓手机 + Termux:API）构建为 `dist/termux.mjs`，由 Quetzal App 的安装器随运行基座放到手机上；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `@plutokeating/quetzal` 随运行基座放到 `~/quetzal/current/`；
+- 适配器从 `QUETZAL_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理。
 
-Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Windler」按钮）、`playAudio()` / `stopAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`WINDLER_HOME`（媒体保存位置 `data/media/`）、`WINDLER_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.windler.console/.MainActivity`）。
+Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Quetzal」按钮）、`playAudio()` / `stopAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`QUETZAL_HOME`（媒体保存位置 `data/media/`）、`QUETZAL_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.quetzal.console/.MainActivity`）。
 
-Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/power_supply`，跳过蓝牙鼠标等外设电池；`charging` 在「Not charging」且外接电源在线时也为真）、电池自身温度（`temp` 节点，笔记本少有），`extra` 里的 CPU 温度（`/sys/class/thermal`，不冒充体温，因为心脏与听觉按手机电池的 45°C 抑制）与电源来源；`describe` 含发行版（`/etc/os-release`）、是否笔记本、有没有桌面、摄像头与声卡；`notify()`（有桌面时 `notify-send`，同时写到标准输出即服务日志，没有桌面的机器从日志里看配对码）、`playAudio()` / `stopAudio()`（`pw-play` / `paplay` / `ffplay` / `mpv`，WAV 还可 `aplay`）；工具 `take_photo`（camera：`ffmpeg` + `/dev/video0`）、`record_audio`（microphone：`arecord` / `pw-record` / `parecord` / `ffmpeg`）、`screenshot`（hands：Wayland 下 `grim` / `gnome-screenshot` / `spectacle`，X11 下 `scrot` / `gnome-screenshot` / `spectacle` / `import`）、`clipboard`（device：`wl-clipboard` / `xclip` / `xsel`）、`open`（device：`xdg-open`）。没有图形界面时与界面相关的工具直接说明，不报错崩溃。同样不提供 `speak`。环境变量只有 `WINDLER_HOME`。
+Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/power_supply`，跳过蓝牙鼠标等外设电池；`charging` 在「Not charging」且外接电源在线时也为真）、电池自身温度（`temp` 节点，笔记本少有），`extra` 里的 CPU 温度（`/sys/class/thermal`，不冒充体温，因为心脏与听觉按手机电池的 45°C 抑制）与电源来源；`describe` 含发行版（`/etc/os-release`）、是否笔记本、有没有桌面、摄像头与声卡；`notify()`（有桌面时 `notify-send`，同时写到标准输出即服务日志，没有桌面的机器从日志里看配对码）、`playAudio()` / `stopAudio()`（`pw-play` / `paplay` / `ffplay` / `mpv`，WAV 还可 `aplay`）；工具 `take_photo`（camera：`ffmpeg` + `/dev/video0`）、`record_audio`（microphone：`arecord` / `pw-record` / `parecord` / `ffmpeg`）、`screenshot`（hands：Wayland 下 `grim` / `gnome-screenshot` / `spectacle`，X11 下 `scrot` / `gnome-screenshot` / `spectacle` / `import`）、`clipboard`（device：`wl-clipboard` / `xclip` / `xsel`）、`open`（device：`xdg-open`）。没有图形界面时与界面相关的工具直接说明，不报错崩溃。同样不提供 `speak`。环境变量只有 `QUETZAL_HOME`。
 
-## 3. 配置项（`config/windler.json`）
+## 3. 配置项（`config/quetzal.json`）
 
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `body` | `default` | 身体名称（日记目录名）；安装器写为机型名 |
-| `adapter` | `""` | 适配器模块路径（Termux 部署用环境变量 `WINDLER_ADAPTER` 指定） |
+| `adapter` | `""` | 适配器模块路径（Termux 部署用环境变量 `QUETZAL_ADAPTER` 指定） |
 | `timezone` | 系统时区（拿不到时 `Asia/Shanghai`） | 生物钟与日记使用的时区 |
 | `heart.activity` / `baseRatePerHour` / `paused` | 1 / 4 / false | 活跃度、饱和醒来率、暂停 |
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日预算与身体限制 |

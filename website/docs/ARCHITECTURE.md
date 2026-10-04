@@ -11,8 +11,8 @@ flowchart LR
   TW --> RR
   RR --> OUT["build/client/<br/>/, /404, /zh/…, /en/…, *.data, assets/"]
   OUT -- postbuild --> OUT2["+ 404.html + sitemap.xml"]
-  OUT2 -- wrangler deploy（Workers Builds） --> CF["Cloudflare Workers 静态资源<br/>windler.plutokeating.beer"]
-  BR["浏览器"] -- 只读 GitHub 公开 API --> GH["api.github.com/repos/PlutoKeating/Project.Windler/releases"]
+  OUT2 -- wrangler deploy（Workers Builds） --> CF["Cloudflare Workers 静态资源<br/>quetzal.plutokeating.beer"]
+  BR["浏览器"] -- 只读 GitHub 公开 API --> GH["api.github.com/repos/PlutoKeating/Project.Quetzal/releases"]
   CF --> BR
 ```
 
@@ -33,11 +33,11 @@ flowchart LR
 - 宽度断点来自设计系统（`sm`…`2xl`），高度用 `short:`（`max-height`），方向用 Tailwind 内置的 `portrait:` / `landscape:`。
 - 首屏 hero 高度为视口减顶栏（`100dvh - 顶栏`），矮窗口（横屏手机）时取消最小高度并压缩留白；`Section` 统一处理 `short:` 留白。
 - 所有间距、字号均为 rem，不写像素。
-- 外观：默认跟随系统（`prefers-color-scheme`），顶栏的切换按钮写入 `localStorage` 键 `windler.theme` 并设置 `<html data-theme>`；`root.tsx` 内联脚本在首屏前应用，避免闪烁。
+- 外观：默认跟随系统（`prefers-color-scheme`），顶栏的切换按钮写入 `localStorage` 键 `quetzal.theme` 并设置 `<html data-theme>`；`root.tsx` 内联脚本在首屏前应用，避免闪烁。
 
 ## 3.1 首页的示意与「活着」
 
-- **三条带子** `components/figure.tsx` 的 `WakeCompare`（hero 与亮点页 01 共用）：Codex / Claude Code 只在你调用时有点；Hermes / OpenClaw 每 30 分钟一个 heartbeat 刻度；Windler 是随清醒度起伏的随机醒来点与大段睡眠。对照口径经查证：Hermes 有 cron，OpenClaw 有 heartbeat（默认 30 分钟）与 cron。
+- **三条带子** `components/figure.tsx` 的 `WakeCompare`（hero 与亮点页 01 共用）：Codex / Claude Code 只在你调用时有点；Hermes / OpenClaw 每 30 分钟一个 heartbeat 刻度；Quetzal 是随清醒度起伏的随机醒来点与大段睡眠。对照口径经查证：Hermes 有 cron，OpenClaw 有 heartbeat（默认 30 分钟）与 cron。
 - **凭证小字**：`lib/github.ts` 的 `fetchRepoStats` 取星标与最新版本（星标少于 10 时只显示 GitHub）。
 
 - **呼吸光斑** `Breath`：有机形状的柔光，`animate-breath`（亮度 ±8%、5 秒周期）。

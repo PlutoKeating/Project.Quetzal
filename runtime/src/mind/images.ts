@@ -54,7 +54,7 @@ export function shrinkJpegJs(file: string, out: string, maxEdge = MAX_EDGE): boo
 
 /** 依次尝试缩图工具，最后是内置的 jpeg-js；导出供测试逐个验证。 */
 export async function shrink(file: string, only?: "ffmpeg" | "magick" | "convert" | "jpeg-js"): Promise<string | undefined> {
-  const out = path.join(os.tmpdir(), `windler-img-${process.pid}-${Date.now()}.jpg`);
+  const out = path.join(os.tmpdir(), `quetzal-img-${process.pid}-${Date.now()}.jpg`);
   const tries: [string, string[]][] = [
     // 注意：这里不经过 shell，参数里不能带引号；force_original_aspect_ratio=decrease 保持比例、只缩不放（只在大文件时调用）
     ["ffmpeg", ["-y", "-loglevel", "error", "-i", file, "-vf", `scale=${MAX_EDGE}:${MAX_EDGE}:force_original_aspect_ratio=decrease`, "-frames:v", "1", "-q:v", "4", out]],

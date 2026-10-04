@@ -4,7 +4,7 @@
 <rect x="60" y="90" width="400" height="470" rx="18" fill="#131417" stroke="#2a2b30"/>
 <text x="84" y="128" font-size="20" font-weight="600" fill="#a9a49c" letter-spacing="1">身体 · 任意设备，经适配器接入</text>
 <rect x="520" y="60" width="650" height="540" rx="18" fill="#131417" stroke="#2a2b30"/>
-<text x="544" y="98" font-size="20" font-weight="600" fill="#a9a49c" letter-spacing="1">Windler 运行基座 · 单进程 Node.js</text>
+<text x="544" y="98" font-size="20" font-weight="600" fill="#a9a49c" letter-spacing="1">Quetzal 运行基座 · 单进程 Node.js</text>
 <rect x="1220" y="60" width="320" height="540" rx="18" fill="#131417" stroke="#2a2b30"/>
 <text x="1244" y="98" font-size="20" font-weight="600" fill="#a9a49c" letter-spacing="1">灵魂 · 私有 git 仓库</text>
 <rect x="100" y="150" width="320" height="96" rx="12" fill="#17181c" stroke="#2a2b30" stroke-width="1.5"/>
@@ -60,7 +60,7 @@
 <text x="680.0" y="710" text-anchor="middle" font-size="26" font-weight="600" fill="#e8e4dd">本地网关</text>
 <text x="680.0" y="740" text-anchor="middle" font-size="17" fill="#a9a49c">127.0.0.1</text>
 <rect x="880" y="670" width="240" height="96" rx="12" fill="#17181c" stroke="#2a2b30" stroke-width="1.5"/>
-<text x="1000.0" y="710" text-anchor="middle" font-size="26" font-weight="600" fill="#e8e4dd">Windler App</text>
+<text x="1000.0" y="710" text-anchor="middle" font-size="26" font-weight="600" fill="#e8e4dd">Quetzal App</text>
 <text x="1000.0" y="740" text-anchor="middle" font-size="17" fill="#a9a49c">控制台 + 安装器</text>
 <rect x="1260" y="670" width="240" height="96" rx="12" fill="#17181c" stroke="#2a2b30" stroke-width="1.5"/>
 <text x="1380.0" y="710" text-anchor="middle" font-size="26" font-weight="600" fill="#e8e4dd">飞书</text>

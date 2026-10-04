@@ -6,7 +6,7 @@ import { simulateDay } from "~/lib/bodyClock";
 import { cx, StatusDot } from "~/design-system/components";
 import { Frame, T, Lamp, WakeCompare, type CompareLabels } from "~/components/figure";
 
-/* 01 三条带子：Codex / Hermes-OpenClaw / Windler */
+/* 01 三条带子：Codex / Hermes-OpenClaw / Quetzal */
 export function WakeTimeline({ t }: { t: CompareLabels }) {
   return <WakeCompare t={t} />;
 }

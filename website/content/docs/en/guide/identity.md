@@ -5,7 +5,7 @@ description: Where the agent's name, pronouns, description, theme color and lang
 
 ## Identity is data, not code
 
-Windler is not bound to any particular agent. An agent's identity is one file, `agent.json`:
+Quetzal is not bound to any particular agent. An agent's identity is one file, `agent.json`:
 
 | Field | Meaning |
 |---|---|

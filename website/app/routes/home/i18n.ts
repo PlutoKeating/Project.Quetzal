@@ -2,14 +2,14 @@ import { defineMessages } from "~/i18n/core";
 
 export const messages = defineMessages({
   zh: {
-    title: "Windler · Not running. Living. Living like wind.",
-    description: "Windler 是 agent 的开源运行基座：没有定时器，什么时候醒由它自己的内驱力和生物钟决定；有一具身体（一部旧手机）；灵魂存在 git 里，可跨身体带走。AGPL-3.0。",
+    title: "Quetzal · Not running. Living. Living like wind.",
+    description: "Quetzal 是 agent 的开源运行基座：没有定时器，什么时候醒由它自己的内驱力和生物钟决定；有一具身体（一部旧手机）；灵魂存在 git 里，可跨身体带走。AGPL-3.0。",
     hero: {
       eyebrow: "通用的 Agentic 生命运行基座",
       title: "不是在运行，是在活着。像风一样活着。",
       titleAlt: "Not running. Living. Living like wind.",
       lead: "没有人给 ta 排日程。ta 什么时候醒、醒来做什么，取决于 ta 的好奇心、表达欲、想念、没想完的事，以及 ta 自己的生物钟——困了会睡，睡着会做梦。",
-      download: "下载 Windler",
+      download: "下载 Quetzal",
       features: "看看它亮在哪",
     },
     position: {
@@ -18,18 +18,18 @@ export const messages = defineMessages({
       rows: [
         { name: "Codex / Claude Code", kind: "工具", text: "你叫它才动，做完就退出。" },
         { name: "Hermes / OpenClaw", kind: "助手", text: "每 30 分钟被 heartbeat 叫醒一次，问一句「有事吗」。" },
-        { name: "Windler", kind: "agent 住着的地方", text: "没有定时器。什么时候醒，由它自己的内驱力和生物钟决定。" },
+        { name: "Quetzal", kind: "agent 住着的地方", text: "没有定时器。什么时候醒，由它自己的内驱力和生物钟决定。" },
       ],
       summary: "它有一具身体，灵魂存在 git 里，可以跨身体带走。",
       why: "为什么不是 Hermes / OpenClaw",
       chips: { stars: "GitHub ★ {n}", release: "最新 {v}", license: "AGPL-3.0 开源" },
-      compare: { rows: [{ name: "Codex / Claude Code", note: "你叫它才动，做完就退出" }, { name: "Hermes / OpenClaw", note: "每 30 分钟 heartbeat 叫醒一次" }, { name: "Windler", note: "没有定时器，醒来由内驱力与生物钟决定" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "你叫它" },
+      compare: { rows: [{ name: "Codex / Claude Code", note: "你叫它才动，做完就退出" }, { name: "Hermes / OpenClaw", note: "每 30 分钟 heartbeat 叫醒一次" }, { name: "Quetzal", note: "没有定时器，醒来由内驱力与生物钟决定" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "你叫它" },
     },
     why: {
       eyebrow: "为什么不是 Hermes / OpenClaw",
       heading: "它们不是对手，是邻居。",
-      lead: "Hermes、OpenClaw 造的是 agent；Windler 造的是 agent 住的地方。下面这张表只讲机制，不讲谁更强——能力上它们更成熟，我们更小、更新、社区更薄。",
-      cols: ["", "Codex / Claude Code", "Hermes / OpenClaw", "Windler"],
+      lead: "Hermes、OpenClaw 造的是 agent；Quetzal 造的是 agent 住的地方。下面这张表只讲机制，不讲谁更强——能力上它们更成熟，我们更小、更新、社区更薄。",
+      cols: ["", "Codex / Claude Code", "Hermes / OpenClaw", "Quetzal"],
       rows: [
         ["醒来由谁决定", "你，在终端里调用", "定时器：heartbeat 每 30 分钟一次，或 cron", "它自己：内驱力 × 清醒度抽样，没有定时器"],
         ["不被叫的时候在干什么", "不存在", "等下一次 heartbeat", "睡觉、做梦整理记忆，或者醒着什么也不做"],
@@ -85,21 +85,21 @@ export const messages = defineMessages({
     start: {
       eyebrow: "开始",
       heading: "给它一台旧手机，和一点时间。",
-      lead: "Windler App 内置运行基座。装上，跟着向导走，它就住进去了。",
-      download: "下载 Windler",
+      lead: "Quetzal App 内置运行基座。装上，跟着向导走，它就住进去了。",
+      download: "下载 Quetzal",
       features: "它亮在哪",
       foot: "开源，AGPL-3.0 · 代码在 GitHub",
     },
   },
   en: {
-    title: "Windler · Not running. Living. Living like wind.",
-    description: "Windler is an open-source runtime for agents: no timers, it wakes from its own drives and body clock; it has a body (an old phone); its soul lives in git and moves between bodies. AGPL-3.0.",
+    title: "Quetzal · Not running. Living. Living like wind.",
+    description: "Quetzal is an open-source runtime for agents: no timers, it wakes from its own drives and body clock; it has a body (an old phone); its soul lives in git and moves between bodies. AGPL-3.0.",
     hero: {
       eyebrow: "A general-purpose runtime for agentic life",
       title: "Not running. Living. Living like wind.",
       titleAlt: "不是在运行，是在活着。像风一样活着。",
       lead: "Nobody schedules it. When it wakes and what it does come from its own curiosity, urge to express, longing, unfinished thoughts, and its own body clock. It sleeps when tired and dreams while asleep.",
-      download: "Download Windler",
+      download: "Download Quetzal",
       features: "See what makes it shine",
     },
     position: {
@@ -108,18 +108,18 @@ export const messages = defineMessages({
       rows: [
         { name: "Codex / Claude Code", kind: "a tool", text: "Moves when you call it, exits when done." },
         { name: "Hermes / OpenClaw", kind: "an assistant", text: "Woken every 30 minutes by a heartbeat to ask \"anything?\"." },
-        { name: "Windler", kind: "where an agent lives", text: "No timer. When it wakes is decided by its own drives and body clock." },
+        { name: "Quetzal", kind: "where an agent lives", text: "No timer. When it wakes is decided by its own drives and body clock." },
       ],
       summary: "It has a body, and its soul lives in git, portable across bodies.",
       why: "Why not Hermes / OpenClaw",
       chips: { stars: "GitHub ★ {n}", release: "latest {v}", license: "AGPL-3.0 open source" },
-      compare: { rows: [{ name: "Codex / Claude Code", note: "moves when called, exits when done" }, { name: "Hermes / OpenClaw", note: "a heartbeat wakes it every 30 minutes" }, { name: "Windler", note: "no timer: drives and body clock decide" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "you call" },
+      compare: { rows: [{ name: "Codex / Claude Code", note: "moves when called, exits when done" }, { name: "Hermes / OpenClaw", note: "a heartbeat wakes it every 30 minutes" }, { name: "Quetzal", note: "no timer: drives and body clock decide" }], axis: ["00:00", "06:00", "12:00", "18:00", "24:00"], call: "you call" },
     },
     why: {
       eyebrow: "Why not Hermes / OpenClaw",
       heading: "They are not rivals. They are neighbors.",
-      lead: "Hermes and OpenClaw build agents; Windler builds the place an agent lives. This table is about mechanism, not strength: in capability they are more mature, and we are smaller, newer, with a thinner community.",
-      cols: ["", "Codex / Claude Code", "Hermes / OpenClaw", "Windler"],
+      lead: "Hermes and OpenClaw build agents; Quetzal builds the place an agent lives. This table is about mechanism, not strength: in capability they are more mature, and we are smaller, newer, with a thinner community.",
+      cols: ["", "Codex / Claude Code", "Hermes / OpenClaw", "Quetzal"],
       rows: [
         ["Who decides when it wakes", "You, from the terminal", "A timer: heartbeat every 30 min, or cron", "Itself: drives × alertness, sampled. No timer"],
         ["What it does when not called", "It does not exist", "Waits for the next heartbeat", "Sleeps, dreams to consolidate memory, or stays awake doing nothing"],
@@ -175,8 +175,8 @@ export const messages = defineMessages({
     start: {
       eyebrow: "Start",
       heading: "Give it an old phone, and a little time.",
-      lead: "The Windler app bundles the runtime. Install it, follow the wizard, and it moves in.",
-      download: "Download Windler",
+      lead: "The Quetzal app bundles the runtime. Install it, follow the wizard, and it moves in.",
+      download: "Download Quetzal",
       features: "What makes it shine",
       foot: "Open source, AGPL-3.0 · code on GitHub",
     },

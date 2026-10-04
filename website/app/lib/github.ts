@@ -4,10 +4,10 @@
  */
 
 export const GITHUB_OWNER = "PlutoKeating";
-export const GITHUB_REPO_NAME = "Project.Windler";
+export const GITHUB_REPO_NAME = "Project.Quetzal";
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO_NAME}/releases?per_page=30`;
 
-const CACHE_KEY = "windler.releases";
+const CACHE_KEY = "quetzal.releases";
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 export type AssetKind = "apk" | "runtime" | "checksums" | "other";
@@ -49,7 +49,7 @@ export class ReleasesError extends Error {
 export function classifyAsset(name: string): AssetKind {
   const n = name.toLowerCase();
   if (n === "sha256sums" || n.endsWith(".sha256") || n.endsWith("sha256sums.txt")) return "checksums";
-  if (n.startsWith("windler-runtime-") && (n.endsWith(".tar.gz") || n.endsWith(".tgz"))) return "runtime";
+  if (n.startsWith("quetzal-runtime-") && (n.endsWith(".tar.gz") || n.endsWith(".tgz"))) return "runtime";
   if (n.endsWith(".apk")) return "apk";
   return "other";
 }
@@ -167,7 +167,7 @@ export async function fetchReleases(options: { force?: boolean } = {}): Promise<
 /* ---------- 仓库概况（首页凭证小字用） ---------- */
 
 export type RepoStats = { stars: number; latestTag: string | null };
-const STATS_KEY = "windler.repo-stats";
+const STATS_KEY = "quetzal.repo-stats";
 
 /** 星标数与最新版本号：GitHub 公开 API，sessionStorage 缓存 10 分钟；失败返回 null（页面静默降级）。 */
 export async function fetchRepoStats(): Promise<RepoStats | null> {

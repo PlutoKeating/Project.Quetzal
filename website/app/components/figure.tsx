@@ -42,7 +42,7 @@ export const Lamp = ({ cx: x, cy, r = 5, delay = 0 }: { cx: number; cy: number; 
 
 export type CompareLabels = { rows: readonly { name: string; note: string }[]; axis: readonly string[]; call: string };
 
-/** 三条 24 小时带子：Codex / Claude Code（你叫它才动）· Hermes / OpenClaw（每 30 分钟 heartbeat）· Windler（没有定时器）。 */
+/** 三条 24 小时带子：Codex / Claude Code（你叫它才动）· Hermes / OpenClaw（每 30 分钟 heartbeat）· Quetzal（没有定时器）。 */
 export function WakeCompare({ t, bare }: { t: CompareLabels; bare?: boolean }) {
   const x0 = 40, x1 = 440, rows = [84, 174, 264];
   const px = (h: number) => x0 + ((x1 - x0) * h) / 24;

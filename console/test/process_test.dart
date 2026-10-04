@@ -1,6 +1,6 @@
 // 进行中的一轮：进展事件折叠成快照（与后端 fold 一致），工具卡片与 steps 的对应。
 import 'package:flutter_test/flutter_test.dart';
-import 'package:windler_console/process.dart';
+import 'package:quetzal_console/process.dart';
 
 void main() {
   test('LiveTurn.apply 折叠进展事件', () {

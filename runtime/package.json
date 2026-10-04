@@ -1,5 +1,5 @@
 {
-  "name": "windler-core",
+  "name": "quetzal-core",
   "version": "0.4.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --outfile=dist/main.cjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs && esbuild adapters/linux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/linux.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "dev": "WINDLER_HOME=./.dev node --experimental-strip-types src/main.ts"
+    "dev": "QUETZAL_HOME=./.dev node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",

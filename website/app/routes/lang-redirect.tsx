@@ -1,7 +1,7 @@
 import type { Route } from "./+types/lang-redirect";
 import { LANGS, REDIRECT_SCRIPT, LANG_LABEL } from "~/i18n/core";
 
-export const meta: Route.MetaFunction = () => [{ title: "Windler" }, { name: "robots", content: "noindex" }];
+export const meta: Route.MetaFunction = () => [{ title: "Quetzal" }, { name: "robots", content: "noindex" }];
 
 /** 根路径：按访客偏好跳到 /zh 或 /en。预渲染为静态页，脚本内联，首屏即跳。 */
 export default function LangRedirect() {

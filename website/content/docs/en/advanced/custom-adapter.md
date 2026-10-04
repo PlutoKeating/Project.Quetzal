@@ -1,6 +1,6 @@
 ---
 title: Custom body adapter
-description: Turn a new device into a body with a few dozen lines of TypeScript — implement BodyAdapter, build it on its own, point WINDLER_ADAPTER at it.
+description: Turn a new device into a body with a few dozen lines of TypeScript — implement BodyAdapter, build it on its own, point QUETZAL_ADAPTER at it.
 ---
 
 ## What an adapter is
@@ -61,10 +61,10 @@ export default adapter;
 
 ```bash
 npx esbuild my-adapter.ts --bundle --platform=node --target=node22 --format=esm --outfile=my-adapter.mjs
-WINDLER_HOME=~/windler WINDLER_ADAPTER=$PWD/my-adapter.mjs node --enable-source-maps main.cjs
+QUETZAL_HOME=~/quetzal QUETZAL_ADAPTER=$PWD/my-adapter.mjs node --enable-source-maps main.cjs
 ```
 
-The path can also go into the `adapter` field of `config/windler.json`.
+The path can also go into the `adapter` field of `config/quetzal.json`.
 
 ## From samples to feelings
 
@@ -80,6 +80,6 @@ Sampling intervals adapt: two minutes while things change, stretching to ten whe
 
 ## What the Termux adapter provides (reference)
 
-`sample()`: battery / charging / temperature / health, light and motion (sensors detected by name; absent ones are not reported); `notify()` (with an "Open Windler" button), `playAudio()`; tools `take_photo`, `record_audio`, `location`, `vibrate`, `torch`, `clipboard`, `read_sensor`. No `speak` (many phones have no system TTS); speech comes from the runtime's `voice_speak` (Azure Speech).
+`sample()`: battery / charging / temperature / health, light and motion (sensors detected by name; absent ones are not reported); `notify()` (with an "Open Quetzal" button), `playAudio()`; tools `take_photo`, `record_audio`, `location`, `vibrate`, `torch`, `clipboard`, `read_sensor`. No `speak` (many phones have no system TTS); speech comes from the runtime's `voice_speak` (Azure Speech).
 
 Full types in [Adapter interface](/docs/reference/adapter-interface).

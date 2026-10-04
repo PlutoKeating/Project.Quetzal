@@ -1,5 +1,5 @@
-// Windler 身体适配器：任意 Linux 电脑或服务器（笔记本、小主机、树莓派、云主机）。
-// 由 npm 包 `windler`（cli/）随运行基座一起安装；只依赖 body/adapter.ts 的类型定义（构建时擦除）。
+// Quetzal 身体适配器：任意 Linux 电脑或服务器（笔记本、小主机、树莓派、云主机）。
+// 由 npm 包 `@plutokeating/quetzal`（cli/）随运行基座一起安装；只依赖 body/adapter.ts 的类型定义（构建时擦除）。
 // 一切靠探测：电池、温度读 /sys；桌面工具（通知、播放、截图、剪贴板、相机、录音）有什么用什么，没有时工具报错而不崩溃。
 import fs from "node:fs";
 import os from "node:os";
@@ -8,7 +8,7 @@ import type { ChildProcess } from "node:child_process";
 import type { BodyAdapter, AdapterTool, RawSample } from "../../src/body/adapter.ts";
 import { run, start, have, first, readText, prettyName, pickBattery, pickThermal, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "./linux.ts";
 
-const MEDIA = path.join(process.env.WINDLER_HOME ?? path.join(os.homedir(), "windler"), "data", "media");
+const MEDIA = path.join(process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal"), "data", "media");
 const POWER = "/sys/class/power_supply";
 const THERMAL = "/sys/class/thermal";
 
@@ -134,7 +134,7 @@ const adapter: BodyAdapter = {
   // 系统通知：有桌面时用 notify-send；同时写到标准输出（服务日志），没有桌面的机器从日志里看配对码
   async notify(title, text) {
     process.stdout.write(`[linux] 通知：${title} — ${text}\n`);
-    if (desktop() && have("notify-send")) await run("notify-send", ["-a", "Windler", "-u", "normal", title, text], 10_000);
+    if (desktop() && have("notify-send")) await run("notify-send", ["-a", "Quetzal", "-u", "normal", title, text], 10_000);
   },
   // 播放音频（如语音合成的结果）：后台播放，立即返回；stopAudio 停止
   async playAudio(file) {

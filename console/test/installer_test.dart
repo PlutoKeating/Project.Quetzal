@@ -2,11 +2,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:windler_console/installer.dart';
+import 'package:quetzal_console/installer.dart';
 
 void main() {
   test('下发的命令：先取回脚本再执行，端口与镜像参数透传', () {
-    expect(Installer.command(4567), 'curl -fsS http://127.0.0.1:4567/install.sh -o "\$PREFIX/tmp/windler-install.sh" && bash "\$PREFIX/tmp/windler-install.sh" 4567');
+    expect(Installer.command(4567), 'curl -fsS http://127.0.0.1:4567/install.sh -o "\$PREFIX/tmp/quetzal-install.sh" && bash "\$PREFIX/tmp/quetzal-install.sh" 4567');
     expect(Installer.command(4567, cnMirror: true), endsWith(' 4567 cn'));
   });
 

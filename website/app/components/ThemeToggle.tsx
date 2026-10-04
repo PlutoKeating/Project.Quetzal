@@ -4,7 +4,7 @@ import { shellMessages } from "./i18n";
 import { cx } from "~/design-system/components";
 
 type Theme = "system" | "light" | "dark";
-const KEY = "windler.theme";
+const KEY = "quetzal.theme";
 
 /** 内联到 <head> 的脚本：首屏前应用已保存的外观，避免闪烁。 */
 export const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem(${JSON.stringify(KEY)});if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}})();`;
