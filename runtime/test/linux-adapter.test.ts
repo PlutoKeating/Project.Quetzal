@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pickBattery, pickThermal, prettyName, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "../adapters/linux/linux.ts";
+import { hasRebootLine, withRebootLine, DROPIN_OFF } from "../adapters/linux/supervise.ts";
 
 test("挑出整机电池，跳过蓝牙鼠标之类的外设电池", () => {
   assert.equal(pickBattery([{ name: "ADP0", type: "Mains" }, { name: "hidpp_battery_7", type: "Battery", scope: "Device" }, { name: "BAT0", type: "Battery" }]), "BAT0");
@@ -46,4 +47,22 @@ test("什么工具都没有的机器上：初始化与采样不崩溃，工具�
   assert.match(await adapter.tools!.find((t) => t.name === "record_audio")!.handler({ seconds: 1 }), /需要/);
   await assert.rejects(adapter.playAudio!("x.mp3"), /播放器/);
   await adapter.stopAudio!();
+});
+
+test("守护开关：crontab 的 @reboot 行增删不碰其他行；systemd 覆盖片段关闭自动重启", () => {
+  const sup = "/home/u/quetzal/bin/quetzal-supervise";
+  assert.equal(hasRebootLine("", sup), false);
+  assert.equal(hasRebootLine(`0 * * * * backup\n@reboot ${sup}\n`, sup), true);
+  assert.equal(withRebootLine("0 * * * * backup\n", sup, true), `0 * * * * backup\n@reboot ${sup}\n`);
+  assert.equal(withRebootLine(`0 * * * * backup\n@reboot ${sup}\n`, sup, false), "0 * * * * backup\n");
+  assert.equal(withRebootLine(`@reboot ${sup}\n`, sup, false), "");
+  assert.match(DROPIN_OFF, /\[Service\]\nRestart=no/);
+});
+
+test("没有 systemd 单元也没有守护循环的机器：守护开关不可用，不崩溃", async () => {
+  process.env.XDG_CONFIG_HOME = "/nonexistent/config"; process.env.QUETZAL_HOME = "/nonexistent/quetzal";
+  const { default: adapter } = await import("../adapters/linux/index.ts");
+  const s = await adapter.supervision!.status();
+  assert.equal(s.available, false);
+  await assert.rejects(adapter.supervision!.set(true), /守护者/);
 });

@@ -7,6 +7,7 @@ import path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import type { BodyAdapter, AdapterTool, RawSample } from "../../src/body/adapter.ts";
 import { run, start, have, first, readText, prettyName, pickBattery, pickThermal, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "./linux.ts";
+import * as supervise from "./supervise.ts";
 
 const MEDIA = path.join(process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal"), "data", "media");
 const POWER = "/sys/class/power_supply";
@@ -147,6 +148,7 @@ const adapter: BodyAdapter = {
   },
   async stopAudio() { playing?.kill("SIGTERM"); playing = undefined; },
   tools,
+  supervision: { status: supervise.status, set: supervise.set }, // 守护开关：systemd 用户服务或一键安装脚本的守护循环
   // speak 不提供：与 Termux 适配器一致，说话统一由运行基座的 voice_speak 完成
   // hands：看屏幕与操作其他应用——只提供 screenshot 工具；点击与输入待做
 };

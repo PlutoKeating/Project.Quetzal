@@ -81,6 +81,7 @@ By default the gateway listens only on `127.0.0.1:<gateway.port>` (default 7788;
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |
 | `restart` | — |
+| `supervision` / `setSupervision` | — / `{enabled}` | Supervision switch (start at boot + restart after exit, one switch for both): `{available, enabled, kind: systemd｜runit｜loop｜none, detail}`. Implemented by the body adapter: on Linux the systemd user service (off = disable + a `Restart=no` drop-in) or the one-line installer's supervisor loop (off = the flag file `state/supervise.off` + removing the boot entries), on Android the runit `down` file + the Termux:Boot script; when `available` is false (manual deployment) the console hides the switch. Turning it off only affects the future: the running process is untouched |
 
 **Memory**
 

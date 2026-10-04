@@ -46,6 +46,7 @@ interface BodyAdapter {
   playAudio?(file: string): Promise<void>;               // 播放音频文件（语音合成的结果）
   tools?: AdapterTool[];
   hands?: Hands;
+  supervision?: { status(): Promise<SupervisionState>; set(enabled: boolean): Promise<void> };  // 守护开关：开机自启 + 退出后自动重启
 }
 ```
 
@@ -93,6 +94,7 @@ interface BodyAdapter {
 | `notify()` | 有桌面时 `notify-send`；同时写到标准输出（服务日志），没有桌面的机器从 `quetzal logs` 看配对码 |
 | `playAudio()` / `stopAudio()` | `pw-play` / `paplay` / `ffplay` / `mpv`，WAV 还可 `aplay`；后台播放，立即返回 |
 | 工具 | `take_photo`（camera：`ffmpeg` 读 `/dev/video0`）、`record_audio`（microphone：`arecord` / `pw-record` / `parecord` / `ffmpeg`，WAV）、`screenshot`（hands：Wayland 下 `grim` / `gnome-screenshot` / `spectacle`，X11 下 `scrot` / `gnome-screenshot` / `spectacle` / `import`）、`clipboard`（device：`wl-clipboard` / `xclip` / `xsel`）、`open`（device：`xdg-open`） |
+| 守护开关 `supervision` | systemd 用户服务 `quetzal.service`（关 = `systemctl --user disable` + 覆盖片段 `quetzal.service.d/quetzal-off.conf` 写 `Restart=no`，daemon-reload 后立即生效）；没有 systemd 时是一键安装脚本的守护循环 `~/quetzal/bin/quetzal-supervise`（关 = 标志文件 `state/supervise.off` 让循环暂停拉起 + 删 crontab `@reboot` 与桌面自启动项）；两者都没有（手动部署）则 `available=false` |
 | `speak` | 不提供；说话由运行基座的 `voice_speak` 完成 |
 | 媒体位置 | `QUETZAL_HOME/data/media/` |
 

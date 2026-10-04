@@ -31,6 +31,18 @@ export interface Hands {
   openApp(id: string): Promise<void>;
 }
 
+/** 守护：开机自启 + 退出后自动重启。由这具身体所在平台的进程守护者（systemd、runit、守护循环……）提供，一个开关管两件事。 */
+export interface SupervisionState {
+  available: boolean;                       // 这具身体有没有可控制的守护者（手动运行、自定义部署时为 false，控制台不显示开关）
+  enabled: boolean;                         // 开机自启且退出后自动重启
+  kind: "systemd" | "runit" | "loop" | "none";
+  detail: string;                           // 给人看的一句话：守护者是谁、怎么拉起
+}
+export interface Supervision {
+  status(): Promise<SupervisionState>;
+  set(enabled: boolean): Promise<void>;     // 关：退出后不再拉起、开机不再自启（正在运行的进程不受影响）；开：恢复两者
+}
+
 export interface BodyAdapter {
   name: string;
   describe: string; // 一句话描述这具身体，写进 agent 的自我认知
@@ -43,6 +55,7 @@ export interface BodyAdapter {
   stopAudio?(): Promise<void>; // 停止播放（对方插嘴时让她闭嘴）
   tools?: AdapterTool[];
   hands?: Hands;
+  supervision?: Supervision;  // 守护开关（控制台「服务」页）；没有的身体不显示
 }
 
 /** 通用适配器：只用操作系统信息，没有传感器。适用于任何能跑 Node 的机器。 */

@@ -456,8 +456,9 @@ class ServicePage extends StatelessWidget {
               Text('系统：已运行 ${sys['uptimeH'] ?? '-'} 小时 · 负载 ${sys['load1'] ?? '-'} · 空闲内存 ${sys['memFreeMB'] ?? '-'} MB · 存储余量 ${sys['storageFreeGB'] ?? '-'} GB'),
               Text('模型：${((s['models'] as List?) ?? []).join('、')}'),
               if (hasBody) FutureBuilder(future: Installer.bundledVersion(), builder: (_, v) => Text('App 内置的运行基座：${v.data ?? '（无）'}${v.data != null && s['version'] != null && v.data != s['version'] ? '，与运行中的不同，可升级' : ''}')),
-              if (!hasBody) const Text('网页版由运行基座自己托管；升级在装它的那台机器上再运行一次 npx @plutokeating/quetzal。'),
+              if (!hasBody) const Text('网页版由运行基座自己托管；升级在装它的那台机器上再跑一次安装命令（curl -fsSL https://quetzal.plutokeating.beer/install | bash）或 npx @plutokeating/quetzal。'),
             ]),
+            const _SupervisionSection(),
             Section('操作', [
               Wrap(spacing: 8, children: [
                 if (hasBody) FilledButton.tonal(onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); }, child: const Text('点火')),
@@ -471,6 +472,42 @@ class ServicePage extends StatelessWidget {
           ]);
         }),
       );
+}
+
+/// 守护开关：开机自启 + 退出后自动重启，一个开关管两件事。由身体适配器实现（Linux：systemd 用户服务或守护循环；安卓：runit + Termux:Boot）；没有守护者的身体不显示。
+class _SupervisionSection extends StatefulWidget {
+  const _SupervisionSection();
+  @override
+  State<_SupervisionSection> createState() => _SupervisionSectionState();
+}
+
+class _SupervisionSectionState extends State<_SupervisionSection> {
+  Map? st;
+  bool busy = false;
+  @override
+  void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    try { final r = await api.call<Map>('supervision'); if (mounted) setState(() => st = r); } catch (_) {}
+  }
+  @override
+  Widget build(BuildContext context) {
+    final s = st;
+    if (s == null || s['available'] != true) return const SizedBox.shrink();
+    final on = s['enabled'] == true;
+    return Section('守护', [
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('开机自启 · 崩溃或意外退出后自动重启'),
+        subtitle: Text('${s['detail'] ?? ''}${on ? '' : '\n已关闭：正在运行的进程不受影响，但退出后不会再被拉起，重启后也不会自己醒来。'}'),
+        value: on,
+        onChanged: busy ? null : (v) async {
+          setState(() => busy = true);
+          final r = await act(context, () => api.call<Map>('setSupervision', {'enabled': v}), ok: v ? '已开启守护' : '已关闭守护');
+          if (mounted) setState(() { busy = false; if (r != null) st = r; });
+        },
+      ),
+    ]);
+  }
 }
 
 String _bridgePrompt(String repo) =>

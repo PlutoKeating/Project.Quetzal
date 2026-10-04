@@ -162,6 +162,14 @@ export const ops = {
   config: () => ({ body: config.body, timezone: config.timezone, heart: config.heart, brain: config.brain, feishu: { ...config.feishu, hasSecret: fs.existsSync(`${paths.secrets}/feishu_secret`) } }),
   setConfig: (a: { timezone?: string; brain?: Partial<typeof config.brain>; heart?: Partial<typeof config.heart> }, actor: string) => { saveConfig(a); audit(actor, "config", "", a, "ok"); return true; },
   restart: (_: unknown, actor: string) => { audit(actor, "restart", "", null, "ok"); setTimeout(() => process.exit(0), 300); return true; }, // 由进程守护者（runit/systemd）重新拉起
+  // 守护开关（开机自启 + 退出后自动重启）：由身体适配器实现；没有的身体返回 available=false，控制台不显示
+  supervision: async () => adapter.supervision ? adapter.supervision.status() : { available: false, enabled: false, kind: "none", detail: "" },
+  setSupervision: async (a: { enabled: boolean }, actor: string) => {
+    if (!adapter.supervision) throw new Error("这具身体没有可控制的守护者");
+    await adapter.supervision.set(a.enabled !== false);
+    audit(actor, "supervision", "", a, "ok");
+    return adapter.supervision.status();
+  },
 };
 
 export type OpName = keyof typeof ops;

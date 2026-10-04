@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import type { BodyAdapter, AdapterTool, RawSample } from "../../src/body/adapter.ts";
 import { run, json, pickSensors } from "./termux.ts";
+import * as supervise from "./supervise.ts";
 
 const MEDIA = path.join(process.env.QUETZAL_HOME ?? path.join(os.homedir(), "quetzal"), "data", "media");
 const CONSOLE_ACTIVITY = process.env.QUETZAL_CONSOLE_ACTIVITY ?? "xyz.quetzal.console/.MainActivity";
@@ -115,6 +116,7 @@ const adapter: BodyAdapter = {
   },
   async stopAudio() { await run("termux-media-player", ["stop"], 10_000); },
   tools,
+  supervision: { status: supervise.status, set: supervise.set }, // 守护开关：runit 服务 + Termux:Boot 开机脚本
   // speak 不提供：很多手机没有系统 TTS 引擎，termux-tts-speak 不出声；说话统一由运行基座的 voice_speak 完成
   // hands：看屏幕与操作其他应用——预留，尚未实现（需要无障碍服务或 shell 身份）
 };

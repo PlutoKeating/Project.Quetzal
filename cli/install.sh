@@ -444,6 +444,7 @@ install_supervisor() {
 #!/bin/sh
 # Quetzal 守护者（没有 systemd 用户实例的机器）：由安装脚本生成。循环拉起运行基座，退出 3 秒后重启；
 # 同一时刻只有一个（flock 或 pid 文件）。开机由 crontab 的 @reboot 或桌面自启动项拉起；停止：kill $(cat state/supervise.pid)
+# 控制台「服务」页的守护开关关闭时会放一个 state/supervise.off：循环看到它就暂停拉起（自己不退出），删掉即恢复。
 HOME_DIR='__HOME_DIR__'
 NODE='__NODE__'
 mkdir -p "$HOME_DIR/state" "$HOME_DIR/logs"
@@ -458,6 +459,7 @@ child=
 trap 'kill "$child" 2>/dev/null; rm -f "$PIDF"; exit 0' INT TERM
 export QUETZAL_HOME="$HOME_DIR" QUETZAL_ADAPTER="$HOME_DIR/current/linux.mjs"
 while :; do
+  while [ -e "$HOME_DIR/state/supervise.off" ]; do sleep 5; done
   if [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 10485760 ]; then mv -f "$LOG" "$LOG.1"; fi
   cd "$HOME_DIR/current" 2>/dev/null || { echo "no current version" >>"$LOG"; sleep 10; continue; }
   "$NODE" --enable-source-maps "$HOME_DIR/current/main.cjs" >>"$LOG" 2>&1 &

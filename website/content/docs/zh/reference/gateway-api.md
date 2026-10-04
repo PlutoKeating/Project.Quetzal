@@ -81,6 +81,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |
 | `restart` | — |
+| `supervision` / `setSupervision` | — / `{enabled}` | 守护开关（开机自启 + 退出后自动重启，一个开关管两件事）：`{available, enabled, kind: systemd｜runit｜loop｜none, detail}`。由身体适配器实现：Linux 是 systemd 用户服务（关 = disable + 覆盖片段 `Restart=no`）或一键安装脚本的守护循环（关 = 标志文件 `state/supervise.off` + 删开机项），安卓是 runit `down` 文件 + Termux:Boot 开机脚本；`available` 为假（手动部署）时控制台不显示开关。关闭只影响之后：正在运行的进程不受影响 |
 
 **记忆**
 
