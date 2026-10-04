@@ -52,8 +52,8 @@ export function WakeCompare({ t, bare }: { t: CompareLabels; bare?: boolean }) {
   const alert = Array.from({ length: 49 }, (_, i) => { const h = i / 2; const c = 0.5 + 0.5 * Math.cos((2 * Math.PI * (h - 16)) / 24); return `${i ? "L" : "M"}${px(h).toFixed(1)},${(rows[2] + 14 - 44 * c).toFixed(1)}`; }).join(" ");
   const head = (i: number, strong?: boolean) => (
     <>
-      <T x={x0} y={rows[i] - 52} className={strong ? "fill-fg font-semibold" : "fill-fg-muted"} size={13}>{t.rows[i].name}</T>
-      <T x={x0} y={rows[i] - 32} className="fill-fg-subtle" size={11}>{t.rows[i].note}</T>
+      <T x={x0} y={rows[i] - 54} className={strong ? "fill-fg font-semibold" : "fill-fg-muted"} size={13}>{t.rows[i].name}</T>
+      <T x={x0} y={rows[i] - 34} className="fill-fg-subtle" size={11}>{t.rows[i].note}</T>
       <line x1={x0} x2={x1} y1={rows[i]} y2={rows[i]} className="stroke-border" strokeWidth="2" />
     </>
   );
