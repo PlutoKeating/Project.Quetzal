@@ -21,11 +21,22 @@ flowchart TB
 
 三个应用都来自 F-Droid。下面是固定版本的直链，没有 F-Droid 客户端也能一次下完：
 
-- **Termux** 0.119.0-beta.3 · 110 MB。运行基座所在的 Linux 环境。  
+- **Termux** · 0.119.0-beta.3 · 110 MB
+
+  运行基座所在的 Linux 环境。
+
   [下载 APK](https://f-droid.org/repo/com.termux_1022.apk) [F-Droid 页面](https://f-droid.org/packages/com.termux/)
-- **Termux:API** 0.53.0 · 3.9 MB。电量、传感器、通知、相机、麦克风、定位、剪贴板；没有它 ta 感知不到身体。  
+
+- **Termux:API** · 0.53.0 · 3.9 MB
+
+  电量、传感器、通知、相机、麦克风、定位、剪贴板；没有它 ta 感知不到身体。
+
   [下载 APK](https://f-droid.org/repo/com.termux.api_1002.apk) [F-Droid 页面](https://f-droid.org/packages/com.termux.api/)
-- **Termux:Boot** 0.8.1 · 26 KB。开机自动启动；没有它重启后要手动点火。  
+
+- **Termux:Boot** · 0.8.1 · 26 KB
+
+  开机自动启动；没有它重启后要手动点火。
+
   [下载 APK](https://f-droid.org/repo/com.termux.boot_1000.apk) [F-Droid 页面](https://f-droid.org/packages/com.termux.boot/)
 
 > [!IMPORTANT]

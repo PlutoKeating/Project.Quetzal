@@ -21,11 +21,22 @@ flowchart TB
 
 All three come from F-Droid. These are direct links to pinned versions, so you can download them all at once without the F-Droid client:
 
-- **Termux** 0.119.0-beta.3 · 110 MB. The Linux environment the runtime lives in.  
+- **Termux** · 0.119.0-beta.3 · 110 MB
+
+  The Linux environment the runtime lives in.
+
   [Download APK](https://f-droid.org/repo/com.termux_1022.apk) [F-Droid page](https://f-droid.org/packages/com.termux/)
-- **Termux:API** 0.53.0 · 3.9 MB. Battery, sensors, notifications, camera, microphone, location, clipboard; without it she cannot feel her body.  
+
+- **Termux:API** · 0.53.0 · 3.9 MB
+
+  Battery, sensors, notifications, camera, microphone, location, clipboard; without it she cannot feel her body.
+
   [Download APK](https://f-droid.org/repo/com.termux.api_1002.apk) [F-Droid page](https://f-droid.org/packages/com.termux.api/)
-- **Termux:Boot** 0.8.1 · 26 KB. Start on boot; without it you must ignite manually after a reboot.  
+
+- **Termux:Boot** · 0.8.1 · 26 KB
+
+  Start on boot; without it you must ignite manually after a reboot.
+
   [Download APK](https://f-droid.org/repo/com.termux.boot_1000.apk) [F-Droid page](https://f-droid.org/packages/com.termux.boot/)
 
 > [!IMPORTANT]

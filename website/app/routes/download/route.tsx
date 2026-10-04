@@ -96,14 +96,16 @@ export default function Download() {
             {([["termux", t.prereq.termux, t.prereq.termuxDesc], ["api", t.prereq.api, t.prereq.apiDesc], ["boot", t.prereq.boot, t.prereq.bootDesc]] as const).map(([k, name, desc], i) => {
               const a = TERMUX_APPS[k];
               return (
-                <Reveal as="li" key={k} delay={i as 0 | 1 | 2}>
-                  <Card className="flex h-full flex-col gap-2">
+                <Reveal as="li" key={k} delay={i as 0 | 1 | 2} className="min-w-0">
+                  <Card className="flex h-full min-w-0 flex-col gap-2">
                     <span className="font-medium text-fg">{name}</span>
                     <span className="text-sm text-fg-muted">{desc}</span>
-                    <ButtonAnchor href={termuxApkUrl(a)} variant="secondary" size="md" className="mt-auto w-full justify-between font-mono text-xs sm:text-sm">
-                      <span>{t.prereq.apk} ↓</span><span className="text-fg-muted">{a.version} · {formatBytes(a.bytes, lang)}</span>
-                    </ButtonAnchor>
-                    <ExternalLink href={termuxPageUrl(a)} className="text-xs text-fg-subtle no-underline hover:underline">{t.prereq.page} ↗</ExternalLink>
+                    <ButtonAnchor href={termuxApkUrl(a)} variant="secondary" size="md" className="mt-3 w-full">{t.prereq.apk} ↓</ButtonAnchor>
+                    <span className="flex flex-wrap items-center gap-x-2 text-xs text-fg-subtle">
+                      <span className="font-mono">{a.version} · {formatBytes(a.bytes, lang)}</span>
+                      <span aria-hidden>·</span>
+                      <ExternalLink href={termuxPageUrl(a)} className="no-underline hover:underline">{t.prereq.page} ↗</ExternalLink>
+                    </span>
                   </Card>
                 </Reveal>
               );
