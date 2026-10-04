@@ -132,6 +132,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |
 | `restart` | — （进程退出，由守护者拉起） |
+| `selfUpdate` | — | 让这具身体在后台重跑一键安装脚本，把运行基座、网页控制台与原生控制台升到最新发布并重启服务一次：`{started, message}`。由适配器的 `upgrade()` 实现（Linux：`systemd-run --user` 起临时单元脱离服务的 cgroup，没有 systemd 用 `setsid`；日志 `logs/upgrade.log`）；安卓没有（App 自己升级） |
 | `supervision` / `setSupervision` | — / `{enabled}` | 守护开关（开机自启 + 退出后自动重启，一个开关管两件事）：`{available, enabled, kind: systemd｜runit｜loop｜none, detail}`。由身体适配器实现：Linux 是 systemd 用户服务（关 = disable + 覆盖片段 `Restart=no`）或一键安装脚本的守护循环（关 = 标志文件 `state/supervise.off` + 删开机项），安卓是 runit `down` 文件 + Termux:Boot 开机脚本；`available` 为假（手动部署）时控制台不显示开关。关闭只影响之后：正在运行的进程不受影响 |
 
 **记忆**
@@ -196,6 +197,7 @@ interface BodyAdapter {
   tools?: AdapterTool[];                   // 设备动作，每个声明所属能力类别
   hands?: Hands;                           // 预留：看屏幕与操作其他应用
   supervision?: { status(): Promise<SupervisionState>; set(enabled: boolean): Promise<void> }; // 守护开关：开机自启 + 退出后自动重启；SupervisionState = {available, enabled, kind, detail}
+  upgrade?(): Promise<string>;             // 从控制台升级：后台重跑安装，立即返回一句说明（Linux 适配器有；安卓由 App 升级）
 }
 interface RawSample {
   battery?: { level: number; charging: boolean; tempC?: number; health?: string };

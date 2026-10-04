@@ -10,6 +10,7 @@ import 'pages/home.dart';
 import 'pages/flow.dart';
 import 'pages/memory.dart';
 import 'pages/control.dart';
+import 'pages/about.dart';
 import 'pages/pairing.dart';
 import 'pages/agents.dart';
 import 'pages/setup.dart';
@@ -150,7 +151,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             else if (appUpdater.hasUpdate && !appUpdater.dismissed && appUpdater.state != UpdateState.handedOff)
               Banner0(text: 'Quetzal App 有新版本 ${appUpdater.latest!.version}（现在是 ${appUpdater.current}）。', color: Colors.blueGrey,
                   action: Row(mainAxisSize: MainAxisSize.min, children: [
-                    FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServicePage())), child: const Text('更新')),
+                    FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutPage())), child: const Text('更新')),
                     IconButton(onPressed: () => setState(() => appUpdater.dismissed = true), icon: const Icon(Icons.close, size: 18), tooltip: '这次先不'),
                   ])),
             Expanded(child: pages[tab]),

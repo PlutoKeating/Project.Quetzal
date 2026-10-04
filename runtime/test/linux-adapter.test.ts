@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pickBattery, pickThermal, prettyName, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "../adapters/linux/linux.ts";
 import { hasRebootLine, withRebootLine, DROPIN_OFF } from "../adapters/linux/supervise.ts";
+import { upgradeShell, detachCommand } from "../adapters/linux/upgrade.ts";
 
 test("挑出整机电池，跳过蓝牙鼠标之类的外设电池", () => {
   assert.equal(pickBattery([{ name: "ADP0", type: "Mains" }, { name: "hidpp_battery_7", type: "Battery", scope: "Device" }, { name: "BAT0", type: "Battery" }]), "BAT0");
@@ -65,4 +66,15 @@ test("没有 systemd 单元也没有守护循环的机器：守护开关不可�
   const s = await adapter.supervision!.status();
   assert.equal(s.available, false);
   await assert.rejects(adapter.supervision!.set(true), /守护者/);
+});
+
+test("从控制台升级：命令下载安装脚本并写日志；有 systemd 用 systemd-run 脱离服务 cgroup，没有用 setsid", () => {
+  const sh = upgradeShell("/h/quetzal/logs/upgrade.log");
+  assert.match(sh, /curl -fsSL https:\/\/quetzal\.plutokeating\.beer\/install/);
+  assert.match(sh, /bash -s -- --no-open/);
+  assert.match(sh, /upgrade\.log/);
+  const a = detachCommand(sh, true, "u1");
+  assert.equal(a.cmd, "systemd-run"); assert.ok(a.args.includes("--unit=u1") && a.args.includes("--user"));
+  const b = detachCommand(sh, false);
+  assert.equal(b.cmd, "setsid"); assert.equal(b.args[0], "-f");
 });

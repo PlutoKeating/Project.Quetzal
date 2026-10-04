@@ -32,7 +32,8 @@ lib/
     ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用）、自主性、审批（ApprovalCard）、授权、预算、审计、保密库、飞书、语音、灵魂同步、服务
     ├── tools.dart     工具：她自己造的工具（定义、源码、技能文档）与灵魂仓库里的技能文档；停用 / 启用、删除
     ├── hearing.dart   听觉：开关、灵敏度、会话窗口、识别语言、麦克风权限；此刻在不在听、最近听到的话
-    └── providers.dart 模型（供应商、Key、模型选择、全局顺序）
+    ├── providers.dart 模型（供应商、Key、模型选择、全局顺序）
+    └── about.dart     关于（三种形态共用）：简介与链接、版本（控制台 / 运行基座 / GitHub 最新发布）、检查更新、升级——安卓用 updater.dart 的 AppUpdateSection 与安装向导，Linux 桌面版 / 网页版调网关 selfUpdate 让运行基座后台重跑安装脚本，桌面版升完可「重新打开控制台」
 tool/
 ├── bundle-runtime.sh  把运行基座内置进 APK（assets/runtime/）
 ├── build-web.sh       网页版构建（build/web）

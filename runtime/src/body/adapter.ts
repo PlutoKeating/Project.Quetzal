@@ -56,6 +56,8 @@ export interface BodyAdapter {
   tools?: AdapterTool[];
   hands?: Hands;
   supervision?: Supervision;  // 守护开关（控制台「服务」页）；没有的身体不显示
+  /** 让这具身体在后台重跑安装（升级运行基座与控制台到最新发布）：立即返回一句说明，进程随后由守护者重启。没有的身体（安卓由 App 升级）不提供 */
+  upgrade?(): Promise<string>;
 }
 
 /** 通用适配器：只用操作系统信息，没有传感器。适用于任何能跑 Node 的机器。 */

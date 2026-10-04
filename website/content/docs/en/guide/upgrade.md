@@ -5,7 +5,9 @@ description: The app finds new releases and installs them in one tap, then upgra
 
 ## Upgrading
 
-**Linux machines**: rerun the install command `curl -fsSL https://quetzal.plutokeating.beer/install | bash` (or `npx @plutokeating/quetzal`). The new version (web console included) goes into a new version directory and only becomes current once the health check passes; otherwise it rolls back automatically. `quetzal rollback` reverts by hand.
+**Start at "About"**: Control → About exists in all three forms (Android app, Linux desktop, web): a short introduction, the console and runtime versions, "Check for updates" (asks GitHub for the latest release) and an upgrade button. On Android it updates the app itself (downloads the APK, verifies it, hands it to the system installer); on the Linux desktop and web versions "Upgrade to x.y.z" makes the runtime rerun the installer in the background on its machine and restart once; the desktop version then offers "Reopen the console".
+
+**Linux machines**: you can also rerun the install command by hand `curl -fsSL https://quetzal.plutokeating.beer/install | bash` (or `npx @plutokeating/quetzal`). The new version (web console included) goes into a new version directory and only becomes current once the health check passes; otherwise it rolls back automatically. `quetzal rollback` reverts by hand.
 
 **Phones**: two layers, both one tap inside the app.
 

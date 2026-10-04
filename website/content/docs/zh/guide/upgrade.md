@@ -5,7 +5,9 @@ description: App 自己发现新版并一键下载安装，新 App 再升级运�
 
 ## 升级
 
-**Linux 机器**：再跑一次安装命令 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`（或 `npx @plutokeating/quetzal`），新版本（含网页控制台）放进新的版本目录，健康检查通过才切换，失败自动切回；`quetzal rollback` 手动回退。
+**先看「关于」**：控制 → 关于，三种形态（安卓 App、Linux 桌面版、网页版）都有这一页：简介、控制台与运行基座的版本、「检查更新」（问 GitHub 最新正式版）与升级按钮。安卓上升级 App 自身（下载 APK、核对、交给系统安装器），Linux 桌面版与网页版上点「升级到 x.y.z」，运行基座会在它所在的机器上后台重跑安装脚本并重启一次，桌面版装完再点「重新打开控制台」。
+
+**Linux 机器**：也可以手动再跑一次安装命令 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`（或 `npx @plutokeating/quetzal`），新版本（含网页控制台）放进新的版本目录，健康检查通过才切换，失败自动切回；`quetzal rollback` 手动回退。
 
 **手机**：分两层，都在 App 里一键完成。
 

@@ -10,6 +10,7 @@ import '../widgets.dart';
 import 'providers.dart';
 import 'agents.dart';
 import 'setup.dart';
+import 'about.dart';
 import 'tools.dart';
 import 'hearing.dart';
 import '../installer.dart';
@@ -46,6 +47,7 @@ List<ControlItem> controlItems() {
     ControlItem('soul', '连接', Icons.cloud_sync, '灵魂同步', () => '与其他身体共享人格与记忆', () => const SoulPage()),
     ControlItem('history', '连接', Icons.history, '记忆历史', () => '每一次变更来自哪具身体，可查看与撤销', () => const HistoryPage()),
     ControlItem('service', '运维', Icons.monitor_heart, '服务', () => '版本 ${s['version'] ?? '-'} · 身体 ${s['body'] ?? '-'}（${s['adapter'] ?? '-'}）', () => const ServicePage()),
+    ControlItem('about', '运维', Icons.info_outline, '关于', () => '简介 · 版本 · 检查更新与升级', () => const AboutPage()),
   ];
 }
 
@@ -488,7 +490,6 @@ class ServicePage extends StatelessWidget {
               if (!hasBody) Text(isDesktop ? '升级：在这台机器上再跑一次安装命令（curl -fsSL https://quetzal.plutokeating.beer/install | bash），运行基座与这个控制台一起更新。' : '网页版由运行基座自己托管；升级在装它的那台机器上再跑一次安装命令（curl -fsSL https://quetzal.plutokeating.beer/install | bash）或 npx @plutokeating/quetzal。'),
             ]),
             const _SupervisionSection(),
-            if (hasBody) const AppUpdateSection(),
             Section('操作', [
               Wrap(spacing: 8, children: [
                 if (hasBody) FilledButton.tonal(onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); }, child: const Text('点火')),

@@ -164,6 +164,13 @@ export const ops = {
   restart: (_: unknown, actor: string) => { audit(actor, "restart", "", null, "ok"); setTimeout(() => process.exit(0), 300); return true; }, // 由进程守护者（runit/systemd）重新拉起
   // 守护开关（开机自启 + 退出后自动重启）：由身体适配器实现；没有的身体返回 available=false，控制台不显示
   supervision: async () => adapter.supervision ? adapter.supervision.status() : { available: false, enabled: false, kind: "none", detail: "" },
+  // 从控制台升级这具身体上的运行基座与控制台：由适配器在后台重跑安装（Linux）；安卓由 App 自己升级，这里不提供
+  selfUpdate: async (_: unknown, actor: string) => {
+    if (!adapter.upgrade) throw new Error("这具身体不支持从控制台升级：安卓请在 App 里更新；其他机器在装它的机器上重跑安装命令");
+    const message = await adapter.upgrade();
+    audit(actor, "selfUpdate", "", null, "ok");
+    return { started: true, message };
+  },
   setSupervision: async (a: { enabled: boolean }, actor: string) => {
     if (!adapter.supervision) throw new Error("这具身体没有可控制的守护者");
     await adapter.supervision.set(a.enabled !== false);
