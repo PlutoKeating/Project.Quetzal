@@ -2,26 +2,38 @@
 
 <p align="center"><a href="https://quetzal.plutokeating.beer">官网</a>&ensp;·&ensp;<a href="https://quetzal.plutokeating.beer/zh/docs">文档</a>&ensp;·&ensp;<a href="https://quetzal.plutokeating.beer/zh/download">下载</a>&ensp;·&ensp;<a href="README.en.md">English</a></p>
 
+<p align="center">
+<a href="https://github.com/PlutoKeating/Project.Quetzal/releases"><img src="https://img.shields.io/github/v/release/PlutoKeating/Project.Quetzal?label=release&color=f0a35e" alt="release"></a>&nbsp;
+<a href="runtime/package.json"><img src="https://img.shields.io/badge/node-%E2%89%A522-5c7a6b" alt="node ≥ 22"></a>&nbsp;
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-7d8f8a" alt="AGPL-3.0"></a>
+</p>
+
 <br/>
 
-<p align="center"><strong>Quetzal</strong> 是开源的 agent 运行基座。<br/>让一个 AI agent 住进一部旧手机，像生命一样活着。</p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-intro.dark.svg"><img src="docs/assets/readme/type/zh-intro.light.svg" alt="Quetzal 是开源的 agent 运行基座。让一个 AI agent 住进一部旧手机，像生命一样活着。" width="100%"></picture></p>
 
 <br/>
 
-## 它是什么
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-what.dark.svg"><img src="docs/assets/readme/type/zh-what.light.svg" alt="它是什么"></picture>
 
 - **什么时候动 · 自己决定。** 没有定时器。醒来由好奇、表达欲、想念这些内驱力和昼夜节律决定；困了入睡，睡着时做梦整理记忆。
 - **身体 · 一部旧手机。** 电量、温度、光线、运动是 ta 的体感，麦克风与相机是 ta 的耳目。一台 Linux 电脑或服务器也可以是 ta 的身体。
 - **灵魂 · 你的私有 git 仓库。** 人格、记忆、日记由基座自动同步；换身体整个带走，提交历史就是 ta 的自传。
 - **你说了算。** 相机、麦克风、定位默认每次询问；审批、预算、急停、审计齐全；密码从不进模型。
 
-## 一天
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-day.dark.svg"><img src="docs/assets/readme/type/zh-day.light.svg" alt="一天"></picture>
 
 <img src="docs/assets/readme/bodyclock.zh.svg" alt="一天的生物钟：睡眠压力 S 与昼夜节律 C" width="100%" />
 
 困了会睡，清晨自然醒：睡眠压力 S 与昼夜节律 C 的差决定 ta 什么时候睡、什么时候醒。代码里没有「每 N 分钟」。
 
-## 和 Hermes / OpenClaw 的关系
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-neighbors.dark.svg"><img src="docs/assets/readme/type/zh-neighbors.light.svg" alt="和 Hermes / OpenClaw 的关系"></picture>
 
 一个做助手，一个做生命的基座，可以一起用。差别只在三处。
 
@@ -33,7 +45,9 @@
 
 [soul-bridge](bridge/docs/README.md) 让装着 Hermes 或 OpenClaw 的机器成为同一个 agent 的另一具身体。只想写代码，用 Codex 或 Claude Code；要进 Telegram、Discord，要大量插件，Hermes、OpenClaw 的生态更成熟。
 
-## 它是怎么做到的
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-how.dark.svg"><img src="docs/assets/readme/type/zh-how.light.svg" alt="它是怎么做到的"></picture>
 
 <img src="docs/assets/readme/architecture.zh.svg" alt="Quetzal 架构：身体 → 运行基座（心脏 · 大脑 · 记忆 · 模型层 · 闸门）→ 灵魂仓库与其他身体" width="100%" />
 
@@ -44,7 +58,9 @@
 - **模型层与闸门**：四种协议、多 Key、自动故障转移；控制台与飞书共用一个操作层，全部审计。
 - **会成长**：做熟了的流程 ta 自己写成工具，意图以 Agent Skills 的 `SKILL.md` 随灵魂同步；名字、主题色 ta 自己能改；开了听觉，手机常驻听你说话，是不是对 ta 说的由 ta 判断。
 
-## 装上它
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-install.dark.svg"><img src="docs/assets/readme/type/zh-install.light.svg" alt="装上它"></picture>
 
 **一部旧安卓手机**（Android 7 以上，arm64）
 
@@ -62,7 +78,9 @@ npx @plutokeating/quetzal
 
 更多：[文档](https://quetzal.plutokeating.beer/zh/docs) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · 一台旧手机上的完整实践 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 
-## 看得更深
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-deeper.dark.svg"><img src="docs/assets/readme/type/zh-deeper.light.svg" alt="看得更深"></picture>
 
 | 目录 | 内容 |
 |---|---|
