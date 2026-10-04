@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { layout, defaultHome, versionOf, rollback } from "./layout.ts";
 import * as svc from "./service.ts";
 import { health } from "./health.ts";
-import { install, placeRelease, bundled, gatewayPort, gatewayHost } from "./install.ts";
+import { install, placeRelease, bundled, gatewayPort, gatewayHost, consoleUrl, hasConsole } from "./install.ts";
 
 const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as { version: string };
 const say = (s: string) => console.log(s);
@@ -17,7 +17,8 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
 用法：npx @plutokeating/quetzal [命令] [选项]
 
 命令（不给命令 = install）：
-  install            安装或升级到包里内置的版本，注册 systemd 用户服务并启动；失败自动切回上一版
+  install            安装或升级到包里内置的版本，注册 systemd 用户服务并启动；失败自动切回上一版；有桌面时顺手打开网页控制台
+  open               在浏览器里打开网页控制台（http://127.0.0.1:<端口>/）
   run                前台运行（没有 systemd 时用；Ctrl-C 退出）
   status             版本、服务与健康状态
   logs [-f] [-n N]   服务日志（journald）；-f 持续输出
@@ -30,19 +31,21 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
   --home DIR         家目录（默认 $QUETZAL_HOME 或 ~/quetzal）
   --lan | --no-lan   网关对局域网开放（手机上的 App 直接连这台机器）/ 只监听本机（默认不改）
   --force            已是同一版本也重新安装
+  --no-open          装完不自动打开浏览器
 
-装好之后的一切（模型、身份、授权、飞书、灵魂仓库）都在 Quetzal App 里完成：连接新的 agent → 填这台机器的地址 → 申请配对码。
-配对码会以桌面通知弹出；没有桌面的机器从 quetzal logs 里看。`;
+装好之后的一切（模型、身份、授权、飞书、灵魂仓库）都在网页控制台里完成：这台机器上的浏览器打开 http://127.0.0.1:<端口>/ 即登录。
+手机上的 Quetzal App 也能连：连接新的 agent → 填这台机器的地址 → 申请配对码（桌面通知弹出；没有桌面的机器从 quetzal logs 里看）。`;
 
 function parse(argv: string[]) {
-  const o: { cmd?: string; home: string; lan?: boolean; force: boolean; purge: boolean; follow: boolean; lines: number } =
-    { home: defaultHome(), force: false, purge: false, follow: false, lines: 80 };
+  const o: { cmd?: string; home: string; lan?: boolean; force: boolean; purge: boolean; follow: boolean; lines: number; open: boolean } =
+    { home: defaultHome(), force: false, purge: false, follow: false, lines: 80, open: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--home") o.home = path.resolve(argv[++i] ?? "");
     else if (a === "--lan") o.lan = true;
     else if (a === "--no-lan") o.lan = false;
     else if (a === "--force") o.force = true;
+    else if (a === "--no-open") o.open = false;
     else if (a === "--purge") o.purge = true;
     else if (a === "-f" || a === "--follow") o.follow = true;
     else if (a === "-n") o.lines = Number(argv[++i]) || 80;
@@ -69,6 +72,18 @@ async function status(home: string) {
   say(`运行基座  ${h ? `${h.version} ${h.safeMode ? "安全模式" : h.mode}` : "没有响应"}`);
   const host = gatewayHost(l);
   say(`网关      ${host}:${gatewayPort(l)}${host === "127.0.0.1" ? "（只监听本机；要让手机上的 App 直接连，执行 quetzal install --lan，或建 ssh 隧道）" : "（局域网可达）"}`);
+  say(`网页控制台 ${hasConsole(l) ? `${consoleUrl(l)}（quetzal open）` : "（这个版本没有内置网页控制台）"}`);
+}
+
+/** 在默认浏览器里打开网页控制台；没有桌面（服务器、ssh 会话）就只打印地址。 */
+async function open(home: string): Promise<void> {
+  const l = layout(home);
+  const url = consoleUrl(l);
+  if (!hasConsole(l)) { say(`这个版本没有内置网页控制台；网关在 ${url}`); return; }
+  if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) { say(`没有桌面会话：在有浏览器的机器上打开 ${url}（需要先 ssh -L ${gatewayPort(l)}:127.0.0.1:${gatewayPort(l)} 转发端口）`); return; }
+  const p = spawn("xdg-open", [url], { stdio: "ignore", detached: true });
+  p.on("error", () => say(`打不开浏览器（没有 xdg-open）：请手动打开 ${url}`));
+  p.on("spawn", () => { p.unref(); say(`已在浏览器里打开 ${url}`); });
 }
 
 /** 前台运行 current 版本：没有 systemd 的机器用，或者调试。 */
@@ -90,7 +105,14 @@ async function main() {
   requireNode();
   const l = layout(o.home);
   switch (cmd) {
-    case "install": await install({ home: o.home, lan: o.lan, force: o.force }, say); say(""); return status(o.home);
+    case "install": {
+      const fresh = !versionOf(l.current);
+      await install({ home: o.home, lan: o.lan, force: o.force }, say); say("");
+      await status(o.home);
+      if (fresh && o.open) { say(""); await open(o.home); } // 第一次装好：顺手打开网页控制台，接下来的配置都在里面
+      return;
+    }
+    case "open": return open(o.home);
     case "run": process.exitCode = await runForeground(o.home); return;
     case "status": return status(o.home);
     case "logs": process.exitCode = await svc.logs(o.lines, o.follow); return;

@@ -54,3 +54,18 @@ test("配置只改安装需要的键；身体名字由主机名派生", () => {
   assert.equal(defaultBody("---"), "linux");
   assert.equal(defaultBody("srv_01").length, 6);
 });
+
+test("整个子目录（网页控制台 web/）随版本放入，重复放入时整体替换", () => {
+  const { l, files } = fixture();
+  fs.mkdirSync(l.releases, { recursive: true });
+  const web = path.join(l.home, "web-src"); fs.mkdirSync(path.join(web, "assets"), { recursive: true });
+  fs.writeFileSync(path.join(web, "index.html"), "<html>v1</html>"); fs.writeFileSync(path.join(web, "assets", "a.js"), "1");
+  const dir = putRelease(l, "0.5.0", files, [{ name: "web", from: web }]);
+  assert.equal(fs.readFileSync(path.join(dir, "web", "index.html"), "utf8"), "<html>v1</html>");
+  assert.equal(fs.readFileSync(path.join(dir, "web", "assets", "a.js"), "utf8"), "1");
+  fs.writeFileSync(path.join(web, "index.html"), "<html>v2</html>"); fs.rmSync(path.join(web, "assets"), { recursive: true });
+  putRelease(l, "0.5.0", files, [{ name: "web", from: web }]);
+  assert.equal(fs.readFileSync(path.join(dir, "web", "index.html"), "utf8"), "<html>v2</html>");
+  assert.ok(!fs.existsSync(path.join(dir, "web", "assets")), "旧文件不残留");
+  assert.ok(!fs.existsSync(path.join(dir, "web.part")));
+});

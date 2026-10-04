@@ -1,6 +1,6 @@
 // 家目录布局：与 Android 安装器完全一致的版本目录约定（releases/<版本>/、current、previous），切换、回滚、清理。
 //   QUETZAL_HOME/
-//   ├── releases/<版本>/main.cjs、linux.mjs    每个安装过的版本
+//   ├── releases/<版本>/main.cjs、linux.mjs、web/   每个安装过的版本（web/ 为网页控制台的静态文件）
 //   ├── current  → releases/<版本>              正在运行的版本
 //   ├── previous → releases/<版本>              上一个版本（回滚用）
 //   └── config/quetzal.json 等                  运行基座自己的家目录内容
@@ -28,13 +28,20 @@ function point(link: string, dir: string) {
   fs.renameSync(tmp, link);
 }
 
-/** 把一组文件放进 releases/<版本>/（先写 .part 再改名，不会留下半个版本）。返回版本目录。 */
-export function putRelease(l: Layout, version: string, files: { name: string; from: string }[]): string {
+/** 把一组文件（与整个子目录）放进 releases/<版本>/（先写 .part 再改名，不会留下半个版本）。返回版本目录。 */
+export function putRelease(l: Layout, version: string, files: { name: string; from: string }[], dirs: { name: string; from: string }[] = []): string {
   const dir = path.join(l.releases, version);
   fs.mkdirSync(dir, { recursive: true });
   for (const f of files) {
     const to = path.join(dir, f.name);
     fs.copyFileSync(f.from, `${to}.part`);
+    fs.renameSync(`${to}.part`, to);
+  }
+  for (const d of dirs) {
+    const to = path.join(dir, d.name);
+    fs.rmSync(`${to}.part`, { recursive: true, force: true });
+    fs.cpSync(d.from, `${to}.part`, { recursive: true });
+    fs.rmSync(to, { recursive: true, force: true });
     fs.renameSync(`${to}.part`, to);
   }
   return dir;

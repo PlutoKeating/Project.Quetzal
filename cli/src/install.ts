@@ -10,22 +10,31 @@ import { waitHealthy } from "./health.ts";
 export type Say = (line: string) => void;
 export interface Options { home: string; lan?: boolean; force?: boolean }
 
-/** 包里内置的运行基座（tool/bundle-runtime.sh 放进 dist/runtime/）。 */
+/** 包里内置的运行基座与网页控制台（tool/bundle-runtime.sh 放进 dist/runtime/）。 */
 export function bundled() {
   const dir = fileURLToPath(new URL("./runtime/", import.meta.url));
   const version = fs.readFileSync(path.join(dir, "VERSION"), "utf8").trim();
-  return { dir, version, files: ["main.cjs", "linux.mjs"].map((name) => ({ name, from: path.join(dir, name) })) };
+  const web = path.join(dir, "web");
+  return {
+    dir, version,
+    files: ["main.cjs", "linux.mjs"].map((name) => ({ name, from: path.join(dir, name) })),
+    dirs: fs.existsSync(path.join(web, "index.html")) ? [{ name: "web", from: web }] : [],
+  };
 }
 
 export const gatewayPort = (l: Layout) => Number(readConfig(l).gateway?.port) || 7788;
 export const gatewayHost = (l: Layout) => String(readConfig(l).gateway?.host || "127.0.0.1");
+/** 网页控制台在这台机器上的地址（网关托管）。 */
+export const consoleUrl = (l: Layout) => `http://127.0.0.1:${gatewayPort(l)}/`;
+/** 这台机器上有没有网页控制台（当前版本目录里有 web/index.html）。 */
+export const hasConsole = (l: Layout) => fs.existsSync(path.join(l.current, "web", "index.html"));
 
 /** 把内置版本放进家目录并切换 current（服务不动）。返回 {version, changed, before}。 */
 export function placeRelease(l: Layout, force = false) {
   const b = bundled();
   const before = versionOf(l.current);
   if (before === b.version && !force) return { version: b.version, changed: false, before };
-  const dir = putRelease(l, b.version, b.files);
+  const dir = putRelease(l, b.version, b.files, b.dirs);
   const size = fs.statSync(path.join(dir, "main.cjs")).size;
   if (size < 100_000) throw new Error("运行基座文件不完整");
   switchTo(l, dir);
@@ -62,6 +71,7 @@ export async function install(o: Options, say: Say): Promise<void> {
     throw new Error("运行基座 40 秒内没有响应。日志：quetzal logs");
   }
   say(`运行基座 ${h.version} 正常${h.safeMode ? "（安全模式：反复崩溃，请看日志）" : ""}。`);
+  if (hasConsole(l)) say(`网页控制台：${consoleUrl(l)}（这台机器上的浏览器打开即登录；别的设备用 Quetzal App 加配对码）`);
   const removed = prune(l);
   if (removed.length) say(`清理旧版本：${removed.join("、")}`);
   if (!linger) say("提示：loginctl enable-linger 未成功，这个用户没有登录会话时服务不会运行；服务器上可手动执行 `sudo loginctl enable-linger $USER`。");
