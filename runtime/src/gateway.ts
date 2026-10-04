@@ -1,4 +1,4 @@
-// 本地网关：HTTP + WebSocket（JSON-RPC 风格），只监听 127.0.0.1，令牌认证。控制台 App 与主机工具都通过它访问 agent。
+// 本地网关：HTTP + WebSocket（JSON-RPC 风格），缺省只监听 127.0.0.1（配置 gateway.host 可对局域网开放），令牌认证。控制台 App 与主机工具都通过它访问 agent。
 //   GET  /health                 → { ok, version, mode }（无需令牌，供点火器探活）
 //   WS   /rpc?token=<令牌>        → 请求 {id, method, params} / 响应 {id, result | error} / 推送 {event, data}
 import http from "node:http";
@@ -152,5 +152,5 @@ export function startGateway(safeMode: boolean) {
   bus.on("speak", (e) => broadcast("speak", e));
   bus.on("session.switch", (e) => broadcast("session.switch", e));
 
-  server.listen(config.gateway.port, "127.0.0.1", () => log("gateway", `监听 127.0.0.1:${config.gateway.port}`));
+  server.listen(config.gateway.port, config.gateway.host, () => log("gateway", `监听 ${config.gateway.host}:${config.gateway.port}`));
 }
