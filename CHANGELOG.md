@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 0.3.2
+
+- 飞书：插话时执行过程卡片按插话分段——上面的卡片定格，新的一段作为回复你那条消息的新卡片在下面继续，最后的回复也接在最后一条插话下面；耳朵听到的话并入时同样分段。与控制台的分段显示一致。
+- Feishu: when you interject, the progress card is split — the card above freezes and a new card continues below as a reply to your message; the final reply also follows the latest interjection. Voice heard by the ear splits the same way. Consistent with the console.
+
 ## 0.3.1
 
 - **会话与子 agent 由她自己掌握**：新内置工具 `session_new`（切到上下文干净的新会话，可写交接，控制台与飞书跟着切）、`session_compact`（压缩当前会话上下文：她自己写摘要或由快速模型代写，之后只看摘要与新内容，对话仍在当前会话继续）、`agent_spawn` / `agent_status` / `agent_message` / `agent_stop`（派出子 agent 在后台做事：她给名字、目标与可选的人设、领域范围、知识背景、上下文，子 agent 用自己的系统提示独立跑工具循环，进展在控制台实时可见，她可随时查看、对话、停止；完成后报告以环境输入送回派出它的会话）。新能力类别「会话与子 agent」，默认允许。

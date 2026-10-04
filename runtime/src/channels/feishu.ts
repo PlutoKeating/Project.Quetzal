@@ -17,7 +17,8 @@ import { converse, isRunning } from "../mind/brain.ts";
 import { kv, ensureSession, type Attachment } from "../store.ts";
 import { saveUpload, MAX_FILES } from "../mind/attachments.ts";
 import { imageMime } from "../mind/images.ts";
-import { views, approvalCard, secretCard, md, card } from "./feishu-cards.ts";
+import { views, approvalCard, secretCard, md } from "./feishu-cards.ts";
+import { ProgressCards } from "./feishu-progress.ts";
 import type { Activity, SecretEvent } from "../bus.ts";
 import { capturing } from "../mind/secrets.ts";
 import { identity } from "../memory/identity.ts";
@@ -61,46 +62,18 @@ async function onCardAction(d: any) {
   return { toast, card: { type: "raw", data } };
 }
 
-const ICON = { running: "⏳", ok: "✅", error: "❌", denied: "🚫" } as const;
-const code = (s: string) => "`" + s.replace(/`/g, "'") + "`";
-
-/** 执行过程卡片：第一次调用工具时回复一张卡片，之后每秒最多更新一次；每个工具、每段中间叙述各占一行。 */
-function progress(chatId: string, replyTo: string, session: string) {
-  const lines = new Map<string, string>();
-  let running = 0, tools = 0, messageId = "", dirty = false, timer: NodeJS.Timeout | undefined, done = false;
-  let q: Promise<unknown> = Promise.resolve();
-  const render = () => card(done ? `执行过程 · ${tools} 个工具` : "执行过程", done ? "grey" : "indigo",
-    [md([...lines.values(), ...(!done && running ? ["🧰 *正在调用工具…*"] : [])].join("\n") || "…")]);
-  const flush = () => {
-    timer = undefined;
-    if (!dirty || !channel) return q;
-    dirty = false;
-    q = q.then(async () => {
-      if (!messageId) messageId = (await channel!.send(chatId, { card: render() }, { replyTo }))?.messageId ?? "";
-      else await channel!.updateCard(messageId, render());
-    }).catch((e) => log("feishu", `执行过程卡片更新失败：${e.message}`));
-    return q;
-  };
-  const onActivity = (a: Activity) => {
-    if (a.session !== session) return;
-    if (a.kind === "tool") {
-      if (a.status === "running") { running++; tools++; } else if (lines.has(a.call!)) running--; else tools++;
-      const sec = a.ms != null && a.status !== "running" ? ` · ${(a.ms / 1000).toFixed(1)}s` : "";
-      lines.set(a.call!, `${ICON[a.status!]} **${a.name}**${a.summary ? ` — ${code(a.summary)}` : ""}${sec}`);
-    } else if (a.kind === "steer" && a.text?.trim()) lines.set(`steer-${a.msg}`, `📨 *你插话：${a.text.trim().replace(/\s+/g, " ").slice(0, 200)}*（已并入）`);
-    else if (a.kind === "text" && !a.final && a.text?.trim()) lines.set(`text-${a.ts}-${lines.size}`, `💬 ${a.text.trim().slice(0, 1500)}`); // 她中途说的话：完整一段
-    else return;
-    dirty = true;
-    timer ??= setTimeout(flush, messageId ? 1000 : 0);
-  };
-  bus.on("activity", onActivity);
+/** 执行过程卡片（见 feishu-progress.ts）：按会话登记，对方插话时按消息分段。 */
+const progressByConv = new Map<string, ProgressCards>();
+function progress(chatId: string, replyTo: string, session: string, conv: string) {
+  const p = new ProgressCards({
+    send: async (to, data) => (await channel!.send(chatId, { card: { type: "raw", data } as any }, to ? { replyTo: to } : undefined))?.messageId,
+    update: (id, data) => channel!.updateCard(id, data as any),
+  }, replyTo, session, (m) => log("feishu", m));
+  bus.on("activity", p.onActivity);
+  progressByConv.set(conv, p);
   return {
-    async close() {
-      bus.off("activity", onActivity);
-      clearTimeout(timer);
-      done = true;
-      if (lines.size) { dirty = true; await flush(); }
-    },
+    get replyTo() { return p.replyTo; },
+    async close() { bus.off("activity", p.onActivity); if (progressByConv.get(conv) === p) progressByConv.delete(conv); await p.close(); },
   };
 }
 
@@ -161,6 +134,7 @@ async function handle(msg: lark.NormalizedMessage) {
     const conv = currentConv();
     const attachments = await fetchResources(msg);
     if (isRunning(conv)) { // 她正在这个会话里工作：插话，下一次模型调用前并入；回复在进行中的那一轮里给出
+      progressByConv.get(conv)?.split(msg.messageId); // 过程卡片分段：上面的定格，新的一段回复这条插话
       await converse("你", msg.content, "飞书", { conv, attachments });
       await channel?.addReaction(msg.messageId, "Get").catch(() => channel?.addReaction(msg.messageId, "OK").catch(() => {}));
       return;
@@ -168,11 +142,12 @@ async function handle(msg: lark.NormalizedMessage) {
     let reaction = "";
     try { reaction = await channel!.addReaction(msg.messageId, "OnIt"); } catch {}
     const sid = crypto.randomUUID();
-    const prog = progress(msg.chatId, msg.messageId, sid);
+    const prog = progress(msg.chatId, msg.messageId, sid, conv);
     const reply = await converse("你", msg.content, "飞书", { conv, turn: sid, attachments });
+    const last = prog.replyTo ?? msg.messageId; // 插话过就接在最后那条插话下面
     await prog.close();
     if (reaction) channel?.removeReaction(msg.messageId, reaction).catch(() => {});
-    await channel?.send(msg.chatId, { markdown: reply }, { replyTo: msg.messageId });
+    await channel?.send(msg.chatId, { markdown: reply }, { replyTo: last });
   } catch (e: any) {
     log("feishu", `处理消息失败：${e.message}`);
   }
