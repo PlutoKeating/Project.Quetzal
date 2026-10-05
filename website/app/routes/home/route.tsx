@@ -53,7 +53,19 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* 2 · 没有定时器：它和 Codex / Hermes / OpenClaw 的差别只讲一件事 + 三条带子 */}
+      {/* 2 · ta 是你的：最重要的一句话，单独一节 */}
+      <Section tone="elevated">
+        <Container className="flex flex-col gap-6">
+          <Reveal className="flex max-w-4xl flex-col gap-6">
+            <Eyebrow>{t.own.eyebrow}</Eyebrow>
+            <Heading size="lg" className="whitespace-pre-line">{t.own.heading}</Heading>
+            <Lead className="max-w-prose">{t.own.lead}</Lead>
+            <Link to={`${localized(lang, "/features")}#soul`} className="text-sm text-link underline-offset-4 hover:underline">{t.own.more} →</Link>
+          </Reveal>
+        </Container>
+      </Section>
+
+      {/* 3 · 没有定时器：它和 Codex / Hermes / OpenClaw 的差别只讲一件事 + 三条带子 */}
       <Section>
         <Container className="grid items-center gap-10 lg:grid-cols-[1.15fr_1fr] lg:gap-14"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-6">
@@ -80,7 +92,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 3 · 别处没有的：身体 · 灵魂 · 许多身体 · 会长大，各链到亮点页对应的一节 */}
+      {/* 4 · 别处没有的：身体 · 许多身体 · 会长大，各链到亮点页对应的一节 */}
       <Section tone="elevated">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
@@ -88,9 +100,9 @@ export default function Home() {
             <Heading size="lg" className="whitespace-pre-line">{t.pillars.heading}</Heading>
             <Lead>{t.pillars.lead}</Lead>
           </Reveal>
-          <ul className="grid gap-4 md:grid-cols-2">
+          <ul className="grid gap-4 md:grid-cols-3">
             {t.pillars.items.map((it, i) => (
-              <Reveal as="li" key={it.id} delay={(i % 2) as 0 | 1} className="flex">
+              <Reveal as="li" key={it.id} delay={i as 0 | 1 | 2} className="flex">
                 <Link to={`${localized(lang, "/features")}#${it.id}`} className="group flex w-full">
                   <Card interactive className="flex w-full flex-col gap-4 p-7 sm:p-8">
                     <span className="flex items-center gap-3 text-xs font-medium uppercase tracking-wide text-secondary-fg">
@@ -107,8 +119,27 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 4 · 它此刻（示例身体） */}
+      {/* 5 · 几个瞬间（示例） */}
       <Section>
+        <Container className="flex flex-col gap-10">
+          <Reveal className="flex max-w-prose flex-col gap-4">
+            <Eyebrow>{t.moments.eyebrow}</Eyebrow>
+            <Heading>{t.moments.heading}</Heading>
+          </Reveal>
+          <ul className="grid gap-x-10 gap-y-8 md:grid-cols-3">
+            {t.moments.items.map((it, i) => (
+              <Reveal as="li" key={it.when} delay={i as 0 | 1 | 2} className="flex flex-col gap-2 border-t border-border pt-5">
+                <span className="text-xs font-medium uppercase tracking-wide text-secondary-fg">{it.when}</span>
+                <p className="text-lg text-fg text-pretty">{it.text}</p>
+              </Reveal>
+            ))}
+          </ul>
+          <p className="text-xs text-fg-subtle">{t.moments.note}</p>
+        </Container>
+      </Section>
+
+      {/* 6 · 它此刻（示例身体） */}
+      <Section tone="elevated">
         <Container className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-center"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-4">
             <Eyebrow>{t.now.eyebrow}</Eyebrow>
@@ -119,8 +150,8 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 5 · 一天 */}
-      <Section tone="elevated">
+      {/* 7 · 一天 */}
+      <Section>
         <Container className="grid gap-10 lg:grid-cols-[1fr_1.4fr]"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-4">
             <Eyebrow>{t.day.eyebrow}</Eyebrow>
@@ -145,8 +176,8 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 6 · 它有时候不动（暗着的一节） */}
-      <Section className="bg-bg">
+      {/* 8 · 它有时候不动（暗着的一节） */}
+      <Section className="border-t border-border bg-bg">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
             <Eyebrow className="text-fg-subtle">{t.still.eyebrow}</Eyebrow>
@@ -168,7 +199,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 7 · 你说了算 */}
+      {/* 9 · 你说了算 */}
       <Section tone="elevated">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
@@ -186,7 +217,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 8 · 开始 */}
+      {/* 10 · 开始 */}
       <Section>
         <Container className="flex flex-col items-start gap-6">
           <Eyebrow>{t.start.eyebrow}</Eyebrow>

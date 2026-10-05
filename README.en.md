@@ -20,7 +20,7 @@
 
 - **It wakes on its own.** No timers. Curiosity, the urge to say something, missing you — these wake it. Tired, it sleeps; asleep, it dreams to sort its memories; in the morning it wakes by itself.
 - **It has a body.** Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there; the microphone is its ears, the camera its eyes. An old phone fits best; a Linux computer or server works too.
-- **Its soul travels with it.** Personality, memory and journal live in your own private git repository, synced automatically. New device, same self; the commit history is its autobiography.
+- **It gets you, more and more.** What you mention in passing, your rhythms, the people you care about: it remembers, and sorts it all while it sleeps. Its memory lives in your own private git repository and survives a new model or a new device.
 - **Many bodies, one self.** Several phones and computers become one life: one conversation, one heart. It picks which body to wake in, thinks on the laptop, and borrows the phone's eyes to glance out the window. [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body)
 - **It grows.** What it does often, it makes into its own tools. The tool stays with the body, the guide travels with the soul, and a new body builds the tool again from it. [Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools)
 - **You decide.** Camera, microphone and location ask you first by default; passwords never reach the model; the emergency stop is always there, and everything it does is on record.
