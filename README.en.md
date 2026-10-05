@@ -76,7 +76,7 @@ One builds an assistant, the other a runtime for a living agent. They work toget
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-Missing dependencies are installed (Node.js via nvm, git), a service that starts at boot and restarts after a crash is registered (a systemd user service; a built-in supervisor loop on machines without systemd), a Quetzal entry appears in your app list, and the web console opens in your browser (`http://127.0.0.1:7788/`), logged in on the same machine. Models, identity, permissions, Feishu, the soul repository and conversations all happen there. Run it again to upgrade; `bash -s -- --lan` lets the phone app connect to this machine too. With Node.js 22.13+ and git already present, `npx @plutokeating/quetzal` alone works as well.
+Missing dependencies are installed (Node.js via nvm, git), a service that starts at boot and restarts after a crash is registered (a systemd user service; a built-in supervisor loop on machines without systemd), a Quetzal entry appears in your app list, and the web console opens in your browser (`http://127.0.0.1:7788/`), logged in on the same machine. Models, identity, permissions, Feishu, the soul repository and conversations all happen there. Run it again to upgrade; `bash -s -- --lan` lets the phone app connect to this machine too (over encrypted HTTPS on the LAN; compare the certificate fingerprint when pairing). With Node.js 22.13+ and git already present, `npx @plutokeating/quetzal` alone works as well.
 
 More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · a complete account on one old phone, [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 

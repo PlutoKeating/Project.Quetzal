@@ -46,7 +46,7 @@ export function baseSecrets(): [value: string, name: string][] {
   let files: string[] = [];
   try { files = fs.readdirSync(paths.secrets); } catch { /* 没有目录 */ }
   for (const f of files) {
-    if (f.endsWith(".pub") || f.endsWith(".tmp")) continue; // 公钥本来就是公开的
+    if (f.endsWith(".pub") || f.endsWith(".crt") || f.endsWith(".tmp")) continue; // 公钥与证书本来就是公开的
     const full = path.join(paths.secrets, f);
     try {
       const st = fs.statSync(full);

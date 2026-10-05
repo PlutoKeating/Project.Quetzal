@@ -17,7 +17,8 @@ class Hearing {
   static Future<bool> hasPermission() async { try { return await _ch.invokeMethod<bool>('hasPermission') ?? false; } catch (_) { return false; } }
   static Future<void> requestPermission() => _ch.invokeMethod('requestPermission');
   static Future<bool> isRunning() async { try { return await _ch.invokeMethod<bool>('isRunning') ?? false; } catch (_) { return false; } }
-  static Future<void> start({required String base, required String token, required int sensitivity}) => _ch.invokeMethod('start', {'base': base, 'token': token, 'sensitivity': sensitivity});
+  /// fingerprint：base 为 https 时钉住的证书指纹（原生服务只认这张证书）；本机明文连接为空。
+  static Future<void> start({required String base, required String token, required String fingerprint, required int sensitivity}) => _ch.invokeMethod('start', {'base': base, 'token': token, 'fingerprint': fingerprint, 'sensitivity': sensitivity});
   static Future<void> stop() => _ch.invokeMethod('stop');
   /// 播放她的一段合成语音（走通话路径，耳朵以它为回声参考）；播完或被插嘴后以 played 事件回报。
   static Future<bool> play(String id, String url) async { try { return await _ch.invokeMethod<bool>('play', {'id': id, 'url': url}) ?? false; } catch (_) { return false; } }
@@ -91,7 +92,7 @@ class HearingController extends ChangeNotifier {
     final key = '${api.base}|${api.token}|${h['sensitivity'] ?? 2}';
     try {
       if (want && (!running || key != _key)) {
-        await Hearing.start(base: api.base, token: api.token, sensitivity: ((h['sensitivity'] ?? 2) as num).toInt());
+        await Hearing.start(base: api.base, token: api.token, fingerprint: api.current?.fp ?? '', sensitivity: ((h['sensitivity'] ?? 2) as num).toInt());
         _key = key; running = true; error = null;
         api.call('player.set', {'enabled': true}).catchError((_) => null); // 耳朵开着：登记为她的播放器
       } else if (!want && running) {

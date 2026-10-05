@@ -31,6 +31,15 @@ import com.konovalov.vad.webrtc.config.SampleRate
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.security.cert.CertificateException
+import java.security.cert.X509Certificate
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
@@ -69,11 +78,34 @@ class HearingService : Service() {
         private val main = Handler(Looper.getMainLooper())
         private fun emit(kind: String, data: Map<String, Any?> = emptyMap()) { val l = listener ?: return; main.post { l(kind, data) } }
 
-        fun start(ctx: Context, base: String, token: String, sensitivity: Int) {
-            val i = Intent(ctx, HearingService::class.java).putExtra("base", base).putExtra("token", token).putExtra("sensitivity", sensitivity)
+        fun start(ctx: Context, base: String, token: String, fingerprint: String, sensitivity: Int) {
+            val i = Intent(ctx, HearingService::class.java).putExtra("base", base).putExtra("token", token).putExtra("fingerprint", fingerprint).putExtra("sensitivity", sensitivity)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
         }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, HearingService::class.java)) }
+
+        private fun sha256Hex(b: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+        /**
+         * 钉住证书的 TLS：只认 SHA-256（DER）等于 fingerprint 的服务端证书（网关的自签名证书），不看 CA 与主机名。
+         * 主机名校验换成再核对一次会话里的对端证书（局域网地址是 IP，证书里没有它）。
+         */
+        fun pinned(fingerprint: String): Pair<SSLSocketFactory, HostnameVerifier> {
+            val want = fingerprint.lowercase()
+            val tm = object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) { throw CertificateException("不接受客户端证书") }
+                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                    val leaf = chain?.firstOrNull() ?: throw CertificateException("没有证书")
+                    if (want.length != 64 || sha256Hex(leaf.encoded) != want) throw CertificateException("证书指纹不符")
+                }
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            }
+            val ctx = SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(tm), null) }
+            val hv = HostnameVerifier { _, session ->
+                try { val c = session.peerCertificates.firstOrNull(); c != null && sha256Hex(c.encoded) == want } catch (e: Exception) { false }
+            }
+            return Pair(ctx.socketFactory, hv)
+        }
     }
 
     private var thread: Thread? = null
@@ -85,6 +117,7 @@ class HearingService : Service() {
     @Volatile private var bargeInUtterance: String? = null
     @Volatile private var base = ""
     @Volatile private var token = ""
+    @Volatile private var fingerprint = "" // 网关证书的指纹（base 为 https 时必须有）
     @Volatile private var sensitivity = 2
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -94,6 +127,7 @@ class HearingService : Service() {
         if (intent == null) { stopSelf(); return START_NOT_STICKY }
         base = intent.getStringExtra("base") ?: base
         token = intent.getStringExtra("token") ?: token
+        fingerprint = intent.getStringExtra("fingerprint") ?: fingerprint
         sensitivity = intent.getIntExtra("sensitivity", sensitivity)
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             emit("error", mapOf("message" to "没有麦克风权限")); stopSelf(); return START_NOT_STICKY
@@ -207,6 +241,20 @@ class HearingService : Service() {
     /** 令牌放请求头而不是网址（网址会进日志）：X-Quetzal-Token 是新名字，x-token 给旧版运行基座。 */
     private fun auth(c: HttpURLConnection) { c.setRequestProperty("X-Quetzal-Token", token); c.setRequestProperty("x-token", token) }
 
+    /** 打开到网关的连接：https 一律钉住证书指纹（没有指纹就拒绝，令牌不发出去）；http 只允许本机回环（同一台手机上的运行基座）。 */
+    private fun open(url: URL): HttpURLConnection {
+        val c = url.openConnection() as HttpURLConnection
+        if (c is HttpsURLConnection) {
+            if (fingerprint.isEmpty()) throw CertificateException("加密连接缺少证书指纹，请重新配对")
+            val (factory, verifier) = pinned(fingerprint)
+            c.sslSocketFactory = factory
+            c.hostnameVerifier = verifier
+        } else if (url.host != "127.0.0.1" && url.host != "localhost" && url.host != "::1" && url.host != "[::1]") {
+            throw SecurityException("局域网只能走加密连接（https）")
+        }
+        return c
+    }
+
     /** 边说边送：POST /hear?stream=1&started=<开始时刻>&id=<句子标识>，分块传输，每 20ms 一帧；说完（END）关闭请求体，等基座识别完返回。失败只记事件，不重试。 */
     private fun stream(q: LinkedBlockingQueue<ByteArray>, startedAt: Long, uid: String) {
         if (poster.isShutdown) return
@@ -214,7 +262,7 @@ class HearingService : Service() {
             var sent = 0
             try {
                 val url = URL("$base/hear?stream=1&started=$startedAt&id=$uid")
-                val c = (url.openConnection() as HttpURLConnection).apply {
+                val c = open(url).apply {
                     requestMethod = "POST"; doOutput = true; connectTimeout = 4000; readTimeout = 60_000
                     setChunkedStreamingMode(FRAME * 2)
                     setRequestProperty("Content-Type", "application/octet-stream")
@@ -248,7 +296,7 @@ class HearingService : Service() {
             var interrupted = false
             try {
                 val f = File(cacheDir, "speak-$id")
-                (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 4000; readTimeout = 30_000; auth(this) }.let { c ->
+                open(URL(url)).apply { connectTimeout = 4000; readTimeout = 30_000; auth(this) }.let { c ->
                     c.inputStream.use { i -> f.outputStream().use { o -> i.copyTo(o) } }; c.disconnect()
                 }
                 stopPlayback = false; bargeInUtterance = null; playing = id

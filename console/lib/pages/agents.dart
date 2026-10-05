@@ -1,6 +1,7 @@
 // 多 agent：连接档案的切换与管理、当前 agent 的身份资料、身体列表、记忆历史。
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../pins.dart';
 import '../widgets.dart';
 
 /// 顶栏标题：当前 agent 的名字，点击切换。
@@ -65,13 +66,17 @@ class _AgentSheetState extends State<_AgentSheet> {
             leading: const Icon(Icons.add),
             title: const Text('连接新的 agent'),
             onTap: () async {
-              final c = TextEditingController(text: 'http://127.0.0.1:7789');
+              final c = TextEditingController();
               final ok = await showDialog<bool>(context: context, builder: (x) => AlertDialog(
                 title: const Text('网关地址'),
-                content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(helperText: '另一台机器填它的地址（如 http://192.168.1.8:7788）；同一设备上的另一个 agent 通常用不同端口')),
+                content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(helperMaxLines: 3, helperText: '另一台机器只填它的地址（如 192.168.1.8），走加密连接 https://…:7789；同一设备上的另一个 agent 填 127.0.0.1:<端口>')),
                 actions: [TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('下一步'))],
               ));
-              if (ok == true) { await api.addProfile(c.text.trim()); if (context.mounted) Navigator.pop(context); }
+              if (ok != true) return;
+              final b = normalizeBase(c.text);
+              if (b == null) { if (context.mounted) toast(context, '地址的写法不对：填 IP 或名字（可带端口），如 192.168.1.8'); return; }
+              await api.addProfile(b);
+              if (context.mounted) Navigator.pop(context);
             },
           ),
         ]),

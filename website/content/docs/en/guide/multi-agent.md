@@ -11,7 +11,7 @@ The console (the phone app, or the web version on a Linux machine) keeps several
 flowchart TB
   APP["Quetzal app"]
   APP -- "local 127.0.0.1:7788" --> A["Runtime A<br/>(this phone)"]
-  APP -- "forwarded port / tunnel" --> B["Runtime B<br/>(another device)"]
+  APP -- "LAN HTTPS :7789 (pinned certificate)<br/>or forwarded port / tunnel" --> B["Runtime B<br/>(another device)"]
   APP -- "local 127.0.0.1:7789" --> C["Runtime C<br/>same phone, another home"]
   A --- SA[("A's soul repository")]
   B --- SB[("B's soul repository")]
@@ -22,9 +22,10 @@ flowchart TB
 
 Top-bar name → **Connect a new agent**:
 
-1. Enter the runtime's **gateway address** (e.g. `http://127.0.0.1:7789`). The gateway listens only on localhost, so a runtime on another device must have its port forwarded to the phone first (see [Other machines](/docs/advanced/other-machines)).
-2. **Request a pairing code**: eight letters and digits, valid for five minutes, delivered through that device's system notification (the body adapter's `notify`).
-3. Enter the code → paired. The app stores the token and reconnects automatically from then on.
+1. Enter the runtime's address. For another device enter just its IP or name (e.g. `192.168.1.8`) and the app uses the encrypted `https://…:7789`; that device must be open to the LAN (`--lan` on Linux, see [Other machines](/docs/advanced/other-machines)), otherwise forward its port to the phone first and enter `127.0.0.1:<port>`. Another runtime on the same phone is `127.0.0.1:<port>`.
+2. Over an encrypted connection the app shows that device's **certificate fingerprint** (e.g. `1a2b 3c4d 5e6f 7a8b`): check it against the pairing notification (or `quetzal status`) on that device. From then on this connection accepts only that certificate.
+3. **Request a pairing code**: eight letters and digits, valid for five minutes, delivered with the certificate fingerprint through that device's system notification (the body adapter's `notify`).
+4. Enter the code → paired. The app stores the token and reconnects automatically from then on. Over an encrypted connection the code never travels over the network; the app sends only a proof computed from it and the certificate fingerprint.
 
 > [!NOTE]
 > A runtime installed on **this phone** by the wizard needs no pairing code: the install script hands the token straight to the app. Nor does the web console when it connects to the runtime on **the machine that serves it**: it is logged in as soon as it opens.

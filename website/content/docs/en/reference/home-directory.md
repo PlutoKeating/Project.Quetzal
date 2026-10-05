@@ -8,7 +8,7 @@ description: The layout of QUETZAL_HOME, every key in config/quetzal.json, and t
 ```
 config/quetzal.json      runtime configuration (editable from the app)
 config/providers.json    model providers (keys encrypted)
-secrets/                 0700: master.key (key-encryption master), gateway.token, feishu_secret, soul_ed25519, azure_speech_key
+secrets/                 0700: master.key (key-encryption master), gateway.token, gateway-tls.key / gateway-tls.crt (self-signed certificate for LAN HTTPS), feishu_secret, soul_ed25519, azure_speech_key
 vault/                   0700: the vault, one 0600 file per item; index.json holds hints only
 data/quetzal.db          SQLite: kv / timeline / messages / audit / usage
 data/catalog.json        cached public model catalog (models.dev)
@@ -40,7 +40,8 @@ STOP                     emergency stop flag: if present, everything freezes
 | `brain.maxOutputTokens` | `4096` | Output cap per model call (no step cap) |
 | `feishu.*` | — | Feishu (secret in `secrets/`) |
 | `soul.remote` / `soul.branch` | `""` / `main` | Soul repository SSH address and branch |
-| `gateway.port` | `7788` | Gateway port |
+| `gateway.port` | `7788` | The gateway's plain port (loopback only) |
+| `gateway.lan` / `gateway.lanPort` / `gateway.host` | `false` / `7789` / `127.0.0.1` | Open to the LAN (`lan` true or `host` not a loopback address): HTTPS / WSS on `host` (`0.0.0.0` when it is loopback):`lanPort` |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | `""` / `""` / `zh-CN-XiaoxiaoNeural` / `""` / `0%` / `0%` / `100` / `audio-24khz-48kbitrate-mono-mp3` | Azure Speech (key in `secrets/azure_speech_key`) |
 
 All of these are editable from the console (phone app or web version); no file editing required.
@@ -91,4 +92,4 @@ Added by the one-line installer:
 Without systemd: ~/.quetzal/bin/quetzal-supervise (supervisor loop), ~/.quetzal/state/supervise.{pid,lock}, ~/.quetzal/logs/runtime.log, crontab @reboot, ~/.config/autostart/quetzal-runtime.desktop
 ```
 
-Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` in `config/quetzal.json`. After installing, the web console opens at `http://127.0.0.1:7788/` (`npx @plutokeating/quetzal open`), with no pairing code on the same machine.
+Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` and `gateway.lan` as `true` in `config/quetzal.json` (HTTPS on port 7789 on the LAN; `quetzal status` prints the address and certificate fingerprint). After installing, the web console opens at `http://127.0.0.1:7788/` (`npx @plutokeating/quetzal open`), with no pairing code on the same machine.

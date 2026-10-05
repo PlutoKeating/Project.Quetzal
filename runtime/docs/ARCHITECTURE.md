@@ -17,9 +17,10 @@ src/
 │   ├── player.ts         她的声音从哪里出来：耳朵开着时交给控制台 App 经通话路径播放（speak 事件 / player.done 回报，回声消除的参考），否则交给身体适配器；/media 文件下发；插嘴标记
 │   └── hearing.ts        听觉：/hear 送来的一句话（流式 PCM 或整句 WAV）→ 识别（中间结果经 hearing 事件推送）→ 挑会话（windowMin 窗口）→ 以环境声音交给 brain.converse，她的取舍（kept / ignored）推给控制台；她自己说话期间丢弃；听觉状态（开关、急停、电量、温度）
 ├── crypto.ts             供应商 Key 的 AES-256-GCM 加密（主密钥存在却损坏时报错，不重新生成）
+├── tls.ts                网关的自签名证书（ECDSA P-256，10 年，secrets/gateway-tls.key|crt；@peculiar/asn1-x509 编码、node:crypto 签名；损坏或过期重新生成）、指纹（SHA-256 DER）与短格式、配对证明（PBKDF2-HMAC-SHA256）
 ├── version.ts            版本号
 ├── ops.ts                统一操作层：网关与飞书共用，修改类操作全部审计
-├── gateway.ts            本地网关：/health、配对（8 位码、冷却、失败锁定与退避、Host 检查、请求体 16 KB 上限）、本机登录、令牌（Bearer / X-Quetzal-Token / WebSocket 第一条消息 / 旧的 ?token=）、gateway.rotateToken、WebSocket RPC 与推送、静态文件
+├── gateway.ts            网关：明文 HTTP 只监听本机回环（127.0.0.1 与 ::1），对局域网开放时另开 HTTPS / WSS（lanPort，同一套处理）；/health、/pair/info（证书指纹）、配对（8 位码、冷却、失败锁定与退避、Host 检查、请求体 16 KB 上限；HTTPS 上只收与证书指纹绑定的配对证明）、本机登录、令牌（Bearer / X-Quetzal-Token / WebSocket 第一条消息 / 旧的 ?token=）、gateway.rotateToken、WebSocket RPC 与推送、静态文件
 ├── web.ts                网页控制台：托管 current/web/（QUETZAL_WEB_DIR 可覆盖，单页回退、ETag）；判定「同一台机器上打开着网页控制台的浏览器」（回环地址 + 本机 Host + Origin 正好是网关自己的源 / QUETZAL_DEV_ORIGINS）与「发起连接的是不是运行基座的子孙进程」（/proc）给 GET /auth/local；配对接口的 Host 检查
 ├── body/
 │   ├── adapter.ts        身体适配器接口（与设备仓库的唯一边界）+ 通用适配器

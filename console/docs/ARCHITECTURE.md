@@ -5,7 +5,8 @@
 ```
 lib/
 ├── main.dart          主题、外壳模式（按宽度：手机 / 桌面）、手机外壳（顶部连接状态 + 急停，底部 4 个 Tab）
-├── api.dart           网关客户端：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版）、点火；HTTP 令牌放请求头 X-Quetzal-Token
+├── api.dart           网关客户端（连接档案 Profile 带钉住的证书指纹 fp；加密配对 pairInfo / pairFinish）：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版）、点火；HTTP 令牌放请求头 X-Quetzal-Token
+├── pins.dart          加密连接：网关证书指纹的钉住与配对时的捕获（Pins）、配对证明（PBKDF2，后台 isolate）、网关地址的写法（只填地址时别的机器用 https:7789）、旧的明文局域网档案的识别
 ├── links.dart         打开外部链接的唯一入口：只放行 https（http 只限本机回环地址）
 ├── igniter.dart       Termux 桥：RUN_COMMAND 执行、三件套检测与版本、打开应用、电池优化 / 自启动管理页（安卓）
 ├── hearing.dart       听觉桥：启停原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing）、权限、服务事件；跟随基座 status.hearing.listening，只对本机的 agent（安卓；网页版只跟着状态显示）
@@ -15,13 +16,13 @@ lib/
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
 ├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble
-├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、net（HTTP：dart:io / XMLHttpRequest）、
+├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、
 │                      location（页面来源、URL #片段、标题）、fonts（网页版加载自带的中文子集）、mermaid（安卓 WebView / 网页 iframe，同一份 assets/mermaid/view.html，postMessage 桥；Linux 桌面版没有 WebView，退化为显示源码）
 ├── shell/
 │   ├── nav.dart       桌面外壳的位置（区 / 子项 / 条目），网页版与 URL 的 #片段互相同步
 │   └── desktop.dart   桌面外壳：导航栏 · 列表栏 · 主区（嵌套 Navigator）· 她此刻
 └── pages/
-    ├── pairing.dart   连接一个 agent：探活与配对；本机没有运行基座时的「在这台手机上安装」入口（安卓）；网页版先试本机登录
+    ├── pairing.dart   连接一个 agent：探活与配对（加密连接先取 /pair/info、显示证书指纹给人核对，再提交配对证明）；旧的明文局域网档案提示重新配对；本机没有运行基座时的「在这台手机上安装」入口（安卓）；网页版先试本机登录
     ├── setup.dart     安装向导（也是升级 / 修复入口）：三件套 → 授权 → 在 Termux 粘贴一行开启外部调用 → 安装（分步进度）→ 保活引导（安卓）
     ├── agents.dart    多 agent 切换、身份资料、记忆历史与身体列表
     ├── home.dart      此刻：PresenceHead（光团 + 状态）、ThoughtLine、InnerSection、BodySection、poke；手机首页与桌面「她此刻」面板共用
@@ -157,7 +158,7 @@ flowchart TB
 | # | 用例 | 流程 |
 |---|---|---|
 | U1 | 首次引导（本机） | 打开 App →「在这台手机上安装 Quetzal」→ 向导：装三件套 → 授权 → 在 Termux 粘贴一行 → 安装（几分钟）→ 自动连接 → 保活引导 → 进入此刻页配置模型 |
-| U1b | 连接别处的 agent | 填网关地址 → 自动探活（找不到就「点火」）→ 申请配对码 → 系统通知里看到配对码 → 输入 → 进入此刻页 |
+| U1b | 连接别处的 agent | 填那台机器的地址（只填 IP 或名字，自动用 `https://…:7789`）→ 取 `/pair/info`，显示握手时看到的证书指纹 → 申请配对码 → 系统通知里看到配对码与证书短指纹，核对一致 → 输入（本机算出配对证明，码不上网络）→ 进入此刻页 |
 | U2 | 配置模型 | 控制 → 模型 → 添加供应商 → 添加 Key → 勾选模型 → 保存 → 测试 → 排序 → 她开始按自己的节律醒来（审计记录保存操作） |
 | U3 | 日常旁观 | 此刻页看状态 → 心流里展开最近的醒来 → 记忆里看她记下了什么 |
 | U4 | 她主动找你 | 表达欲或想念升高 → 醒来并决定找你 → 系统通知 + 飞书消息 → 你在飞书或控制台回复 → 驱动力回落，对话进入记忆 |
@@ -174,7 +175,7 @@ flowchart TB
 | U14 | 共享灵魂 | 灵魂同步页 → 显示公钥并添加到仓库 → 填地址接入 → 人格与记忆在各身体间全自动同步 |
 | U24 | 几具身体连成一个她 | 部署同步服务（`sync/`）→ 每具身体的「多具身体」页填同步服务地址 → 绑定：在网页上用 GitHub 登录、输入短码、核对指纹、批准 → 身体之间直连（或经中转），对话、心跳、设置是同一份 → 在任何一具身体的控制台都能看到她在别处正在做的事、批准别处的请求 |
 | U15 | 接入 Hermes / OpenClaw | 灵魂同步页复制现成的一句话 → 发给那台机器上的 agent → 它自行安装 soul-bridge → 在 GitHub 添加它给出的部署公钥 → 全自动同步，随时可拔出 |
-| U16 | 多 agent | 点顶栏名字 → 连接新的 agent（网关地址 + 配对）→ 一键切换，界面称呼与主题色随之变化 |
+| U16 | 多 agent | 点顶栏名字 → 连接新的 agent（地址 + 核对证书指纹 + 配对）→ 一键切换，界面称呼与主题色随之变化 |
 | U17 | 身份 | 控制 → 身份 → 名字、代词、简介、主题色 → 保存后所有身体同步 |
 | U18 | 记忆历史 | 控制 → 记忆历史 → 查看每次变更来自哪具身体、差异 → 必要时撤销 |
 | U19 | 看她自己在做什么 | 首页光团出现粒子 / 心流顶部出现「她醒着，在想事情…」→ 点开只读的醒来记录页 → 工具卡片与文字实时更新 → 结束后自动接上日记 → 想说话回首页「聊天」（不能在她自己的时间里插话） |

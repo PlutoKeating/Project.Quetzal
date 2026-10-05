@@ -41,7 +41,7 @@ class MainActivity : FlutterActivity() {
                     if (android.os.Build.VERSION.SDK_INT >= 33) wanted.add("android.permission.POST_NOTIFICATIONS")
                     requestPermissions(wanted.toTypedArray(), 2); result.success(null)
                 }
-                "start" -> { HearingService.start(this, call.argument<String>("base")!!, call.argument<String>("token")!!, call.argument<Int>("sensitivity") ?: 2); result.success(true) }
+                "start" -> { HearingService.start(this, call.argument<String>("base")!!, call.argument<String>("token")!!, call.argument<String>("fingerprint") ?: "", call.argument<Int>("sensitivity") ?: 2); result.success(true) }
                 "stop" -> { HearingService.stop(this); result.success(true) }
                 "isRunning" -> result.success(HearingService.running)
                 "play" -> { HearingService.instance?.play(call.argument<String>("id")!!, call.argument<String>("url")!!); result.success(HearingService.instance != null) }

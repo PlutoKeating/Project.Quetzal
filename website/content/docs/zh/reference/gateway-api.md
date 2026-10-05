@@ -5,17 +5,18 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 
 ## 概览
 
-网关缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788；`gateway.host` 设为 `0.0.0.0` 可对局域网开放）。所有控制入口（App、网页控制台、飞书、主机工具）共用同一个操作层，行为一致、都写审计。`main.cjs` 旁边有 `web/index.html`（npm 安装器放的网页控制台）时，网关同时托管这些静态文件。
+网关的明文 HTTP 只监听本机 `127.0.0.1:<gateway.port>`（默认 7788，另有 `[::1]`）。对局域网开放时（`gateway.lan` 为真，或 `gateway.host` 不是回环地址，如 `0.0.0.0`），另在 `<gateway.host>:<gateway.lanPort>`（默认 7789）开 HTTPS / WSS，接口完全相同：证书是运行基座自己生成的自签名证书（ECDSA P-256，10 年，`secrets/gateway-tls.key` / `gateway-tls.crt`），**指纹**为 SHA-256（证书 DER）的小写十六进制，原生控制台钉住它；局域网上不再有明文。所有控制入口（App、网页控制台、飞书、主机工具）共用同一个操作层，行为一致、都写审计。`main.cjs` 旁边有 `web/index.html`（npm 安装器放的网页控制台）时，网关同时托管这些静态文件。
 
 ## HTTP
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌 |
-| GET | `/auth/local` | `{ok, token}`：只给同一台机器上的浏览器（连接来自回环地址、Host 是本机名、Origin 若有也是本机），网页控制台打开即登录；其他来源 403。本机进程本来就读得到令牌文件，所以不扩大信任边界；ssh 隧道转发来的连接也算本机 |
+| GET | `/auth/local` | `{ok, token}`：只在本机明文监听上，只给同一台机器上的浏览器（连接来自回环地址、Host 是本机名、Origin 若有也是本机），网页控制台打开即登录；其他来源 403。本机进程本来就读得到令牌文件，所以不扩大信任边界；ssh 隧道转发来的连接也算本机 |
 | GET | `/`、`/<静态文件>` | 网页控制台（`web/` 存在时）：没有扩展名的未知路径回退到 `index.html`，带 ETag |
-| POST | `/pair/start` | 生成 8 位配对码（字母数字，5 分钟有效；有效期内重复申请不换码，输错多次会锁定），通过适配器通知与飞书下发 |
-| POST | `/pair/finish` | `{code}` → `{ok, token}`；403 不正确、410 失效或尝试超过 5 次 |
+| GET | `/pair/info` | `{ok, fingerprint, short, body, version, tls: true}`，无需令牌：证书指纹（完整与「1a2b 3c4d 5e6f 7a8b」短格式）、身体名、版本 |
+| POST | `/pair/start` | 生成 8 位配对码（字母数字，5 分钟有效；有效期内重复申请不换码，输错多次会锁定），连同证书短指纹通过适配器通知与飞书下发 |
+| POST | `/pair/finish` | `{proof}`（或本机明文连接上的 `{code}`）→ `{ok, token, fingerprint}`；`proof` = hex(PBKDF2-HMAC-SHA256(配对码（大写、去掉空格与连字符）, `"quetzal-pair-v2\|" + 客户端握手时看到的证书指纹`, 100000 次, 32 字节))。HTTPS 上只收 `proof`（带 `code` 回 400），中间人换了证书就对不上；客户端再核对返回的 `fingerprint`。400 缺少证明、403 不正确、410 失效或尝试超过 5 次、429 锁定 |
 | POST | `/upload?name=&token=` | 上传一个附件（≤ 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind}}` |
 | GET | `/uploads/<rel>?token=` | 下载附件（只能访问 uploads 目录） |
 

@@ -39,8 +39,12 @@ export interface Config {
   feishu: { enabled: boolean; appId: string; ownerOpenId: string; bindCode: string };
   // 灵魂仓库：sshMode 决定访问远端用哪把钥匙——deploy（默认，本机专属部署私钥 secrets/soul_ed25519）、custom（sshKeyPath 指定的私钥）、system（不传 -i，交给 ~/.ssh/config 与 ssh-agent）
   soul: { remote: string; branch: string; sshMode: "deploy" | "custom" | "system"; sshKeyPath: string };
-  gateway: { port: number; host: string }; // host 缺省只监听本机；填 0.0.0.0 对局域网开放（配对码与令牌仍是唯一门槛）
+  // 网关：明文 HTTP 只监听本机回环（port）；局域网访问一律走 HTTPS / WSS（lanPort，自签名证书 + 控制台钉住指纹，见 tls.ts）。
+  //   lan 为真，或 host 不是回环地址（旧配置的 0.0.0.0），都表示对局域网开放：HTTPS 监听 host（回环时为 0.0.0.0）:lanPort
+  gateway: { port: number; host: string; lan: boolean; lanPort: number };
   // 网状层：同步服务的地址（HTTPS）。绑定后的令牌在 secrets/sync.json；节点密钥在 secrets/mesh_ed25519
+  // 命令沙箱：没有可用的沙箱时，她的命令缺省一律不执行；allowUnsandboxed 为真时照常执行（部署者在控制台明确打开，不安全）。只属于这具身体，不随多具身体同步
+  sandbox: { allowUnsandboxed: boolean };
   mesh: { server: string; priority: number }; // priority：当协调者的优先级（越大越优先，适合一直开着、接着电源的身体）
   // 多具身体共用的设置分区最近一次被修改的时刻（毫秒）。网状层据此在身体之间同步：较新的修改生效（mesh/shared.ts）
   sharedRev: Record<string, number>;
@@ -80,7 +84,8 @@ export const defaults: Config = {
   brain: { maxOutputTokens: 4096 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
   soul: { remote: "", branch: "main", sshMode: "deploy", sshKeyPath: "" },
-  gateway: { port: 7788, host: "127.0.0.1" },
+  gateway: { port: 7788, host: "127.0.0.1", lan: false, lanPort: 7789 },
+  sandbox: { allowUnsandboxed: false },
   mesh: { server: "", priority: 0 },
   sharedRev: {},
   channels: { feishuHolder: "" },

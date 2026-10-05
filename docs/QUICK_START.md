@@ -39,11 +39,11 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall # 
 ```bash
 npx @plutokeating/quetzal            # 安装：内置的运行基座、Linux 身体适配器与网页控制台放进 ~/.quetzal（家目录，QUETZAL_HOME 可改），注册 systemd 用户服务并启动，健康检查失败自动切回上一版；有桌面时顺手打开浏览器
 npx @plutokeating/quetzal open       # 再次打开网页控制台 http://127.0.0.1:7788/
-npx @plutokeating/quetzal --lan      # 让网关对局域网开放：手机上的 Quetzal App 也能直接填这台机器的地址连接（只在可信的局域网里）
-npx @plutokeating/quetzal status     # 版本、服务、健康、网页控制台地址；logs -f 看日志；rollback 回滚；uninstall [--purge] 卸载
+npx @plutokeating/quetzal --lan      # 让网关对局域网开放（加密的 HTTPS / WSS，端口 7789，明文仍只在本机）：手机上的 Quetzal App 也能直接填这台机器的地址连接
+npx @plutokeating/quetzal status     # 版本、服务、健康、网页控制台地址、局域网地址与证书指纹；logs -f 看日志；rollback 回滚；uninstall [--purge] 卸载
 ```
 
-装好之后的一切（第 2 节的全部配置，以及对话）都在**网页控制台**里完成：这台机器上的浏览器打开 `http://127.0.0.1:7788/` 即登录，不需要配对码也不需要手机。它就是 Quetzal App 的网页版，为电脑横屏重新排布（导航栏 · 列表栏 · 主区 · 她此刻），功能与 App 一致；地址栏的 `#/…` 记录位置，可收藏。再运行一次 `npx @plutokeating/quetzal` 就是升级。没有桌面的服务器：`ssh -L 7788:127.0.0.1:7788 <服务器>` 转发端口后在本机浏览器打开同样的地址（同一台机器的判定看连接来源，隧道算本机）。手机上的 App 也可以连这台机器：**连接新的 agent** → 填 `http://<这台机器的地址>:7788` → **申请配对码**（配对码弹桌面通知，没有桌面的从 `npx @plutokeating/quetzal logs` 里看）。没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）用 `npx @plutokeating/quetzal run` 前台运行，交给自己的守护者。npm 包的实现在 [`cli/`](../cli/docs/README.md)。
+装好之后的一切（第 2 节的全部配置，以及对话）都在**网页控制台**里完成：这台机器上的浏览器打开 `http://127.0.0.1:7788/` 即登录，不需要配对码也不需要手机。它就是 Quetzal App 的网页版，为电脑横屏重新排布（导航栏 · 列表栏 · 主区 · 她此刻），功能与 App 一致；地址栏的 `#/…` 记录位置，可收藏。再运行一次 `npx @plutokeating/quetzal` 就是升级。没有桌面的服务器：`ssh -L 7788:127.0.0.1:7788 <服务器>` 转发端口后在本机浏览器打开同样的地址（同一台机器的判定看连接来源，隧道算本机）。手机上的 App 也可以连这台机器（先 `--lan` 开放）：**连接新的 agent** → 只填这台机器的地址（如 `192.168.1.8`，App 自动用加密连接 `https://…:7789`）→ 核对 App 显示的证书指纹与 `npx @plutokeating/quetzal status` 里的一致 → **申请配对码**（配对码连同证书指纹弹桌面通知，没有桌面的从 `npx @plutokeating/quetzal logs` 里看）。没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）用 `npx @plutokeating/quetzal run` 前台运行，交给自己的守护者。npm 包的实现在 [`cli/`](../cli/docs/README.md)。
 
 ## 4. 部署到其他机器（部署者）
 
@@ -67,7 +67,7 @@ ExecStart=/usr/bin/node --enable-source-maps /opt/quetzal/main.cjs
 Restart=always
 ```
 
-控制台连接这样的机器：把控制台的 Web 构建（`console/tool/build-web.sh` → `build/web`）放到 `main.cjs` 旁边的 `web/` 或用 `QUETZAL_WEB_DIR` 指定，网关就托管网页控制台，这台机器的浏览器打开即登录；或者把网关端口转发到控制台所在设备（例如 `adb reverse` 或 ssh 隧道），或在 `config/quetzal.json` 里把 `gateway.host` 设为 `0.0.0.0`，在 App 里填网关地址并用配对码配对。配对码通过适配器的系统通知下发，没有 `notify` 的适配器需要部署者从 `QUETZAL_HOME/secrets/gateway.token` 读出令牌填入。
+控制台连接这样的机器：把控制台的 Web 构建（`console/tool/build-web.sh` → `build/web`）放到 `main.cjs` 旁边的 `web/` 或用 `QUETZAL_WEB_DIR` 指定，网关就托管网页控制台，这台机器的浏览器打开即登录；或者把网关端口转发到控制台所在设备（例如 `adb reverse` 或 ssh 隧道），或在 `config/quetzal.json` 里把 `gateway.lan` 设为 `true`（局域网上开 HTTPS / WSS，端口 `gateway.lanPort`，默认 7789；明文只在本机回环），在 App 里填这台机器的地址、核对证书指纹，用配对码配对。配对码通过适配器的系统通知下发，没有 `notify` 的适配器需要部署者从 `QUETZAL_HOME/secrets/gateway.token` 读出令牌填入。
 
 构建 Quetzal App：
 

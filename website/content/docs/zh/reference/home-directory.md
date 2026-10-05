@@ -8,7 +8,7 @@ description: QUETZAL_HOME 的目录结构、config/quetzal.json 的全部配置�
 ```
 config/quetzal.json      运行配置（App 可改）
 config/providers.json    模型供应商（Key 为密文）
-secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、feishu_secret、soul_ed25519、azure_speech_key
+secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、gateway-tls.key / gateway-tls.crt（局域网 HTTPS 的自签名证书）、feishu_secret、soul_ed25519、azure_speech_key
 vault/                   0700：保密库，每项一个 0600 文件；index.json 只记说明
 data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
@@ -40,7 +40,8 @@ STOP                     急停标志：存在即冻结一切行动
 | `brain.maxOutputTokens` | `4096` | 每次模型调用的输出上限（步数不设上限） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `soul.branch` | `""` / `main` | 灵魂仓库 SSH 地址与分支 |
-| `gateway.port` | `7788` | 网关端口 |
+| `gateway.port` | `7788` | 网关的明文端口（只监听本机回环） |
+| `gateway.lan` / `gateway.lanPort` / `gateway.host` | `false` / `7789` / `127.0.0.1` | 对局域网开放（`lan` 为真或 `host` 不是回环地址）：在 `host`（回环时为 `0.0.0.0`）:`lanPort` 上开 HTTPS / WSS |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | `""` / `""` / `zh-CN-XiaoxiaoNeural` / `""` / `0%` / `0%` / `100` / `audio-24khz-48kbitrate-mono-mp3` | Azure 语音（密钥在 `secrets/azure_speech_key`） |
 
 所有这些都能在控制台（手机 App 或网页版）里改，不需要手编文件。
@@ -91,4 +92,4 @@ journalctl --user -u quetzal            日志（quetzal logs）
 没有 systemd 时：~/.quetzal/bin/quetzal-supervise（守护循环）、~/.quetzal/state/supervise.{pid,lock}、~/.quetzal/logs/runtime.log、crontab @reboot、~/.config/autostart/quetzal-runtime.desktop
 ```
 
-要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）自动切回 `previous`。`--lan` 把 `config/quetzal.json` 的 `gateway.host` 写为 `0.0.0.0`。装完在浏览器里打开 `http://127.0.0.1:7788/`（`npx @plutokeating/quetzal open`），同一台机器免配对码。
+要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）自动切回 `previous`。`--lan` 把 `config/quetzal.json` 的 `gateway.host` 写为 `0.0.0.0`、`gateway.lan` 写为 `true`（局域网上走 HTTPS，端口 7789；`quetzal status` 打印地址与证书指纹）。装完在浏览器里打开 `http://127.0.0.1:7788/`（`npx @plutokeating/quetzal open`），同一台机器免配对码。

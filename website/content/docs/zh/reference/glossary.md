@@ -47,7 +47,8 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 保密传递 | pass_secret | ta 索取凭据的协议：你在聊天框里发，内容不进对话与上下文 |
 | 保密库 | vault | `QUETZAL_HOME/vault/`，保密值的本地存放处，不同步 |
 | 结束口令 | done spell | 保密输入时标记"输入完毕"的随机短语 `done-xxxxxx` |
-| 网关 | gateway | 运行基座的本地接口 `127.0.0.1:7788`：HTTP + WebSocket RPC |
+| 网关 | gateway | 运行基座的接口：本机 `127.0.0.1:7788` 明文 HTTP + WebSocket RPC；对局域网开放时另有 `https://<地址>:7789`（HTTPS / WSS） |
+| 证书指纹 | certificate fingerprint | 网关自签名证书的 SHA-256 指纹，短格式如 `1a2b 3c4d 5e6f 7a8b`；配对时在 App 与配对通知里核对，之后 App 只认这张证书 |
 | 配对码 | pairing code | 8 位字母数字（如 ABCD-EFGH）、5 分钟有效、输错多次会锁定一段时间，用于另一台设备上的控制台连接网关；同一台机器上的浏览器不需要（网关直接放行） |
 | 网页控制台 | web console | 控制台的网页版，由运行基座的网关托管（`http://127.0.0.1:7788/`），为电脑横屏重新排布；随 npm 包装到 Linux 机器上 |
 | 点火 | ignite | 基座离线时 App 通过 Termux 重新执行开机脚本 |

@@ -3,7 +3,11 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'dart:typed_data';
 import 'package:web/web.dart' as web;
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'net.dart';
+
+/// 连接网关的 WebSocket（浏览器自己处理 wss 的证书）。
+WebSocketChannel wsConnect(Uri url) => WebSocketChannel.connect(url);
 
 Future<HttpReply> _send(web.XMLHttpRequest xhr, JSAny? body) {
   final c = Completer<HttpReply>();

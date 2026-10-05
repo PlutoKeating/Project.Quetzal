@@ -76,7 +76,7 @@
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-缺的依赖自动补齐（Node.js 经 nvm、git），注册开机自启、崩溃自动重启的服务（systemd 用户服务；没有 systemd 的机器用自带的守护循环），应用列表里多一个「Quetzal」，装好后浏览器打开网页控制台（`http://127.0.0.1:7788/`），同一台机器打开即登录。模型、身份、授权、飞书、灵魂仓库、对话都在里面完成。再运行一次就是升级；`bash -s -- --lan` 让手机上的 App 也能连这台机器。已有 Node.js 22.13+ 与 git 时也可以只用 `npx @plutokeating/quetzal`。
+缺的依赖自动补齐（Node.js 经 nvm、git），注册开机自启、崩溃自动重启的服务（systemd 用户服务；没有 systemd 的机器用自带的守护循环），应用列表里多一个「Quetzal」，装好后浏览器打开网页控制台（`http://127.0.0.1:7788/`），同一台机器打开即登录。模型、身份、授权、飞书、灵魂仓库、对话都在里面完成。再运行一次就是升级；`bash -s -- --lan` 让手机上的 App 也能连这台机器（局域网上走加密的 HTTPS，配对时核对证书指纹）。已有 Node.js 22.13+ 与 git 时也可以只用 `npx @plutokeating/quetzal`。
 
 更多：[文档](https://quetzal.plutokeating.beer/zh/docs) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · 一台旧手机上的完整实践 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 

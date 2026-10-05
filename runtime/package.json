@@ -1,6 +1,6 @@
 {
   "name": "quetzal-core",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",
+    "@peculiar/asn1-schema": "2.10.0",
+    "@peculiar/asn1-x509": "2.10.0",
     "jpeg-js": "^0.4.4",
     "microsoft-cognitiveservices-speech-sdk": "^1.52.0",
     "ws": "^8.22.0"

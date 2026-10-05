@@ -7,6 +7,7 @@ import { type Layout, layout, versionOf, putRelease, switchTo, rollback, prune, 
 import * as svc from "./service.ts";
 import { waitHealthy } from "./health.ts";
 import { installMeshModules } from "./mesh.ts";
+import { lanEnabled } from "./lan.ts";
 
 export type Say = (line: string) => void;
 export interface Options { home: string; lan?: boolean; force?: boolean }
@@ -42,11 +43,11 @@ export function placeRelease(l: Layout, force = false) {
   return { version: b.version, changed: true, before };
 }
 
-/** 缺省配置：身体名字（主机名）只在没有时写入；gateway.host 按 --lan / --no-lan 设置；其余由控制台管理。 */
+/** 缺省配置：身体名字（主机名）只在没有时写入；gateway.host 与 gateway.lan 按 --lan / --no-lan 设置（局域网走 HTTPS，见 lan.ts）；其余由控制台管理。 */
 export function writeDefaults(l: Layout, lan?: boolean) {
   return patchConfig(l, (c) => {
     if (!c.body || c.body === "default") c.body = defaultBody();
-    if (lan != null) c.gateway = { ...(c.gateway ?? {}), host: lan ? "0.0.0.0" : "127.0.0.1" };
+    if (lan != null) c.gateway = { ...(c.gateway ?? {}), host: lan ? "0.0.0.0" : "127.0.0.1", lan };
   });
 }
 
@@ -79,6 +80,7 @@ export async function install(o: Options, say: Say): Promise<void> {
   }
   say(`运行基座 ${h.version} 正常${h.safeMode ? "（安全模式：反复崩溃，请看日志）" : ""}。`);
   if (hasConsole(l)) say(`网页控制台：${consoleUrl(l)}（这台机器上的浏览器打开即登录；别的设备用 Quetzal App 加配对码）`);
+  if (lanEnabled(l)) say("局域网走加密连接（地址与证书指纹见下）：手机上的 Quetzal App 填这台机器的地址配对，核对 App 显示的指纹与配对通知里的一致；浏览器打开会提示证书不受信任，核对指纹后再继续。");
   const removed = prune(l);
   if (removed.length) say(`清理旧版本：${removed.join("、")}`);
   if (!linger) say("提示：loginctl enable-linger 未成功，这个用户没有登录会话时服务不会运行；服务器上可手动执行 `sudo loginctl enable-linger $USER`。");

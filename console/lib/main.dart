@@ -20,6 +20,7 @@ import 'hearing.dart';
 import 'platform/caps.dart';
 import 'platform/fonts.dart' as fonts;
 import 'platform/location.dart' as loc;
+import 'platform/pin.dart';
 import 'shell/desktop.dart';
 
 /// 暗色模式的背景：固定 RGB(32,32,32)，与主题色无关。
@@ -29,6 +30,7 @@ void main() async {
   loc.claimUrl(); // 网页版：URL 的 #片段由桌面外壳的 Nav 管理，Flutter 不改写
   WidgetsFlutterBinding.ensureInitialized();
   await fonts.loadFonts(); // 网页版：自带的中文字体子集；安卓什么都不做
+  installPinning(); // 原生平台：网关的 https 连接只认配对时钉住的证书指纹（pins.dart）；网页版由浏览器处理
   api.init();
   wakes.start(); // 跟踪她正在进行的醒来（首页与心流页的只读入口）
   hearing.start(); // 耳朵：安卓上跟随基座的听觉开关启停本机的麦克风前台服务；网页版只跟着状态显示

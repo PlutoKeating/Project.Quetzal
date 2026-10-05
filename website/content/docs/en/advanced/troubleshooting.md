@@ -59,7 +59,8 @@ She tells you she "entered safe mode": more than five starts in ten minutes. Onl
 
 ## The web console (Linux)
 
-- `http://127.0.0.1:7788/` asks for a pairing code: the gateway waives it only for a browser on **the same machine**; a LAN IP or hostname does not count. use `127.0.0.1` or `localhost`. From another machine, forward the port with `ssh -L 7788:127.0.0.1:7788 <that machine>` and open the address locally, or pair from the app.
+- `http://127.0.0.1:7788/` asks for a pairing code: the gateway waives it only for a browser on **the same machine**; a LAN IP or hostname does not count. use `127.0.0.1` or `localhost`. From another machine, forward the port with `ssh -L 7788:127.0.0.1:7788 <that machine>` and open the address locally, or (with `--lan`) open `https://<that machine's address>:7789/`, check the certificate fingerprint and pair with a code, or pair from the app.
+- The app says "运行基座已改为加密连接，请重新配对" (the runtime now requires an encrypted connection): older app versions saved `http://<address>:7788`, and a new runtime only accepts HTTPS on the LAN. Save the new address on the pairing page (an IP is enough; `https://…:7789` is used automatically), check the certificate fingerprint and pair again.
 - Blank page or boxes instead of Chinese: check the service with `quetzal status` and hard-refresh the browser. The web build ships its own CJK font and needs no internet for it.
 - The browser did not open after installing: without a desktop session (server, ssh login) only the address is printed; try `quetzal open`.
 - The one-line installer failed midway: it prints the tail of its log, and the full log is `~/.quetzal/install.log`; fix the cause and rerun the same command (it is idempotent). A locked `apt` usually means the system is updating in the background; wait a few minutes. On Alpine run `apk add bash curl` first; on NixOS provide Node.js 22.13+ yourself (nvm's binaries do not run there).

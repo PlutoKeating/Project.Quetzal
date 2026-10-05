@@ -7,6 +7,7 @@ import { layout, defaultHome, versionOf, rollback } from "./layout.ts";
 import * as svc from "./service.ts";
 import { health } from "./health.ts";
 import { install, placeRelease, bundled, gatewayPort, gatewayHost, consoleUrl, hasConsole } from "./install.ts";
+import { lanEnabled, lanPort, lanUrls, certFingerprint } from "./lan.ts";
 
 const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as { version: string };
 const say = (s: string) => console.log(s);
@@ -29,7 +30,7 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
 
 选项：
   --home DIR         家目录（默认 $QUETZAL_HOME 或 ~/.quetzal；0.6.7 前的 ~/quetzal 会自动搬过来）
-  --lan | --no-lan   网关对局域网开放（手机上的 App 直接连这台机器）/ 只监听本机（默认不改）
+  --lan | --no-lan   网关对局域网开放（HTTPS，端口 7789；手机上的 App 直接连这台机器）/ 只监听本机（默认不改）
   --force            已是同一版本也重新安装
   --no-open          装完不自动打开浏览器
 
@@ -71,7 +72,12 @@ async function status(home: string) {
   say(`服务      ${svc.isInstalled() ? ((await svc.isActive()) ? "运行中（systemd 用户服务 quetzal）" : "已安装，未运行") : "未安装"}`);
   say(`运行基座  ${h ? `${h.version} ${h.safeMode ? "安全模式" : h.mode}` : "没有响应"}`);
   const host = gatewayHost(l);
-  say(`网关      ${host}:${gatewayPort(l)}${host === "127.0.0.1" ? "（只监听本机；要让手机上的 App 直接连，执行 quetzal install --lan，或建 ssh 隧道）" : "（局域网可达）"}`);
+  say(`网关      127.0.0.1:${gatewayPort(l)}（明文，只在本机）`);
+  if (lanEnabled(l)) {
+    const fp = certFingerprint(l);
+    say(`局域网    ${lanUrls(l).join("、") || "（没找到局域网地址）"}（HTTPS / WSS，监听 ${host === "127.0.0.1" ? "0.0.0.0" : host}:${lanPort(l)}）`);
+    say(`证书指纹  ${fp ? `${fp.short}（完整：${fp.hex}）` : "（运行基座启动后生成）"}`);
+  } else say("局域网    未开放（要让手机上的 App 直接连，执行 quetzal install --lan，或建 ssh 隧道）");
   say(`网页控制台 ${hasConsole(l) ? `${consoleUrl(l)}（quetzal open）` : "（这个版本没有内置网页控制台）"}`);
 }
 

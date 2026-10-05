@@ -2,6 +2,8 @@
 //   令牌不放进网址（网址会进日志与历史）：HTTP 用请求头 X-Quetzal-Token，WebSocket 连上后第一条消息发 {"auth": 令牌}；
 //   旧版运行基座只认 ?token=，握手被拒时退回旧方式并记住这个网关。图片预览（Image.network）仍把令牌放在网址里，见 fileUrl。
 //   网页版由运行基座的网关托管：页面的来源就是网关地址，第一次打开向 /auth/local 要令牌（同一台机器免配对码）；别处的 agent 仍走配对码。
+//   别的机器上的运行基座只能走 HTTPS / WSS（默认 7789，自签名证书）：连接档案记着配对时钉住的证书指纹（Profile.fp），见 pins.dart；
+//   明文只用于本机回环（同一台设备上的运行基座）。旧的 http:// 局域网档案连不上时提示重新配对。
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -9,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'igniter.dart';
+import 'pins.dart';
 import 'platform/caps.dart';
 import 'platform/location.dart' as loc;
 import 'platform/net.dart' as net;
@@ -25,13 +28,22 @@ class RpcError implements Exception {
   String toString() => message;
 }
 
-/// 一个 agent 的连接档案：控制台可以保存多个，一键切换。
+/// 一个 agent 的连接档案：控制台可以保存多个，一键切换。fp：https 连接钉住的证书指纹（旧档案没有，为空）；令牌只和配对时的这个指纹一起有效。
 class Profile {
-  String id, label, base, token;
-  Profile({required this.id, required this.label, required this.base, this.token = ''});
-  Map<String, dynamic> toJson() => {'id': id, 'label': label, 'base': base, 'token': token};
-  factory Profile.fromJson(Map m) => Profile(id: m['id'], label: m['label'] ?? '', base: m['base'], token: m['token'] ?? '');
+  String id, label, base, token, fp;
+  Profile({required this.id, required this.label, required this.base, this.token = '', this.fp = ''});
+  Map<String, dynamic> toJson() => {'id': id, 'label': label, 'base': base, 'token': token, 'fp': fp};
+  factory Profile.fromJson(Map m) => Profile(id: m['id'], label: m['label'] ?? '', base: m['base'], token: m['token'] ?? '', fp: m['fp'] ?? '');
 }
+
+/// 配对前看到的运行基座：证书指纹（原生平台是握手时自己看到的；网页版与本机明文是运行基座报告的）、身体名、版本。
+class PairInfo {
+  final String fingerprint, body, version;
+  const PairInfo(this.fingerprint, this.body, this.version);
+}
+
+/// 旧档案提示：新的运行基座在局域网上只提供加密连接。
+const legacyLanMessage = '运行基座已改为加密连接，请重新配对';
 
 class GatewayEvent {
   final String name;
@@ -71,6 +83,7 @@ class Api extends ChangeNotifier {
     if (origin != null && !profiles.any((x) => x.base == origin)) { current = Profile(id: _newId(), label: '', base: origin); profiles.insert(0, current!); }
     await _persist();
     if (current!.token.isEmpty && canLocalLogin(current!)) await localLogin();
+    // 旧版控制台留下的 http:// 局域网档案：照常先试（运行基座可能还没升级），连不上再回配对页，见 _lost
     connect();
   }
 
@@ -95,17 +108,22 @@ class Api extends ChangeNotifier {
 
   static String _newId() => DateTime.now().microsecondsSinceEpoch.toRadixString(36);
 
+  /// 按连接档案重建钉住的指纹（https 档案）。
+  void syncPins() => pins.load(profiles.map((x) => (x.base, x.fp)));
+
   Future<void> _persist() async {
+    syncPins();
     final p = await SharedPreferences.getInstance();
     await p.setString('profiles', jsonEncode(profiles.map((x) => x.toJson()).toList()));
     if (current != null) await p.setString('current', current!.id);
   }
 
-  Future<void> saveSettings({String? base, String? token}) async {
+  Future<void> saveSettings({String? base, String? token, String? fp}) async {
     final c = current;
     if (c == null) return;
-    if (base != null) c.base = base;
+    if (base != null && base != c.base) { c.base = base; c.fp = ''; lastError = ''; if (token == null) c.token = ''; } // 换了地址：旧的钉住与令牌都不再适用
     if (token != null) c.token = token;
+    if (fp != null) c.fp = fp;
     await _persist();
     connect();
   }
@@ -165,8 +183,44 @@ class Api extends ChangeNotifier {
   /// 附件的下载地址（图片预览）。Image.network 在网页版由浏览器按网址加载、带不了自定义请求头，所以这里仍用 ?token=（只发给同一个网关）。
   String fileUrl(String rel) => Uri.parse('$base/uploads/${rel.split('/').map(Uri.encodeComponent).join('/')}').replace(queryParameters: {'token': token}).toString();
 
+  bool get _secure => Uri.tryParse(base)?.scheme == 'https';
+
+  /// 配对第一步：GET /pair/info。原生平台连 https 时以「捕获」方式握手，记下自己看到的证书指纹并钉住（还没有令牌，钉住只用于接下来的配对请求）；
+  /// 看到的指纹和档案里的不同（第一次、或运行基座换了证书）就清掉旧令牌——令牌只能发给配对时核对过的那张证书。
+  /// 网页版由浏览器处理证书（人在浏览器的警告页上核对），本机明文连接不需要钉住，这两种用运行基座报告的指纹。旧版运行基座没有这个接口时返回 null。
+  Future<PairInfo?> pairInfo() async {
+    final c = current;
+    final u = Uri.tryParse(base);
+    if (c == null || u == null) return null;
+    final capture = _secure && !isWeb;
+    if (capture) pins.startCapture(u.host, u.port);
+    Map<String, dynamic> j;
+    String? seen;
+    try { j = await _http('GET', '/pair/info'); }
+    on RpcError catch (e) { if (e.code == 'HTTP_404') return null; rethrow; }
+    finally { if (capture) seen = pins.endCapture(u.host, u.port); }
+    final reported = '${j['fingerprint'] ?? ''}'.toLowerCase();
+    final fp = capture ? (seen ?? '') : reported;
+    if (_secure && !RegExp(r'^[0-9a-f]{64}$').hasMatch(fp)) throw RpcError('TLS', '没有拿到运行基座的证书指纹');
+    if (_secure && fp != c.fp) { c.fp = fp; c.token = ''; await _persist(); connect(); }
+    return PairInfo(fp, '${j['body'] ?? ''}', '${j['version'] ?? ''}');
+  }
+
   Future<void> pairStart() => _http('POST', '/pair/start');
+
+  /// 配对最后一步。加密连接：提交配对证明（配对码与钉住的证书指纹一起算，码本身不上网络），并核对运行基座回报的指纹；
+  /// 本机明文连接：直接提交配对码（同一台设备，也兼容旧版运行基座）。
   Future<void> pairFinish(String code) async {
+    final c = current;
+    if (c == null) return;
+    if (_secure) {
+      if (c.fp.isEmpty) throw RpcError('TLS', '还没有核对证书指纹，请先重新探测');
+      final fp = c.fp;
+      final j = await _http('POST', '/pair/finish', {'proof': await pairProof(code, fp)});
+      if ('${j['fingerprint'] ?? ''}'.toLowerCase() != fp) throw RpcError('TLS', '运行基座回报的证书指纹与握手时看到的不一致，可能有人在中间，已放弃');
+      await saveSettings(token: j['token'] as String, fp: fp);
+      return;
+    }
     final j = await _http('POST', '/pair/finish', {'code': code.trim()});
     await saveSettings(token: j['token'] as String);
   }
@@ -180,12 +234,13 @@ class Api extends ChangeNotifier {
     _wsSub?.cancel(); _wsSub = null;
     _ws?.sink.close(); _ws = null;
     if (token.isEmpty) { conn = Conn.unpaired; notifyListeners(); return; }
+    if (_secure && !isWeb && current!.fp.isEmpty) { conn = Conn.unpaired; lastError = legacyLanMessage; notifyListeners(); return; } // 加密连接没有钉住的指纹：令牌不能发出去
     conn = conn == Conn.igniting ? Conn.igniting : Conn.connecting;
     notifyListeners();
     final gw = base;
     legacy = legacy || _legacyWsAuth.contains(gw);
     final url = '${gw.replaceFirst('http', 'ws')}/rpc${legacy ? '?token=${Uri.encodeComponent(token)}' : ''}';
-    final ws = WebSocketChannel.connect(Uri.parse(url));
+    final ws = net.wsConnect(Uri.parse(url));
     _ws = ws;
     var heard = false; // 收到过网关的消息：认证已被接受
     Timer? authWait;
@@ -217,6 +272,13 @@ class Api extends ChangeNotifier {
 
   void _lost(String why) {
     if (conn == Conn.unpaired) return;
+    if (!isWeb && current != null && isLegacyLan(current!.base)) { // 旧的明文局域网档案：新的运行基座只在本机提供明文，回到配对页换加密地址
+      _wsSub?.cancel(); _wsSub = null; _ws = null;
+      for (final c in _pending.values) { if (!c.isCompleted) c.completeError(RpcError('OFFLINE', legacyLanMessage)); }
+      _pending.clear();
+      lastError = legacyLanMessage; conn = Conn.unpaired; notifyListeners();
+      return;
+    }
     _wsSub?.cancel(); _wsSub = null; _ws = null; // 这条连接已经没用了；同一条连接的 onError 与 onDone 只算一次
     lastError = why;
     if (conn != Conn.igniting) conn = Conn.offline;
