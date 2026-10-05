@@ -55,7 +55,7 @@ if curl -fsS "$BASE/runtime/mesh-modules.lock.json" -o "$R/$V/mesh-modules.lock.
   [ -f "$MM/node_modules/node-datachannel/package.json" ] && ln -sfn "../../mesh-modules/$NDC_V/node_modules" "$R/$V/node_modules" && MM_OK=1   # 相对链接：家目录整体搬迁也不断
   ( cd "$W/mesh-modules" 2>/dev/null && ls -1t | tail -n +3 | xargs -r rm -rf )   # 只保留最近 2 个版本的组件
 fi
-echo "网状层组件：${MM_OK:+已就绪}${MM_OK:-缺失}" >>"$LOG"
+if [ -n "$MM_OK" ]; then echo "网状层组件：已就绪" >>"$LOG"; else echo "网状层组件：缺失" >>"$LOG"; fi
 
 # ---------- 3. 服务：runit 守护、日志轮转、开机脚本、允许控制台点火
 step service
