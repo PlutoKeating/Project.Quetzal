@@ -92,7 +92,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |
 | [`sync/`](sync/README.md) | 同步服务：账户（GitHub 登录）、身体绑定、信令与 TURN 中转，让同一个 agent 的几具身体连成一张网；独立部署在一台服务器上，`./start.sh` 一行启动 |
 | [`website/`](website/docs/README.md) | 官网与文档站 |
-| [`docs/`](docs/) | [快速开始](docs/QUICK_START.md) · [架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [灵魂同步](docs/SOUL_SYNC.md) · [仓库规范](docs/SOUL_REPO_SPEC.md) · [分布式（1.0 设计稿）](docs/DISTRIBUTED.md) |
+| [`docs/`](docs/) | [快速开始](docs/QUICK_START.md) · [架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [灵魂同步](docs/SOUL_SYNC.md) · [仓库规范](docs/SOUL_REPO_SPEC.md) · [分布式（1.0 设计稿）](docs/DISTRIBUTED.md) · [一键上手（设计稿）](docs/ONBOARDING.md) |
 
 <br/>
 
