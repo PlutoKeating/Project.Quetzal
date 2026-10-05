@@ -18,6 +18,7 @@
 - **安装**：直连组件 `node-datachannel`（原生模块）由安装器按锁定的版本与 sha512 下载核对后装上，缺了也不影响使用（只是没有多具身体）。
 - **升级说明**：消息与心流的编号在第一次启动时迁移为按身体分段的编号（只发生一次）；用量表按身体记录。
 - **修复**：自造的 sh 工具不读参数就退出时，偶尔报 EPIPE 错误。
+- **安全**：灵魂同步只推到配置里的灵魂仓库地址（推送前校正 `origin`，agent 用 shell 改了也会改回）；远端没有 `agent.json` 却有规范以外的内容（例如一个代码仓库）时拒绝合并，不再把别的仓库的历史并进灵魂、也不把记忆推过去。
 
 **Distributed: several bodies, one agent.** An agent's phones, computers and servers join into a mesh and become one mind.
 
@@ -33,6 +34,7 @@
 - **Installation**: the direct-connection component `node-datachannel` (a native module) is downloaded and verified against a pinned version and sha512 by the installers; without it everything still works except multiple bodies.
 - **Upgrade notes**: message and flow ids are migrated once, on first start, to per-body id ranges; usage is now recorded per body.
 - **Fix**: custom sh tools that exit without reading their arguments occasionally raised an EPIPE error.
+- **Security**: soul sync only pushes to the configured soul repository (`origin` is corrected before every push, even if the agent changed it from the shell); a remote without `agent.json` but with content outside the specification (such as a code repository) is refused, so foreign history is never merged into the soul and memory is never pushed there.
 
 ## 0.6.7
 

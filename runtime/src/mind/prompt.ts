@@ -25,7 +25,7 @@ function soulPerception(): string {
   const pending = copies.length ? `\n待你裁决的冲突副本（两边都改过，基座先用了较新的一版；看过后保留现在的就删掉副本，想要另一版或合并就改好原文件再删副本）：\n${copies.map((c) => `- ${path.join(paths.soul, c)}`).join("\n")}` : "";
   if (!st.remote) return `## 灵魂同步（知觉）\n只有这一具身体，没有与其他身体同步。${pending}`;
   const lines = soulRecent.map((r) => `- ${new Date(r.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}：合入 ${r.incoming.length} 次变更（${[...new Set(r.incoming.map((i) => i.body))].join("、")}）${r.resolved.length ? `，自动处理冲突：${r.resolved.map((x) => `${x.file}→${x.kept === "remote" ? "采用对方" : "保留本地"}`).join("；")}` : ""}`);
-  return `## 灵魂同步（知觉）\n你的人格与记忆由基座自动在各具身体间同步：你一改动灵魂目录里的东西，基座就立即提交并推送，无需你操作；推送失败或出现需要你裁决的冲突时，基座会直接提醒你。以下是最近发生的事。${st.lastError ? `\n同步异常：${st.lastError}` : ""}${st.unpushed ? `\n还有 ${st.unpushed} 次改动在本机等待推送。` : ""}\n${lines.join("\n") || "最近没有来自其他身体的变化。"}${pending}`;
+  return `## 灵魂同步（知觉）\n你的人格与记忆由基座自动在各具身体间同步：你一改动灵魂目录里的东西，基座就立即提交并推送，无需你操作（不要自己在灵魂目录里运行 git：改远端地址、reset、push 都可能把记忆推到错的地方；同步出了问题就告诉对方）；推送失败或出现需要你裁决的冲突时，基座会直接提醒你。以下是最近发生的事。${st.lastError ? `\n同步异常：${st.lastError}` : ""}${st.unpushed ? `\n还有 ${st.unpushed} 次改动在本机等待推送。` : ""}\n${lines.join("\n") || "最近没有来自其他身体的变化。"}${pending}`;
 }
 
 /** 其他身体（多具身体时）：此刻在线的另几具身体、各有什么工具；用 body_call 调它们的工具，用 move_to 换过去继续。 */

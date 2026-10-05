@@ -119,3 +119,36 @@ test("提醒送进还在进行的醒来：作为「基座提醒」并入收件�
   assert.deepEqual([s.inbox[0].notice, s.inbox[0].text], ["灵魂同步", "测试提醒"]);
   s.close();
 });
+
+test("灵魂目录的 origin 被手动改到别处：推送前改回配置里的灵魂仓库，别处收不到任何东西", async () => {
+  const elsewhere = path.join(tmp, "elsewhere.git");
+  execFileSync("git", ["init", "--bare", "-b", "main", elsewhere]);
+  g(paths.soul, "remote", "set-url", "origin", elsewhere); // 模拟 agent 用 shell 改了 origin
+  fs.appendFileSync(path.join(paths.soul, "memories/MEMORY.md"), "改了 origin 之后写的一条\n");
+  await soul.touched({ tool: "shell" });
+  assert.equal((await soul.push("对话")).ok, true);
+  assert.equal(g(paths.soul, "remote", "get-url", "origin").trim(), remote, "origin 改回来了");
+  assert.equal(g(elsewhere, "rev-list", "--all").trim(), "", "别处没有收到任何提交");
+  g(other, "pull", "origin", "main");
+  assert.match(fs.readFileSync(path.join(other, "memories/MEMORY.md"), "utf8"), /改了 origin 之后写的一条/);
+});
+
+test("配置的地址其实是一个代码仓库（没有 agent.json，有规范以外的内容）：拒绝合并，不把别的历史并进灵魂", async () => {
+  const code = path.join(tmp, "code.git"), work = path.join(tmp, "codework");
+  execFileSync("git", ["init", "--bare", "-b", "main", code]);
+  fs.mkdirSync(path.join(work, "runtime"), { recursive: true });
+  g(work, "init", "-b", "main"); g(work, "config", "user.email", "c@x"); g(work, "config", "user.name", "c");
+  fs.writeFileSync(path.join(work, "runtime/main.ts"), "console.log(1)\n"); fs.writeFileSync(path.join(work, "README.md"), "# code\n");
+  g(work, "add", "-A"); g(work, "commit", "-m", "code"); g(work, "remote", "add", "origin", code); g(work, "push", "origin", "main");
+  saveConfig({ soul: { remote: code } });
+  await soul.ensureSoul();
+  await soul.pull();
+  assert.match(soul.syncStatus().lastError, /不是灵魂仓库/);
+  assert.ok(!fs.existsSync(path.join(paths.soul, "runtime")), "代码没有并进灵魂目录");
+  const r = await soul.push("对话");
+  assert.equal(r.ok, false);
+  assert.equal(r.kind, "identity");
+  assert.equal(g(code, "log", "--oneline", "main").trim().split("\n").length, 1, "代码仓库没有收到灵魂的提交");
+  saveConfig({ soul: { remote } });
+  await soul.ensureSoul();
+});

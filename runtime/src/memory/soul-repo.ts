@@ -25,6 +25,8 @@ export interface SoulRepoOptions {
 }
 
 const LEASE_MS = 30 * 60_000;
+/** 灵魂仓库里允许出现的顶层条目（规范 §2 的固定与必需条目，加上新建仓库常见的 README、LICENSE）。远端没有 agent.json 时据此判断它是不是灵魂仓库。 */
+const SOUL_TOP = new Set([".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "README", "LICENSE", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "skills", "locks", ".gitkeep"]);
 export const SPEC = { spec: "soul-repo", version: 8 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
@@ -182,6 +184,14 @@ export class SoulRepo {
     return "initialized";
   }
 
+  /** 推送前确认 origin 仍是配置里的灵魂仓库地址：有人在灵魂目录里手动改了它（例如 agent 用 shell），就改回来并提醒，绝不推到别处。 */
+  private async ensureOrigin() {
+    const cur = (await this.git("remote", "get-url", "origin")).out.trim();
+    if (cur === this.o.remote) return;
+    if (cur) this.o.log?.(`灵魂目录的 origin 被改成了别的地址，已改回配置里的灵魂仓库（灵魂同步由基座管理，不要手动改）`);
+    await this.configure();
+  }
+
   async configure() {
     const a = this.o.author();
     await this.git("config", "user.name", a.name);
@@ -229,7 +239,16 @@ export class SoulRepo {
 
   private async guardIdentity(): Promise<boolean> {
     const r = await this.git("show", `${this.ref()}:agent.json`);
-    if (r.code !== 0) return true;
+    if (r.code !== 0) {
+      // 远端没有 agent.json：刚建的空仓库（只有 README、LICENSE 之类）可以接入；有规范以外的顶层内容（例如一个代码仓库）就不是灵魂仓库，拒绝合并——
+      // 否则会把别的仓库的历史并进灵魂，并把记忆推到那里（曾经发生过：agent 用 shell 把 origin 改成了代码仓库）
+      const top = (await this.git("ls-tree", "--name-only", this.ref())).out.split("\n").filter(Boolean);
+      const foreign = top.filter((n) => !SOUL_TOP.has(n));
+      if (!foreign.length) return true;
+      this.status.lastError = `远端不是灵魂仓库（没有 agent.json，却有 ${foreign.slice(0, 3).join("、")}${foreign.length > 3 ? " 等" : ""}），已拒绝合并：请检查灵魂仓库地址`;
+      this.o.log?.(this.status.lastError);
+      return false;
+    }
     let theirs: { id?: string };
     try { theirs = JSON.parse(r.out); } catch { return true; }
     const mine = this.readJson("agent.json");
@@ -295,10 +314,11 @@ export class SoulRepo {
     await this.commit(msg);
     if (!this.o.remote) return { ok: true, pushed: false };
     if (!this.remoteReady()) return { ok: false, pushed: false, kind: "config", error: this.status.lastError };
+    await this.ensureOrigin();
     let r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
     if (r.code !== 0 && gitErrorKind(r.err) === "rejected") {
       const pulled = await this.pull();
-      if (!pulled.merged && this.status.lastError) return { ok: false, pushed: false, kind: this.status.lastError.includes("另一个 agent") ? "identity" : gitErrorKind(this.status.lastError), error: this.status.lastError };
+      if (!pulled.merged && this.status.lastError) return { ok: false, pushed: false, kind: /另一个 agent|不是灵魂仓库/.test(this.status.lastError) ? "identity" : gitErrorKind(this.status.lastError), error: this.status.lastError };
       r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
     }
     if (r.code !== 0) { this.status.lastError = friendlyGitError(r.err); return { ok: false, pushed: false, kind: gitErrorKind(r.err), error: this.status.lastError }; }
