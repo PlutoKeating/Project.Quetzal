@@ -3,6 +3,7 @@
 #   quetzal-<版本>-android-arm64.apk          Quetzal App（内置运行基座与 Termux 身体适配器）
 #   quetzal-<版本>-linux-x64-console.tar.gz   Linux 桌面版控制台（原生窗口；一键安装脚本在有桌面的机器上自动下载，见 cli/install.sh）
 #   quetzal-<版本>-linux-arm64-console.tar.gz（同上，arm64）
+#   quetzal-<版本>-landrun-linux-<x64|arm64>.tar.gz   Landlock 沙箱启动器 landrun（第三方，MIT，附许可证）：bubblewrap 用不了的 Linux 机器上用
 #   SHA256SUMS       上面每个资产一行 `<sha256>  <文件名>`，外加一行 `commit <提交> <标签>`（这个版本对应的源码提交）
 #   SHA256SUMS.sig   SHA256SUMS 的 Ed25519 签名（base64）。公钥写死在 App（console/lib/updater.dart）、一键安装脚本（cli/install.sh）
 #                    与 soul-bridge（bridge/src）里，官网文档「发布签名与校验」给出校验方法；私钥只在仓库 Secret RELEASE_SIGNING_KEY（PKCS8 PEM）
@@ -215,6 +216,30 @@ jobs:
           path: out
           merge-multiple: true
 
+      # Landlock 沙箱启动器 landrun（MIT，github.com/Zouuup/landrun）：按固定版本与 GitHub 给出的 sha256 下载核对，连同许可证打包成
+      # quetzal-<版本>-landrun-linux-<架构>.tar.gz 随 Release 发布，纳入下面的签名清单（一键安装脚本在 bubblewrap 用不了的机器上装它）。
+      # 升级 landrun：改 LANDRUN_VERSION 与三个 sha256（gh api repos/Zouuup/landrun/releases --jq '.[0].assets[]|.name+" "+.digest'）
+      - name: 打包 landrun（Landlock 沙箱启动器）
+        env:
+          V: ${{ needs.prepare.outputs.version }}
+          LANDRUN_VERSION: v0.1.17
+          LANDRUN_AMD64_SHA256: 6ada66a06669e8994e174a7271af2db636308e55a0d6ec896cc7d326b46727f6
+          LANDRUN_ARM64_SHA256: 365d8c8656c732b14d70e621d972cb733e490621fb5b9c0876376bcf457dbb5d
+          LANDRUN_LICENSE_SHA256: f613c30920743111429f7c1cb801f49ccaafe8ae3319b3b0a5f8aca94e5fc082
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/landrun"; mkdir -p "$work"
+          curl -fsSL "https://raw.githubusercontent.com/Zouuup/landrun/$LANDRUN_VERSION/LICENSE" -o "$work/LICENSE"
+          echo "$LANDRUN_LICENSE_SHA256  $work/LICENSE" | sha256sum -c -
+          for pair in amd64:x64:$LANDRUN_AMD64_SHA256 arm64:arm64:$LANDRUN_ARM64_SHA256; do
+            IFS=: read -r up ours sum <<<"$pair"
+            d="$work/$ours"; mkdir -p "$d"
+            curl -fsSL "https://github.com/Zouuup/landrun/releases/download/$LANDRUN_VERSION/landrun-linux-$up" -o "$d/landrun"
+            echo "$sum  $d/landrun" | sha256sum -c -
+            chmod 755 "$d/landrun"; cp "$work/LICENSE" "$d/LICENSE"
+            tar -C "$d" -czf "out/quetzal-$V-landrun-linux-$ours.tar.gz" landrun LICENSE
+          done
+
       - name: 校验值清单 SHA256SUMS（含 commit 行）与签名 SHA256SUMS.sig
         env:
           V: ${{ needs.prepare.outputs.version }}
@@ -222,7 +247,7 @@ jobs:
         run: |
           [ -n "$RELEASE_SIGNING_KEY" ] || { echo "::error::缺少 Secret RELEASE_SIGNING_KEY（Ed25519 私钥，PKCS8 PEM）"; exit 1; }
           cd out
-          for f in "quetzal-$V-android-arm64.apk" "quetzal-$V-linux-x64-console.tar.gz" "quetzal-$V-linux-arm64-console.tar.gz"; do
+          for f in "quetzal-$V-android-arm64.apk" "quetzal-$V-linux-x64-console.tar.gz" "quetzal-$V-linux-arm64-console.tar.gz" "quetzal-$V-landrun-linux-x64.tar.gz" "quetzal-$V-landrun-linux-arm64.tar.gz"; do
             [ -f "$f" ] || { echo "::error::缺少资产 $f"; exit 1; }
           done
           { sha256sum quetzal-*.apk quetzal-*.tar.gz; printf 'commit %s %s\n' "$GITHUB_SHA" "$GITHUB_REF_NAME"; } > SHA256SUMS

@@ -225,7 +225,7 @@ export async function runTool(m: ToolManifest, args: Record<string, any>): Promi
     for (const [k, v] of Object.entries(args ?? {})) if (/^[A-Za-z_]\w*$/.test(k)) env[`ARG_${k}`] = typeof v === "string" ? v : JSON.stringify(v);
     cmd = "sh"; argv = [sourceFile(m.name, "sh")];
   }
-  const w = wrap(cmd, argv, dir);
+  const w = wrap(cmd, argv, dir, env); // 没有可用沙箱时抛出 SandboxUnavailable，由调用方把说明交给她
   return new Promise((resolve, reject) => {
     const p = spawn(w.cmd, w.args, { cwd: w.cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
     let out = "", err = "";

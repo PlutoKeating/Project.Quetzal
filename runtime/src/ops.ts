@@ -26,7 +26,7 @@ import * as player from "./voice/player.ts";
 import * as meshRt from "./mesh/runtime.ts";
 import * as acct from "./mesh/account.ts";
 import { remoteApprovals, decideAnywhere } from "./mesh/shared.ts";
-import { sandboxStatus } from "./sandbox.ts";
+import { sandboxStatus, resetSandbox } from "./sandbox.ts";
 import { checkKeyPath } from "./memory/soul-repo.ts";
 
 export const status = () => ({
@@ -108,6 +108,12 @@ export const ops = {
 
   permissions: () => Object.entries(guard.PERMISSION_LABELS).map(([id, label]) => ({ id, label, level: guard.level(id) })),
   setPermission: (a: { id: string; level: Level }, actor: string) => { guard.setLevel(a.id, a.level, actor); return true; },
+  // 没有可用沙箱时是否允许她的命令不隔离运行（不安全；缺省不允许）。只有持网关令牌的控制台能改：没有沙箱时她的命令本来就不执行，碰不到网关
+  "sandbox.allowUnsandboxed": (a: { allow: boolean }, actor: string) => {
+    saveConfig({ sandbox: { allowUnsandboxed: a.allow === true } }); resetSandbox();
+    audit(actor, "sandbox.allowUnsandboxed", a.allow === true ? "允许不隔离运行" : "恢复缺省：没有沙箱就不执行", { allow: a.allow === true }, "ok");
+    return sandboxStatus();
+  },
   approvals: () => [...guard.approvals(), ...remoteApprovals()], // 含其他身体上等待批准的（带 body）
   decide: (a: { id: string; approve: boolean; note?: string; body?: string }, actor: string) => decideAnywhere(a.id, a.approve, actor, a.note, typeof a.body === "string" && a.body ? a.body : undefined), // 其他身体上的审批转过去；body 指明是哪具身体上的（审批号可能重复）
   budget: () => ({ ...config.budget, usage: usageToday() }),

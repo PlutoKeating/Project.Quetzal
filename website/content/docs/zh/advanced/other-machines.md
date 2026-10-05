@@ -35,7 +35,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 
 | 选项 | 环境变量 | 作用 |
 |---|---|---|
-| `--lan` | `QUETZAL_LAN=1` | 网关对局域网开放，手机上的 App 直接填这台机器的地址连接（只在可信的局域网里） |
+| `--lan` | `QUETZAL_LAN=1` | 网关对局域网开放，手机上的 App 直接填这台机器的地址连接（局域网上只走加密的 HTTPS，端口 7789；明文只在本机） |
 | `--no-open` | `QUETZAL_NO_OPEN=1` | 装完不打开浏览器 |
 | `--no-desktop` | `QUETZAL_NO_DESKTOP=1` | 不写应用列表的快捷方式 |
 | `--home DIR` | `QUETZAL_HOME=DIR` | 家目录（默认 `~/.quetzal`；0.6.7 之前装在 `~/quetzal` 的，再跑一次安装会自动整目录搬到 `~/.quetzal`，配置、记忆、对话原样保留） |
@@ -54,6 +54,17 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall  #
 > [!NOTE]
 > 服务用安装时选定的那个 Node 的绝对路径（nvm 装的在 `~/.nvm/versions/node/v22.x/bin/node`），所以之后 `nvm uninstall 22` 会让服务起不来，再跑一次安装命令即可修复。没有 systemd 的机器上 `quetzal stop` / `logs` 这两个子命令不可用：停止用 `kill $(cat ~/.quetzal/state/supervise.pid)`，日志在 `~/.quetzal/logs/runtime.log`。
 
+### 命令沙箱
+
+ta 执行的命令（shell、自造工具）在沙箱里运行，看不到运行基座的密钥（模型 Key、令牌、部署私钥）。安装脚本按顺序准备：
+
+1. **bubblewrap**：用这台机器的包管理器装上（各主流发行版都有）。
+2. **Ubuntu 23.10 及以后**：系统默认用 AppArmor 限制「非特权用户命名空间」，bubblewrap 因此建不了沙箱。脚本会请你输入一次管理员密码，给 Quetzal 装一份专用的 bubblewrap 和只属于它的 AppArmor 配置（`/usr/local/lib/quetzal/bwrap`、`/etc/apparmor.d/quetzal-bwrap`）；不改系统自带的 bubblewrap，也不关闭这项系统保护，卸载时一并移除。
+3. **还不行**（内核禁止了这项功能，或者在容器里）：改用 Linux 内核自带的 **Landlock**，下载经过发版签名核对的启动器 landrun，不需要管理员权限。
+4. **再不行**：Debian / Ubuntu 上改用 proot（尽力而为的隔离）。
+
+都不可用时，运行基座会**拒绝执行 ta 的命令**，以免命令读到密钥；控制台「服务」页会说明原因。补上沙箱后重新运行一次安装命令即可。确实需要时，也可以在那里明确选择「允许不隔离运行」（不安全）。
+
 ### 1.1 只要 npm 包：`npx @plutokeating/quetzal`
 
 已经有 Node.js 22.13+（内置 `node:sqlite` 从这个版本起不需要标志）与 git、也不需要桌面快捷方式时，可以只用 npm 包；一键安装脚本内部调用的也是它。
@@ -61,7 +72,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall  #
 ```bash
 npx @plutokeating/quetzal            # 安装：运行基座、Linux 身体适配器与网页控制台放进 ~/.quetzal，注册 systemd 用户服务并启动，然后在浏览器里打开控制台
 npx @plutokeating/quetzal open       # 再次打开网页控制台 http://127.0.0.1:7788/
-npx @plutokeating/quetzal --lan      # 让网关对局域网开放，手机上的 App 也能直接填这台机器的地址连接（只在可信的局域网里）
+npx @plutokeating/quetzal --lan      # 让网关对局域网开放（加密的 HTTPS，端口 7789），手机上的 App 也能直接填这台机器的地址连接
 ```
 
 它做了什么：把包里内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/.quetzal/releases/<版本>/`，`current` 指向它（与手机上的目录约定相同）；写 `~/.config/systemd/user/quetzal.service`（退出即重启），启动并等 `/health`；40 秒内没有响应就切回上一版。第一次装好、有桌面时自动打开浏览器（`--no-open` 不打开）。再运行一次 `npx @plutokeating/quetzal` 就是升级。
@@ -96,10 +107,13 @@ Linux 适配器一切靠探测：笔记本有电量与充电状态，CPU 温度�
 
 ## 3. 用手机上的 App 连接 Linux 机器（可选）
 
-- 装的时候加了 `--lan`：在 App 里 **连接新的 agent** → 填 `http://<这台机器的地址>:7788` → **申请配对码**。
-- 没有加：网关只监听 `127.0.0.1`，先转发端口（手机经 USB 连着这台机器时 `adb reverse tcp:7788 tcp:7788`，或一条 ssh 隧道），再在 App 里填 `http://127.0.0.1:7788`。随时可以 `npx @plutokeating/quetzal --lan` 改成开放。
+- 装的时候加了 `--lan`：在 App 里 **连接新的 agent** → 只填这台机器的地址（如 `192.168.1.8`；App 自动用加密连接 `https://192.168.1.8:7789`）→ App 显示这台机器的**证书指纹**，与 `npx @plutokeating/quetzal status` 打印的核对一致 → **申请配对码**。
+- 没有加：网关只监听 `127.0.0.1`，先转发端口（手机经 USB 连着这台机器时 `adb reverse tcp:7788 tcp:7788`，或一条 ssh 隧道），再在 App 里填 `127.0.0.1:7788`。随时可以 `npx @plutokeating/quetzal --lan` 改成开放。
 
-配对码在这台机器上弹桌面通知，同时写进服务日志；没有桌面的服务器从 `quetzal logs` 里看。
+配对码连同证书的短指纹（如 `配对码 ABCD-EFGH · 证书指纹 1a2b 3c4d 5e6f 7a8b`）在这台机器上弹桌面通知，同时写进服务日志；没有桌面的服务器从 `quetzal logs` 里看。
+
+> [!NOTE]
+> 局域网上的一切都经 TLS 加密，明文 HTTP 只留在这台机器的 `127.0.0.1:7788`。证书是运行基座自己生成的（自签名），App 配对时记下它的指纹，之后只认这张证书；配对码只在 App 里参与计算，不在网络上传输，有人在中间冒充这台机器也配不上。从别的电脑用浏览器打开 `https://<这台机器的地址>:7789/` 会看到「证书不受信任」的警告：查看证书，SHA-256 指纹的开头与通知里的短指纹一致再继续。旧版 App 里保存的 `http://<地址>:7788` 连接会提示「运行基座已改为加密连接，请重新配对」。
 
 ## 4. 其他机器：手动部署
 
@@ -140,7 +154,7 @@ WantedBy=default.target
 > [!NOTE]
 > 10 分钟内被拉起超过 5 次，基座会进入安全模式（只开网关与飞书，不醒来），防止反复崩溃烧钱。
 
-连接方式与第 3 节相同（手动部署没有网页控制台，除非把控制台的 Web 构建放到 `main.cjs` 旁边的 `web/` 或用 `QUETZAL_WEB_DIR` 指定）；要对局域网开放，在 `config/quetzal.json` 里把 `gateway.host` 设为 `0.0.0.0`。**没有 `notify` 的适配器**（比如通用适配器）收不到配对码通知，这时部署者从 `QUETZAL_HOME/secrets/gateway.token` 读出令牌填入即可。
+连接方式与第 3 节相同（手动部署没有网页控制台，除非把控制台的 Web 构建放到 `main.cjs` 旁边的 `web/` 或用 `QUETZAL_WEB_DIR` 指定）；要对局域网开放，在 `config/quetzal.json` 里把 `gateway.lan` 设为 `true`（或 `gateway.host` 设为 `0.0.0.0`）：局域网上开 HTTPS / WSS（`gateway.lanPort`，默认 7789），明文仍只在本机。**没有 `notify` 的适配器**（比如通用适配器）收不到配对码通知，这时部署者从 `QUETZAL_HOME/secrets/gateway.token` 读出令牌填入即可。
 
 通用适配器没有传感器。给这台机器写一个适配器（几十行），ta 就能感知这具身体，或者获得设备动作工具。见 [自定义身体适配器](/docs/advanced/custom-adapter)。
 

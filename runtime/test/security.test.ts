@@ -59,13 +59,57 @@ test("沙箱：自造工具（sh 与 node）在子进程、沙箱里运行，读
   assert.equal((await callTool("peek_sh", {}, "测试")).text.trim(), "hidden");
 });
 
-test("没有沙箱程序时照常执行，status 标为 none", async () => {
+test("没有可用沙箱时默认拒绝执行（fail-closed）；部署者明确允许后才不隔离运行", async () => {
   process.env.QUETZAL_SANDBOX = "none";
   try {
     sandbox.resetSandbox();
     assert.equal(sandbox.sandboxStatus().kind, "none");
+    assert.equal(sandbox.sandboxStatus().allowUnsandboxed, false);
+    const r = await shell("echo hi");
+    assert.equal(r.code, 126);
+    assert.equal(r.out, "");
+    assert.match(r.err, /没有执行：.*沙箱/);
+    assert.throws(() => startJob("echo hi"), /没有执行/);
+    saveConfig({ sandbox: { allowUnsandboxed: true } } as never);
     assert.equal((await shell("echo hi")).out, "hi\n");
-  } finally { delete process.env.QUETZAL_SANDBOX; sandbox.resetSandbox(); }
+  } finally { saveConfig({ sandbox: { allowUnsandboxed: false } } as never); delete process.env.QUETZAL_SANDBOX; sandbox.resetSandbox(); }
+});
+
+test("Landlock 授权展开：只拆开含有特殊路径的目录，藏起的不授权，只读与可写按规则", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ll-"));
+  for (const d of ["a/b/secret", "a/b/keep", "a/c", "d"]) fs.mkdirSync(path.join(root, d), { recursive: true });
+  fs.writeFileSync(path.join(root, "a/file"), "");
+  const rules = new Map([[path.join(root, "a/b/secret"), "hide"], [path.join(root, "a/c"), "ro"]] as const);
+  const g = sandbox.landlockGrants(new Map(rules), root);
+  const pairs = []; for (let i = 0; i < g.length; i += 2) pairs.push(`${g[i]} ${path.relative(root, g[i + 1])}`);
+  assert.deepEqual(pairs.sort(), ["--rox a/c", "--rwx a/b/keep", "--rwx a/file", "--rwx d"].sort());
+});
+
+test("探针：一个其实不隔离的「沙箱」（例如内核不支持 Landlock 时 --best-effort 不加限制）不会被采用", async () => {
+  const fake = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "fake-landrun-")), "landrun");
+  fs.writeFileSync(fake, '#!/bin/sh\nwhile [ "$1" != "--" ]; do shift; done; shift; exec "$@"\n', { mode: 0o755 });
+  process.env.QUETZAL_SANDBOX = "landlock"; process.env.QUETZAL_LANDRUN = fake;
+  try {
+    sandbox.resetSandbox();
+    assert.notEqual(sandbox.sandboxStatus().kind, "landlock", "探针读得到，就不用它");
+  } finally { delete process.env.QUETZAL_SANDBOX; delete process.env.QUETZAL_LANDRUN; sandbox.resetSandbox(); }
+});
+
+const landrunBin = process.env.QUETZAL_TEST_LANDRUN;
+test("沙箱：Landlock（landrun）里密钥目录不可读、QUETZAL_HOME 只读、data/ 可写、网络照常", { skip: !landrunBin && "没有设置 QUETZAL_TEST_LANDRUN（landrun 的路径）" }, async () => {
+  process.env.QUETZAL_SANDBOX = "landlock"; process.env.QUETZAL_LANDRUN = landrunBin;
+  try {
+    sandbox.resetSandbox();
+    assert.equal(sandbox.sandboxStatus().kind, "landlock");
+    const r = await shell(`cat ${path.join(paths.secrets, "master.key")} 2>&1; echo rc=$?`);
+    assert.match(r.out, /rc=1/);
+    assert.doesNotMatch(r.out, new RegExp(Buffer.alloc(32, 7).toString("base64").slice(0, 20)));
+    assert.match((await shell(`touch ${path.join(paths.config, "x")} 2>&1; echo rc=$?`)).out, /rc=1/, "配置目录只读");
+    assert.match((await shell(`touch ${path.join(paths.data, "ll-ok")} && echo ok`)).out, /ok/, "data/ 可写");
+    assert.equal((await shell("echo $HOME")).out.trim(), os.homedir(), "环境变量传进去了");
+    const v = saveSecret("ll_token", "ll-vault-value");
+    assert.equal((await shell(`cat ${v}`)).out, "ll-vault-value", "保密库可读");
+  } finally { delete process.env.QUETZAL_SANDBOX; delete process.env.QUETZAL_LANDRUN; sandbox.resetSandbox(); }
 });
 
 test("read_document / view_image：按真实路径拒绝密钥目录与保密库（符号链接也不行）", async () => {

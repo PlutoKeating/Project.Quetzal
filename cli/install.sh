@@ -14,7 +14,7 @@
 #   6. 打开网页控制台 http://127.0.0.1:7788/（同一台机器的浏览器打开即登录）
 #
 # 选项（curl … | bash -s -- <选项>）与等价的环境变量：
-#   --lan            QUETZAL_LAN=1         网关对局域网开放（手机上的 App 直接连这台机器；只在可信的局域网里）
+#   --lan            QUETZAL_LAN=1         网关对局域网开放（加密的 https，端口 7789；手机上的 App 填这台机器的地址、核对证书指纹后配对）
 #   --no-open        QUETZAL_NO_OPEN=1     装完不打开浏览器
 #   --no-desktop     QUETZAL_NO_DESKTOP=1  不写应用列表的快捷方式
 #   --home DIR       QUETZAL_HOME=DIR      家目录（默认 ~/.quetzal；0.6.7 之前装在 ~/quetzal 的会自动整目录搬过来）
@@ -297,8 +297,105 @@ pkg_name() { # 工具名 → 这个发行版的包名
     *) echo "$1";;
   esac
 }
-# 命令沙箱：她执行的命令（shell、自造工具）在 bubblewrap 里运行，看不到运行基座的密钥目录。可选：装不上不影响安装，控制台的「服务」页会提醒。
+# 命令沙箱：她执行的命令（shell、自造工具）在沙箱里运行，看不到运行基座的密钥目录。没有任何可用的沙箱时运行基座默认拒绝执行她的命令。
+# 依次尝试（参考 DeepSeek Harness：先 bubblewrap，不行用 Landlock）：
+#   1. bubblewrap：用包管理器装上，实际建一次沙箱；
+#   2. Ubuntu 23.10 起 AppArmor 默认限制非特权用户命名空间，系统的 bwrap 没有允许 userns 的配置就建不了沙箱：
+#      不动系统的 /usr/bin/bwrap（会影响 Flatpak 等），而是复制一份到 root 所有的 /usr/local/lib/quetzal/bwrap，
+#      只给这一份装一个允许 userns 的 AppArmor 配置（与 Ubuntu 给 Chrome 等应用的写法相同），也不关全局的限制；
+#   3. 内核禁止了非特权用户命名空间（或在容器里）：内核支持 Landlock 时装 landrun（随发布资产分发、签名核对，见 ensure_landlock）；
+#   4. 都不行：装 proot（基于 ptrace，尽力而为）。运行基座启动时还会用探针文件实际验证一次隔离是否生效。
+QZ_BWRAP=/usr/local/lib/quetzal/bwrap
+QZ_AA=/etc/apparmor.d/quetzal-bwrap
+SANDBOX=""
+bwrap_works() { "$1" --dev-bind / / --unshare-pid --proc /proc --tmpfs /tmp true >/dev/null 2>&1; }
+apparmor_restricts_userns() { [[ $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null) == 1 ]]; }
+userns_blocked_reason() { # 为什么建不了用户命名空间（给人看的一句话；不改任何内核参数）
+  if [[ $(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null) == 0 ]]; then t '内核参数 kernel.unprivileged_userns_clone=0（加固过的内核）' 'kernel.unprivileged_userns_clone=0 (hardened kernel)'
+  elif [[ $(cat /proc/sys/user/max_user_namespaces 2>/dev/null) == 0 ]]; then t '内核参数 user.max_user_namespaces=0' 'user.max_user_namespaces=0'
+  elif [[ -f /.dockerenv || -f /run/.containerenv ]]; then t '在容器里' 'inside a container'
+  else t '系统不允许非特权用户命名空间' 'unprivileged user namespaces are not allowed'; fi
+}
+as_root() { # 需要 root 的一步：root 直接做；免密 sudo 直接做；需要密码时有终端才问；失败不终止安装
+  [[ -z $SUDO ]] && { "$@"; return; }
+  if $SUDO -n true >/dev/null 2>&1; then $SUDO "$@"; elif [[ -r /dev/tty ]]; then $SUDO "$@" </dev/tty; else return 1; fi
+}
+install_bwrap_apparmor() { # 专用 bwrap 副本 + 只给它的 AppArmor 配置
+  local parser; parser=$(command -v apparmor_parser || echo /sbin/apparmor_parser); [[ -x $parser ]] || return 1
+  local bw; bw=$(command -v bwrap) || return 1
+  local strict simple; strict=$(mktemp) && simple=$(mktemp) || return 1
+  # 严格版（与 Ubuntu 自己的 bwrap-userns-restrict 同一写法）：只有 bwrap 本身能建用户命名空间、拿能力，
+  # 它启动的程序（她的命令）被叠加到 quetzal-unpriv-bwrap，在任何命名空间里都拿不到能力。只装在 Quetzal 的副本上，不影响 Flatpak。
+  cat >"$strict" <<EOF
+# Quetzal 的命令沙箱（由 Quetzal 安装脚本生成）：只给 Quetzal 自己的 bwrap 副本，不改系统的 /usr/bin/bwrap，
+# 也不关闭全局的 kernel.apparmor_restrict_unprivileged_userns。卸载 Quetzal 时移除。
+abi <abi/4.0>,
+include <tunables/global>
+
+profile quetzal-bwrap $QZ_BWRAP flags=(attach_disconnected,mediate_deleted) {
+  allow capability,
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+  allow px /** -> quetzal-bwrap//&quetzal-unpriv-bwrap,
+  include if exists <local/quetzal-bwrap>
+}
+
+profile quetzal-unpriv-bwrap flags=(attach_disconnected,mediate_deleted) {
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+  allow pix /** -> &quetzal-unpriv-bwrap,
+  audit deny capability,
+  include if exists <local/quetzal-unpriv-bwrap>
+}
+EOF
+  # 简单版：只允许这份 bwrap 建用户命名空间（Ubuntu 给 Chrome 等应用的写法）。严格版在较老的 AppArmor 上装不上或用不了时退回它
+  cat >"$simple" <<EOF
+# Quetzal 的命令沙箱（由 Quetzal 安装脚本生成，简单版）：只给 Quetzal 自己的 bwrap 副本。卸载 Quetzal 时移除。
+abi <abi/4.0>,
+include <tunables/global>
+
+profile quetzal-bwrap $QZ_BWRAP flags=(unconfined) {
+  userns,
+  include if exists <local/quetzal-bwrap>
+}
+EOF
+  chmod 644 "$strict" "$simple"
+  local rc=0 f
+  as_root install -d -m 755 /usr/local/lib/quetzal >>"$LOG" 2>&1 || rc=1
+  (( rc )) || as_root install -m 755 "$bw" "$QZ_BWRAP" >>"$LOG" 2>&1 || rc=1
+  if (( ! rc )); then
+    rc=1
+    for f in "$strict" "$simple"; do
+      as_root install -m 644 "$f" "$QZ_AA" >>"$LOG" 2>&1 && as_root "$parser" -r "$QZ_AA" >>"$LOG" 2>&1 && bwrap_works "$QZ_BWRAP" && { rc=0; break; }
+    done
+  fi
+  unlink "$strict" 2>/dev/null; unlink "$simple" 2>/dev/null
+  return $rc
+}
 ensure_sandbox() {
+  if [[ -x $QZ_BWRAP ]] && have bwrap && ! cmp -s "$QZ_BWRAP" "$(command -v bwrap)" && need_root_runner; then # 系统的 bwrap 升级过：专用副本跟着更新（安全修复）
+    as_root install -m 755 "$(command -v bwrap)" "$QZ_BWRAP" >>"$LOG" 2>&1 || true
+  fi
   if ! have bwrap && [[ $PM != none ]] && need_root_runner; then
     local label; label="$(t "安装命令沙箱 bubblewrap（$PM）" "Installing the command sandbox bubblewrap ($PM)")"
     if [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1; then run_try "$label" pkg_install bubblewrap || true   # run_try：失败只提示，不终止安装
@@ -307,10 +404,50 @@ ensure_sandbox() {
       pkg_install bubblewrap </dev/tty >>"$LOG" 2>&1 || true
     fi
   fi
-  if have bwrap && bwrap --ro-bind / / --dev /dev --proc /proc true >/dev/null 2>&1; then ok "$(t '命令沙箱可用（bubblewrap）' 'Command sandbox available (bubblewrap)')"
-  elif have bwrap; then note "$(t 'bubblewrap 装了但这台机器不允许它创建沙箱（多半是禁用了非特权用户命名空间）：她的命令将不经沙箱运行' 'bubblewrap is installed but cannot create a sandbox here (unprivileged user namespaces are probably disabled): her commands will run without a sandbox')"
-  else note "$(t '没有 bubblewrap：她执行的命令不经沙箱运行，能读到运行基座的密钥。可以之后安装 bubblewrap 再重启服务' 'No bubblewrap: her commands run without a sandbox and can read the runtime secrets. You can install bubblewrap later and restart the service')"
+  if [[ -x $QZ_BWRAP ]] && bwrap_works "$QZ_BWRAP"; then SANDBOX=bwrap; ok "$(t '命令沙箱可用（bubblewrap，Quetzal 专用的 AppArmor 配置）' 'Command sandbox available (bubblewrap, Quetzal AppArmor profile)')"; return; fi
+  if have bwrap && bwrap_works "$(command -v bwrap)"; then SANDBOX=bwrap; ok "$(t '命令沙箱可用（bubblewrap）' 'Command sandbox available (bubblewrap)')"; return; fi
+  if have bwrap && apparmor_restricts_userns && need_root_runner; then
+    note "$(t '这台机器用 AppArmor 限制了非特权用户命名空间：给 Quetzal 装一份专用的 bwrap 与只属于它的 AppArmor 配置（不改系统的 bwrap，也不关全局限制）' 'AppArmor restricts unprivileged user namespaces here: installing a Quetzal-only copy of bwrap with its own AppArmor profile (the system bwrap and the global restriction are left alone)')"
+    if install_bwrap_apparmor && bwrap_works "$QZ_BWRAP"; then SANDBOX=bwrap; ok "$(t '命令沙箱可用（bubblewrap，Quetzal 专用的 AppArmor 配置）' 'Command sandbox available (bubblewrap, Quetzal AppArmor profile)')"; return; fi
+    note "$(t '专用的 AppArmor 配置没有装上（需要 AppArmor 4 与管理员权限）' 'Could not install the Quetzal AppArmor profile (needs AppArmor 4 and administrator rights)')"
   fi
+  if have bwrap; then note "$(t "bubblewrap 建不了沙箱：$(userns_blocked_reason)。稍后改用 Landlock 或 proot" "bubblewrap cannot create a sandbox: $(userns_blocked_reason). Will use Landlock or proot instead")"
+  else note "$(t '没有 bubblewrap：稍后改用 Landlock 或 proot' 'No bubblewrap: will use Landlock or proot instead')"; fi
+}
+landlock_supported() { grep -qw landlock /sys/kernel/security/lsm 2>/dev/null; }
+download_landrun() { # 版本 架构：landrun（Landlock 启动器，MIT）随 Quetzal 发布资产分发，验签名与哈希后放到 $HOME_DIR/bin/landrun
+  local v=$1 arch=$2 name="quetzal-$1-landrun-linux-$2.tar.gz" d want="" base
+  d=$(mktemp -d "$HOME_DIR/state/landrun.XXXXXX") || return 1
+  for base in "$SITE_DL/v$v" "$REPO_DL/v$v"; do
+    fetch_file "$base/SHA256SUMS" "$d/SHA256SUMS" 60 && fetch_file "$base/SHA256SUMS.sig" "$d/SHA256SUMS.sig" 60 || continue
+    want=$(release_sum "$d/SHA256SUMS" "$d/SHA256SUMS.sig" "$name" "v$v" 2>>"$LOG") && [[ $want =~ ^[0-9a-f]{64}$ ]] && break
+    want=""
+  done
+  local ok_dl=0
+  if [[ -n $want ]]; then
+    for base in "$SITE_DL/v$v" "$REPO_DL/v$v"; do fetch_file "$base/$name" "$d/l.tgz" 300 && sha256_is "$d/l.tgz" "$want" && { ok_dl=1; break; }; done
+  fi
+  if (( ok_dl )) && tar -xzf "$d/l.tgz" -C "$d" landrun LICENSE 2>>"$LOG" && [[ -f $d/landrun ]]; then
+    mkdir -p "$HOME_DIR/bin" && install -m 755 "$d/landrun" "$HOME_DIR/bin/landrun" && install -m 644 "$d/LICENSE" "$HOME_DIR/bin/landrun.LICENSE"
+  else ok_dl=0; fi
+  find "$d" -mindepth 1 -delete 2>/dev/null; rmdir "$d" 2>/dev/null
+  (( ok_dl ))
+}
+ensure_landlock() { # 运行基座装好之后：bubblewrap 不可用时补上 Landlock，再不行补 proot
+  [[ $SANDBOX == bwrap ]] && return 0
+  local v; v=$(installed_version)
+  local arch=""; case "$ARCH" in x86_64|amd64) arch=x64;; aarch64|arm64) arch=arm64;; esac
+  if landlock_supported && [[ -n $arch && -n $v ]]; then
+    if run_try "$(t '下载 Landlock 沙箱启动器（landrun，核对发版签名）' 'Downloading the Landlock sandbox launcher (landrun, release signature verified)')" download_landrun "$v" "$arch"; then
+      SANDBOX=landlock; ok "$(t '命令沙箱可用（Landlock）' 'Command sandbox available (Landlock)')"; return
+    fi
+  fi
+  if ! have proot && [[ $PM != none ]] && need_root_runner; then
+    if [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1; then pkg_install proot >>"$LOG" 2>&1 || true
+    elif [[ -r /dev/tty ]]; then pkg_install proot </dev/tty >>"$LOG" 2>&1 || true; fi
+  fi
+  if have proot; then SANDBOX=proot; ok "$(t '命令沙箱：proot（尽力而为的隔离）' 'Command sandbox: proot (best-effort isolation)')"; return; fi
+  warn "$(t '没有可用的命令沙箱：运行基座会拒绝执行她的命令（为了不让命令读到密钥）。装上 bubblewrap 或 proot 后重新运行安装命令；或在控制台「服务」页明确允许不隔离运行（不安全）' 'No command sandbox is available: the runtime will refuse to run her commands (so they cannot read the secrets). Install bubblewrap or proot and rerun the installer, or explicitly allow unsandboxed commands on the console Service page (unsafe)')"
 }
 ensure_tools() {
   local missing=() tool
@@ -750,7 +887,8 @@ summary() {
   (( HAS_SESSION )) || printf '  \t%s%s%s\n' "$MUTE" "$(t "没有桌面：在本机 ssh -L $port:127.0.0.1:$port <这台机器> 后打开同样的地址" "Headless: run ssh -L $port:127.0.0.1:$port <this machine> locally, then open the same address")" "$R"
   printf '  %s\t%s %s(%s %s)%s\n' "$(t '运行基座' 'Runtime')" "${v:-?}" "$MUTE" "$(t '家目录' 'home')" "$HOME_DIR" "$R"
   printf '  %s\t%s\n' "$(t '守护者' 'Supervision')" "$SERVICE_DESC"
-  (( LAN )) && printf '  %s\t%s\n' "$(t '局域网' 'Network')" "$(t "网关对局域网开放：手机上的 App 填 http://<这台机器的地址>:$port 并申请配对码" "Gateway open to the LAN: in the phone app enter http://<this machine>:$port and request a pairing code")"
+  local lanport; lanport=$(sed -n 's/.*"lanPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$HOME_DIR/config/quetzal.json" 2>/dev/null | head -n1); lanport=${lanport:-7789}
+  (( LAN )) && printf '  %s\t%s\n' "$(t '局域网' 'Network')" "$(t "网关对局域网开放（加密）：https://<这台机器的地址>:$lanport。手机上的 App 填这台机器的地址并申请配对码，核对 App 显示的证书指纹与通知里的一致（quetzal status 也能看到）" "Gateway open to the LAN (encrypted): https://<this machine>:$lanport. In the phone app enter this machine's address, request a pairing code and check that the certificate fingerprint shown matches the notification (also shown by quetzal status)")"
   printf '\n  %squetzal status%s   %s%s%s\n' "$B" "$R" "$MUTE" "$(t '状态' 'status')" "$R"
   printf '  %squetzal logs -f%s  %s%s%s\n' "$B" "$R" "$MUTE" "$(t '日志' 'logs')" "$R"
   printf '  %squetzal open%s     %s%s%s\n' "$B" "$R" "$MUTE" "$(t '再次打开控制台' 'open the console again')" "$R"
@@ -774,6 +912,12 @@ uninstall() {
     [[ -e $f ]] && { rm -f "$f"; did=1; }
   done
   if [[ -e "$HOME_DIR/console/current" ]]; then ok "$(t '原生控制台已移除' 'Native console removed')"; did=1; fi
+  if [[ -e $QZ_AA || -e $QZ_BWRAP ]] && need_root_runner; then # Quetzal 专用的 bwrap 副本与它的 AppArmor 配置（固定路径）
+    local parser; parser=$(command -v apparmor_parser || echo /sbin/apparmor_parser)
+    [[ -f $QZ_AA && -x $parser ]] && as_root "$parser" -R "$QZ_AA" >/dev/null 2>&1
+    as_root unlink "$QZ_AA" >/dev/null 2>&1; as_root unlink "$QZ_BWRAP" >/dev/null 2>&1; as_root rmdir /usr/local/lib/quetzal >/dev/null 2>&1
+    [[ -e $QZ_AA || -e $QZ_BWRAP ]] || { ok "$(t '已移除 Quetzal 专用的 bwrap 与 AppArmor 配置' 'Removed the Quetzal bwrap copy and AppArmor profile')"; did=1; }
+  fi
   rm -rf "${HOME_DIR:?}/console"
   have update-desktop-database && update-desktop-database "${XDG_DATA_HOME:-$HOME/.local/share}/applications" >/dev/null 2>&1 || true
   if (( PURGE )); then [[ -e "$HOME_DIR/node/current" ]] && did=1; rm -rf "$HOME_DIR"; ok "$(t "已删除 $HOME_DIR（配置、记忆、对话都没有了；灵魂仓库里的内容仍在远端）" "Deleted $HOME_DIR (configuration, memories and conversations are gone; the soul repository remains remote)")"
@@ -808,6 +952,8 @@ main() {
 
   hdr "$(t '运行基座' 'Runtime')"
   install_runtime
+
+  ensure_landlock
 
   hdr "$(t '守护' 'Supervision')"
   ensure_service

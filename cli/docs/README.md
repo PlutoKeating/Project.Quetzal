@@ -9,15 +9,15 @@ TypeScript / Node.js 22.13+（内置 `node:sqlite` 不再需要标志），零�
 ```bash
 npx @plutokeating/quetzal                 # 安装（或升级到包里内置的版本），注册 systemd 用户服务并启动；失败自动切回上一版；第一次装好且有桌面时打开网页控制台（--no-open 不打开）
 npx @plutokeating/quetzal open            # 在浏览器里打开网页控制台 http://127.0.0.1:<端口>/；没有桌面时打印地址与 ssh 端口转发的命令
-npx @plutokeating/quetzal --lan           # 同上，并让网关对局域网开放：手机上的 Quetzal App 直接填这台机器的地址连接
-npx @plutokeating/quetzal status          # 版本、服务、健康、网关地址、网页控制台地址
+npx @plutokeating/quetzal --lan           # 同上，并让网关对局域网开放（HTTPS / WSS，端口 7789，自签名证书；明文仍只在 127.0.0.1）：手机上的 Quetzal App 直接填这台机器的地址连接
+npx @plutokeating/quetzal status          # 版本、服务、健康、网关地址、局域网的 https 地址与证书指纹、网页控制台地址
 npx @plutokeating/quetzal logs -f         # 服务日志（journald）
 npx @plutokeating/quetzal rollback        # 切回上一版并重启
 npx @plutokeating/quetzal uninstall       # 移除服务；--purge 连家目录（配置、记忆、对话）一起删
 npx @plutokeating/quetzal run             # 没有 systemd 的机器（容器、未开 systemd 的 WSL）：前台运行，交给自己的守护者
 ```
 
-装好之后的一切（模型、身份、授权、飞书、灵魂仓库、对话）都在网页控制台里完成，这个包不提供任何配置命令。同一台机器的浏览器打开即登录（网关的 `GET /auth/local`）；手机上的 Quetzal App 连这台机器时才需要配对码，它通过 Linux 适配器的 `notify`（`notify-send`）弹桌面通知，并写进服务日志，没有桌面的机器从 `quetzal logs` 里看。
+装好之后的一切（模型、身份、授权、飞书、灵魂仓库、对话）都在网页控制台里完成，这个包不提供任何配置命令。同一台机器的浏览器打开即登录（网关的 `GET /auth/local`）；手机上的 Quetzal App 连这台机器时才需要配对码：App 里只填这台机器的地址（自动用 `https://…:7789`），先核对 App 显示的证书指纹与 `quetzal status` 里的一致；配对码连同证书短指纹通过 Linux 适配器的 `notify`（`notify-send`）弹桌面通知，并写进服务日志，没有桌面的机器从 `quetzal logs` 里看。用浏览器从别的机器打开 `https://<地址>:7789/` 会提示证书不受信任（自签名），在警告页核对指纹后再继续。
 
 ## 一键安装脚本 `install.sh`
 
@@ -42,7 +42,13 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall # 
 
 卸载（`--uninstall`）：停掉并删除 systemd 单元（含守护开关的覆盖片段）或守护循环、crontab 项、自启动项、桌面项与图标（新旧两种名字）、两个垫片、`~/.quetzal/npm` 与 `~/.quetzal/console`；`--purge` 删整个家目录；nvm、Node、git 不动。
 
-命令沙箱：安装器在缺少 `bwrap` 时尝试用包管理器装 bubblewrap（可选，失败不影响安装），并试建一次沙箱；不可用时提示她的命令将不经沙箱运行（运行基座的 `status.sandbox.kind` 为 `none`，控制台「服务」页会提醒）。
+命令沙箱（`ensure_sandbox` 与 `ensure_landlock`，参考 DeepSeek Harness 的「先 bubblewrap、不行用 Landlock」）：
+1. 用包管理器装 bubblewrap（Debian / Ubuntu / Fedora / RHEL 系 / Arch / Alpine / openSUSE 的包名都是 `bubblewrap`），实际建一次沙箱；
+2. 建不了且是 AppArmor 限制了非特权用户命名空间（Ubuntu 23.10 起，`kernel.apparmor_restrict_unprivileged_userns=1`）：用管理员权限把 bwrap 复制到 `/usr/local/lib/quetzal/bwrap`，只给它装 `/etc/apparmor.d/quetzal-bwrap`（先装严格版：子进程拿不到能力；装不上退回简单版），不动系统的 bwrap、不关全局限制；每次重跑安装时，系统的 bwrap 升级过就跟着更新这份副本；
+3. 还不行（内核禁止了非特权用户命名空间、在容器里）且 `/sys/kernel/security/lsm` 里有 `landlock`：从同版本的发布资产下载 `quetzal-<版本>-landrun-linux-<架构>.tar.gz`，按签名过的 `SHA256SUMS` 核对后装到 `QUETZAL_HOME/bin/landrun`（不需要管理员权限）；
+4. 再不行：用包管理器装 proot（只有 Debian / Ubuntu 的官方源里有）。
+
+都不可用时安装照常完成，但会醒目地提示：运行基座会拒绝执行她的命令，直到补上沙箱或在控制台明确允许不隔离运行。从控制台发起的升级在后台无终端运行，需要输密码的步骤会跳过（2 需要管理员权限），这时退到 Landlock。卸载时一并移除专用的 bwrap 与 AppArmor 配置。
 
 验证：`bash -n`、shellcheck（`docker run --rm -v "$PWD/install.sh:/s.sh:ro" koalaman/shellcheck:stable -s bash /s.sh`），以及在干净容器里以管道喂给 bash（`cat install.sh | docker run -i --rm debian:bookworm-slim bash -c 'cat >/tmp/i.sh; apt-get update -qq && apt-get install -y -qq curl ca-certificates; cat /tmp/i.sh | bash -s -- --no-open'`）跑通 debian-slim（root、无 git）、ubuntu（非 root + sudo + 假桌面）、fedora、archlinux、alpine（musl）、alpine + `QUETZAL_NODE_ARCH=x64-musl`（unofficial-builds 直接下载 Node 的路径，与龙芯共用）。systemd 与桌面集成只能在真机验证。
 

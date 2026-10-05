@@ -4,9 +4,18 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 ## 1. 网关
 
-缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788）；配置 `gateway.host` 为 `0.0.0.0` 可对局域网开放（`npx @plutokeating/quetzal --lan`），此时配对码与令牌是唯一门槛。
+两个监听，共用同一套接口：
 
-**局域网模式的风险**：网关是明文 HTTP / WebSocket，同一个网络里能抓包的人（公共 Wi-Fi、被入侵的路由器、ARP 欺骗）能看到令牌与全部对话，拿到令牌就等于拿到整个控制台（包括账户管理与灵魂仓库地址）。只在自己可信的家庭网络里用；更推荐保持只监听本机，从别的机器用 ssh 隧道连：`ssh -N -L 7788:127.0.0.1:7788 <用户>@<这台机器>`，然后连 `127.0.0.1:7788`（经隧道来的连接对网关来说就是本机连接）。怀疑令牌泄露时用 `gateway.rotateToken` 换一个。
+| 监听 | 地址 | 协议 | 用途 |
+|---|---|---|---|
+| 本机 | `127.0.0.1:<gateway.port>`（默认 7788），另加 `[::1]` 同一端口（有 IPv6 时） | 明文 HTTP / WebSocket | 同一台机器上的控制台（Termux 里的运行基座与同一台手机上的 App、本机的网页控制台、命令行）。永远只在回环地址上，不出这台机器 |
+| 局域网 | `<gateway.host>:<gateway.lanPort>`（默认 7789；`host` 是回环地址时为 `0.0.0.0`） | HTTPS / WSS（TLS 1.2 起） | 别的设备。只在对局域网开放时启动：`gateway.lan` 为真，或 `gateway.host` 不是回环地址（兼容旧配置：`host` 为 `0.0.0.0` 即开放；`npx @plutokeating/quetzal --lan` 两项都写） |
+
+局域网上不再有明文 HTTP：旧配置 `host: 0.0.0.0` 升级后明文只留在 `127.0.0.1`，局域网改走 `lanPort` 的 HTTPS。
+
+**证书**：运行基座第一次启动时生成自签名证书——ECDSA P-256，`CN=quetzal-<身体名>`，不带 SAN，10 年有效——私钥 `secrets/gateway-tls.key`（0600）、证书 `secrets/gateway-tls.crt`（`runtime/src/tls.ts`）。每次启动核对（能解析、私钥与证书配对、自签名验证通过、没过期），不合格就重新生成（指纹随之改变，已配对的控制台需要重新配对）。**指纹** = SHA-256（证书 DER）的小写十六进制（64 位）；**短格式**为前 16 位、4 位一组（`1a2b 3c4d 5e6f 7a8b`），出现在配对通知、服务日志与 `quetzal status` 里。没有 CA：原生控制台（安卓、Linux 桌面）与 App 的耳朵**钉住**这个指纹（只认这张证书，不看 CA 与主机名）；网页版由浏览器处理证书，人在浏览器的证书警告页上核对指纹。
+
+**风险与做法**：令牌与对话在局域网上都经 TLS 加密；配对时配对码不上网络（见 `/pair/finish` 的配对证明），中间人换了证书就配不上，配对之后钉住的指纹挡住换证书的中间人。剩下要人做的是**核对指纹**：原生控制台在配对页显示握手时看到的指纹，网页版在浏览器的证书警告页上看，都应与运行基座那台机器上的配对通知（或 `quetzal status`）一致。更保守的做法仍是只监听本机、从别的机器用 ssh 隧道连：`ssh -N -L 7788:127.0.0.1:7788 <用户>@<这台机器>`，然后连 `127.0.0.1:7788`（经隧道来的连接对网关来说就是本机连接）。怀疑令牌泄露时用 `gateway.rotateToken` 换一个。
 
 **令牌的传法**：HTTP 接口用请求头 `Authorization: Bearer <令牌>` 或 `X-Quetzal-Token: <令牌>`；WebSocket 连上 `/rpc` 后第一条消息发 `{"auth": "<令牌>"}`（5 秒内，不对或超时以关闭码 4401 断开，通过后才收到 `hello`）。旧式的查询参数 `?token=` 仍然接受（兼容旧控制台），但它会出现在代理与浏览器历史里，新客户端不要再用。
 
@@ -17,10 +26,11 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌，供点火器探活 |
-| GET | `/auth/local` | `{ok, token}`：只给**同一台机器上打开着网关自己托管的网页控制台的浏览器**，打开即登录。条件：网关托管着网页控制台（`web/` 存在）、不是安卓（安卓上别的应用也能连 127.0.0.1）；连接来自回环地址、Host 是本机名；**必须**带 `Origin` 且正好是网关自己的源（`http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>`；开发时别的源只能由环境变量 `QUETZAL_DEV_ORIGINS`（逗号分隔）明确列出），CORS 只对这个 Origin 放行；发起连接的进程不是运行基座的子孙（agent 的命令、后台任务、自造工具都是，Linux 上读 `/proc` 判断）。其他情况 403。注意：本机进程并不都读得到 `secrets/gateway.token`——agent 的命令在沙箱里读不到它（ARCHITECTURE §8.1），安卓上别的应用也读不到；`Origin` 头命令行程序能伪造，所以挡 agent 的是子孙进程检查与沙箱。ssh 隧道转发来的连接也算本机 |
+| GET | `/auth/local` | `{ok, token}`：只给**同一台机器上打开着网关自己托管的网页控制台的浏览器**，打开即登录（只在本机明文监听上，HTTPS 监听上一律 403）。条件：网关托管着网页控制台（`web/` 存在）、不是安卓（安卓上别的应用也能连 127.0.0.1）；连接来自回环地址、Host 是本机名；**必须**带 `Origin` 且正好是网关自己的源（`http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>`；开发时别的源只能由环境变量 `QUETZAL_DEV_ORIGINS`（逗号分隔）明确列出），CORS 只对这个 Origin 放行；发起连接的进程不是运行基座的子孙（agent 的命令、后台任务、自造工具都是，Linux 上读 `/proc` 判断）。其他情况 403。注意：本机进程并不都读得到 `secrets/gateway.token`——agent 的命令在沙箱里读不到它（ARCHITECTURE §8.1），安卓上别的应用也读不到；`Origin` 头命令行程序能伪造，所以挡 agent 的是子孙进程检查与沙箱。ssh 隧道转发来的连接也算本机 |
 | GET | `/<静态文件>` | 网页控制台（`web/` 目录存在时）：`/` → `index.html`，没有扩展名的未知路径也回退到 `index.html`（单页应用），带 ETag |
-| POST | `/pair/start` | 生成 8 位配对码（字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`，密码学随机，通知里显示为 `ABCD-EFGH`；5 分钟有效），通过适配器的系统通知与飞书下发 → `{ok, expires}`。码还有效时再请求不换新码、不清零尝试次数（30 秒后可以再提醒一次）。Linux 适配器有桌面通知时服务日志里只记「控制台配对」，没有桌面的机器才把配对码写进日志 |
-| POST | `/pair/finish` | `{code}`（不区分大小写，空格与连字符不计）→ `{ok, token}`；错误码 403（不正确）、410（失效，或这个码已试过 5 次）、429（累计失败超过 5 次后全局锁定，按 30 秒 × 2^(n−6) 退避，最长 1 小时，`retryAfter` 为秒数；成功一次清零）、413（请求体超过 16 KB）。两个配对接口都检查 Host（防 DNS 重绑定）：回环连接只认本机名；局域网连接认 IP 字面量、`gateway.host` 与环境变量 `QUETZAL_GATEWAY_HOSTS`（逗号分隔，如 `mybox.local`）列出的名字 |
+| GET | `/pair/info` | `{ok, fingerprint, short, body, version, tls: true}`，无需令牌：网关证书的指纹（完整与短格式）、身体名、版本。控制台配对的第一步：原生控制台以「捕获」方式握手，记下自己看到的指纹并显示给人核对；网页版用这里报告的指纹。两个监听上都有（回环上报告的也是 TLS 证书的指纹）。Host 检查同配对接口 |
+| POST | `/pair/start` | 生成 8 位配对码（字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`，密码学随机，通知里显示为 `控制台配对码 ABCD-EFGH · 证书指纹 1a2b 3c4d 5e6f 7a8b（5 分钟内有效）`；5 分钟有效），通过适配器的系统通知与飞书下发 → `{ok, expires}`。码还有效时再请求不换新码、不清零尝试次数（30 秒后可以再提醒一次）。Linux 适配器有桌面通知时服务日志里只记「控制台配对」，没有桌面的机器才把配对码写进日志 |
+| POST | `/pair/finish` | `{proof}` 或 `{code}` → `{ok, token, fingerprint}`。**配对证明** `proof` = hex(PBKDF2-HMAC-SHA256(密码 = 规范化的配对码, 盐 = `"quetzal-pair-v2\|" + 指纹`, 迭代 100000, 32 字节))，小写十六进制 64 位（服务端比较时不区分大小写）；配对码规范化：转大写、去掉空白与连字符；指纹为客户端在 TLS 握手中看到的证书指纹（小写十六进制）、字符串按 UTF-8 编码。服务端用自己的证书指纹与当前有效的配对码算出同样的值（生成配对码时算好），定长比较。**HTTPS 监听上只收 `proof`**（带 `code` 或缺 `proof` 回 400，不计入尝试次数）：配对码不上网络，中间人看到的是自己的证书，转给运行基座的证明对不上。**回环明文监听上收 `{code}`**（同一台机器、旧控制台）也收 `proof`（指纹为 TLS 证书的）。成功时回报 `fingerprint`，客户端核对它等于自己握手时看到的。已知向量：配对码 `ABCDEFGH`、指纹 64 个 `0` → `23473714b2a61fbc2a61de0a7636402e197af0b3fe1ee19be90503518e30e4df`。错误码 403（不正确）、410（失效，或这个码已试过 5 次）、429（累计失败超过 5 次后全局锁定，按 30 秒 × 2^(n−6) 退避，最长 1 小时，`retryAfter` 为秒数；成功一次清零）、413（请求体超过 16 KB）。配对接口（`/pair/info`、`/pair/start`、`/pair/finish`）都检查 Host（防 DNS 重绑定）：回环连接只认本机名；局域网连接认 IP 字面量、`gateway.host` 与环境变量 `QUETZAL_GATEWAY_HOSTS`（逗号分隔，如 `mybox.local`）列出的名字 |
 | GET | `/media/<文件名>`（令牌见上） | 她的声音：控制台 App 取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |
 | POST | `/hear?started=<毫秒时刻>[&stream=1&id=<标识>&bargein=1]`（令牌见上） | 听觉。`bargein=1`：这句话打断了她的播放（App 本地已停播），以「打断」并入。`stream=1`：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输），基座用官方 SDK 流式识别，中间结果经 `hearing` 事件推送；否则请求体为一整句 WAV（最多 4 MiB）一次识别。→ `{ok, id, text, conv?, dropped?}`；`started` 为这句话开始的时刻，用于判断是不是她自己在说话（丢弃）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
 | POST | `/upload?name=<文件名>`（令牌见上） | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `QUETZAL_HOME/data/uploads/<日期>/` |
@@ -74,7 +84,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
-| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox}`；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜proot｜none, hidden[], readonly[], note}`（`none` 时 agent 的命令能读到密钥目录，控制台应提示重新运行安装脚本装上 bubblewrap / proot，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
+| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox}`；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜landlock｜proot｜none, hidden[], readonly[], note, allowUnsandboxed}`（`none` 时她的命令缺省一律不执行，`allowUnsandboxed` 为真时才不隔离执行；控制台应提示重新运行安装命令补上沙箱，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
+| `sandbox.allowUnsandboxed` | `{allow}` | 没有可用沙箱时是否允许她的命令不隔离执行（不安全；缺省不允许）。只属于这具身体，不随多具身体同步；返回新的 `sandbox` 状态，记审计 |
 | `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `place`（多具身体时，这次醒来选在了哪具身体上 `{kind, reason, intent, where}`）、`mesh`（网状层的事：绑定、心跳交接、安全提醒）、`hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份）、`session`（切到新会话 / 压缩了上下文）、`agent`（派出 / 完成 / 停止子 agent，完成的条目带 `journal`、`process`、`steps`）、`sandbox`（没有可用的沙箱，启动时提醒一次））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数与结果（结果最多 1500 字） |
 | `messages` | `{limit?}` | 全部会话里最近的对话（正序） |
 | `audit` | `{limit?}` | 审计记录 |
@@ -249,7 +260,7 @@ interface RawSample {
 
 约束：
 
-- 适配器提供的 `notify()` 的内容可能含配对码：写日志时应当只在没有别的办法让人看到时才写内容（Linux 适配器：有桌面通知时日志只记标题）；
+- 适配器提供的 `notify()` 的内容可能含配对码（连同证书的短指纹）：写日志时应当只在没有别的办法让人看到时才写内容（Linux 适配器：有桌面通知时日志只记标题）；
 
 - 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带两个平台级实现：`runtime/adapters/termux/`（安卓手机 + Termux:API）构建为 `dist/termux.mjs`，由 Quetzal App 的安装器随运行基座放到手机上；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `@plutokeating/quetzal` 随运行基座放到 `~/quetzal/current/`；
 - 适配器从 `QUETZAL_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
@@ -274,7 +285,7 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
-| `gateway.port` / `gateway.host` | 7788 / `127.0.0.1` | 网关端口与监听地址；`0.0.0.0` 对局域网开放（Linux 安装器的 `--lan`） |
+| `gateway.port` / `gateway.host` / `gateway.lan` / `gateway.lanPort` | 7788 / `127.0.0.1` / false / 7789 | 网关（§1）：明文 HTTP 只监听本机回环的 `port`；`lan` 为真或 `host` 不是回环地址（旧配置的 `0.0.0.0`）时，在 `host`（回环时为 `0.0.0.0`）:`lanPort` 上另开 HTTPS / WSS（自签名证书，`secrets/gateway-tls.*`）。Linux 安装器的 `--lan` 写 `host: 0.0.0.0, lan: true`，`--no-lan` 写回 `127.0.0.1` 与 `false` |
 | `mesh.server` / `mesh.priority` | "" / 0 | 同步服务地址（HTTPS；绑定令牌在 `secrets/sync.json`，节点密钥在 `secrets/mesh_ed25519`）；当协调者的优先级（越大越优先，适合一直开着、接着电源的身体） |
 | `hearing.enabled` / `windowMin` / `sensitivity` / `language` / `minChars` | false / 10 / 2 / ""（取她的偏好语言）/ 2 | 听觉：开关；最近会话多少分钟内有更新就并入（0 为每句新开）；灵敏度 1 迟钝 / 2 适中 / 3 灵敏（App 的 VAD 模式）；识别语言；短于此字数当没听清 |
 | `speech.region` / `endpoint`（只接受 Azure 的 HTTPS 域名） / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |

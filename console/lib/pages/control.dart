@@ -497,12 +497,28 @@ class _SoulPageState extends State<SoulPage> {
 }
 
 // ---------------------------------------------------------------- 服务
-/// 命令执行的沙箱（status.sandbox.kind：bwrap | proot | none；旧版运行基座没有这一项，不显示）。none 时提醒。
-List<Widget> sandboxLines(BuildContext context, String sb) => [
-      Text('命令沙箱：${switch (sb) { 'bwrap' => 'bubblewrap（bwrap）', 'proot' => 'proot', 'none' => '无', _ => sb }}'),
-      if (sb == 'none') Text('没有可用的沙箱：她执行的命令直接以运行基座的身份运行，能读写这个用户的全部文件。Linux 请安装 bubblewrap，Termux 请安装 proot，然后重启运行基座。',
-          style: TextStyle(color: Theme.of(context).colorScheme.error)),
-    ];
+/// 命令执行的沙箱（status.sandbox：kind 为 bwrap | landlock | proot | none；旧版运行基座没有这一项，不显示）。
+/// none 时她的命令缺省一律不执行；这里可以明确允许不隔离运行（不安全，要二次确认）。
+List<Widget> sandboxLines(BuildContext context, Map sb) {
+  final kind = '${sb['kind']}', allow = sb['allowUnsandboxed'] == true;
+  final err = TextStyle(color: Theme.of(context).colorScheme.error);
+  return [
+    Text('命令沙箱：${switch (kind) { 'bwrap' => 'bubblewrap', 'landlock' => 'Landlock', 'proot' => 'proot（尽力而为）', 'none' => '无', _ => kind }}'),
+    if ('${sb['note'] ?? ''}'.isNotEmpty && kind != 'none') Text('${sb['note']}', style: Theme.of(context).textTheme.bodySmall),
+    if (kind == 'none') ...[
+      Text(allow ? '没有可用的沙箱，而且你允许了不隔离运行：她执行的命令能读写这个用户的全部文件，包括运行基座的密钥。' : '没有可用的沙箱：为了不让她的命令读到运行基座的密钥，她的命令一律不执行。重新运行一次安装命令即可补上沙箱（Linux：bubblewrap 或 Landlock；Termux：proot）。', style: err),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('允许不隔离运行（不安全）'),
+        value: allow,
+        onChanged: (v) async {
+          if (v && !(await confirm(context, '允许不隔离运行', '她执行的命令将能读到运行基座的全部密钥（模型 Key、令牌、部署私钥），也能改动这台机器上这个用户的任何文件。只有在你完全信任当前的模型与对话内容时才打开。确定吗？'))) return;
+          if (context.mounted) await act(context, () => api.call('sandbox.allowUnsandboxed', {'allow': v}), ok: v ? '已允许' : '已恢复：没有沙箱就不执行');
+        },
+      ),
+    ],
+  ];
+}
 class ServicePage extends StatelessWidget {
   const ServicePage({super.key});
   @override
@@ -515,7 +531,7 @@ class ServicePage extends StatelessWidget {
               Text('连接：${api.conn.name}${api.safeMode ? '（安全模式）' : ''}'),
               Text('版本：${s['version'] ?? '-'}'),
               Text('身体：${s['body'] ?? '-'} · 适配器 ${s['adapter'] ?? '-'}'),
-              if (s['sandbox'] is Map && (s['sandbox'] as Map)['kind'] is String) ...sandboxLines(context, (s['sandbox'] as Map)['kind'] as String),
+              if (s['sandbox'] is Map && (s['sandbox'] as Map)['kind'] is String) ...sandboxLines(context, s['sandbox'] as Map),
               Text('系统：已运行 ${sys['uptimeH'] ?? '-'} 小时 · 负载 ${sys['load1'] ?? '-'} · 空闲内存 ${sys['memFreeMB'] ?? '-'} MB · 存储余量 ${sys['storageFreeGB'] ?? '-'} GB'),
               Text('模型：${((s['models'] as List?) ?? []).join('、')}'),
               if (hasBody) FutureBuilder(future: Installer.bundledVersion(), builder: (_, v) => Text('App 内置的运行基座：${v.data ?? '（无）'}${v.data != null && s['version'] != null && v.data != s['version'] ? '，与运行中的不同，可升级' : ''}')),

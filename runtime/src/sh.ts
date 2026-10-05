@@ -1,6 +1,6 @@
 // 执行外部命令（shell 工具、适配器等），带超时与输出上限。agent 的命令（shell、后台任务）一律经 sandbox.ts 包进沙箱。
 import { execFile } from "node:child_process";
-import { wrap } from "./sandbox.ts";
+import { wrap, SandboxUnavailable } from "./sandbox.ts";
 
 export function run(cmd: string, args: string[] = [], timeoutMs = 20_000, o: { cwd?: string } = {}): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
@@ -13,7 +13,9 @@ const agentShell = () => process.env.SHELL || "sh";
 
 /** agent 的一条 shell 命令：在沙箱里、以用户主目录为工作目录执行。 */
 export function shell(script: string, timeoutMs = 60_000) {
-  const w = wrap(agentShell(), ["-c", script]);
+  let w: ReturnType<typeof wrap>;
+  try { w = wrap(agentShell(), ["-c", script]); }
+  catch (e) { if (e instanceof SandboxUnavailable) return Promise.resolve({ code: 126, out: "", err: e.message }); throw e; } // 没有沙箱：不执行，说明交给她
   return run(w.cmd, w.args, timeoutMs, { cwd: w.cwd });
 }
 

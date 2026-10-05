@@ -35,7 +35,7 @@ Options go after `bash -s --`; each has an environment variable too:
 
 | Option | Environment variable | Effect |
 |---|---|---|
-| `--lan` | `QUETZAL_LAN=1` | Open the gateway to the LAN so the phone app can connect to this machine directly (trusted networks only) |
+| `--lan` | `QUETZAL_LAN=1` | Open the gateway to the LAN so the phone app can connect to this machine directly (encrypted HTTPS on port 7789 only; plain HTTP stays on this machine) |
 | `--no-open` | `QUETZAL_NO_OPEN=1` | Do not open the browser afterwards |
 | `--no-desktop` | `QUETZAL_NO_DESKTOP=1` | Skip the app-list shortcut |
 | `--home DIR` | `QUETZAL_HOME=DIR` | Home directory (default `~/.quetzal`; installs made before 0.6.7 under `~/quetzal` are moved to `~/.quetzal` automatically the next time the installer runs, keeping configuration, memories and conversations) |
@@ -54,6 +54,17 @@ The script's source is [`cli/install.sh`](https://github.com/PlutoKeating/Projec
 > [!NOTE]
 > The service uses the absolute path of the Node chosen at install time (for nvm that is `~/.nvm/versions/node/v22.x/bin/node`), so `nvm uninstall 22` later breaks the service; rerunning the install command fixes it. On machines without systemd the `quetzal stop` / `logs` subcommands do not apply: stop with `kill $(cat ~/.quetzal/state/supervise.pid)`, and the log is `~/.quetzal/logs/runtime.log`.
 
+### Command sandbox
+
+The commands she runs (shell, custom tools) run in a sandbox and cannot see the runtime's secrets (model keys, tokens, deploy keys). The install script prepares one in this order:
+
+1. **bubblewrap**, installed with the machine's package manager (every major distribution has it).
+2. **Ubuntu 23.10 and later** restrict "unprivileged user namespaces" with AppArmor by default, so bubblewrap cannot create a sandbox. The script asks for your administrator password once and installs a Quetzal-only copy of bubblewrap with an AppArmor profile that applies only to it (`/usr/local/lib/quetzal/bwrap`, `/etc/apparmor.d/quetzal-bwrap`); the system bubblewrap and this system protection are left alone, and both are removed on uninstall.
+3. **Still not possible** (the kernel forbids it, or inside a container): the kernel's own **Landlock** is used instead, through the landrun launcher downloaded and verified against the release signature; no administrator rights needed.
+4. **Otherwise**: proot on Debian / Ubuntu (best-effort isolation).
+
+When none is available the runtime **refuses to run her commands**, so they cannot read the secrets; the console's Service page explains why. Add a sandbox and rerun the install command. If you really need to, you can explicitly allow unsandboxed commands there (unsafe).
+
 ### 1.1 Just the npm package: `npx @plutokeating/quetzal`
 
 If you already have Node.js 22.13+ (`node:sqlite` needs no flag from this version on) and git, and do not want a desktop shortcut, the npm package alone is enough; the one-line installer calls it internally.
@@ -61,7 +72,7 @@ If you already have Node.js 22.13+ (`node:sqlite` needs no flag from this versio
 ```bash
 npx @plutokeating/quetzal            # install: the runtime, the Linux body adapter and the web console go into ~/.quetzal, a systemd user service is registered and started, then the console opens in the browser
 npx @plutokeating/quetzal open       # open the web console again, http://127.0.0.1:7788/
-npx @plutokeating/quetzal --lan      # also open the gateway to the LAN so the app on your phone can connect to this machine directly (trusted networks only)
+npx @plutokeating/quetzal --lan      # also open the gateway to the LAN (encrypted HTTPS, port 7789) so the app on your phone can connect to this machine directly
 ```
 
 What it does: it copies the bundled `main.cjs`, `linux.mjs` and the web console `web/` into `~/.quetzal/releases/<version>/` and points `current` at it (the same directory convention as on the phone); writes `~/.config/systemd/user/quetzal.service` (restart on exit), starts it and waits for `/health`; if there is no response within 40 seconds it switches back to the previous version. On a first install with a desktop it opens the browser (`--no-open` to skip). Running `npx @plutokeating/quetzal` again upgrades.
@@ -96,10 +107,13 @@ Open `http://127.0.0.1:7788/`. This is the Quetzal app as a web page, the same c
 
 ## 3. Connect the phone app to a Linux machine (optional)
 
-- Installed with `--lan`: in the app, **Connect a new agent** → enter `http://<this machine's address>:7788` → **Request pairing code**.
-- Without it: the gateway listens on `127.0.0.1` only, so forward the port first (`adb reverse tcp:7788 tcp:7788` with the phone attached over USB, or an ssh tunnel) and enter `http://127.0.0.1:7788` in the app. You can switch to open at any time with `npx @plutokeating/quetzal --lan`.
+- Installed with `--lan`: in the app, **Connect a new agent** → enter just this machine's address (e.g. `192.168.1.8`; the app uses the encrypted `https://192.168.1.8:7789` automatically) → the app shows this machine's **certificate fingerprint**; check that it matches what `npx @plutokeating/quetzal status` prints → **Request pairing code**.
+- Without it: the gateway listens on `127.0.0.1` only, so forward the port first (`adb reverse tcp:7788 tcp:7788` with the phone attached over USB, or an ssh tunnel) and enter `127.0.0.1:7788` in the app. You can switch to open at any time with `npx @plutokeating/quetzal --lan`.
 
-The pairing code appears as a desktop notification on that machine and is written to the service log; on a headless server read it from `quetzal logs`.
+The pairing code, together with the certificate's short fingerprint (e.g. `配对码 ABCD-EFGH · 证书指纹 1a2b 3c4d 5e6f 7a8b`), appears as a desktop notification on that machine and is written to the service log; on a headless server read it from `quetzal logs`.
+
+> [!NOTE]
+> Everything on the LAN is TLS-encrypted; plain HTTP stays on this machine's `127.0.0.1:7788`. The certificate is generated by the runtime itself (self-signed); the app records its fingerprint when pairing and from then on accepts only that certificate. The pairing code is only used in a computation inside the app and never travels over the network, so someone in the middle impersonating this machine cannot pair. Opening `https://<this machine's address>:7789/` in a browser on another computer shows an "untrusted certificate" warning: view the certificate and continue only if the start of its SHA-256 fingerprint matches the short fingerprint in the notification. Connections saved by older app versions as `http://<address>:7788` show "运行基座已改为加密连接，请重新配对" (the runtime now requires an encrypted connection; pair again).
 
 ## 4. Other machines: manual deployment
 
@@ -140,7 +154,7 @@ WantedBy=default.target
 > [!NOTE]
 > More than five starts within ten minutes puts the runtime into safe mode (gateway and Feishu only, no waking) so a crash loop cannot burn money.
 
-Connecting works as in section 3 (a manual deployment has no web console unless you place the console's web build next to `main.cjs` as `web/` or point `QUETZAL_WEB_DIR` at it); to open the gateway to the LAN set `gateway.host` to `0.0.0.0` in `config/quetzal.json`. **Adapters without `notify`** (such as the generic one) cannot show the pairing code; in that case read the token from `QUETZAL_HOME/secrets/gateway.token` and enter it directly.
+Connecting works as in section 3 (a manual deployment has no web console unless you place the console's web build next to `main.cjs` as `web/` or point `QUETZAL_WEB_DIR` at it); to open the gateway to the LAN set `gateway.lan` to `true` (or `gateway.host` to `0.0.0.0`) in `config/quetzal.json`: HTTPS / WSS opens on the LAN (`gateway.lanPort`, default 7789) while plain HTTP stays on this machine. **Adapters without `notify`** (such as the generic one) cannot show the pairing code; in that case read the token from `QUETZAL_HOME/secrets/gateway.token` and enter it directly.
 
 The generic adapter has no sensors. A few dozen lines give this machine an adapter so the agent can feel its body or gain device tools. See [Custom body adapter](/docs/advanced/custom-adapter).
 
