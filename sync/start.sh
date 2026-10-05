@@ -188,7 +188,7 @@ ports_busy() { # 需要的端口被别的程序占用时提醒（caddy 模式 80
   local want='80|443|3478'; [[ $FRONT == tunnel ]] && want="3478|$LOCAL_PORT"
   local busy; busy=$(ss -Hltnup 2>/dev/null | awk '{print $5}' | grep -E "[:.]($want)\$" || true)
   [[ -z $busy ]] && return 0
-  dc ps --quiet 2>/dev/null | grep -q . && return 0 # 是我们自己的容器
+  [[ -n $(dc ps --quiet 2>/dev/null || true) ]] && return 0 # 是我们自己的容器（不用 grep -q：pipefail 下它提前退出会让管道算失败）
   warn "$(t "这些端口已被占用：$(echo "$busy" | tr '\n' ' ')。同步服务需要它们（${want//|/、}）。" "These ports are in use: $(echo "$busy" | tr '\n' ' '). The sync service needs them (${want//|/, }).")"
 }
 
