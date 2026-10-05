@@ -24,11 +24,12 @@ import { listCustomTools, listSkills, readTool, readSkill, deleteTool, setToolEn
 import * as hearing from "./voice/hearing.ts";
 import * as player from "./voice/player.ts";
 import * as meshRt from "./mesh/runtime.ts";
+import { remoteApprovals, decideAnywhere } from "./mesh/shared.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
   stopped: heart.stopped(), paused: config.heart.paused, activity: config.heart.activity,
-  usage: usageToday(), budget: config.budget, approvals: guard.approvals(), soul: soul.syncStatus(),
+  usage: usageToday(), budget: config.budget, approvals: [...guard.approvals(), ...remoteApprovals()], soul: soul.syncStatus(),
   models: routes().map((r) => `${r.provider.name}/${r.model.name}`),
   thought: mem.thought(), // 她想分享的一句话（首页展示）
   hearing: hearing.hearingStatus(), // 听觉：App 据 listening 决定要不要开麦克风
@@ -83,14 +84,14 @@ export const ops = {
   poke: (a: { note?: string }, actor: string) => { heart.nudge(`${actor}戳了一下${a.note ? "：" + a.note : ""}`, { social: 0.3, curiosity: 0.1 }, { wake: true }); audit(actor, "poke", a.note ?? "", null, "ok"); return true; },
   pause: (a: { paused: boolean }, actor: string) => { saveConfig({ heart: { paused: a.paused } }); audit(actor, a.paused ? "pause" : "resume", "", null, "ok"); heart.nudge(a.paused ? "暂停自主" : "恢复自主"); return true; },
   activity: (a: { value: number }, actor: string) => { saveConfig({ heart: { activity: Math.max(0, Math.min(4, a.value)) } }); audit(actor, "activity", "", a, "ok"); heart.nudge("活跃度调整"); return config.heart.activity; },
-  stop: (a: { reason?: string }, actor: string) => { guard.emergencyStop(actor, a.reason); return true; },
+  stop: (a: { reason?: string; scope?: "all" | "body" }, actor: string) => { guard.emergencyStop(actor, a.reason, { scope: a.scope === "body" ? "body" : "all" }); return true; },
   unstop: (_: unknown, actor: string) => { guard.releaseStop(actor); heart.nudge("解除急停"); return true; },
   personality: (a: { changes: Record<string, number> }, actor: string) => { audit(actor, "personality", "", a, "ok"); return heart.adjustPersonality(a.changes); },
 
   permissions: () => Object.entries(guard.PERMISSION_LABELS).map(([id, label]) => ({ id, label, level: guard.level(id) })),
   setPermission: (a: { id: string; level: Level }, actor: string) => { guard.setLevel(a.id, a.level, actor); return true; },
-  approvals: () => guard.approvals(),
-  decide: (a: { id: string; approve: boolean; note?: string }, actor: string) => guard.decide(a.id, a.approve, actor, a.note),
+  approvals: () => [...guard.approvals(), ...remoteApprovals()], // 含其他身体上等待批准的（带 body）
+  decide: (a: { id: string; approve: boolean; note?: string }, actor: string) => decideAnywhere(a.id, a.approve, actor, a.note), // 其他身体上的审批转过去
   budget: () => ({ ...config.budget, usage: usageToday() }),
   setBudget: (a: Partial<typeof config.budget>, actor: string) => { saveConfig({ budget: a }); audit(actor, "budget", "", a, "ok"); return config.budget; },
 

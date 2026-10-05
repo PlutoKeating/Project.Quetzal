@@ -2,7 +2,7 @@
 // 所有工具调用都经过 guard.check；默认全部允许，你可以在控制台或飞书里随时收紧。
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { config, paths, saveConfig, type Level } from "../config.ts";
+import { config, paths, saveConfig, markShared, type Level } from "../config.ts";
 import { bus, type Approval } from "../bus.ts";
 import { audit, addTimeline } from "../store.ts";
 
@@ -49,17 +49,27 @@ export function decide(id: string, approve: boolean, actor: string, note = ""): 
 }
 export const approvals = () => [...pending.values()].map((p) => p.a);
 
-export function emergencyStop(actor: string, reason = "") {
-  fs.writeFileSync(paths.stop, `${new Date().toISOString()} ${actor} ${reason}\n`);
+/**
+ * 急停。scope：all（缺省，多具身体时所有身体一起停）或 body（只停这具身体）。remote：来自其他身体的同步（不再转发）。
+ * STOP 文件的第一行是时刻、操作者、范围与原因；只停这具身体的急停不会被别处的「解除」清掉。
+ */
+export function emergencyStop(actor: string, reason = "", o: { scope?: "all" | "body"; remote?: boolean } = {}) {
+  const scope = o.scope ?? "all";
+  fs.writeFileSync(paths.stop, `${new Date().toISOString()} ${actor} scope=${scope} ${reason}\n`);
   for (const id of pending.keys()) decide(id, false, "system", "急停");
-  audit(actor, "stop", reason, null, "ok");
-  addTimeline("stop", `急停（${actor}）${reason ? "：" + reason : ""}`);
+  audit(actor, "stop", reason, { scope }, "ok");
+  addTimeline("stop", `急停（${actor}${scope === "body" ? "，只停这具身体" : ""}）${reason ? "：" + reason : ""}`);
+  if (scope === "all" && !o.remote) markShared(["stop"]);
   bus.emit("state");
 }
+export const stopScope = (): "all" | "body" | undefined => { try { return /scope=body/.test(fs.readFileSync(paths.stop, "utf8")) ? "body" : "all"; } catch { return undefined; } };
 
-export function releaseStop(actor: string) {
+export function releaseStop(actor: string, o: { remote?: boolean } = {}) {
+  if (o.remote && stopScope() === "body") return; // 别处解除的是全网急停，不动只停这具身体的
+  const was = stopScope();
   fs.rmSync(paths.stop, { force: true });
   audit(actor, "unstop", "", null, "ok");
   addTimeline("stop", `解除急停（${actor}）`);
+  if (was !== "body" && !o.remote) markShared(["stop"]);
   bus.emit("state");
 }

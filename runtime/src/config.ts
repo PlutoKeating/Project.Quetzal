@@ -1,5 +1,6 @@
 // 路径与运行配置。所有可调参数集中在 config/quetzal.json，缺省值在此定义。
 import fs from "node:fs";
+import { bus } from "./bus.ts";
 import path from "node:path";
 import os from "node:os";
 
@@ -39,6 +40,8 @@ export interface Config {
   gateway: { port: number; host: string }; // host 缺省只监听本机；填 0.0.0.0 对局域网开放（配对码与令牌仍是唯一门槛）
   // 网状层：同步服务的地址（HTTPS）。绑定后的令牌在 secrets/sync.json；节点密钥在 secrets/mesh_ed25519
   mesh: { server: string; priority: number }; // priority：当协调者的优先级（越大越优先，适合一直开着、接着电源的身体）
+  // 多具身体共用的设置分区最近一次被修改的时刻（毫秒）。网状层据此在身体之间同步：较新的修改生效（mesh/shared.ts）
+  sharedRev: Record<string, number>;
   // 语音（Azure 语音服务文本转语音）。密钥单独保存在 secrets/azure_speech_key
   speech: { region: string; endpoint: string; voice: string; style: string; rate: string; pitch: string; volume: string; format: string };
   // 听觉：控制台 App 当耳朵（采集、降噪、断句），基座识别（Azure，与语音合成同一把密钥）并交给她判断要不要回应
@@ -72,6 +75,7 @@ export const defaults: Config = {
   soul: { remote: "", branch: "main", sshMode: "deploy", sshKeyPath: "" },
   gateway: { port: 7788, host: "127.0.0.1" },
   mesh: { server: "", priority: 0 },
+  sharedRev: {},
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
   hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "", minChars: 2 },
 };
@@ -98,8 +102,22 @@ export function loadConfig(): Config {
   return config;
 }
 
-export function saveConfig(patch?: unknown) {
+/** 全网统一的设置分区（DISTRIBUTED.md C8）：一处改了，所有身体跟着改。身体名、时区、适配器、网关、飞书、同步服务地址等属于这具身体，不在其中。 */
+export const SHARED_SECTIONS = ["permissions", "budget", "heart", "hearing", "speech", "brain"] as const;
+/** 记下某个共享分区被这具身体改了（设置分区、模型供应商、语音密钥、急停），并通知网状层。 */
+export function markShared(sections: string[]) {
+  if (!sections.length) return;
+  const now = Date.now();
+  config = merge(config, { sharedRev: Object.fromEntries(sections.map((s) => [s, now])) });
+  fs.writeFileSync(file(), JSON.stringify(config, null, 2));
+  bus.emit("shared", sections);
+}
+
+/** 保存配置。remote：来自其他身体的同步（不再标记、不再转发）。 */
+export function saveConfig(patch?: unknown, o: { remote?: boolean } = {}) {
   if (patch) config = merge(config, patch);
+  const touched = patch && !o.remote ? Object.keys(patch as object).filter((k) => (SHARED_SECTIONS as readonly string[]).includes(k)) : [];
+  if (touched.length) { markShared(touched); return; }
   fs.writeFileSync(file(), JSON.stringify(config, null, 2));
 }
 

@@ -19,6 +19,8 @@ export interface Events {
   "soul.pushed": [e: { files: string[] }];
   mesh: [s: unknown];
   heart: []; // 心脏状态变了（协调者据此把状态广播给其他身体）
+  shared: [sections: string[]]; // 本机改了全网共用的设置分区（网状层据此同步给其他身体）
+  usage: [row: { day: string; model: string; body: string; input: number; output: number; cost: number }]; // 本机的用量变了（各身体合计每日预算）
   "replica.applied": [e: { table: string; rows: any[]; from: string }]; // 从其他身体复制来的行已写入本机（控制台据此刷新会话与对话）
   replica: [e: { table: "messages" | "timeline" | "sessions" | "message.mode"; rows: any[] }]; // 本机新写入的对话、时间线、会话（网状层据此实时复制给其他身体） // 网状层状态变化（绑定进展、同步服务连接、各身体的连接与路径），控制台据此刷新
   "mesh.event": [e: { from: string; name: string; data: unknown }]; // 其他身体经网状层发来的事件 // 她碰过的变更已推送到远端（网状层据此通知其他身体立即拉取）
@@ -51,7 +53,7 @@ export interface SecretEvent {
   purpose: string; items: { name: string; hint: string }[]; got: number; // got：已收到（done 时为已保存）的项数，按 items 的顺序
   spell: string; expires: number; // spell：结束口令；expires：没有动静时自动放弃的时刻
 }
-export interface Approval { id: string; action: string; reason: string; args: unknown; status: "pending" | "approved" | "denied" }
+export interface Approval { id: string; action: string; reason: string; args: unknown; status: "pending" | "approved" | "denied"; body?: string } // body：在哪具身体上请求的（多具身体时）
 
 class Bus extends EventEmitter {
   emit<K extends keyof Events>(e: K, ...a: Events[K]) { return super.emit(e, ...a); }

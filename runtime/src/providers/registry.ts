@@ -3,7 +3,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { paths } from "../config.ts";
+import { paths, markShared } from "../config.ts";
 import { encrypt, decrypt } from "../crypto.ts";
 import { audit } from "../store.ts";
 import { PROTOCOLS, type Provider, type ProviderConfig } from "./types.ts";
@@ -47,7 +47,7 @@ export function keyProblem(secret: string): string | undefined {
   return undefined;
 }
 
-export function saveProviders(draft: ProviderConfig, expected: string, actor = "console"): ProviderConfig {
+export function saveProviders(draft: ProviderConfig, expected: string, actor = "console", o: { remote?: boolean } = {}): ProviderConfig {
   const current = loadProviders();
   if (expected !== configVersion(current)) throw new ConfigError("STALE_CONFIG", "配置已被其他地方修改，请刷新后重试（你的修改仍保留在页面上）");
   const ids = new Set<string>();
@@ -86,7 +86,23 @@ export function saveProviders(draft: ProviderConfig, expected: string, actor = "
   cache = { providers: next, quickModelId: draft.quickModelId };
   fs.writeFileSync(file(), JSON.stringify(cache, null, 2), { mode: 0o600 });
   audit(actor, "providers.save", "", { providers: next.length }, "ok");
+  if (!o.remote) markShared(["providers"]);
   return publicView();
+}
+
+/**
+ * 导出完整的供应商配置（Key 为明文）：只用于多具身体之间同步，经网状层端到端加密的通道传给灵魂仓库登记过的身体，不写日志、不给前端。
+ * 接收方用导入（importProviders）以自己的主密钥重新加密保存。
+ */
+export function exportProviders(): ProviderConfig {
+  const c = loadProviders();
+  return { quickModelId: c.quickModelId, providers: c.providers.map((p) => ({ ...p, keys: p.keys.map(({ ciphertext, ...k }) => ({ ...k, secret: ciphertext ? decrypt(ciphertext, p.id) : undefined })) })) };
+}
+export function importProviders(c: ProviderConfig, actor: string) {
+  const current = loadProviders();
+  // 旧地址上的 Key 会被替换（导入带着全部明文 Key），所以不受「改地址前先移除旧 Key」的限制：先清空再保存
+  cache = { providers: current.providers.map((p) => ({ ...p, keys: [] })), quickModelId: current.quickModelId };
+  return saveProviders(c, configVersion(cache), actor, { remote: true });
 }
 
 export function keySecret(p: Provider, keyId: string): string {

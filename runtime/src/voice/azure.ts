@@ -3,7 +3,7 @@
 //   用户在控制台设置，agent 也可以用 voice_config 工具自己选音色、改配置。
 import fs from "node:fs";
 import path from "node:path";
-import { config, saveConfig, paths, readSecret, writeSecret } from "../config.ts";
+import { config, saveConfig, paths, readSecret, writeSecret, markShared } from "../config.ts";
 import * as sdk from "microsoft-cognitiveservices-speech-sdk";
 
 export type SpeechConfig = typeof config.speech;
@@ -21,11 +21,15 @@ export function speechStatus() {
 /** 修改配置；key 为空字符串时保留原密钥。 */
 export function setSpeech(patch: Partial<SpeechConfig> & { key?: string }) {
   const { key, ...rest } = patch;
-  if (key) writeSecret(KEY, key.trim());
+  if (key) { writeSecret(KEY, key.trim()); markShared(["speechKey"]); }
   const clean = Object.fromEntries(Object.entries(rest).filter(([k, v]) => k in config.speech && typeof v === "string").map(([k, v]) => [k, (v as string).trim()]));
   saveConfig({ speech: clean });
   return speechStatus();
 }
+
+/** 多具身体之间同步语音密钥（经网状层的加密通道）。 */
+export const speechKey = () => readSecret(KEY) ?? "";
+export function setSpeechKeyRemote(key: string) { if (key) writeSecret(KEY, key); }
 
 /** 生成 SSML。voice 形如 zh-CN-XiaoxiaoNeural，语言取自前缀；style 为空时不加表达风格。 */
 export function ssml(text: string, c: SpeechConfig) {

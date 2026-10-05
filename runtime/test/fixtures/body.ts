@@ -2,7 +2,8 @@
 // 测试主进程经 IPC 下指令（call：{id, cmd, args} → {id, result | error}）。
 //   环境变量：QUETZAL_HOME、BODY、SYNC（同步服务地址）、KEYS（JSON：身体 → 节点公钥，即「灵魂仓库」里登记的）
 process.env.QUETZAL_HOME ??= "";
-const { loadConfig, saveConfig, paths } = await import("../../src/config.ts");
+const cfg = await import("../../src/config.ts"); // 用命名空间读 config：它是会被整体替换的活绑定，解构出来会停在旧值
+const { loadConfig, saveConfig, paths } = cfg;
 loadConfig();
 saveConfig({ body: process.env.BODY, mesh: { priority: Number(process.env.PRIORITY ?? 0) } });
 const store = await import("../../src/store.ts");
@@ -15,6 +16,9 @@ const { installCoordinator, coordinator } = await import("../../src/mesh/coordin
 const heart = await import("../../src/heart/heart.ts");
 const { installPlacement } = await import("../../src/mesh/placement.ts");
 const { installLimbs } = await import("../../src/mesh/limbs.ts");
+const { installShared, decideAnywhere, remoteApprovals } = await import("../../src/mesh/shared.ts");
+const guard = await import("../../src/guard/guard.ts");
+const fs = await import("node:fs");
 const { wake } = await import("../../src/mind/brain.ts");
 const { liveTurns } = await import("../../src/mind/activity.ts");
 const { converse } = await import("../../src/mind/brain.ts");
@@ -49,6 +53,7 @@ installPresence(mesh);
 installCoordinator(mesh);
 installPlacement(mesh, "t", () => false);
 installLimbs(mesh);
+installShared(mesh);
 mesh.start();
 
 const cmds: Record<string, (a: any) => unknown> = {
@@ -67,6 +72,23 @@ const cmds: Record<string, (a: any) => unknown> = {
   heart: () => { const h = heart.snapshot(); return { follower: h.follower, drives: h.drives, S: h.S, unconsolidated: h.unconsolidated }; },
   nudge: (a) => heart.nudge(a.reason ?? "测试", a.drives ?? {}),
   experience: (a) => heart.addExperience(a.n ?? 1),
+  saveConfig: (a) => { saveConfig(a.patch); return true; },
+  config: (a) => (cfg.config as any)[a.section],
+  addProviderKey: (a) => {
+    const c = reg.publicView();
+    c.providers.push({ id: a.id, catalogId: "custom", name: a.id, baseUrl: "https://llm.example", protocol: "openai-completions", enabled: false, keys: [{ id: `${a.id}-k`, label: "k", lastFour: "", enabled: true, secret: a.secret } as any], models: [] });
+    reg.saveProviders(c, reg.configVersion()); return true;
+  },
+  providerSecret: (a) => reg.exportProviders().providers.find((p) => p.id === a.id)?.keys[0]?.secret ?? null,
+  providerCipher: (a) => (JSON.parse(fs.readFileSync(path.join(paths.config, "providers.json"), "utf8")).providers.find((p: any) => p.id === a.id)?.keys[0]?.ciphertext ?? null),
+  stopNow: (a) => { guard.emergencyStop("测试", "测试急停", { scope: a.scope }); return true; },
+  unstop: () => { guard.releaseStop("测试"); return true; },
+  stopped: () => fs.existsSync(paths.stop),
+  check: (a) => guard.check(a.permission, a.action ?? "测试动作", "测试", {}),
+  approvals: () => [...guard.approvals(), ...remoteApprovals()],
+  decide: (a) => decideAnywhere(a.id, a.approve, "测试控制台"),
+  addUsage: (a) => { store.addUsage(a.model ?? "m", a.input ?? 0, a.output ?? 0, a.cost ?? 0); return true; },
+  usageToday: () => store.usageToday(),
   llmScript: (a) => { llmScript.push(...a.messages); return true; },
   audit: () => store.listAudit(20),
   llmWhere: (a) => { llmWhere = a.where; return true; },

@@ -128,9 +128,9 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `activity` | `{value}`（0–4） |
 | `pause` | `{paused}` |
 | `personality` | `{changes: {"tau.curiosity": 2, …}}`（有界） |
-| `stop` / `unstop` | `{reason?}` / — |
+| `stop` / `unstop` | `{reason?, scope?: all｜body}` / —（多具身体时急停缺省全网生效；`scope: "body"` 只停这具身体，别处的解除清不掉它） |
 | `permissions` / `setPermission` | — / `{id, level: allow｜ask｜deny}` |
-| `approvals` / `decide` | — / `{id, approve, note?}` |
+| `approvals` / `decide` | — / `{id, approve, note?}`（多具身体时含其他身体上等待批准的，带 `body`；批准转给那具身体处理） |
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |
 | `restart` | — （进程退出，由守护者拉起） |
@@ -238,7 +238,8 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `adapter` | `""` | 适配器模块路径（Termux 部署用环境变量 `QUETZAL_ADAPTER` 指定） |
 | `timezone` | 系统时区（拿不到时 `Asia/Shanghai`） | 生物钟与日记使用的时区 |
 | `heart.activity` / `baseRatePerHour` / `paused` | 1 / 4 / false | 活跃度、饱和醒来率、暂停 |
-| `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日预算与身体限制 |
+| `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日预算（多具身体时按全网合计）与身体限制 |
+| `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
 | `permissions.*` | `camera` / `microphone` / `location` / `hands` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作） |
 | `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |

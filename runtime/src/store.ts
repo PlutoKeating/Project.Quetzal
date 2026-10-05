@@ -54,6 +54,14 @@ export function openStore() {
   db.exec("CREATE INDEX IF NOT EXISTS timeline_ts ON timeline(ts, id)");
   prefix = idPrefixOf(config.body);
   migrateIds();
+  // 1.0：用量按身体记（每日预算是全网合计）。旧表的主键是 (day, model)：重建为 (day, model, body)，旧行归这具身体
+  const ucols = (db.prepare("PRAGMA table_info(usage)").all() as any[]).map((c) => c.name);
+  if (!ucols.includes("body")) {
+    db.exec("BEGIN");
+    db.exec("CREATE TABLE usage2(day TEXT, model TEXT, body TEXT, input INTEGER, output INTEGER, cost REAL, PRIMARY KEY(day, model, body))");
+    db.prepare("INSERT INTO usage2 SELECT day, model, ?, input, output, cost FROM usage").run(config.body);
+    db.exec("DROP TABLE usage; ALTER TABLE usage2 RENAME TO usage; COMMIT");
+  }
   const orphan = db.prepare("SELECT MIN(ts) a, MAX(ts) b FROM messages WHERE session IS NULL").get() as any;
   if (orphan?.a) {
     db.prepare("INSERT OR IGNORE INTO sessions(id,title,channel,created,updated) VALUES('first','最初的对话','控制台',?,?)").run(orphan.a, orphan.b);
@@ -244,10 +252,22 @@ export function listAudit(limit = 100, o: { action?: string; since?: number } = 
 
 export const today = () => new Date().toISOString().slice(0, 10);
 export function addUsage(model: string, input: number, output: number, cost: number) {
-  db.prepare(`INSERT INTO usage VALUES(?,?,?,?,?) ON CONFLICT(day,model) DO UPDATE SET
-    input=input+excluded.input, output=output+excluded.output, cost=cost+excluded.cost`).run(today(), model, input, output, cost);
+  db.prepare(`INSERT INTO usage(day,model,body,input,output,cost) VALUES(?,?,?,?,?,?) ON CONFLICT(day,model,body) DO UPDATE SET
+    input=input+excluded.input, output=output+excluded.output, cost=cost+excluded.cost`).run(today(), model, config.body, input, output, cost);
+  const row = db.prepare("SELECT * FROM usage WHERE day=? AND model=? AND body=?").get(today(), model, config.body) as any;
+  bus.emit("usage", { day: row.day, model: row.model, body: row.body, input: Number(row.input), output: Number(row.output), cost: Number(row.cost) });
 }
+/** 今天的用量：多具身体时为各身体之和（每日预算是全网的）。 */
 export function usageToday() {
   const r = db.prepare("SELECT COALESCE(SUM(input+output),0) tokens, COALESCE(SUM(cost),0) cost FROM usage WHERE day=?").get(today()) as any;
   return { tokens: Number(r.tokens), cost: Number(r.cost) };
+}
+/** 某天各身体的用量行（同步给其他身体）。 */
+export const usageRows = (day = today()) => (db.prepare("SELECT day,model,body,input,output,cost FROM usage WHERE day=?").all(day) as any[]).map((r) => ({ ...r, input: Number(r.input), output: Number(r.output), cost: Number(r.cost) }));
+/** 写入另一具身体的用量行（它自己的合计，整行替换；不动这具身体自己的行）。 */
+export function applyUsage(rows: { day: string; model: string; body: string; input: number; output: number; cost: number }[]) {
+  for (const r of rows) {
+    if (!r || r.body === config.body || typeof r.day !== "string" || typeof r.model !== "string" || typeof r.body !== "string") continue;
+    db.prepare("INSERT OR REPLACE INTO usage(day,model,body,input,output,cost) VALUES(?,?,?,?,?,?)").run(r.day, r.model, r.body, Number(r.input) || 0, Number(r.output) || 0, Number(r.cost) || 0);
+  }
 }
