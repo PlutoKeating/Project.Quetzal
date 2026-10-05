@@ -65,8 +65,10 @@ const tools: AdapterTool[] = [
     name: "location", permission: "location", description: "获取手机的大致位置（网络定位）。",
     parameters: obj({}),
     handler: async () => {
-      const j = await call<{ latitude: number; longitude: number; accuracy?: number }>("/v1/location", {}, 70_000);
-      return `纬度 ${j.latitude.toFixed(3)}，经度 ${j.longitude.toFixed(3)}，精度约 ${Math.round(j.accuracy ?? 0)} 米`;
+      const j = await call<{ latitude: number; longitude: number; accuracy?: number; ageMinutes?: number }>("/v1/location", {}, 70_000);
+      const age = j.ageMinutes ?? 0;
+      const when = age < 3 ? "" : `（这是 ${age < 120 ? `${age} 分钟` : age < 2880 ? `${Math.round(age / 60)} 小时` : `${Math.round(age / 1440)} 天`}前的位置，现在定不到新的）`;
+      return `纬度 ${j.latitude.toFixed(3)}，经度 ${j.longitude.toFixed(3)}，精度约 ${Math.round(j.accuracy ?? 0)} 米${when}`;
     },
   }),
   tool({
