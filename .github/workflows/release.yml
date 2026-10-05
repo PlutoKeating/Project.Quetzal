@@ -1,6 +1,6 @@
 # 发版：推送 v<版本> 标签 → 测试并构建运行基座、App、Linux 桌面版控制台与 npm 包 → 汇总校验值并签名 → 创建 GitHub Release → 发布 npm 包。
 # 资产命名（官网下载页按此识别）：
-#   quetzal-<版本>-android-arm64.apk          Quetzal App（内置运行基座与 Termux 身体适配器）
+#   quetzal-<版本>-android-arm64.apk          Quetzal App（只装一个 App：内置运行基座、安卓身体适配器与运行环境 Node.js / git / openssh / proot）
 #   quetzal-<版本>-linux-x64-console.tar.gz   Linux 桌面版控制台（原生窗口；一键安装脚本在有桌面的机器上自动下载，见 cli/install.sh）
 #   quetzal-<版本>-linux-arm64-console.tar.gz（同上，arm64）
 #   quetzal-<版本>-landrun-linux-<x64|arm64>.tar.gz   Landlock 沙箱启动器 landrun（第三方，MIT，附许可证）：bubblewrap 用不了的 Linux 机器上用
@@ -93,8 +93,38 @@ jobs:
           path: out-npm/plutokeating-quetzal-*.tgz
           if-no-files-found: error
 
-  build-apk:
+  # App 内置的运行环境：termux-packages 以 App 的前缀从源码重编 Node.js、git、openssh、proot（console/tool/android-runtime/，锁定提交），
+  # 拆成 jniLibs 与 rootfs 交给 build-apk。每次发版都重编（不用缓存）；标准运行器的磁盘不够构建镜像与 Node.js 的编译，先腾空间。
+  android-runtime:
     needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - name: 腾出磁盘空间（删掉用不到的预装工具链）
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift /usr/local/share/powershell /usr/local/lib/heroku "$AGENT_TOOLSDIRECTORY/CodeQL"
+          sudo docker image prune -af >/dev/null
+          df -h /
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: 编译运行环境（termux-packages，App 的前缀）
+        run: console/tool/android-runtime/build-packages.sh
+      - name: 拆成 jniLibs 与 rootfs
+        run: console/tool/android-runtime/pack.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-runtime
+          path: |
+            console/android/app/src/main/jniLibs/
+            console/android/app/src/main/assets/runtime-env/
+          if-no-files-found: error
+
+  build-apk:
+    needs: [prepare, android-runtime]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -116,6 +146,15 @@ jobs:
 
       - name: 构建运行基座并内置进 App（npm ci + test + build）
         run: console/tool/bundle-runtime.sh
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: android-runtime
+          path: console/android/app/src/main/
+      - name: 核对内置运行环境
+        run: |
+          ls console/android/app/src/main/jniLibs/arm64-v8a/libnode.so console/android/app/src/main/assets/runtime-env/rootfs.tar console/android/app/src/main/assets/runtime-env/manifest.json
+          chmod 755 console/android/app/src/main/jniLibs/arm64-v8a/*.so
 
       - name: 测试 App
         working-directory: console
