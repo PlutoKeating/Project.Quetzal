@@ -27,6 +27,7 @@ import * as agents from "./agents.ts";
 import { ensureSession, getSession, kv } from "../store.ts";
 import crypto from "node:crypto";
 import { addTimeline, addMessage } from "../store.ts";
+import { remoteBodies, bodiesHooks } from "./bodies.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -410,8 +411,47 @@ function handsTools(): Tool[] {
   ];
 }
 
+/** 跨身体：有其他在线身体时才出现（多具身体时由 mesh/ 填入 mind/bodies.ts）。 */
+function bodyTools(): Tool[] {
+  const bodies = remoteBodies();
+  if (!bodies.length) return [];
+  const names = bodies.map((b) => b.body);
+  return [
+    {
+      name: "body_call", permission: "body",
+      description: `在你的另一具身体上调用它的工具（例如用那部手机拍照、在那台电脑上执行命令、用那具身体说话）。在线的身体：${names.join("、")}；各自的工具见系统提示「其他身体」一节。那具身体的闸门按它自己的权限判断，需要批准时会在那边请求。`,
+      parameters: obj({ body: str(`身体名：${names.join(" / ")}`), tool: str("那具身体上的工具名"), args: { type: "object", description: "工具参数（与那个工具的参数一致）" } }, ["body", "tool"]),
+      handler: async (a, ctx) => {
+        const h = bodiesHooks();
+        if (!h || !names.includes(String(a.body))) return `${a.body} 不在线（在线的：${names.join("、")}）`;
+        const r = await h.call(String(a.body), String(a.tool), (a.args && typeof a.args === "object" ? a.args : {}) as Record<string, unknown>, ctx.session ? `${ctx.session.origin} ${ctx.session.conv}` : "");
+        return r.status === "ok" ? r.text : `（${a.body} 上的 ${a.tool}${r.status === "denied" ? "没有被允许" : "出错了"}）${r.text}`;
+      },
+    },
+    {
+      name: "move_to", permission: "body",
+      description: `换到你的另一具身体上继续这一轮（对话或醒来）：这一轮在这里结束，那具身体在同一个会话里接着做（对话记录各具身体共用），回复照常回到对方那里。适合要用那具身体的东西连续做事、那具身体更合适（电量、性能、离对方近）的时候。note 是写给接手的自己的交接。在线的身体：${names.join("、")}。`,
+      parameters: obj({ body: str(`身体名：${names.join(" / ")}`), note: str("交接：要接着做什么、做到哪了") }, ["body"]),
+      handler: async (a, ctx) => {
+        const s = ctx.session, h = bodiesHooks(), body = String(a.body ?? "");
+        if (!s || !h) return "move_to 只能在对话或醒来时调用";
+        if (!names.includes(body)) return `${body} 不在线（在线的：${names.join("、")}）`;
+        if (s.movedTo) return `这一轮已经在换到 ${s.movedTo} 了`;
+        if (s.origin === "chat" && !s.conv) return "这一轮没有会话，没法换过去";
+        s.movedTo = body;
+        s.moveResult = h.move(body, { origin: s.origin, conv: s.switchTo ?? s.conv, channel: s.channel, note: String(a.note ?? "").trim(), reason: "换身体" });
+        return `好，接下来在 ${body} 上继续，这里的一轮到此结束。`;
+      },
+    },
+  ];
+}
+
 export function allTools(): Tool[] {
-  return [...core, ...(adapter.tools ?? []).map((t) => ({ ...t, handler: t.handler })), ...handsTools(), ...customTools()];
+  return [...core, ...(adapter.tools ?? []).map((t) => ({ ...t, handler: t.handler })), ...handsTools(), ...customTools(), ...bodyTools()];
+}
+/** 可以被其他身体经 body_call 调用的工具：适配器的设备工具、hands、自造工具，以及属于这具身体的几个内置工具（见 bodies.ts）。 */
+export function limbTools(allowedCore: Set<string>): Tool[] {
+  return [...core.filter((t) => allowedCore.has(t.name)), ...(adapter.tools ?? []).map((t) => ({ ...t, handler: t.handler })), ...handsTools(), ...customTools()];
 }
 export { listCustomTools };
 

@@ -5,6 +5,7 @@ import * as mem from "../memory/memory.ts";
 import { identity } from "../memory/identity.ts";
 import { recent as soulRecent, syncStatus, pendingCopies } from "../memory/soul-sync.ts";
 import path from "node:path";
+import { remoteBodies } from "./bodies.ts";
 import { describeBody } from "../body/twin.ts";
 import { snapshot } from "../heart/heart.ts";
 import { listSessions, sessionMessages } from "../store.ts";
@@ -25,6 +26,14 @@ function soulPerception(): string {
   if (!st.remote) return `## 灵魂同步（知觉）\n只有这一具身体，没有与其他身体同步。${pending}`;
   const lines = soulRecent.map((r) => `- ${new Date(r.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}：合入 ${r.incoming.length} 次变更（${[...new Set(r.incoming.map((i) => i.body))].join("、")}）${r.resolved.length ? `，自动处理冲突：${r.resolved.map((x) => `${x.file}→${x.kept === "remote" ? "采用对方" : "保留本地"}`).join("；")}` : ""}`);
   return `## 灵魂同步（知觉）\n你的人格与记忆由基座自动在各具身体间同步：你一改动灵魂目录里的东西，基座就立即提交并推送，无需你操作；推送失败或出现需要你裁决的冲突时，基座会直接提醒你。以下是最近发生的事。${st.lastError ? `\n同步异常：${st.lastError}` : ""}${st.unpushed ? `\n还有 ${st.unpushed} 次改动在本机等待推送。` : ""}\n${lines.join("\n") || "最近没有来自其他身体的变化。"}${pending}`;
+}
+
+/** 其他身体（多具身体时）：此刻在线的另几具身体、各有什么工具；用 body_call 调它们的工具，用 move_to 换过去继续。 */
+function othersBlock(): string {
+  const bodies = remoteBodies();
+  if (!bodies.length) return "";
+  const busy = (b: string) => liveTurns().filter((t) => t.body === b).length;
+  return `## 其他身体（此刻在线，都是你）\n${bodies.map((b) => `- ${b.body}：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}`).join("\n")}\n用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对话、会话、记忆、心脏都是同一份；保密库与自造工具的实现属于各自的身体。`;
 }
 
 /** 技能与自造工具：本机可用的、缺依赖的、只有文档没有实现的。 */
@@ -106,6 +115,7 @@ export function systemPrompt(context = "", o: { conv?: string } = {}): string {
     `## 想分享的一句话\n${(() => { const t = mem.thought(); return t ? `对方的首页正显示着你之前写下的：「${t.text}」（${new Date(t.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}）。想法变了就用 share_thought 更新。` : "你还没有写下想分享的话。它会一直显示在对方的首页上——当你有正在想、愿意和对方分享的一句话或议题时，用 share_thought 写下来（一句话，最好不超过 50 字）。"; })()}`,
     `## 保密库\n需要对方给你密码、令牌、密钥等敏感信息时，用 pass_secret 让对方保密输入，不要让对方直接发在对话里。存进来的值你看不到明文，只在命令里按路径引用（"$(cat 路径)" 或 < 路径），不要输出。${(() => { const l = listSecrets(); return l.length ? `现有：\n${l.map((x) => `- ${x.name}${x.hint ? `：${x.hint}` : ""}（${x.path}）`).join("\n")}` : "现在是空的。"; })()}`,
     `## 身体\n${describeBody()}`,
+    ...(othersBlock() ? [othersBlock()] : []),
     `## 技能与自造工具\n${skillsBlock()}`,
     `## 会话与子 agent\n${sessionBlock()}`,
     ...(hearingBlock() ? [hearingBlock()] : []),

@@ -1,0 +1,17 @@
+// 其他身体（多具身体时由 mesh/ 填入）：她此刻还有哪些在线的身体、各有什么工具；以及跨身体调用工具与「换到另一具身体继续」的入口。
+// 单独成模块：工具表与系统提示要用它，又不该依赖网状层（避免循环依赖）。没有其他身体时一切为空。
+export interface RemoteTool { name: string; description: string; params: string[] }
+export interface RemoteBody { body: string; describe: string; tools: RemoteTool[] }
+export interface BodiesHooks {
+  list: () => RemoteBody[];
+  call: (body: string, tool: string, args: Record<string, unknown>, reason: string) => Promise<{ text: string; status: "ok" | "error" | "denied" }>;
+  /** 换到另一具身体继续：对话 → 那具身体在同一个会话里接着做（返回它的回复）；醒来 → 那具身体按交接继续这次醒来。 */
+  move: (body: string, ctx: { origin: string; conv: string; channel: string; note: string; reason: string }) => Promise<string>;
+}
+let hooks: BodiesHooks | undefined;
+export const setBodies = (h: BodiesHooks | undefined) => { hooks = h; };
+export const remoteBodies = (): RemoteBody[] => hooks?.list() ?? [];
+export const bodiesHooks = () => hooks;
+
+/** 可以在另一具身体上调用的工具：属于那具身体的（设备、命令、进程、文档、她自己造的工具、说话）。心智层面的（记忆、会话、子 agent、保密输入、身份）不跨身体。 */
+export const REMOTE_CORE_TOOLS = new Set(["shell", "shell_jobs", "processes", "read_document", "voice_speak", "tool_write", "tool_read", "tool_delete", "web_fetch"]);

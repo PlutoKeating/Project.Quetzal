@@ -109,6 +109,10 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
       steps.push({ tool: c.name, args: c.args, result: out.text.slice(0, 1500) });
       messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: out.text.slice(0, 12000) });
     }
+    if (s.movedTo) { // move_to：换到另一具身体继续，这一轮在这里结束
+      if (withFinish && !finish) finish = { title: `换到 ${s.movedTo} 上继续`, journal: `这次醒来换到 ${s.movedTo} 上接着做。` };
+      break;
+    }
   }
   return { text, finish, steps, tokens, model };
 }
@@ -210,6 +214,7 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
   mem.writeJournal(`${kind === "dream" ? "梦 · " : ""}${f.title}`, `${f.journal}${f.feeling ? `\n\n心情：${f.feeling}` : ""}`);
   addTimeline(kind, f.title, { reason, intent: gate.intent, journal: f.journal, feeling: f.feeling, thought: f.thought, process, steps: r.steps, tokens: r.tokens, model: r.model });
   if (kind === "dream") await soul.releaseLease(); else addExperience(1);
+  if (s.movedTo) await (s.moveResult ?? Promise.resolve("")).catch(() => ""); // 等换过去的那具身体做完，心脏才算这次醒来结束
   setOpenLoops(mem.openLoops().length);
   await soul.push(kind === "dream" ? `梦：${f.title}` : f.title).catch(() => {});
   const satisfied: Partial<Drives> = {};
@@ -302,7 +307,8 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
 /** 她不回应环境输入时的回复标记（只回这两个字，不入库、不显示）。 */
 const SILENCE = /^[\s\[【（(]*沉默[\s\]】）)]*$/;
 /** 不是对方说的话、而是提醒的通道：她工作时到达就按提醒的口吻并入，不当成对方的插话。 */
-const NOTICE: Record<string, string> = { "灵魂同步": "基座提醒（灵魂同步）", "子agent": "你派出的子 agent 送回了报告" };
+const NOTICE: Record<string, string> = { "灵魂同步": "基座提醒（灵魂同步）", "子agent": "你派出的子 agent 送回了报告", "换身体": "你从另一具身体换过来继续这个会话，这是你写的交接" };
+const MOVE_PROMPT = "你刚才在另一具身体上决定换到这具身体继续这个会话（对话记录都在上面）。接着做：需要做事就调用工具，最后的文字就是给对方的回复。";
 const SOUL_NOTICE_PROMPT = "这是运行基座发来的提醒，不是对方说的话。你自己决定要不要处理、怎么处理（可以用工具）；需要对方帮忙的事可以告诉对方。不需要回应时只回复两个字：沉默（不会被记录成你的话）。";
 const AMBIENT_PROMPT = "这是麦克风听到的环境声音（已转成文字，可能有错字、断句不准，也可能不是对你说的，比如旁人的交谈、电视）。请自己判断：是不是在对你说话、要不要回应。不需要回应时只回复两个字：沉默（不会被记录成你的话）。要回应就像平常一样回复，可以用工具。对方是用声音在和你说话，可能此刻不方便看屏幕——你可以用 voice_speak 把回复念出来，是否念由你决定。";
 const AGENT_REPORT_PROMPT = "这是你派出的子 agent 送回的报告（它已经结束）。你自己决定怎么用：据此继续手头的事、把结论告诉对方、再派一个、或者什么都不做。不需要回应时只回复两个字：沉默（不会被记录成你的话）。";
@@ -331,7 +337,7 @@ export function spawnAgent(spec: agents.AgentSpec, parent: { conv: string; chann
  * ambient：这句话是麦克风听到的环境声音（听觉），以第三种消息类型入库，由她判断是否回应。
  * 排队等待期间视为在工作，不计入会话时间墙。
  */
-export type ConverseOptions = { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt"; ambient?: boolean };
+export type ConverseOptions = { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt"; ambient?: boolean; local?: boolean }; // local：就在这具身体上处理，不经路由（move_to 接手的一轮）
 /** 多具身体时的路由（mesh/presence.ts 设置）：这个会话正在另一具身体上进行，就把这句话转过去（作为那一轮的插话 / 打断），返回那边的回执或回复。 */
 let router: ((conv: string, from: string, text: string, channel: string, o: ConverseOptions) => Promise<string> | undefined) | undefined;
 export function setConverseRouter(r: typeof router) { router = r; }
@@ -339,7 +345,7 @@ export function setConverseRouter(r: typeof router) { router = r; }
 export function converse(from: string, text: string, channel: string, o: ConverseOptions = {}): Promise<string> {
   const conv = o.conv || (channel === "飞书" ? "feishu" : "first");
   // 路由在保密输入的截取之前：这一轮在哪具身体上，保密值就只在那具身体上被截走
-  const routed = router?.(conv, from, text, channel, { ...o, conv });
+  const routed = o.local ? undefined : router?.(conv, from, text, channel, { ...o, conv });
   if (routed) return routed;
   // 保密输入进行中（pass_secret）：这条消息是一项保密值或口令，在入库、进入上下文之前截走，只回一条不含内容的回执。所有通道都经过这里
   const ack = intake(conv, text);
@@ -379,6 +385,8 @@ export function converse(from: string, text: string, channel: string, o: Convers
           ? await userMessage(text, [], AGENT_REPORT_PROMPT, s.seen)
           : o.ambient && channel === "灵魂同步"
           ? await userMessage(`${NOTICE[channel]}：\n${text}`, [], SOUL_NOTICE_PROMPT, s.seen)
+          : o.ambient && channel === "换身体"
+          ? await userMessage(`${NOTICE[channel]}：\n${text}`, [], MOVE_PROMPT, s.seen)
           : o.ambient
           ? await userMessage(`你听到附近有人说：\n${text}`, [], AMBIENT_PROMPT, s.seen)
           : await userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
@@ -391,6 +399,12 @@ export function converse(from: string, text: string, channel: string, o: Convers
       }
       running.delete(conv);
       const process = s.process();
+      if (s.movedTo) { // 换到另一具身体继续：那边在同一个会话里接着做，它的回复（经复制）就是这一轮的回复，这里不再另存
+        s.emit({ kind: "done", reply: "" }); // 这里的一轮立即结束：之后发到这个会话的话会路由到接手的那具身体
+        const reply = await (s.moveResult ?? Promise.resolve("")).catch((e: Error) => { const t = `（没能换到 ${s.movedTo}：${e.message}）`; addMessage("agent", channel, t, { session: conv }); return t; });
+        addTimeline("chat", `和${from}说话，换到 ${s.movedTo} 上继续`, { channel, conv, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model, movedTo: s.movedTo });
+        return reply;
+      }
       if (o.ambient && (SILENCE.test(r.text) || (!r.text.trim() && !process.length))) { // 她判断不必回应：不留她的话，这句话标为 ignored（控制台隐藏），心流里记一笔
         setMessageMode(id, "ignored");
         s.emit({ kind: "done", reply: "" });

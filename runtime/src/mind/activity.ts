@@ -101,6 +101,9 @@ export class Session {
   stepText = "";
   /** session_new：这一轮结束时把回复放进这个新会话（她把对话切到了上下文干净的新会话）。 */
   switchTo?: string;
+  /** move_to：她决定换到另一具身体继续。这一轮在这里结束，结果（对话为那边的回复）在 moveResult 里。 */
+  movedTo?: string;
+  moveResult?: Promise<string>;
 
   readonly conv: string;
 

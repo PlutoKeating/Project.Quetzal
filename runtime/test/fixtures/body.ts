@@ -14,6 +14,7 @@ const { installPresence } = await import("../../src/mesh/presence.ts");
 const { installCoordinator, coordinator } = await import("../../src/mesh/coordinator.ts");
 const heart = await import("../../src/heart/heart.ts");
 const { installPlacement } = await import("../../src/mesh/placement.ts");
+const { installLimbs } = await import("../../src/mesh/limbs.ts");
 const { wake } = await import("../../src/mind/brain.ts");
 const { liveTurns } = await import("../../src/mind/activity.ts");
 const { converse } = await import("../../src/mind/brain.ts");
@@ -22,11 +23,13 @@ const http = await import("node:http");
 
 // 模拟的模型：回复里带上身体名（看得出是哪具身体在回答），可以设置延迟（制造「正在进行的一轮」）
 let llmDelay = 0, llmWhere: string[] | undefined;
+const llmScript: any[] = []; // 按顺序回放的模型回复（例如工具调用），放完了回到缺省回复
 const llm = http.createServer((req, res) => {
   let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
     const j = JSON.parse(body); const last = j.messages.at(-1); const text = typeof last.content === "string" ? last.content : last.content?.find((c: any) => c.type === "text")?.text ?? "";
     const content = /先别急着做事/.test(text) && llmWhere ? JSON.stringify({ engage: true, intent: "测试的意图", where: llmWhere }) : `${process.env.BODY} 的回复`;
-    setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); }, llmDelay);
+    const message = !/先别急着做事/.test(text) && llmScript.length ? llmScript.shift() : { content };
+    setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); }, llmDelay);
   });
 });
 await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
@@ -45,6 +48,7 @@ installReplica(mesh);
 installPresence(mesh);
 installCoordinator(mesh);
 installPlacement(mesh, "t", () => false);
+installLimbs(mesh);
 mesh.start();
 
 const cmds: Record<string, (a: any) => unknown> = {
@@ -63,6 +67,8 @@ const cmds: Record<string, (a: any) => unknown> = {
   heart: () => { const h = heart.snapshot(); return { follower: h.follower, drives: h.drives, S: h.S, unconsolidated: h.unconsolidated }; },
   nudge: (a) => heart.nudge(a.reason ?? "测试", a.drives ?? {}),
   experience: (a) => heart.addExperience(a.n ?? 1),
+  llmScript: (a) => { llmScript.push(...a.messages); return true; },
+  audit: () => store.listAudit(20),
   llmWhere: (a) => { llmWhere = a.where; return true; },
   wake: (a) => wake(a.kind ?? "think", a.reason ?? "测试"),
   llmDelay: (a) => { llmDelay = a.ms; return true; },
