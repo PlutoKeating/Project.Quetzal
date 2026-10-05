@@ -40,6 +40,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `session.switch` | `{from, to, title, done?}`：她用 `session_new` 把对话切到了新会话；控制台把打开的会话页切过去；`done` 为真表示她这一轮的回复已放进新会话 |
 | `speak` | `{id, url, text, ms}`：让控制台 App 播放一段合成语音（`url` 为 `/media/<文件名>`，走通话音频路径，耳朵的回声消除以它为参考）；App 播完或被插嘴后调用 `player.done` |
 | `mesh` | 网状层状态（同 `mesh` 方法的返回），绑定进展、同步服务连接、各身体的连接与路径变化时推送 |
+| `replica` | `{table: messages｜sessions｜message.mode, from, convs}`：从其他身体复制来的对话或会话已写入本机（`convs` 为涉及的会话），控制台据此刷新会话列表与打开的对话。时间线条目照常经 `timeline` 推送（带 `body`） |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
 `activity` 的 `kind`：
@@ -80,7 +81,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `sessions` | `{archived?}` | 会话列表 `[{id, title, channel, created, updated, archived, count, last}]`（按最近更新） |
 | `sessions.create` | `{title?}` | 新建会话（首条消息自动成为标题） |
 | `sessions.rename` / `sessions.archive` | `{id, title}` / `{id, archived}` | 重命名 / 归档与找回（有新消息的会话自动回到列表） |
-| `sessions.messages` | `{id, limit?, before?}` | 某个会话的对话 `[{id, ts, role, channel, text, session, process, attachments, mode}]`；`role` 为 `user`（对方）、`agent`（她）或 `ambient`（环境输入，不是对方发的消息：通道 `语音` 为麦克风听到并识别的话（`mode` 为 `ignored` 表示她判断不是对她说的，控制台不显示）、`子agent` 为子 agent 送回的报告、`摘要` 为她用 `session_compact` 写下的上下文摘要（之前的历史不再进入上下文）、`交接` 为她用 `session_new` 切会话时写的交接）；`process` 里的 `{type: "steer", msg, text, mode, ambient}` 是插话 / 打断到达的那一刻（控制台据此把之前的过程截断在插话消息上方，之后的从它下面重新开出）；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
+| `sessions.messages` | `{id, limit?, before?}` | 某个会话的对话 `[{id, ts, role, channel, text, session, process, attachments, mode, body}]`（按时间排列；`before` 为消息 id，取比它更早的；`body` 为这条消息发生在哪具身体上；消息 id 在所有身体上相同）；`role` 为 `user`（对方）、`agent`（她）或 `ambient`（环境输入，不是对方发的消息：通道 `语音` 为麦克风听到并识别的话（`mode` 为 `ignored` 表示她判断不是对她说的，控制台不显示）、`子agent` 为子 agent 送回的报告、`摘要` 为她用 `session_compact` 写下的上下文摘要（之前的历史不再进入上下文）、`交接` 为她用 `session_new` 切会话时写的交接）；`process` 里的 `{type: "steer", msg, text, mode, ambient}` 是插话 / 打断到达的那一刻（控制台据此把之前的过程截断在插话消息上方，之后的从它下面重新开出）；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
 | `sessions.live` | — | 进行中的轮次快照 `[{turn, conv, origin, text, msg, status, step, live, items}]` |
 | `poke` | `{note?}` | 戳一下：推高想念与好奇并立即重新抽样，不强制醒来 |
 

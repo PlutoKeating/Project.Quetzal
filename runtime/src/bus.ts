@@ -17,7 +17,9 @@ export interface Events {
   speak: [e: { id: string; url: string; text: string; ms: number }];
   "soul.alert": [e: { text: string; targets: ({ id: string; conv: string; origin: string; switchTo?: string; closed?: boolean } | undefined)[] }]; // 灵魂同步要她知道的事（推送失败、冲突副本待裁决）：大脑插话进对应的会话，已结束则开新的一轮
   "soul.pushed": [e: { files: string[] }];
-  mesh: [s: unknown]; // 网状层状态变化（绑定进展、同步服务连接、各身体的连接与路径），控制台据此刷新
+  mesh: [s: unknown];
+  "replica.applied": [e: { table: string; rows: any[]; from: string }]; // 从其他身体复制来的行已写入本机（控制台据此刷新会话与对话）
+  replica: [e: { table: "messages" | "timeline" | "sessions" | "message.mode"; rows: any[] }]; // 本机新写入的对话、时间线、会话（网状层据此实时复制给其他身体） // 网状层状态变化（绑定进展、同步服务连接、各身体的连接与路径），控制台据此刷新
   "mesh.event": [e: { from: string; name: string; data: unknown }]; // 其他身体经网状层发来的事件 // 她碰过的变更已推送到远端（网状层据此通知其他身体立即拉取）
   "session.switch": [e: { from: string; to: string; title: string; done?: boolean }]; // 她用 session_new 把对话切到新会话：控制台跟着切；done 为真表示回复已放进新会话 // 让控制台 App 播放一段合成语音（走通话路径，耳朵有回声消除）；App 播完或被插嘴后回报 player.done
 }
@@ -26,7 +28,7 @@ export interface Events {
  * kept：她判断是对她说的（回应了）；ignored：她判断不是对她说的（这句话在记录里标为 ignored，控制台隐藏）。
  */
 export interface HearingEvent { id: string; status: "partial" | "final" | "dropped" | "kept" | "ignored"; text: string; conv?: string; reason?: string }
-export interface TimelineEntry { id: number; ts: number; kind: string; title: string; detail: unknown }
+export interface TimelineEntry { id: number; ts: number; kind: string; title: string; detail: unknown; body?: string | null } // body：发生在哪具身体上
 /** 会话进展事件（见 mind/activity.ts）。 */
 export interface Activity {
   session: string; conv: string; origin: "chat" | "think" | "dream" | "agent"; channel: string; ts: number; // session：这一轮的标识；conv：所属会话（醒来为空；子 agent 为派出它的会话）

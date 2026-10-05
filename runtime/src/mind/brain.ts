@@ -235,7 +235,8 @@ const FULL_PROCESS = 3;
 export function history(conv: string, self: number, budget = 16000): Msg[] {
   const out: Msg[] = [];
   let used = 0, replies = 0;
-  const all = sessionMessages(conv, 80).filter((m) => m.id < self || m.role === "agent");
+  const listed = sessionMessages(conv, 80), at = listed.findIndex((m) => m.id === self); // 按时间排序（多具身体的编号段之间没有先后）
+  const all = listed.filter((m, i) => at < 0 || i < at || m.role === "agent");
   const cut = all.map((m, i) => (m.role === "ambient" && m.channel === "摘要" ? i : -1)).filter((i) => i >= 0).at(-1) ?? -1; // session_compact：摘要之前的历史不再进入上下文
   for (const m of all.slice(Math.max(0, cut)).reverse()) {
     let text: string;

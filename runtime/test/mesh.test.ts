@@ -6,8 +6,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import http from "node:http";
-import { WebSocketServer, type WebSocket } from "ws";
+import { fakeSync } from "./fixtures/fake-sync.ts";
 import { Mesh } from "../src/mesh/mesh.ts";
 import { loadNodeKey, seal, Opener, canonical, fingerprint, isNodeKey, type NodeKey } from "../src/mesh/identity.ts";
 import { toNdcIce, sdpFingerprint } from "../src/mesh/link.ts";
@@ -20,31 +19,9 @@ const skip = !ndc && "这台机器没有 node-datachannel（可选依赖）";
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-mesh-"));
 const keys: Record<string, NodeKey> = { alpha: loadNodeKey(path.join(tmp, "a.key")), beta: loadNodeKey(path.join(tmp, "b.key")) };
 
-/** 精简的同步服务：hello（令牌 = 身体名）→ welcome；peer 上下线；signal 原样转发（可被测试篡改）。 */
-const conns = new Map<string, WebSocket>();
-let tamper: ((from: string, to: string, data: any) => any) | undefined;
 const registered: Record<string, string> = { alpha: keys.alpha.nodeKey, beta: keys.beta.nodeKey };
-const server = http.createServer();
-const wss = new WebSocketServer({ server, path: "/v1/ws" });
-wss.on("connection", (ws) => {
-  let me = "";
-  const peer = (b: string, online: boolean) => ({ body: b, kind: "runtime", nodeKey: registered[b], version: "t", online, lastSeen: 0 });
-  ws.on("message", (raw) => {
-    const m = JSON.parse(raw.toString());
-    if (m.t === "hello") {
-      me = m.token; conns.set(me, ws);
-      ws.send(JSON.stringify({ t: "welcome", protocol: 1, now: Date.now(), agent: { id: "x", name: "x" }, body: me, account: "t",
-        peers: Object.keys(registered).filter((b) => b !== me).map((b) => peer(b, conns.has(b))), iceServers: [], ttl: 0 }));
-      for (const [b, c] of conns) if (b !== me) c.send(JSON.stringify({ t: "peer", peer: peer(me, true) }));
-    } else if (m.t === "signal") {
-      const data = tamper ? tamper(me, m.to, m.data) : m.data;
-      conns.get(m.to)?.send(JSON.stringify({ t: "signal", from: me, data }));
-    }
-  });
-  ws.on("close", () => { if (conns.get(me) === ws) { conns.delete(me); for (const [, c] of conns) c.send(JSON.stringify({ t: "peer", peer: peer(me, false) })); } });
-});
-await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
-const SERVER = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+const sync = await fakeSync(registered);
+const conns = sync.conns, SERVER = sync.url;
 
 const warnings: string[] = [];
 function body(me: string, soulKeys: Record<string, string> = { alpha: keys.alpha.nodeKey, beta: keys.beta.nodeKey }, key = keys[me]) {
@@ -57,7 +34,7 @@ function body(me: string, soulKeys: Record<string, string> = { alpha: keys.alpha
 }
 const until = async (f: () => boolean, ms = 15_000) => { const t = Date.now(); while (!f()) { if (Date.now() - t > ms) throw new Error("等待超时"); await new Promise((r) => setTimeout(r, 50)); } };
 const meshes: Mesh[] = [];
-after(async () => { for (const m of meshes) m.stop(); wss.close(); server.close(); await new Promise((r) => setTimeout(r, 200)); ndc?.cleanup(); });
+after(async () => { for (const m of meshes) m.stop(); sync.close(); await new Promise((r) => setTimeout(r, 200)); ndc?.cleanup(); });
 
 test("节点密钥：生成后持久化（0600），公钥 43 个字符；规范化 JSON 与键的顺序无关", () => {
   const again = loadNodeKey(path.join(tmp, "a.key"));
@@ -114,12 +91,12 @@ test("两具身体连上：请求 / 应答、事件、大消息分块", { skip }
 
 test("同步服务篡改信令：签名不符，被拒绝且提醒；连接建立不起来", { skip }, async () => {
   warnings.length = 0;
-  tamper = (_from, _to, data) => ({ ...data, body: { ...data.body, sdp: String(data.body?.sdp ?? "").replace(/a=fingerprint:sha-256 [0-9A-F:]+/, "a=fingerprint:sha-256 00:11") } });
+  sync.tamper = (_from, _to, data) => ({ ...data, body: { ...data.body, sdp: String(data.body?.sdp ?? "").replace(/a=fingerprint:sha-256 [0-9A-F:]+/, "a=fingerprint:sha-256 00:11") } });
   const a = body("alpha"), b = body("beta");
   meshes.push(a, b);
   await until(() => warnings.some((w) => /签名不对/.test(w)), 10_000);
   assert.equal(a.connected().length + b.connected().length, 0);
-  tamper = undefined;
+  sync.tamper = undefined;
   a.stop(); b.stop();
   await until(() => !conns.size);
 });

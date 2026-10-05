@@ -7,7 +7,7 @@ src/
 ├── main.ts               装配各模块；熔断（安全模式）
 ├── config.ts             家目录布局、配置读写、密钥文件
 ├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event）
-├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式；role 为 user / agent / ambient）、audit、usage
+├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式、来源身体；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote）；1.0 前编号的一次性迁移
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时、输出上限）；后台任务（可随时停止整个进程组）
 ├── voice/
@@ -48,6 +48,7 @@ src/
 │   ├── directory.ts      同步服务客户端（协议见 sync/docs/PROTOCOL.md）：只接受 HTTPS、设备码绑定、信令 WebSocket（在场、转发、TURN 凭据刷新、指数退避重连）
 │   ├── link.ts           一条 WebRTC 连接（node-datachannel）：发起方由名字决定、签名信令、DTLS 指纹的挑战应答、心跳与重连、中转凭据到期前重建、大消息分块
 │   ├── mesh.ts           全连接管理：按在场建立 / 停止连接、验签、请求 / 应答、事件、状态（不含地址）
+│   ├── replica.ts        一份对话：对话、会话与时间线在身体之间复制（连上时按版本向量补齐、分页续传；平时实时广播；收到的幂等写入）
 │   └── runtime.ts        绑定到运行时：配置、绑定令牌（secrets/sync.json）、原生组件的按需加载、身体登记的公钥、soul.pushed → 其他身体立即拉取；网关的 mesh.* 方法
 ├── guard/guard.ts        能力授权、审批队列、急停、审计
 ├── providers/

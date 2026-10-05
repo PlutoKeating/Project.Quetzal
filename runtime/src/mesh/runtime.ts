@@ -12,6 +12,7 @@ import { loadNodeKey, fingerprint, isNodeKey, type NodeKey } from "./identity.ts
 import { Mesh } from "./mesh.ts";
 import { startBinding, pollBinding, unbind as unbindRemote, serverOrigin, type Binding } from "./directory.ts";
 import type { Ndc } from "./link.ts";
+import { installReplica } from "./replica.ts";
 
 const BINDING = () => path.join(paths.secrets, "sync.json");
 let key: NodeKey | undefined;
@@ -38,6 +39,7 @@ export function soulKeyOf(body: string): string | undefined {
 }
 
 export let mesh: Mesh | undefined;
+let uninstall: (() => void) | undefined;
 let binding: { code: string; uri: string; expires: number; abort: AbortController } | undefined;
 let lastError = "";
 
@@ -62,10 +64,11 @@ export async function startMesh() {
   mesh.on("state", changed);
   mesh.on("peer", changed);
   mesh.on("event", (e: { from: string; name: string; data: unknown }) => bus.emit("mesh.event", e));
+  uninstall = installReplica(mesh); // 一个心智：对话、会话与时间线在身体之间复制
   mesh.start();
   changed();
 }
-export function stopMesh() { mesh?.stop(); mesh = undefined; }
+export function stopMesh() { uninstall?.(); uninstall = undefined; mesh?.stop(); mesh = undefined; }
 
 const safeOrigin = (s: string) => { try { return serverOrigin(s); } catch { return ""; } };
 
