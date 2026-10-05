@@ -290,7 +290,7 @@ jobs:
         run: |
           printf '@plutokeating:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$GH_TOKEN" > "$RUNNER_TEMP/npmrc-github"
           TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
-          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc-github" npm publish out-npm/plutokeating-quetzal-*.tgz --tag "$TAG"
+          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc-github" npm publish ./out-npm/plutokeating-quetzal-*.tgz --tag "$TAG"
       - name: 发布到 npmjs.com（有 NPM_TOKEN 时；带 --provenance）
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -298,4 +298,4 @@ jobs:
           if [ -z "$NPM_TOKEN" ]; then echo "没有配置 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
           printf '@plutokeating:registry=https://registry.npmjs.org\n//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/npmrc-npmjs"
           TAG=latest; case "$GITHUB_REF_NAME" in *-*) TAG=next;; esac
-          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc-npmjs" npm publish out-npm/plutokeating-quetzal-*.tgz --access public --provenance --tag "$TAG"
+          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc-npmjs" npm publish ./out-npm/plutokeating-quetzal-*.tgz --access public --provenance --tag "$TAG"
