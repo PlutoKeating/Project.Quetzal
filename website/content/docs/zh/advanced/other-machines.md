@@ -13,7 +13,7 @@ description: 一台 Linux 电脑或服务器一行 curl 命令就能成为身体
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余缺什么它补什么。架构：x86_64 与 arm64 全功能（含原生控制台）；龙芯（loongarch64）、RISC-V、armv6l 这些官方 Node 不出二进制的架构，脚本从 Node.js 项目的 [unofficial-builds](https://unofficial-builds.nodejs.org) 直接下载对应的 Node 22 到 `~/.quetzal/node/`，运行基座与网页控制台照常可用，只是没有原生控制台（Flutter 上游尚不支持 LoongArch），桌面项用浏览器打开。装完之后：
+前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余缺什么它补什么。架构：x86_64 与 arm64 全功能（含原生控制台）；龙芯（loongarch64）、RISC-V、armv6l 这些官方 Node 不出二进制的架构，脚本从 Node.js 项目的 [unofficial-builds](https://unofficial-builds.nodejs.org) 直接下载对应的 Node 22 到 `~/.quetzal/node/`（先与同一发布目录里的 `SHASUMS256.txt` 核对 SHA-256，那里没有 GPG 签名），运行基座与网页控制台照常可用，只是没有原生控制台（Flutter 上游尚不支持 LoongArch），桌面项用浏览器打开。装完之后：
 
 - 浏览器里打开了**网页控制台** `http://127.0.0.1:7788/`，同一台机器免配对码，模型、身份、授权、飞书、灵魂仓库、对话都在里面（第 2 节）。
 - 应用列表里多了一个 **Quetzal**（光团图标），点开是**原生控制台**（Flutter Linux 桌面版，从 GitHub Release 下载同版本的包放在 `~/.quetzal/console/`），任务栏、Alt-Tab、活动概览都是 Quetzal 自己的图标，与浏览器无关。这个版本没有原生包（arm64、旧版本）或下载失败时退回浏览器打开：Chromium 系以独立窗口打开，只有 Firefox 时用默认浏览器，此时任务栏显示的是浏览器的图标。
@@ -25,10 +25,10 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 | 步骤 | 做什么 |
 |---|---|
 | 这台机器 | 认出发行版、架构、包管理器（apt / dnf / yum / pacman / zypper / apk / xbps）、有没有 systemd 用户实例、有没有桌面、是不是 WSL / 容器 |
-| 依赖 | 缺 `git`、`curl`、`tar`、CA 证书就用这台机器自己的包管理器装（需要时 `sudo` / `doas` 会问一次密码，root 直接装）。**Node.js 22.13+**：PATH 上已有够新的（且带 npm）就用；否则装 [nvm](https://github.com/nvm-sh/nvm) 到 `~/.nvm` 并装 Node.js 22（不碰系统的 Node）；Alpine 这类 musl 系统与 NixOS 跑不了 nvm 的官方二进制，Alpine 用 `apk add nodejs npm`，NixOS 请先自备 Node。直连 nodejs.org 不通时自动改用国内镜像（npmmirror） |
+| 依赖 | 缺 `git`、`curl`、`tar`、CA 证书就用这台机器自己的包管理器装（需要时 `sudo` / `doas` 会问一次密码，root 直接装）。**Node.js 22.13+**：PATH 上已有够新的（且带 npm）就用；否则装 [nvm](https://github.com/nvm-sh/nvm) 到 `~/.nvm` 并装 Node.js 22（不碰系统的 Node；nvm 的安装脚本先下载成文件，与脚本里固定的 SHA-256 核对一致才执行，两个下载地址内容相同）；Alpine 这类 musl 系统与 NixOS 跑不了 nvm 的官方二进制，Alpine 用 `apk add nodejs npm`，NixOS 请先自备 Node。直连 nodejs.org 不通时自动改用国内镜像（npmmirror） |
 | 运行基座 | 把 npm 包 `@plutokeating/quetzal` 装进 `~/.quetzal/npm`（独立前缀，不污染全局 npm），由它完成版本目录、缺省配置、systemd 服务、健康检查与失败回滚（见 1.1） |
 | 守护 | 有 systemd 用户实例：`systemd --user` 服务 `quetzal`，`Restart=always`，并 `loginctl enable-linger`（没登录也运行；需要管理员权限时会问一次密码）。没有（Alpine / Void / Devuan、容器、未开 systemd 的 WSL）：写一个几十行的守护循环 `~/.quetzal/bin/quetzal-supervise`（退出 3 秒后重启，flock 保证只有一个），开机靠 `crontab @reboot` 与桌面自启动项，不安装任何额外的服务框架 |
-| 桌面 | 有桌面环境才做：下载同版本的原生控制台到 `~/.quetzal/console/<版本>/`（`console/current` 指向它；旧发行版 `ldd` 缺库就放弃，退回浏览器），图标放进 `~/.local/share/icons/hicolor/`（`xyz.quetzal.console.png`），启动器 `~/.local/bin/quetzal-console`（优先原生，否则浏览器），桌面项 `~/.local/share/applications/xyz.quetzal.console.desktop` |
+| 桌面 | 有桌面环境才做：下载同版本的原生控制台到 `~/.quetzal/console/<版本>/`（先核对发布签名：`SHA256SUMS.sig` 是内置公钥的 Ed25519 签名、`commit <提交> v<版本>` 一行与要装的版本一致、包的 SHA-256 与清单相符，任何一项不通过就不装，退回浏览器；没有签名清单的旧版本同样退回浏览器，见 [发布签名与校验](/docs/start/install#发布签名与校验)。`console/current` 指向它；依赖检查只用只读的 `readelf -d/-V` 或 `objdump -p` 看所需的库与 glibc 版本，不执行下载的程序，两者都没有就跳过检查；旧发行版缺库就放弃，退回浏览器；musl 系统不装原生控制台），图标放进 `~/.local/share/icons/hicolor/`（`xyz.quetzal.console.png`），启动器 `~/.local/bin/quetzal-console`（优先原生，否则浏览器），桌面项 `~/.local/share/applications/xyz.quetzal.console.desktop` |
 | 收尾 | 有图形会话就打开控制台；打印地址、守护方式与常用命令。服务器上会给出 `ssh -L 7788:127.0.0.1:7788 <这台机器>` |
 
 选项跟在 `bash -s --` 后面，也都有对应的环境变量：

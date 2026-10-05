@@ -9,8 +9,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- App 自身的更新：下载新版 APK 后交给系统安装器（Android 8+ 还要用户在设置里允许本应用安装未知应用） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 不参与系统备份与设备间迁移：shared_preferences 里存着网关令牌（res/xml/backup_rules.xml、data_extraction_rules.xml 再全部排除一次，防厂商 ROM 忽略 allowBackup） -->
     <application
         android:label="Quetzal"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

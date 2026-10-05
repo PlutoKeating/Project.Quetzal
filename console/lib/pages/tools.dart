@@ -6,7 +6,7 @@ import '../api.dart';
 import '../markdown.dart';
 import '../widgets.dart';
 
-const _permissions = {'network': '联网', 'shell': '执行命令', 'device': '设备功能', 'camera': '相机', 'microphone': '麦克风', 'location': '定位', 'message': '主动发消息', 'self_modify': '修改自身参数', 'memory': '改写记忆', 'hands': '操作屏幕与应用', 'secret': '索取保密信息'};
+const _permissions = {'network': '联网', 'shell': '执行命令', 'device': '设备功能', 'camera': '相机', 'microphone': '麦克风', 'location': '定位', 'message': '主动发消息', 'self_modify': '修改自身参数', 'memory': '改写记忆', 'hands': '操作屏幕与应用', 'secret': '索取保密信息', 'tool_write': '造工具（写会被执行的代码）'};
 
 class ToolsPage extends StatefulWidget {
   const ToolsPage({super.key});

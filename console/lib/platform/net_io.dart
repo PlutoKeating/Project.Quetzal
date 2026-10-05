@@ -4,20 +4,22 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'net.dart';
 
-Future<HttpReply> request(String method, String url, {String? json, Duration timeout = const Duration(seconds: 8)}) async {
+Future<HttpReply> request(String method, String url, {String? json, Map<String, String> headers = const {}, Duration timeout = const Duration(seconds: 8)}) async {
   final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
   try {
     final req = await c.openUrl(method, Uri.parse(url));
+    headers.forEach(req.headers.set);
     if (json != null) { req.headers.contentType = ContentType.json; req.write(json); }
     final res = await req.close().timeout(timeout);
     return HttpReply(res.statusCode, await res.transform(utf8.decoder).join());
   } finally { c.close(); }
 }
 
-Future<HttpReply> upload(String url, Uint8List bytes, {void Function(double)? onProgress}) async {
+Future<HttpReply> upload(String url, Uint8List bytes, {Map<String, String> headers = const {}, void Function(double)? onProgress}) async {
   final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
   try {
     final req = await c.postUrl(Uri.parse(url));
+    headers.forEach(req.headers.set);
     req.contentLength = bytes.length;
     var sent = 0;
     const chunk = 64 * 1024;

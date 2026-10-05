@@ -23,7 +23,7 @@ flowchart TB
 Top-bar name → **Connect a new agent**:
 
 1. Enter the runtime's **gateway address** (e.g. `http://127.0.0.1:7789`). The gateway listens only on localhost, so a runtime on another device must have its port forwarded to the phone first (see [Other machines](/docs/advanced/other-machines)).
-2. **Request a pairing code**: six digits, valid for five minutes, delivered through that device's system notification (the body adapter's `notify`).
+2. **Request a pairing code**: eight letters and digits, valid for five minutes, delivered through that device's system notification (the body adapter's `notify`).
 3. Enter the code → paired. The app stores the token and reconnects automatically from then on.
 
 > [!NOTE]

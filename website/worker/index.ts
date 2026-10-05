@@ -1,6 +1,7 @@
 // 官网的 Worker：只接管两类路径，其余全部交给静态资源（wrangler.jsonc 的 run_worker_first 只把这两类路由到这里）。
 //   /dl/<tag>/<资产名>         GitHub Release 资产的镜像源（APK、Linux 控制台包、校验值）：GitHub 在不少网络里连不上，官网走 Cloudflare 能到。
-//                               只镜像本仓库、符合命名的资产，不转发其他地址；按 tag 不可变，Cloudflare 边缘缓存 7 天。
+//                               只镜像本仓库、符合命名的资产，不转发其他地址；先与发布 JSON 里 GitHub 记下的 sha256（digest）核对，
+//                               核对通过才在 Cloudflare 边缘缓存 7 天（按 tag 不可变）；不符或没有 digest 时不缓存（见 download）。
 //   /api/releases[/latest]      GitHub 发布接口的镜像（匿名 60 次 / 小时 / IP 是对 Cloudflare 出口算的，所以边缘缓存 5 分钟；
 //                               设置 Secret GITHUB_TOKEN 可提高到 5000 次 / 小时）。返回的 JSON 把每个资产的 browser_download_url
 //                               改写为上面的 /dl/ 地址，原地址放在 github_download_url，客户端先走官网、失败再退回 GitHub。
@@ -12,8 +13,10 @@
 // 没有任何账号、令牌写在这里；GITHUB_TOKEN 是可选的 Worker Secret（wrangler secret put GITHUB_TOKEN）。
 const REPO = "PlutoKeating/Project.Quetzal";
 const TAG = /^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/;
-const ASSET = /^(?:quetzal-[A-Za-z0-9.+-]+\.(?:apk|tar\.gz)|SHA256SUMS(?:-[a-z0-9-]+)?)$/;
-const API_TTL = 300, DL_TTL = 7 * 86400, STALE_TTL = 7 * 86400;
+// 资产：APK、Linux 控制台包、合并的 SHA256SUMS 与它的签名 SHA256SUMS.sig（旧版本还有按架构分开的 SHA256SUMS-linux-*）
+const ASSET = /^(?:quetzal-[A-Za-z0-9.+-]+\.(?:apk|tar\.gz)|SHA256SUMS(?:\.sig|-[a-z0-9-]+)?)$/;
+// RELEASE_TTL：按 tag 取的发布 JSON（只用来核对 /dl/ 资产的 digest）；SMALL_MAX：不超过它的资产整个读进来核对，不符直接 502
+const API_TTL = 300, DL_TTL = 7 * 86400, STALE_TTL = 7 * 86400, RELEASE_TTL = 300, SMALL_MAX = 1 << 20;
 
 interface Env { ASSETS: { fetch(req: Request): Promise<Response> }; GITHUB_TOKEN?: string; OAUTH_CLIENT_IDS?: string }
 interface Ctx { waitUntil(p: Promise<unknown>): void }
@@ -28,7 +31,7 @@ export default {
     if (url.pathname.startsWith("/dl/") || url.pathname.startsWith("/api/")) {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(new Headers({ "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS", "Access-Control-Allow-Headers": "Accept" })) });
       if (request.method !== "GET" && request.method !== "HEAD") return text(405, "只支持 GET");
-      if (url.pathname.startsWith("/dl/")) return download(url, request, ctx);
+      if (url.pathname.startsWith("/dl/")) return download(url, request, env, ctx);
       if (url.pathname === "/api/releases" || url.pathname === "/api/releases/latest") return releases(url, request, env, ctx);
       return text(404, "没有这个接口");
     }
@@ -36,28 +39,128 @@ export default {
   },
 };
 
-/** /dl/<tag>/<资产名> → github.com/<仓库>/releases/download/<tag>/<资产名>（跟随到 objects.githubusercontent.com 的跳转），边缘缓存。 */
-async function download(url: URL, request: Request, ctx: Ctx): Promise<Response> {
+/** /dl/<tag>/<资产名> → github.com/<仓库>/releases/download/<tag>/<资产名>（跟随到 objects.githubusercontent.com 的跳转），核对后边缘缓存。
+ *  核对：先按 tag 取发布 JSON（api.github.com/…/releases/tags/<tag>，缓存 5 分钟），找到这个资产与 GitHub 记下的 `digest`（"sha256:<hex>"）：
+ *  - 资产不在这个发布里 → 404；有资产但没有可用的 digest → 502（不转发、不缓存）；
+ *  - 不大于 SMALL_MAX 的文件（SHA256SUMS、.sig）整个读进来算哈希，不符 → 502；
+ *  - 大文件边转发边算哈希，最后一块扣到核对通过才发出，不符就让流出错：客户端拿到的是截断的文件（Content-Length 对不上），边缘也不缓存；
+ *  - 发布 JSON 取不到（限流、连不上）：照常转发但不缓存（Cache-Control: no-store，X-Digest: unavailable）。客户端自己还会核对签名。 */
+async function download(url: URL, request: Request, env: Env, ctx: Ctx): Promise<Response> {
   const [, , tag, asset, extra] = url.pathname.split("/");
   if (!tag || !asset || extra !== undefined || !TAG.test(tag) || !ASSET.test(asset)) return text(404, "只镜像本项目发布页的资产：/dl/<tag>/<文件名>");
+  const head = request.method === "HEAD";
   const cache = cacheOf();
   const key = new Request(`${url.origin}/dl/${tag}/${asset}`, { method: "GET" });
   const hit = await cache.match(key);
-  if (hit) return withHeaders(hit, request.method === "HEAD");
+  if (hit) return withHeaders(hit, head);
+
+  const rel = await releaseByTag(url, tag, env, ctx);
+  if (rel.status === "missing") return text(404, `没有这个发布：${tag}`);
+  let expected: string | undefined, size: number | undefined;
+  if (rel.status === "ok") {
+    const a = rel.assets.find((x) => x.name === asset);
+    if (!a) return text(404, `发布 ${tag} 里没有 ${asset}`);
+    const m = /^sha256:([0-9a-f]{64})$/.exec(String(a.digest ?? "").toLowerCase());
+    if (!m) return text(502, `GitHub 没有给出 ${asset} 的 sha256，不转发`);
+    expected = m[1];
+    if (typeof a.size === "number" && a.size >= 0) size = a.size;
+  }
+
   const upstream = `https://github.com/${REPO}/releases/download/${tag}/${asset}`;
   let res: Response;
   try { res = await fetch(upstream, { redirect: "follow", headers: { "User-Agent": "quetzal-site-mirror" } }); }
   catch (e) { return text(502, `连不上 GitHub：${(e as Error).message}`); }
-  if (!res.ok) return text(res.status === 404 ? 404 : 502, `GitHub 返回 ${res.status}`);
+  if (!res.ok || !res.body) return text(res.status === 404 ? 404 : 502, `GitHub 返回 ${res.status}`);
   const headers = cors(new Headers());
   headers.set("Content-Type", res.headers.get("Content-Type") ?? "application/octet-stream");
-  const len = res.headers.get("Content-Length"); if (len) headers.set("Content-Length", len);
   headers.set("Content-Disposition", `attachment; filename="${asset}"`);
-  headers.set("Cache-Control", `public, max-age=${DL_TTL}, immutable`);
   headers.set("X-Upstream", "github");
-  const out = new Response(res.body, { status: 200, headers });
-  ctx.waitUntil(cache.put(key, out.clone()));
-  return withHeaders(out, request.method === "HEAD");
+  const len = res.headers.get("Content-Length");
+
+  if (!expected) {
+    // 没法核对：只转发，不进边缘缓存，也不让浏览器长期缓存
+    if (len) headers.set("Content-Length", len);
+    headers.set("Cache-Control", "no-store");
+    headers.set("X-Digest", "unavailable");
+    return new Response(head ? null : res.body, { status: 200, headers });
+  }
+  headers.set("Cache-Control", `public, max-age=${DL_TTL}, immutable`);
+  headers.set("X-Digest", `sha256:${expected}`);
+  if (size === undefined && len && /^\d+$/.test(len)) size = Number(len);
+
+  if (size !== undefined && size <= SMALL_MAX) {
+    const buf = await res.arrayBuffer();
+    if (hex(await crypto.subtle.digest("SHA-256", buf)) !== expected) return text(502, `${asset} 的 sha256 与 GitHub 记录的不符，不转发`);
+    headers.set("Content-Length", String(buf.byteLength));
+    ctx.waitUntil(cache.put(key, new Response(buf, { status: 200, headers })));
+    return new Response(head ? null : buf, { status: 200, headers });
+  }
+
+  // 已知大小时套一层 FixedLengthStream：响应带 Content-Length（客户端的进度条要用），字节数不对也会出错
+  let verified = verifying(res.body, expected);
+  if (size !== undefined) {
+    const fixed = new (globalThis as unknown as { FixedLengthStream: new (n: number) => TransformStream<Uint8Array, Uint8Array> }).FixedLengthStream(size);
+    verified = verified.pipeThrough(fixed);
+  }
+  if (head) {
+    ctx.waitUntil(cache.put(key, new Response(verified, { status: 200, headers })).catch(() => undefined));
+    return new Response(null, { status: 200, headers });
+  }
+  const [client, toCache] = verified.tee();
+  // 核对失败时 toCache 流出错，cache.put 随之失败，什么也不存
+  ctx.waitUntil(cache.put(key, new Response(toCache, { status: 200, headers })).catch(() => undefined));
+  return new Response(client, { status: 200, headers });
+}
+
+type Digester = WritableStream<Uint8Array> & { digest: Promise<ArrayBuffer> };
+/** 边转发边算 sha256（Workers 的 crypto.DigestStream）；始终扣住最后一块，核对通过才放出，不符则让流出错。 */
+function verifying(body: ReadableStream<Uint8Array>, expected: string): ReadableStream<Uint8Array> {
+  const ds = new (crypto as unknown as { DigestStream: new (alg: string) => Digester }).DigestStream("SHA-256");
+  const w = ds.getWriter();
+  let pending: Uint8Array | undefined;
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    async transform(chunk, c) {
+      await w.write(chunk);
+      if (pending) c.enqueue(pending);
+      pending = chunk;
+    },
+    async flush(c) {
+      await w.close();
+      if (hex(await ds.digest) !== expected) throw new Error("sha256 与 GitHub 记录的不符");
+      if (pending) c.enqueue(pending);
+    },
+  }));
+}
+
+const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+
+type ReleaseAsset = { name: string; digest?: string | null; size?: number };
+type ReleaseLookup = { status: "ok"; assets: ReleaseAsset[] } | { status: "missing" } | { status: "unavailable" };
+/** 按 tag 取发布 JSON 里的资产清单（name、digest、size），边缘缓存 RELEASE_TTL；404 记作 missing，其他失败记作 unavailable（不缓存）。 */
+async function releaseByTag(url: URL, tag: string, env: Env, ctx: Ctx): Promise<ReleaseLookup> {
+  const cache = cacheOf();
+  const key = new Request(`${url.origin}/api/_release-tag/${tag}`, { method: "GET" });
+  const hit = await cache.match(key);
+  const parse = (data: unknown): ReleaseLookup => {
+    const assets = Array.isArray((data as { assets?: unknown }).assets) ? (data as { assets: ReleaseAsset[] }).assets : [];
+    return { status: "ok", assets: assets.map((a) => ({ name: String(a.name ?? ""), digest: a.digest ?? null, size: a.size })) };
+  };
+  if (hit) return parse(await hit.json());
+  const h: Record<string, string> = { "User-Agent": "quetzal-site-mirror", Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+  if (env.GITHUB_TOKEN) h.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
+  let res: Response;
+  try { res = await fetch(`https://api.github.com/repos/${REPO}/releases/tags/${encodeURIComponent(tag)}`, { headers: h }); }
+  catch { return { status: "unavailable" }; }
+  if (res.status === 404) return { status: "missing" };
+  if (!res.ok) return { status: "unavailable" };
+  let data: unknown;
+  try { data = await res.json(); } catch { return { status: "unavailable" }; }
+  const out = parse(data);
+  if (out.status === "ok") {
+    const body = JSON.stringify({ assets: out.assets });
+    ctx.waitUntil(cache.put(key, new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${RELEASE_TTL}` } })));
+  }
+  return out;
 }
 
 /** /api/releases 与 /api/releases/latest：镜像 api.github.com，改写资产地址，边缘缓存 5 分钟。 */

@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'dart:io' show Directory, Platform, Process, ProcessStartMode, exit;
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../installer.dart';
 import '../platform/caps.dart';
@@ -15,6 +14,7 @@ import '../updater.dart' show AppRelease, compareVersions, latestReleaseApi, sit
 import '../widgets.dart';
 import 'control.dart' show AppUpdateSection;
 import 'setup.dart';
+import '../links.dart';
 
 const _site = 'https://quetzal.plutokeating.beer';
 
@@ -89,7 +89,7 @@ class _AboutPageState extends State<AboutPage> {
     final rtOutdated = latest != null && rt.isNotEmpty && compareVersions(latest!.version, rt) > 0;
     final appOutdated = latest != null && appVersion != null && compareVersions(latest!.version, appVersion!) > 0;
     final bundledNewer = bundled != null && rt.isNotEmpty && compareVersions(bundled!, rt) > 0;
-    Widget link(String label, String url) => TextButton(onPressed: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication), child: Text(label));
+    Widget link(String label, String url) => TextButton(onPressed: () => openExternal(context, url), child: Text(label));
     return PageFrame(
       title: '关于',
       body: ListenableBuilder(listenable: api, builder: (context, _) => ListView(padding: const EdgeInsets.all(12), children: [
@@ -108,7 +108,7 @@ class _AboutPageState extends State<AboutPage> {
           const SizedBox(height: 6),
           Wrap(spacing: 8, children: [
             OutlinedButton.icon(onPressed: checking ? null : _check, icon: const Icon(Icons.refresh, size: 18), label: const Text('检查更新')),
-            if (latest != null) TextButton(onPressed: () => launchUrl(Uri.parse(latest!.url), mode: LaunchMode.externalApplication), child: const Text('发布说明')),
+            if (latest != null) TextButton(onPressed: () => openExternal(context, latest!.url), child: const Text('发布说明')),
           ]),
         ]),
         if (hasBody) ...[

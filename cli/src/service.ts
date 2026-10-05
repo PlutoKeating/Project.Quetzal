@@ -7,8 +7,16 @@ import { execFile, spawn } from "node:child_process";
 export const UNIT = "quetzal";
 export const unitFile = () => path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "systemd", "user", `${UNIT}.service`);
 
+/** systemd 单元里的一个参数（ExecStart / Environment）：% 写成 %%；含空白、引号、反斜杠或 $ 时整体加双引号并转义（$ 写成 $$）。 */
+export function sdArg(v: string): string {
+  if (/[\n\r]/.test(v)) throw new Error(`路径里不能有换行：${JSON.stringify(v)}`);
+  const p = v.replace(/%/g, "%%");
+  return /[\s"'\\$;]/.test(p) ? `"${p.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "$$$$")}"` : p;
+}
+
 /** 单元文件内容：node 直接运行 current/main.cjs，适配器为 current/linux.mjs；退出即重启（熔断在运行基座内）。 */
 export function unitText(o: { home: string; node: string }): string {
+  if (/[\n\r]/.test(o.home + o.node)) throw new Error("路径里不能有换行");
   return `# 由 npx @plutokeating/quetzal 生成；改动会在下次 quetzal install 时被覆盖
 [Unit]
 Description=Quetzal runtime
@@ -16,10 +24,10 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Environment=QUETZAL_HOME=${o.home}
-Environment=QUETZAL_ADAPTER=${o.home}/current/linux.mjs
-WorkingDirectory=${o.home}/current
-ExecStart=${o.node} --enable-source-maps ${o.home}/current/main.cjs
+Environment=${sdArg(`QUETZAL_HOME=${o.home}`)}
+Environment=${sdArg(`QUETZAL_ADAPTER=${o.home}/current/linux.mjs`)}
+WorkingDirectory=${`${o.home}/current`.replace(/%/g, "%%")}
+ExecStart=${sdArg(o.node)} --enable-source-maps ${sdArg(`${o.home}/current/main.cjs`)}
 Restart=always
 RestartSec=3
 KillMode=mixed

@@ -46,7 +46,7 @@ After installing, **open Termux once** and wait for it to finish initializing (t
 
 ## 2. Install the Quetzal app
 
-Download the latest APK from the [download page](/download) or GitHub Releases and install it. You may need to allow installing from unknown sources the first time.
+Download the latest APK from the [download page](/download) or GitHub Releases and install it. You may need to allow installing from unknown sources the first time. To make sure the APK has not been tampered with, see [Release signatures and verification](#release-signatures-and-verification) below.
 
 ## 3. Install the runtime with the wizard
 
@@ -76,3 +76,27 @@ Android kills background apps. The last wizard step guides you to:
 Open Quetzal's **Now** page to see her state and drives. She will not wake until you configure a model. Continue with [First steps](/docs/start/first-steps).
 
 **Upgrading**: when a new release is out, the app says so at the top; **Control → Service → Quetzal App → Download and install** installs the new app in one tap, and the new app then upgrades its bundled runtime. See [Upgrade and rollback](/docs/guide/upgrade).
+
+## Release signatures and verification
+
+Besides the packages, every release page carries two files:
+
+- **`SHA256SUMS`**: the SHA-256 of every package in the release (Android APK, Linux native console tarballs), plus one line `commit <commit hash> v<version>` naming the repository commit it was built from.
+- **`SHA256SUMS.sig`**: the project's Ed25519 release-key signature over `SHA256SUMS` (base64). The private key exists only in the release pipeline.
+
+Release public key (raw 32 bytes, base64url):
+
+```text
+QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8
+```
+
+The app's self-update, the Linux one-line installer and the soul bridge's `self-update` all embed this key and refuse to install when the signature or a hash does not match. You can check a manual download yourself: put the package and both files in one directory; Node.js 15+ is all you need:
+
+```bash
+# 1. Check the signature: SHA256SUMS really comes from the project's release pipeline
+node -e 'const c=require("crypto"),f=require("fs");const k=c.createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:"QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8"},format:"jwk"});process.exit(c.verify(null,f.readFileSync("SHA256SUMS"),k,Buffer.from(f.readFileSync("SHA256SUMS.sig","utf8").trim(),"base64"))?0:1)' && echo signature valid
+# 2. Check the package: hash lines only (the commit line is not a hash and sha256sum would warn); files you did not download are skipped
+grep -E '^[0-9a-f]{64}  ' SHA256SUMS | sha256sum -c --ignore-missing
+```
+
+Only when both pass (step 1 prints "signature valid", step 2 shows `OK` for your file) is the package unmodified. If either fails, do not install it.

@@ -1,4 +1,6 @@
-// App 自身的更新（只在安卓 App 里有意义）：问 GitHub Release 最新的正式版，下载同架构的 APK，核对 SHA256SUMS，交给系统安装器。
+// App 自身的更新（只在安卓 App 里有意义）：问 GitHub Release 最新的正式版，下载同架构的 APK，核对签名过的 SHA256SUMS，交给系统安装器。
+//   信任根是内置的发布公钥（Ed25519）：SHA256SUMS.sig 验不过、SHA256SUMS 里没有这个 APK、哈希不符——一律拒绝（宁可不更新）；
+//   镜像源与 GitHub 都只是搬运者。交给系统安装器之前，原生侧再核对 APK 的签名证书与正在运行的 App 一致。
 //   装好新 App 之后，运行基座的升级由现有的流程接管：新 App 内置的版本与运行中的不同 → 外壳顶部的「升级」横幅 → 安装向导第 4 步。
 //   这里只做 App 这一层；网页版与 Linux 桌面版的升级在装运行基座的那台机器上再跑一次安装命令。
 //   原生侧（MethodChannel quetzal/updater，MainActivity.kt）：自己的版本号、缓存目录、是否允许安装未知应用、打开对应设置页、用 FileProvider 把 APK 交给系统安装器。
@@ -6,6 +8,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
+import 'package:cryptography/cryptography.dart' as cg;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +21,10 @@ const siteOrigin = 'https://quetzal.plutokeating.beer';
 const siteLatestApi = '$siteOrigin/api/releases/latest';
 const downloadPage = 'https://quetzal.plutokeating.beer/download';
 const apkArch = 'arm64'; // 发版工作流只出 quetzal-<版本>-android-arm64.apk（见 .github/workflows/release.yml）
+/// 发布签名公钥（Ed25519 原始 32 字节，base64url）：发版工作流用对应的私钥（仓库 Secret RELEASE_SIGNING_KEY）签 SHA256SUMS。
+const releasePublicKey = 'QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8';
+/// 只接受这种名字的安装包（也用作缓存目录里的文件名，不能带路径）。
+final apkNamePattern = RegExp(r'^quetzal-[A-Za-z0-9.+-]+-android-arm64\.apk$');
 
 /// 比较两个版本号：返回负数表示 a 旧于 b。数字段逐段比；带 `-` 预览后缀的比同号的正式版旧。
 int compareVersions(String a, String b) {
@@ -32,36 +39,67 @@ int compareVersions(String a, String b) {
   return px ? -1 : 1;
 }
 
-/// SHA256SUMS 的内容 → { 文件名: 哈希 }（sha256sum 的格式：`<哈希>  <文件名>`）。
+/// SHA256SUMS 的内容 → { 文件名: 哈希 }（sha256sum 的格式：`<哈希>  <文件名>`）。其他行（如 `commit <sha> <标签>`）忽略。
 Map<String, String> parseSums(String text) {
   final m = <String, String>{};
+  final re = RegExp(r'^([0-9a-fA-F]{64}) [ *]?(\S+)$');
   for (final line in const LineSplitter().convert(text)) {
-    final parts = line.trim().split(RegExp(r'\s+'));
-    if (parts.length >= 2 && parts[0].length == 64) m[parts.sublist(1).join(' ').replaceFirst('*', '')] = parts[0].toLowerCase();
+    final x = re.firstMatch(line.trim());
+    if (x != null) m[x.group(2)!] = x.group(1)!.toLowerCase();
   }
   return m;
+}
+
+/// SHA256SUMS 里的 `commit <40 位提交> <标签>` 行 → (提交, 标签)；没有时为 null。
+({String commit, String tag})? parseReleaseCommit(String text) {
+  for (final line in const LineSplitter().convert(text)) {
+    final x = RegExp(r'^commit ([0-9a-f]{40}) (\S+)$').firstMatch(line.trim());
+    if (x != null) return (commit: x.group(1)!, tag: x.group(2)!);
+  }
+  return null;
+}
+
+List<int> _b64(String s) => base64.decode(base64.normalize(s.trim().replaceAll('-', '+').replaceAll('_', '/')));
+
+/// 用发布公钥核对 SHA256SUMS 的分离签名（SHA256SUMS.sig：签名的 base64）。任何异常都算不通过。
+Future<bool> verifySumsSignature(List<int> sums, String sig, {String publicKey = releasePublicKey}) async {
+  try {
+    final s = _b64(sig), k = _b64(publicKey);
+    if (s.length != 64 || k.length != 32) return false;
+    return await cg.Ed25519().verify(sums, signature: cg.Signature(s, publicKey: cg.SimplePublicKey(k, type: cg.KeyPairType.ed25519)));
+  } catch (_) { return false; }
+}
+
+/// 核对签名过的 SHA256SUMS，返回 [name] 的哈希；签名不对、标签对不上或没有这个文件都抛出（失败即拒绝）。
+Future<String> verifiedHash(List<int> sums, String sig, String name, {String? tag, String publicKey = releasePublicKey}) async {
+  if (!await verifySumsSignature(sums, sig, publicKey: publicKey)) throw 'SHA256SUMS 的签名验证不通过，拒绝安装';
+  final text = utf8.decode(sums);
+  if (tag != null && parseReleaseCommit(text)?.tag != tag) throw 'SHA256SUMS 不属于 $tag，拒绝安装';
+  final h = parseSums(text)[name];
+  if (h == null) throw 'SHA256SUMS 里没有 $name，拒绝安装';
+  return h;
 }
 
 /// GitHub 上的一个发布：版本、说明页、这台机器用的 APK 与校验文件。
 class AppRelease {
   final String version, tag, url;
-  final String? apkUrl, apkName, sumsUrl;
-  final String? apkUrlFallback, sumsUrlFallback; // 镜像源给出的原 GitHub 地址：镜像失败时退回
+  final String? apkUrl, apkName, sumsUrl, sigUrl;
+  final String? apkUrlFallback, sumsUrlFallback, sigUrlFallback; // 镜像源给出的原 GitHub 地址：镜像失败时退回
   final int apkSize;
-  AppRelease({required this.version, required this.tag, required this.url, this.apkUrl, this.apkName, this.sumsUrl, this.apkSize = 0, this.apkUrlFallback, this.sumsUrlFallback});
+  AppRelease({required this.version, required this.tag, required this.url, this.apkUrl, this.apkName, this.sumsUrl, this.sigUrl, this.apkSize = 0, this.apkUrlFallback, this.sumsUrlFallback, this.sigUrlFallback});
 
-  /// 从 GitHub `releases/latest` 的 JSON 挑出 APK（`-android-<arch>.apk`，没有同架构的就退到任意 .apk）与 SHA256SUMS。
-  factory AppRelease.fromJson(Map j, {String arch = apkArch}) {
+  /// 从 GitHub `releases/latest` 的 JSON 挑出 APK（名字须符合 [apkNamePattern]）、SHA256SUMS 与 SHA256SUMS.sig；下载地址只收 https。
+  factory AppRelease.fromJson(Map j) {
     final tag = '${j['tag_name'] ?? ''}';
     final assets = ((j['assets'] as List?) ?? []).whereType<Map>().toList();
-    Map? apk = assets.where((a) => '${a['name']}'.toLowerCase().endsWith('-android-$arch.apk')).firstOrNull
-        ?? assets.where((a) => '${a['name']}'.toLowerCase().endsWith('.apk')).firstOrNull;
-    final sums = assets.where((a) => '${a['name']}'.toUpperCase() == 'SHA256SUMS').firstOrNull;
+    Map? named(bool Function(String) ok) => assets.where((a) => ok('${a['name']}')).firstOrNull;
+    final apk = named(apkNamePattern.hasMatch), sums = named((n) => n == 'SHA256SUMS'), sig = named((n) => n == 'SHA256SUMS.sig');
+    String? https(Map? a, String k) { final u = a?[k]; return u is String && u.startsWith('https://') ? u : null; }
     return AppRelease(
       version: tag.replaceFirst(RegExp(r'^[vV]'), ''), tag: tag, url: '${j['html_url'] ?? 'https://github.com/$githubRepo/releases'}',
-      apkUrl: apk?['browser_download_url'] as String?, apkName: apk?['name'] as String?, apkSize: (apk?['size'] as num?)?.toInt() ?? 0,
-      sumsUrl: sums?['browser_download_url'] as String?,
-      apkUrlFallback: apk?['github_download_url'] as String?, sumsUrlFallback: sums?['github_download_url'] as String?,
+      apkUrl: https(apk, 'browser_download_url'), apkName: apk?['name'] as String?, apkSize: (apk?['size'] as num?)?.toInt() ?? 0,
+      sumsUrl: https(sums, 'browser_download_url'), sigUrl: https(sig, 'browser_download_url'),
+      apkUrlFallback: https(apk, 'github_download_url'), sumsUrlFallback: https(sums, 'github_download_url'), sigUrlFallback: https(sig, 'github_download_url'),
     );
   }
   String get sizeText => apkSize <= 0 ? '' : '${(apkSize / 1048576).toStringAsFixed(apkSize >= 104857600 ? 0 : 1)} MB';
@@ -123,24 +161,31 @@ class AppUpdater extends ChangeNotifier {
   /// 一键：下载 → 核对 → 交给系统安装器。需要「允许安装未知应用」时先带去设置页，回来再点一次即继续（APK 已在本机）。
   Future<void> downloadAndInstall() async {
     final r = latest;
-    if (r == null || r.apkUrl == null) { _fail('这个版本没有安卓安装包'); return; }
+    if (r == null || r.apkUrl == null || r.apkName == null) { _fail('这个版本没有安卓安装包'); return; }
+    if (r.sumsUrl == null || r.sigUrl == null) { _fail('这个版本没有签名过的校验文件（SHA256SUMS / SHA256SUMS.sig），拒绝安装；请到下载页手动核对'); return; }
     try {
       if (_apk == null || !await _apk!.exists()) {
         state = UpdateState.downloading; progress = 0; error = null; notifyListeners();
         final dir = Directory('${await _ch.invokeMethod<String>('cacheDir')}/update');
         if (await dir.exists()) await dir.delete(recursive: true); // 只留这一个包
-        final f = File('${dir.path}/${r.apkName}');
+        final f = File('${dir.path}/${r.apkName}'); // 名字已按白名单核对过，不含路径
         Future<String> dl(String u) => download(Uri.parse(u), f, onProgress: (got, total) { progress = total > 0 ? got / total : -1; notifyListeners(); });
         String sha;
         try { sha = await dl(r.apkUrl!); } catch (e) { if (r.apkUrlFallback == null || r.apkUrlFallback == r.apkUrl) rethrow; progress = 0; notifyListeners(); sha = await dl(r.apkUrlFallback!); } // 镜像失败退回 GitHub
         state = UpdateState.verifying; notifyListeners();
-        if (r.sumsUrl != null) {
-          List<int> raw;
-          try { raw = await fetchBytes(Uri.parse(r.sumsUrl!)); } catch (e) { if (r.sumsUrlFallback == null || r.sumsUrlFallback == r.sumsUrl) rethrow; raw = await fetchBytes(Uri.parse(r.sumsUrlFallback!)); }
-          final sums = parseSums(utf8.decode(raw));
-          final want = sums[r.apkName];
-          if (want != null && want != sha) { await f.delete(); throw '安装包校验不通过（SHA256 与发布页不一致），已删除'; }
+        Future<List<int>> get(String u, String? fb) async {
+          try { return await fetchBytes(Uri.parse(u)); } catch (e) { if (fb == null || fb == u) rethrow; return fetchBytes(Uri.parse(fb)); }
         }
+        String want;
+        try {
+          final sums = await get(r.sumsUrl!, r.sumsUrlFallback);
+          final sig = utf8.decode(await get(r.sigUrl!, r.sigUrlFallback));
+          want = await verifiedHash(sums, sig, r.apkName!, tag: r.tag);
+        } catch (e) { await f.delete(); rethrow; }
+        if (want != sha) { await f.delete(); throw '安装包校验不通过（SHA256 与签名过的 SHA256SUMS 不一致），已删除'; }
+        // 签名证书必须与正在运行的 App 一致（原生侧比对；install 时原生还会再查一次）
+        final bad = await _ch.invokeMethod<String>('checkApk', {'path': f.path});
+        if (bad != null) { await f.delete(); throw '安装包的签名证书与当前 App 不一致，拒绝安装（$bad）'; }
         _apk = f;
       }
       await install();

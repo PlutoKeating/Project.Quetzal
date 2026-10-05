@@ -15,14 +15,16 @@ Future<HttpReply> _send(web.XMLHttpRequest xhr, JSAny? body) {
   return c.future;
 }
 
-Future<HttpReply> request(String method, String url, {String? json, Duration timeout = const Duration(seconds: 8)}) {
+Future<HttpReply> request(String method, String url, {String? json, Map<String, String> headers = const {}, Duration timeout = const Duration(seconds: 8)}) {
   final xhr = web.XMLHttpRequest()..open(method, url)..timeout = timeout.inMilliseconds;
+  headers.forEach((k, v) => xhr.setRequestHeader(k, v));
   if (json != null) xhr.setRequestHeader('content-type', 'application/json');
   return _send(xhr, json?.toJS);
 }
 
-Future<HttpReply> upload(String url, Uint8List bytes, {void Function(double)? onProgress}) {
+Future<HttpReply> upload(String url, Uint8List bytes, {Map<String, String> headers = const {}, void Function(double)? onProgress}) {
   final xhr = web.XMLHttpRequest()..open('POST', url)..timeout = const Duration(minutes: 5).inMilliseconds;
+  headers.forEach((k, v) => xhr.setRequestHeader(k, v));
   if (onProgress != null) {
     xhr.upload.addEventListener('progress', ((web.ProgressEvent e) { if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total); }).toJS);
   }

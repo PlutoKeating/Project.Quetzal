@@ -43,6 +43,11 @@ function Settings({ login, onDone }: { login: string; onDone: (msg: string) => v
         <Button variant="secondary" disabled={busy} onClick={() => void run(sync.logout, t.logoutDone)}>{t.logout}</Button>
       </Card>
       <Card className="flex flex-col items-start gap-3">
+        <Heading as="h2" size="sm">{t.revokeAllHeading}</Heading>
+        <p className="text-sm text-fg-muted">{t.revokeAllText}</p>
+        <Button variant="secondary" disabled={busy} onClick={() => void run(sync.revokeAllSessions, t.revokeAllDone)}>{t.revokeAll}</Button>
+      </Card>
+      <Card className="flex flex-col items-start gap-3">
         <Heading as="h2" size="sm">{t.deleteHeading}</Heading>
         <p className="text-sm text-fg-muted">{t.deleteText}</p>
         <label className="flex items-center gap-2 text-sm text-fg"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} />{t.deleteConfirm}</label>

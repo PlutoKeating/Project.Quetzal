@@ -12,6 +12,7 @@
 //   attach [--agent]            重新安装钩子与后台服务
 //   status [--agent]            配置、最近一次同步、公钥
 //   detach [--agent] [--purge]  拔出：移除钩子与服务，框架文件保持原样；--purge 同时删除本地副本
+//   self-update                 把程序目录切到最新的、发布签名核对过的正式版标签（安装后、更新时都用它，不跟 main）
 //   mesh install|bind --server <https://…>|unbind|status|now [--agent]
 //          多具身体（只读成员）：装组件；绑定到同步服务（给人一个链接与绑定码去批准）；解绑；状态；看其他身体此刻的近况
 import fs from "node:fs";
@@ -26,6 +27,8 @@ import { checkRemote } from "../../runtime/src/memory/soul-repo.ts";
 import { runDaemon, installService, removeService } from "./service.ts";
 import { installModules, bind as bindMesh, unbindMesh, meshStatus, nowPath, nodeKey } from "./mesh.ts";
 import { fingerprint } from "../../runtime/src/mesh/identity.ts";
+import { selfUpdate } from "./release.ts";
+import { shJoin } from "./quote.ts";
 import { parseGithub, sshUrl, whoami, ensurePrivateRepo, addDeployKey } from "./github.ts";
 import type { BridgeConfig } from "./types.ts";
 
@@ -80,7 +83,7 @@ async function init() {
   const how = await repo.ensure();
   if (how === "initialized") {
     fs.rmSync(repoDir(agent), { recursive: true, force: true });
-    say(JSON.stringify({ needHuman: true, reason: "无法访问灵魂仓库", ask: `请在仓库 ${gh ? `https://github.com/${gh.owner}/${gh.name}/settings/keys` : remote} 添加下面的 Deploy key，并勾选 Allow write access；完成后告诉我`, publicKey: fs.readFileSync(keyPath(agent) + ".pub", "utf8").trim(), retry: `node ${CLI} ${args.join(" ")}` }, null, 2));
+    say(JSON.stringify({ needHuman: true, reason: "无法访问灵魂仓库", ask: `请在仓库 ${gh ? `https://github.com/${gh.owner}/${gh.name}/settings/keys` : remote} 添加下面的 Deploy key，并勾选 Allow write access；完成后告诉我`, publicKey: fs.readFileSync(keyPath(agent) + ".pub", "utf8").trim(), retry: shJoin([process.execPath, CLI, ...args]) }, null, 2));
     process.exitCode = 2; return;
   }
   await repo.pull();
@@ -149,6 +152,11 @@ async function mesh(c: BridgeConfig) {
 async function main() {
   if (cmd === "init") return init();
   if (cmd === "version") return say(VERSION);
+  if (cmd === "self-update") {
+    const r = await selfUpdate();
+    say(JSON.stringify({ ok: true, ...r, note: r.changed ? "已切到新版本：接着运行 attach 与 doctor（已接入时）" : "已是最新的正式版" }, null, 2));
+    return;
+  }
   const c = loadConfig(opt("agent"));
   if (cmd === "attach") return attach(c.agent);
   if (cmd === "doctor") return doctor(c);

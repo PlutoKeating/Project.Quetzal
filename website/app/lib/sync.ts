@@ -16,6 +16,10 @@ export interface Account {
 export interface PendingCode {
   code: string; agent: { id: string; name: string }; body: string; kind: "runtime" | "bridge" | "console" | string;
   version: string; fingerprint: string; replaces: boolean; newAgent: boolean; expires: number;
+  /** 码的创建时间（毫秒；旧版同步服务没有）。 */
+  createdAt?: number;
+  /** 只有 console：发起登录的那台 App 所连运行基座（身体）的公钥指纹与它绑定到账户的时间（旧版同步服务没有）。 */
+  bodyFingerprint?: string; bodyBoundAt?: number;
 }
 
 /** 接口错误：code 为同步服务返回的 error（unauthorized / bad_code / expired / not_yours …），网络不通时为 network。 */
@@ -46,6 +50,8 @@ export const sync = {
   removeAgent: (agent: string) => call<{ ok: true }>("/v1/web/agents/remove", { agent }),
   revokeConsole: (id: string) => call<{ ok: true }>("/v1/web/consoles/revoke", { id }),
   logout: () => call<{ ok: true }>("/v1/web/logout", {}),
+  /** 吊销这个账户的所有网页登录会话（包括当前这个）。 */
+  revokeAllSessions: () => call<{ ok: true }>("/v1/web/sessions/revoke-all", {}),
   deleteAccount: () => call<{ ok: true }>("/v1/web/account/delete", { confirm: true }),
 };
 

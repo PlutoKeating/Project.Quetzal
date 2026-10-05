@@ -1,4 +1,6 @@
 // 网关客户端：WebSocket（JSON-RPC 风格）+ 少量 HTTP（探活、配对、本机登录、上传）。整个 App 的状态都来自这里。
+//   令牌不放进网址（网址会进日志与历史）：HTTP 用请求头 X-Quetzal-Token，WebSocket 连上后第一条消息发 {"auth": 令牌}；
+//   旧版运行基座只认 ?token=，握手被拒时退回旧方式并记住这个网关。图片预览（Image.network）仍把令牌放在网址里，见 fileUrl。
 //   网页版由运行基座的网关托管：页面的来源就是网关地址，第一次打开向 /auth/local 要令牌（同一台机器免配对码）；别处的 agent 仍走配对码。
 import 'dart:async';
 import 'dart:convert';
@@ -55,6 +57,7 @@ class Api extends ChangeNotifier {
   Stream<GatewayEvent> get events => _events.stream;
   Timer? _retry;
   int _backoff = 1;
+  final _legacyWsAuth = <String>{}; // 只认 ?token= 的旧版运行基座（按网关地址，本次运行内记住）
 
   Future<void> init() async {
     final p = await SharedPreferences.getInstance();
@@ -146,17 +149,20 @@ class Api extends ChangeNotifier {
     try { final j = await _http('GET', '/health'); safeMode = j['safeMode'] == true; return j['ok'] == true; } catch (_) { return false; }
   }
 
+  /// 带令牌的请求头：X-Quetzal-Token；x-token 给旧版运行基座。
+  Map<String, String> get authHeaders => token.isEmpty ? const {} : {'X-Quetzal-Token': token, 'x-token': token};
+
   /// 上传一个附件（原始字节），返回附件信息；onProgress 报告已发送的比例。
   Future<Map<String, dynamic>> upload(String name, Uint8List bytes, {void Function(double)? onProgress}) async {
-    final url = Uri.parse('$base/upload').replace(queryParameters: {'name': name, 'token': token}).toString();
-    final res = await net.upload(url, bytes, onProgress: onProgress);
+    final url = Uri.parse('$base/upload').replace(queryParameters: {'name': name}).toString();
+    final res = await net.upload(url, bytes, headers: authHeaders, onProgress: onProgress);
     Map<String, dynamic> j;
     try { j = jsonDecode(res.body) as Map<String, dynamic>; } catch (_) { j = {}; }
     if (res.status >= 400 || j['ok'] != true) throw RpcError('UPLOAD', '${j['message'] ?? '上传失败（${res.status}）'}');
     return Map<String, dynamic>.from(j['file'] as Map);
   }
 
-  /// 附件的下载地址（图片预览）。
+  /// 附件的下载地址（图片预览）。Image.network 在网页版由浏览器按网址加载、带不了自定义请求头，所以这里仍用 ?token=（只发给同一个网关）。
   String fileUrl(String rel) => Uri.parse('$base/uploads/${rel.split('/').map(Uri.encodeComponent).join('/')}').replace(queryParameters: {'token': token}).toString();
 
   Future<void> pairStart() => _http('POST', '/pair/start');
@@ -166,7 +172,8 @@ class Api extends ChangeNotifier {
   }
 
   // ---------- WebSocket
-  void connect() {
+  /// 连接网关。[legacy]：用旧方式（令牌放在 ?token=）；默认先用第一条消息认证，握手被拒或认证前就断开时自动退回旧方式再试一次。
+  void connect({bool legacy = false}) {
     _retry?.cancel();
     // 先注销旧连接的监听再关闭它：否则旧连接的 onDone 会迟到，把刚连上的新连接误判为断开，再次重连……
     // 形成每隔几秒闪一下「不在线」的循环（每轮约一次握手的时间）
@@ -175,16 +182,37 @@ class Api extends ChangeNotifier {
     if (token.isEmpty) { conn = Conn.unpaired; notifyListeners(); return; }
     conn = conn == Conn.igniting ? Conn.igniting : Conn.connecting;
     notifyListeners();
-    final url = '${base.replaceFirst('http', 'ws')}/rpc?token=${Uri.encodeComponent(token)}';
+    final gw = base;
+    legacy = legacy || _legacyWsAuth.contains(gw);
+    final url = '${gw.replaceFirst('http', 'ws')}/rpc${legacy ? '?token=${Uri.encodeComponent(token)}' : ''}';
     final ws = WebSocketChannel.connect(Uri.parse(url));
     _ws = ws;
-    ws.ready.then((_) async {
-      if (_ws != ws) return; // 等待握手期间已经换了连接
+    var heard = false; // 收到过网关的消息：认证已被接受
+    Timer? authWait;
+    void online() {
+      authWait?.cancel();
+      if (_ws != ws || conn == Conn.online) return;
       conn = Conn.online; lastError = ''; _backoff = 1;
       notifyListeners();
-      await refresh();
-    }).catchError((e) { if (_ws == ws) _lost('$e'); });
-    _wsSub = ws.stream.listen(_onMessage, onDone: () { if (_ws == ws) _lost('连接断开'); }, onError: (e) { if (_ws == ws) _lost('$e'); });
+      refresh();
+    }
+    void fail(String why) {
+      authWait?.cancel();
+      if (_ws != ws) return;
+      if (!legacy && !heard) { connect(legacy: true); return; } // 旧版运行基座：握手时就要 ?token=
+      _lost(why);
+    }
+    ws.ready.then((_) {
+      if (_ws != ws) return; // 等待握手期间已经换了连接
+      if (legacy) { online(); return; }
+      ws.sink.add(jsonEncode({'auth': token}));
+      authWait = Timer(const Duration(seconds: 6), online); // 认证通过后网关会推 hello；没推也不拦着
+    }).catchError((e) => fail('$e'));
+    _wsSub = ws.stream.listen((raw) {
+      if (_ws != ws) return;
+      if (!heard) { heard = true; if (legacy) _legacyWsAuth.add(gw); online(); }
+      _onMessage(raw);
+    }, onDone: () => fail('连接断开'), onError: (e) => fail('$e'));
   }
 
   void _lost(String why) {

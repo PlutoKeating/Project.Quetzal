@@ -64,7 +64,8 @@ class HearingController extends ChangeNotifier {
     api.events.where((e) => e.name == 'speak').listen((e) async { // 她要说话：由本机播放（回声消除需要声音从这里出来）
       final s = e.data as Map;
       if (!running) return;
-      final ok = await Hearing.play('${s['id']}', '${api.base}${s['url']}?token=${Uri.encodeComponent(api.token)}');
+      // 令牌由原生的耳朵服务放在请求头里（它启动时已拿到），不拼进网址
+      final ok = await Hearing.play('${s['id']}', '${api.base}${s['url']}');
       if (!ok) api.call('player.done', {'id': s['id'], 'interrupted': false}).catchError((_) => null); // 服务不在：让基座别等
     });
     api.events.where((e) => e.name == 'hearing').listen((e) { // 基座确认听到了对方（含插嘴）：亮起来

@@ -3,11 +3,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../igniter.dart';
 import '../installer.dart';
 import '../widgets.dart';
+import '../links.dart';
 
 const enableCommand = 'mkdir -p ~/.termux && echo allow-external-apps=true >> ~/.termux/termux.properties && termux-reload-settings';
 
@@ -114,6 +114,7 @@ class _SetupPageState extends State<SetupPage> {
                   color: installer.reached.contains(e.key) && installer.reached.last == e.key && installer.error != null ? Colors.red : null),
               title: Text(e.value, style: t.bodySmall)),
           if (installer.running) const Padding(padding: EdgeInsets.symmetric(vertical: 6), child: LinearProgressIndicator()),
+          if (installer.verifying) Text('正在核对新装的网关与令牌…', style: t.bodySmall),
           if (installer.error != null) ...[
             Text(installer.error!, style: t.bodyMedium?.copyWith(color: Colors.red)),
             if (installer.last?.log != null) Container(
@@ -163,5 +164,5 @@ class _AppRow extends StatelessWidget {
   Widget build(BuildContext context) => ListTile(dense: true, contentPadding: EdgeInsets.zero,
         leading: Icon(version != null ? Icons.check_circle : Icons.download_for_offline_outlined, color: version != null ? Colors.green : null, size: 20),
         title: Text(version != null ? '$name $version' : name), subtitle: Text(desc),
-        trailing: version == null ? TextButton(onPressed: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication), child: const Text('下载')) : null);
+        trailing: version == null ? TextButton(onPressed: () => openExternal(context, url), child: const Text('下载')) : null);
 }

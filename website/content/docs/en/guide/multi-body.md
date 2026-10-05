@@ -65,9 +65,9 @@ Everything about the account lives on the site's [Account](/account) page (a set
 | Overview | Every agent in the account and each of its bodies: online or not, kind, version, key fingerprint; unbind a body, delete an agent |
 | Approve a device | Enter the code a body shows while binding, check it and approve or deny |
 | Console sign-ins | Which apps can manage this account; revoke unused ones at any time |
-| Settings | Sign out, delete the account |
+| Settings | Sign out (of this browser, or "Sign out everywhere" for every browser at once), delete the account |
 
-The app (Android and Linux desktop) has the same four pages under **Control → Account**. Once this body is bound, tap "Sign in to account"; the app shows a code, which you approve under Approve a device on the site (the page says this is a console sign-in: once approved the app can manage the whole account). Only bodies already bound to your account can start a console sign-in, so tricking you into approving does not hand anyone your account.
+The app (Android and Linux desktop) has the same four pages under **Control → Account**. Once this body is bound, tap "Sign in to account"; the app shows a code, which you approve under Approve a device on the site (the page says this is a console sign-in: once approved the app can manage the whole account; it also lists the requesting body's key fingerprint, when that body was bound and when the code was created. Approve only if the fingerprint matches the one the app on that device shows under Multiple bodies and the code is the one you just created). Only bodies already bound to your account can start a console sign-in, so tricking you into approving does not hand anyone your account.
 
 ## Security
 

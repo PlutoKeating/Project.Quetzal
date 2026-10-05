@@ -1,40 +1,54 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Quetzal 安装脚本：由控制台 App 通过 Termux 的 RUN_COMMAND 下发并在 Termux 里执行；进度与结果回报给控制台的本机 HTTP 服务。
-# 用法：install.sh <控制台端口> [cn]      cn = 使用中国大陆的软件源镜像
+# 用法：install.sh <控制台端口> <口令> <文件=sha256,...> [cn]      cn = 使用中国大陆的软件源镜像
+#   口令（128 位随机）与各文件的哈希由 App 在 RUN_COMMAND 的参数里给出：每个请求都带口令（请求头 X-Install-Nonce），
+#   从 App 取回的每个文件先核对 SHA-256，不符立即中止（本机端口别的 App 也能连，不能信任没核对过的内容）。
 # 幂等：可重复执行用于升级或修复。新版本放进 ~/quetzal/releases/<版本>/，切换后健康检查失败自动切回上一版。
 set -u
-PORT=${1:?用法: install.sh <控制台端口> [cn]}; MIRROR=${2:-}
+USAGE="用法: install.sh <控制台端口> <口令> <文件=sha256,...> [cn]"
+PORT=${1:?$USAGE}; NONCE=${2:?$USAGE}; SUMS=${3:?$USAGE}; MIRROR=${4:-}
+case "$PORT" in *[!0-9]*|'') echo "$USAGE" >&2; exit 2;; esac
+case "$NONCE" in *[!0-9a-f]*|'') echo "$USAGE" >&2; exit 2;; esac
 BASE="http://127.0.0.1:$PORT"
 W=$HOME/quetzal; R=$W/releases; SV=$PREFIX/var/service/quetzal; LOG=$W/install.log
 export DEBIAN_FRONTEND=noninteractive
 mkdir -p "$W" "$R"
 echo "== $(date) 安装开始（端口 $PORT，镜像 ${MIRROR:-默认}）" >>"$LOG"
 
-report() { curl -s -m 5 -X POST "$BASE/progress" -H 'Content-Type: application/json' --data-binary "$1" >/dev/null 2>&1 || true; }
+report() { curl -s -m 5 -X POST "$BASE/progress" -H "X-Install-Nonce: $NONCE" -H 'Content-Type: application/json' --data-binary "$1" >/dev/null 2>&1 || true; }
 step() { echo "## $1" >>"$LOG"; report "{\"step\":\"$1\"}"; }
 esc() { sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk '{printf "%s\\n", $0}'; }
 fail() { echo "!! $1" >>"$LOG"; report "{\"error\":\"$(printf '%s' "$1" | esc)\",\"log\":\"$(tail -n 20 "$LOG" | esc)\"}"; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+want() { printf '%s' "$SUMS" | tr ',' '\n' | awk -F= -v k="$1" '$1==k{print $2; exit}'; }   # App 给出的某个文件的 sha256
+# 从 App 取回一个文件到 <目标>，核对 sha256：取不到返回 1；哈希不符删掉并中止整个安装
+fetch() {
+  _h=$(want "$1"); [ -n "$_h" ] || fail "App 没有给出 $1 的校验值"
+  curl -fsS -H "X-Install-Nonce: $NONCE" "$BASE/runtime/$1" -o "$2.part" || { rm -f "$2.part"; return 1; }
+  [ "$(sha256sum "$2.part" | cut -d' ' -f1)" = "$_h" ] || { rm -f "$2.part"; fail "$1 的校验值不符，已中止（有别的程序冒充 App？）"; }
+  mv "$2.part" "$2"
+}
 
 # ---------- 1. 软件包：Node.js、runit（termux-services）、Termux:API 命令、git、ssh-keygen
 step pkg
-if ! { have node && have runsvdir && have termux-battery-status && have git && have ssh-keygen; }; then
+if ! { have node && have runsvdir && have termux-battery-status && have git && have ssh-keygen && have proot; }; then
   if [ "$MIRROR" = cn ] && [ -d "$PREFIX/etc/termux/mirrors/chinese_mainland" ]; then
     ln -sfn "$PREFIX/etc/termux/mirrors/chinese_mainland" "$PREFIX/etc/termux/chosen_mirrors"   # 与 termux-change-repo 的做法一致
   fi
   { yes | pkg update -y -o Dpkg::Options::=--force-confnew; } >>"$LOG" 2>&1 || fail "更新软件源失败（网络不通，或软件源不可用）"
-  pkg install -y -o Dpkg::Options::=--force-confnew nodejs-lts termux-services termux-api git openssh >>"$LOG" 2>&1 || fail "安装软件包失败"
+  pkg install -y -o Dpkg::Options::=--force-confnew nodejs-lts termux-services termux-api git openssh proot >>"$LOG" 2>&1 || fail "安装软件包失败"
 fi
 have node || fail "Node.js 没有装上"
 echo "node $(node -v)" >>"$LOG"
 
 # ---------- 2. 运行基座：从控制台取回本 App 内置的版本
 step runtime
-V=$(curl -fsS "$BASE/runtime/VERSION") || fail "取不到运行基座版本（控制台是否还在前台？）"
-V=$(printf '%s' "$V" | tr -cd 'A-Za-z0-9.-'); [ -n "$V" ] || fail "运行基座版本号为空"
+VF=$(mktemp "$W/.version.XXXXXX") || fail "无法创建临时文件"
+fetch VERSION "$VF" || { rm -f "$VF"; fail "取不到运行基座版本（控制台是否还在前台？）"; }
+V=$(tr -cd 'A-Za-z0-9.-' <"$VF"); rm -f "$VF"; [ -n "$V" ] || fail "运行基座版本号为空"
 mkdir -p "$R/$V"
 for f in main.cjs termux.mjs; do
-  curl -fsS "$BASE/runtime/$f" -o "$R/$V/$f.part" && mv "$R/$V/$f.part" "$R/$V/$f" || fail "下载 $f 失败"
+  fetch "$f" "$R/$V/$f" || fail "下载 $f 失败"
 done
 [ "$(stat -c %s "$R/$V/main.cjs")" -gt 100000 ] || fail "运行基座文件不完整"
 node -e "require('fs').readFileSync('$R/$V/main.cjs')" || fail "运行基座文件不可读"
@@ -43,7 +57,7 @@ node -e "require('fs').readFileSync('$R/$V/main.cjs')" || fail "运行基座文�
 #      失败不影响安装：只是暂时没有网状层，身体之间仍用 git 同步；下次安装再试。
 step mesh
 MM_OK=
-if curl -fsS "$BASE/runtime/mesh-modules.lock.json" -o "$R/$V/mesh-modules.lock.json" && curl -fsS "$BASE/runtime/install-mesh-modules.mjs" -o "$R/$V/install-mesh-modules.mjs"; then
+if fetch mesh-modules.lock.json "$R/$V/mesh-modules.lock.json" && fetch install-mesh-modules.mjs "$R/$V/install-mesh-modules.mjs"; then
   NDC_V=$(node -p "require('$R/$V/mesh-modules.lock.json').common['node-datachannel'].version" 2>/dev/null)
   MM="$W/mesh-modules/$NDC_V"
   if [ -n "$NDC_V" ] && [ ! -f "$MM/node_modules/node-datachannel/package.json" ]; then

@@ -4,10 +4,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../widgets.dart';
 import 'mesh.dart';
+import '../links.dart';
 
 const _kind = {'runtime': '运行基座', 'bridge': '灵魂桥（只读）', 'console': '控制台登录'};
 const _errors = {
@@ -105,7 +105,7 @@ class _SignIn extends StatelessWidget {
           const SizedBox(height: 8),
           SelectableText('${s['code']}', style: t.headlineMedium?.copyWith(letterSpacing: 4, fontFamily: 'monospace')),
           Wrap(spacing: 8, children: [
-            FilledButton.icon(icon: const Icon(Icons.open_in_new), label: const Text('打开链接'), onPressed: () => launchUrl(Uri.parse('${s['uri']}'), mode: LaunchMode.externalApplication)),
+            FilledButton.icon(icon: const Icon(Icons.open_in_new), label: const Text('打开链接'), onPressed: () => openExternal(context, '${s['uri']}')),
             TextButton.icon(icon: const Icon(Icons.copy), label: const Text('复制链接'), onPressed: () { Clipboard.setData(ClipboardData(text: '${s['uri']}')); toast(context, '已复制'); }),
             TextButton(onPressed: () => act(context, () => api.call('account.cancel')), child: const Text('取消')),
           ]),

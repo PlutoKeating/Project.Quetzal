@@ -80,7 +80,7 @@ class _PairingPageState extends State<PairingPage> {
           if (requested) ...[
             Text(isWeb ? '配对码已发到运行基座所在机器的桌面通知（以及已绑定的飞书）；没有桌面的机器从 quetzal logs 里看。5 分钟内有效。' : '配对码已通过系统通知（以及已绑定的飞书）发出，5 分钟内有效。', style: t.bodySmall),
             const SizedBox(height: 8),
-            TextField(controller: code, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: '6 位配对码', border: OutlineInputBorder())),
+            TextField(controller: code, textCapitalization: TextCapitalization.characters, autocorrect: false, maxLength: 9, decoration: const InputDecoration(labelText: '配对码（8 位，如 ABCD-EFGH；旧版运行基座为 6 位数字）', border: OutlineInputBorder())),
             FilledButton(
               onPressed: () => act(context, () => api.pairFinish(code.text), ok: '配对成功'),
               child: const Text('完成配对'),

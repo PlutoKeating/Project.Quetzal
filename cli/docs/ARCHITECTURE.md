@@ -8,13 +8,14 @@ src/
 ├── install.ts    安装与升级流程：内置运行基座与网页控制台 → releases/<版本>/ → 切换 current → 网状层原生组件 → 缺省配置 → systemd → 健康检查 → 失败回滚 → 清理旧版本
 ├── mesh.ts       网状层的原生组件：识别平台（linux-<x64|arm64>-<gnu|musl>），按内置锁定文件下载核对 sha512 到 ~/.quetzal/mesh-modules/<版本>/，版本目录的 node_modules 为相对链接；失败不影响安装
 ├── layout.ts     家目录布局（与 Android 安装器一致）：putRelease（文件与整个子目录）/ switchTo / rollback / prune，配置读写，身体名字缺省
-├── service.ts    systemd 用户服务：单元文件文本（纯函数）、available / install / restart / stop / uninstall / logs、enable-linger
+├── service.ts    systemd 用户服务：单元文件文本（纯函数；路径按 systemd 规则引用，% 与 $ 转义）、available / install / restart / stop / uninstall / logs、enable-linger
 └── health.ts     /health 轮询（版本必须等于刚装的版本，防止读到旧进程）
 test/
 ├── layout.test.ts   放入、切换、回滚、清理；配置只改安装需要的键
-└── service.test.ts  单元文件内容
+├── service.test.ts  单元文件内容与路径转义
+└── install-sh.test.ts  install.sh 的函数（去掉最后一行 main 后 source 进 bash）：发版清单验签与哈希（测试密钥对）、sha256 核对、sh / 桌面项 / crontab 转义、ELF 依赖检查
 tool/bundle-runtime.sh   构建 ../runtime 并把 main.cjs、linux.mjs、VERSION、网状层组件的锁定文件与安装程序（mesh-modules.lock.json、install-mesh-modules.mjs）放进 dist/runtime/（校验版本号一致）；调用 ../console/tool/build-web.sh 把网页控制台放进 dist/runtime/web/
-install.sh               一键安装脚本（curl -fsSL https://quetzal.plutokeating.beer/install | bash）：依赖 → nvm/Node → 本包 → 守护（systemd 或自带守护循环）→ 桌面项；不进 npm 包，官网构建时复制为 /install。见 README「一键安装脚本」
+install.sh               一键安装脚本（curl -fsSL https://quetzal.plutokeating.beer/install | bash）：依赖 → nvm/Node（nvm 安装脚本核对固定 sha256，unofficial-builds 核对 SHASUMS256）→ 本包 → 守护（systemd 或自带守护循环）→ 桌面项（原生控制台验发版签名与 sha256）；不进 npm 包，官网构建时复制为 /install。见 README「一键安装脚本」
 ```
 
 ## 安装流程

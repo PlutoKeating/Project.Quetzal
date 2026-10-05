@@ -46,7 +46,7 @@ flowchart TB
 
 ## 2. 安装 Quetzal App
 
-从 [下载页](/download) 或 GitHub Releases 下载最新的 APK 并安装。首次安装可能需要允许「安装未知来源应用」。
+从 [下载页](/download) 或 GitHub Releases 下载最新的 APK 并安装。首次安装可能需要允许「安装未知来源应用」。想确认 APK 没被改过，见下面的 [发布签名与校验](#发布签名与校验)。
 
 ## 3. 跟着向导安装运行基座
 
@@ -76,3 +76,27 @@ flowchart TB
 打开 Quetzal 的「此刻」页，你会看到 ta 的状态与驱动力。在给 ta 配置模型之前 ta 不会醒来。接着看 [第一步](/docs/start/first-steps)。
 
 **升级**：以后有新版时 App 会在顶部提示，**控制 → 服务 → Quetzal App →「下载并安装」**一键装好新 App，新 App 再把内置的运行基座升上去；详见 [升级与回退](/docs/guide/upgrade)。
+
+## 发布签名与校验
+
+每个版本的发布页除了安装包，还有两个文件：
+
+- **`SHA256SUMS`**：这个版本每个安装包（安卓 APK、Linux 原生控制台包）的 SHA-256，外加一行 `commit <提交哈希> v<版本>`，写明它是从仓库的哪个提交构建的。
+- **`SHA256SUMS.sig`**：项目发布密钥对 `SHA256SUMS` 的 Ed25519 签名（base64）。私钥只在发布流水线里。
+
+发布公钥（原始 32 字节，base64url）：
+
+```text
+QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8
+```
+
+App 的自身更新、Linux 一键安装脚本、灵魂桥的 `self-update` 都内置了这把公钥，签名或哈希对不上就拒绝安装。手动下载时也可以自己核对：把安装包与这两个文件放在同一个目录，装有 Node.js（15 以上）即可：
+
+```bash
+# 1. 核对签名：SHA256SUMS 确实出自本项目的发布流水线
+node -e 'const c=require("crypto"),f=require("fs");const k=c.createPublicKey({key:{kty:"OKP",crv:"Ed25519",x:"QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8"},format:"jwk"});process.exit(c.verify(null,f.readFileSync("SHA256SUMS"),k,Buffer.from(f.readFileSync("SHA256SUMS.sig","utf8").trim(),"base64"))?0:1)' && echo 签名有效
+# 2. 核对安装包：只取哈希行（commit 那一行不是哈希，sha256sum 会警告），跳过没下载的文件
+grep -E '^[0-9a-f]{64}  ' SHA256SUMS | sha256sum -c --ignore-missing
+```
+
+两步都通过（第一步打印「签名有效」，第二步对应文件显示 `OK`）才说明安装包没有被改过。任何一步失败都不要安装。

@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { frameworks } from "./frameworks/index.ts";
 import { syncOnce, VERSION } from "./bridge.ts";
 import { startMesh, readBinding } from "./mesh.ts";
+import { systemdQuote, systemdText, xmlEscape, cronQuote } from "./quote.ts";
 import type { BridgeConfig } from "./types.ts";
 
 const sh = (cmd: string, args: string[]) => new Promise<boolean>((r) => execFile(cmd, args, (e) => r(!e)));
@@ -44,6 +45,44 @@ export async function runDaemon(c: BridgeConfig) {
 }
 
 const unitName = (agent: string) => `soul-bridge-${agent}`;
+const logPath = (agent: string) => path.join(os.homedir(), ".agent-soul", agent, "bridge.log");
+
+// 以下三种服务描述里的路径（node、程序目录、日志）都可能带空格、引号或 %，逐一按各自格式转义。
+/** launchd 代理的 plist。 */
+export function renderPlist(agent: string, node: string, cli: string, log: string): string {
+  const str = (s: string) => `<string>${xmlEscape(s)}</string>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key>${str(`dev.soulbridge.${agent}`)}
+<key>ProgramArguments</key><array>${[node, cli, "run", "--agent", agent].map(str).join("")}</array>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+<key>StandardOutPath</key>${str(log)}
+<key>StandardErrorPath</key>${str(log)}
+</dict></plist>
+`;
+}
+
+/** systemd 用户服务单元。 */
+export function renderUnit(agent: string, label: string, node: string, cli: string): string {
+  return `[Unit]
+Description=${systemdText(`soul-bridge：${agent} ↔ ${label}`)}
+After=network-online.target
+
+[Service]
+ExecStart=${[node, cli, "run", "--agent", agent].map(systemdQuote).join(" ")}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+`;
+}
+
+/** crontab @reboot 一行（末尾的注释是卸载时找它的标记）。 */
+export function renderCronLine(agent: string, node: string, cli: string, log: string): string {
+  return `@reboot ${[node, cli, "run", "--agent", agent].map(cronQuote).join(" ")} >> ${cronQuote(log)} 2>&1 # soul-bridge:${agent.replace(/[^\w.-]/g, "_")}`;
+}
 
 export async function installService(c: BridgeConfig, cli: string): Promise<string> {
   if (process.env.SOUL_BRIDGE_NO_SERVICE) return "（已跳过后台服务安装）";
@@ -51,33 +90,13 @@ export async function installService(c: BridgeConfig, cli: string): Promise<stri
   if (process.platform === "darwin") {
     const f = path.join(os.homedir(), "Library/LaunchAgents", `dev.soulbridge.${c.agent}.plist`);
     fs.mkdirSync(path.dirname(f), { recursive: true });
-    fs.writeFileSync(f, `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>dev.soulbridge.${c.agent}</string>
-<key>ProgramArguments</key><array><string>${node}</string><string>${cli}</string><string>run</string><string>--agent</string><string>${c.agent}</string></array>
-<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
-<key>StandardOutPath</key><string>${path.join(os.homedir(), ".agent-soul", c.agent, "bridge.log")}</string>
-<key>StandardErrorPath</key><string>${path.join(os.homedir(), ".agent-soul", c.agent, "bridge.log")}</string>
-</dict></plist>
-`);
+    fs.writeFileSync(f, renderPlist(c.agent, node, cli, logPath(c.agent)));
     await sh("launchctl", ["unload", f]);
     return (await sh("launchctl", ["load", f])) ? `已安装 launchd 代理 ${f}` : `已写入 ${f}，但 launchctl 加载失败`;
   }
   const f = path.join(os.homedir(), ".config/systemd/user", `${unitName(c.agent)}.service`);
   fs.mkdirSync(path.dirname(f), { recursive: true });
-  fs.writeFileSync(f, `[Unit]
-Description=soul-bridge：${c.agent} ↔ ${frameworks[c.framework].label}
-After=network-online.target
-
-[Service]
-ExecStart=${node} ${cli} run --agent ${c.agent}
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-`);
+  fs.writeFileSync(f, renderUnit(c.agent, frameworks[c.framework].label, node, cli));
   await sh("systemctl", ["--user", "daemon-reload"]);
   const ok = await sh("systemctl", ["--user", "enable", "--now", unitName(c.agent)]);
   if (ok) {
@@ -90,10 +109,10 @@ WantedBy=default.target
 
 /** 没有 systemd / launchd 时（容器、精简系统）：crontab @reboot 开机自启 + 立即在后台启动一个守护进程。 */
 async function fallbackService(c: BridgeConfig, cli: string): Promise<string> {
-  const log = path.join(os.homedir(), ".agent-soul", c.agent, "bridge.log");
-  const line = `@reboot ${process.execPath} ${cli} run --agent ${c.agent} >> ${log} 2>&1 # soul-bridge:${c.agent}`;
+  const log = logPath(c.agent);
+  const line = renderCronLine(c.agent, process.execPath, cli, log);
   const cur = await new Promise<string>((r) => execFile("crontab", ["-l"], (_e, out) => r(String(out ?? ""))));
-  const cron = cur.split("\n").filter((l) => l && !l.includes(`# soul-bridge:${c.agent}`)).concat(line).join("\n") + "\n";
+  const cron = cur.split("\n").filter((l) => l && !l.includes(`# soul-bridge:${c.agent.replace(/[^\w.-]/g, "_")}`)).concat(line).join("\n") + "\n";
   const cronOk = await new Promise<boolean>((r) => { const p = execFile("crontab", ["-"], (e) => r(!e)); p.stdin?.end(cron); });
   const { spawn } = await import("node:child_process");
   const out = fs.openSync(log, "a");
@@ -110,7 +129,7 @@ export async function removeService(agent: string) {
   }
   if (fs.existsSync(path.join(os.homedir(), ".agent-soul", agent, "fallback"))) {
     const cur = await new Promise<string>((r) => execFile("crontab", ["-l"], (_e, out) => r(String(out ?? ""))));
-    await new Promise<void>((r) => { const p = execFile("crontab", ["-"], () => r()); p.stdin?.end(cur.split("\n").filter((l) => l && !l.includes(`# soul-bridge:${agent}`)).join("\n") + "\n"); });
+    await new Promise<void>((r) => { const p = execFile("crontab", ["-"], () => r()); p.stdin?.end(cur.split("\n").filter((l) => l && !l.includes(`# soul-bridge:${agent.replace(/[^\w.-]/g, "_")}`)).join("\n") + "\n"); });
     await sh("pkill", ["-f", `run --agent ${agent}`]);
   }
   await sh("systemctl", ["--user", "disable", "--now", unitName(agent)]);

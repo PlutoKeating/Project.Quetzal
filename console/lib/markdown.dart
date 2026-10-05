@@ -7,8 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:markdown/markdown.dart' as md;
-import 'package:url_launcher/url_launcher.dart';
 import 'platform/mermaid.dart';
+import 'links.dart';
 export 'platform/mermaid.dart' show MermaidView;
 
 /// 片段：markdown / mermaid / math（独立公式）。
@@ -149,7 +149,7 @@ class RichMarkdown extends StatelessWidget {
       for (final s in segs)
         switch (s.kind) {
           'mermaid' when !live => MermaidView(s.text),
-          'mermaid' => _markdown('```mermaid\n${s.text}\n```', sheet),
+          'mermaid' => _markdown(context, '```mermaid\n${s.text}\n```', sheet),
           'math' => Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: SingleChildScrollView(
@@ -158,12 +158,12 @@ class RichMarkdown extends StatelessWidget {
                     onErrorFallback: (_) => selectable ? SelectableText(s.text) : Text(s.text))),
               ),
             ),
-          _ => _markdown(s.text, sheet),
+          _ => _markdown(context, s.text, sheet),
         },
     ]);
   }
 
-  Widget _markdown(String data, MarkdownStyleSheet sheet) => MarkdownBody(
+  Widget _markdown(BuildContext context, String data, MarkdownStyleSheet sheet) => MarkdownBody(
         data: data,
         selectable: selectable,
         softLineBreak: true,
@@ -173,6 +173,6 @@ class RichMarkdown extends StatelessWidget {
           [_InlineMath(), ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes],
         ),
         builders: {'math': _MathBuilder()},
-        onTapLink: (_, href, _) { if (href != null) launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication); },
+        onTapLink: (_, href, _) { if (href != null && context.mounted) openExternal(context, href); },
       );
 }

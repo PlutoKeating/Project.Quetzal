@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import type { Route } from "./+types/route";
-import { DEFAULT_LANG, isLang, useMessages } from "~/i18n/core";
+import { DEFAULT_LANG, HTML_LANG, isLang, useLang, useMessages } from "~/i18n/core";
 import { Badge, Button, Card, Heading } from "~/design-system/components";
 import { formatCode, sync, SyncError, type PendingCode } from "~/lib/sync";
-import { AccountShell, errorText } from "../shell";
+import { AccountShell, ago, errorText } from "../shell";
 import { accountMessages } from "../i18n";
 import { messages } from "./i18n";
 
@@ -31,6 +31,7 @@ type Step =
 function Flow() {
   const t = useMessages(messages);
   const a = useMessages(accountMessages);
+  const lang = useLang();
   const [params] = useSearchParams();
   const [code, setCode] = useState(formatCode(params.get("code") ?? ""));
   const [step, setStep] = useState<Step>({ s: "enter" });
@@ -74,6 +75,8 @@ function Flow() {
       </Card>
     );
   }
+  // 时间：同步服务给毫秒；万一是秒（小于 1e12）也认
+  const when = (v: number) => { const ms = v < 1e12 ? v * 1000 : v; return <>{new Date(ms).toLocaleString(HTML_LANG[lang])} <span className="text-sm text-fg-subtle">{ago(a.time, ms)}</span></>; };
   const row = (k: string, v: React.ReactNode) => (<><dt className="text-sm text-fg-muted">{k}</dt><dd className="text-fg">{v}</dd></>);
   return (
     <Card className="flex max-w-prose flex-col gap-5">
@@ -84,7 +87,11 @@ function Flow() {
         {row(t.kind, <Badge tone={p.kind === "console" ? "warning" : p.kind === "bridge" ? "secondary" : "neutral"}>{a.kind[p.kind] ?? p.kind}</Badge>)}
         {p.version && row(t.version, p.version)}
         {p.kind !== "console" && row(t.key, <span className="font-mono text-lg tracking-wide">{p.fingerprint}</span>)}
+        {p.kind === "console" && p.bodyFingerprint && row(t.bodyKey, <span className="font-mono text-lg tracking-wide">{p.bodyFingerprint}</span>)}
+        {p.kind === "console" && typeof p.bodyBoundAt === "number" && row(t.bodyBound, when(p.bodyBoundAt))}
+        {typeof p.createdAt === "number" && row(t.created, when(p.createdAt))}
       </dl>
+      {p.kind === "console" && p.bodyFingerprint && <p className="text-sm text-fg-muted">{t.bodyKeyHint}</p>}
       {p.kind !== "console" && <p className="text-sm text-fg-muted">{t.keyHint}</p>}
       {p.kind === "console" && <p className="rounded-md border border-border p-3 text-sm text-warning">{t.consoleWarn.replace("{body}", p.body)}</p>}
       {p.newAgent && <p className="text-sm text-fg-muted">{t.newAgent}</p>}

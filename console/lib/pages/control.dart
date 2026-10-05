@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../markdown.dart';
 import '../widgets.dart';
@@ -18,6 +17,7 @@ import 'account.dart';
 import '../installer.dart';
 import '../updater.dart';
 import '../platform/caps.dart';
+import '../links.dart';
 
 /// 控制菜单的一项：手机上推入页面，桌面列表栏里点选后在主区打开。
 class ControlItem {
@@ -397,7 +397,7 @@ class _FeishuPageState extends State<FeishuPage> {
           const SizedBox(height: 8),
           if (qr == null) FilledButton.icon(icon: const Icon(Icons.qr_code), label: const Text('开始'), onPressed: () { setState(() => error = null); act(context, () => api.call('feishu.register')); }),
           if (qr != null) ...[
-            FilledButton.icon(icon: const Icon(Icons.open_in_new), label: const Text('在飞书中打开并确认'), onPressed: () => launchUrl(Uri.parse(qr!), mode: LaunchMode.externalApplication)),
+            FilledButton.icon(icon: const Icon(Icons.open_in_new), label: const Text('在飞书中打开并确认'), onPressed: () => openExternal(context, qr!)),
             const SizedBox(height: 8),
             const Text('或者用另一台手机的飞书扫码：'),
             Center(child: Container(color: Colors.white, padding: const EdgeInsets.all(8), child: QrImageView(data: qr!, size: 200))),
@@ -497,6 +497,12 @@ class _SoulPageState extends State<SoulPage> {
 }
 
 // ---------------------------------------------------------------- 服务
+/// 命令执行的沙箱（status.sandbox.kind：bwrap | proot | none；旧版运行基座没有这一项，不显示）。none 时提醒。
+List<Widget> sandboxLines(BuildContext context, String sb) => [
+      Text('命令沙箱：${switch (sb) { 'bwrap' => 'bubblewrap（bwrap）', 'proot' => 'proot', 'none' => '无', _ => sb }}'),
+      if (sb == 'none') Text('没有可用的沙箱：她执行的命令直接以运行基座的身份运行，能读写这个用户的全部文件。Linux 请安装 bubblewrap，Termux 请安装 proot，然后重启运行基座。',
+          style: TextStyle(color: Theme.of(context).colorScheme.error)),
+    ];
 class ServicePage extends StatelessWidget {
   const ServicePage({super.key});
   @override
@@ -509,6 +515,7 @@ class ServicePage extends StatelessWidget {
               Text('连接：${api.conn.name}${api.safeMode ? '（安全模式）' : ''}'),
               Text('版本：${s['version'] ?? '-'}'),
               Text('身体：${s['body'] ?? '-'} · 适配器 ${s['adapter'] ?? '-'}'),
+              if (s['sandbox'] is Map && (s['sandbox'] as Map)['kind'] is String) ...sandboxLines(context, (s['sandbox'] as Map)['kind'] as String),
               Text('系统：已运行 ${sys['uptimeH'] ?? '-'} 小时 · 负载 ${sys['load1'] ?? '-'} · 空闲内存 ${sys['memFreeMB'] ?? '-'} MB · 存储余量 ${sys['storageFreeGB'] ?? '-'} GB'),
               Text('模型：${((s['models'] as List?) ?? []).join('、')}'),
               if (hasBody) FutureBuilder(future: Installer.bundledVersion(), builder: (_, v) => Text('App 内置的运行基座：${v.data ?? '（无）'}${v.data != null && s['version'] != null && v.data != s['version'] ? '，与运行中的不同，可升级' : ''}')),
@@ -563,8 +570,8 @@ class _AppUpdateSectionState extends State<AppUpdateSection> {
         if (u.state == UpdateState.failed && r != null && u.hasUpdate) FilledButton.tonal(onPressed: u.downloadAndInstall, child: const Text('重试')),
         if (u.state != UpdateState.available && u.state != UpdateState.needPermission)
           OutlinedButton(onPressed: busy ? null : u.check, child: Text(u.state == UpdateState.checking ? '检查中' : '检查新版本')),
-        if (r != null) TextButton(onPressed: () => launchUrl(Uri.parse(r.url), mode: LaunchMode.externalApplication), child: const Text('发布说明')),
-        if (u.state == UpdateState.failed) TextButton(onPressed: () => launchUrl(Uri.parse(downloadPage), mode: LaunchMode.externalApplication), child: const Text('去下载页')),
+        if (r != null) TextButton(onPressed: () => openExternal(context, r.url), child: const Text('发布说明')),
+        if (u.state == UpdateState.failed) TextButton(onPressed: () => openExternal(context, downloadPage), child: const Text('去下载页')),
       ]),
     ]);
   });

@@ -3,7 +3,7 @@
 #
 # 做什么（幂等，再跑一次就是升级）：
 #   1. 看清这台机器：发行版、架构、包管理器、有没有 systemd 用户实例、有没有桌面
-#   2. 补齐依赖：git、curl、tar、ca-certificates（缺什么装什么，用这台机器自己的包管理器）；
+#   2. 补齐依赖：git、curl、tar、ca-certificates（缺什么装什么，用这台机器自己的包管理器）；命令沙箱 bubblewrap（可选，装不上不影响）；
 #      Node.js 22.13+：没有就经 nvm 装（nvm 装进 ~/.nvm，不碰系统的 node）；musl（Alpine）与 NixOS 用发行版自己的包；
 #      龙芯（loongarch64）、RISC-V、armv6l 这些官方不出二进制的架构，从 Node.js 的 unofficial-builds 直接下载到 ~/quetzal/node/
 #   3. 把 npm 包 @plutokeating/quetzal 装进 ~/.quetzal/npm（独立前缀，不污染全局），由它放好运行基座与网页控制台
@@ -32,6 +32,12 @@ set -u
 set -o pipefail
 
 NVM_VERSION="v0.40.3"
+# nvm 安装脚本的 sha256（固定版本的 install.sh；GitHub 与 gitee 镜像内容相同，执行前必须核对，不一致就拒绝）。升级 NVM_VERSION 时一起更新：
+#   curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/<版本>/install.sh | sha256sum
+NVM_INSTALL_SHA256="2d8359a64a3cb07c02389ad88ceecd43f2fa469c06104f92f98df5b6f315275f"
+# 发版签名公钥（Ed25519，原始 32 字节的 base64url）：Release 里的 SHA256SUMS 由它的私钥签名（SHA256SUMS.sig），
+# 原生控制台的压缩包先验签名、再核对清单里的哈希，任何一步不过都不装。轮换密钥时同步更新 App、soul-bridge 与官网文档里的同一个值。
+RELEASE_PUBKEY="QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8"
 NODE_MAJOR=22
 NODE_MIN_MINOR=13
 PKG="@plutokeating/quetzal"
@@ -171,6 +177,18 @@ have() { command -v "$1" >/dev/null 2>&1; }
 fetch_ok()   { if have curl; then curl -fsSL -m "${2:-6}" -o /dev/null "$1" 2>/dev/null; elif have wget; then wget -q -T "${2:-6}" -O /dev/null "$1" 2>/dev/null; else return 1; fi; }
 fetch_file()   { if have curl; then curl -fsSL -m "${3:-300}" -o "$2" "$1" 2>>"${LOG:-/dev/null}"; elif have wget; then wget -q -T "${3:-300}" -O "$2" "$1" 2>>"${LOG:-/dev/null}"; else return 1; fi; }
 fetch_text() { if have curl; then curl -fsSL -m "${2:-6}" "$1" 2>>"${LOG:-/dev/null}"; elif have wget; then wget -q -T "${2:-6}" -O - "$1" 2>>"${LOG:-/dev/null}"; else return 1; fi; }
+# 文件的 sha256（小写十六进制）：coreutils / busybox 的 sha256sum、perl 的 shasum、openssl，哪个在用哪个；都没有返回 1（调用方据此拒绝）
+sha256_of() {
+  if have sha256sum; then sha256sum "$1" | cut -d' ' -f1
+  elif have shasum; then shasum -a 256 "$1" | cut -d' ' -f1
+  elif have openssl; then openssl dgst -sha256 -r "$1" | cut -d' ' -f1
+  else return 1; fi
+}
+sha256_is() { local h; h=$(sha256_of "$1") && [[ -n $h && $h == "$2" ]] || { echo "sha256 mismatch: $1 (got ${h:-?}, want $2)" >>"${LOG:-/dev/null}"; return 1; }; }
+# 生成文件里的引用：sh 的单引号（' → '\''）、桌面项 Exec 的双引号（规范要求 \ " ` $ 先按字符串转义再按参数转义，% 写成 %%）、crontab（% 是换行，写成 \%）
+sq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
+desk_q() { local s=$1; s=${s//\\/\\\\\\\\}; s=${s//\"/\\\\\"}; s=${s//\`/\\\\\`}; s=${s//\$/\\\\\$}; s=${s//%/%%}; printf '"%s"' "$s"; }
+cron_q() { local s; s=$(sq "$1"); printf '%s' "${s//%/\\%}"; }
 
 # ---------------------------------------------------------------- 参数
 LAN=${QUETZAL_LAN:-0}; OPEN=1; DESKTOP=1; HOME_DIR="${QUETZAL_HOME:-}"; VERSION="${QUETZAL_VERSION:-latest}"; MIRROR="${QUETZAL_MIRROR:-auto}"; MODE=install; PURGE=0
@@ -279,6 +297,21 @@ pkg_name() { # 工具名 → 这个发行版的包名
     *) echo "$1";;
   esac
 }
+# 命令沙箱：她执行的命令（shell、自造工具）在 bubblewrap 里运行，看不到运行基座的密钥目录。可选：装不上不影响安装，控制台的「服务」页会提醒。
+ensure_sandbox() {
+  if ! have bwrap && [[ $PM != none ]] && need_root_runner; then
+    local label; label="$(t "安装命令沙箱 bubblewrap（$PM）" "Installing the command sandbox bubblewrap ($PM)")"
+    if [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1; then run_try "$label" pkg_install bubblewrap || true   # run_try：失败只提示，不终止安装
+    elif [[ -r /dev/tty ]]; then
+      note "$(t "安装 bubblewrap 需要管理员权限，接下来会请你输入密码（$SUDO）" "Installing bubblewrap needs administrator rights; $SUDO will ask for your password")"
+      pkg_install bubblewrap </dev/tty >>"$LOG" 2>&1 || true
+    fi
+  fi
+  if have bwrap && bwrap --ro-bind / / --dev /dev --proc /proc true >/dev/null 2>&1; then ok "$(t '命令沙箱可用（bubblewrap）' 'Command sandbox available (bubblewrap)')"
+  elif have bwrap; then note "$(t 'bubblewrap 装了但这台机器不允许它创建沙箱（多半是禁用了非特权用户命名空间）：她的命令将不经沙箱运行' 'bubblewrap is installed but cannot create a sandbox here (unprivileged user namespaces are probably disabled): her commands will run without a sandbox')"
+  else note "$(t '没有 bubblewrap：她执行的命令不经沙箱运行，能读到运行基座的密钥。可以之后安装 bubblewrap 再重启服务' 'No bubblewrap: her commands run without a sandbox and can read the runtime secrets. You can install bubblewrap later and restart the service')"
+  fi
+}
 ensure_tools() {
   local missing=() tool
   for tool in git curl tar; do have "$tool" || missing+=("$tool"); done
@@ -320,10 +353,14 @@ nvm_env() { # 让 nvm 在这个 shell 里可用（nvm 对 set -u 不友好，调
   [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
   have nvm
 }
-install_nvm() {
-  local url="https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh"
+install_nvm() { # 先下载到文件、核对固定的 sha256，再执行（不再 curl | bash）；nvm 自己按固定标签 git clone，下载 Node 时核对 SHASUMS256
+  local url="https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" f="$HOME_DIR/nvm-install.sh" rc=0
   if [[ $MIRROR == cn ]]; then url="https://gitee.com/mirrors/nvm/raw/$NVM_VERSION/install.sh"; export NVM_SOURCE="https://gitee.com/mirrors/nvm.git"; fi
-  fetch_text "$url" 60 | bash
+  rm -f "$f"
+  fetch_file "$url" "$f" 60 || return 1
+  sha256_is "$f" "$NVM_INSTALL_SHA256" || { rm -f "$f"; return 1; }
+  bash "$f" || rc=$?
+  rm -f "$f"; return $rc
 }
 nvm_install_node() { set +u; nvm_env || return 1; nvm install "$NODE_MAJOR" --no-progress && nvm alias default "$NODE_MAJOR" >/dev/null; local rc=$?; set -u; return $rc; }
 # 官方不出二进制的架构：Node.js 项目的 unofficial-builds（https://unofficial-builds.nodejs.org）有 loong64（龙芯）、riscv64、armv6l、x64/arm64 的 musl 版。
@@ -333,14 +370,19 @@ node_direct_arch() { # 这台机器该用 unofficial-builds 的哪个标签；�
   [[ -n "${QUETZAL_NODE_ARCH:-}" ]] && { printf '%s' "$QUETZAL_NODE_ARCH"; return; }
   case "$ARCH" in loongarch64|loong64) printf 'loong64';; riscv64) printf 'riscv64';; armv6l) printf 'armv6l';; esac
 }
-node_direct_install() { # 架构标签：选 unofficial-builds 里最新的 v22 并解包
-  local arch=$1 index ver dir tmp
+node_direct_install() { # 架构标签：选 unofficial-builds 里最新的 v22，按同一发布目录的 SHASUMS256.txt 核对后解包
+  # （unofficial-builds 不出 GPG 签名，只能核对哈希：防的是下载损坏与镜像 / 缓存被替换，信任根是 TLS 与 nodejs.org 本身）
+  local arch=$1 index ver dir tmp sums want
   index=$(fetch_text "$UNOFFICIAL/index.json" 60) || return 1
   ver=$(printf '%s' "$index" | tr '}' '\n' | grep "\"version\":\"v$NODE_MAJOR\." | grep "\"linux-$arch\"" | head -n1 | sed 's/.*"version":"\(v[0-9.]*\)".*/\1/')
   [[ -n $ver ]] || { echo "unofficial-builds 没有 linux-$arch 的 v$NODE_MAJOR" >>"$LOG"; return 1; }
   dir="$HOME_DIR/node/$ver"; tmp="$HOME_DIR/node/download.tar.gz"
   mkdir -p "$HOME_DIR/node"; rm -rf "$dir.part" "$tmp"; mkdir -p "$dir.part"
+  sums=$(fetch_text "$UNOFFICIAL/$ver/SHASUMS256.txt" 60) || return 1
+  want=$(printf '%s\n' "$sums" | grep -E "^[0-9a-f]{64}  node-$ver-linux-$arch\.tar\.gz\$" | cut -d' ' -f1)
+  [[ $want =~ ^[0-9a-f]{64}$ ]] || { echo "SHASUMS256.txt 里没有 node-$ver-linux-$arch.tar.gz" >>"$LOG"; return 1; }
   fetch_file "$UNOFFICIAL/$ver/node-$ver-linux-$arch.tar.gz" "$tmp" 900 || return 1
+  sha256_is "$tmp" "$want" || { rm -f "$tmp"; return 1; }
   tar -xzf "$tmp" -C "$dir.part" --strip-components=1 || return 1
   rm -f "$tmp"; rm -rf "$dir"; mv "$dir.part" "$dir"
   "$dir/bin/node" -v >>"$LOG" 2>&1 || return 1
@@ -426,8 +468,8 @@ write_shim() { # ~/.local/bin/quetzal：固定使用安装时的 node 与包路�
   cat >"$HOME/.local/bin/quetzal" <<EOF
 #!/bin/sh
 # $(t '由 Quetzal 安装脚本生成：quetzal status / logs -f / open / rollback / uninstall；重装请再跑一次安装命令' 'Generated by the Quetzal installer: quetzal status / logs -f / open / rollback / uninstall; rerun the install command to reinstall')
-export QUETZAL_HOME='$HOME_DIR'
-exec '$NODE' '$QCLI' "\$@"
+export QUETZAL_HOME=$(sq "$HOME_DIR")
+exec $(sq "$NODE") $(sq "$QCLI") "\$@"
 EOF
   chmod 755 "$HOME/.local/bin/quetzal"
   case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *)
@@ -473,7 +515,7 @@ ensure_service() {
   ok "$(t '守护循环已启动：退出 3 秒后自动重启' 'Supervisor loop running: restarts 3 s after any exit')"
   local boot=()
   if have crontab; then
-    if ( crontab -l 2>/dev/null | grep -v 'quetzal-supervise'; printf '@reboot %s\n' "$SUPERVISOR" ) | crontab - 2>>"$LOG"; then boot+=("crontab @reboot"); fi
+    if ( crontab -l 2>/dev/null | grep -v 'quetzal-supervise'; printf '@reboot %s\n' "$(cron_q "$SUPERVISOR")" ) | crontab - 2>>"$LOG"; then boot+=("crontab @reboot"); fi
   fi
   if (( HAS_DESKTOP )); then
     mkdir -p "$HOME/.config/autostart"
@@ -482,7 +524,7 @@ ensure_service() {
 Type=Application
 Name=Quetzal runtime
 Comment=$(t 'Quetzal 运行基座的守护循环（登录桌面时拉起）' 'Supervisor loop for the Quetzal runtime (started at desktop login)')
-Exec="$SUPERVISOR"
+Exec=$(desk_q "$SUPERVISOR")
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
 EOF
@@ -501,8 +543,8 @@ install_supervisor() {
 # Quetzal 守护者（没有 systemd 用户实例的机器）：由安装脚本生成。循环拉起运行基座，退出 3 秒后重启；
 # 同一时刻只有一个（flock 或 pid 文件）。开机由 crontab 的 @reboot 或桌面自启动项拉起；停止：kill $(cat state/supervise.pid)
 # 控制台「服务」页的守护开关关闭时会放一个 state/supervise.off：循环看到它就暂停拉起（自己不退出），删掉即恢复。
-HOME_DIR='__HOME_DIR__'
-NODE='__NODE__'
+HOME_DIR=__HOME_DIR__
+NODE=__NODE__
 mkdir -p "$HOME_DIR/state" "$HOME_DIR/logs"
 LOCK="$HOME_DIR/state/supervise.lock"; PIDF="$HOME_DIR/state/supervise.pid"; LOG="$HOME_DIR/logs/runtime.log"
 if command -v flock >/dev/null 2>&1; then
@@ -523,7 +565,7 @@ while :; do
   sleep 3
 done
 EOF
-  tpl=${tpl//__HOME_DIR__/$HOME_DIR}; tpl=${tpl//__NODE__/$NODE}
+  tpl=${tpl//__HOME_DIR__/"$(sq "$HOME_DIR")"}; tpl=${tpl//__NODE__/"$(sq "$NODE")"}
   printf '%s' "$tpl" >"$SUPERVISOR"; chmod 755 "$SUPERVISOR"
 }
 start_supervisor() {
@@ -537,30 +579,86 @@ start_supervisor() {
 
 # ---------------------------------------------------------------- 5. 桌面：原生控制台 + 应用列表里的「Quetzal」
 NATIVE=""   # 原生控制台的可执行文件（装上了才非空）
+LDCACHE=""  # ldconfig -p 的输出（依赖检查用）
 LAUNCHER=""
 REPO_DL="https://github.com/PlutoKeating/Project.Quetzal/releases/download"
 SITE_DL="$SITE/dl"   # 官网的镜像源（Cloudflare 边缘缓存）：GitHub 连不上的网络先走它
-download_console() { # 版本 架构 目标目录：下载同版本的原生控制台并解包（顶层目录 quetzal-console/ 去掉）
-  local v=$1 arch=$2 dir=$3 tmp="$3.tar.gz"
-  rm -rf "$dir.part" "$tmp"; mkdir -p "$dir.part"
+# 发版清单：SHA256SUMS（每个资产一行 `<哈希>  <文件名>`，外加一行 `commit <提交> <标签>`）与 SHA256SUMS.sig（Ed25519 签名的 base64）。
+# 用已经装好的 node 验签名（公钥 RELEASE_PUBKEY 写死在本脚本里），再确认提交行的标签就是这个版本，输出资产的期望哈希；任何一步不过返回非 0。
+release_sum() { # SHA256SUMS SHA256SUMS.sig 资产名 标签
+  "$NODE" -e '
+const c = require("crypto"), f = require("fs");
+const [sums, sig, name, tag, x] = process.argv.slice(1);
+const data = f.readFileSync(sums);
+const key = c.createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x }, format: "jwk" });
+if (!c.verify(null, data, key, Buffer.from(f.readFileSync(sig, "utf8").trim(), "base64"))) { console.error("SHA256SUMS: bad signature"); process.exit(2); }
+const lines = data.toString("utf8").split("\n").map((l) => l.trim());
+if (!lines.some((l) => { const m = /^commit ([0-9a-f]{40}) (\S+)$/.exec(l); return m && m[2] === tag; })) { console.error("SHA256SUMS: no commit line for " + tag); process.exit(3); }
+for (const l of lines) { const m = /^([0-9a-f]{64}) [ *](.+)$/.exec(l); if (m && m[2] === name) { console.log(m[1]); process.exit(0); } }
+console.error("SHA256SUMS: no entry for " + name); process.exit(4);
+' "$1" "$2" "$3" "$4" "$RELEASE_PUBKEY"
+}
+# 原生控制台能不能在这台机器上起来：只读地解析 ELF（readelf / objdump，不执行下载来的程序，也不用会执行它的 ldd），
+# 看依赖的共享库（包里 lib/ 自带的除外）这台机器有没有、要求的 glibc 版本够不够；两个工具都没有就不查（装了起不来时桌面项照样能用浏览器）。
+elf_needed() { if have readelf; then readelf -d "$1" 2>/dev/null | sed -n 's/.*(NEEDED).*\[\(.*\)\].*/\1/p'; else objdump -p "$1" 2>/dev/null | sed -n 's/^ *NEEDED *\([^ ]*\).*/\1/p'; fi; }
+elf_glibc() { if have readelf; then readelf -V "$1" 2>/dev/null; else objdump -p "$1" 2>/dev/null; fi | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sed 's/GLIBC_//'; }
+ver_gt() { local a1=${1%%.*} a2=${1#*.} b1=${2%%.*} b2=${2#*.}; (( a1 > b1 || (a1 == b1 && ${a2%%.*} > ${b2%%.*}) )); }
+lib_present() {
+  if [[ -n $LDCACHE ]]; then printf '%s\n' "$LDCACHE" | awk -v l="$1" '$1 == l { f = 1 } END { exit !f }' && return 0; fi
+  local d; for d in /lib /usr/lib /lib64 /usr/lib64 /lib/*-linux-gnu /usr/lib/*-linux-gnu /usr/local/lib; do [[ -e $d/$1 ]] && return 0; done
+  return 1
+}
+console_runs_here() { # 解包目录
+  local d=$1 f lib v sys bad=0
+  have readelf || have objdump || { echo "readelf / objdump 都没有：跳过原生控制台的依赖检查" >>"$LOG"; return 0; }
+  LDCACHE=$( { ldconfig -p || /sbin/ldconfig -p; } 2>/dev/null ) || LDCACHE=""
+  sys=$(getconf GNU_LIBC_VERSION 2>/dev/null | sed 's/^glibc //')
+  for f in "$d/quetzal-console" "$d"/lib/*.so; do
+    [[ -f $f ]] || continue
+    while IFS= read -r lib; do
+      [[ -z $lib || -e "$d/lib/$lib" ]] && continue
+      lib_present "$lib" || { echo "$(basename "$f"): $lib not found" >>"$LOG"; bad=1; }
+    done < <(elf_needed "$f")
+    if [[ $sys =~ ^[0-9]+\.[0-9]+ ]]; then
+      while IFS= read -r v; do ver_gt "$v" "$sys" && { echo "$(basename "$f"): GLIBC_$v > $sys" >>"$LOG"; bad=1; }; done < <(elf_glibc "$f" | sort -u)
+    fi
+  done
+  (( ! bad ))
+}
+download_console() { # 版本 架构 目标目录：下载同版本的原生控制台，验签名与哈希后解包（顶层目录 quetzal-console/ 去掉）
+  local v=$1 arch=$2 dir=$3 tmp="$3.tar.gz" sums="$3.SHA256SUMS" sig="$3.SHA256SUMS.sig" want="" base
   local name="quetzal-$v-linux-$arch-console.tar.gz"
-  fetch_file "$SITE_DL/v$v/$name" "$tmp" 600 || fetch_file "$REPO_DL/v$v/$name" "$tmp" 600 || return 1
+  rm -rf "$dir.part" "$tmp" "$sums" "$sig"; mkdir -p "$dir.part"
+  # 清单与签名：先走官网镜像源，验不过再直连 GitHub（信任根是签名，不是下载来源）
+  for base in "$SITE_DL/v$v" "$REPO_DL/v$v"; do
+    if ! fetch_file "$base/SHA256SUMS" "$sums" 60 || ! fetch_file "$base/SHA256SUMS.sig" "$sig" 60; then continue; fi
+    want=$(release_sum "$sums" "$sig" "$name" "v$v" 2>>"$LOG") && [[ $want =~ ^[0-9a-f]{64}$ ]] && break
+    want=""; echo "$base: SHA256SUMS 验证失败" >>"$LOG"
+  done
+  rm -f "$sums" "$sig"
+  [[ -n $want ]] || { echo "没有通过签名验证的 SHA256SUMS（v$v 之前的版本没有签名清单），不装原生控制台" >>"$LOG"; return 1; }
+  for base in "$SITE_DL/v$v" "$REPO_DL/v$v"; do
+    fetch_file "$base/$name" "$tmp" 600 && sha256_is "$tmp" "$want" && break
+    rm -f "$tmp"
+  done
+  [[ -f $tmp ]] || return 1
   tar -xzf "$tmp" -C "$dir.part" --strip-components=1 || return 1
   rm -f "$tmp"
   [[ -x "$dir.part/quetzal-console" ]] || return 1
-  # 发行版太旧（glibc / GTK 版本不够）时装了也起不来：ldd 有缺失就放弃，退回浏览器
-  if have ldd && ldd "$dir.part/quetzal-console" 2>/dev/null | grep -q "not found"; then ldd "$dir.part/quetzal-console" >>"$LOG" 2>&1; return 1; fi
+  # 发行版太旧（glibc / GTK 版本不够）时装了也起不来：缺依赖就放弃，退回浏览器
+  console_runs_here "$dir.part" || return 1
   rm -rf "$dir"; mv "$dir.part" "$dir"
 }
 install_native_console() {
   local v; v=$(installed_version); [[ -n $v ]] || return 0
+  [[ $LIBC == musl ]] && { note "$(t 'musl 系统没有原生控制台（它是 glibc 构建），桌面项用浏览器打开，功能相同' 'No native console on musl systems (it is a glibc build); the app-list entry opens the browser, same features')"; return 0; }
   local arch; case "$ARCH" in x86_64|amd64) arch=x64;; aarch64|arm64) arch=arm64;; *) note "$(t "$ARCH 架构暂无原生控制台（Flutter 上游还不支持），桌面项用浏览器打开，功能相同" "No native console for $ARCH yet (upstream Flutter does not support it); the app-list entry opens the browser, same features")"; return 0;; esac
   local base="$HOME_DIR/console" dir="$HOME_DIR/console/$v"
   mkdir -p "$base"
   if [[ ! -x "$dir/quetzal-console" ]]; then
     if ! run_try "$(t "下载原生控制台 $v（Linux 桌面版）" "Downloading the native console $v (Linux desktop)")" download_console "$v" "$arch" "$dir"; then
-      rm -rf "$dir.part" "$dir.tar.gz"
-      note "$(t "这个版本没有可用的原生控制台（或下载失败）：桌面项改用浏览器打开；下次升级会再试" "No usable native console for this version (or the download failed): the app-list entry opens the browser instead; the next upgrade will retry")"
+      rm -rf "$dir.part" "$dir.tar.gz" "$dir.SHA256SUMS" "$dir.SHA256SUMS.sig"
+      note "$(t "这个版本没有可用的原生控制台（下载失败、签名或哈希校验没通过，或缺依赖）：桌面项改用浏览器打开；下次升级会再试" "No usable native console for this version (download failed, signature or checksum verification failed, or missing libraries): the app-list entry opens the browser instead; the next upgrade will retry")"
       return 0
     fi
   fi
@@ -587,7 +685,7 @@ install_desktop() {
 # 有原生控制台（~/.quetzal/console/current/quetzal-console，Flutter Linux 桌面版）就直接启动它——窗口有 Quetzal 自己的图标；
 # 没有（旧版本、arm64、下载失败）就用浏览器打开网页控制台：Chromium 系以独立窗口（--app）打开，否则用默认浏览器。
 # 服务没在跑就先拉起来。
-HOME_DIR='__HOME_DIR__'
+HOME_DIR=__HOME_DIR__
 port=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$HOME_DIR/config/quetzal.json" 2>/dev/null | head -n1)
 url="http://127.0.0.1:${port:-7788}/"
 alive() { if command -v curl >/dev/null 2>&1; then curl -fsS -m 2 -o /dev/null "${url}health"; else wget -q -T 2 -O /dev/null "${url}health"; fi 2>/dev/null; }
@@ -613,7 +711,7 @@ if command -v xdg-open >/dev/null 2>&1; then exec xdg-open "$url"; fi
 for b in firefox x-www-browser sensible-browser; do command -v "$b" >/dev/null 2>&1 && exec "$b" "$url"; done
 echo "$url"
 EOF
-  tpl=${tpl//__HOME_DIR__/$HOME_DIR}
+  tpl=${tpl//__HOME_DIR__/"$(sq "$HOME_DIR")"}
   printf '%s' "$tpl" >"$LAUNCHER"; chmod 755 "$LAUNCHER"
   # 文件名 xyz.quetzal.console.desktop：原生控制台的 Wayland app_id 与 X11 WM_CLASS 都是 GTK 应用 id xyz.quetzal.console，桌面按文件名或 StartupWMClass 配图标。
   # 浏览器退路的窗口配不上，任务栏显示的是浏览器图标（已知限制）
@@ -623,7 +721,7 @@ Type=Application
 Name=Quetzal
 Comment=Open the Quetzal console
 Comment[zh_CN]=打开 Quetzal 控制台
-Exec="$LAUNCHER"
+Exec=$(desk_q "$LAUNCHER")
 Icon=$icon_name
 Terminal=false
 Categories=Network;Utility;
@@ -698,13 +796,14 @@ main() {
   detect_machine
   migrate_legacy_home
   mkdir -p "$HOME_DIR" || die "$(t "建不了家目录 $HOME_DIR" "Cannot create $HOME_DIR")"
-  LOG="$HOME_DIR/install.log"; { printf '\n== %s install.sh\n' "$(date 2>/dev/null)"; } >>"$LOG" 2>/dev/null || LOG=$(mktemp 2>/dev/null || echo /tmp/quetzal-install.log)
+  LOG="$HOME_DIR/install.log"; { printf '\n== %s install.sh\n' "$(date 2>/dev/null)"; } >>"$LOG" 2>/dev/null || { LOG=$(mktemp "${TMPDIR:-/tmp}/quetzal-install.XXXXXX" 2>/dev/null) || LOG=/dev/null; }
 
   hdr "$(t '这台机器' 'This machine')"
   describe_machine
 
   hdr "$(t '依赖' 'Dependencies')"
   ensure_tools
+  ensure_sandbox
   ensure_node
 
   hdr "$(t '运行基座' 'Runtime')"

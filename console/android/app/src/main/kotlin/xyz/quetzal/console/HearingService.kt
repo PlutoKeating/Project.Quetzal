@@ -31,7 +31,6 @@ import com.konovalov.vad.webrtc.config.SampleRate
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
@@ -205,17 +204,21 @@ class HearingService : Service() {
 
     private fun pcm(s: ShortArray): ByteArray { val b = ByteBuffer.allocate(s.size * 2).order(ByteOrder.LITTLE_ENDIAN); b.asShortBuffer().put(s); return b.array() }
 
+    /** 令牌放请求头而不是网址（网址会进日志）：X-Quetzal-Token 是新名字，x-token 给旧版运行基座。 */
+    private fun auth(c: HttpURLConnection) { c.setRequestProperty("X-Quetzal-Token", token); c.setRequestProperty("x-token", token) }
+
     /** 边说边送：POST /hear?stream=1&started=<开始时刻>&id=<句子标识>，分块传输，每 20ms 一帧；说完（END）关闭请求体，等基座识别完返回。失败只记事件，不重试。 */
     private fun stream(q: LinkedBlockingQueue<ByteArray>, startedAt: Long, uid: String) {
         if (poster.isShutdown) return
         poster.execute {
             var sent = 0
             try {
-                val url = URL("$base/hear?stream=1&token=${URLEncoder.encode(token, "UTF-8")}&started=$startedAt&id=$uid")
+                val url = URL("$base/hear?stream=1&started=$startedAt&id=$uid")
                 val c = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"; doOutput = true; connectTimeout = 4000; readTimeout = 60_000
                     setChunkedStreamingMode(FRAME * 2)
                     setRequestProperty("Content-Type", "application/octet-stream")
+                    auth(this)
                 }
                 c.outputStream.use { out ->
                     while (true) { val b = q.take(); if (b === END) break; out.write(b); sent += b.size }
@@ -245,7 +248,7 @@ class HearingService : Service() {
             var interrupted = false
             try {
                 val f = File(cacheDir, "speak-$id")
-                (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 4000; readTimeout = 30_000 }.let { c ->
+                (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 4000; readTimeout = 30_000; auth(this) }.let { c ->
                     c.inputStream.use { i -> f.outputStream().use { o -> i.copyTo(o) } }; c.disconnect()
                 }
                 stopPlayback = false; bargeInUtterance = null; playing = id

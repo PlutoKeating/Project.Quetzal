@@ -5,11 +5,12 @@
 ```
 lib/
 ├── main.dart          主题、外壳模式（按宽度：手机 / 桌面）、手机外壳（顶部连接状态 + 急停，底部 4 个 Tab）
-├── api.dart           网关客户端：WebSocket RPC、推送事件、断线重连退避、探活、配对、本机登录（网页版）、点火
+├── api.dart           网关客户端：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版）、点火；HTTP 令牌放请求头 X-Quetzal-Token
+├── links.dart         打开外部链接的唯一入口：只放行 https（http 只限本机回环地址）
 ├── igniter.dart       Termux 桥：RUN_COMMAND 执行、三件套检测与版本、打开应用、电池优化 / 自启动管理页（安卓）
 ├── hearing.dart       听觉桥：启停原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing）、权限、服务事件；跟随基座 status.hearing.listening，只对本机的 agent（安卓；网页版只跟着状态显示）
-├── installer.dart     安装器：127.0.0.1 临时 HTTP 服务（提供 assets/install/install.sh 与 assets/runtime/*，接收脚本回报的进度、令牌）、探测 Termux 是否接受指令（安卓）
-├── updater.dart       App 自身的更新（安卓）：先问官网镜像源 `quetzal.plutokeating.beer/api/releases/latest`（资产地址已改写为官网 `/dl/` 镜像，GitHub 连不上的网络也能用），失败退回 GitHub `releases/latest`（正式版；每次打开界面——启动与从后台回来——都问一次，正在检查时不重复）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk` 到缓存目录（进度）→ 核对 SHA256SUMS → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」，新 App 启动后直接进向导升级运行基座
+├── installer.dart     安装器：127.0.0.1 临时 HTTP 服务（每次探测 / 安装一个 128 位口令，连同各文件的 SHA-256 放进 RUN_COMMAND 参数；拒绝没有口令、Host 不对、/progress 非 JSON 的请求；只提供白名单里的 assets/install/install.sh 与 assets/runtime/*，接收脚本回报的进度、令牌；令牌经 /health 与一次带令牌的 RPC 核对才算完成）、探测 Termux 是否接受指令（安卓）
+├── updater.dart       App 自身的更新（安卓）：先问官网镜像源 `quetzal.plutokeating.beer/api/releases/latest`（资产地址已改写为官网 `/dl/` 镜像，GitHub 连不上的网络也能用），失败退回 GitHub `releases/latest`（正式版；每次打开界面——启动与从后台回来——都问一次，正在检查时不重复）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk`（名字须合白名单）到缓存目录（进度）→ 用内置发布公钥核对 SHA256SUMS.sig、按 SHA256SUMS 核对 APK（缺任何一样都拒绝）→ 原生核对 APK 的签名证书与当前 App 一致 → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」，新 App 启动后直接进向导升级运行基座
 ├── widgets.dart       外壳模式（ShellScope）、页面框架（PageFrame：手机是 Scaffold + AppBar，桌面是主区里的一行标题）、面板宽度（PaneWidth）、底部面板 / 对话框（showSheet）、光团、驱动力条、连接状态、急停、离线横幅、分节卡片、提示
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
@@ -29,7 +30,7 @@ lib/
     ├── wake.dart      醒来记录（只读）：WakeView 与手机页；WakeWatch 跟踪进行中的醒来
     ├── flow.dart      心流：FlowFeed（时间线加载与筛选）、手机页（可展开的卡片）、FlowList（桌面列表栏）、FlowDistribution（醒来分布）
     ├── memory.dart    记忆：MemoryCore / JournalList / NotesList / MemorySearch / MarkdownDoc；手机 4 个 Tab，桌面索引在列表栏、内容在主区
-    ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用）、自主性、审批（ApprovalCard，标出在哪具身体上请求的）、授权、预算、审计、保密库、飞书（多具身体时选持有者）、语音、灵魂同步、服务
+    ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用）、自主性、审批（ApprovalCard，标出在哪具身体上请求的）、授权、预算、审计、保密库、飞书（多具身体时选持有者）、语音、灵魂同步、服务（含命令沙箱 status.sandbox，none 时提醒）
     ├── account.dart   账户：控制台登录（码、链接、二维码），之后分四页——概览（agent 与身体、解绑、删除 agent）、批准设备（输入码、核对、批准或拒绝）、控制台登录（吊销）、账户设置（退出、删除账户）
     ├── mesh.dart      多具身体：同步服务地址、设备码绑定（短码、链接、二维码、公钥指纹）、解绑、其他身体的连接（直连 / 中转、往返时间、公钥核对）、心跳在哪、当协调者的优先级
     ├── tools.dart     工具：她自己造的工具（定义、源码、技能文档）与灵魂仓库里的技能文档；停用 / 启用、删除

@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseEntries, joinEntries } from "../../../runtime/src/memory/entries.ts";
+import { shJoin } from "../quote.ts";
 import type { Framework } from "../types.ts";
 
 const BEGIN = "# >>> soul-bridge >>>", END = "# <<< soul-bridge <<<";
@@ -50,14 +51,14 @@ export const hermes: Framework = {
     try { return fs.readFileSync(path.join(home, "SOUL.md"), "utf8").match(/^#\s+(.+)$/m)?.[1].trim(); } catch { return undefined; }
   },
   async installHooks(home, cmd) {
-    const c = cmd.map((x) => (/[\s"']/.test(x) ? `'${x}'` : x)).join(" ");
+    const c = shJoin(cmd); // 写进 YAML 时用 JSON 字符串（合法的 YAML 双引号标量），路径里的引号与反斜杠不会破坏配置
     const block = `${BEGIN}
   post_tool_call:
     - matcher: "^memory$"
-      command: "${c}"
+      command: ${JSON.stringify(c)}
       timeout: 60
   on_session_finalize:
-    - command: "${c}"
+    - command: ${JSON.stringify(c)}
       timeout: 60
 ${END}`;
     preApprove(home, c);
