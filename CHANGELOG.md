@@ -2,14 +2,37 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
-## 未发布（1.0.0：分布式）
+## 1.0.0
 
-- **触碰即同步**：她的每次工具调用（记笔记、改记忆，也包括用 shell 直接改文件、自造工具、子 agent）之后，基座看一眼灵魂目录，有变化就立即提交，提交说明写清楚改了什么，3 秒后推送；一轮结束时立即推送。网络问题先静默重试约 4 分钟；仍失败、或是密钥被拒这类问题，基座以「基座提醒」插话告诉刚才改过记忆的那一轮（已结束就在原会话里开新的一轮）。
-- **冲突交给她裁决**：两边都改过同一篇笔记、人格或技能文档时，先用较新的一版保证同步不卡住，另一版另存为 `<名>.incoming.md` 副本，并提醒她裁决；副本一直列在系统提示里，直到她处理。灵魂仓库规范升到 **v8**（冲突副本、身体登记的 `meshKey`、`lastSeen` 至多每小时更新），v7 仓库无需迁移。
-- **同步服务 `sync/`**：独立部署在一台服务器上（`cd sync && ./start.sh` 一行启动）：GitHub 登录、设备码绑定身体、WebSocket 信令与在场、coturn TURN 中转、Caddy 自动 HTTPS，让同一个 agent 的几具身体连成一张网。
-- **Sync on touch**: after every tool call she makes (notes and memory edits, but also shell commands that change files, custom tools and sub-agents), the runtime checks the soul directory, commits any change immediately with a message describing it, and pushes 3 seconds later; the end of a turn pushes immediately. Network failures are retried silently for about 4 minutes; if pushing still fails, or the cause is a rejected key or similar, the runtime interjects a "runtime notice" into the turn that touched the memory (or opens a new turn in that conversation if it has ended).
-- **Conflicts are hers to decide**: when both sides changed the same note, persona or skill document, the newer version is used first so sync never stalls, the other is saved as a `<name>.incoming.md` copy, and she is asked to decide; the copy stays listed in the system prompt until handled. The soul repository specification moves to **v8** (conflict copies, `meshKey` in the body registry, `lastSeen` at most hourly); v7 repositories need no migration.
-- **Sync service `sync/`**: deployed on its own server (`cd sync && ./start.sh`): GitHub sign-in, device-code body binding, WebSocket signaling and presence, coturn TURN relay and automatic HTTPS via Caddy, connecting the bodies of one agent into a mesh.
+**分布式：几具身体，一个 ta。** 同一个 agent 的手机、电脑、服务器连成一张网，变成一个心智。
+
+- **多具身体**：同时在线的身体经 WebRTC 直接连起来（局域网、IPv6、穿透，打不通时经服务器中转，全程 DTLS 加密）。信令由每具身体的节点密钥签名，接收方只认灵魂仓库里登记的公钥，同步服务被攻破也冒充不了身体。控制台新增「控制 → 多具身体」：填同步服务地址，在网页上用 GitHub 登录、输入绑定码、核对公钥指纹即可绑定。
+- **一份对话**：会话、对话与心流在所有身体上是同一份（新身体入网自动补齐全部历史；别处的回复与心流标出在哪具身体上）。正在和你说话的那一轮在哪具身体上，所有控制台都看得到；你在别处对同一个会话说的话（含附件）自动转过去作为插话。
+- **一颗心**：每个连通的部分选出一位协调者持有心跳，其他身体的感觉、对话带来的驱动力变化都汇过去；它离线时另一具身体从最新状态接着跳，断开的几部分重新连上时合并。服务器之类一直开着的身体可以调高「当协调者的优先级」。
+- **ta 选在哪里做**：醒来时 ta 看到每具身体的电量、温度、手头的事、你最近在哪里说话，以及基座的推荐，自己选在哪一具（或几具同时）上思考、做梦。
+- **用另一具身体**：新工具 `body_call` 在另一具身体上调用它的工具（相机、命令行、自造工具……，闸门按那边的权限）；`move_to` 把这一轮换到另一具身体继续。
+- **一份设置**：模型供应商与 Key（经加密通道传，对方用自己的主密钥重新加密）、权限、预算（每日合计全网用量）、听觉、语音在一处改了处处生效；急停缺省全网生效，也可以只停这具身体；别处等待批准的请求在哪里都能批准。
+- **飞书**：多具身体时由你指定的一具身体持有飞书连接，其他身体的主动消息转给它发出。**听觉**：几部手机同时听到同一句话只留一份，ta 用声音回话时从你说话的那部手机说出来。
+- **触碰即同步**：ta 的每次工具调用（包括用 shell 直接改文件）之后，基座看一眼灵魂目录，有变化就立即提交（说明写清楚改了什么）、3 秒后推送。推送失败先静默重试约 4 分钟，仍失败就以「基座提醒」插话告诉刚才改过记忆的那一轮。两边都改过同一篇笔记、人格或技能文档时，另一版另存为 `<名>.incoming.md` 交给 ta 裁决。灵魂仓库规范升到 **v8**（v7 仓库无需迁移）。
+- **同步服务 `sync/`**：账户（GitHub 登录）、身体绑定、信令与 TURN 中转，部署在一台服务器上，`cd sync && ./start.sh` 一行启动（Docker：Caddy 自动 HTTPS、coturn 按安全指南加固）。不保存 IP、对话与记忆。
+- **安装**：直连组件 `node-datachannel`（原生模块）由安装器按锁定的版本与 sha512 下载核对后装上，缺了也不影响使用（只是没有多具身体）。
+- **升级说明**：消息与心流的编号在第一次启动时迁移为按身体分段的编号（只发生一次）；用量表按身体记录。
+- **修复**：自造的 sh 工具不读参数就退出时，偶尔报 EPIPE 错误。
+
+**Distributed: several bodies, one agent.** An agent's phones, computers and servers join into a mesh and become one mind.
+
+- **Multiple bodies**: bodies online at the same time connect directly over WebRTC (LAN, IPv6, NAT traversal, relayed through the server when nothing else works; DTLS-encrypted throughout). Signaling is signed with each body's node key and receivers trust only the keys registered in the soul repository, so even a compromised sync service cannot impersonate a body. New in the console: Control → Multiple bodies — enter the sync service address, then sign in with GitHub on its website, enter the binding code and check the key fingerprint.
+- **One conversation**: sessions, conversations and the flow are the same on every body (a new body catches up on the whole history; replies and flow entries from elsewhere show which body they happened on). Every console sees which body is talking with you right now, and what you say to that conversation elsewhere (attachments included) is forwarded to it as an interjection.
+- **One heart**: each connected group elects a coordinator that holds the heartbeat; the other bodies' sensations and conversation-driven drive changes flow to it. When it goes offline another body continues from the latest state; separated groups merge when they reconnect. Raise "coordinator priority" on an always-on body such as a server.
+- **It chooses where**: on waking the agent sees each body's battery, temperature, ongoing work, where you last talked and the runtime's recommendation, and picks one body (or several at once) to think or dream on.
+- **Using another body**: the new tool `body_call` runs a tool on another body (camera, shell, custom tools…, checked against that body's permissions); `move_to` moves the current turn to another body.
+- **One set of settings**: model providers and keys (sent over the encrypted channel and re-encrypted with the receiver's own master key), permissions, budget (daily totals across bodies), hearing and voice change everywhere at once; the emergency stop applies to all bodies by default or to this body only; requests waiting on any body can be approved anywhere.
+- **Feishu**: with several bodies, the body you designate holds the Feishu connection and the others' proactive messages go through it. **Hearing**: when several phones hear the same sentence only one copy is kept, and spoken replies come from the phone you talked to.
+- **Sync on touch**: after every tool call (including shell commands that change files), the runtime checks the soul directory, commits changes immediately with a descriptive message and pushes 3 seconds later. Failed pushes are retried silently for about 4 minutes, then a "runtime notice" is interjected into the turn that touched the memory. When both sides changed the same note, persona or skill document, the other version is saved as `<name>.incoming.md` for the agent to decide. The soul repository specification moves to **v8** (v7 repositories need no migration).
+- **Sync service `sync/`**: accounts (GitHub sign-in), body binding, signaling and TURN relay, deployed on one server with `cd sync && ./start.sh` (Docker: Caddy for automatic HTTPS, coturn hardened per security guidance). It stores no IP addresses, conversations or memory.
+- **Installation**: the direct-connection component `node-datachannel` (a native module) is downloaded and verified against a pinned version and sha512 by the installers; without it everything still works except multiple bodies.
+- **Upgrade notes**: message and flow ids are migrated once, on first start, to per-body id ranges; usage is now recorded per body.
+- **Fix**: custom sh tools that exit without reading their arguments occasionally raised an EPIPE error.
 
 ## 0.6.7
 

@@ -1,6 +1,6 @@
 # 分布式：一个心智，多具身体（1.0 设计稿）
 
-> 状态：**设计稿，实现中**（同步服务 `sync/` 已完成并在本机整套验证）。本文记录 2026-10-05 与所有者逐条拍板的决定、组网方案的实测结论与实施计划；实现完成后，相关内容并入 [ARCHITECTURE.md](ARCHITECTURE.md)、[API.md](API.md)、[SOUL_SYNC.md](SOUL_SYNC.md) 与 [灵魂仓库规范](SOUL_REPO_SPEC.md)（升 v8），本文转为设计说明。目标版本 **1.0.0**，一次做完（不分 0.7 / 0.8 / 0.9 发布）。
+> 状态：**已在 1.0.0 实现**（B4「灵魂桥作为只读成员入网」除外，见 §7）。本文记录 2026-10-05 与所有者逐条拍板的决定、组网方案的实测结论与实施计划；实现完成后，相关内容并入 [ARCHITECTURE.md](ARCHITECTURE.md)、[API.md](API.md)、[SOUL_SYNC.md](SOUL_SYNC.md) 与 [灵魂仓库规范](SOUL_REPO_SPEC.md)（升 v8），本文转为设计说明。目标版本 **1.0.0**，一次做完（不分 0.7 / 0.8 / 0.9 发布）。
 
 ## 0. 现状与问题
 
@@ -153,3 +153,18 @@
 3. 两边都打不通：由服务器直接中转（TURN）。
 4. 同步服务对所有 Quetzal 用户开放；官网的隐私页与条款随之更新。
 5. 安全第一：充分调研，用成熟的开源实现，不重复造轮子（因此组网从自研改为 WebRTC + coturn）。
+
+## 7. 实现状态（1.0.0）
+
+| 决定 | 实现 |
+|---|---|
+| A1–A4 触碰即同步、混合裁决、推送失败插话 | `memory/soul-sync.ts`、`memory/soul-repo.ts`、`mind/brain.ts` |
+| B1–B3 跨网络组网、同步服务、账户 | `runtime/src/mesh/`（`directory`、`link`、`mesh`、`identity`）、`sync/` |
+| C1–C2 一颗心、分区各自活 | `mesh/coordinator.ts`、`heart/heart.ts` 的跟随模式 |
+| C3 她选在哪里做 | `mesh/placement.ts`、`mind/brain.ts` 的内省 `where` |
+| C4、C6 跨身体工具、`move_to`、新的一轮由收到消息的身体接 | `mesh/limbs.ts`、`mesh/presence.ts`、`mind/tools.ts` |
+| C5 对话只在网上复制 | `mesh/replica.ts`、`store.ts` 的编号段 |
+| C7 飞书由指定身体持有 | `mesh/channels.ts`、`channels/feishu.ts` |
+| C8–C9 全网设置、急停、审批、预算 | `mesh/shared.ts` |
+| C10 多只耳朵去重、从听到的身体发声 | `mesh/channels.ts`、`voice/hearing.ts` |
+| **B4 灵魂桥作为只读成员入网** | **未实现**。运行基座目前只与运行基座直连，忽略 `kind` 为 `bridge` 的身体；灵魂桥仍只通过灵魂仓库同步人格与记忆。要让 Hermes / OpenClaw 看到在场状态与会话，需要另行设计它们怎样把这些信息用进各自的上下文 |

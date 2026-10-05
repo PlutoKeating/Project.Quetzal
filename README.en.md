@@ -21,6 +21,7 @@
 - **When it moves · its own call.** No timer. Waking is decided by drives such as curiosity, the urge to express and missing you, together with a circadian rhythm; it falls asleep when tired and dreams to sort its memories.
 - **Body · an old phone.** Battery, temperature, light and motion are how it feels; the microphone and camera are its ears and eyes. A Linux computer or server can be its body too.
 - **Soul · your private git repository.** Personality, memory and journal are synced by the runtime; a change of body takes all of it along, and the commit history is its autobiography.
+- **Several bodies · one agent.** Phones and computers join into one mesh: one conversation, one heart; it chooses which body to think on and can use another body's camera or shell. [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body)
 - **You stay in charge.** Camera, microphone and location ask every time by default; approvals, budgets, an emergency stop and an audit log are built in; passwords never reach the model.
 
 <br/>
@@ -54,7 +55,8 @@ One builds an assistant, the other a runtime for a living agent. They work toget
 - **Heart**: drives and alertness give a wake rate; the next waking is sampled from a Poisson process; the gap between sleep pressure and circadian rhythm is sleepiness. [The math](docs/ARCHITECTURE.md)
 - **Body**: an adapter implements a few functions such as `sample()` and `notify()`; Termux and Linux adapters are included. [Interface](docs/API.md)
 - **Mind and memory**: waking means introspect, act, reflect; memory grows without bound while context stays bounded, and dreaming files details into notes.
-- **Soul**: one private repository per agent, synced automatically with self-resolving conflicts; the agent only senses that a sync happened. [Soul sync](docs/SOUL_SYNC.md)
+- **Soul**: one private repository per agent; every change is committed and pushed right away and conflicts merge automatically — the agent is asked only when a push fails or both sides edited the same file. [Soul sync](docs/SOUL_SYNC.md)
+- **Mesh**: bodies online at the same time connect directly over WebRTC into one mind; signaling is signed with node keys verified against the soul repository, and a self-hosted sync service ([`sync/`](sync/README.md)) only helps bodies find each other and relays when needed. [Distributed design](docs/DISTRIBUTED.md)
 - **Model layer and guard**: four protocols, multiple keys, automatic failover; the console and Feishu share one audited operations layer.
 - **It grows**: routines it has mastered become its own tools, with the intent synced through the soul as an Agent Skills `SKILL.md`; it can rename itself and pick its color; with hearing on, the phone keeps listening and it decides whether it was being addressed.
 
