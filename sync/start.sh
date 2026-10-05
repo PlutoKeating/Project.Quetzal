@@ -10,6 +10,7 @@
 #
 # 依赖只有 Docker 与 Docker Compose 插件（≥ 2.23.1）；没有时询问后用 Docker 官方脚本安装。
 # 幂等：重复运行只会补齐缺的部分。数据都在本目录的 data/ 里（不入库）。
+# 对外方式（.env 的 SYNC_FRONT）：caddy（默认，本机 80 / 443）或 tunnel（交给已有的反向隧道，见 compose.tunnel.yaml）。
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
@@ -114,8 +115,38 @@ configure() {
   [[ $domain =~ ^[A-Za-z0-9.-]+$ ]] || die "$(t "SYNC_DOMAIN 不是合法的域名：$domain" "SYNC_DOMAIN is not a valid domain: $domain")"
   ok "$(t '域名' 'Domain') ${B}$domain${R}"
 
-  # DNS 指向检查（只提醒，不阻止：可能用了 CDN 或 IPv6）
-  if [[ $domain != localhost ]] && have getent; then
+  # 对外方式：写好 COMPOSE_FILE / COMPOSE_PROFILES，之后手动运行 docker compose 也是同一套服务
+  FRONT=$(envget SYNC_FRONT); FRONT=${FRONT:-caddy}
+  [[ $FRONT == caddy || $FRONT == tunnel ]] || die "$(t "SYNC_FRONT 只能是 caddy 或 tunnel：$FRONT" "SYNC_FRONT must be caddy or tunnel: $FRONT")"
+  envset SYNC_FRONT "$FRONT"
+  LOCAL_PORT=$(envget SYNC_LOCAL_PORT); LOCAL_PORT=${LOCAL_PORT:-8788}
+  [[ $LOCAL_PORT =~ ^[0-9]+$ ]] && (( LOCAL_PORT > 0 && LOCAL_PORT < 65536 )) || die "$(t "SYNC_LOCAL_PORT 不是合法的端口：$LOCAL_PORT" "SYNC_LOCAL_PORT is not a valid port: $LOCAL_PORT")"
+  if [[ $FRONT == tunnel ]]; then
+    envset COMPOSE_FILE "compose.yaml:compose.tunnel.yaml"; envset COMPOSE_PROFILES ""
+    ok "$(t "对外方式：隧道（同步服务只监听 127.0.0.1:$LOCAL_PORT，不用 80 / 443）" "Front: tunnel (the sync service listens on 127.0.0.1:$LOCAL_PORT only; ports 80/443 unused)")"
+  else
+    envset COMPOSE_FILE "compose.yaml"; envset COMPOSE_PROFILES "caddy"
+    ok "$(t '对外方式：Caddy（本机 80 / 443，自动 HTTPS）' 'Front: Caddy (ports 80/443 on this server, automatic HTTPS)')"
+  fi
+
+  # STUN / TURN 的主机名：隧道模式下必须单独指定一个直连本机的（隧道只转发 HTTP）
+  local turn_host; turn_host=$(envget TURN_HOST)
+  if [[ $FRONT == tunnel && -z $turn_host ]]; then
+    say "  $(t 'STUN / TURN 不经隧道，需要一个直连本机的主机名（DNS 记录指向本机、不开代理），也可以直接用公网 IP：' 'STUN / TURN do not go through the tunnel; give a host name that points straight at this server (DNS only, no proxy), or the public IP:')"
+    turn_host=$(ask "TURN_HOST" "$(public_ip)")
+    [[ -n $turn_host ]] || die "$(t '隧道模式需要 TURN_HOST。' 'Tunnel mode needs TURN_HOST.')"
+    envset TURN_HOST "$turn_host"
+  fi
+  [[ -z $turn_host || $turn_host =~ ^[A-Za-z0-9.:-]+$ ]] || die "$(t "TURN_HOST 不合法：$turn_host" "TURN_HOST is invalid: $turn_host")"
+  TURN_NAME=${turn_host:-$domain}
+  if [[ -n $turn_host && ! $turn_host =~ ^[0-9.:]+$ ]] && have getent; then
+    local tr ip; tr=$(getent ahostsv4 "$turn_host" 2>/dev/null | awk 'NR==1{print $1}'); ip=$(public_ip)
+    if [[ -z $tr ]]; then warn "$(t "$turn_host 还没有解析记录：加一条 A 记录指向本机（不开代理）。" "$turn_host does not resolve yet: add an A record pointing here (no proxy).")"
+    elif [[ -n $ip && $tr != "$ip" ]]; then warn "$(t "$turn_host 解析到的不是本机的公网地址（开了 CDN 代理？STUN / TURN 必须直连）。" "$turn_host does not resolve to this server's public IP (CDN proxy on? STUN / TURN must connect directly).")"; fi
+  fi
+
+  # DNS 指向检查（只提醒，不阻止：可能用了 CDN 或 IPv6）；隧道模式下域名本来就指向隧道
+  if [[ $FRONT == caddy && $domain != localhost ]] && have getent; then
     local resolved ip; resolved=$(getent ahostsv4 "$domain" 2>/dev/null | awk 'NR==1{print $1}'); ip=$(public_ip)
     if [[ -z $resolved ]]; then warn "$(t "$domain 还没有解析记录：证书会申请失败。先在 DNS 里加一条 A 记录指向本机。" "$domain does not resolve yet; the certificate request will fail. Add an A record pointing here.")"
     elif [[ -n $ip && $resolved != "$ip" ]]; then warn "$(t "$domain 解析到的地址与本机的公网地址不同（如果用了 CDN，请对这个域名关闭代理：TURN 与 WebSocket 需要直连）。" "$domain resolves to a different address than this server's public IP (if it is behind a CDN proxy, disable proxying for it: TURN and WebSockets need a direct connection).")"; fi
@@ -140,23 +171,25 @@ configure() {
 open_firewall() {
   local lo hi; lo=$(envget TURN_MIN_PORT); hi=$(envget TURN_MAX_PORT); lo=${lo:-49160}; hi=${hi:-49250}
   local root=(); [[ $EUID -eq 0 ]] || { have sudo || return 0; root=(sudo -n); }
+  local web=(80/tcp 443/tcp 443/udp); [[ $FRONT == tunnel ]] && web=()
   if have ufw && "${root[@]}" ufw status 2>/dev/null | grep -q "Status: active"; then
-    for r in 80/tcp 443/tcp 443/udp 3478/tcp 3478/udp "$lo:$hi/udp"; do "${root[@]}" ufw allow "$r" >/dev/null 2>&1 || true; done
+    for r in "${web[@]}" 3478/tcp 3478/udp "$lo:$hi/udp"; do "${root[@]}" ufw allow "$r" >/dev/null 2>&1 || true; done
     ok "$(t 'ufw 已放行所需端口' 'ufw: required ports opened')"
   elif have firewall-cmd && "${root[@]}" firewall-cmd --state >/dev/null 2>&1; then
-    for r in 80/tcp 443/tcp 443/udp 3478/tcp 3478/udp "$lo-$hi/udp"; do "${root[@]}" firewall-cmd --permanent --add-port="$r" >/dev/null 2>&1 || true; done
+    for r in "${web[@]}" 3478/tcp 3478/udp "$lo-$hi/udp"; do "${root[@]}" firewall-cmd --permanent --add-port="$r" >/dev/null 2>&1 || true; done
     "${root[@]}" firewall-cmd --reload >/dev/null 2>&1 || true
     ok "$(t 'firewalld 已放行所需端口' 'firewalld: required ports opened')"
   fi
-  PORTS_NOTE="TCP 80, 443 · UDP 443, 3478, $lo-$hi · TCP 3478"
+  if [[ $FRONT == tunnel ]]; then PORTS_NOTE="UDP 3478, $lo-$hi · TCP 3478"; else PORTS_NOTE="TCP 80, 443 · UDP 443, 3478, $lo-$hi · TCP 3478"; fi
 }
 
-ports_busy() { # 80 / 443 / 3478 被别的程序占用时提醒
+ports_busy() { # 需要的端口被别的程序占用时提醒（caddy 模式 80 / 443 / 3478；隧道模式 3478 与本机端口）
   have ss || return 0
-  local busy; busy=$(ss -Hltnup 2>/dev/null | awk '{print $5}' | grep -E '[:.](80|443|3478)$' || true)
+  local want='80|443|3478'; [[ $FRONT == tunnel ]] && want="3478|$LOCAL_PORT"
+  local busy; busy=$(ss -Hltnup 2>/dev/null | awk '{print $5}' | grep -E "[:.]($want)\$" || true)
   [[ -z $busy ]] && return 0
   dc ps --quiet 2>/dev/null | grep -q . && return 0 # 是我们自己的容器
-  warn "$(t "这些端口已被占用（可能有 nginx / apache）：$(echo "$busy" | tr '\n' ' ')。同步服务需要 80、443 与 3478。" "These ports are in use (nginx / apache?): $(echo "$busy" | tr '\n' ' '). The sync service needs 80, 443 and 3478.")"
+  warn "$(t "这些端口已被占用：$(echo "$busy" | tr '\n' ' ')。同步服务需要它们（${want//|/、}）。" "These ports are in use: $(echo "$busy" | tr '\n' ' '). The sync service needs them (${want//|/, }).")"
 }
 
 prepare_data() {
@@ -182,6 +215,12 @@ wait_healthy() {
   [[ $st == healthy ]] || { dc logs --tail 30 sync; die "$(t '同步服务没有在 2 分钟内就绪，见上面的日志。' 'The sync service did not become healthy within 2 minutes; see the logs above.')"; }
   ok "$(t '同步服务就绪' 'Sync service healthy')"
   [[ $domain == localhost ]] && return 0
+  if [[ $FRONT == tunnel ]]; then
+    curl -fsS --max-time 5 "http://127.0.0.1:$LOCAL_PORT/v1/health" >/dev/null 2>&1 && ok "$(t "本机端口可用：http://127.0.0.1:$LOCAL_PORT" "Local port is up: http://127.0.0.1:$LOCAL_PORT")" || warn "$(t "本机端口 127.0.0.1:$LOCAL_PORT 连不上" "Local port 127.0.0.1:$LOCAL_PORT is unreachable")"
+    if curl -fsS --max-time 8 "https://$domain/v1/health" >/dev/null 2>&1; then ok "$(t "HTTPS 可用：https://$domain" "HTTPS is up: https://$domain")"
+    else warn "$(t "还连不上 https://$domain ：在隧道里加一条 public hostname，$domain → http://localhost:$LOCAL_PORT。" "https://$domain is not reachable yet: add a public hostname to your tunnel, $domain → http://localhost:$LOCAL_PORT.")"; fi
+    return 0
+  fi
   for _ in $(seq 1 45); do
     if curl -fsS --max-time 5 "https://$domain/v1/health" >/dev/null 2>&1; then ok "$(t "HTTPS 可用：https://$domain" "HTTPS is up: https://$domain")"; return 0; fi
     sleep 2
@@ -198,12 +237,17 @@ up() {
   step "$(t '构建并启动（第一次需要下载镜像，可能要几分钟）' 'Building and starting (the first run downloads images; this can take a few minutes)')"
   dc build --pull sync
   prepare_data
-  dc up -d --remove-orphans --force-recreate coturn caddy sync # coturn 的配置内联在 compose 里，改了 .env 必须重建才生效
+  if [[ $FRONT == tunnel ]]; then
+    dc rm -sf caddy >/dev/null 2>&1 || true # 从 caddy 模式换过来时停掉它，让出 80 / 443
+    dc up -d --remove-orphans --force-recreate coturn sync # coturn 的配置内联在 compose 里，改了 .env 必须重建才生效
+  else
+    dc up -d --remove-orphans --force-recreate coturn caddy sync
+  fi
   wait_healthy
   local domain; domain=$(envget SYNC_DOMAIN)
   say ""
   say "  ${B}https://$domain${R}  $(t '账户与绑定' 'accounts and binding')"
-  say "  ${B}turn:$domain:3478${R}  STUN / TURN"
+  say "  ${B}turn:$TURN_NAME:3478${R}  STUN / TURN"
   say "  $(t '云服务器请在安全组里放行：' 'On a cloud server, allow in the security group:') $PORTS_NOTE"
   say "  $(t "在身体的控制台里把同步服务地址设为 https://$domain 即可绑定。" "Set the sync server to https://$domain in each body's console to bind it.")"
   say ""
@@ -213,6 +257,7 @@ case "${1:-up}" in
   up|start) up ;;
   status)
     ensure_docker; dc ps; domain=$(envget SYNC_DOMAIN)
+    if [[ $(envget SYNC_FRONT) == tunnel ]]; then p=$(envget SYNC_LOCAL_PORT); curl -fsS --max-time 5 "http://127.0.0.1:${p:-8788}/v1/health" && echo || warn "127.0.0.1:${p:-8788} $(t '不可达' 'unreachable')"; fi
     if curl -fsS --max-time 5 "https://$domain/v1/health"; then echo; else warn "https://$domain/v1/health $(t '不可达' 'unreachable')"; fi ;;
   logs) ensure_docker; shift || true; dc logs -f --tail 100 "$@" ;;
   restart) ensure_docker; dc restart ;;

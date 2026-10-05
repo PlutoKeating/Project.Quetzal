@@ -27,11 +27,26 @@ cd Project.Quetzal/sync
 | 启动 | 构建同步服务镜像，`data/` 交给容器用户，`docker compose up -d` |
 | 检查 | 等同步服务健康，再等 `https://<域名>/v1/health` 可用（证书第一次申请需要几十秒） |
 
+### 2.1 隧道模式（不用 80 / 443）
+
+80 / 443 被别的服务占着，或者服务器在中国大陆机房而域名没有备案（未备案的域名在 80 / 443 上会被机房拦截，证书也申请不下来）时，把网页与信令交给服务器上已有的反向隧道，STUN / TURN 仍然直连：
+
+1. `.env` 里设 `SYNC_FRONT=tunnel`，`SYNC_LOCAL_PORT`（默认 8788，同步服务只监听 `127.0.0.1` 上的这个端口），`TURN_HOST`（一个**直连本机**的主机名或公网 IP；用主机名时 DNS 记录指向本机、**不开代理**）。
+2. 在隧道里加一条 public hostname：`<SYNC_DOMAIN>` → `http://localhost:<SYNC_LOCAL_PORT>`（Cloudflare：Zero Trust → Networks → Tunnels → 你的隧道 → Public Hostname）。证书由隧道那一端提供；用二级以下的子域名（如 `sync.a.example.com`）时，确认边缘证书覆盖它。
+3. 运行 `./start.sh`：只启动 `sync` 与 `coturn`，`.env` 里自动写好 `COMPOSE_FILE=compose.yaml:compose.tunnel.yaml` 与空的 `COMPOSE_PROFILES`（手动运行 `docker compose` 时也是同一套服务）；从 caddy 模式换过来时会停掉 Caddy。
+4. 安全组只需放行 TCP 3478、UDP 3478 与中转端口段。
+
+客户端地址（只用于内存里的限流）取 `X-Forwarded-For` 最右一项：隧道把它设为访客的地址；同步服务只监听回环地址，别人绕不过隧道直接连。
+
 ## 3. 配置（`.env`）
 
 | 键 | 说明 |
 |---|---|
 | `SYNC_DOMAIN` | 必填，域名 |
+| `SYNC_FRONT` | `caddy`（默认，本机 80 / 443，自动 HTTPS）或 `tunnel`（见 §2.1） |
+| `SYNC_LOCAL_PORT` | 隧道模式下同步服务在 `127.0.0.1` 上的端口，默认 8788 |
+| `TURN_HOST` | STUN / TURN 的主机名或 IP，写进发给身体的 `turn:` / `stun:` 地址；留空与 `SYNC_DOMAIN` 相同。隧道模式或域名开了 CDN 代理时必填，必须直连本机 |
+| `COMPOSE_FILE` / `COMPOSE_PROFILES` | 由 `start.sh` 按 `SYNC_FRONT` 写入，不用手改 |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub 登录；不填则网页不能登录、身体不能绑定 |
 | `TURN_SECRET` | 自动生成；同步服务与 coturn 共用，用来签发有时效的 TURN 凭据 |
 | `TURN_MIN_PORT` / `TURN_MAX_PORT` | TURN 中转端口段，默认 49160–49250 |

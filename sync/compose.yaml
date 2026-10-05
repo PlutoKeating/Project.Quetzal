@@ -1,8 +1,8 @@
 # Quetzal 同步服务：三个容器。
-#   sync   账户、身体绑定、信令（只在内部网络，经 Caddy 对外）
-#   caddy  HTTPS 终止与证书自动续期（80 / 443）
+#   sync   账户、身体绑定、信令（只在内部网络，经 Caddy 对外；隧道模式下只发布到本机 127.0.0.1，由已有的 Cloudflare Tunnel 等转发，见 compose.tunnel.yaml）
+#   caddy  HTTPS 终止与证书自动续期（80 / 443；profile caddy，隧道模式不启动）
 #   coturn STUN 与 TURN 中转（3478 + 中转端口段；用宿主网络，Docker 处理大端口段很慢）
-# 变量来自同目录的 .env（start.sh 生成）。需要 Docker Compose ≥ 2.23.1（configs.content）。
+# 变量来自同目录的 .env（start.sh 生成，并按 SYNC_FRONT 写好 COMPOSE_FILE 与 COMPOSE_PROFILES，手动运行 docker compose 时也一致）。需要 Docker Compose ≥ 2.23.1（configs.content）。
 name: quetzal-sync
 
 services:
@@ -21,6 +21,7 @@ services:
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       TURN_SECRET: ${TURN_SECRET:?请运行 ./start.sh 生成 TURN_SECRET}
+      TURN_HOST: ${TURN_HOST:-}
       SYNC_MAX_AGENTS_PER_USER: ${SYNC_MAX_AGENTS_PER_USER:-20}
       SYNC_MAX_BODIES_PER_AGENT: ${SYNC_MAX_BODIES_PER_AGENT:-16}
     volumes:
@@ -36,6 +37,7 @@ services:
 
   caddy:
     image: ${CADDY_IMAGE:-caddy:2.11.6-alpine}
+    profiles: [caddy]
     restart: unless-stopped
     depends_on: [sync]
     environment:

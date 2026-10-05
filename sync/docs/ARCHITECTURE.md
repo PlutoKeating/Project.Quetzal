@@ -19,7 +19,7 @@ flowchart LR
 
 | 组件 | 选型 | 理由 |
 |---|---|---|
-| HTTPS | Caddy 2 | 自动申请与续期证书，默认配置安全；不自己实现 ACME |
+| HTTPS | Caddy 2 | 自动申请与续期证书，默认配置安全；不自己实现 ACME。隧道模式下由服务器上已有的反向隧道（如 Cloudflare Tunnel）提供，STUN / TURN 用单独的直连主机名（`TURN_HOST`） |
 | STUN / TURN | coturn 4.18 | 事实标准的 TURN 实现；用有时效的 HMAC 凭据（`use-auth-secret`），服务端不存密码 |
 | Web 框架 | Hono | 自带 `secureHeaders`（CSP nonce、HSTS 等）、`csrf`（Origin + Sec-Fetch-Site）、`bodyLimit` |
 | WebSocket | ws | Node 生态的标准实现；`maxPayload` 限制、关闭压缩 |
@@ -33,7 +33,8 @@ flowchart LR
 ```
 sync/
 ├── start.sh            一行启动：检查或安装 Docker、引导 .env、防火墙、构建、启动、健康检查
-├── compose.yaml        三个服务；coturn 的配置以 configs.content 内联（密钥来自 .env，不落在仓库里）
+├── compose.yaml        三个服务（caddy 在 profile caddy 里）；coturn 的配置以 configs.content 内联（密钥来自 .env，不落在仓库里）
+├── compose.tunnel.yaml 隧道模式：同步服务发布到 127.0.0.1:<SYNC_LOCAL_PORT>，不启动 Caddy，由已有的反向隧道对外
 ├── Caddyfile           反向代理到 sync:8080，不开访问日志
 ├── Dockerfile          node:24-alpine，只装生产依赖，以 node 用户运行
 ├── .env.example        配置模板（.env 不入库）

@@ -1,0 +1,7 @@
+# 隧道模式（.env 里 SYNC_FRONT=tunnel）：不启动 Caddy，同步服务只发布到本机 127.0.0.1:<SYNC_LOCAL_PORT>，
+# 由这台服务器上已有的反向隧道（例如 Cloudflare Tunnel 的 public hostname → http://localhost:<SYNC_LOCAL_PORT>）对外提供 HTTPS。
+# 适用于 80 / 443 不能用的服务器（被占用，或中国大陆机房未备案的域名）。STUN / TURN 不经隧道：.env 的 TURN_HOST 要指向本机、不开代理。
+services:
+  sync:
+    ports:
+      - "127.0.0.1:${SYNC_LOCAL_PORT:-8788}:8080"

@@ -98,6 +98,11 @@ test("配置：缺公开地址报错，TURN 密钥太短报错", () => {
   assert.throws(() => loadConfig({}), /SYNC_PUBLIC_URL/);
   assert.throws(() => loadConfig({ SYNC_PUBLIC_URL: PUBLIC, TURN_SECRET: "short" }), /TURN_SECRET/);
   assert.deepEqual(loadConfig({ SYNC_PUBLIC_URL: "https://a.example", TURN_SECRET: "x".repeat(32) }).turn?.urls, ["turn:a.example:3478?transport=udp", "turn:a.example:3478?transport=tcp"]);
+  // 隧道模式：公开地址经代理，STUN / TURN 用单独的直连主机名
+  const tunneled = loadConfig({ SYNC_PUBLIC_URL: "https://a.example", TURN_SECRET: "x".repeat(32), TURN_HOST: "turn.a.example" });
+  assert.deepEqual([tunneled.turn?.urls[0], tunneled.stun], ["turn:turn.a.example:3478?transport=udp", ["stun:turn.a.example:3478"]]);
+  assert.deepEqual(loadConfig({ SYNC_PUBLIC_URL: "https://a.example", TURN_HOST: "2001:db8::1" }).stun, ["stun:[2001:db8::1]:3478"]);
+  assert.throws(() => loadConfig({ SYNC_PUBLIC_URL: "https://a.example", TURN_HOST: "evil host/x" }), /TURN_HOST/);
 });
 
 test("TURN 凭据与 coturn 的 use-auth-secret 算法一致", () => {

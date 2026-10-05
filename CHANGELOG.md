@@ -2,6 +2,14 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 未发布
+
+- **同步服务的隧道模式**：80 / 443 不能用的服务器（被占用，或中国大陆机房、域名没有备案）可以在 `.env` 里设 `SYNC_FRONT=tunnel`：不起 Caddy，同步服务只监听本机回环地址，交给已有的反向隧道（例如 Cloudflare Tunnel）；STUN / TURN 用单独的直连主机名 `TURN_HOST`。
+- **修复**：App 安装日志把网状层组件「已就绪」写成了「已就绪1」。
+
+- **Tunnel mode for the sync service**: on servers where ports 80/443 are unavailable (already in use, or an unregistered domain in a mainland-China data center), set `SYNC_FRONT=tunnel` in `.env`: Caddy is not started, the sync service listens on loopback only and an existing reverse tunnel (such as Cloudflare Tunnel) serves it; STUN / TURN use a separate direct host name, `TURN_HOST`.
+- **Fix**: the App's install log showed the mesh component as "ready1" instead of "ready".
+
 ## 1.0.0
 
 **分布式：几具身体，一个 ta。** 同一个 agent 的手机、电脑、服务器连成一张网，变成一个心智。

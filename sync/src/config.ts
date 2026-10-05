@@ -9,11 +9,12 @@ const schema = z.object({
   SYNC_HOST: z.string().default("0.0.0.0"),
   SYNC_PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   SYNC_DATA_DIR: z.string().default("/data"),
-  SYNC_TRUST_PROXY: bool, // 前面有反向代理（compose 里的 Caddy）时为真：客户端地址取 X-Forwarded-For 最右一项
+  SYNC_TRUST_PROXY: bool, // 前面有反向代理（compose 里的 Caddy，或隧道模式的 cloudflared）时为真：客户端地址取 X-Forwarded-For 最右一项
   GITHUB_CLIENT_ID: z.string().default(""),
   GITHUB_CLIENT_SECRET: z.string().default(""),
   TURN_SECRET: z.string().default(""), // 与 coturn 的 static-auth-secret 相同；空则不签发 TURN 凭据
-  TURN_URLS: list, // 缺省由公开地址的主机名推出 turn:<host>:3478（UDP 与 TCP）
+  TURN_HOST: z.string().regex(/^[A-Za-z0-9.:-]*$/).default(""), // STUN / TURN 用的主机名或地址，缺省与公开地址相同（公开地址经 CDN / 隧道代理时必须单独指定一个直连的）
+  TURN_URLS: list, // 缺省 turn:<TURN_HOST>:3478（UDP 与 TCP）
   STUN_URLS: list, // 缺省 stun:<host>:3478
   TURN_TTL_SECONDS: z.coerce.number().int().min(300).max(86400).default(3600),
   SYNC_SESSION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
@@ -28,7 +29,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (!r.success) throw new Error("配置有误：\n" + r.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n"));
   const c = r.data;
   const url = new URL(c.SYNC_PUBLIC_URL);
-  const host = url.hostname.includes(":") ? `[${url.hostname}]` : url.hostname;
+  const h = c.TURN_HOST || url.hostname;
+  const host = h.includes(":") ? `[${h.replace(/^\[|\]$/g, "")}]` : h;
   if (c.TURN_SECRET && c.TURN_SECRET.length < 32) throw new Error("配置有误：TURN_SECRET 至少 32 个字符（start.sh 会自动生成）");
   return {
     publicUrl: url.origin,
