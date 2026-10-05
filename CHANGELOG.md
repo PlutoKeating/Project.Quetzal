@@ -2,6 +2,22 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.0.4
+
+**所有网络传输都加密；命令沙箱覆盖到每一台 Linux。**
+
+- **局域网也加密**：运行基座在局域网上只提供 HTTPS / WSS（端口 7789，自签名证书），本机回环之外不再有明文 HTTP。手机 App 配对时不再把配对码发上网络：用配对码和看到的证书指纹算出一个证明（PBKDF2）交给运行基座核对，中间人既拿不到配对码也冒充不了证书；配对后 App 只认这张证书（包括图片、上传与听觉）。旧版 App 存的 `http://局域网地址` 会提示重新配对。
+- **命令沙箱**：Linux 上依次用 bubblewrap → Landlock（landrun）→ proot。Ubuntu 23.10 起 AppArmor 默认限制非特权用户命名空间，安装脚本会给 Quetzal 装一份专用的 bubblewrap 与只属于它的 AppArmor 配置（沙箱里启动的程序拿不到任何能力），不改系统的 bubblewrap、不关这项保护。每种沙箱第一次使用前都用探针文件验证密钥确实看不到。
+- **没有沙箱就不执行**：一种沙箱都没有时，ta 的命令缺省一律不执行（以前是不隔离照常执行）；确实需要时可以在控制台「服务」页明确允许不隔离运行。
+- 新增发布资产 `quetzal-<版本>-landrun-linux-<x64|arm64>.tar.gz`（第三方 landrun，MIT，附许可证），纳入签名的 `SHA256SUMS`。
+
+**Every network transport is encrypted; the command sandbox now covers every Linux machine.**
+
+- **The LAN is encrypted too**: on the LAN the runtime serves only HTTPS / WSS (port 7789, self-signed certificate); there is no plain HTTP beyond loopback any more. Pairing the phone app no longer sends the pairing code over the network: the app derives a proof (PBKDF2) from the code and the certificate fingerprint it sees, which the runtime checks, so a man in the middle neither learns the code nor can pose as the certificate; after pairing the app trusts only that certificate (including images, uploads and hearing). Connections saved by older apps as `http://<LAN address>` prompt to pair again.
+- **Command sandbox**: on Linux bubblewrap → Landlock (landrun) → proot. Ubuntu 23.10 and later restrict unprivileged user namespaces with AppArmor by default; the install script installs a Quetzal-only copy of bubblewrap with its own AppArmor profile (programs started inside the sandbox get no capabilities), leaving the system bubblewrap and the protection alone. Every sandbox is verified with a canary file before first use.
+- **No sandbox, no commands**: when no sandbox is available her commands are refused by default (previously they ran unsandboxed); you can explicitly allow unsandboxed commands on the console's Service page if you really need to.
+- New release assets `quetzal-<version>-landrun-linux-<x64|arm64>.tar.gz` (third-party landrun, MIT, license included), covered by the signed `SHA256SUMS`.
+
 ## 1.0.3
 
 **安全加固：一次全面审计后的修复。** 身体之间的协议升到 v2，同一个 agent 的身体要一起升级到 1.0.3 才能互相连上。（1.0.2 的发版构建没有通过、没有发布，它的内容都在这个版本里。）
