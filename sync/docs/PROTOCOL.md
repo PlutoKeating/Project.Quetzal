@@ -94,10 +94,10 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
 服务端不参与这一层，这里只是约定：
 
 - 两具身体用 WebRTC 建立连接：ICE 负责穿透（局域网、IPv6、STUN 反射地址，打不通时由 TURN 中转），DTLS 负责加密，SCTP 数据通道负责可靠有序传输。运行基座用 `node-datachannel`（libdatachannel）。
-- **信令内容由身体签名**：`signal.data` 携带 `{sdp | candidate, from, to, ts, nonce, sig}`，`sig` 是发送方节点私钥对规范化 JSON（不含 `sig`）的 ed25519 签名。接收方：
-  1. 用**灵魂仓库**里 `bodies/<from>.json` 的 `meshKey` 验证签名（不信任同步服务给的 `nodeKey`，两者不一致就拒绝并提醒）；
-  2. 检查 `to` 是自己、`ts` 在 ±5 分钟内、`nonce` 没有见过（防重放）。
-- SDP 里的 DTLS 证书指纹因此由节点密钥担保：中转者或同步服务无法插入中间人。数据通道打开后，双方再用节点密钥对 DTLS 指纹做一次挑战与应答，确认通道两端就是签名的两方。
+- **信令内容由身体签名**：`signal.data` 是信封 `{v: 2, agent, from, to, ts, nonce, body, sig}`（`body` 里是 SDP 或 ICE 候选），`sig` 是发送方节点私钥对规范化 JSON（不含 `sig`）的 ed25519 签名。`v` 是身体之间的协议版本（1.0.2 起为 2，与 1 不兼容，同一个 agent 的身体要一起升级），`agent` 是 agent id（防止同一把节点密钥登记在两个灵魂仓库时跨 agent 重放）。接收方：
+  1. 用**灵魂仓库**里 `bodies/<from>.json` 的 `meshKey` 验证签名（不信任同步服务给的 `nodeKey`，两者不一致就拒绝并提醒）；首次见到的公钥与类型钉在本机（`data/mesh-pins.json`），之后变了就不连，直到在控制台确认；
+  2. 检查 `v`、`agent` 与自己一致，`to` 是自己，`ts` 在 ±5 分钟内且不早于本进程启动前 1 分钟，`nonce` 没有见过（防重放）。
+- SDP 里的 DTLS 证书指纹因此由节点密钥担保：中转者或同步服务无法插入中间人。数据通道打开后，双方再用节点密钥对 DTLS 指纹（连同 agent id）做一次挑战与应答，确认通道两端就是签名的两方。
 - 经 TURN 中转的流量本身就是 DTLS 加密的，中转服务器看不到内容。
 
 ## 5. 账户接口：`/v1/web/*`

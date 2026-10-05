@@ -16,6 +16,7 @@ export interface Candidacy { priority: number; powered: boolean; started: number
 const STARTED = Date.now();
 const ANNOUNCE_MS = 30_000;
 const STATE_MIN_INTERVAL_MS = 2000;
+const HEART_OPS = new Set(["nudge", "experience", "openLoops", "personality"]); // 跟随者可以转来的心脏操作
 
 export const myCandidacy = (): Candidacy => ({
   priority: Number(config.mesh.priority) || 0,
@@ -79,13 +80,13 @@ export function installCoordinator(mesh: Mesh): () => void {
     } else if (s.link !== "open" && open.has(s.body)) { open.delete(s.body); known.delete(s.body); recompute(); }
   };
   const onEvent = (e: { from: string; name: string; data: any }) => {
-    if (e.name === "candidacy" && e.data) {
+    if (e.name === "candidacy" && e.data && typeof e.data === "object") {
       known.set(e.from, { priority: Number(e.data.priority) || 0, powered: !!e.data.powered, started: Number(e.data.started) || Date.now() });
       recompute();
     } else if (e.name === "heart.state" && e.from === current && !isCoordinator()) {
       adoptHeart(e.data, mergeNext); mergeNext = false;
-    } else if (e.name === "heart.op" && isCoordinator() && e.data && typeof e.data.op === "string") {
-      applyHeartOp(e.data.op, Array.isArray(e.data.args) ? e.data.args : []);
+    } else if (e.name === "heart.op" && isCoordinator() && e.data && HEART_OPS.has(e.data.op)) {
+      applyHeartOp(e.data.op, Array.isArray(e.data.args) ? e.data.args.slice(0, 5) : []);
     }
   };
   const onHeart = () => sendState();

@@ -40,28 +40,44 @@ export function verify(nodeKey: string, data: string, sig: string): boolean {
   try { return crypto.verify(null, Buffer.from(data), keyFromRaw(nodeKey), Buffer.from(sig, "base64url")); } catch { return false; }
 }
 
-/** 签名的信令信封：谁发给谁、何时、一次性随机数、内容。 */
-export interface Envelope { v: 1; from: string; to: string; ts: number; nonce: string; body: Record<string, unknown>; sig?: string }
+/**
+ * 身体之间的网状层协议版本：签名信封的 v、通道认证串、数据通道的子协议都带着它。2：信封与通道认证都带上 agent id（防止跨 agent 重放）。
+ * 版本不同的身体互相连不上（信封被拒），所以同一个 agent 的身体要一起升级。
+ */
+export const MESH_PROTOCOL = 2;
+export const BODY_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
-export function seal(key: NodeKey, from: string, to: string, body: Record<string, unknown>, now = Date.now()): Envelope {
-  const e: Envelope = { v: 1, from, to, ts: now, nonce: crypto.randomBytes(16).toString("base64url"), body };
+/** 签名的信令信封：哪个 agent、谁发给谁、何时、一次性随机数、内容。 */
+export interface Envelope { v: typeof MESH_PROTOCOL; agent: string; from: string; to: string; ts: number; nonce: string; body: Record<string, unknown>; sig?: string }
+
+export function seal(key: NodeKey, agent: string, from: string, to: string, body: Record<string, unknown>, now = Date.now()): Envelope {
+  const e: Envelope = { v: MESH_PROTOCOL, agent, from, to, ts: now, nonce: crypto.randomBytes(16).toString("base64url"), body };
   return { ...e, sig: sign(key, canonical(e)) };
 }
 
 const SKEW_MS = 5 * 60_000;
-/** 验证信封：签名（用灵魂仓库里登记的公钥）、收件人、时间窗、随机数没见过。返回错误说明或 undefined。 */
+const STARTUP_SKEW_MS = 60_000;
+/**
+ * 验证信封：协议版本与 agent、签名（用灵魂仓库里登记的公钥）、收件人、时间窗、随机数没见过。
+ * 随机数只记在内存里：为了重启后不被重放，签于本进程启动一分钟以前的信封一律不收（since）。
+ */
 export class Opener {
   private seen = new Map<string, number>();
   private me: string;
+  private agent: string;
+  private since: number;
   private keyOf: (body: string) => string | undefined;
-  constructor(me: string, keyOf: (body: string) => string | undefined) { this.me = me; this.keyOf = keyOf; }
-  open(e: unknown, now = Date.now()): { ok: true; env: Envelope } | { ok: false; error: string; from?: string } {
+  constructor(me: string, agent: string, keyOf: (body: string) => string | undefined, since = Date.now()) { this.me = me; this.agent = agent; this.keyOf = keyOf; this.since = since; }
+  open(e: unknown, now = Date.now()): { ok: true; env: Envelope } | { ok: false; error: string; from?: string; unknown?: boolean } {
     const x = e as Envelope;
-    if (!x || x.v !== 1 || typeof x.from !== "string" || typeof x.to !== "string" || typeof x.ts !== "number" || typeof x.nonce !== "string" || typeof x.sig !== "string" || typeof x.body !== "object" || !x.body) return { ok: false, error: "信封格式不对" };
+    if (!x || typeof x !== "object" || typeof x.from !== "string" || !BODY_NAME.test(x.from) || typeof x.to !== "string" || typeof x.ts !== "number" || typeof x.nonce !== "string" || x.nonce.length > 64 || typeof x.sig !== "string" || x.sig.length > 200 || typeof x.body !== "object" || !x.body || Array.isArray(x.body)) return { ok: false, error: "信封格式不对" };
+    if (x.v !== MESH_PROTOCOL) return { ok: false, error: `对方的网状层协议版本（${String(x.v).slice(0, 8)}）与这里（${MESH_PROTOCOL}）不同：两边都升级到同一版本才能连接`, from: x.from };
+    if (x.agent !== this.agent) return { ok: false, error: "不是同一个 agent 的信令", from: x.from };
     if (x.to !== this.me) return { ok: false, error: "不是发给这具身体的", from: x.from };
     if (Math.abs(now - x.ts) > SKEW_MS) return { ok: false, error: "时间相差超过 5 分钟（重放或时钟不准）", from: x.from };
+    if (x.ts < this.since - STARTUP_SKEW_MS) return { ok: false, error: "签于这具身体这次启动之前（重放，或对方时钟慢了一分钟以上）", from: x.from };
     const key = this.keyOf(x.from);
-    if (!key) return { ok: false, error: `灵魂仓库里没有登记 ${x.from} 的节点公钥`, from: x.from };
+    if (!key) return { ok: false, error: `灵魂仓库里没有登记 ${x.from} 的节点公钥`, from: x.from, unknown: true };
     const { sig, ...rest } = x;
     if (!verify(key, canonical(rest), sig)) return { ok: false, error: "签名不对：与灵魂仓库登记的公钥不符", from: x.from };
     const id = `${x.from}/${x.nonce}`;

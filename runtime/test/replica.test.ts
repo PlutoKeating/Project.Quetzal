@@ -27,11 +27,12 @@ const sync = await fakeSync({ ...keys });
   db.exec(`CREATE TABLE kv(k TEXT PRIMARY KEY, v TEXT); CREATE TABLE timeline(id INTEGER PRIMARY KEY, ts INTEGER, kind TEXT, title TEXT, detail TEXT);
     CREATE TABLE messages(id INTEGER PRIMARY KEY, ts INTEGER, role TEXT, channel TEXT, text TEXT, session TEXT, process TEXT, attachments TEXT, mode TEXT);
     CREATE TABLE sessions(id TEXT PRIMARY KEY, title TEXT, channel TEXT, created INTEGER, updated INTEGER, archived INTEGER DEFAULT 0);`);
-  db.prepare("INSERT INTO sessions VALUES('first','最初的对话','控制台',1000,3000,0)").run();
-  db.prepare("INSERT INTO messages VALUES(1,1000,'user','控制台','P9 上的老消息','first',NULL,NULL,NULL)").run();
-  db.prepare("INSERT INTO messages VALUES(2,2000,'user','控制台','P9 上的插话','first',NULL,NULL,'steer')").run();
-  db.prepare("INSERT INTO messages VALUES(3,3000,'agent','控制台','P9 的回复','first',?,NULL,NULL)").run(JSON.stringify([{ type: "steer", msg: 2, text: "P9 上的插话" }]));
-  db.prepare("INSERT INTO timeline VALUES(1,1000,'chat','老的心流','null')").run();
+  const t0 = Date.now() - 86400_000; // 一天前（复制只收 2020 年以后、不在未来的时间）
+  db.prepare("INSERT INTO sessions VALUES('first','最初的对话','控制台',?,?,0)").run(t0 + 1000, t0 + 3000);
+  db.prepare("INSERT INTO messages VALUES(1,?,'user','控制台','P9 上的老消息','first',NULL,NULL,NULL)").run(t0 + 1000);
+  db.prepare("INSERT INTO messages VALUES(2,?,'user','控制台','P9 上的插话','first',NULL,NULL,'steer')").run(t0 + 2000);
+  db.prepare("INSERT INTO messages VALUES(3,?,'agent','控制台','P9 的回复','first',?,NULL,NULL)").run(t0 + 3000, JSON.stringify([{ type: "steer", msg: 2, text: "P9 上的插话" }]));
+  db.prepare("INSERT INTO timeline VALUES(1,?,'chat','老的心流','null')").run(t0 + 1000);
   db.close();
 }
 
@@ -103,4 +104,26 @@ test("1.0 之前的旧身体入网：编号迁移进自己的编号段（插话�
   const firstOnP9 = await c.call<any[]>("messages", { session: "first" });
   const ts = firstOnP9.map((m) => m.ts);
   assert.deepEqual(ts, [...ts].sort((x, y) => x - y), "合并后的「最初的对话」按时间排列");
+});
+
+test("出错或被攻破的身体发来的复制：冒充别的身体、段尾编号、坏字段都被丢弃，进程照常工作", { skip }, async () => {
+  const pcPrefix = await b.call<number>("idPrefix"), hPrefix = await a.call<number>("idPrefix");
+  const R = 2 ** 32, now = Date.now();
+  const row = (id: number, body: string, text: string, o: Record<string, unknown> = {}) => ({ id, ts: now, role: "user", channel: "控制台", text, session: "evil", process: null, attachments: null, mode: null, body, ...o });
+  await a.call("emit", { name: "replica", data: { table: "messages", rows: [
+    row(pcPrefix * R + 9_000_000, "pc", "冒充 pc 说的话"),           // 不是发来的身体自己的行
+    row(hPrefix * R + R - 1, "honor9", "段尾的编号"),                 // 段尾：会把编号顶出段外
+    row(hPrefix * R + 9_000_001, "honor9", "坏角色", { role: "root" }),
+    row(hPrefix * R + 9_000_002, "honor9", "坏过程", { process: "{" }),
+    { id: 1e300 }, null, "x",
+  ] } });
+  await a.call("emit", { name: "replica", data: { table: "sessions", rows: [{ id: "evil", title: "冻住的标题", channel: "控制台", created: 0, updated: now, archived: 0, changed: now + 365 * 86400_000 }] } });
+  await a.call("emit", { name: "replica", data: { table: "messages", rows: [row(hPrefix * R + 9_000_003, "honor9", "正常的一句")] } });
+  await until(async () => (await b.call<any[]>("messages", { session: "evil" })).some((m) => m.text === "正常的一句"));
+  assert.deepEqual((await b.call<any[]>("messages", { session: "evil" })).map((m) => m.text), ["正常的一句"]);
+  const s = (await b.call<any[]>("sessions")).find((x) => x.id === "evil");
+  assert.ok(s.changed <= Date.now() + 5 * 60_000, "会话的修改时刻被钳住");
+  // pc 照常写，编号仍在自己的段里
+  const id = await b.call<number>("addMessage", { role: "user", text: "pc 还活着", session: "evil" });
+  assert.equal(Math.floor(id / R), pcPrefix);
 });

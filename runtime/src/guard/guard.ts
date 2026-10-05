@@ -12,7 +12,7 @@ const ASK_TIMEOUT_MS = 30 * 60_000;
 export const PERMISSION_LABELS: Record<string, string> = {
   network: "联网", shell: "执行命令", device: "设备功能", camera: "相机", microphone: "麦克风",
   location: "定位", message: "主动发消息", self_modify: "修改自身参数", memory: "改写记忆", hands: "操作屏幕与应用", secret: "索取保密信息",
-  session: "会话与子 agent", body: "跨身体操作",
+  session: "会话与子 agent", body: "跨身体操作", tool_write: "造工具（写会被执行的代码）",
 };
 
 export function level(permission: string): Level { return config.permissions[permission] ?? "allow"; }
@@ -26,7 +26,7 @@ export async function check(permission: string, action: string, reason: string, 
   const l = level(permission);
   if (l === "allow") return true;
   if (l === "deny") { audit("agent", action, reason, args, "denied: policy"); return false; }
-  const a: Approval = { id: crypto.randomBytes(4).toString("hex"), action, reason, args, status: "pending" };
+  const a: Approval = { id: crypto.randomBytes(8).toString("hex"), action, reason, args, status: "pending" }; // 8 个随机字节：多具身体时各处的审批列在一起（另按「身体/编号」区分，见 mesh/shared.ts）
   addTimeline("approval", `请求批准：${action}`, { id: a.id, reason, args });
   const ok = await new Promise<boolean>((resolve) => {
     pending.set(a.id, { a, resolve });

@@ -12,6 +12,8 @@ import { setEar } from "../mind/bodies.ts";
 const WAIT_MS = 700;      // 等别的耳朵报上来
 const SAME_MS = 3000;     // 开始时刻相差这么多以内才可能是同一句
 const SIMILAR = 0.6;      // 文字相似度（相邻二字重合）
+const RECENT_MAX = 100;   // 记着的别处听到的话最多这么多条
+const HEARD_TEXT = 2000;  // 别处听到的一句话最长（超出的截断）
 
 const norm = (s: string) => s.replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
 /** 相邻二字的 Jaccard 相似度（中文按字、英文按字母，足够判断两只耳朵听到的是不是同一句）。 */
@@ -45,10 +47,17 @@ export function installChannels(mesh: Mesh): () => void {
     },
     heard(conv) { setEar(conv, config.body); mesh.broadcast("ear", { conv }); },
   });
+  // 别处发来的：body 一律是发来的那具身体（自称的身体与来源不符就丢弃）；文字、数量、时间都有上限
   const onEvent = (e: { from: string; name: string; data: any }) => {
-    if (e.name === "heard" && typeof e.data?.text === "string") { recent.push({ id: String(e.data.id), body: e.from, text: e.data.text, at: Number(e.data.at) || Date.now() }); prune(); }
-    else if (e.name === "ear" && typeof e.data?.conv === "string") setEar(e.data.conv, e.from);
-    else if (e.name === "feishu.say" && typeof e.data?.text === "string" && holdsFeishu()) sayToOwner(e.data.text);
+    if (e.data?.body !== undefined && e.data.body !== e.from) return;
+    if (e.name === "heard" && typeof e.data?.text === "string") {
+      const at = Number(e.data.at);
+      recent.push({ id: typeof e.data.id === "string" ? e.data.id.slice(0, 32) : "", body: e.from, text: e.data.text.slice(0, HEARD_TEXT), at: Number.isFinite(at) && Math.abs(at - Date.now()) < 60_000 ? at : Date.now() });
+      if (recent.length > RECENT_MAX) recent.splice(0, recent.length - RECENT_MAX);
+      prune();
+    }
+    else if (e.name === "ear" && typeof e.data?.conv === "string" && e.data.conv && e.data.conv.length <= 200) setEar(e.data.conv, e.from);
+    else if (e.name === "feishu.say" && typeof e.data?.text === "string" && e.data.text.length <= 20_000 && holdsFeishu()) sayToOwner(e.data.text);
   };
   mesh.on("event", onEvent);
   return () => { mesh.off("event", onEvent); setFeishuForwarder(undefined); setHearingMesh(undefined); };

@@ -3,9 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../widgets.dart';
+import '../links.dart';
 
 /// 连接路径的说法：候选类型 host / srflx / prflx / relay → 人话（不显示地址）。
 String pathLabel(Map? p) {
@@ -74,7 +74,7 @@ class _MeshPageState extends State<MeshPage> {
               const SizedBox(height: 8),
               SelectableText('${binding['code']}', style: t.headlineMedium?.copyWith(letterSpacing: 4, fontFamily: 'monospace')),
               Wrap(spacing: 8, children: [
-                FilledButton.icon(icon: const Icon(Icons.open_in_new), label: const Text('打开链接'), onPressed: () => launchUrl(Uri.parse('${binding['uri']}'), mode: LaunchMode.externalApplication)),
+                FilledButton.icon(icon: const Icon(Icons.open_in_new), label: const Text('打开链接'), onPressed: () => openExternal(context, '${binding['uri']}')),
                 TextButton.icon(icon: const Icon(Icons.copy), label: const Text('复制链接'), onPressed: () { Clipboard.setData(ClipboardData(text: '${binding['uri']}')); toast(context, '已复制'); }),
                 TextButton(onPressed: () => act(context, () => api.call('mesh.cancelBind')), child: const Text('取消')),
               ]),
@@ -96,9 +96,15 @@ class _MeshPageState extends State<MeshPage> {
                 p['kind'] == 'bridge' ? '灵魂桥（只读）' : '运行基座 ${p['version'] ?? ''}',
                 p['online'] == true ? (_linkLabel['${p['link']}'] ?? '${p['link']}') : '离线${(p['lastSeen'] ?? 0) == 0 ? '' : '（上次在线 ${hm(p['lastSeen'])}）'}',
                 if (p['path'] != null) pathLabel(p['path'] as Map),
-                if (p['keyOk'] == false && p['online'] == true) '公钥与灵魂仓库登记的不一致（等灵魂仓库同步，或检查是否被冒充）',
+                if (p['pinMismatch'] == true) '公钥或类型与第一次见到时不同，已断开：确认是你自己重装或换了钥匙再点「确认」',
+                if (p['keyOk'] == false && p['online'] == true && p['pinMismatch'] != true) '公钥与灵魂仓库登记的不一致（等灵魂仓库同步，或检查是否被冒充）',
                 if ('${p['error'] ?? ''}'.isNotEmpty && p['link'] != 'open') '${p['error']}',
               ].where((s) => s.isNotEmpty).join(' · ')),
+              trailing: p['pinMismatch'] == true ? TextButton(onPressed: () async {
+                if (await confirm(context, '确认 ${p['body']} 的新公钥', '新的公钥指纹：${p['fingerprint']}\n\n只有在你确定是自己重装了那具身体、或换了它的钥匙时才确认；否则可能有人在冒充它。确认后这具身体重新连上。') && context.mounted) {
+                  await act(context, () => api.call('mesh.acceptPin', {'body': p['body']}), ok: '已确认');
+                }
+              }, child: const Text('确认')) : null,
             ),
             Text(coordinator == m['body'] ? '此刻心跳在这具身体上：由它决定什么时候醒来。' : '此刻心跳在 $coordinator 上，这具身体跟随。', style: t.bodySmall),
           ]),

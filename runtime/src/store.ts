@@ -13,12 +13,17 @@ export let db: DatabaseSync;
 export const ID_RANGE = 2 ** 32;
 export const idPrefixOf = (body: string) => (parseInt(crypto.createHash("sha256").update(body).digest("hex").slice(0, 8), 16) % (2 ** 20 - 1)) + 1;
 let prefix = 1;
+/** 编号段里可用的序号上限：段尾留出 2^24 的余量，复制来的行不能落在这里（否则有人用段尾的编号就能把这具身体的下一个编号顶出段外）。 */
+export const SEQ_MAX = ID_RANGE - 2 ** 24;
 /** 这具身体的编号段。 */
 export const idPrefix = () => prefix;
 const nextId = (table: "messages" | "timeline") => {
-  const lo = prefix * ID_RANGE;
-  const r = db.prepare(`SELECT MAX(id) m FROM ${table} WHERE id >= ? AND id < ?`).get(lo, lo + ID_RANGE) as { m: number | null };
-  return Math.max(lo, Number(r.m ?? lo)) + 1;
+  const lo = prefix * ID_RANGE, hi = lo + SEQ_MAX;
+  const r = db.prepare(`SELECT MAX(id) m FROM ${table} WHERE id >= ? AND id < ?`).get(lo, hi) as { m: number | null };
+  let id = Math.max(lo, Number(r.m ?? lo)) + 1;
+  while (db.prepare(`SELECT 1 FROM ${table} WHERE id=?`).get(id)) id++; // 不应发生（段里的行只来自这具身体）
+  if (id >= hi) throw new Error(`这具身体的${table === "messages" ? "对话" : "时间线"}编号段用完了`);
+  return id;
 };
 /** 游标：某条记录的 (ts, id)，用于「比它更早」的翻页。 */
 const cursor = (table: "messages" | "timeline", before: number): [number, number] => {
@@ -202,42 +207,87 @@ export function rowsAfter(table: "messages" | "timeline", vector: Record<string,
   return out;
 }
 export const allSessions = () => db.prepare("SELECT id,title,channel,created,updated,archived,changed FROM sessions").all() as any[];
-/** 写入来自其他身体的行。返回真正新增或改变了的行（调用方据此通知控制台）。 */
-export function applyRemote(table: ReplicaTable, rows: any[]): any[] {
+// ---------- 复制来的行的检查：字段类型与长度、时间、编号段与作者。不合格的整行丢弃（对方是可信的身体，但数据可能来自出错或被攻破的一方，不能让它弄坏本机的库）
+const BODY_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const TS_MIN = Date.UTC(2020, 0, 1);
+const FUTURE_MS = 10 * 60_000;
+const ROLES = new Set(["user", "agent", "ambient"]);
+const isStr = (v: unknown, max: number, min = 0): v is string => typeof v === "string" && v.length >= min && v.length <= max;
+const okTs = (t: unknown) => typeof t === "number" && Number.isFinite(t) && t >= TS_MIN && t <= Date.now() + FUTURE_MS;
+const okJson = (v: unknown, max: number, shape: (x: unknown) => boolean) => {
+  if (v === null || v === undefined) return true;
+  if (!isStr(v, max)) return false;
+  try { return shape(JSON.parse(v)); } catch { return false; }
+};
+const okAttachments = (x: unknown) => Array.isArray(x) && x.length <= 50 && x.every((a) => !!a && typeof a === "object" && isStr((a as any).name, 500) && isStr((a as any).rel ?? "", 1000));
+const okMode = (m: unknown) => m === null || m === undefined || (isStr(m, 20) && /^[a-z]+$/.test(m));
+/** 编号与作者对得上：id 落在作者身体的编号段里、序号在可用范围内。 */
+const okAuthor = (id: unknown, body: unknown): body is string => {
+  if (!Number.isSafeInteger(id) || !isStr(body, 40) || !BODY_RE.test(body)) return false;
+  const p = Math.floor((id as number) / ID_RANGE), seq = (id as number) - p * ID_RANGE;
+  return p === idPrefixOf(body) && seq > 0 && seq < SEQ_MAX;
+};
+/**
+ * 来源规则：平时实时收到的行（catchUp 为假）只能是发来的那具身体自己写的（body === from，编号在它的段里）；
+ * 连上时补齐（catchUp）可以带着别的身体的行，也可以带回这具身体自己的旧行（重装后从别处找回历史），但都要编号段与作者对得上。
+ */
+function okRow(table: "messages" | "timeline", r: any, from: string, catchUp: boolean): boolean {
+  if (!r || typeof r !== "object" || !okAuthor(r.id, r.body)) return false;
+  if (!catchUp && r.body !== from) return false;
+  if (!okTs(r.ts)) return false;
+  if (table === "messages") {
+    return ROLES.has(r.role) && isStr(r.channel, 100) && isStr(r.text, 200_000) && isStr(r.session, 200, 1) && okMode(r.mode)
+      && okJson(r.process, 4 << 20, (x) => Array.isArray(x) || (!!x && typeof x === "object")) && okJson(r.attachments, 256 << 10, okAttachments);
+  }
+  return isStr(r.kind, 40, 1) && isStr(r.title, 4000) && okJson(r.detail ?? "null", 1 << 20, () => true);
+}
+const clampTime = (v: unknown, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(v, max)) : 0);
+
+/**
+ * 写入来自其他身体的行（from：发来的身体；catchUp：连上时的补齐，见 okRow）。不合格的行丢弃。
+ * 返回真正新增或改变了的行（调用方据此通知控制台）与丢弃的行数。
+ */
+export function applyRemote(table: ReplicaTable, rows: any[], o: { from: string; catchUp?: boolean }): { changed: any[]; rejected: number } {
   const changed: any[] = [];
+  let rejected = 0;
+  if (!Array.isArray(rows)) return { changed, rejected };
+  const soon = Date.now() + 5 * 60_000;
   db.exec("BEGIN");
   try {
-    for (const r of rows) {
+    for (const r of rows.slice(0, 1000)) {
       if (table === "messages") {
-        if (!Number.isSafeInteger(r.id) || typeof r.session !== "string") continue;
+        if (!okRow("messages", r, o.from, !!o.catchUp)) { rejected++; continue; }
         const ok = db.prepare("INSERT OR IGNORE INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body) VALUES(?,?,?,?,?,?,?,?,?,?)")
-          .run(r.id, r.ts, r.role, r.channel, r.text, r.session, r.process ?? null, r.attachments ?? null, r.mode ?? null, r.body ?? null);
+          .run(r.id, r.ts, r.role, r.channel, r.text, r.session, r.process ?? null, r.attachments ?? null, r.mode ?? null, r.body);
         if (Number(ok.changes)) {
           db.prepare("INSERT OR IGNORE INTO sessions(id,title,channel,created,updated,changed) VALUES(?,?,?,?,?,0)").run(r.session, "新的对话", r.channel, r.ts, r.ts);
           db.prepare("UPDATE sessions SET updated=MAX(updated, ?), archived=0 WHERE id=?").run(r.ts, r.session);
           changed.push(r);
         }
       } else if (table === "timeline") {
-        if (!Number.isSafeInteger(r.id)) continue;
-        if (Number(db.prepare("INSERT OR IGNORE INTO timeline(id,ts,kind,title,detail,body) VALUES(?,?,?,?,?,?)").run(r.id, r.ts, r.kind, r.title, r.detail ?? "null", r.body ?? null).changes)) changed.push(r);
+        if (!okRow("timeline", r, o.from, !!o.catchUp)) { rejected++; continue; }
+        if (Number(db.prepare("INSERT OR IGNORE INTO timeline(id,ts,kind,title,detail,body) VALUES(?,?,?,?,?,?)").run(r.id, r.ts, r.kind, r.title, r.detail ?? "null", r.body).changes)) changed.push(r);
       } else if (table === "message.mode") {
+        if (!r || !Number.isSafeInteger(r.id) || !okMode(r.mode)) { rejected++; continue; }
         if (Number(db.prepare("UPDATE messages SET mode=? WHERE id=? AND COALESCE(mode,'')<>COALESCE(?,'')").run(r.mode ?? null, r.id, r.mode ?? null).changes)) changed.push(r);
       } else if (table === "sessions") {
-        if (typeof r.id !== "string") continue;
-        const cur = db.prepare("SELECT * FROM sessions WHERE id=?").get(r.id) as any;
-        if (!cur) { db.prepare("INSERT INTO sessions(id,title,channel,created,updated,archived,changed) VALUES(?,?,?,?,?,?,?)").run(r.id, r.title, r.channel, r.created, r.updated, r.archived ? 1 : 0, r.changed ?? 0); changed.push(r); continue; }
+        if (!r || !isStr(r.id, 200, 1) || !isStr(r.title, 200) || !isStr(r.channel, 100)) { rejected++; continue; }
+        // 时间一律不晚于「现在 + 5 分钟」：一个远在未来的修改时刻会让标题永远改不动
+        const s = { id: r.id, title: r.title, channel: r.channel, created: clampTime(r.created, soon), updated: clampTime(r.updated, soon), changed: clampTime(r.changed ?? 0, soon), archived: r.archived === true || r.archived === 1 ? 1 : 0 };
+        const cur = db.prepare("SELECT * FROM sessions WHERE id=?").get(s.id) as any;
+        if (!cur) { db.prepare("INSERT INTO sessions(id,title,channel,created,updated,archived,changed) VALUES(?,?,?,?,?,?,?)").run(s.id, s.title, s.channel, s.created, s.updated, s.archived, s.changed); changed.push(s); continue; }
         // 标题与归档：以较新的修改为准；最近更新取两边较大的；创建时间取较早的
-        const takeTheirs = (r.changed ?? 0) > (cur.changed ?? 0) || ((cur.changed ?? 0) === 0 && cur.title === "新的对话" && r.title !== "新的对话");
-        const next = { title: takeTheirs ? r.title : cur.title, archived: takeTheirs ? (r.archived ? 1 : 0) : cur.archived, changed: Math.max(cur.changed ?? 0, r.changed ?? 0), updated: Math.max(cur.updated, r.updated), created: Math.min(cur.created, r.created) };
+        const takeTheirs = s.changed > (cur.changed ?? 0) || ((cur.changed ?? 0) === 0 && cur.title === "新的对话" && s.title !== "新的对话");
+        const next = { title: takeTheirs ? s.title : cur.title, archived: takeTheirs ? s.archived : cur.archived, changed: Math.max(cur.changed ?? 0, s.changed), updated: Math.max(cur.updated, s.updated), created: Math.min(cur.created, s.created) };
         if (next.title !== cur.title || next.archived !== cur.archived || next.updated !== cur.updated || next.created !== cur.created || next.changed !== (cur.changed ?? 0)) {
-          db.prepare("UPDATE sessions SET title=?, archived=?, changed=?, updated=?, created=? WHERE id=?").run(next.title, next.archived, next.changed, next.updated, next.created, r.id);
-          changed.push(r);
+          db.prepare("UPDATE sessions SET title=?, archived=?, changed=?, updated=?, created=? WHERE id=?").run(next.title, next.archived, next.changed, next.updated, next.created, s.id);
+          changed.push(s);
         }
       }
     }
     db.exec("COMMIT");
   } catch (e) { db.exec("ROLLBACK"); throw e; }
-  return changed;
+  return { changed, rejected };
 }
 
 export function audit(actor: string, action: string, reason: string, args: unknown, result: string) {
@@ -264,10 +314,12 @@ export function usageToday() {
 }
 /** 某天各身体的用量行（同步给其他身体）。 */
 export const usageRows = (day = today()) => (db.prepare("SELECT day,model,body,input,output,cost FROM usage WHERE day=?").all(day) as any[]).map((r) => ({ ...r, input: Number(r.input), output: Number(r.output), cost: Number(r.cost) }));
-/** 写入另一具身体的用量行（它自己的合计，整行替换；不动这具身体自己的行）。 */
-export function applyUsage(rows: { day: string; model: string; body: string; input: number; output: number; cost: number }[]) {
-  for (const r of rows) {
-    if (!r || r.body === config.body || typeof r.day !== "string" || typeof r.model !== "string" || typeof r.body !== "string") continue;
-    db.prepare("INSERT OR REPLACE INTO usage(day,model,body,input,output,cost) VALUES(?,?,?,?,?,?)").run(r.day, r.model, r.body, Number(r.input) || 0, Number(r.output) || 0, Number(r.cost) || 0);
+/** 写入另一具身体（from）的用量行：只收它自己的（body === from）、数值是有限的非负数；整行替换，不动这具身体自己的行。 */
+export function applyUsage(rows: unknown, from: string) {
+  if (!Array.isArray(rows) || from === config.body) return;
+  const n = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+  for (const r of rows.slice(0, 500) as any[]) {
+    if (!r || r.body !== from || !isStr(r.day, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(r.day) || !isStr(r.model, 200, 1) || !n(r.input) || !n(r.output) || !n(r.cost)) continue;
+    db.prepare("INSERT OR REPLACE INTO usage(day,model,body,input,output,cost) VALUES(?,?,?,?,?,?)").run(r.day, r.model, r.body, r.input, r.output, r.cost);
   }
 }

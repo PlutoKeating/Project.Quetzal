@@ -8,7 +8,7 @@ import { bus } from "../bus.ts";
 import { addTimeline } from "../store.ts";
 import { identity } from "../memory/identity.ts";
 import { VERSION } from "../version.ts";
-import { fingerprint, isNodeKey } from "./identity.ts";
+import { fingerprint, isNodeKey, BODY_NAME } from "./identity.ts";
 import { nodeKey } from "./node-key.ts";
 import { installPresence } from "./presence.ts";
 import { installCoordinator, coordinator } from "./coordinator.ts";
@@ -17,12 +17,13 @@ import { installLimbs } from "./limbs.ts";
 import { installShared } from "./shared.ts";
 import { installChannels } from "./channels.ts";
 import { snapshot } from "../heart/heart.ts";
-import { Mesh } from "./mesh.ts";
+import { Mesh, filePins } from "./mesh.ts";
 import { startBinding, pollBinding, unbind as unbindRemote, serverOrigin, type Binding } from "./directory.ts";
 import type { Ndc } from "./link.ts";
 import { installReplica } from "./replica.ts";
 
 const BINDING = () => path.join(paths.secrets, "sync.json");
+const PINS = () => path.join(paths.data, "mesh-pins.json"); // 钉住的各身体公钥与类型（TOFU，见 mesh.ts；不是秘密）
 export { nodeKey };
 
 let ndc: Ndc | undefined;
@@ -47,7 +48,7 @@ export function soulKindOf(body: string): string | undefined {
   const k = soulBody(body)?.kind; return typeof k === "string" ? k : undefined;
 }
 function soulBody(body: string): Record<string, unknown> | undefined {
-  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(body)) return undefined;
+  if (!BODY_NAME.test(body)) return undefined;
   try { return JSON.parse(fs.readFileSync(path.join(paths.soul, "bodies", `${body}.json`), "utf8")); } catch { return undefined; }
 }
 
@@ -69,10 +70,10 @@ export async function startMesh() {
   // 其他身体只认灵魂仓库里登记的公钥：本机的公钥还没登记（或换过）就立即推送一次身体登记
   if (soulKeyOf(config.body) !== nodeKey().nodeKey) void push("登记网状层公钥").catch(() => {});
   mesh = new Mesh({
-    me: config.body, key: nodeKey(), ndc: ndc!, binding: b, keyOf: soulKeyOf, kindOf: soulKindOf, refreshKeys: () => pull(),
+    me: config.body, key: nodeKey(), ndc: ndc!, binding: b, keyOf: soulKeyOf, kindOf: soulKindOf, refreshKeys: () => pull(), pins: filePins(PINS()),
     hello: () => ({ version: VERSION, agentName: identity().displayName }),
     log: (m) => log("mesh", m),
-    warn: (w) => { log("mesh", w); addTimeline("mesh", `网状层：${w}`, {}); },
+    warn: (w) => { log("mesh", w); addTimeline("mesh", `网状层：${w}`, {}); }, // 已截断、限频（mesh.ts）
   });
   mesh.on("state", changed);
   mesh.on("peer", changed);
@@ -130,6 +131,19 @@ export async function bind() {
   return meshStatus();
 }
 
+/**
+ * 确认某具身体换了节点公钥（或从灵魂桥变成运行基座）：钉住灵魂仓库里现在登记的，重新连接。
+ * 在此之前网状层不和它连接（状态里 pinMismatch 为真）。网关方法 mesh.acceptPin 调用这里。
+ */
+export function acceptPin(body: string) {
+  if (typeof body !== "string" || !BODY_NAME.test(body)) throw new Error("身体名不对");
+  if (!mesh) throw new Error("网状层没有启动");
+  mesh.acceptPin(body);
+  addTimeline("mesh", `确认了 ${body} 新的节点公钥与类型`, { body });
+  changed();
+  return meshStatus();
+}
+
 export function cancelBind() { binding?.abort.abort(); binding = undefined; changed(); return meshStatus(); }
 
 /** 解绑：通知同步服务作废令牌，删除本机的绑定。节点密钥保留（它登记在灵魂仓库里）。 */
@@ -150,6 +164,8 @@ export function wireMesh() {
   bus.on("mesh.event", (e) => {
     if (e.name !== "soul.pushed") return;
     clearTimeout(pulling); // 多具身体连着推送时合并成一次拉取
-    pulling = setTimeout(() => { void import("../memory/soul-sync.ts").then((s) => s.pull()).catch(() => {}); }, 500);
+    pulling = setTimeout(() => { void import("../memory/soul-sync.ts").then((s) => s.pull()).then(() => mesh?.reverify()).catch(() => {}); }, 500);
   });
+  // 灵魂仓库拉到了别处的变更（任何一次拉取）：按新的登记核对各条连接的公钥与类型
+  bus.on("sense", (kind) => { if (kind === "soul_synced") mesh?.reverify(); });
 }

@@ -35,6 +35,13 @@ async function main() {
   const safeMode = crashGuard();
   log("main", `运行基座 ${VERSION} 启动（身体：${config.body}，家目录：${paths.home}）${safeMode ? " —— 安全模式" : ""}`);
   process.on("unhandledRejection", (e: any) => log("main", `未处理的异常：${e?.stack ?? e}`));
+  // 同步抛出没人接的异常：进程状态已不可信，记下来以非零退出，由守护者（runit、systemd）重新拉起。
+  // 网状层里由对方触发的回调都自己接住异常（见 mesh/mesh.ts、mesh/link.ts），不会走到这里。退出推迟一轮事件循环（不在原生回调里直接退出）
+  process.on("uncaughtException", (e: any) => {
+    log("main", `未接住的异常，进程退出：${e?.stack ?? e}`);
+    process.exitCode = 1;
+    setTimeout(() => process.exit(1), 100);
+  });
 
   await loadAdapter(config.adapter || process.env.QUETZAL_ADAPTER);
   startGateway(safeMode);

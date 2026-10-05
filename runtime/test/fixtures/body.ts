@@ -65,6 +65,7 @@ mesh.start();
 const cmds: Record<string, (a: any) => unknown> = {
   nodeKey: () => key.nodeKey,
   connected: () => mesh.connected(),
+  emit: (a) => { mesh.broadcast(a.name, a.data); return true; }, // 测试用：直接广播任意事件（模拟出错或被攻破的身体）
   addMessage: (a) => store.addMessage(a.role, a.channel ?? "控制台", a.text, { session: a.session }),
   setMode: (a) => store.setMessageMode(a.id, a.mode),
   addTimeline: (a) => store.addTimeline(a.kind, a.title, a.detail ?? null).id,
