@@ -27,9 +27,9 @@ Every console shows which body is talking with you right now; what you say to th
 
 **Control → Multiple bodies**:
 
-1. Enter the sync service address (`https://…`) and save.
+1. Enter the sync service address and save. The sync service operated by this project is `https://sync.quetzal.plutokeating.beer`; if you host your own, enter its address.
 2. Choose "Bind to the sync service"; an 8-character code and a link (or QR code) appear.
-3. Open the link in a browser, sign in with GitHub, enter the code, **check that the key fingerprint on the web page matches the one in the console**, and approve.
+3. Open the link in a browser (the site's [Account → Approve a device](/account/device)), sign in with GitHub, enter the code, **check that the key fingerprint on the web page matches the one in the console**, and approve.
 4. Within seconds the body connects to the sync service; other bound bodies that are online connect to it directly (LAN, IPv6, NAT traversal, or relayed through the server when nothing else works — relayed traffic is end-to-end encrypted too).
 
 All bodies of one agent must be bound under **the same GitHub account** to see each other.
@@ -56,9 +56,22 @@ flowchart LR
 
 If the bodies cannot reach each other (offline, sync service down), each keeps running and memory still syncs through the soul repository; if they split into groups, each group has its own heart. When they reconnect, conversations catch up and the hearts merge.
 
+## Account
+
+Everything about the account lives on the site's [Account](/account) page (a set of console-like sub-pages); sign in with GitHub:
+
+| Sub-page | What it does |
+|---|---|
+| Overview | Every agent in the account and each of its bodies: online or not, kind, version, key fingerprint; unbind a body, delete an agent |
+| Approve a device | Enter the code a body shows while binding, check it and approve or deny |
+| Console sign-ins | Which apps can manage this account; revoke unused ones at any time |
+| Settings | Sign out, delete the account |
+
+The app (Android and Linux desktop) has the same four pages under **Control → Account**. Once this body is bound, tap "Sign in to account"; the app shows a code, which you approve under Approve a device on the site (the page says this is a console sign-in: once approved the app can manage the whole account). Only bodies already bound to your account can start a console sign-in, so tricking you into approving does not hand anyone your account.
+
 ## Security
 
 - Bodies connect over WebRTC (DTLS encryption); signaling is signed with each body's node key, and receivers only trust the public keys registered in the **soul repository**.
 - Model keys travel between bodies only over that encrypted channel and are re-encrypted with the receiver's own master key.
 - The sync service stores only: GitHub username and display name, agent name and id, body name / kind / version / public key / last seen; tokens are stored as hashes. It keeps no IP or network addresses and cannot see conversations or memory.
-- On the sync service's account page you can unbind a body or delete an agent or the whole account at any time.
+- On the Account page of the site or the app you can unbind a body, delete an agent or the whole account, or revoke a console sign-in at any time.

@@ -11,6 +11,7 @@ const navItems = [
   { key: "features", path: "/features" },
   { key: "docs", path: "/docs" },
   { key: "download", path: "/download" },
+  { key: "account", path: "/account" },
 ] as const;
 
 export function SiteHeader() {

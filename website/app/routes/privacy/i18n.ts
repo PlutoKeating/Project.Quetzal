@@ -7,7 +7,7 @@ export const messages = defineMessages({
     eyebrow: "隐私政策",
     heading: "隐私政策",
     lead: "本网站不收集你的个人信息。下面说明网站与软件各自会接触到什么。",
-    updated: "最近更新：2026 年 10 月 5 日",
+    updated: "最近更新：2026 年 10 月 6 日",
     sections: [
       { heading: "1. 本网站", paragraphs: ["本网站是纯静态站点，没有账号、没有表单、没有服务端数据库，不设置 Cookie，不加载任何统计、广告或第三方字体脚本。"], bullets: [
         "语言与外观偏好保存在你浏览器的 localStorage 里（键 quetzal.lang、quetzal.theme），只在你的设备上，随时可在浏览器中清除。",
@@ -25,7 +25,8 @@ export const messages = defineMessages({
       ] },
       { heading: "3. 同步服务（可选）", paragraphs: ["要把同一个 agent 的几具身体连在一起，可以使用同步服务：本项目运营一个对所有人开放的同步服务，你也可以用源代码里的 sync/ 自己部署。使用本项目运营的同步服务时："], bullets: [
         "登录：用 GitHub 账号登录，只读取公开资料（数字 id、用户名、显示名），不保存 GitHub 的访问令牌。",
-        "保存的内容：你的账户；你绑定的 agent（名字与 id）；每具身体的名字、类型、软件版本、节点公钥与最近在线时间；登录会话与身体令牌只存哈希，绑定码 15 分钟后作废。",
+        "保存的内容：你的账户；你绑定的 agent（名字与 id）；每具身体的名字、类型、软件版本、节点公钥与最近在线时间；登录会话、控制台登录（来自哪具身体、登录与最近使用的时间）与身体令牌只存哈希，绑定码 15 分钟后作废。",
+        "账户页：登录、账户管理与批准设备的页面在本站（quetzal.plutokeating.beer/account），数据由你的浏览器直接向同步服务读取；登录状态保存在同步服务的一个 Cookie 里（只用于登录，30 天内有效），本站自己不设 Cookie、不保存账户数据。",
         "不保存的内容：IP 地址与网络端点（只在身体在线时用于建立连接，不写盘、不写日志）、对话、记忆、人格、模型 Key。打不通而经服务器中转的流量是端到端加密的，服务器看不到内容。",
         "删除：在同步服务网页的账户页可以随时解绑身体、删除 agent 或删除整个账户，立即生效。",
         "同步服务所在的服务器与网络服务商可能按其政策处理连接日志；本项目不读取、不保存这些日志。",
@@ -41,7 +42,7 @@ export const messages = defineMessages({
     eyebrow: "Privacy Policy",
     heading: "Privacy Policy",
     lead: "This website does not collect your personal information. Below is what the site and the software each touch.",
-    updated: "Last updated: October 5, 2026",
+    updated: "Last updated: October 6, 2026",
     sections: [
       { heading: "1. This website", paragraphs: ["This is a purely static site: no accounts, no forms, no server-side database, no cookies, and no analytics, advertising or third-party font scripts."], bullets: [
         "Your language and appearance preferences are stored in your browser's localStorage (keys quetzal.lang and quetzal.theme), only on your device, and can be cleared in the browser at any time.",
@@ -59,7 +60,8 @@ export const messages = defineMessages({
       ] },
       { heading: "3. Sync service (optional)", paragraphs: ["To connect the bodies of one agent you can use a sync service: this project operates one that is open to everyone, and you can also host your own from sync/ in the source code. When you use the sync service operated by this project:"], bullets: [
         "Sign-in: with your GitHub account, reading only public profile data (numeric id, username, display name); no GitHub access token is kept.",
-        "What is stored: your account; the agents you bind (name and id); each body's name, kind, software version, node public key and last-seen time; sign-in sessions and body tokens as hashes only; binding codes expire after 15 minutes.",
+        "What is stored: your account; the agents you bind (name and id); each body's name, kind, software version, node public key and last-seen time; sign-in sessions, console sign-ins (which body, when signed in and last used) and body tokens as hashes only; binding codes expire after 15 minutes.",
+        "Account pages: sign-in, account management and device approval live on this site (quetzal.plutokeating.beer/account), and your browser reads the data directly from the sync service; your sign-in is kept in a cookie of the sync service (used only for sign-in, valid for 30 days). This site sets no cookies of its own and keeps no account data.",
         "What is not stored: IP addresses and network endpoints (used only while a body is online to set up connections, never written to disk or logs), conversations, memory, personality, model keys. Traffic relayed through the server when no direct connection is possible is end-to-end encrypted and invisible to the server.",
         "Deletion: on the sync service's account page you can unbind a body, delete an agent or delete the whole account at any time, effective immediately.",
         "The server and network providers hosting the sync service may process connection logs under their own policies; this project does not read or keep those logs.",

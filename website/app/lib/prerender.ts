@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { LANGS } from "../i18n/core";
 
-export const STATIC_PAGES = ["/", "/features", "/download", "/about", "/terms", "/privacy", "/docs"] as const;
+export const STATIC_PAGES = ["/", "/features", "/download", "/about", "/terms", "/privacy", "/docs", "/account", "/account/device", "/account/consoles", "/account/settings"] as const;
 
 const contentDir = fileURLToPath(new URL("../../content/docs/", import.meta.url));
 
@@ -27,7 +27,7 @@ function docPaths(): string[] {
 }
 
 export async function prerenderPaths(): Promise<string[]> {
-  const paths = ["/", "/404"];
+  const paths = ["/", "/404", "/device", "/account"];
   for (const lang of LANGS) {
     for (const p of STATIC_PAGES) paths.push(p === "/" ? `/${lang}` : `/${lang}${p}`);
   }

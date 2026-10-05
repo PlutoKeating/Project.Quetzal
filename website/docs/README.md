@@ -21,7 +21,7 @@ website/
 │   │   └── tokens.generated.css 由 scripts/gen-tokens.ts 生成（不入库）
 │   ├── i18n/core.ts             i18n 内核：defineMessages / useMessages / 语言检测与记忆 / 路径切换
 │   ├── components/              跨页面组件：SiteHeader、SiteFooter、LangSwitch、ThemeToggle、Wordmark（光团 OrbMark + 名字）、Article（长文版式）、NotFound、markdown/（统一 Markdown 渲染）；i18n.ts 为壳层文案与 GitHub 链接常量
-│   ├── lib/                     与界面无关的逻辑：prerender（预渲染清单）、bodyClock（生物钟模型）、github（Releases 客户端）、docs（文档清单与内容）
+│   ├── lib/                     与界面无关的逻辑：prerender（预渲染清单）、bodyClock（生物钟模型）、github（Releases 客户端）、docs（文档清单与内容）、sync（同步服务的账户接口客户端）
 │   └── routes/<page>/           每个页面一个目录：route.tsx + i18n.ts（中英文案，键必须一致），可带页面私有组件
 ├── content/docs/                manifest.json（分区与页面顺序，中英共用）+ {zh,en}/<section>/<slug>.md
 ├── public/                      原样复制的静态文件：favicon.svg（光团，色值与设计系统的 orb-* 一致，手动同步）、og.png（分享图）、robots.txt、fonts/（自托管 Inter 与许可证）
@@ -41,7 +41,7 @@ website/
 1. **视觉参数只能来自 `designSystem.ts`**。页面与组件里不得出现字面量色值、Tailwind 调色板类（`bg-slate-500`）、任意值（`rounded-[…]`、`opacity-[…]`、`shadow-[…]`）、数字透明度 / 时长类。`npm run lint:tokens` 在每次构建前执行，命中即失败；确有必要的例外在该行加注释 `ds-allow` 并说明理由。
 2. **每个页面自带 `i18n.ts`**，形如 `defineMessages({ zh: {…}, en: {…} })`：形状由 zh 推断，en 必须一致（`NoInfer` 类型保证）；值可以是字符串、数字、嵌套对象或数组。页面用 `useMessages(messages)` 取当前语言。
 3. **中文文案里 agent 的代词一律写作 `ta`**（小写，不加引号，与中文之间留一个空格，如「ta 醒来了」）；指代 App、基座、设备等非 agent 事物时照常用「它」。英文用 it。
-4. **语言在 URL 前缀里**（`/zh/…`、`/en/…`）。根路径 `/` 由内联脚本按 localStorage（键 `quetzal.lang`）与浏览器语言跳转；切换语言时写入 localStorage。没有 Cookie。
+4. **语言在 URL 前缀里**（`/zh/…`、`/en/…`）。根路径 `/` 由内联脚本按 localStorage（键 `quetzal.lang`）与浏览器语言跳转；切换语言时写入 localStorage。官网自己不设 Cookie；账户页的登录会话是同步服务（sync.quetzal.plutokeating.beer）的 Cookie，见 ARCHITECTURE §5。
 
 ## 常用命令
 
