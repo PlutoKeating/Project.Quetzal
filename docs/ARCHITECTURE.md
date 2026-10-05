@@ -52,13 +52,14 @@ flowchart TB
 ```
 config/quetzal.json      运行配置（控制台可改）
 config/providers.json    模型供应商（Key 为密文）
-secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、feishu_secret、soul_ed25519
+secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、feishu_secret、soul_ed25519、mesh_ed25519（网状层的节点密钥）、sync.json（同步服务的绑定令牌）
 vault/                   0700：保密库。对方通过 pass_secret 交给 agent 的保密值，每项一个 0600 文件；index.json 记录说明（见 §5.1）
 data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
 soul/                    灵魂目录（git 仓库）
 state/starts.json        启动记录（熔断用）
 STOP                     急停标志：存在即冻结一切行动
+mesh-modules/<版本>/      网状层的原生组件（node-datachannel），安装器按锁定的 sha512 下载核对；各运行基座版本共用（releases/<版本>/node_modules 是指过来的相对链接）
 ```
 
 ## 3. 心脏：什么时候醒来
@@ -305,6 +306,32 @@ sequenceDiagram
 
 同步完全由事件驱动（工具调用后、一轮结束、醒来与对话前），没有定时同步。
 
+### 6.2 网状层：同一个 agent 的身体直接连起来（`mesh/`）
+
+灵魂仓库负责持久的记忆；网状层让同时在线的身体实时连在一起（全连接网状网），是「一个心智、多具身体」的基础（设计见 [DISTRIBUTED.md](DISTRIBUTED.md)）。
+
+```mermaid
+flowchart LR
+  subgraph S["同步服务（sync/，部署者自己的服务器）"]
+    SIG["账户 · 设备码绑定<br/>信令与在场（WebSocket）"]
+    TURN["coturn<br/>STUN · TURN 中转"]
+  end
+  A["身体 A<br/>mesh/"] -- "wss：hello、在场、签名信令" --> SIG
+  B["身体 B<br/>mesh/"] -- "wss" --> SIG
+  A <-. "WebRTC 数据通道（DTLS）<br/>局域网 / IPv6 / 打洞直连，打不通经 TURN" .-> B
+  A -. STUN/TURN .- TURN
+  B -. STUN/TURN .- TURN
+  R[("灵魂仓库<br/>bodies/*.json 的 meshKey")] -. 信任根 .- A & B
+```
+
+- **绑定**：控制台填同步服务地址 → `mesh.bind` 申请设备码 → 人在同步服务的网页上用 GitHub 登录、输入短码、核对节点公钥指纹并批准 → 令牌存进 `secrets/sync.json`（0600）。之后开机即连。
+- **节点身份**：`secrets/mesh_ed25519`（ed25519），公钥写进灵魂仓库 `bodies/<身体>.json` 的 `meshKey`（规范 v8）；网状层启动时发现灵魂仓库里还没登记或不一致，立即推送一次。
+- **信任以灵魂仓库为准**：经同步服务转发的信令（SDP 与 ICE 候选）由发送方节点私钥签名，接收方用**灵魂仓库**里登记的公钥验签，并检查收件人、±5 分钟时间窗与一次性随机数（防重放）；遇到没登记的身体先拉取一次灵魂仓库再判断。同步服务转告的公钥与灵魂仓库不一致时提醒（时间线 `mesh`）并以灵魂仓库为准。数据通道打开后，双方再用节点密钥对两端的 DTLS 证书指纹做挑战与应答，通过才算连上。所以同步服务或中转服务器即使被攻破，也冒充不了身体、看不到内容。
+- **连接**（`mesh/link.ts`，node-datachannel = libdatachannel）：名字字典序较小的一方发起；ICE 依次尝试局域网、IPv6、STUN 反射地址，打不通走 TURN 中转；15 秒心跳，45 秒收不到任何消息算断开，指数退避重连；走中转时在 TURN 凭据到期前（80%）用新凭据重建；大消息 48 KB 分块（单条上限 32 MB）。
+- **对上的接口**（`mesh/mesh.ts`）：`request(身体, 方法, 参数)` / `handle(方法, 函数)`（请求与应答，30 秒超时）、`emitTo` / `broadcast`（事件）、在场与路径（控制台显示直连或中转、往返时间，不显示地址）。
+- **现在用它做的事**：推送了灵魂仓库就广播 `soul.pushed`，其他身体立即拉取（不必等到下次醒来）。统一心智（心脏、会话、在场状态、跨身体工具）建立在同一套接口上。
+- **原生组件**：`node-datachannel` 是可选依赖，不打进 `main.cjs`；安装器按 `runtime/tool/mesh-modules.lock.json` 里的版本与 sha512 下载核对（`runtime/tool/install-mesh-modules.mjs`，只用 Node 内置模块，镜像源篡改不了内容），装进 `mesh-modules/<版本>/`。缺组件或没绑定时网状层不启动，身体之间照常用 git 同步，控制台显示原因。
+
 ## 7. 模型层
 
 ```mermaid
@@ -351,7 +378,7 @@ flowchart LR
 - 基座只负责自身逻辑，**进程守护交给外部**（runit、systemd 等）：进程退出即被重新拉起。
 - **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
 - 部署者提供：Node.js 22.13+（`node:sqlite` 从这个版本起不需要标志）、`QUETZAL_HOME`、可选的 `QUETZAL_ADAPTER`（适配器模块路径）、进程守护者。
-- **Android + Termux 部署约定**（Quetzal App 的安装器与点火器按此约定工作，脚本在 `console/assets/install/install.sh`）：软件包 `nodejs-lts termux-services termux-api git openssh`；版本目录 `~/quetzal/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/quetzal/current` → 运行中的版本，`~/quetzal/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/quetzal`（`run` 以 `QUETZAL_ADAPTER=$HOME/quetzal/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/quetzal/`；开机脚本 `~/.termux/boot/quetzal`（唤醒锁 + 启动 runit）；`termux.properties` 中 `allow-external-apps=true`。安装器在 App 内开一个 127.0.0.1 的临时 HTTP 服务提供脚本与运行基座文件、接收进度；脚本通过 Termux 的 `RUN_COMMAND` 执行，完成后把 `secrets/gateway.token` 交给控制台，同一台手机上不需要配对码。健康检查 40 秒不通过自动切回 `previous`。
-- **Linux + npm 部署约定**（npm 包 `@plutokeating/quetzal`，源码在 `cli/`，与 Android 约定同构）：`npx @plutokeating/quetzal` 把包内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/.quetzal/releases/<版本>/`（Linux 的家目录缺省 `~/.quetzal`，`QUETZAL_HOME` / `--home` 可改；0.6.7 前的 `~/quetzal` 自动搬过来），`current` / `previous` 同上；网关托管 `current/web/`（`QUETZAL_WEB_DIR` 可覆盖），装完有桌面时自动打开浏览器，`quetzal open` 再次打开；守护者是 systemd 用户服务 `~/.config/systemd/user/quetzal.service`（`ExecStart=<安装时的 node> --enable-source-maps ~/.quetzal/current/main.cjs`，`QUETZAL_ADAPTER=~/.quetzal/current/linux.mjs`，`Restart=always`），日志在 journald；尝试 `loginctl enable-linger` 让服务在没有登录会话时也运行。健康检查 40 秒且 `/health` 的版本相符才算成功，否则切回 `previous`。`--lan` 把 `gateway.host` 写为 `0.0.0.0`，手机上的 App 直接连这台机器；配对码由适配器的 `notify` 弹桌面通知并写进服务日志。没有 systemd 用户实例时只放文件，提示 `quetzal run` 前台运行。
+- **Android + Termux 部署约定**（Quetzal App 的安装器与点火器按此约定工作，脚本在 `console/assets/install/install.sh`）：软件包 `nodejs-lts termux-services termux-api git openssh`；版本目录 `~/quetzal/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/quetzal/current` → 运行中的版本，`~/quetzal/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/quetzal`（`run` 以 `QUETZAL_ADAPTER=$HOME/quetzal/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/quetzal/`；开机脚本 `~/.termux/boot/quetzal`（唤醒锁 + 启动 runit）；`termux.properties` 中 `allow-external-apps=true`；网状层的原生组件按锁定的 sha512 下载核对到 `~/quetzal/mesh-modules/<版本>/`（中国大陆镜像模式先试 npmmirror），版本目录的 `node_modules` 是指过去的相对链接，失败不影响安装。安装器在 App 内开一个 127.0.0.1 的临时 HTTP 服务提供脚本与运行基座文件、接收进度；脚本通过 Termux 的 `RUN_COMMAND` 执行，完成后把 `secrets/gateway.token` 交给控制台，同一台手机上不需要配对码。健康检查 40 秒不通过自动切回 `previous`。
+- **Linux + npm 部署约定**（npm 包 `@plutokeating/quetzal`，源码在 `cli/`，与 Android 约定同构）：`npx @plutokeating/quetzal` 把包内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/.quetzal/releases/<版本>/`（Linux 的家目录缺省 `~/.quetzal`，`QUETZAL_HOME` / `--home` 可改；0.6.7 前的 `~/quetzal` 自动搬过来），`current` / `previous` 同上；网关托管 `current/web/`（`QUETZAL_WEB_DIR` 可覆盖），装完有桌面时自动打开浏览器，`quetzal open` 再次打开；守护者是 systemd 用户服务 `~/.config/systemd/user/quetzal.service`（`ExecStart=<安装时的 node> --enable-source-maps ~/.quetzal/current/main.cjs`，`QUETZAL_ADAPTER=~/.quetzal/current/linux.mjs`，`Restart=always`），日志在 journald；尝试 `loginctl enable-linger` 让服务在没有登录会话时也运行。健康检查 40 秒且 `/health` 的版本相符才算成功，否则切回 `previous`。`--lan` 把 `gateway.host` 写为 `0.0.0.0`，手机上的 App 直接连这台机器；配对码由适配器的 `notify` 弹桌面通知并写进服务日志。没有 systemd 用户实例时只放文件，提示 `quetzal run` 前台运行。网状层的原生组件（`linux-<x64|arm64>-<gnu|musl>`）同样按锁定的 sha512 下载核对到 `~/.quetzal/mesh-modules/<版本>/`，失败不影响安装。
 - **一键安装脚本**（`cli/install.sh`，官网构建时复制为 `https://quetzal.plutokeating.beer/install`，`curl -fsSL …/install | bash`）：在 npm 包之上补齐使用者机器可能缺的一切——用发行版自己的包管理器装 git / curl / tar / CA 证书，Node.js 22.13+ 没有就经 nvm 装（musl 用 apk，NixOS 要求自备），npm 包装进 `~/.quetzal/npm` 独立前缀，`~/.local/bin/quetzal` 垫片固定用安装时的 node；守护在 systemd 之上确保 `loginctl enable-linger`，没有 systemd 的机器写 `~/.quetzal/bin/quetzal-supervise` 守护循环（退出 3 秒重启）并用 `crontab @reboot` 与桌面自启动项开机拉起；有桌面时写 `quetzal.desktop`、图标与启动器 `quetzal-console`（Chromium 系浏览器 `--app` 独立窗口）。中英双语、幂等、可 `--uninstall`。
 - **配置缺省**：`body` 由安装器写为机型名（Android）或主机名（Linux），`timezone` 取系统时区；相机、麦克风、定位、操作屏幕默认「每次询问」；听觉默认关闭；网关只监听本机。

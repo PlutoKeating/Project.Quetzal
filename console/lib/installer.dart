@@ -22,6 +22,7 @@ class Progress {
 const installSteps = <String, String>{
   'pkg': '安装软件包（Node.js、runit、Termux:API、git）',
   'runtime': '放入运行基座',
+  'mesh': '下载多具身体直连的组件',
   'service': '注册服务与开机自启',
   'config': '写入设备配置',
   'start': '启动运行基座',

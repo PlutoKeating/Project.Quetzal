@@ -15,6 +15,7 @@ import { bus } from "./bus.ts";
 import { log } from "./log.ts";
 import { VERSION } from "./version.ts";
 import { restore as restoreAgents } from "./mind/agents.ts";
+import { startMesh, wireMesh } from "./mesh/runtime.ts";
 
 /** 熔断：10 分钟内启动超过 5 次（说明在反复崩溃）则进入安全模式——只开网关与飞书，不醒来、不调用模型。 */
 function crashGuard(): boolean {
@@ -47,6 +48,8 @@ async function main() {
     return;
   }
   await ensureSoul().catch((e) => log("soul", `灵魂目录初始化失败：${e.message}`));
+  wireMesh();
+  await startMesh().catch((e) => log("mesh", `网状层启动失败：${e.message}`)); // 没有绑定或缺组件时只是不启动，身体之间仍用 git 同步
   await sample().catch(() => {});
   addTimeline("boot", "苏醒：进程启动", { version: VERSION, body: config.body });
   ensureCatalogFresh(); // 模型目录缺少「能否看图」等信息时后台刷新（路由据此把图片只发给能看图的模型）

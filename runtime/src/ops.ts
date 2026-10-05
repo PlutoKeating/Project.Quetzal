@@ -23,6 +23,7 @@ import { listSecrets, deleteSecret, pendingSecrets, endCapture } from "./mind/se
 import { listCustomTools, listSkills, readTool, readSkill, deleteTool, setToolEnabled } from "./mind/custom-tools.ts";
 import * as hearing from "./voice/hearing.ts";
 import * as player from "./voice/player.ts";
+import * as meshRt from "./mesh/runtime.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -31,9 +32,16 @@ export const status = () => ({
   models: routes().map((r) => `${r.provider.name}/${r.model.name}`),
   thought: mem.thought(), // 她想分享的一句话（首页展示）
   hearing: hearing.hearingStatus(), // 听觉：App 据 listening 决定要不要开麦克风
+  mesh: meshRt.meshStatus(), // 网状层：同步服务、绑定、各身体的连接
 });
 
 export const ops = {
+  // 网状层（多具身体连成一个心智）：同步服务地址、设备码绑定、解绑
+  mesh: () => meshRt.meshStatus(),
+  "mesh.setServer": async (a: { server: string }, actor: string) => { const r = await meshRt.setServer(String(a.server ?? "")); audit(actor, "mesh.setServer", "", { server: r.server }, "ok"); return r; },
+  "mesh.bind": async (_: unknown, actor: string) => { const r = await meshRt.bind(); audit(actor, "mesh.bind", "", { server: r.server }, "started"); return r; },
+  "mesh.cancelBind": () => meshRt.cancelBind(),
+  "mesh.unbind": async (_: unknown, actor: string) => { const r = await meshRt.unbindMesh(); audit(actor, "mesh.unbind", "", {}, "ok"); return r; },
   status,
   timeline: (a: { limit?: number; before?: number; kind?: string }) => listTimeline(a.limit ?? 50, a.before, a.kind),
   messages: (a: { limit?: number }) => recentMessages(a.limit ?? 50),

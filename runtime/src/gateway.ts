@@ -163,6 +163,7 @@ export function startGateway(safeMode: boolean) {
   bus.on("speaking", (e) => broadcast("speaking", e));
   bus.on("speak", (e) => broadcast("speak", e));
   bus.on("session.switch", (e) => broadcast("session.switch", e));
+  bus.on("mesh", (s) => broadcast("mesh", s));
 
   server.listen(config.gateway.port, config.gateway.host, () => log("gateway", `监听 ${config.gateway.host}:${config.gateway.port}`));
 }

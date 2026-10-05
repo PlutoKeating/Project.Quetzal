@@ -39,6 +39,24 @@ done
 [ "$(stat -c %s "$R/$V/main.cjs")" -gt 100000 ] || fail "运行基座文件不完整"
 node -e "require('fs').readFileSync('$R/$V/main.cjs')" || fail "运行基座文件不可读"
 
+# ---------- 2b. 网状层的原生组件（node-datachannel）：按锁定文件的版本与 sha512 下载并核对，装进 ~/quetzal/mesh-modules/<版本>/（各版本共用，升级不重复下载）。
+#      失败不影响安装：只是暂时没有网状层，身体之间仍用 git 同步；下次安装再试。
+step mesh
+MM_OK=
+if curl -fsS "$BASE/runtime/mesh-modules.lock.json" -o "$R/$V/mesh-modules.lock.json" && curl -fsS "$BASE/runtime/install-mesh-modules.mjs" -o "$R/$V/install-mesh-modules.mjs"; then
+  NDC_V=$(node -p "require('$R/$V/mesh-modules.lock.json').common['node-datachannel'].version" 2>/dev/null)
+  MM="$W/mesh-modules/$NDC_V"
+  if [ -n "$NDC_V" ] && [ ! -f "$MM/node_modules/node-datachannel/package.json" ]; then
+    mkdir -p "$MM"
+    if [ "$MIRROR" = cn ]; then REGS="https://registry.npmmirror.com https://registry.npmjs.org"; else REGS="https://registry.npmjs.org https://registry.npmmirror.com"; fi
+    # shellcheck disable=SC2086
+    node "$R/$V/install-mesh-modules.mjs" "$R/$V/mesh-modules.lock.json" "$MM" android-arm64 $REGS >>"$LOG" 2>&1 || echo "!! 网状层组件没有装上（不影响使用，下次安装再试）" >>"$LOG"
+  fi
+  [ -f "$MM/node_modules/node-datachannel/package.json" ] && ln -sfn "../../mesh-modules/$NDC_V/node_modules" "$R/$V/node_modules" && MM_OK=1   # 相对链接：家目录整体搬迁也不断
+  ( cd "$W/mesh-modules" 2>/dev/null && ls -1t | tail -n +3 | xargs -r rm -rf )   # 只保留最近 2 个版本的组件
+fi
+echo "网状层组件：${MM_OK:+已就绪}${MM_OK:-缺失}" >>"$LOG"
+
 # ---------- 3. 服务：runit 守护、日志轮转、开机脚本、允许控制台点火
 step service
 mkdir -p "$SV/log" "$PREFIX/var/log/sv/quetzal" "$HOME/.termux/boot"

@@ -14,6 +14,7 @@ import { addTimeline } from "../store.ts";
 import { bus } from "../bus.ts";
 import { mergeEntries } from "./entries.ts";
 import { VERSION } from "../version.ts";
+import { nodeKey } from "../mesh/runtime.ts";
 export { mergeEntries };
 
 let repo: SoulRepo | undefined;
@@ -31,7 +32,7 @@ function r(): SoulRepo {
       isSeedSoul: (t) => t.trim() === seedSoul(identity().displayName).trim(),
       seedIdentity: () => defaultIdentity(),
       seedSoul,
-      bodyInfo: () => ({ kind: "runtime", runtime: VERSION }),
+      bodyInfo: () => ({ kind: "runtime", runtime: VERSION, meshKey: nodeKey().nodeKey }), // meshKey：网状层的节点公钥（规范 v8），其他身体以它为准核对这具身体
       log: (m) => log("soul", m),
     });
     if (prev) repo.status = prev;

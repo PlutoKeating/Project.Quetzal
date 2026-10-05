@@ -16,7 +16,9 @@ export interface Events {
   speaking: [e: { until: number }]; // 她在说话（播放合成语音）到 until 为止，给界面用；说完或被插嘴时 until 提前到现在
   speak: [e: { id: string; url: string; text: string; ms: number }];
   "soul.alert": [e: { text: string; targets: ({ id: string; conv: string; origin: string; switchTo?: string; closed?: boolean } | undefined)[] }]; // 灵魂同步要她知道的事（推送失败、冲突副本待裁决）：大脑插话进对应的会话，已结束则开新的一轮
-  "soul.pushed": [e: { files: string[] }]; // 她碰过的变更已推送到远端（网状层据此通知其他身体立即拉取）
+  "soul.pushed": [e: { files: string[] }];
+  mesh: [s: unknown]; // 网状层状态变化（绑定进展、同步服务连接、各身体的连接与路径），控制台据此刷新
+  "mesh.event": [e: { from: string; name: string; data: unknown }]; // 其他身体经网状层发来的事件 // 她碰过的变更已推送到远端（网状层据此通知其他身体立即拉取）
   "session.switch": [e: { from: string; to: string; title: string; done?: boolean }]; // 她用 session_new 把对话切到新会话：控制台跟着切；done 为真表示回复已放进新会话 // 让控制台 App 播放一段合成语音（走通话路径，耳朵有回声消除）；App 播完或被插嘴后回报 player.done
 }
 /**

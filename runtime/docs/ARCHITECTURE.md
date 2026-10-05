@@ -6,7 +6,7 @@
 src/
 ├── main.ts               装配各模块；熔断（安全模式）
 ├── config.ts             家目录布局、配置读写、密钥文件
-├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed）
+├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event）
 ├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式；role 为 user / agent / ambient）、audit、usage
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时、输出上限）；后台任务（可随时停止整个进程组）
@@ -43,6 +43,12 @@ src/
 │   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块
 │   ├── soul-repo.ts      灵魂仓库协议（与桥接共用）：克隆 / 补齐、提交、拉取合并（条目级三方合并、字段合并、冲突副本）、推送结果与失败分类、身份守卫、整理租约、历史与撤销
 │   └── soul-sync.ts      运行基座一侧的同步：触碰即同步（工具调用后 git status → 立即提交，3 秒去抖推送）、网络类静默重试、推送失败与冲突副本的提醒（soul.alert 事件）、待裁决的副本
+├── mesh/                 网状层：同一个 agent 的在线身体两两直连（设计见 docs/ARCHITECTURE.md §6.2、docs/DISTRIBUTED.md）
+│   ├── identity.ts       节点密钥（secrets/mesh_ed25519）、指纹、规范化 JSON、签名信封与验证（收件人、时间窗、防重放、只认灵魂仓库登记的公钥）
+│   ├── directory.ts      同步服务客户端（协议见 sync/docs/PROTOCOL.md）：只接受 HTTPS、设备码绑定、信令 WebSocket（在场、转发、TURN 凭据刷新、指数退避重连）
+│   ├── link.ts           一条 WebRTC 连接（node-datachannel）：发起方由名字决定、签名信令、DTLS 指纹的挑战应答、心跳与重连、中转凭据到期前重建、大消息分块
+│   ├── mesh.ts           全连接管理：按在场建立 / 停止连接、验签、请求 / 应答、事件、状态（不含地址）
+│   └── runtime.ts        绑定到运行时：配置、绑定令牌（secrets/sync.json）、原生组件的按需加载、身体登记的公钥、soul.pushed → 其他身体立即拉取；网关的 mesh.* 方法
 ├── guard/guard.ts        能力授权、审批队列、急停、审计
 ├── providers/
 │   ├── types.ts          统一消息/工具/结果类型

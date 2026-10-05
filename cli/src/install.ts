@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { type Layout, layout, versionOf, putRelease, switchTo, rollback, prune, readConfig, patchConfig, defaultBody, needsMigration, migrateHome } from "./layout.ts";
 import * as svc from "./service.ts";
 import { waitHealthy } from "./health.ts";
+import { installMeshModules } from "./mesh.ts";
 
 export type Say = (line: string) => void;
 export interface Options { home: string; lan?: boolean; force?: boolean }
@@ -59,6 +60,7 @@ export async function install(o: Options, say: Say): Promise<void> {
   fs.mkdirSync(l.releases, { recursive: true });
   const { version, changed, before } = placeRelease(l, o.force);
   say(!changed ? `运行基座 ${version} 已是内置版本` : before === version ? `重新安装 ${version}` : before ? `升级：${before} → ${version}` : `安装运行基座 ${version}`);
+  if (!fs.existsSync(path.join(l.current, "node_modules", "node-datachannel"))) await installMeshModules(l, bundled().dir, fs.realpathSync(l.current), say);
   writeDefaults(l, o.lan);
 
   if (!(await svc.available())) {

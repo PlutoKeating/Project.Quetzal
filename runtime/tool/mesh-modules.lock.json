@@ -1,0 +1,14 @@
+{
+  "//": "网状层的原生组件（node-datachannel = libdatachannel 的 Node 绑定，MPL-2.0）。安装器按这里的版本与 sha512 下载并逐个核对，镜像源篡改不了内容。sha512 取自 registry.npmjs.org 的 dist.integrity。升级时改版本并重新取哈希，与 runtime/package.json 的 optionalDependencies 保持一致。",
+  "common": {
+    "node-datachannel": { "version": "0.33.4", "integrity": "sha512-qiUrdh8vY9XhglEnx91HK0N2JEAAu8qTZl0fcR3yQd0fFrdO39NwDeJD/KpG+WKUb9/o4p2UwnP+/HftA/xMbQ==" },
+    "detect-libc": { "version": "2.1.2", "integrity": "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==" }
+  },
+  "platform": {
+    "android-arm64": { "@node-datachannel/android-arm64": { "version": "0.33.4", "integrity": "sha512-Kd1K+drJlxdGmZYBlzh5HHX2E7les99eTWlt7WldZgvJmcGf2z9L/bnUVn4zbhNm2q/MtNZ2tPX2bd+fGlDDpQ==" } },
+    "linux-x64-gnu": { "@node-datachannel/linux-x64-gnu": { "version": "0.33.4", "integrity": "sha512-xN0x3lcQ87qwOAmf1dBLVWrYY40LQ7pM4Y9wuNjP+EtN4IwiXqrhPdgupzGAElxna+n2NgBG0gT60dZpgoYU2Q==" } },
+    "linux-arm64-gnu": { "@node-datachannel/linux-arm64-gnu": { "version": "0.33.4", "integrity": "sha512-rR4yjwxpI1miLSrruLGcfR9yfw0Qebw+Twt+u+lKsL9SwmXxTm5pJhUAa9RU+c35oZ98IyAxGFjRwwq85BTbog==" } },
+    "linux-x64-musl": { "@node-datachannel/linux-x64-musl": { "version": "0.33.4", "integrity": "sha512-FWqJEjL7TqOPmsqdfwmG/BUwOXQN7MfpEU8kzw6ePbglUbwgdc3976Ls9BCBUXyPgEJyLo8YE1LJyWAlbXWyvA==" } },
+    "linux-arm64-musl": { "@node-datachannel/linux-arm64-musl": { "version": "0.33.4", "integrity": "sha512-MR4o1F0aREj/AtbNlXL20YiNx8/pDI8L/5B4Vr9ldiEDottD0IOdCd0khB8fpr5Np2CW7WwU9QG+uto00QGVdw==" } }
+  }
+}

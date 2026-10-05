@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-only",
   "description": "通用的 Agentic 生命运行基座：心脏、大脑、记忆、身体、闸门、网关",
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --outfile=dist/main.cjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs && esbuild adapters/linux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/linux.mjs",
+    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --external:node-datachannel --outfile=dist/main.cjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs && esbuild adapters/linux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/linux.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "dev": "QUETZAL_HOME=./.dev node --experimental-strip-types src/main.ts"
   },
@@ -21,5 +21,8 @@
     "@types/ws": "^8.5.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.9.0"
+  },
+  "optionalDependencies": {
+    "node-datachannel": "0.33.4"
   }
 }

@@ -37,6 +37,8 @@ export interface Config {
   // 灵魂仓库：sshMode 决定访问远端用哪把钥匙——deploy（默认，本机专属部署私钥 secrets/soul_ed25519）、custom（sshKeyPath 指定的私钥）、system（不传 -i，交给 ~/.ssh/config 与 ssh-agent）
   soul: { remote: string; branch: string; sshMode: "deploy" | "custom" | "system"; sshKeyPath: string };
   gateway: { port: number; host: string }; // host 缺省只监听本机；填 0.0.0.0 对局域网开放（配对码与令牌仍是唯一门槛）
+  // 网状层：同步服务的地址（HTTPS）。绑定后的令牌在 secrets/sync.json；节点密钥在 secrets/mesh_ed25519
+  mesh: { server: string };
   // 语音（Azure 语音服务文本转语音）。密钥单独保存在 secrets/azure_speech_key
   speech: { region: string; endpoint: string; voice: string; style: string; rate: string; pitch: string; volume: string; format: string };
   // 听觉：控制台 App 当耳朵（采集、降噪、断句），基座识别（Azure，与语音合成同一把密钥）并交给她判断要不要回应
@@ -69,6 +71,7 @@ export const defaults: Config = {
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
   soul: { remote: "", branch: "main", sshMode: "deploy", sshKeyPath: "" },
   gateway: { port: 7788, host: "127.0.0.1" },
+  mesh: { server: "" },
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
   hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "", minChars: 2 },
 };
