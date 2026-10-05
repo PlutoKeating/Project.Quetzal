@@ -24,6 +24,12 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # 试跑：手动触发，按给定版本号走完测试、构建、汇总与签名，但不创建 Release、不发布 npm（新改的发版流程先在这里跑通，免得浪费版本号）
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（与 runtime/package.json 等一致，例如 1.0.3）"
+        required: true
 
 permissions:
   contents: read
@@ -45,8 +51,10 @@ jobs:
           persist-credentials: false
       - name: 校验版本号一致（标签 = runtime/package.json = console/pubspec.yaml = cli/package.json）
         id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then TAG="$INPUT_VERSION"; else TAG="${GITHUB_REF_NAME#v}"; fi
           RT=$(node -p "require('./runtime/package.json').version")
           APP=$(sed -n 's/^version: *\([0-9][0-9.]*\).*/\1/p' console/pubspec.yaml)
           CLI=$(node -p "require('./cli/package.json').version")
@@ -229,6 +237,7 @@ jobs:
           cat SHA256SUMS SHA256SUMS.sig
 
       - name: 构建来源证明（APK、Linux 控制台与 SHA256SUMS）
+        if: github.event_name == 'push'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -247,6 +256,7 @@ jobs:
 
       # --notes 与 --generate-notes 同时给时，CHANGELOG 小节在前、自动生成的提交摘要在后
       - name: 创建 Release（gh，带全部资产）
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           V: ${{ needs.prepare.outputs.version }}
@@ -259,6 +269,7 @@ jobs:
   # npm 包：Release 成功之后才发布。只下载构建好的 tgz，不检出、不构建；两个 registry 各用一份独立的 npm 用户配置
   # （带作用域的包按 @作用域:registry 决定发到哪、用哪条凭据，--registry 参数不改变凭据查找）。
   publish-npm:
+    if: github.event_name == 'push'
     needs: [release, npm-pack]
     runs-on: ubuntu-24.04
     permissions:
