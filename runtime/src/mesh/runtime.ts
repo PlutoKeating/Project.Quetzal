@@ -34,7 +34,7 @@ async function loadNdc(): Promise<Ndc | undefined> {
   return ndc;
 }
 
-function readBinding(): Binding | undefined {
+export function readBinding(): Binding | undefined {
   try { const b = JSON.parse(fs.readFileSync(BINDING(), "utf8")) as Binding; return b.token && b.server ? b : undefined; } catch { return undefined; }
 }
 

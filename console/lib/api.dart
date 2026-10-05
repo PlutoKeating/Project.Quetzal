@@ -211,6 +211,7 @@ class Api extends ChangeNotifier {
     final ev = GatewayEvent(m['event'] as String, m['data']);
     if (ev.name == 'state') { status = Map<String, dynamic>.from(ev.data as Map); _rememberName(); notifyListeners(); }
     if (ev.name == 'mesh' && ev.data is Map) { status['mesh'] = ev.data; notifyListeners(); } // 网状层的状态单独推送（绑定进展、各身体的连接）
+    if (ev.name == 'account' && ev.data is Map) { status['account'] = ev.data; notifyListeners(); } // 账户的控制台登录状态（申请码、批准、退出、令牌失效）
     if (ev.name == 'hello') safeMode = (ev.data as Map)['safeMode'] == true;
     _events.add(ev);
   }

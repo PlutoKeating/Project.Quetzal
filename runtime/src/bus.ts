@@ -18,6 +18,7 @@ export interface Events {
   "soul.alert": [e: { text: string; targets: ({ id: string; conv: string; origin: string; switchTo?: string; closed?: boolean } | undefined)[] }]; // 灵魂同步要她知道的事（推送失败、冲突副本待裁决）：大脑插话进对应的会话，已结束则开新的一轮
   "soul.pushed": [e: { files: string[] }];
   mesh: [s: unknown];
+  account: [s: unknown]; // 控制台登录的状态变了（申请码、批准、退出、令牌失效），控制台据此刷新账户页
   heart: []; // 心脏状态变了（协调者据此把状态广播给其他身体）
   shared: [sections: string[]]; // 本机改了全网共用的设置分区（网状层据此同步给其他身体）
   "shared.applied": [sections: string[]]; // 采用了其他身体较新的设置分区（相关模块据此生效，例如飞书持有者变了要重连）

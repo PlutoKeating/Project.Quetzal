@@ -166,6 +166,7 @@ export function startGateway(safeMode: boolean) {
   bus.on("speak", (e) => broadcast("speak", e));
   bus.on("session.switch", (e) => broadcast("session.switch", e));
   bus.on("mesh", (s) => broadcast("mesh", s));
+  bus.on("account", (s) => broadcast("account", s));
   bus.on("replica.applied", (e) => { if (e.table !== "timeline") broadcast("replica", { table: e.table, from: e.from, convs: [...new Set(e.rows.map((r) => r.session ?? r.id).filter(Boolean))].slice(0, 50) }); });
 
   server.listen(config.gateway.port, config.gateway.host, () => log("gateway", `监听 ${config.gateway.host}:${config.gateway.port}`));

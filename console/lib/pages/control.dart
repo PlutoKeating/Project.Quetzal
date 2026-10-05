@@ -14,6 +14,7 @@ import 'about.dart';
 import 'tools.dart';
 import 'hearing.dart';
 import 'mesh.dart';
+import 'account.dart';
 import '../installer.dart';
 import '../updater.dart';
 import '../platform/caps.dart';
@@ -47,6 +48,7 @@ List<ControlItem> controlItems() {
     ControlItem('hearing', '连接', Icons.hearing, '听觉', () => hearing['enabled'] == true ? (hearing['listening'] == true ? '开着：手机在听' : '开着，此刻没在听') : '关着 · 让她用麦克风听你说话', () => const HearingPage()),
     ControlItem('soul', '连接', Icons.cloud_sync, '灵魂同步', () => '与其他身体共享人格与记忆', () => const SoulPage()),
     ControlItem('mesh', '连接', Icons.lan, '多具身体', () => _meshSubtitle(), () => const MeshPage()),
+    ControlItem('account', '连接', Icons.account_circle_outlined, '账户', () => '同步服务上的账户：agent 与身体、批准设备、控制台登录', () => const AccountPage()),
     ControlItem('history', '连接', Icons.history, '记忆历史', () => '每一次变更来自哪具身体，可查看与撤销', () => const HistoryPage()),
     ControlItem('service', '运维', Icons.monitor_heart, '服务', () => '版本 ${s['version'] ?? '-'} · 身体 ${s['body'] ?? '-'}（${s['adapter'] ?? '-'}）', () => const ServicePage()),
     ControlItem('about', '运维', Icons.info_outline, '关于', () => '简介 · 版本 · 检查更新与升级', () => const AboutPage()),

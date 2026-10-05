@@ -30,6 +30,7 @@ lib/
     ├── flow.dart      心流：FlowFeed（时间线加载与筛选）、手机页（可展开的卡片）、FlowList（桌面列表栏）、FlowDistribution（醒来分布）
     ├── memory.dart    记忆：MemoryCore / JournalList / NotesList / MemorySearch / MarkdownDoc；手机 4 个 Tab，桌面索引在列表栏、内容在主区
     ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用）、自主性、审批（ApprovalCard，标出在哪具身体上请求的）、授权、预算、审计、保密库、飞书（多具身体时选持有者）、语音、灵魂同步、服务
+    ├── account.dart   账户：控制台登录（码、链接、二维码），之后分四页——概览（agent 与身体、解绑、删除 agent）、批准设备（输入码、核对、批准或拒绝）、控制台登录（吊销）、账户设置（退出、删除账户）
     ├── mesh.dart      多具身体：同步服务地址、设备码绑定（短码、链接、二维码、公钥指纹）、解绑、其他身体的连接（直连 / 中转、往返时间、公钥核对）、心跳在哪、当协调者的优先级
     ├── tools.dart     工具：她自己造的工具（定义、源码、技能文档）与灵魂仓库里的技能文档；停用 / 启用、删除
     ├── hearing.dart   听觉：开关、灵敏度、会话窗口、识别语言、麦克风权限；此刻在不在听、最近听到的话

@@ -24,6 +24,7 @@ import { listCustomTools, listSkills, readTool, readSkill, deleteTool, setToolEn
 import * as hearing from "./voice/hearing.ts";
 import * as player from "./voice/player.ts";
 import * as meshRt from "./mesh/runtime.ts";
+import * as acct from "./mesh/account.ts";
 import { remoteApprovals, decideAnywhere } from "./mesh/shared.ts";
 
 export const status = () => ({
@@ -44,6 +45,18 @@ export const ops = {
   "mesh.cancelBind": () => meshRt.cancelBind(),
   "mesh.setPriority": (a: { priority: number }, actor: string) => { const p = Math.max(0, Math.min(100, Math.round(Number(a.priority) || 0))); saveConfig({ mesh: { priority: p } }); audit(actor, "mesh.setPriority", "", { priority: p }, "ok"); return meshRt.meshStatus(); },
   "mesh.unbind": async (_: unknown, actor: string) => { const r = await meshRt.unbindMesh(); audit(actor, "mesh.unbind", "", {}, "ok"); return r; },
+  // 账户（控制台登录后管理同步服务上的整个账户；与官网账户页同一套接口）
+  account: () => acct.accountStatus(),
+  "account.signIn": async (_: unknown, actor: string) => { const r = await acct.signIn(); audit(actor, "account.signIn", "", {}, "started"); return r; },
+  "account.cancel": () => acct.cancelSignIn(),
+  "account.signOut": async (_: unknown, actor: string) => { const r = await acct.account.signOut(); audit(actor, "account.signOut", "", {}, "ok"); return r; },
+  "account.get": () => acct.account.get(),
+  "account.lookup": (a: { code: string }) => acct.account.lookup(a.code),
+  "account.decide": async (a: { code: string; approve: boolean }, actor: string) => { const r = await acct.account.decide(a.code, a.approve); audit(actor, "account.decide", "", { approve: !!a.approve }, "ok"); return r; },
+  "account.removeBody": async (a: { agent: string; body: string }, actor: string) => { const r = await acct.account.removeBody(a.agent, a.body); audit(actor, "account.removeBody", "", { body: a.body }, "ok"); return r; },
+  "account.removeAgent": async (a: { agent: string }, actor: string) => { const r = await acct.account.removeAgent(a.agent); audit(actor, "account.removeAgent", "", { agent: a.agent }, "ok"); return r; },
+  "account.revokeConsole": async (a: { id: string }, actor: string) => { const r = await acct.account.revokeConsole(a.id); audit(actor, "account.revokeConsole", "", {}, "ok"); return r; },
+  "account.delete": async (_: unknown, actor: string) => { const r = await acct.account.deleteAccount(); audit(actor, "account.delete", "", {}, "ok"); return r; },
   status,
   timeline: (a: { limit?: number; before?: number; kind?: string }) => listTimeline(a.limit ?? 50, a.before, a.kind),
   messages: (a: { limit?: number }) => recentMessages(a.limit ?? 50),

@@ -49,6 +49,13 @@ export function soulGitBlock(command: string): string | undefined {
   return "没有执行：灵魂目录（你的人格与记忆所在的仓库）由基座全自动同步，不能在里面运行 git——改远端、reset、push、把它的内容提交到别的仓库，都可能把记忆推到错的地方、或把别的历史混进来。你改动灵魂目录里的文件，基座会立即提交并推送；同步出了问题会提醒你，需要人处理的事告诉对方。";
 }
 
+/** 基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥）不给 agent 碰：读到账户令牌就能删掉整个账户。 */
+export function secretsBlock(text: string): string | undefined {
+  const dir = paths.secrets.replace(/\/+$/, "");
+  const touches = text.includes(dir) || /quetzal\/secrets\b|QUETZAL_HOME\}?\/secrets\b|(^|[\s;&|(])cd\s+secrets\b|sync-account\.json|(^|[\s/])sync\.json\b|master\.key|gateway\.token|mesh_ed25519|soul_ed25519/.test(text);
+  return touches ? "没有执行：基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥）不能读取、复制或使用。需要这些能力的事由基座或对方在控制台里做。" : undefined;
+}
+
 const core: Tool[] = [
   {
     name: "memory", permission: "memory",
@@ -151,14 +158,14 @@ const core: Tool[] = [
     name: "read_document", permission: "shell",
     description: "读取本地文档的文字内容（分页，每次约 2 万字）：Word（docx/doc）、PowerPoint（pptx/ppt，含备注）、Excel（xlsx/xls，按工作表输出为制表符分隔）、PDF、OpenDocument（odt/ods/odp）、EPUB、HTML、RTF、各类文本；zip 会列出内容。用户上传的附件在附件列表里给出了本地路径。",
     parameters: obj({ path: str("文件的本地路径"), offset: { type: "number", description: "从第几个字开始（用于翻页）" } }, ["path"]),
-    handler: async (a) => readDocument(String(a.path), Number(a.offset) || 0),
+    handler: async (a) => secretsBlock(String(a.path)) ?? readDocument(String(a.path), Number(a.offset) || 0),
   },
   {
     name: "shell", permission: "shell",
     description: "在这具身体上执行一条 shell 命令。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
     parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
     handler: async (a) => {
-      const blocked = soulGitBlock(String(a.command ?? ""));
+      const blocked = soulGitBlock(String(a.command ?? "")) ?? secretsBlock(String(a.command ?? ""));
       if (blocked) return blocked;
       if (a.background) { const j = startJob(a.command); return `已在后台运行，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
       const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000);

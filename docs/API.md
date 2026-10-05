@@ -40,6 +40,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `session.switch` | `{from, to, title, done?}`：她用 `session_new` 把对话切到了新会话；控制台把打开的会话页切过去；`done` 为真表示她这一轮的回复已放进新会话 |
 | `speak` | `{id, url, text, ms}`：让控制台 App 播放一段合成语音（`url` 为 `/media/<文件名>`，走通话音频路径，耳朵的回声消除以它为参考）；App 播完或被插嘴后调用 `player.done` |
 | `mesh` | 网状层状态（同 `mesh` 方法的返回），绑定进展、同步服务连接、各身体的连接与路径变化时推送 |
+| `account` | 账户的控制台登录状态（同 `account` 方法的返回）：申请码、批准、退出、令牌失效时推送 |
 | `replica` | `{table: messages｜sessions｜message.mode, from, convs}`：从其他身体复制来的对话或会话已写入本机（`convs` 为涉及的会话），控制台据此刷新会话列表与打开的对话。时间线条目照常经 `timeline` 推送（带 `body`） |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
@@ -163,6 +164,21 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `mesh.cancelBind` / `mesh.unbind` | — | 取消进行中的绑定 / 解绑（通知同步服务作废令牌，删除本机的绑定；节点密钥保留） |
 
 推送事件 `mesh`：数据同 `mesh` 方法，网状层状态变化时推送（绑定进展、同步服务连接、各身体的连接与路径）。
+
+**账户**（`mesh/account.ts`）：控制台管理同步服务上的整个账户，与官网的账户页是同一套接口（[sync/docs/PROTOCOL.md](../sync/docs/PROTOCOL.md) §5）。前提是这具身体已绑定；再做一次控制台登录，账户令牌存在 `secrets/sync-account.json`（0600）。这些方法只给持网关令牌的控制台用，agent 的工具里没有，agent 的命令执行工具也读不到密钥目录。
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `account` | — | `{server, bound, signedIn, account, signing: {code, uri, expires} \| null, error}`：`bound` 为这具身体已绑定同步服务；`signing` 为进行中的控制台登录（`uri` 指向官网的「批准设备」页） |
+| `account.signIn` / `account.cancel` | — | 开始 / 取消控制台登录（身体令牌向同步服务申请码，后台轮询；批准后保存账户令牌，经 `account` 事件推送） |
+| `account.signOut` | — | 退出这个控制台的登录（同步服务作废令牌，删除本地文件） |
+| `account.get` | — | 账户：`{user, limits, agents: [{id, name, bodies: [...]}], consoles: [...]}`（同 `/v1/web/account`） |
+| `account.lookup` / `account.decide` | `{code}` / `{code, approve}` | 批准设备：核对一个码（另一具身体的绑定或另一个 App 的控制台登录），批准或拒绝 |
+| `account.removeBody` / `account.removeAgent` | `{agent, body}` / `{agent}` | 解绑一具身体 / 删除一个 agent |
+| `account.revokeConsole` | `{id}` | 吊销一个控制台登录 |
+| `account.delete` | — | 删除整个账户 |
+
+令牌失效（被吊销、过期、账户删除）时，账户方法报错「账户登录已失效」，本地令牌随即删除，`signedIn` 变为假。错误信息为同步服务的错误码（`bad_code`、`not_yours` 等，见协议 §5.1）。
 
 **模型**
 
