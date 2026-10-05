@@ -9,7 +9,10 @@ import '../process.dart';
 import '../widgets.dart';
 import 'wake.dart';
 
-const kinds = {'think': ('思考', Icons.psychology), 'dream': ('梦', Icons.nights_stay), 'chat': ('对话', Icons.chat), 'doze': ('小憩', Icons.snooze), 'sleep': ('入睡', Icons.bedtime), 'wake': ('醒来', Icons.wb_sunny), 'approval': ('审批', Icons.gavel), 'stop': ('急停', Icons.pan_tool), 'boot': ('苏醒', Icons.power_settings_new), 'safe': ('安全模式', Icons.warning), 'hear': ('听见', Icons.hearing), 'tool': ('工具', Icons.handyman), 'identity': ('身份', Icons.badge), 'agent': ('子 agent', Icons.smart_toy_outlined), 'session': ('会话', Icons.forum_outlined)};
+/// 多具身体：别的身体上发生的，标出在哪里。
+String _at(Map e) => e['body'] != null && '${e['body']}' != api.body && api.body.isNotEmpty ? ' · 在 ${e['body']}' : '';
+
+const kinds = {'think': ('思考', Icons.psychology), 'dream': ('梦', Icons.nights_stay), 'chat': ('对话', Icons.chat), 'doze': ('小憩', Icons.snooze), 'sleep': ('入睡', Icons.bedtime), 'wake': ('醒来', Icons.wb_sunny), 'approval': ('审批', Icons.gavel), 'stop': ('急停', Icons.pan_tool), 'boot': ('苏醒', Icons.power_settings_new), 'safe': ('安全模式', Icons.warning), 'hear': ('听见', Icons.hearing), 'tool': ('工具', Icons.handyman), 'identity': ('身份', Icons.badge), 'agent': ('子 agent', Icons.smart_toy_outlined), 'session': ('会话', Icons.forum_outlined), 'place': ('选身体', Icons.devices), 'mesh': ('多具身体', Icons.lan), 'soul': ('灵魂同步', Icons.cloud_sync)};
 
 /// 时间线的加载：筛选、翻页、实时追加。FlowPage 与 FlowList 共用。
 class FlowFeed extends ChangeNotifier {
@@ -144,7 +147,7 @@ class FlowList extends StatelessWidget {
                 selected: selected == '${e['id']}',
                 leading: Icon(k.$2, size: 18),
                 title: Text('${e['title']}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                subtitle: Text('${k.$1} · ${hm(e['ts'])}', style: t.labelSmall?.copyWith(color: cs.outline)),
+                subtitle: Text('${k.$1} · ${hm(e['ts'])}${_at(e)}', style: t.labelSmall?.copyWith(color: cs.outline)),
                 onTap: () => onSelect('${e['id']}'),
               );
             },
@@ -165,13 +168,13 @@ class _Entry extends StatelessWidget {
     final steps = (d['steps'] as List?) ?? [], process = (d['process'] as List?) ?? [];
     final has = d['journal'] != null || d['reply'] != null || steps.isNotEmpty || process.isNotEmpty || d['reason'] != null || d['error'] != null;
     final full = process.isNotEmpty || steps.isNotEmpty || d['journal'] != null || d['reply'] != null; // 可以进只读的完整过程页
-    final tile = ListTile(leading: Icon(k.$2), title: Text('${e['title']}'), subtitle: Text('${k.$1} · ${hm(e['ts'])}'));
+    final tile = ListTile(leading: Icon(k.$2), title: Text('${e['title']}'), subtitle: Text('${k.$1} · ${hm(e['ts'])}${_at(e)}'));
     if (!has) return Card(child: tile);
     return Card(
       child: ExpansionTile(
         leading: Icon(k.$2),
         title: Text('${e['title']}'),
-        subtitle: Text('${k.$1} · ${hm(e['ts'])}${d['model'] != null ? ' · ${d['model']}' : ''}'),
+        subtitle: Text('${k.$1} · ${hm(e['ts'])}${_at(e)}${d['model'] != null ? ' · ${d['model']}' : ''}'),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         expandedCrossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -84,7 +84,7 @@ const safeOrigin = (s: string) => { try { return serverOrigin(s); } catch { retu
 export function meshStatus() {
   const b = readBinding(), live = mesh?.status();
   return {
-    server: config.mesh.server, bound: !!b && serverOrigin(b.server) === safeOrigin(config.mesh.server), account: live?.account || b?.account || "",
+    server: config.mesh.server, priority: config.mesh.priority, body: config.body, bound: !!b && serverOrigin(b.server) === safeOrigin(config.mesh.server), account: live?.account || b?.account || "",
     fingerprint: fingerprint(nodeKey().nodeKey), available: !ndcError,
     state: live?.state ?? "off", error: ndcError || lastError || live?.error || "", clockSkewMs: live?.clockSkewMs ?? 0,
     peers: live?.peers ?? [], coordinator: coordinator(),

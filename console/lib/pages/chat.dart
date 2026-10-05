@@ -99,6 +99,7 @@ class _ChatViewState extends State<ChatView> {
     scroll.addListener(_onScroll);
     subs.add(api.events.where((e) => e.name == 'activity').listen(_onActivity));
     subs.add(api.events.where((e) => e.name == 'say').listen((_) { if (widget.conv == 'inbox') _resync(); }));
+    subs.add(api.events.where((e) => e.name == 'replica' && (((e.data as Map)['convs'] as List?) ?? const []).contains(widget.conv)).listen((_) => _resync())); // 其他身体上的对话复制过来了
     subs.add(api.events.where((e) => e.name == 'secret').listen(_onSecret));
     subs.add(api.events.where((e) => e.name == 'hearing').listen(_onHearing));
     subs.add(api.events.where((e) => e.name == 'session.switch').listen((e) { // 她用 session_new 切到了新会话：跟着切过去
@@ -490,6 +491,7 @@ class _ChatViewState extends State<ChatView> {
       if (atts.isNotEmpty) _attachments(context, atts, me, cs),
       if ('${m['text']}'.isNotEmpty || atts.isEmpty) Bubble('${m['text']}', me: me, channel: m['channel'], pending: m['pending'] == true),
       if (me && modes[m['mode']] != null) Text('${modes[m['mode']]!.$1} · 在她工作时发送', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
+      if (!me && m['body'] != null && '${m['body']}' != api.body && api.body.isNotEmpty) Text('在 ${m['body']} 上', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)), // 多具身体：这条回复是另一具身体给的
     ]);
   }
 
@@ -509,8 +511,8 @@ class _ChatViewState extends State<ChatView> {
   Widget _ambient(BuildContext context, Map m, ColorScheme cs) {
     if (m['mode'] == 'ignored') return const SizedBox.shrink();
     final ch = '${m['channel']}';
-    final icon = switch (ch) { '子agent' => Icons.smart_toy_outlined, '摘要' => Icons.compress, '交接' => Icons.swap_horiz, _ => Icons.hearing };
-    final long = ch == '子agent' || ch == '摘要' || ch == '交接';
+    final icon = switch (ch) { '子agent' => Icons.smart_toy_outlined, '摘要' => Icons.compress, '交接' || '换身体' => Icons.swap_horiz, '灵魂同步' => Icons.cloud_sync, _ => Icons.hearing };
+    final long = ch == '子agent' || ch == '摘要' || ch == '交接' || ch == '换身体' || ch == '灵魂同步';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 24),
       child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [

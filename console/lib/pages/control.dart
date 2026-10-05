@@ -13,6 +13,7 @@ import 'setup.dart';
 import 'about.dart';
 import 'tools.dart';
 import 'hearing.dart';
+import 'mesh.dart';
 import '../installer.dart';
 import '../updater.dart';
 import '../platform/caps.dart';
@@ -45,10 +46,19 @@ List<ControlItem> controlItems() {
     ControlItem('voice', '连接', Icons.record_voice_over, '语音', () => 'Azure 语音：她的声音、音色与风格（她自己也可以调）', () => const VoicePage()),
     ControlItem('hearing', '连接', Icons.hearing, '听觉', () => hearing['enabled'] == true ? (hearing['listening'] == true ? '开着：手机在听' : '开着，此刻没在听') : '关着 · 让她用麦克风听你说话', () => const HearingPage()),
     ControlItem('soul', '连接', Icons.cloud_sync, '灵魂同步', () => '与其他身体共享人格与记忆', () => const SoulPage()),
+    ControlItem('mesh', '连接', Icons.lan, '多具身体', () => _meshSubtitle(), () => const MeshPage()),
     ControlItem('history', '连接', Icons.history, '记忆历史', () => '每一次变更来自哪具身体，可查看与撤销', () => const HistoryPage()),
     ControlItem('service', '运维', Icons.monitor_heart, '服务', () => '版本 ${s['version'] ?? '-'} · 身体 ${s['body'] ?? '-'}（${s['adapter'] ?? '-'}）', () => const ServicePage()),
     ControlItem('about', '运维', Icons.info_outline, '关于', () => '简介 · 版本 · 检查更新与升级', () => const AboutPage()),
   ];
+}
+
+String _meshSubtitle() {
+  final m = (api.status['mesh'] as Map?) ?? {};
+  if (m['bound'] != true) return '把几部手机、几台电脑连成一个她';
+  final n = api.peers.length;
+  final c = '${m['coordinator'] ?? ''}';
+  return n == 0 ? '已绑定 · 其他身体都不在线' : '$n 具身体在线 · 心跳在${c == api.body ? '这里' : ' $c'}';
 }
 
 /// 控制菜单：手机 Tab 页；桌面列表栏（selected / onSelect 给桌面用）。
@@ -150,12 +160,13 @@ class ApprovalCard extends StatelessWidget {
     ]);
     if (compact) {
       return Padding(padding: const EdgeInsets.only(bottom: 4), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('${a['action']}', style: t.titleSmall),
+        Text('${a['action']}${a['body'] != null && a['body'] != api.body ? '（在 ${a['body']} 上）' : ''}', style: t.titleSmall),
         Text(plainPreview('${a['reason']}'), maxLines: 3, overflow: TextOverflow.ellipsis, style: t.bodySmall),
         buttons,
       ]));
     }
     return Section('${a['action']}', [
+      if (a['body'] != null && a['body'] != api.body) Text('在 ${a['body']} 上请求的，批准后在那具身体上执行', style: t.bodySmall),
       Text('理由', style: t.labelLarge),
       RichMarkdown('${a['reason']}'),
       const SizedBox(height: 6),
@@ -366,6 +377,18 @@ class _FeishuPageState extends State<FeishuPage> {
               subtitle: Text('${st['appId'] == '' ? '' : 'App ID：${st['appId']}　'}${st['owner'] == true ? '已绑定你' : '未绑定'}${st['error'] != '' ? '\n${st['error']}' : ''}')),
           if (st['appId'] != '') SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('启用'), value: st['enabled'] == true, onChanged: (v) async { await act(context, () => api.call('feishu.set', {'enabled': v})); _load(); }),
           if (st['appId'] != '' && st['owner'] != true) Text('绑定：在飞书里给机器人发送绑定码 ${st['bindCode']}'),
+        ]),
+        if (api.peers.isNotEmpty || '${st['holder'] ?? ''}'.isNotEmpty) Section('多具身体：谁持有飞书', [
+          const Text('同一个飞书机器人只能由一具身体连接（否则每条消息会随机落到其中一具）。其他身体想主动发的消息会转给它发出，你在飞书里说的话也会转到正在和你说话的那具身体。'),
+          DropdownButton<String>(
+            value: '${st['holder'] ?? ''}',
+            items: [
+              const DropdownMenuItem(value: '', child: Text('各自连接（只有一具身体时）')),
+              for (final b in {api.body, ...api.peers.map((p) => '${p['body']}'), if ('${st['holder'] ?? ''}'.isNotEmpty) '${st['holder']}'}) DropdownMenuItem(value: b, child: Text(b == api.body ? '$b（这具身体）' : b)),
+            ],
+            onChanged: (v) async { await act(context, () => api.call('feishu.setHolder', {'body': v ?? ''}), ok: '已保存'); _load(); },
+          ),
+          if (st['holds'] == false) Text('这具身体不连飞书，由 ${st['holder']} 持有。', style: Theme.of(context).textTheme.bodySmall),
         ]),
         Section('一键接入（推荐）', [
           Text('自动创建一个名为「${api.name}」的飞书机器人，权限、事件与卡片回调都会预先配置好；确认后自动绑定你本人。'),

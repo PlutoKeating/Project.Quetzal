@@ -42,6 +42,7 @@ export const ops = {
   "mesh.setServer": async (a: { server: string }, actor: string) => { const r = await meshRt.setServer(String(a.server ?? "")); audit(actor, "mesh.setServer", "", { server: r.server }, "ok"); return r; },
   "mesh.bind": async (_: unknown, actor: string) => { const r = await meshRt.bind(); audit(actor, "mesh.bind", "", { server: r.server }, "started"); return r; },
   "mesh.cancelBind": () => meshRt.cancelBind(),
+  "mesh.setPriority": (a: { priority: number }, actor: string) => { const p = Math.max(0, Math.min(100, Math.round(Number(a.priority) || 0))); saveConfig({ mesh: { priority: p } }); audit(actor, "mesh.setPriority", "", { priority: p }, "ok"); return meshRt.meshStatus(); },
   "mesh.unbind": async (_: unknown, actor: string) => { const r = await meshRt.unbindMesh(); audit(actor, "mesh.unbind", "", {}, "ok"); return r; },
   status,
   timeline: (a: { limit?: number; before?: number; kind?: string }) => listTimeline(a.limit ?? 50, a.before, a.kind),

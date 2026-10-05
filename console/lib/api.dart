@@ -210,6 +210,7 @@ class Api extends ChangeNotifier {
     }
     final ev = GatewayEvent(m['event'] as String, m['data']);
     if (ev.name == 'state') { status = Map<String, dynamic>.from(ev.data as Map); _rememberName(); notifyListeners(); }
+    if (ev.name == 'mesh' && ev.data is Map) { status['mesh'] = ev.data; notifyListeners(); } // 网状层的状态单独推送（绑定进展、各身体的连接）
     if (ev.name == 'hello') safeMode = (ev.data as Map)['safeMode'] == true;
     _events.add(ev);
   }
@@ -284,6 +285,10 @@ class Api extends ChangeNotifier {
   Map get physical => (status['physical'] as Map?) ?? {};
   bool get stopped => status['stopped'] == true;
   List get approvals => (status['approvals'] as List?) ?? [];
+  /// 这具身体的名字；多具身体时，别处发生的事标出在哪具身体上。
+  String get body => '${status['body'] ?? ''}';
+  /// 多具身体时其他在线的身体（不含这具）。
+  List<Map> get peers => (((status['mesh'] as Map?)?['peers'] as List?) ?? []).cast<Map>().where((p) => p['online'] == true).toList();
 }
 
 /// 默认主题色：与官网设计系统的琥珀（accent）一致。

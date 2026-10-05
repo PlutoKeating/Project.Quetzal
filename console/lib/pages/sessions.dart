@@ -47,7 +47,7 @@ class _SessionsListState extends State<SessionsList> {
   void initState() {
     super.initState();
     _load();
-    sub = api.events.where((e) => (e.name == 'activity' && const ['start', 'done', 'error'].contains((e.data as Map)['kind'])) || e.name == 'session.switch' || e.name == 'say').listen((_) => _load());
+    sub = api.events.where((e) => (e.name == 'activity' && const ['start', 'done', 'error'].contains((e.data as Map)['kind'])) || e.name == 'session.switch' || e.name == 'say' || e.name == 'replica').listen((_) => _load()); // replica：其他身体的对话到了
     api.addListener(_onConn);
   }
 

@@ -225,8 +225,19 @@ class StopButton extends ApiWidget {
             : () async {
                 if (api.stopped) {
                   if (await confirm(context, '解除急停', '她会恢复自主活动。确定吗？') && context.mounted) await act(context, () => api.call('unstop'), ok: '已解除急停');
-                } else {
+                } else if (api.peers.isEmpty) {
                   await act(context, () => api.call('stop', {'reason': '控制台急停'}), ok: '已急停：她的所有行动已冻结');
+                } else {
+                  final scope = await showDialog<String>(context: context, builder: (c) => AlertDialog(
+                    title: const Text('急停'),
+                    content: const Text('她此刻有几具身体在线。要冻结哪里的行动？'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
+                      TextButton(onPressed: () => Navigator.pop(c, 'body'), child: const Text('只停这具身体')),
+                      FilledButton(onPressed: () => Navigator.pop(c, 'all'), child: const Text('所有身体')),
+                    ],
+                  ));
+                  if (scope != null && context.mounted) await act(context, () => api.call('stop', {'reason': '控制台急停', 'scope': scope}), ok: scope == 'all' ? '已急停：所有身体的行动已冻结' : '已急停：这具身体的行动已冻结');
                 }
               },
       );

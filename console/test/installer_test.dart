@@ -17,7 +17,7 @@ void main() {
     expect(d.done, true); expect(d.port, 7788); expect(d.token, 't'); expect(d.version, '0.2.0');
     final e = Progress.fromJson({'error': '安装软件包失败', 'log': 'E: ...'});
     expect(e.error, '安装软件包失败'); expect(e.log, 'E: ...');
-    expect(installSteps.keys, ['pkg', 'runtime', 'service', 'config', 'start', 'health']);
+    expect(installSteps.keys, ['pkg', 'runtime', 'mesh', 'service', 'config', 'start', 'health']);
   });
 
   test('本机 HTTP 服务：ping 与 progress 改变状态，未知路径 404', () async {
