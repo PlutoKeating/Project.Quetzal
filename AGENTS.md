@@ -27,6 +27,7 @@
 - 运行时任务：阅读 `runtime/docs/README.md`、`runtime/docs/ARCHITECTURE.md`
 - 控制台任务：阅读 `console/docs/README.md`、`console/docs/ARCHITECTURE.md`
 - 灵魂桥任务：阅读 `bridge/docs/README.md` 与 `docs/SOUL_SYNC.md`
+- 同步服务任务：阅读 `sync/README.md`、`sync/docs/README.md`、`sync/docs/ARCHITECTURE.md`、`sync/docs/PROTOCOL.md`、`sync/docs/QUICK_START.md`；`sync/` 与仓库其他部分没有代码依赖，协议改动须同步身体端（`runtime/src/mesh/`）
 - 官网任务：阅读 `website/docs/README.md`、`website/docs/ARCHITECTURE.md`、`website/docs/DEVOPS.md`；视觉参数只能来自 `website/app/design-system/designSystem.ts`，文案只能来自各页面的 `i18n.ts`
 - 其他任务同理
 

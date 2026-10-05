@@ -1,0 +1,7 @@
+# Caddy：自动申请与续期 HTTPS 证书（Let's Encrypt / ZeroSSL），反向代理到同步服务（含 WebSocket）。
+# 不开访问日志：不记录访客 IP。
+{$SYNC_DOMAIN} {
+	encode zstd gzip
+	header -Server
+	reverse_proxy sync:8080
+}
