@@ -33,20 +33,27 @@ export function createCode(db: Db, cfg: Config, req: DeviceRequest) {
   };
 }
 
-export type Decision = { ok: true; replaces: boolean; newAgent: boolean } | { ok: false; error: "expired" | "decided" | "too_many_agents" | "too_many_bodies" | "not_yours" };
+/** 过期与不存在对外是同一个错误（bad_code），不让人借此探测码是否存在过。console 的 body 是发起控制台登录的那具已绑定的身体（给人核对它的指纹与绑定时间）。 */
+export type Decision = { ok: true; replaces: boolean; newAgent: boolean; body?: Body } | { ok: false; error: "bad_code" | "decided" | "too_many_agents" | "too_many_bodies" | "not_yours" };
 
-/** 控制台登录：由一具已绑定的身体（Bearer 身体令牌）代它的控制台申请。码里记下这具身体与它的 agent，没有节点公钥。 */
+/** 控制台登录：由一具已绑定的运行基座（Bearer 身体令牌）代它的控制台申请。码里记下这具身体、它的 agent 与它的节点公钥。 */
 export function createConsoleCode(db: Db, cfg: Config, body: Body, version: string) {
   const agent = db.agent(body.agent)!;
-  return createCode(db, cfg, { agent: { id: agent.agent_id, name: agent.name }, body: body.body, kind: "console", nodeKey: "", version } as unknown as DeviceRequest);
+  return createCode(db, cfg, { agent: { id: agent.agent_id, name: agent.name }, body: body.body, kind: "console", nodeKey: body.node_key, version } as unknown as DeviceRequest);
+}
+
+/** 控制台登录的码仍然指向发起它的那次绑定：身体还在、是运行基座、公钥没变、码是在这次绑定之后申请的（重新绑定过就作废）。 */
+function consoleBody(db: Db, code: DeviceCode, agentId: number | undefined) {
+  const b = agentId === undefined ? undefined : db.body(agentId, code.body);
+  return b && b.kind === "runtime" && b.node_key === code.node_key && b.created <= code.created ? b : undefined;
 }
 
 /** 批准前的检查（确认页上提前告诉人会发生什么）。 */
 export function check(db: Db, cfg: Config, code: DeviceCode, userId: number): Decision {
-  if (code.expires < now()) return { ok: false, error: "expired" };
+  if (code.expires < now()) return { ok: false, error: "bad_code" };
   if (code.status !== "pending") return { ok: false, error: "decided" };
   const agent = db.agentOf(userId, code.agent_id);
-  if (code.kind === "console") return agent && db.body(agent.id, code.body) ? { ok: true, replaces: false, newAgent: false } : { ok: false, error: "not_yours" };
+  if (code.kind === "console") { const b = consoleBody(db, code, agent?.id); return b ? { ok: true, replaces: false, newAgent: false, body: b } : { ok: false, error: "not_yours" }; }
   if (!agent && db.countAgents(userId) >= cfg.maxAgents) return { ok: false, error: "too_many_agents" };
   const existing = agent ? db.body(agent.id, code.body) : undefined;
   if (agent && !existing && db.countBodies(agent.id) >= cfg.maxBodies) return { ok: false, error: "too_many_bodies" };
@@ -92,13 +99,13 @@ export function poll(db: Db, deviceCode: string, onBound: (agent: number, body: 
   return { status: 200, body: { access_token: token, token_type: "bearer", agent: { id: agent.agent_id, name: agent.name }, body: code.body, account: db.user(agent.user_id)?.login ?? "" } };
 }
 
-/** 控制台登录批准后：生成会话令牌（qsc_，库里只存哈希，按会话期限滑动续期），设备码作废。 */
+/** 控制台登录批准后：生成会话令牌（qsc_，库里只存哈希，按 CONSOLE_SESSION_DAYS 滑动续期），记下发起它的身体与 agent（解绑时一并作废），设备码作废。 */
 function pollConsole(db: Db, code: DeviceCode): PollResult {
   db.deleteCode(code.id);
   const agent = code.user_id === null ? undefined : db.agentOf(code.user_id, code.agent_id);
-  if (!agent || !db.body(agent.id, code.body)) return { status: 400, body: { error: "access_denied" } };
+  if (!agent || !consoleBody(db, code, agent.id)) return { status: 400, body: { error: "access_denied" } };
   const token = randomToken("qsc_");
   const life = CONSOLE_SESSION_DAYS * 86_400_000;
-  db.createSession(token, agent.user_id, now() + life, "console", code.body);
+  db.createSession(token, agent.user_id, now() + life, "console", code.body, agent.id);
   return { status: 200, body: { access_token: token, token_type: "bearer", agent: { id: agent.agent_id, name: agent.name }, body: code.body, account: db.user(agent.user_id)?.login ?? "", kind: "console", expires_in: life / 1000 } };
 }

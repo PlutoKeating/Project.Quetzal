@@ -4,6 +4,18 @@ import { createSyncServer } from "./server.ts";
 import { VERSION } from "./app.ts";
 import { log } from "./util.ts";
 
+// 兜底：漏网的异常只记一行（不含请求内容）并继续服务——单条连接或单个请求的错误不该拖垮整个服务。
+// 1 分钟内超过 10 次说明进程状态可能已经坏了，退出交给 Docker 重启（restart: unless-stopped）。
+let crashes: number[] = [];
+const fatal = (kind: string) => (e: unknown) => {
+  log("main", `${kind}：${e instanceof Error ? e.message : String(e)}`);
+  const t = Date.now();
+  crashes = [...crashes.filter((x) => t - x < 60_000), t];
+  if (crashes.length > 10) { log("main", "异常过于频繁，退出"); process.exit(1); }
+};
+process.on("uncaughtException", fatal("未捕获的异常"));
+process.on("unhandledRejection", fatal("未处理的 Promise 拒绝"));
+
 const cfg = loadConfig();
 if (process.argv.includes("--check")) { console.log("配置正确"); process.exit(0); }
 

@@ -14,19 +14,24 @@ const PUBLIC = "https://sync.example";
 const WEB = "https://www.example";
 const cfg = loadConfig({
   SYNC_PUBLIC_URL: PUBLIC, SYNC_WEB_URL: WEB + "/zh", SYNC_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-sync-web-")),
-  GITHUB_CLIENT_ID: "x", GITHUB_CLIENT_SECRET: "y", TURN_SECRET: "s".repeat(40), SYNC_TRUST_PROXY: "1",
+  GITHUB_CLIENT_ID: "x", GITHUB_CLIENT_SECRET: "y", TURN_SECRET: "s".repeat(40), SYNC_TRUST_PROXY: "1", SYNC_SESSION_DAYS: "7",
 });
+// 假 GitHub：记下 PKCE 的 code_challenge 与回调时收到的 code_verifier
+const pkce = { challenge: "", verifier: "" };
 const github = {
-  authorizationUrl: (state: string) => new URL(`https://github.example/authorize?state=${state}`),
-  user: async (code: string) => ({ id: Number(code), login: `user${code}`, name: `User ${code}` }),
+  authorizationUrl: (state: string, challenge: string) => { pkce.challenge = challenge; return new URL(`https://github.example/authorize?state=${state}`); },
+  user: async (code: string, verifier: string) => { pkce.verifier = verifier; return { id: Number(code), login: `user${code}`, name: `User ${code}` }; },
 };
 const s = createSyncServer(cfg, { github });
 after(async () => { await s.close(); });
 
 class Browser {
   jar = new Map<string, string>();
+  ip: string;
+  constructor(ip = `10.2.${crypto.randomInt(255)}.${crypto.randomInt(255)}`) { this.ip = ip; }
   async req(p: string, init: RequestInit = {}) {
     const headers = new Headers(init.headers);
+    if (!headers.has("x-forwarded-for")) headers.set("x-forwarded-for", this.ip);
     if (this.jar.size) headers.set("cookie", [...this.jar].map(([k, v]) => `${k}=${v}`).join("; "));
     const r = await s.app.request(PUBLIC + p, { ...init, headers, redirect: "manual" });
     for (const c of r.headers.getSetCookie()) {
@@ -161,4 +166,194 @@ test("换令牌：直连 github.com 不通时经中转；GitHub 明确拒绝时�
   let body = "";
   await exchangeCode({ ...o, relay: undefined }, (async (_u: string, init: RequestInit) => { body = String(init.body); return ok({ access_token: "t" }); }) as typeof fetch);
   assert.deepEqual(Object.fromEntries(new URLSearchParams(body)), { client_id: "cid", client_secret: "sec", code: "c", redirect_uri: `${PUBLIC}/auth/github/callback` });
+});
+
+/** 身体代控制台申请登录、主人批准、身体拿到 qsc_ 令牌。 */
+async function consoleLogin(owner: Browser, bodyToken: string) {
+  const code = await (await api("/v1/console/code", {}, { authorization: `Bearer ${bodyToken}` })).json() as any;
+  assert.equal((await owner.web("/v1/web/device/decide", { code: code.user_code, approve: true })).status, 200);
+  const tok = await (await api("/v1/device/token", { device_code: code.device_code })).json() as any;
+  assert.match(tok.access_token, /^qsc_/);
+  return tok.access_token as string;
+}
+const asConsole = (token: string, p = "/v1/web/account", body?: unknown) => s.app.request(PUBLIC + p, body === undefined
+  ? { headers: { authorization: `Bearer ${token}` } }
+  : { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+const sha = (t: string) => crypto.createHash("sha256").update(t).digest("hex");
+const DAY = 86_400_000;
+
+test("短码：decide 输错也计数；用完次数后连对的码也是 429；过期与不存在是同一个错误", async () => {
+  const b = new Browser(); await b.login(20);
+  const code = await (await api("/v1/device/code", { agent: { id: crypto.randomUUID(), name: "x" }, body: "guess", kind: "runtime", nodeKey: nodeKey() })).json() as any;
+  // 过期的码与不存在的码：同样的 404 bad_code
+  const exp = await (await api("/v1/device/code", { agent: { id: crypto.randomUUID(), name: "x" }, body: "old", kind: "runtime", nodeKey: nodeKey() })).json() as any;
+  s.db.raw.prepare("UPDATE device_codes SET expires = 1 WHERE user_code = ?").run(exp.user_code);
+  for (const p of ["/v1/web/device/lookup", "/v1/web/device/decide"]) {
+    const a = await b.web(p, { code: exp.user_code, approve: true }), n = await b.web(p, { code: "BCDF-GHJK", approve: true });
+    assert.deepEqual([a.status, await a.json()], [n.status, await n.json()]);
+    assert.equal(a.status, 404);
+  }
+  for (let i = 0; i < 6; i++) await b.web("/v1/web/device/decide", { code: "BCDF-GHJK", approve: true });
+  const r = await b.web("/v1/web/device/lookup", { code: code.user_code });
+  assert.equal(r.status, 429, "输错 10 次后，对的码也不给查");
+  assert.equal((await b.web("/v1/web/device/decide", { code: code.user_code, approve: true })).status, 429);
+});
+
+test("短码：同一个地址换账户也只能输错 30 次", async () => {
+  const ip = "198.51.100.30";
+  let last = 0;
+  for (let u = 0; u < 4; u++) {
+    const b = new Browser(ip); await b.login(30 + u);
+    for (let i = 0; i < 8; i++) last = (await b.web("/v1/web/device/lookup", { code: "BCDF-GHJK" })).status;
+  }
+  assert.equal(last, 429);
+  const fresh = new Browser(ip); await fresh.login(40);
+  assert.equal((await fresh.web("/v1/web/device/lookup", { code: "BCDF-GHJK" })).status, 429);
+  const elsewhere = new Browser(); await elsewhere.login(41);
+  assert.equal((await elsewhere.web("/v1/web/device/lookup", { code: "BCDF-GHJK" })).status, 404);
+});
+
+test("控制台登录的确认：给出发起它的身体的真实指纹与绑定时间；灵魂桥不能申请；重新绑定后旧码作废", async () => {
+  const owner = new Browser(); await owner.login(50);
+  const agent = crypto.randomUUID(), key = nodeKey();
+  const reg = await (await api("/v1/device/code", { agent: { id: agent, name: "薰" }, body: "phone", kind: "runtime", nodeKey: key, version: "1" })).json() as any;
+  await owner.web("/v1/web/device/decide", { code: reg.user_code, approve: true });
+  const bodyToken = (await (await api("/v1/device/token", { device_code: reg.device_code })).json() as any).access_token;
+  const code = await (await api("/v1/console/code", {}, { authorization: `Bearer ${bodyToken}` })).json() as any;
+  const look = await (await owner.web("/v1/web/device/lookup", { code: code.user_code })).json() as any;
+  const fp = crypto.createHash("sha256").update(Buffer.from(key, "base64url")).digest("hex").slice(0, 16).replace(/(.{4})(?!$)/g, "$1 ");
+  assert.equal(look.kind, "console");
+  assert.equal(look.bodyFingerprint, fp);
+  assert.equal(look.fingerprint, fp);
+  const bound = (await (await owner.web("/v1/web/account")).json() as any).agents.find((a: any) => a.id === agent).bodies[0].created;
+  assert.equal(look.bodyBoundAt, bound);
+  assert.ok(look.createdAt >= bound && look.createdAt <= Date.now());
+  // 灵魂桥
+  const br = await (await api("/v1/device/code", { agent: { id: agent, name: "薰" }, body: "bridge", kind: "bridge", nodeKey: nodeKey() })).json() as any;
+  await owner.web("/v1/web/device/decide", { code: br.user_code, approve: true });
+  const bridgeToken = (await (await api("/v1/device/token", { device_code: br.device_code })).json() as any).access_token;
+  const denied = await api("/v1/console/code", {}, { authorization: `Bearer ${bridgeToken}` });
+  assert.deepEqual([denied.status, ((await denied.json()) as any).error], [403, "runtime_only"]);
+  // 同名身体重新绑定（新公钥）后，旧绑定发起的码不能再批准
+  await bindViaWeb(owner, agent, "phone");
+  assert.equal(((await (await owner.web("/v1/web/device/lookup", { code: code.user_code })).json()) as any).error, "not_yours");
+});
+
+test("控制台登录随身体解绑作废：网页解绑、DELETE /v1/me、同名重新绑定、删除 agent；1.0.1 的旧行也一样", async () => {
+  const owner = new Browser(); await owner.login(51);
+  const agent = crypto.randomUUID();
+  const live = async (t: string) => (await asConsole(t)).status;
+
+  const t1 = await bindViaWeb(owner, agent, "a1"); const c1 = await consoleLogin(owner, t1);
+  assert.equal(await live(c1), 200);
+  await owner.web("/v1/web/bodies/remove", { agent, body: "a1" });
+  assert.equal(await live(c1), 401, "网页解绑");
+
+  const t2 = await bindViaWeb(owner, agent, "a2"); const c2 = await consoleLogin(owner, t2);
+  await s.app.request(PUBLIC + "/v1/me", { method: "DELETE", headers: { authorization: `Bearer ${t2}` } });
+  assert.equal(await live(c2), 401, "身体自己解绑");
+
+  const t3 = await bindViaWeb(owner, agent, "a3"); const c3 = await consoleLogin(owner, t3);
+  await bindViaWeb(owner, agent, "a3");
+  assert.equal(await live(c3), 401, "同名重新绑定");
+  assert.equal(s.db.raw.prepare("SELECT count(*) AS n FROM sessions WHERE id = ?").get(sha(c3))!.n, 0, "库里也删了");
+
+  const t4 = await bindViaWeb(owner, agent, "a4"); const c4 = await consoleLogin(owner, t4);
+  // 模拟 1.0.1 建的旧行：没有 agent
+  const legacy = "qsc_" + crypto.randomBytes(32).toString("base64url");
+  const uid = (s.db.raw.prepare("SELECT user_id FROM sessions WHERE id = ?").get(sha(c4)) as any).user_id;
+  s.db.raw.prepare("INSERT INTO sessions (id, user_id, expires, kind, label, agent, created, last_used) VALUES (?, ?, ?, 'console', 'a4', NULL, ?, ?)").run(sha(legacy), uid, Date.now() + DAY, Date.now(), Date.now());
+  assert.equal(await live(legacy), 200);
+  assert.equal((await owner.web("/v1/web/agents/remove", { agent })).status, 200);
+  assert.equal(await live(c4), 401, "删除 agent");
+  assert.equal(s.db.raw.prepare("SELECT count(*) AS n FROM sessions WHERE id = ?").get(sha(legacy))!.n, 0, "旧行按账户与身体名匹配");
+});
+
+test("会话寿命：控制台按 30 天续期、网页按 SYNC_SESSION_DAYS；自创建起最长 90 天", async () => {
+  const owner = new Browser(); await owner.login(52);
+  const tok = await consoleLogin(owner, await bindViaWeb(owner, crypto.randomUUID(), "life"));
+  const set = s.db.raw.prepare("UPDATE sessions SET expires = ?, created = ? WHERE id = ?");
+  const get = (id: string) => s.db.raw.prepare("SELECT expires, created FROM sessions WHERE id = ?").get(id) as { expires: number; created: number };
+  set.run(Date.now() + DAY, Date.now(), sha(tok));
+  await asConsole(tok);
+  assert.ok(Math.abs(get(sha(tok)).expires - (Date.now() + 30 * DAY)) < 60_000, "控制台续期 30 天");
+  const cookie = [...owner.jar].find(([k]) => k === "__Host-quetzal_session")![1];
+  set.run(Date.now() + DAY, Date.now(), sha(cookie));
+  await owner.web("/v1/web/session");
+  assert.ok(Math.abs(get(sha(cookie)).expires - (Date.now() + 7 * DAY)) < 60_000, "网页续期 7 天");
+  // 续期不超过创建后 90 天
+  const created = Date.now() - 88 * DAY;
+  set.run(Date.now() + DAY, created, sha(tok));
+  await asConsole(tok);
+  assert.equal(get(sha(tok)).expires, created + 90 * DAY);
+  // 超过 90 天：即使没到期也作废
+  set.run(Date.now() + DAY, Date.now() - 91 * DAY, sha(tok));
+  assert.equal((await asConsole(tok)).status, 401);
+  set.run(Date.now() + DAY, Date.now() - 91 * DAY, sha(cookie));
+  assert.equal(((await (await owner.web("/v1/web/session")).json()) as any).user, null);
+});
+
+test("POST /v1/web/sessions/revoke-all：所有网页会话（含这一个）作废，控制台登录不受影响", async () => {
+  const a = new Browser(); await a.login(53);
+  const b = new Browser(); await b.login(53);
+  const tok = await consoleLogin(a, await bindViaWeb(a, crypto.randomUUID(), "keep"));
+  const r = await a.web("/v1/web/sessions/revoke-all", {});
+  assert.deepEqual(await r.json(), { ok: true, revoked: 2 });
+  assert.equal((await a.web("/v1/web/account")).status, 401);
+  assert.equal((await b.web("/v1/web/account")).status, 401);
+  assert.equal((await asConsole(tok)).status, 200);
+  assert.equal((await new Browser().web("/v1/web/sessions/revoke-all", {})).status, 401);
+});
+
+test("/v1/web/* 的响应都带 Vary: Origin（含 401 与 403）", async () => {
+  const b = new Browser();
+  for (const r of [await b.web("/v1/web/session"), await b.web("/v1/web/account"), await b.web("/v1/web/logout", {}, "https://evil.example")]) {
+    assert.match(r.headers.get("vary") ?? "", /Origin/, String(r.status));
+  }
+});
+
+test("配置了 SYNC_WEB_URL 时自带网页的表单 POST 一律跳到网页前端，不做任何改动", async () => {
+  const b = new Browser(); await b.login(54);
+  for (const p of ["/device", "/device/decide", "/account/delete", "/account/agents/remove"]) {
+    const r = await b.req(p, { method: "POST", headers: { origin: PUBLIC, "content-type": "application/x-www-form-urlencoded" }, body: "confirm=1&code=BCDFGHJK" });
+    assert.equal(r.status, 303, p);
+    assert.ok(r.headers.get("location")!.startsWith(WEB), p);
+  }
+  assert.equal((await b.web("/v1/web/account")).status, 200, "账户还在");
+});
+
+test("OAuth：临时 Cookie 用 __Host- 前缀；PKCE 的 verifier 与 challenge 对得上；缺 verifier 的回调不登录", async () => {
+  const b = new Browser();
+  const r = await b.req(`/login?return_to=${encodeURIComponent(WEB + "/zh/account")}`);
+  assert.deepEqual([...b.jar.keys()].sort(), ["__Host-quetzal_oauth_state", "__Host-quetzal_oauth_verifier", "__Host-quetzal_return_to"]);
+  const verifier = b.jar.get("__Host-quetzal_oauth_verifier")!;
+  assert.equal(pkce.challenge, crypto.createHash("sha256").update(verifier).digest("base64url"));
+  const state = new URL(r.headers.get("location")!).searchParams.get("state")!;
+  b.jar.delete("__Host-quetzal_oauth_verifier");
+  const cb = await b.req(`/auth/github/callback?code=55&state=${state}`);
+  assert.match(cb.headers.get("location")!, /login=failed/);
+  const c = new Browser(); await c.login(56);
+  assert.equal(pkce.verifier.length >= 43, true, "回调把 verifier 交给换令牌");
+});
+
+test("GitHub 客户端：授权地址带 PKCE S256；换令牌带 code_verifier；读完资料吊销令牌，吊销失败不影响登录", async () => {
+  const { githubClient } = await import("../src/auth.ts");
+  const calls: { url: string; init: RequestInit }[] = [];
+  const json = (j: unknown, status = 200) => new Response(JSON.stringify(j), { status, headers: { "content-type": "application/json" } });
+  const fetcher = (async (url: string, init: RequestInit = {}) => {
+    calls.push({ url, init });
+    if (url === "https://github.com/login/oauth/access_token") return json({ access_token: "gho_tok" });
+    if (url === "https://api.github.com/user") return json({ id: 9, login: "octo", name: null });
+    throw new Error("revoke unreachable");
+  }) as typeof fetch;
+  const gh = githubClient(loadConfig({ SYNC_PUBLIC_URL: PUBLIC, GITHUB_CLIENT_ID: "cid", GITHUB_CLIENT_SECRET: "sec" }), fetcher)!;
+  const u = gh.authorizationUrl("st", "ch");
+  assert.equal(u.origin + u.pathname, "https://github.com/login/oauth/authorize");
+  assert.deepEqual(Object.fromEntries(u.searchParams), { response_type: "code", client_id: "cid", redirect_uri: `${PUBLIC}/auth/github/callback`, state: "st", code_challenge: "ch", code_challenge_method: "S256" });
+  assert.deepEqual(await gh.user("code1", "ver1"), { id: 9, login: "octo", name: "" });
+  assert.equal(new URLSearchParams(String(calls[0].init.body)).get("code_verifier"), "ver1");
+  const revoke = calls.find((c) => c.init.method === "DELETE")!;
+  assert.equal(revoke.url, "https://api.github.com/applications/cid/token");
+  assert.equal(new Headers(revoke.init.headers).get("authorization"), `Basic ${Buffer.from("cid:sec").toString("base64")}`);
+  assert.deepEqual(JSON.parse(String(revoke.init.body)), { access_token: "gho_tok" });
 });

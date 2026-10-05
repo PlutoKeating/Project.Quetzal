@@ -7,31 +7,46 @@ import { csrf } from "hono/csrf";
 import { bodyLimit } from "hono/body-limit";
 import { html } from "hono/html";
 import { getConnInfo } from "@hono/node-server/conninfo";
+import { z } from "zod";
 import type { Db } from "./db.ts";
 import type { Config } from "./config.ts";
 import type { Hub } from "./hub.ts";
 import { Sessions, beginLogin, finishLogin, type GitHubClient } from "./auth.ts";
 import { DeviceRequest, createCode, createConsoleCode, decide, check, poll } from "./device.ts";
-import { installWebApi } from "./web.ts";
+import { installWebApi, type FindCode } from "./web.ts";
 import { layout, pickLang, t, ago, type Lang } from "./pages.ts";
-import { RateLimiter, normalizeUserCode, fingerprint, log } from "./util.ts";
+import { RateLimiter, normalizeUserCode, fingerprint, log, clientIp as pickIp, ipKey } from "./util.ts";
 import { PROTOCOL } from "./hub.ts";
 
 export const VERSION = "1.0.1";
+
+const TokenRequest = z.object({ device_code: z.string().min(1).max(200) });
 
 export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHubClient }) {
   const { db, cfg, hub, github } = deps;
   const sessions = new Sessions(db, cfg);
   const limits = {
     code: new RateLimiter(10, 10 * 60_000),      // 每个地址 10 分钟最多申请 10 次绑定码
-    token: new RateLimiter(120, 10 * 60_000),    // 轮询（每 5 秒一次，留余量）
+    token: new RateLimiter(240, 10 * 60_000),    // 轮询（每 5 秒一次；同一出口地址后面可能有几具身体在同时绑定）
     lookup: new RateLimiter(10, 10 * 60_000),    // 每个账户 10 分钟最多输错 10 次短码（短码约 34 位熵）
+    guess: new RateLimiter(30, 10 * 60_000),     // 每个地址 10 分钟最多输错 30 次短码（不管用几个账户）
     login: new RateLimiter(30, 10 * 60_000),
   };
-  /** 客户端地址只用于内存里的限流，不写库、不写日志。前面有反向代理时取 X-Forwarded-For 最右一项（由代理追加，客户端伪造不了）。 */
+  /** 限流用的客户端地址键（IPv6 按 /64 聚合），只在内存里，不写库、不写日志。见 util.clientIp。 */
   const clientIp = (c: Context) => {
-    if (cfg.trustProxy) { const xff = c.req.header("x-forwarded-for"); if (xff) return xff.split(",").pop()!.trim(); }
-    try { return getConnInfo(c).remote.address ?? "?"; } catch { return "?"; }
+    let remote: string | undefined;
+    try { remote = getConnInfo(c).remote.address; } catch { /* 测试里没有套接字 */ }
+    return ipKey(pickIp((n) => c.req.header(n), remote, cfg.trustProxy));
+  };
+  /** 按短码找码：账户或地址的输错次数用完时一律 429（命中也不给，否则限流挡不住猜测）；找不到与已过期同为 bad_code，并计入两者。 */
+  const findCode: FindCode = (c, userId, input) => {
+    const ip = clientIp(c);
+    if (limits.lookup.over(`u${userId}`) || limits.guess.over(ip)) return { error: "too_many" };
+    const text = typeof input === "string" && input.length <= 20 ? normalizeUserCode(input) : undefined;
+    const code = text ? db.codeByUser(text) : undefined;
+    if (code && code.expires >= Date.now()) return { code };
+    limits.lookup.take(`u${userId}`); limits.guess.take(ip);
+    return { error: "bad_code" };
   };
   const lang = (c: Context): Lang => pickLang(c.req.query("lang"), c.req.header("accept-language"));
   const nonce = (c: Context) => (c.get("secureHeadersNonce" as never) as string | undefined) ?? "";
@@ -55,11 +70,15 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
   app.use("*", (c, next) => (c.req.path.startsWith("/v1/") ? next() : csrfCheck(c, next)));
   app.use("*", bodyLimit({ maxSize: 16 * 1024 }));
   // 网页前端在别处时，这里给人看的入口都跳过去（登录与 GitHub 回调除外：会话 Cookie 属于同步服务自己）
+  // 自带网页的表单 POST（/device、/device/decide、/account/*）也一并关掉，只剩网页前端经 /v1/web/* 这一条路
   if (cfg.webUrl) {
     const web = cfg.webUrl;
     app.get("/", (c) => c.redirect(web + "/"));
     app.get("/account", (c) => c.redirect(web + "/account"));
     app.get("/device", (c) => { const code = normalizeUserCode(c.req.query("code") ?? ""); return c.redirect(web + "/device" + (code ? `?code=${code}` : "")); });
+    app.post("/device", (c) => c.redirect(web + "/device", 303));
+    app.post("/device/decide", (c) => c.redirect(web + "/device", 303));
+    app.post("/account/*", (c) => c.redirect(web + "/account", 303));
   }
   app.onError((e, c) => {
     if (e instanceof HTTPException) return e.getResponse(); // CSRF 拒绝（403）、请求体过大（413）等
@@ -80,9 +99,9 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
 
   app.post("/v1/device/token", async (c) => {
     if (!limits.token.take(clientIp(c))) return c.json({ error: "slow_down" }, 429);
-    const j = await c.req.json().catch(() => null) as { device_code?: unknown } | null;
-    if (typeof j?.device_code !== "string" || j.device_code.length > 200) return c.json({ error: "invalid_request" }, 400);
-    const r = poll(db, j.device_code, (agentId, body) => hub.kick(agentId, body));
+    const j = TokenRequest.safeParse(await c.req.json().catch(() => null));
+    if (!j.success) return c.json({ error: "invalid_request" }, 400);
+    const r = poll(db, j.data.device_code, (agentId, body) => hub.kick(agentId, body));
     return c.json(r.body, r.status);
   });
 
@@ -94,13 +113,15 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     const a = db.agent(b.agent)!;
     return c.json({ agent: { id: a.agent_id, name: a.name }, body: b.body, kind: b.kind, account: db.user(a.user_id)?.login ?? "" });
   });
-  /** 控制台登录：已绑定的身体代它的控制台（App）申请一对码，人在网页上批准后，身体用设备码轮询（/v1/device/token）拿到账户会话令牌。 */
+  /** 控制台登录：已绑定的运行基座代它的控制台（App）申请一对码，人在网页上批准后，身体用设备码轮询（/v1/device/token）拿到账户会话令牌。
+   *  灵魂桥是只读成员，没有控制台，不能申请（403）。 */
   app.post("/v1/console/code", (c) => {
     if (!github) return c.json({ error: "login_disabled" }, 503);
     const b = bearer(c);
     if (!b) return c.json({ error: "unauthorized" }, 401);
+    if (b.kind !== "runtime") return c.json({ error: "runtime_only" }, 403);
     if (!limits.code.take(clientIp(c))) return c.json({ error: "slow_down" }, 429);
-    return c.json(createConsoleCode(db, cfg, b, String(c.req.header("x-quetzal-version") ?? "").slice(0, 32)));
+    return c.json(createConsoleCode(db, cfg, b, String(c.req.header("x-quetzal-version") ?? "").replace(/[^\x20-\x7e]/g, "").slice(0, 32)));
   });
   app.delete("/v1/me", (c) => {
     const b = bearer(c);
@@ -110,7 +131,7 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     return c.json({ ok: true });
   });
 
-  installWebApi(app, { db, cfg, hub, sessions, lookupLimit: limits.lookup, loginEnabled: !!github });
+  installWebApi(app, { db, cfg, hub, sessions, findCode, loginEnabled: !!github });
 
   // ---------- 给人的网页（没有配置 SYNC_WEB_URL 时；配置了时上面已跳走）
   app.get("/", (c) => {
@@ -132,11 +153,11 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
 
   app.get("/auth/github/callback", async (c) => {
     if (!github) return c.redirect("/");
-    const { state, returnTo } = finishLogin(c, cfg);
+    const { state, verifier, returnTo } = finishLogin(c, cfg);
     const code = c.req.query("code"), got = c.req.query("state");
-    if (!state || !code || !got || got !== state) return c.redirect(cfg.webUrl ? `${cfg.webUrl}/account?login=failed` : "/?lang=" + lang(c)); // state 不符：可能是伪造的回调，什么都不做
+    if (!state || !verifier || !code || code.length > 100 || !got || got !== state) return c.redirect(cfg.webUrl ? `${cfg.webUrl}/account?login=failed` : "/?lang=" + lang(c)); // state 不符：可能是伪造的回调，什么都不做
     try {
-      const u = await github.user(code);
+      const u = await github.user(code, verifier);
       const user = db.upsertUser(u.id, u.login, u.name);
       sessions.create(c, user.id);
       return c.redirect(returnTo);
@@ -172,20 +193,19 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     if (!user) return toLogin(c);
     const s = t(lang(c));
     const form = await c.req.parseBody();
-    const codeText = normalizeUserCode(String(form.code ?? ""));
-    const code = codeText ? db.codeByUser(codeText) : undefined;
-    if (!code || code.expires < Date.now()) {
-      if (!limits.lookup.take(`u${user.id}`)) return deviceForm(c, "", s.tooMany);
-      return deviceForm(c, "", s.badCode);
-    }
+    const f = findCode(c, user.id, typeof form.code === "string" ? form.code : "");
+    if ("error" in f) return deviceForm(c, "", f.error === "too_many" ? s.tooMany : s.badCode);
+    const code = f.code;
     const d = check(db, cfg, code, user.id);
-    if (!d.ok) return page(c, s.confirmTitle, html`<p class="note err">${s.errors[d.error]}</p><p><a href="/account?lang=${lang(c)}">${s.back}</a></p>`, 409);
+    if (!d.ok) return d.error === "bad_code" ? deviceForm(c, "", s.badCode) : page(c, s.confirmTitle, html`<p class="note err">${s.errors[d.error]}</p><p><a href="/account?lang=${lang(c)}">${s.back}</a></p>`, 409);
+    const fp = fingerprint(d.body?.node_key ?? code.node_key);
     return page(c, s.confirmTitle, html`
       <h1>${s.confirmTitle}</h1><p>${s.confirmHint}</p>
       <div class="card"><dl>
         <dt>${s.agent}</dt><dd>${code.agent_name} <span class="meta mono">${code.agent_id.slice(0, 8)}</span></dd>
         <dt>${s.body}</dt><dd>${code.body} <span class="meta">${s.kind[code.kind] ?? code.kind}${code.version ? ` · ${code.version}` : ""}</span></dd>
-        <dt>${s.key}</dt><dd class="mono">${fingerprint(code.node_key)}</dd>
+        <dt>${s.key}</dt><dd class="mono">${fp}</dd>
+        ${d.body ? html`<dt>${s.boundAt}</dt><dd>${ago(lang(c), d.body.created)}</dd>` : ""}
       </dl></div>
       ${d.replaces || d.newAgent ? html`<p class="note">${d.replaces ? s.replaces : s.newAgent}</p>` : ""}
       <form method="post" action="/device/decide?lang=${lang(c)}" class="row">
@@ -200,12 +220,11 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     if (!user) return toLogin(c);
     const s = t(lang(c));
     const form = await c.req.parseBody();
-    const codeText = normalizeUserCode(String(form.code ?? ""));
-    const code = codeText ? db.codeByUser(codeText) : undefined;
-    if (!code) return deviceForm(c, "", s.badCode);
+    const f = findCode(c, user.id, typeof form.code === "string" ? form.code : "");
+    if ("error" in f) return deviceForm(c, "", f.error === "too_many" ? s.tooMany : s.badCode);
     const approve = form.approve === "1";
-    const d = decide(db, cfg, code, user.id, approve);
-    if (!d.ok) return page(c, s.confirmTitle, html`<p class="note err">${s.errors[d.error]}</p>`, 409);
+    const d = decide(db, cfg, f.code, user.id, approve);
+    if (!d.ok) return d.error === "bad_code" ? deviceForm(c, "", s.badCode) : page(c, s.confirmTitle, html`<p class="note err">${s.errors[d.error]}</p>`, 409);
     return page(c, s.confirmTitle, html`<h1>${s.confirmTitle}</h1><p class="note">${approve ? s.approved : s.denied}</p>
       <p><a class="btn" href="/account?lang=${lang(c)}">${s.account}</a></p>`);
   });

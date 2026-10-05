@@ -1,5 +1,5 @@
 # Quetzal 同步服务的镜像：Node 直接运行 TypeScript 源码（类型擦除），只装生产依赖，以非 root 用户运行。
-ARG NODE_IMAGE=node:24-alpine
+ARG NODE_IMAGE=node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
 FROM ${NODE_IMAGE}
 ARG NPM_REGISTRY=https://registry.npmjs.org
 WORKDIR /app

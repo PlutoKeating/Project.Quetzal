@@ -10,7 +10,7 @@ const schema = z.object({
   SYNC_HOST: z.string().default("0.0.0.0"),
   SYNC_PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   SYNC_DATA_DIR: z.string().default("/data"),
-  SYNC_TRUST_PROXY: bool, // 前面有反向代理（compose 里的 Caddy，或隧道模式的 cloudflared）时为真：客户端地址取 X-Forwarded-For 最右一项
+  SYNC_TRUST_PROXY: bool, // 前面有反向代理（compose 里的 Caddy，或隧道模式的 cloudflared）时为真：客户端地址取 CF-Connecting-IP，没有时取 X-Forwarded-For 最右一项
   GITHUB_CLIENT_ID: z.string().default(""),
   GITHUB_CLIENT_SECRET: z.string().default(""),
   GITHUB_OAUTH_RELAY: z.union([z.literal(""), z.url({ protocol: /^https$/ })]).default(""), // 直连 github.com 不通时，换令牌经这里中转（例如官网 Worker 的 /api/oauth/github/token）
@@ -19,7 +19,7 @@ const schema = z.object({
   TURN_URLS: list, // 缺省 turn:<TURN_HOST>:3478（UDP 与 TCP）
   STUN_URLS: list, // 缺省 stun:<host>:3478
   TURN_TTL_SECONDS: z.coerce.number().int().min(300).max(86400).default(3600),
-  SYNC_SESSION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  SYNC_SESSION_DAYS: z.coerce.number().int().min(1).max(90).default(30), // 滑动续期；无论怎么续，会话自创建起最长 90 天
   SYNC_MAX_AGENTS_PER_USER: z.coerce.number().int().min(1).default(20),
   SYNC_MAX_BODIES_PER_AGENT: z.coerce.number().int().min(1).default(16),
 });

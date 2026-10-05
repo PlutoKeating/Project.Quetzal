@@ -1,7 +1,8 @@
 # Quetzal 同步服务：三个容器。
 #   sync   账户、身体绑定、信令（只在内部网络，经 Caddy 对外；隧道模式下只发布到本机 127.0.0.1，由已有的 Cloudflare Tunnel 等转发，见 compose.tunnel.yaml）
 #   caddy  HTTPS 终止与证书自动续期（80 / 443；profile caddy，隧道模式不启动）
-#   coturn STUN 与 TURN 中转（3478 + 中转端口段；用宿主网络，Docker 处理大端口段很慢）
+#   coturn STUN 与 TURN 中转（3478 + 中转端口段；用宿主网络，Docker 处理大端口段很慢）；不记日志（日志里会有访客与对端的 IP）
+# 镜像默认按 tag@sha256 摘要固定（多架构索引的摘要），换镜像源时可以保留 @sha256 部分，拉到的仍是同一份内容。
 # 变量来自同目录的 .env（start.sh 生成，并按 SYNC_FRONT 写好 COMPOSE_FILE 与 COMPOSE_PROFILES，手动运行 docker compose 时也一致）。需要 Docker Compose ≥ 2.23.1（configs.content）。
 name: quetzal-sync
 
@@ -10,7 +11,7 @@ services:
     build:
       context: .
       args:
-        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     image: quetzal-sync:local
     restart: unless-stopped
@@ -33,12 +34,14 @@ services:
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    pids_limit: 64
     logging: &logging
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
   caddy:
-    image: ${CADDY_IMAGE:-caddy:2.11.6-alpine}
+    image: ${CADDY_IMAGE:-caddy:2.11.6-alpine@sha256:d44355d3c2149dc580ce2cac735955d1c08d3d00882c30489c241aa51a5c10d9}
     profiles: [caddy]
     restart: unless-stopped
     depends_on: [sync]
@@ -59,14 +62,24 @@ services:
     logging: *logging
 
   coturn:
-    image: ${COTURN_IMAGE:-coturn/coturn:4.18.0}
+    image: ${COTURN_IMAGE:-coturn/coturn:4.18.0@sha256:bbefd3e1fdfdc0d58770fe01b581fd8b00d9f3a5580d00acb77cf719a6bc78e3}
     restart: unless-stopped
     network_mode: host
+    # 只用下面的配置文件：镜像默认的命令带 --log-file=stdout 与 --external-ip=$(detect-external-ip)（启动时去外网探测地址），都不要
+    command: ["-c", "/etc/coturn/turnserver.conf"]
     configs:
       - source: turnserver
         target: /etc/coturn/turnserver.conf
+    user: "65534:65534" # nobody（镜像本身也是），监听 3478 与中转端口段都不需要 root
+    read_only: true
+    tmpfs: [/tmp, /var/lib/coturn]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE] # 不是为了低端口：镜像里的 turnserver 带这个文件 capability，边界集里没有它就无法执行
     security_opt: ["no-new-privileges:true"]
-    logging: *logging
+    mem_limit: 256m
+    pids_limit: 128 # 每个 CPU 一个中转线程
+    logging:
+      driver: none # 双保险：配置里也关了日志
 
 networks:
   internal: {}
@@ -74,7 +87,10 @@ networks:
 configs:
   # 监听与中转地址都显式指定为主网卡的地址（否则 coturn 会在 Docker 网桥、VPN 等所有网卡上监听，并把它们都当作中转地址）；云服务器的 1:1 NAT 用 external-ip=公网/内网 映射。
   # 加固项参考 Enable Security 的 coturn 安全配置指南：只用有时效的 HMAC 凭据；禁止中转到私有、回环、保留地址（防止借 TURN 打进服务器所在的内网）；
-  # 关掉 TCP 中转、软件版本属性与 NAT 行为探测（减少放大攻击的增益）；限制配额与分配时长。4.18 起 CLI、DTLS、RFC 5780 默认关闭。
+  # 关掉 TCP 中转、软件版本属性与 NAT 行为探测（减少放大攻击的增益）；限制配额、带宽与分配时长。4.18 起 CLI、DTLS、RFC 5780 默认关闭。
+  # 也禁止中转到本机自己的地址（中转地址与公网地址）：同一台服务器上的其他服务不能借 TURN 从「本机」访问。代价是两端都只能走中转时连不上（少见，见 docs/ARCHITECTURE.md）。
+  # user-quota 按凭据的标识部分计（coturn 去掉时间戳；同步服务给每具身体一个固定的不透明标识）；total-quota 不要超过中转端口段的端口数（start.sh 会检查）。
+  # 不记日志：日志里会有访客与对端的 IP 与 TURN 用户名。
   turnserver:
     content: |
       listening-port=3478
@@ -89,8 +105,10 @@ configs:
       relay-ip=${TURN_RELAY_IP:?请运行 ./start.sh 探测 TURN_RELAY_IP}
       ${TURN_EXTERNAL_IP:+external-ip=${TURN_EXTERNAL_IP}}
       ${TURN_ALLOWED_PEER_IP:+allowed-peer-ip=${TURN_ALLOWED_PEER_IP}}
-      user-quota=12
-      total-quota=1200
+      user-quota=${TURN_USER_QUOTA:-4}
+      total-quota=${TURN_TOTAL_QUOTA:-90}
+      max-bps=${TURN_MAX_BPS:-625000}
+      bps-capacity=${TURN_BPS_CAPACITY:-2500000}
       max-allocate-lifetime=3600
       stale-nonce=600
       unauthorized-ratelimit
@@ -98,8 +116,12 @@ configs:
       no-tcp-relay
       no-multicast-peers
       no-software-attribute
-      log-file=stdout
+      no-stdout-log
+      log-file=/dev/null
       simple-log
+      pidfile=/tmp/turnserver.pid
+      denied-peer-ip=${TURN_RELAY_IP:?请运行 ./start.sh 探测 TURN_RELAY_IP}
+      ${TURN_PUBLIC_IP:+denied-peer-ip=${TURN_PUBLIC_IP}}
       denied-peer-ip=0.0.0.0-0.255.255.255
       denied-peer-ip=10.0.0.0-10.255.255.255
       denied-peer-ip=100.64.0.0-100.127.255.255

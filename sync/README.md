@@ -27,7 +27,7 @@ cd Project.Quetzal/sync
 |---|---|
 | `./start.sh` | 启动，或改了 `.env` 之后重启 |
 | `./start.sh status` | 容器状态与健康检查 |
-| `./start.sh logs [sync｜caddy｜coturn]` | 跟踪日志 |
+| `./start.sh logs [sync｜caddy]` | 跟踪日志（coturn 不记日志：日志里会有访客 IP） |
 | `./start.sh update` | `git pull` 后重建并重启 |
 | `./start.sh stop` | 停止（数据保留在 `data/`） |
 

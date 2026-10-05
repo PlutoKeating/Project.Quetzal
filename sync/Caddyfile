@@ -1,7 +1,10 @@
 # Caddy：自动申请与续期 HTTPS 证书（Let's Encrypt / ZeroSSL），反向代理到同步服务（含 WebSocket）。
-# 不开访问日志：不记录访客 IP。
+# 不开访问日志：不记录访客 IP。X-Forwarded-For 由 Caddy 重写为真实的客户端地址；客户端自带的 CF-Connecting-IP 删掉
+# （同步服务在 SYNC_TRUST_PROXY 下优先用这个头，只有 Cloudflare 边缘设置的才可信）。
 {$SYNC_DOMAIN} {
 	encode zstd gzip
 	header -Server
-	reverse_proxy sync:8080
+	reverse_proxy sync:8080 {
+		header_up -CF-Connecting-IP
+	}
 }

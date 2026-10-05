@@ -11,8 +11,12 @@ import type { Db } from "./db.ts";
 import type { Config } from "./config.ts";
 import type { Hub } from "./hub.ts";
 import type { Sessions } from "./auth.ts";
+import type { DeviceCode } from "./db.ts";
 import { check, decide } from "./device.ts";
-import { normalizeUserCode, fingerprint, type RateLimiter } from "./util.ts";
+import { fingerprint } from "./util.ts";
+
+/** 按短码找待批准的码：先看次数限制，找不到（含已过期）计入输错次数。由 app.ts 提供（它持有限流器与客户端地址）。 */
+export type FindCode = (c: Context, userId: number, input: unknown) => { code: DeviceCode } | { error: "too_many" | "bad_code" };
 
 const json = <T extends z.ZodType>(schema: T) => async (c: Context): Promise<z.infer<T> | undefined> => {
   const r = schema.safeParse(await c.req.json().catch(() => null));
@@ -20,15 +24,17 @@ const json = <T extends z.ZodType>(schema: T) => async (c: Context): Promise<z.i
 };
 const CodeBody = json(z.object({ code: z.string().max(20) }));
 const DecideBody = json(z.object({ code: z.string().max(20), approve: z.boolean() }));
-const BodyRef = json(z.object({ agent: z.string().max(64), body: z.string().max(40) }));
+const BodyRef = json(z.object({ agent: z.string().max(64), body: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/) }));
 const AgentRef = json(z.object({ agent: z.string().max(64) }));
+const Empty = json(z.object({}));
 const Confirm = json(z.object({ confirm: z.literal(true) }));
 const ConsoleRef = json(z.object({ id: z.string().regex(/^[0-9a-f]{16}$/) }));
 
-export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; sessions: Sessions; lookupLimit: RateLimiter; loginEnabled: boolean }) {
-  const { db, cfg, hub, sessions, lookupLimit } = deps;
+export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; sessions: Sessions; findCode: FindCode; loginEnabled: boolean }) {
+  const { db, cfg, hub, sessions, findCode } = deps;
   const origins = new Set([cfg.publicUrl, ...(cfg.webUrl ? [cfg.webUrl] : [])]);
 
+  // hono 的 cors 给所有响应（含下面早退的 403 / 415 与 401）加 Vary: Origin：响应随 Origin 不同，缓存不能混用
   app.use("/v1/web/*", cors({
     origin: (o) => (origins.has(o) ? o : null),
     credentials: true, allowMethods: ["GET", "POST"], allowHeaders: ["Content-Type"], maxAge: 600,
@@ -72,23 +78,22 @@ export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; 
     });
   });
 
-  /** 绑定码 → 待批准的身体（给人核对：agent、身体、类型、版本、公钥指纹）。输错有次数限制。 */
+  /** 绑定码 → 待批准的身体（给人核对：agent、身体、类型、版本、公钥指纹）。输错（含过期）有次数限制，账户与地址各计。
+   *  控制台登录（kind 为 console）给的是发起它的那具已绑定身体的指纹与绑定时间。 */
   app.post("/v1/web/device/lookup", async (c) => {
     const u = user(c);
     if (!u) return unauthorized(c);
-    const p = await CodeBody(c);
-    const text = p ? normalizeUserCode(p.code) : undefined;
-    const code = text ? db.codeByUser(text) : undefined;
-    if (!code || code.expires < Date.now()) {
-      if (!lookupLimit.take(`u${u.id}`)) return c.json({ error: "too_many" }, 429);
-      return c.json({ error: "bad_code" }, 404);
-    }
+    const f = findCode(c, u.id, (await CodeBody(c))?.code);
+    if ("error" in f) return c.json({ error: f.error }, f.error === "too_many" ? 429 : 404);
+    const code = f.code;
     const d = check(db, cfg, code, u.id);
-    if (!d.ok) return c.json({ error: d.error }, 409);
+    if (!d.ok) return c.json({ error: d.error }, d.error === "bad_code" ? 404 : 409);
+    const fp = fingerprint(d.body?.node_key ?? code.node_key);
     return c.json({
       code: code.user_code, agent: { id: code.agent_id, name: code.agent_name },
-      body: code.body, kind: code.kind, version: code.version, fingerprint: fingerprint(code.node_key),
-      replaces: d.replaces, newAgent: d.newAgent, expires: code.expires,
+      body: code.body, kind: code.kind, version: code.version, fingerprint: fp,
+      replaces: d.replaces, newAgent: d.newAgent, createdAt: code.created, expires: code.expires,
+      ...(d.body ? { bodyFingerprint: fp, bodyBoundAt: d.body.created } : {}),
     });
   });
 
@@ -96,11 +101,11 @@ export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; 
     const u = user(c);
     if (!u) return unauthorized(c);
     const p = await DecideBody(c);
-    const text = p ? normalizeUserCode(p.code) : undefined;
-    const code = text ? db.codeByUser(text) : undefined;
-    if (!p || !code) return c.json({ error: "bad_code" }, 404);
-    const d = decide(db, cfg, code, u.id, p.approve);
-    if (!d.ok) return c.json({ error: d.error }, 409);
+    if (!p) return c.json({ error: "bad_request" }, 400);
+    const f = findCode(c, u.id, p.code);
+    if ("error" in f) return c.json({ error: f.error }, f.error === "too_many" ? 429 : 404);
+    const d = decide(db, cfg, f.code, u.id, p.approve);
+    if (!d.ok) return c.json({ error: d.error }, d.error === "bad_code" ? 404 : 409);
     return c.json({ ok: true, approved: p.approve });
   });
 
@@ -141,6 +146,16 @@ export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; 
     const p = await ConsoleRef(c);
     if (!p || !db.revokeConsole(u.id, p.id)) return c.json({ error: "not_found" }, 404);
     return c.json({ ok: true });
+  });
+
+  /** 在所有设备上退出网页登录：作废这个账户的全部网页会话（包括这一个）；控制台登录不受影响（在上面逐个吊销）。 */
+  app.post("/v1/web/sessions/revoke-all", async (c) => {
+    const u = user(c);
+    if (!u) return unauthorized(c);
+    if (!(await Empty(c))) return c.json({ error: "bad_request" }, 400);
+    const revoked = db.revokeWebSessions(u.id);
+    if (!sessions.consoleHandle(c)) sessions.destroy(c); // 网页自己的 Cookie 一并清掉
+    return c.json({ ok: true, revoked });
   });
 
   app.post("/v1/web/logout", (c) => { sessions.destroy(c); return c.json({ ok: true }); });
