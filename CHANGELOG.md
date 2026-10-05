@@ -2,6 +2,15 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 未发布（1.0.0：分布式）
+
+- **触碰即同步**：她的每次工具调用（记笔记、改记忆，也包括用 shell 直接改文件、自造工具、子 agent）之后，基座看一眼灵魂目录，有变化就立即提交，提交说明写清楚改了什么，3 秒后推送；一轮结束时立即推送。网络问题先静默重试约 4 分钟；仍失败、或是密钥被拒这类问题，基座以「基座提醒」插话告诉刚才改过记忆的那一轮（已结束就在原会话里开新的一轮）。
+- **冲突交给她裁决**：两边都改过同一篇笔记、人格或技能文档时，先用较新的一版保证同步不卡住，另一版另存为 `<名>.incoming.md` 副本，并提醒她裁决；副本一直列在系统提示里，直到她处理。灵魂仓库规范升到 **v8**（冲突副本、身体登记的 `meshKey`、`lastSeen` 至多每小时更新），v7 仓库无需迁移。
+- **同步服务 `sync/`**：独立部署在一台服务器上（`cd sync && ./start.sh` 一行启动）：GitHub 登录、设备码绑定身体、WebSocket 信令与在场、coturn TURN 中转、Caddy 自动 HTTPS，让同一个 agent 的几具身体连成一张网。
+- **Sync on touch**: after every tool call she makes (notes and memory edits, but also shell commands that change files, custom tools and sub-agents), the runtime checks the soul directory, commits any change immediately with a message describing it, and pushes 3 seconds later; the end of a turn pushes immediately. Network failures are retried silently for about 4 minutes; if pushing still fails, or the cause is a rejected key or similar, the runtime interjects a "runtime notice" into the turn that touched the memory (or opens a new turn in that conversation if it has ended).
+- **Conflicts are hers to decide**: when both sides changed the same note, persona or skill document, the newer version is used first so sync never stalls, the other is saved as a `<name>.incoming.md` copy, and she is asked to decide; the copy stays listed in the system prompt until handled. The soul repository specification moves to **v8** (conflict copies, `meshKey` in the body registry, `lastSeen` at most hourly); v7 repositories need no migration.
+- **Sync service `sync/`**: deployed on its own server (`cd sync && ./start.sh`): GitHub sign-in, device-code body binding, WebSocket signaling and presence, coturn TURN relay and automatic HTTPS via Caddy, connecting the bodies of one agent into a mesh.
+
 ## 0.6.7
 
 - **Linux 家目录改为 `~/.quetzal`**：运行基座、npm 包与一键安装脚本在 Linux 上的缺省家目录从 `~/quetzal` 改为 `~/.quetzal`（安卓 / Termux 仍是 `~/quetzal`），`QUETZAL_HOME` 环境变量或 `--home` 可改到任意位置。0.6.7 之前装在 `~/quetzal` 的，再跑一次安装命令（或 `npx @plutokeating/quetzal`）会先停服务、整目录搬到 `~/.quetzal`、重写服务与快捷方式，配置、记忆、对话原样保留。

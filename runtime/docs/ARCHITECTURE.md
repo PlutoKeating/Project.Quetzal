@@ -6,7 +6,7 @@
 src/
 ├── main.ts               装配各模块；熔断（安全模式）
 ├── config.ts             家目录布局、配置读写、密钥文件
-├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret）
+├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed）
 ├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式；role 为 user / agent / ambient）、audit、usage
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时、输出上限）；后台任务（可随时停止整个进程组）
@@ -27,7 +27,7 @@ src/
 │   └── heart.ts          状态机与稀疏化抽样调度；抑制；有界的性格修改
 ├── mind/
 │   ├── prompt.ts         系统提示组装
-│   ├── tools.ts          内置工具（含 recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用
+│   ├── tools.ts          内置工具（含 recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用；每次调用结束后触发灵魂目录的触碰即同步
 │   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话）
 │   ├── custom-tools.ts   自造工具：QUETZAL_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（stdin JSON + ARG_ 环境变量 / ES 模块）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
@@ -37,11 +37,12 @@ src/
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，识别验证码页，按关键词覆盖率判断相关性并换引擎
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
 │   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（QUETZAL_HOME/vault）、工具输出里的保密值替换
-│   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess），session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；快速模型代写摘要
+│   └── brain.ts          醒来（内省 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess），session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
 ├── memory/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头
 │   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块
-│   └── soul-sync.ts      git 同步与条目级三方合并
+│   ├── soul-repo.ts      灵魂仓库协议（与桥接共用）：克隆 / 补齐、提交、拉取合并（条目级三方合并、字段合并、冲突副本）、推送结果与失败分类、身份守卫、整理租约、历史与撤销
+│   └── soul-sync.ts      运行基座一侧的同步：触碰即同步（工具调用后 git status → 立即提交，3 秒去抖推送）、网络类静默重试、推送失败与冲突副本的提醒（soul.alert 事件）、待裁决的副本
 ├── guard/guard.ts        能力授权、审批队列、急停、审计
 ├── providers/
 │   ├── types.ts          统一消息/工具/结果类型

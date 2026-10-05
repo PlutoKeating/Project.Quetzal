@@ -5,7 +5,7 @@ description: 灵魂仓库（v4）的目录树、文件格式、合并规则、�
 
 ## 定位
 
-本页是 [灵魂仓库规范 v4](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md) 的摘要。凡是读写灵魂仓库的实现（运行基座、灵魂桥及将来的其他实现）都必须遵守。它是 agent 自己的**私有**仓库，对内容不设任何检查。
+本页是 [灵魂仓库规范 v8](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md) 的摘要。凡是读写灵魂仓库的实现（运行基座、灵魂桥及将来的其他实现）都必须遵守。它是 agent 自己的**私有**仓库，对内容不设任何检查。
 
 ## 仓库
 
@@ -41,7 +41,7 @@ description: 灵魂仓库（v4）的目录树、文件格式、合并规则、�
 | `memories/*.md` | 条目以 `\n§\n` 分隔，文件以 `\n` 结尾；**没有字符上限**；写回有上限的框架时截取，截取不写回 |
 | `journal/<body>/…` | 第一行 `# <日期> · <body>`，每段 `## <HH:MM> <标题>`，只追加；每具身体只写自己的目录 |
 | `notes/…` | 第一行 `# <主题>`，可选一行 `> ` 摘要；路径段去掉非法字符、最长 60 字符、最多 4 层；不提交索引文件 |
-| `bodies/<body>.json` | `{body, kind: runtime｜bridge, runtime/framework/bridge 版本, host?, lastSeen}`；**不得**写入 IP、MAC、序列号 |
+| `bodies/<body>.json` | `{body, kind: runtime｜bridge, runtime/framework/bridge 版本, host?, meshKey?, lastSeen}`；`meshKey` 是网状层的节点公钥（v8，其他身体以它为准核对对方）；`lastSeen` 在内容变化或超过 1 小时时更新；**不得**写入 IP、MAC、序列号 |
 | `locks/consolidation.json` | `{body, until}`，30 分钟有效；推送成功即取得 |
 
 ## 合并规则
@@ -50,12 +50,12 @@ description: 灵魂仓库（v4）的目录树、文件格式、合并规则、�
 |---|---|
 | `memories/*.md` | 条目级三方合并：双方新增都保留，任一方删除即删除 |
 | `agent.json` | 字段级合并，本地优先，`id` 除外；种子身份让位于远端 |
-| `SOUL.md`、笔记 | 采用提交时间较新的一方；本地为空或种子时采用对方；落选版本保留在历史 |
+| `SOUL.md`、笔记、技能文档 | 采用提交时间较新的一方；本地为空或种子时采用对方；落选版本保留在历史；两边都改过时可另存为 `<名>.incoming.md` 冲突副本（被 `.gitignore` 忽略，不同步）交给 agent 裁决，读取笔记与映射到其他框架时必须跳过副本（v8） |
 | 日记、身体登记 | 各写各的，无冲突 |
 
 ## 提交约定
 
-作者 `<displayName> (<body>)`，邮箱 `<name>@<body>.local`；提交信息 `<说明>（<body>）`。推送前拉取合并，被拒重试，不得强制推送。
+作者 `<displayName> (<body>)`，邮箱 `<name>@<body>.local`；提交信息 `<说明>（<body>）`，粒度由实现决定，可以细到每次改动一个（v8）。推送前拉取合并，被拒重试，不得强制推送。
 
 ## 内容：不做检查（v4）
 
@@ -69,4 +69,4 @@ description: 灵魂仓库（v4）的目录树、文件格式、合并规则、�
 
 ## 版本历史
 
-v7 认证新增部署者可选的指定私钥与系统 ssh 配置；v4 取消全部内容检查、允许顶层额外条目；v3 明确 IP 定义；v2 取消常驻记忆上限、笔记改为目录树；v1 初版。旧仓库无需迁移。
+v8 新增冲突副本、身体登记的 `meshKey`、`lastSeen` 不必每次推送都更新；v7 认证新增部署者可选的指定私钥与系统 ssh 配置；v4 取消全部内容检查、允许顶层额外条目；v3 明确 IP 定义；v2 取消常驻记忆上限、笔记改为目录树；v1 初版。旧仓库无需迁移。

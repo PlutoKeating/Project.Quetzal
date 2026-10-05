@@ -429,5 +429,8 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
     const msg = redactSecrets(String(e.message));
     audit("agent", name, reason, args, `error: ${msg}`);
     return { text: `出错了：${msg}`, status: "error" };
+  } finally {
+    // 触碰即同步：任何工具（包括 shell、自造工具）碰了灵魂目录，立即提交并安排推送
+    await soul.touched({ tool: name, session: ctx.session }).catch(() => {});
   }
 }

@@ -48,6 +48,7 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
   }
   if (!s.inbox.length) return false;
   for (const m of s.inbox.splice(0)) {
+    if (m.notice) { messages.push({ role: "user", content: `${NOTICE[m.notice] ?? `提醒（${m.notice}）`}：\n${m.text}` }); continue; }
     messages.push(await userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}：\n${m.text}`, m.attachments as Attachment[],
       m.mode === "interrupt" ? "请优先回应这条消息，再决定之前的工作是否继续。" : "请注意这条新消息，据此调整：之前的工作可以继续，也可以按新消息改变计划。", s.seen));
   }
@@ -148,7 +149,7 @@ export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?
 1. 回顾最近的日记（包括其他身体的经历）和对话，提炼值得长期记住的东西，用 memory 工具更新常驻记忆（合并重复、修正过时的内容），用 note_save 沉淀知识与思考。
    记忆没有长度上限，但每次醒来只会展开一部分：常驻记忆留给最核心、最常用的认识；细节、资料、长篇思考放进笔记目录树（如「身体/honor9/硬件」「人/PK/喜好」），写好一句话摘要。
    整理笔记目录：用 note_list 查看，note_move 归类、改名，合并重复的笔记，note_delete 删除没用的（历史中仍可找回）。
-2. 如果你的喜好或节律有了变化，可以用 adjust_self 调整自己。（与其他身体的记忆同步由基座自动完成，你不需要处理。）
+2. 如果你的喜好或节律有了变化，可以用 adjust_self 调整自己。（与其他身体的记忆同步由基座自动完成；只有两边都改过同一个文件时，基座会把另一版留给你裁决，见「灵魂同步」一节。）
 3. 回顾最近的工具调用（recent_actions）：反复出现、步骤稳定的 shell 流程，可以用 tool_write 沉淀成工具，并写好技能文档；灵魂仓库里有技能文档而本机没有实现的，也可以按文档实现。
 
 梦可以是跳跃的、联想的。结束时调用 finish，把这个梦写进日记。`;
@@ -262,6 +263,9 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
 
 /** 她不回应环境输入时的回复标记（只回这两个字，不入库、不显示）。 */
 const SILENCE = /^[\s\[【（(]*沉默[\s\]】）)]*$/;
+/** 不是对方说的话、而是提醒的通道：她工作时到达就按提醒的口吻并入，不当成对方的插话。 */
+const NOTICE: Record<string, string> = { "灵魂同步": "基座提醒（灵魂同步）", "子agent": "你派出的子 agent 送回了报告" };
+const SOUL_NOTICE_PROMPT = "这是运行基座发来的提醒，不是对方说的话。你自己决定要不要处理、怎么处理（可以用工具）；需要对方帮忙的事可以告诉对方。不需要回应时只回复两个字：沉默（不会被记录成你的话）。";
 const AMBIENT_PROMPT = "这是麦克风听到的环境声音（已转成文字，可能有错字、断句不准，也可能不是对你说的，比如旁人的交谈、电视）。请自己判断：是不是在对你说话、要不要回应。不需要回应时只回复两个字：沉默（不会被记录成你的话）。要回应就像平常一样回复，可以用工具。对方是用声音在和你说话，可能此刻不方便看屏幕——你可以用 voice_speak 把回复念出来，是否念由你决定。";
 const AGENT_REPORT_PROMPT = "这是你派出的子 agent 送回的报告（它已经结束）。你自己决定怎么用：据此继续手头的事、把结论告诉对方、再派一个、或者什么都不做。不需要回应时只回复两个字：沉默（不会被记录成你的话）。";
 
@@ -300,7 +304,8 @@ export function converse(from: string, text: string, channel: string, o: { conv?
   const cur = running.get(conv), mode = o.mode ?? "steer";
   if (cur && mode !== "queue") {
     const id = addMessage(role, channel, text, { session: conv, attachments: o.attachments, mode });
-    cur.inbox.push({ id, text: o.ambient ? `（环境声音，麦克风听到的，不一定是对你说的）${text}` : text, mode, attachments: o.attachments ?? [] });
+    const notice = o.ambient && NOTICE[channel] ? channel : undefined;
+    cur.inbox.push({ id, text: notice || !o.ambient ? text : `（环境声音，麦克风听到的，不一定是对你说的）${text}`, mode, attachments: o.attachments ?? [], notice });
     cur.emit({ kind: "steer", text, msg: id, mode, ambient: o.ambient });
     cur.touch();
     const cut = mode === "interrupt" && cur.interrupt();
@@ -326,6 +331,8 @@ export function converse(from: string, text: string, channel: string, o: { conv?
         ...history(conv, id),
         o.ambient && channel === "子agent"
           ? await userMessage(text, [], AGENT_REPORT_PROMPT, s.seen)
+          : o.ambient && channel === "灵魂同步"
+          ? await userMessage(`${NOTICE[channel]}：\n${text}`, [], SOUL_NOTICE_PROMPT, s.seen)
           : o.ambient
           ? await userMessage(`你听到附近有人说：\n${text}`, [], AMBIENT_PROMPT, s.seen)
           : await userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
@@ -341,7 +348,7 @@ export function converse(from: string, text: string, channel: string, o: { conv?
       if (o.ambient && (SILENCE.test(r.text) || (!r.text.trim() && !process.length))) { // 她判断不必回应：不留她的话，这句话标为 ignored（控制台隐藏），心流里记一笔
         setMessageMode(id, "ignored");
         s.emit({ kind: "done", reply: "" });
-        if (channel !== "子agent") noteSilence(conv, text);
+        if (!NOTICE[channel]) noteSilence(conv, text);
         addExperience(1);
         return "";
       }
@@ -350,7 +357,7 @@ export function converse(from: string, text: string, channel: string, o: { conv?
       addMessage("agent", channel, reply, { session: home, process });
       s.emit({ kind: "done", reply });
       if (s.switchTo) bus.emit("session.switch", { from: conv, to: s.switchTo, title: getSession(s.switchTo)?.title ?? "", done: true });
-      addTimeline("chat", o.ambient ? (channel === "子agent" ? "收到子 agent 的报告，接着做了" : "听到有人说话，回应了") : `和${from}说话`, { channel, conv: home, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
+      addTimeline("chat", o.ambient ? (channel === "子agent" ? "收到子 agent 的报告，接着做了" : channel === "灵魂同步" ? "处理了基座关于灵魂同步的提醒" : "听到有人说话，回应了") : `和${from}说话`, { channel, conv: home, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
       nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
       await soul.push("对话").catch(() => {});
@@ -367,3 +374,20 @@ export function converse(from: string, text: string, channel: string, o: { conv?
   chains.set(conv, job.catch(() => {}));
   return job;
 }
+
+/**
+ * 灵魂同步的提醒（推送失败、冲突副本待裁决）：碰过记忆的那一轮还在进行就插话（醒来、子 agent 直接放进收件箱；对话经 converse 插话）；
+ * 已经结束就在原会话里开新的一轮；醒来与子 agent 的那一轮已结束（或不知道是谁碰的）时，放进「主动消息」会话。
+ */
+bus.on("soul.alert", ({ text, targets }) => {
+  const opened = new Set<string>();
+  for (const t of targets.length ? targets : [undefined]) {
+    const s = t instanceof Session ? t : undefined;
+    if (s && !s.closed && s.origin !== "chat") { s.inbox.push({ id: 0, text, mode: "steer", attachments: [], notice: "灵魂同步" }); s.touch(); continue; }
+    const conv = s?.origin === "chat" ? (s.switchTo ?? s.conv) : "inbox";
+    if (opened.has(conv)) continue;
+    opened.add(conv);
+    if (conv === "inbox") ensureSession("inbox", "主动消息", "主动");
+    void converse("基座", text, "灵魂同步", { conv, ambient: true }).catch((e) => log("brain", `灵魂同步的提醒没送到：${e.message}`));
+  }
+});

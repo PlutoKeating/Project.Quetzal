@@ -1,9 +1,10 @@
 // 系统提示的组装：人格 → 自我认知与处境 → 常驻记忆 → 记忆目录 → 自动检索到的相关记忆 → 身体 → 内在状态 → 最近的经历。
 // 记忆可以无限增长，上下文保持有界：常驻记忆按相关性展开、笔记只给目录索引、其余靠检索（见 memory/retrieval.ts）。
-import { config } from "../config.ts";
+import { config, paths } from "../config.ts";
 import * as mem from "../memory/memory.ts";
 import { identity } from "../memory/identity.ts";
-import { recent as soulRecent, syncStatus } from "../memory/soul-sync.ts";
+import { recent as soulRecent, syncStatus, pendingCopies } from "../memory/soul-sync.ts";
+import path from "node:path";
 import { describeBody } from "../body/twin.ts";
 import { snapshot } from "../heart/heart.ts";
 import { listSessions, sessionMessages } from "../store.ts";
@@ -16,12 +17,14 @@ import * as agents from "./agents.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
 
-/** 灵魂同步是基座自动完成的；这里只让 agent 知道发生了什么（知觉），她不需要做任何事。 */
+/** 灵魂同步是基座自动完成的；这里让 agent 知道发生了什么（知觉）。只有两边都改过同一个文件时，落选的一版留给她裁决。 */
 function soulPerception(): string {
   const st = syncStatus();
-  if (!st.remote) return "## 灵魂同步（知觉）\n只有这一具身体，没有与其他身体同步。";
+  const copies = pendingCopies();
+  const pending = copies.length ? `\n待你裁决的冲突副本（两边都改过，基座先用了较新的一版；看过后保留现在的就删掉副本，想要另一版或合并就改好原文件再删副本）：\n${copies.map((c) => `- ${path.join(paths.soul, c)}`).join("\n")}` : "";
+  if (!st.remote) return `## 灵魂同步（知觉）\n只有这一具身体，没有与其他身体同步。${pending}`;
   const lines = soulRecent.map((r) => `- ${new Date(r.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}：合入 ${r.incoming.length} 次变更（${[...new Set(r.incoming.map((i) => i.body))].join("、")}）${r.resolved.length ? `，自动处理冲突：${r.resolved.map((x) => `${x.file}→${x.kept === "remote" ? "采用对方" : "保留本地"}`).join("；")}` : ""}`);
-  return `## 灵魂同步（知觉）\n你的人格与记忆由基座自动在各具身体间同步，无需你操作；以下只是让你知道发生了什么。${st.lastError ? `\n同步异常：${st.lastError}` : ""}\n${lines.join("\n") || "最近没有来自其他身体的变化。"}`;
+  return `## 灵魂同步（知觉）\n你的人格与记忆由基座自动在各具身体间同步：你一改动灵魂目录里的东西，基座就立即提交并推送，无需你操作；推送失败或出现需要你裁决的冲突时，基座会直接提醒你。以下是最近发生的事。${st.lastError ? `\n同步异常：${st.lastError}` : ""}${st.unpushed ? `\n还有 ${st.unpushed} 次改动在本机等待推送。` : ""}\n${lines.join("\n") || "最近没有来自其他身体的变化。"}${pending}`;
 }
 
 /** 技能与自造工具：本机可用的、缺依赖的、只有文档没有实现的。 */

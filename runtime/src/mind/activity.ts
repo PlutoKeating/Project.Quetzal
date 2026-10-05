@@ -17,7 +17,10 @@ export class Interrupted extends Error {
 }
 
 /** 对方在她工作时发来的消息（插话 / 打断），在下一次模型调用前并入上下文。 */
-export interface Incoming { id: number; text: string; mode: "steer" | "interrupt"; attachments: unknown[] }
+export interface Incoming {
+  id: number; text: string; mode: "steer" | "interrupt"; attachments: unknown[];
+  notice?: string; // 不是对方说的话，而是基座或子 agent 送来的提醒（通道名，如「灵魂同步」「子agent」）：按提醒的口吻并入
+}
 
 export class SessionTimeout extends Error {
   constructor() { super(`会话 ${SESSION_IDLE_MS / 1000} 秒没有任何进展，已中止`); this.name = "SessionTimeout"; }
@@ -141,7 +144,9 @@ export class Session {
     if (this.buf) { this.emit({ kind: "delta", text: this.buf }); this.buf = ""; }
   }
 
-  close() { this.flush(); clearTimeout(this.timer); clearInterval(this.beat); live.delete(this.id); }
+  /** 这一轮已经结束（之后送来的提醒要开新的一轮）。 */
+  closed = false;
+  close() { this.closed = true; this.flush(); clearTimeout(this.timer); clearInterval(this.beat); live.delete(this.id); }
 }
 
 /** 工具调用的一行摘要：优先取常见的主参数，否则取第一个字符串参数或字符串数组（如 view_image 的 paths）。 */

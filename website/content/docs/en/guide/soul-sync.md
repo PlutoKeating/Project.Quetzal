@@ -48,7 +48,11 @@ sequenceDiagram
   Note over B: Perception: "soul sync — n changes from O"
 ```
 
-Sync is entirely event-driven (pull before waking; push after waking, dreaming, conversations and identity changes). There is no periodic sync.
+Sync is entirely event-driven; there is no periodic sync:
+
+- **Sync on touch**: after every tool call the agent makes (saving a note, editing memory, changing files directly with the shell…), the runtime checks the soul directory, commits any change immediately and pushes 3 seconds later; the end of a turn pushes immediately. Commit messages say what changed (for example "note_save: note body/hardware"), so the history stays readable.
+- Changes from other bodies are pulled before waking and before conversations.
+- **Push failures**: network problems are retried silently a few times (about 4 minutes); if that still fails, or the cause is a rejected key or a missing repository, the runtime interjects a "runtime notice" into the turn that touched the memory (or starts a new turn in that conversation if it has ended). The changes stay in local commits and go out with the next successful push.
 
 ## How conflicts are resolved
 
@@ -56,14 +60,14 @@ Sync is entirely event-driven (pull before waking; push after waking, dreaming, 
 |---|---|
 | `memories/*.md` | Entry-level three-way merge: additions on both sides are kept; a deletion on either side wins |
 | `agent.json` | Field-level merge, local wins (except `id`) |
-| `SOUL.md`, notes | The newer side wins; the losing version is kept in git history |
+| `SOUL.md`, notes, skill documents | The newer side is used first so sync never stalls; when **both sides changed** the file, the other version is saved next to it as `<name>.incoming.md` (a conflict copy, not synced) and the agent is asked to decide: keep the current one by deleting the copy, or edit the original and then delete the copy. The losing version also stays in git history |
 | Journals, body registry | Each body writes its own path, so there is nothing to conflict |
 
 Dreaming rewrites resident memory. To keep two bodies from consolidating at the same time, a body takes a 30-minute **consolidation lease** in the repository before dreaming; if it cannot, it only naps.
 
 ## She perceives it
 
-When changes from other bodies are pulled, the timeline records "soul sync: n changes from xx", her curiosity and longing rise slightly, and the system prompt gains a "soul sync (perception)" section. She knows what happened, but has nothing to do about it.
+When changes from other bodies are pulled, the timeline records "soul sync: n changes from xx", her curiosity and longing rise slightly, and the system prompt gains a "soul sync (perception)" section (including changes still waiting to be pushed and conflict copies awaiting a decision). Everyday sync needs nothing from the agent; only push failures and real conflicts are brought to its attention.
 
 ## History and revert
 

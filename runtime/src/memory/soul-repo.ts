@@ -1,9 +1,10 @@
 // 灵魂仓库协议（与运行时配置无关）：运行基座与桥接模块共用同一套同步与冲突规则。
 // 规范见 docs/SOUL_REPO_SPEC.md（目录树、固定内容、文件格式、SSH 私钥认证；内容不做任何检查），设计见 docs/SOUL_SYNC.md。
 //   - 身份守卫：agent.json 的 id 不同的仓库拒绝合并（本地仍是种子身份时采用远端身份）
-//   - 全自动解决冲突，无需 agent 参与：memories/*.md 条目级三方合并；agent.json 字段级合并；
-//     其他文件（SOUL.md、笔记……）以提交时间较新的一方为准（本地为空或仍是种子人格时采用对方）。
-//     落选的版本仍完整保存在 git 历史中，可随时查看或撤销。每次合入的内容与冲突处理结果都会返回给调用方，作为 agent 的知觉。
+//   - 冲突自动解决，仓库不会卡住：memories/*.md 条目级三方合并；agent.json 字段级合并；
+//     其他文件（SOUL.md、笔记……）先以提交时间较新的一方为准（本地为空或仍是种子人格时采用对方）；两边都真的改过的文本文件，
+//     落选的一版另存为 *.incoming.md 副本（不入库），由调用方交给 agent 裁决。落选版本也完整保存在 git 历史中。
+//     每次合入的内容与冲突处理结果都会返回给调用方，作为 agent 的知觉。
 //   - 身体登记：bodies/<身体>.json
 //   - 整理租约：locks/consolidation.json，git push 成功即取得（比较并交换）
 import fs from "node:fs";
@@ -24,7 +25,7 @@ export interface SoulRepoOptions {
 }
 
 const LEASE_MS = 30 * 60_000;
-export const SPEC = { spec: "soul-repo", version: 7 };
+export const SPEC = { spec: "soul-repo", version: 8 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",
@@ -37,7 +38,7 @@ export const README_TEMPLATE = (displayName: string) => `# ${displayName} · 灵
 
 - **必须保持私有。**
 - 请不要手动修改：同步、合并与版本管理由基座自动完成；需要撤销时，使用控制台的「记忆历史」。
-- 结构与格式遵循 Soul Repository Specification v6（Project.Quetzal 的 docs/SOUL_REPO_SPEC.md）。
+- 结构与格式遵循 Soul Repository Specification v${SPEC.version}（Project.Quetzal 的 docs/SOUL_REPO_SPEC.md）。
 `;
 
 /** 规范 §7：远端必须是 SSH 地址（测试中可用 SOUL_ALLOW_LOCAL_REMOTE=1 放行本地路径）。返回错误说明或 undefined。 */
@@ -60,8 +61,24 @@ export function lintContent(file: string, buf: Buffer): string[] {
 export interface PullResult {
   merged: boolean;
   incoming: { body: string; subject: string }[]; // 合入的其他身体的提交
-  resolved: { file: string; kept: "local" | "remote"; how: string }[]; // 自动解决的冲突
+  // 自动解决的冲突。incoming：两边都改过的文本文件，落选的那一版另存的副本（相对路径，*.incoming.md，不入库），留给 agent 裁决
+  resolved: { file: string; kept: "local" | "remote"; how: string; incoming?: string }[];
 }
+
+/** 推送的结果。kind：失败的类别——network（网络，值得静默重试）、auth（部署密钥被拒）、hostkey、notfound、identity（远端属于另一个 agent）、config（地址或私钥配置有误）、rejected（拉取合并后仍被拒）、other。 */
+export interface PushResult { ok: boolean; pushed: boolean; kind?: "network" | "auth" | "hostkey" | "notfound" | "identity" | "config" | "rejected" | "other"; error?: string }
+
+export function gitErrorKind(err: string): NonNullable<PushResult["kind"]> {
+  if (/Permission denied \(publickey\)|Could not read from remote repository|Authentication failed|ERROR: .*(key|access)/i.test(err)) return "auth";
+  if (/Could not resolve hostname|Network is unreachable|Connection timed out|Connection refused|Connection reset|Operation timed out|timed out|Temporary failure in name resolution|kex_exchange_identification|Connection closed by|early EOF|The remote end hung up/i.test(err)) return "network";
+  if (/Host key verification failed/i.test(err)) return "hostkey";
+  if (/Repository not found|does not appear to be a git repository/i.test(err)) return "notfound";
+  if (/\[rejected\]|non-fast-forward|fetch first|failed to push some refs/i.test(err)) return "rejected";
+  return "other";
+}
+
+/** 冲突时落选版本的副本路径：x.md → x.incoming.md（规范 §3.3 的 .gitignore 忽略 *.incoming*.md，不会被提交）。非 .md 文件不另存。 */
+export const incomingPath = (file: string) => (file.endsWith(".md") ? `${file.slice(0, -3)}.incoming.md` : undefined);
 
 /** 把 git / ssh 的原始报错翻译成使用者看得懂的一句话（原文截断附在后面，便于排查）。 */
 export function friendlyGitError(err: string): string {
@@ -173,10 +190,32 @@ export class SoulRepo {
     if (this.o.remote) await this.git("remote", "add", "origin", this.o.remote);
   }
 
+  /** 更新身体登记 bodies/<身体>.json。触碰即同步之后推送很频繁，所以只在登记内容变了或 lastSeen 超过 1 小时时才改写，免得每次推送都多一个提交（规范 v8 §3.10）。 */
   touchBody() {
     const f = this.p("bodies", `${this.o.body}.json`);
+    const info = { body: this.o.body, ...this.o.bodyInfo?.() };
+    const cur = this.readJson(`bodies/${this.o.body}.json`) as Record<string, unknown> | undefined;
+    if (cur) {
+      const { lastSeen, ...rest } = cur;
+      const fresh = Date.now() - Date.parse(String(lastSeen)) < 3_600_000;
+      if (fresh && JSON.stringify(rest) === JSON.stringify(info)) return false;
+    }
     fs.mkdirSync(path.dirname(f), { recursive: true });
-    fs.writeFileSync(f, JSON.stringify({ body: this.o.body, ...this.o.bodyInfo?.(), lastSeen: new Date().toISOString() }, null, 2) + "\n");
+    fs.writeFileSync(f, JSON.stringify({ ...info, lastSeen: new Date().toISOString() }, null, 2) + "\n");
+    return true;
+  }
+
+  /** 工作区里有变化的文件（相对路径，含新增与删除；重命名取新路径）。被 .gitignore 忽略的不算。 */
+  async changes(): Promise<string[]> {
+    const r = await this.git("status", "--porcelain=v1", "-z", "--untracked-files=all");
+    if (r.code !== 0) return [];
+    const parts = r.out.split("\0"), out: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      const e = parts[i]; if (e.length < 4) continue;
+      out.push(e.slice(3));
+      if (e[0] === "R" || e[0] === "C") i++; // 重命名 / 复制：下一项是原路径
+    }
+    return out;
   }
 
   /** 提交全部变更。灵魂仓库是私有的，内容不做任何检查：她写什么就提交什么（规范 §6）。 */
@@ -235,9 +274,13 @@ export class SoulRepo {
           fs.writeFileSync(abs, JSON.stringify({ ...j(theirs), ...j(ours) }, null, 2) + "\n");
           resolved.push({ file, kept: "local", how: "字段合并" });
         } else {
-          const remoteNewer = !ours.trim() || (file === "SOUL.md" && this.o.isSeedSoul?.(ours)) || (await time(this.ref(), file)) > (await time("HEAD", file));
+          const seed = !ours.trim() || (file === "SOUL.md" && !!this.o.isSeedSoul?.(ours));
+          const remoteNewer = seed || (await time(this.ref(), file)) > (await time("HEAD", file));
           fs.writeFileSync(abs, remoteNewer ? theirs : ours);
-          resolved.push({ file, kept: remoteNewer ? "remote" : "local", how: "采用较新的版本，另一版本保留在历史中" });
+          // 两边都真的改过（不是本地还空着或仍是种子）：落选的一版另存为副本，留给 agent 裁决；仓库先按较新的一版继续，不会卡住
+          const copy = seed || !ours.trim() || !theirs.trim() || ours === theirs ? undefined : incomingPath(file);
+          if (copy) fs.writeFileSync(this.p(copy), remoteNewer ? ours : theirs);
+          resolved.push({ file, kept: remoteNewer ? "remote" : "local", how: copy ? "暂时采用较新的版本，另一版另存为副本待裁决" : "采用较新的版本，另一版本保留在历史中", ...(copy ? { incoming: copy } : {}) });
         }
       }
       await this.commit("合并来自其他身体的记忆");
@@ -246,14 +289,21 @@ export class SoulRepo {
     return { merged: true, incoming, resolved };
   }
 
-  async push(msg: string) {
+  /** 提交剩余的变更并推送。被拒（远端有新提交）时拉取合并后再推一次。没有配置远端时只在本地提交，算成功。 */
+  async push(msg: string): Promise<PushResult> {
     this.touchBody();
-    const changed = await this.commit(msg);
-    if (!this.remoteReady() || this.status.lastError.startsWith("拒绝提交")) return;
+    await this.commit(msg);
+    if (!this.o.remote) return { ok: true, pushed: false };
+    if (!this.remoteReady()) return { ok: false, pushed: false, kind: "config", error: this.status.lastError };
     let r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
-    if (r.code !== 0 && (await this.pull()).merged) r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
-    if (r.code !== 0) this.status.lastError = friendlyGitError(r.err);
-    else if (changed) { this.status.lastPush = Date.now(); this.status.lastError = ""; }
+    if (r.code !== 0 && gitErrorKind(r.err) === "rejected") {
+      const pulled = await this.pull();
+      if (!pulled.merged && this.status.lastError) return { ok: false, pushed: false, kind: this.status.lastError.includes("另一个 agent") ? "identity" : gitErrorKind(this.status.lastError), error: this.status.lastError };
+      r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
+    }
+    if (r.code !== 0) { this.status.lastError = friendlyGitError(r.err); return { ok: false, pushed: false, kind: gitErrorKind(r.err), error: this.status.lastError }; }
+    this.status.lastPush = Date.now(); this.status.lastError = "";
+    return { ok: true, pushed: true };
   }
 
   // ---------- 整理租约

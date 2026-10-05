@@ -290,7 +290,7 @@ soul/
 └── bodies/<身体>.json          身体登记
 ```
 
-同步与版本管理由基座全自动完成（`memory/soul-repo.ts`，运行基座与灵魂桥共用），完整设计见 [SOUL_SYNC.md](SOUL_SYNC.md)。仓库结构与约束遵循 [灵魂仓库规范 v4](SOUL_REPO_SPEC.md)：接入时自动补齐固定目录树与固定文件；**内容不做任何检查**（它是她的私有仓库，保护靠访问控制：远端只允许 SSH 地址，并且只使用本身体专属的部署私钥）。
+同步与版本管理由基座全自动完成（`memory/soul-repo.ts`，运行基座与灵魂桥共用），完整设计见 [SOUL_SYNC.md](SOUL_SYNC.md)。仓库结构与约束遵循 [灵魂仓库规范 v8](SOUL_REPO_SPEC.md)：接入时自动补齐固定目录树与固定文件；**内容不做任何检查**（它是她的私有仓库，保护靠访问控制：远端只允许 SSH 地址，并且只使用本身体专属的部署私钥）。
 
 ```mermaid
 sequenceDiagram
@@ -299,11 +299,11 @@ sequenceDiagram
   participant H as Hermes / OpenClaw（soul-bridge）
   H->>R: 记忆写入后、会话收尾、文件变化时同步
   A->>R: 每次醒来前 pull（合入内容成为「灵魂同步」知觉）
-  A->>R: 每次醒来 / 做梦 / 对话后 commit + push
-  Note over A,R: 冲突全自动：memories 条目级三方合并；agent.json 字段合并<br/>其他文件采用较新的版本，落选版本保留在 git 历史<br/>身份守卫：不同 agent 的仓库拒绝合并
+  A->>R: 每次工具调用碰了灵魂目录就 commit，3 秒去抖后 push（一轮结束时立即）
+  Note over A,R: 冲突自动：memories 条目级三方合并；agent.json 字段合并<br/>其他文件先用较新的版本；两边都改过的另存冲突副本交给她裁决<br/>身份守卫：不同 agent 的仓库拒绝合并<br/>推送失败：网络类静默重试，仍失败则插话提醒碰过它的那一轮
 ```
 
-同步完全由事件驱动（醒来、做梦、对话），没有定时同步。
+同步完全由事件驱动（工具调用后、一轮结束、醒来与对话前），没有定时同步。
 
 ## 7. 模型层
 
