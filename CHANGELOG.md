@@ -2,11 +2,21 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
-## 未发布
+## 1.0.1
 
+**账户：官网是唯一的前端，App 里也能管理账户。**
+
+- **官网账户页**：登录、账户管理与批准设备都在 [quetzal.plutokeating.beer/account](https://quetzal.plutokeating.beer/account)（像控制台的一组子页面）：概览（每个 agent 与 ta 的身体，在线与否、版本、公钥指纹；解绑身体、删除 agent）、批准设备（输入码、核对、批准或拒绝）、控制台登录（吊销）、账户设置（退出、删除账户）。身体与 App 给出的绑定链接都指向这里；同步服务只提供接口，自带的页面跳到官网。
+- **App 的账户页**：安卓与 Linux 桌面的「控制 → 账户」有同样的四页。第一次使用时做一次「控制台登录」：App 给出一个码，在官网批准后，运行基座代 App 持有账户令牌（存在密钥目录，可随时吊销）。只有已绑定在你账户下的身体能发起控制台登录，别人骗你批准也拿不到你的账户。每具身体的绑定仍由你逐一批准。
+- **安全**：agent 的命令执行与读文件工具拦下对基座密钥目录（Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥）的访问，系统提示的红线也写明不碰它、不替对方管理账户。
 - **同步服务的隧道模式**：80 / 443 不能用的服务器（被占用，或中国大陆机房、域名没有备案）可以在 `.env` 里设 `SYNC_FRONT=tunnel`：不起 Caddy，同步服务只监听本机回环地址，交给已有的反向隧道（例如 Cloudflare Tunnel）；STUN / TURN 用单独的直连主机名 `TURN_HOST`。
 - **修复**：App 安装日志把网状层组件「已就绪」写成了「已就绪1」。
 
+**Accounts: the website is the only front end, and the app can manage the account too.**
+
+- **Account pages on the website**: sign-in, account management and device approval live at [quetzal.plutokeating.beer/account](https://quetzal.plutokeating.beer/account) (a set of console-like sub-pages): Overview (each agent and its bodies, online or not, version, key fingerprint; unbind bodies, delete agents), Approve a device (enter a code, check, approve or deny), Console sign-ins (revoke), Settings (sign out, delete the account). Binding links from bodies and apps point here; the sync service only provides APIs and its own pages redirect to the website.
+- **Account page in the app**: Control → Account on Android and Linux desktop has the same four pages. The first time, do a console sign-in: the app shows a code, and once you approve it on the website the runtime holds an account token for the app (kept in the secrets directory, revocable at any time). Only bodies already bound to your account can start a console sign-in, so tricking you into approving does not hand anyone your account. Each body's binding is still approved by you one by one.
+- **Security**: the agent's command and file-reading tools block access to the runtime's secrets directory (the key master key, gateway token, sync service body and account tokens, deploy keys), and the system prompt's red lines say not to touch it or manage the account on the person's behalf.
 - **Tunnel mode for the sync service**: on servers where ports 80/443 are unavailable (already in use, or an unregistered domain in a mainland-China data center), set `SYNC_FRONT=tunnel` in `.env`: Caddy is not started, the sync service listens on loopback only and an existing reverse tunnel (such as Cloudflare Tunnel) serves it; STUN / TURN use a separate direct host name, `TURN_HOST`.
 - **Fix**: the App's install log showed the mesh component as "ready1" instead of "ready".
 
