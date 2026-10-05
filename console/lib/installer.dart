@@ -24,6 +24,8 @@ class Installer extends ChangeNotifier {
   @visibleForTesting
   static Future<String?> Function() readToken = Igniter.token;
   @visibleForTesting
+  static Future<bool> Function() embeddedRunning = () async => (await Igniter.status())['running'] == true;
+  @visibleForTesting
   static int port = runtimePort;
   @visibleForTesting
   static Duration healthTimeout = const Duration(seconds: 180);
@@ -44,6 +46,11 @@ class Installer extends ChangeNotifier {
   Future<void> install() async {
     reached.clear(); error = null; done = false; running = true; notifyListeners();
     _step('start');
+    // 端口上已经有一个不是本 App 启动的运行基座（旧版装在 Termux 里的）：再启动一个只会抢端口
+    if (!await embeddedRunning() && await health(port) != null) {
+      _fail('这台手机上已经有一个运行基座在运行（多半是旧版装在 Termux 里的）。迁移：先确认灵魂已推送到灵魂仓库，然后卸载 Termux 版（或在 Termux 里 sv down quetzal），再回到这里安装，并在新装好的 App 里接入同一个灵魂仓库（接入前不要改身份）。');
+      return;
+    }
     try { await restart(); } catch (e) { _fail('启动运行基座失败：$e'); return; }
     _step('health');
     final deadline = DateTime.now().add(healthTimeout);

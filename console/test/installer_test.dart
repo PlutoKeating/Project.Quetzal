@@ -28,6 +28,7 @@ void main() {
     final srv = await fakeGateway();
     var restarted = 0;
     Installer.restart = () async { restarted++; };
+    Installer.embeddedRunning = () async => true; // 升级：网关就是 App 自己的
     Installer.readToken = () async => 'good';
     Installer.port = srv.port;
     final ins = Installer();
@@ -35,6 +36,19 @@ void main() {
     expect(restarted, 1);
     expect(ins.error, null); expect(ins.done, true); expect(ins.version, '9.9.9'); expect(ins.token, 'good');
     expect(ins.reached, ['start', 'health', 'connect']);
+    await srv.close(force: true);
+  });
+
+  test('端口上已有不是本 App 启动的运行基座（旧版 Termux）：不再启动第二个', () async {
+    final srv = await fakeGateway();
+    var restarted = 0;
+    Installer.restart = () async { restarted++; };
+    Installer.embeddedRunning = () async => false;
+    Installer.port = srv.port;
+    final ins = Installer();
+    await ins.install();
+    expect(restarted, 0); expect(ins.done, false); expect(ins.error, contains('Termux'));
+    Installer.embeddedRunning = () async => true;
     await srv.close(force: true);
   });
 
