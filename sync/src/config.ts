@@ -6,6 +6,7 @@ const list = z.string().default("").transform((v) => v.split(",").map((s) => s.t
 
 const schema = z.object({
   SYNC_PUBLIC_URL: z.url({ protocol: /^https?$/ }),
+  SYNC_WEB_URL: z.union([z.literal(""), z.url({ protocol: /^https?$/ })]).default(""), // 网页前端（例如官网）：给人看的页面都在那里，同步服务只提供接口
   SYNC_HOST: z.string().default("0.0.0.0"),
   SYNC_PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   SYNC_DATA_DIR: z.string().default("/data"),
@@ -34,6 +35,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (c.TURN_SECRET && c.TURN_SECRET.length < 32) throw new Error("配置有误：TURN_SECRET 至少 32 个字符（start.sh 会自动生成）");
   return {
     publicUrl: url.origin,
+    webUrl: c.SYNC_WEB_URL ? new URL(c.SYNC_WEB_URL).origin : undefined,
     secure: url.protocol === "https:",
     host: c.SYNC_HOST,
     port: c.SYNC_PORT,

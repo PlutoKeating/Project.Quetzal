@@ -9,7 +9,9 @@ flowchart LR
     SYNC --- DB[("data/sync/sync.db<br/>node:sqlite")]
     TURN["coturn<br/>:3478 + 中转端口段<br/>STUN · TURN"]
   end
-  U["浏览器"] -- HTTPS --> CADDY
+  W["网页前端（官网）<br/>登录 · 账户 · 批准设备"] -- "/v1/web/*（CORS，同站 Cookie）" --> CADDY
+  U["浏览器"] --> W
+  APP["App（控制台）"] -- 网关 --> A
   A["身体 A"] -- "wss /v1/ws 信令" --> CADDY
   B["身体 B"] -- "wss /v1/ws 信令" --> CADDY
   A <-. "WebRTC 数据通道（DTLS 加密）<br/>直连优先，不通时经 TURN 中转" .-> B
@@ -27,6 +29,7 @@ flowchart LR
 | 输入校验 | zod | 所有外部输入（接口请求体、WebSocket 消息、环境变量）都按 schema 校验 |
 | 存储 | `node:sqlite` | Node 内置，没有原生依赖；预编译语句，没有拼接 SQL |
 | 身体之间 | WebRTC（ICE / DTLS / SCTP） | 打洞、加密、可靠传输都是成熟标准；同步服务只转发信令 |
+| 给人看的页面 | 网页前端（`SYNC_WEB_URL`） | 官方部署由官网 quetzal.plutokeating.beer 提供登录、账户与批准设备（`website/app/routes/account/`）；同步服务只提供接口。自建且不配前端时退回自带的简单页面 |
 
 ## 2. 代码
 
@@ -43,9 +46,10 @@ sync/
     ├── server.ts       装配：HTTP + WebSocket（/v1/ws）+ 定时清理；main 与测试共用
     ├── config.ts       环境变量的 zod 校验
     ├── db.ts           表结构与预编译语句
-    ├── app.ts          路由：/v1/*（身体）与网页（人）
+    ├── app.ts          路由：/v1/*（身体）、登录、自带网页（人；配置了 SYNC_WEB_URL 时跳到网页前端）
+    ├── web.ts          账户接口 /v1/web/*：网页前端（Cookie + CORS）与控制台登录（Bearer qsc_）共用
     ├── auth.ts         GitHub 登录（arctic）与会话
-    ├── device.ts       设备码绑定（RFC 8628 的语义）
+    ├── device.ts       设备码绑定（RFC 8628 的语义）与控制台登录
     ├── hub.ts          信令中心：认证、在场、转发、TURN 凭据、心跳
     ├── turn.ts         TURN REST API 凭据
     ├── pages.ts        网页的版式与中英文案
@@ -57,7 +61,7 @@ sync/
 | 表 | 内容 | 保留 |
 |---|---|---|
 | `users` | GitHub 数字 id、用户名、显示名、时间 | 直到删除账户 |
-| `sessions` | 会话令牌的 SHA-256、到期时间 | 默认 30 天，滑动续期；过期每小时清理 |
+| `sessions` | 会话令牌的 SHA-256、到期时间、类型（`web` 网页 / `console` 控制台登录）、控制台登录来自的身体名、创建与最近使用时间 | 默认 30 天，滑动续期；过期每小时清理 |
 | `agents` | (账户, agent id) → 显示名 | 直到删除 |
 | `bodies` | 身体名、类型、版本、节点公钥、令牌的 SHA-256、最近在线 | 直到解绑 |
 | `device_codes` | 设备码的 SHA-256、短码、待绑定的身体信息、状态 | 15 分钟 |
@@ -74,9 +78,11 @@ sync/
 | 抢占别人的 agent | agent 登记按账户隔离：(账户, agent id) 唯一，不同账户互不可见、互不影响 |
 | 骗人批准陌生身体 | 确认页显示 agent、身体名、类型和节点公钥指纹，提示与身体上显示的核对；批准只把身体加进你自己的账户 |
 | 暴力猜短码 | 短码 8 位、约 34 位熵、15 分钟有效；每个账户 10 分钟内最多输错 10 次 |
-| CSRF | 会话 Cookie 为 `SameSite=Lax`、`HttpOnly`、`Secure`，HTTPS 下用 `__Host-` 前缀；网页的 POST 校验 Origin 与 Sec-Fetch-Site；`/v1/*` 不用 Cookie |
+| CSRF | 会话 Cookie 为 `SameSite=Lax`、`HttpOnly`、`Secure`，HTTPS 下用 `__Host-` 前缀；自带网页的 POST 校验 Origin 与 Sec-Fetch-Site；给身体的 `/v1/*` 不用 Cookie；账户接口 `/v1/web/*` 只对网页前端放行 CORS，用 Cookie 的改动请求必须带对的 Origin 且是 JSON（跨源必先预检） |
+| 骗人批准控制台登录 | 只有已绑定的身体能申请，只有那具身体所在账户的主人能批准；确认页写明批准后能管理整个账户；可随时吊销 |
+| 控制台账户令牌泄露 | 256 位随机数、库里只存哈希、30 天滑动有效期，只能用于账户接口；运行基座把它放在密钥目录（0600），agent 的命令执行工具拦下对密钥目录的读取 |
 | OAuth 回调伪造 | `state` 放在 10 分钟的 HttpOnly Cookie 里比对；不申请任何 scope，不保存访问令牌 |
-| 开放重定向 | 登录后的回跳只接受本站的绝对路径（拒绝 `//`、`/\`、协议地址） |
+| 开放重定向 | 登录后的回跳只接受本站的绝对路径（拒绝 `//`、`/\`、协议地址），或网页前端同源下的地址 |
 | XSS / 点击劫持 | 页面没有脚本；模板自动转义；CSP `default-src 'none'`，样式用 nonce；`frame-ancestors 'none'` |
 | 滥用 TURN 打进服务器内网（SSRF） | coturn 禁止中转到私有、回环、链路本地、保留与组播地址（IPv4 与 IPv6）；关闭 TCP 中转 |
 | STUN 反射放大 | 关闭 RFC 5780 与软件版本属性，不带 MAPPED-ADDRESS；未认证请求每秒限 10 次 |

@@ -1,4 +1,5 @@
-// HTTP 路由（Hono）。/v1/* 是给身体用的 JSON 接口（无 Cookie，令牌在请求体或 Authorization 里）；其余是给人用的网页。
+// HTTP 路由（Hono）。/v1/* 是给身体用的 JSON 接口（无 Cookie，令牌在请求体或 Authorization 里）；/v1/web/* 是给网页前端与控制台的账户接口（web.ts）；
+// 其余是给人用的网页。配置了 SYNC_WEB_URL（例如官网）时，给人看的页面都在那里：这里的网页入口一律跳过去，同步服务只提供接口。
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders, NONCE } from "hono/secure-headers";
@@ -10,12 +11,13 @@ import type { Db } from "./db.ts";
 import type { Config } from "./config.ts";
 import type { Hub } from "./hub.ts";
 import { Sessions, beginLogin, finishLogin, type GitHubClient } from "./auth.ts";
-import { DeviceRequest, createCode, decide, check, poll } from "./device.ts";
+import { DeviceRequest, createCode, createConsoleCode, decide, check, poll } from "./device.ts";
+import { installWebApi } from "./web.ts";
 import { layout, pickLang, t, ago, type Lang } from "./pages.ts";
 import { RateLimiter, normalizeUserCode, fingerprint, log } from "./util.ts";
 import { PROTOCOL } from "./hub.ts";
 
-export const VERSION = "1.0.0";
+export const VERSION = "1.0.1";
 
 export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHubClient }) {
   const { db, cfg, hub, github } = deps;
@@ -44,7 +46,7 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     },
     strictTransportSecurity: cfg.secure ? "max-age=31536000; includeSubDomains" : false,
     referrerPolicy: "no-referrer",
-    crossOriginResourcePolicy: "same-origin",
+    crossOriginResourcePolicy: "same-site", // 网页前端与同步服务同站不同源（/v1/web/* 经 CORS 读取）
     permissionsPolicy: { camera: [], microphone: [], geolocation: [] },
   }));
   // 网页表单的 POST 只接受来自本站的请求（Origin 与 Sec-Fetch-Site 二者之一通过即可）；配合 SameSite=Lax 的会话 Cookie。
@@ -52,6 +54,13 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
   const csrfCheck = csrf({ origin: cfg.publicUrl });
   app.use("*", (c, next) => (c.req.path.startsWith("/v1/") ? next() : csrfCheck(c, next)));
   app.use("*", bodyLimit({ maxSize: 16 * 1024 }));
+  // 网页前端在别处时，这里给人看的入口都跳过去（登录与 GitHub 回调除外：会话 Cookie 属于同步服务自己）
+  if (cfg.webUrl) {
+    const web = cfg.webUrl;
+    app.get("/", (c) => c.redirect(web + "/"));
+    app.get("/account", (c) => c.redirect(web + "/account"));
+    app.get("/device", (c) => { const code = normalizeUserCode(c.req.query("code") ?? ""); return c.redirect(web + "/device" + (code ? `?code=${code}` : "")); });
+  }
   app.onError((e, c) => {
     if (e instanceof HTTPException) return e.getResponse(); // CSRF 拒绝（403）、请求体过大（413）等
     log("http", `${c.req.method} ${c.req.path} 出错：${e.message}`);
@@ -85,6 +94,14 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     const a = db.agent(b.agent)!;
     return c.json({ agent: { id: a.agent_id, name: a.name }, body: b.body, kind: b.kind, account: db.user(a.user_id)?.login ?? "" });
   });
+  /** 控制台登录：已绑定的身体代它的控制台（App）申请一对码，人在网页上批准后，身体用设备码轮询（/v1/device/token）拿到账户会话令牌。 */
+  app.post("/v1/console/code", (c) => {
+    if (!github) return c.json({ error: "login_disabled" }, 503);
+    const b = bearer(c);
+    if (!b) return c.json({ error: "unauthorized" }, 401);
+    if (!limits.code.take(clientIp(c))) return c.json({ error: "slow_down" }, 429);
+    return c.json(createConsoleCode(db, cfg, b, String(c.req.header("x-quetzal-version") ?? "").slice(0, 32)));
+  });
   app.delete("/v1/me", (c) => {
     const b = bearer(c);
     if (!b) return c.json({ error: "unauthorized" }, 401);
@@ -93,7 +110,9 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     return c.json({ ok: true });
   });
 
-  // ---------- 给人的网页
+  installWebApi(app, { db, cfg, hub, sessions, lookupLimit: limits.lookup, loginEnabled: !!github });
+
+  // ---------- 给人的网页（没有配置 SYNC_WEB_URL 时；配置了时上面已跳走）
   app.get("/", (c) => {
     const s = t(lang(c)), user = sessions.user(c);
     return page(c, s.title, html`
@@ -108,14 +127,14 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
   app.get("/login", (c) => {
     if (!github) return c.redirect("/");
     if (!limits.login.take(clientIp(c))) return c.text("Too many requests", 429);
-    return c.redirect(beginLogin(c, cfg, github, c.req.query("return_to") ?? `/account?lang=${lang(c)}`).toString());
+    return c.redirect(beginLogin(c, cfg, github, c.req.query("return_to") ?? (cfg.webUrl ? `${cfg.webUrl}/account` : `/account?lang=${lang(c)}`)).toString());
   });
 
   app.get("/auth/github/callback", async (c) => {
     if (!github) return c.redirect("/");
-    const { state, returnTo } = finishLogin(c);
+    const { state, returnTo } = finishLogin(c, cfg);
     const code = c.req.query("code"), got = c.req.query("state");
-    if (!state || !code || !got || got !== state) return c.redirect("/?lang=" + lang(c)); // state 不符：可能是伪造的回调，什么都不做
+    if (!state || !code || !got || got !== state) return c.redirect(cfg.webUrl ? `${cfg.webUrl}/account?login=failed` : "/?lang=" + lang(c)); // state 不符：可能是伪造的回调，什么都不做
     try {
       const u = await github.user(code);
       const user = db.upsertUser(u.id, u.login, u.name);
@@ -123,6 +142,7 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
       return c.redirect(returnTo);
     } catch (e) {
       log("auth", (e as Error).message);
+      if (cfg.webUrl) return c.redirect(`${cfg.webUrl}/account?login=failed`);
       return page(c, t(lang(c)).login, html`<p class="note err">${(e as Error).message}</p><p><a href="/">${t(lang(c)).back}</a></p>`, 502);
     }
   });

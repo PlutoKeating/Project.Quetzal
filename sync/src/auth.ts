@@ -5,7 +5,7 @@ import type { Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Db, User } from "./db.ts";
 import type { Config } from "./config.ts";
-import { now, randomToken } from "./util.ts";
+import { now, randomToken, sha256 } from "./util.ts";
 
 export interface GitHubUser { id: number; login: string; name: string }
 /** 可替换的 GitHub 客户端（测试里注入假的）。 */
@@ -54,18 +54,27 @@ export class Sessions {
     this.db.createSession(token, userId, expires);
     this.set(c, token, expires);
   }
-  /** 当前登录的用户；会话剩余不到一半时续期。 */
-  user(c: Context): User | undefined {
-    const token = getCookie(c, this.cookie);
+  /** 当前登录的用户；会话剩余不到一半时续期。allowBearer：/v1/web/* 也接受控制台登录的令牌（Authorization: Bearer qsc_…，只认 console 类型的会话）。 */
+  user(c: Context, allowBearer = false): User | undefined {
+    const bearer = allowBearer ? /^Bearer (qsc_[\w-]{1,96})$/.exec(c.req.header("authorization") ?? "")?.[1] : undefined;
+    const token = bearer ?? getCookie(c, this.cookie);
     if (!token || token.length > 100) return undefined;
     const s = this.db.session(token);
-    if (!s) return undefined;
+    if (!s || (bearer ? s.kind !== "console" : s.kind === "console")) return undefined;
     if (s.expires < now()) { this.db.deleteSession(token); return undefined; }
     const life = this.cfg.sessionDays * DAY;
-    if (s.expires - now() < life / 2) { const e = now() + life; this.db.touchSession(token, e); this.set(c, token, e); }
+    if (s.expires - now() < life / 2) { const e = now() + life; this.db.touchSession(token, e); if (!bearer) this.set(c, token, e); }
+    if (bearer) this.db.usedSession(token);
     return this.db.user(s.user_id);
   }
+  /** 这次请求用的控制台登录的编号（哈希前 16 位）；网页 Cookie 登录时为 undefined。 */
+  consoleHandle(c: Context): string | undefined {
+    const t = /^Bearer (qsc_[\w-]{1,96})$/.exec(c.req.header("authorization") ?? "")?.[1];
+    return t ? sha256(t).slice(0, 16) : undefined;
+  }
   destroy(c: Context) {
+    const bearer = /^Bearer (qsc_[\w-]{1,96})$/.exec(c.req.header("authorization") ?? "")?.[1];
+    if (bearer) { this.db.deleteSession(bearer); return; } // 控制台退出登录：只作废它自己的令牌
     const token = getCookie(c, this.cookie);
     if (token) this.db.deleteSession(token);
     deleteCookie(c, this.cookie, { path: "/", secure: this.cfg.secure });
@@ -77,17 +86,21 @@ export function beginLogin(c: Context, cfg: Config, gh: GitHubClient, returnTo: 
   const state = generateState();
   const opts = { httpOnly: true, secure: cfg.secure, sameSite: "Lax" as const, path: "/", maxAge: 600 };
   setCookie(c, "quetzal_oauth_state", state, opts);
-  setCookie(c, "quetzal_return_to", safeReturnTo(returnTo), opts);
+  setCookie(c, "quetzal_return_to", safeReturnTo(returnTo, cfg.webUrl), opts);
   return gh.authorizationUrl(state);
 }
-export function finishLogin(c: Context): { state?: string; returnTo: string } {
+export function finishLogin(c: Context, cfg: Config): { state?: string; returnTo: string } {
   const state = getCookie(c, "quetzal_oauth_state");
-  const returnTo = safeReturnTo(getCookie(c, "quetzal_return_to") ?? "/account");
+  const returnTo = safeReturnTo(getCookie(c, "quetzal_return_to") ?? "", cfg.webUrl);
   deleteCookie(c, "quetzal_oauth_state", { path: "/" });
   deleteCookie(c, "quetzal_return_to", { path: "/" });
   return { state, returnTo };
 }
-/** 只允许回到本站的绝对路径（防开放重定向：拒绝 //host、/\host、协议地址）。 */
-export function safeReturnTo(p: string) {
+/** 只允许回到本站的绝对路径，或网页前端（SYNC_WEB_URL）同源下的地址（防开放重定向：拒绝 //host、/\host、其他协议与主机）。 */
+export function safeReturnTo(p: string, webUrl?: string) {
+  if (webUrl) {
+    try { const u = new URL(p); if (u.origin === webUrl && /^\/(?![/\\])[\w\-./?=&%]*$/.test(u.pathname + u.search)) return u.origin + u.pathname + u.search; } catch {}
+    return webUrl + "/account";
+  }
   return /^\/(?![/\\])[\w\-./?=&%]*$/.test(p) ? p : "/account";
 }

@@ -16,6 +16,7 @@ services:
     restart: unless-stopped
     environment:
       SYNC_PUBLIC_URL: https://${SYNC_DOMAIN:?请在 .env 里填写 SYNC_DOMAIN}
+      SYNC_WEB_URL: ${SYNC_WEB_URL:-}
       SYNC_TRUST_PROXY: "1"
       SYNC_DATA_DIR: /data
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}

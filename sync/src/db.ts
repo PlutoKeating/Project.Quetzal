@@ -8,6 +8,8 @@ export interface User { id: number; github_id: number; login: string; name: stri
 /** agent 登记按账户隔离：(账户, agent id) 唯一。agent id 不是秘密，若全局唯一，别人知道了就能抢先占住。id 是内部行号。 */
 export interface Agent { id: number; user_id: number; agent_id: string; name: string; created: number }
 export interface Body { agent: number; body: string; kind: string; node_key: string; version: string; created: number; last_seen: number }
+/** 会话：网页登录（Cookie）或控制台登录（运行基座代 App 持有的 Bearer 令牌，label 为发起它的身体）。id 是令牌的 SHA-256。 */
+export interface Session { id: string; user_id: number; expires: number; kind: "web" | "console"; label: string; created: number; last_used: number }
 export interface DeviceCode {
   id: string; user_code: string; agent_id: string; agent_name: string; body: string; kind: string; node_key: string; version: string;
   created: number; expires: number; last_poll: number; status: "pending" | "approved" | "denied"; user_id: number | null;
@@ -41,6 +43,12 @@ export function openDb(dataDir: string) {
   const file = dataDir === ":memory:" ? ":memory:" : path.join(dataDir, "sync.db");
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  // 1.0.1：会话区分网页与控制台（账户页列出控制台登录、可吊销）
+  const cols = new Set((db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("kind")) db.exec(`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'web';
+    ALTER TABLE sessions ADD COLUMN label TEXT NOT NULL DEFAULT '';
+    ALTER TABLE sessions ADD COLUMN created INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sessions ADD COLUMN last_used INTEGER NOT NULL DEFAULT 0;`);
   const q = <T>(sql: string) => { const s = db.prepare(sql); return { get: (...a: any[]) => s.get(...a) as T | undefined, all: (...a: any[]) => s.all(...a) as T[], run: (...a: any[]) => s.run(...a) }; };
 
   const s = {
@@ -48,9 +56,12 @@ export function openDb(dataDir: string) {
       ON CONFLICT(github_id) DO UPDATE SET login = excluded.login, name = excluded.name, last_login = excluded.last_login RETURNING *`),
     user: q<User>("SELECT * FROM users WHERE id = ?"),
     deleteUser: q("DELETE FROM users WHERE id = ?"),
-    insertSession: q("INSERT INTO sessions (id, user_id, expires) VALUES (?, ?, ?)"),
-    session: q<{ id: string; user_id: number; expires: number }>("SELECT * FROM sessions WHERE id = ?"),
+    insertSession: q("INSERT INTO sessions (id, user_id, expires, kind, label, created, last_used) VALUES (?, ?, ?, ?, ?, ?, ?)"),
+    session: q<Session>("SELECT * FROM sessions WHERE id = ?"),
     touchSession: q("UPDATE sessions SET expires = ? WHERE id = ?"),
+    usedSession: q("UPDATE sessions SET last_used = ? WHERE id = ?"),
+    consolesOf: q<Session>("SELECT * FROM sessions WHERE user_id = ? AND kind = 'console' AND expires > ? ORDER BY created"),
+    revokeConsole: q("DELETE FROM sessions WHERE user_id = ? AND kind = 'console' AND substr(id, 1, 16) = ?"),
     deleteSession: q("DELETE FROM sessions WHERE id = ?"),
     agent: q<Agent>("SELECT * FROM agents WHERE id = ?"),
     agentOf: q<Agent>("SELECT * FROM agents WHERE user_id = ? AND agent_id = ?"),
@@ -86,10 +97,15 @@ export function openDb(dataDir: string) {
     deleteUser: (id: number) => s.deleteUser.run(id),
 
     /** 会话：库里只存令牌的 SHA-256。 */
-    createSession: (token: string, userId: number, expires: number) => s.insertSession.run(sha256(token), userId, expires),
+    createSession: (token: string, userId: number, expires: number, kind: Session["kind"] = "web", label = "") =>
+      s.insertSession.run(sha256(token), userId, expires, kind, label, now(), now()),
     session: (token: string) => s.session.get(sha256(token)),
     touchSession: (token: string, expires: number) => s.touchSession.run(expires, sha256(token)),
     deleteSession: (token: string) => s.deleteSession.run(sha256(token)),
+    usedSession: (token: string) => s.usedSession.run(now(), sha256(token)),
+    /** 控制台登录：对外只露出哈希的前 16 位作为编号（用来吊销），不是令牌本身。 */
+    consolesOf: (userId: number) => s.consolesOf.all(userId, now()),
+    revokeConsole: (userId: number, handle: string) => Number(s.revokeConsole.run(userId, handle).changes) > 0,
 
     agent: (id: number) => s.agent.get(id),
     agentOf: (userId: number, agentId: string) => s.agentOf.get(userId, agentId),
