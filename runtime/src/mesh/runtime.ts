@@ -12,6 +12,8 @@ import { fingerprint, isNodeKey } from "./identity.ts";
 import { nodeKey } from "./node-key.ts";
 import { installPresence } from "./presence.ts";
 import { installCoordinator, coordinator } from "./coordinator.ts";
+import { installPlacement } from "./placement.ts";
+import { snapshot } from "../heart/heart.ts";
 import { Mesh } from "./mesh.ts";
 import { startBinding, pollBinding, unbind as unbindRemote, serverOrigin, type Binding } from "./directory.ts";
 import type { Ndc } from "./link.ts";
@@ -65,7 +67,8 @@ export async function startMesh() {
   mesh.on("state", changed);
   mesh.on("peer", changed);
   mesh.on("event", (e: { from: string; name: string; data: unknown }) => bus.emit("mesh.event", e));
-  const parts = [installReplica(mesh), installPresence(mesh), installCoordinator(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
+  const socialNow = () => { const d = snapshot().drives; return d.social >= 0.6 || d.expression >= 0.6; };
+  const parts = [installReplica(mesh), installPresence(mesh), installCoordinator(mesh), installPlacement(mesh, VERSION, socialNow)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
   uninstall = () => parts.forEach((u) => u());
   mesh.start();
   changed();

@@ -115,28 +115,65 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
 
 const effortOf = (tokens: number, steps: number) => Math.min(0.15, tokens / 2_000_000 + steps * 0.004);
 
-/** 内省：用便宜的模型快速判断要不要投入这次醒来。 */
-async function introspect(kind: WakeKind, reason: string): Promise<{ engage: boolean; intent: string }> {
-  if (kind === "dream") return { engage: true, intent: "整理记忆" };
+/**
+ * 多具身体时的运行位置（mesh/placement.ts 设置）：醒来时她看到各具身体的概况与基座的推荐，自己选在哪一具或哪几具上做；
+ * run 让另一具身体执行这次醒来（它跳过内省，直接按选好的意图做）。
+ */
+export interface Placement {
+  survey(kind: WakeKind): Promise<{ text: string; bodies: string[]; recommend: string[] } | undefined>;
+  run(body: string, kind: WakeKind, reason: string, intent: string): Promise<WakeResult>;
+}
+export type WakeResult = { satisfied?: Partial<Drives>; effort?: number };
+let placement: Placement | undefined;
+export function setPlacement(p: Placement | undefined) { placement = p; }
+
+/** 内省：用便宜的模型快速判断要不要投入这次醒来；有多具身体时顺便选在哪里做。 */
+async function introspect(kind: WakeKind, reason: string, where?: { text: string; bodies: string[]; recommend: string[] }): Promise<{ engage: boolean; intent: string; where: string[] }> {
+  if (kind === "dream" && !where) return { engage: true, intent: "整理记忆", where: [] };
   try {
-    const r = await chat({
-      messages: [
-        { role: "system", content: systemPrompt(reason) },
-        { role: "user", content: `你刚刚醒来（${reason}）。先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡"}。` },
-      ], maxTokens: 300,
-    }, { quick: true });
+    const ask = where
+      ? `你刚刚${kind === "dream" ? "进入梦境（整理记忆）" : `醒来（${reason}）`}。你此刻有几具身体在线：\n${where.text}\n基座推荐：${where.recommend.join("、")}。\n先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡", "where": ["在哪具身体上做，可以选一具或几具（几具会同时进行，都是你）"]}。${kind === "dream" ? "做梦只选一具。" : ""}`
+      : `你刚刚醒来（${reason}）。先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡"}。`;
+    const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason) }, { role: "user", content: ask }], maxTokens: 300 }, { quick: true });
     const j = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
-    return { engage: j.engage !== false, intent: String(j.intent ?? "") };
-  } catch { return { engage: true, intent: "" }; }
+    const picked = (Array.isArray(j.where) ? j.where : typeof j.where === "string" ? [j.where] : []).map(String).filter((b: string) => where?.bodies.includes(b));
+    return { engage: kind === "dream" || j.engage !== false, intent: String(j.intent ?? (kind === "dream" ? "整理记忆" : "")), where: picked.length ? [...new Set(picked)] as string[] : where?.recommend ?? [] };
+  } catch { return { engage: true, intent: kind === "dream" ? "整理记忆" : "", where: where?.recommend ?? [] }; }
 }
 
-export async function wake(kind: WakeKind, reason: string): Promise<{ satisfied?: Partial<Drives>; effort?: number }> {
+/** 多具身体各自的结果合起来交给心脏：满足程度取最满足的（最低值），劳累取最大的。 */
+function combine(results: WakeResult[]): WakeResult {
+  const satisfied: Partial<Drives> = {};
+  for (const r of results) for (const [k, v] of Object.entries(r.satisfied ?? {})) if (typeof v === "number") (satisfied as any)[k] = Math.min((satisfied as any)[k] ?? 1, v);
+  return { satisfied, effort: Math.max(0, ...results.map((r) => r.effort ?? 0)) };
+}
+
+/**
+ * 醒来。opts.intent：另一具身体（协调者）已经替她选好了意图与位置，这里直接做（跳过内省与位置选择）。
+ */
+export async function wake(kind: WakeKind, reason: string, opts: { intent?: string } = {}): Promise<WakeResult> {
   await soul.pull().catch(() => {});
+  let gate: { engage: boolean; intent: string; where: string[] };
+  if (opts.intent !== undefined) gate = { engage: true, intent: opts.intent, where: [] };
+  else {
+    const survey = await placement?.survey(kind).catch(() => undefined);
+    gate = await introspect(kind, reason, survey && survey.bodies.length > 1 ? survey : undefined);
+    if (gate.engage && gate.where.length) {
+      const where = kind === "dream" ? gate.where.slice(0, 1) : gate.where; // 做梦会改写常驻记忆：同一时间只在一具身体上整理
+      const others = where.filter((b) => b !== config.body);
+      if (others.length) {
+        addTimeline("place", `${kind === "dream" ? "做梦" : "醒来"}：选在 ${where.join("、")} 上${gate.intent ? `——${gate.intent}` : ""}`, { kind, reason, intent: gate.intent, where });
+        const runs = others.map((b) => placement!.run(b, kind, reason, gate.intent).catch((e: Error) => { addTimeline(kind, `在 ${b} 上的这次${kind === "dream" ? "梦" : "醒来"}中断了：${e.message}`, { reason, intent: gate.intent, error: e.message, body: b }); return {} as WakeResult; }));
+        if (!where.includes(config.body)) return combine(await Promise.all(runs));
+        const local = wake(kind, reason, { intent: gate.intent });
+        return combine(await Promise.all([local, ...runs]));
+      }
+    }
+  }
   if (kind === "dream" && !(await soul.acquireLease().catch(() => true))) {
     addTimeline("dream", "另一具身体正在整理记忆，这次只是浅睡", { reason });
     return { effort: 0 };
   }
-  const gate = await introspect(kind, reason);
   if (!gate.engage) {
     addTimeline("doze", `醒了一下，又不想动：${gate.intent}`, { reason });
     return { satisfied: { curiosity: 0.3 }, effort: 0.005 };
