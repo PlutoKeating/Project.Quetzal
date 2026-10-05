@@ -40,8 +40,15 @@ function readBinding(): Binding | undefined {
 
 /** 灵魂仓库里登记的某具身体的节点公钥（信任根）。 */
 export function soulKeyOf(body: string): string | undefined {
+  const k = soulBody(body)?.meshKey; return isNodeKey(k) ? k : undefined;
+}
+/** 灵魂仓库里登记的某具身体的类型（runtime / bridge）。 */
+export function soulKindOf(body: string): string | undefined {
+  const k = soulBody(body)?.kind; return typeof k === "string" ? k : undefined;
+}
+function soulBody(body: string): Record<string, unknown> | undefined {
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(body)) return undefined;
-  try { const k = JSON.parse(fs.readFileSync(path.join(paths.soul, "bodies", `${body}.json`), "utf8")).meshKey; return isNodeKey(k) ? k : undefined; } catch { return undefined; }
+  try { return JSON.parse(fs.readFileSync(path.join(paths.soul, "bodies", `${body}.json`), "utf8")); } catch { return undefined; }
 }
 
 export let mesh: Mesh | undefined;
@@ -62,13 +69,14 @@ export async function startMesh() {
   // 其他身体只认灵魂仓库里登记的公钥：本机的公钥还没登记（或换过）就立即推送一次身体登记
   if (soulKeyOf(config.body) !== nodeKey().nodeKey) void push("登记网状层公钥").catch(() => {});
   mesh = new Mesh({
-    me: config.body, key: nodeKey(), ndc: ndc!, binding: b, keyOf: soulKeyOf, refreshKeys: () => pull(),
+    me: config.body, key: nodeKey(), ndc: ndc!, binding: b, keyOf: soulKeyOf, kindOf: soulKindOf, refreshKeys: () => pull(),
     hello: () => ({ version: VERSION, agentName: identity().displayName }),
     log: (m) => log("mesh", m),
     warn: (w) => { log("mesh", w); addTimeline("mesh", `网状层：${w}`, {}); },
   });
   mesh.on("state", changed);
   mesh.on("peer", changed);
+  mesh.on("reader", changed);
   mesh.on("event", (e: { from: string; name: string; data: unknown }) => bus.emit("mesh.event", e));
   const socialNow = () => { const d = snapshot().drives; return d.social >= 0.6 || d.expression >= 0.6; };
   const parts = [installReplica(mesh), installPresence(mesh), installCoordinator(mesh), installPlacement(mesh, VERSION, socialNow), installLimbs(mesh), installShared(mesh), installChannels(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去

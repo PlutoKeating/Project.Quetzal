@@ -11,7 +11,7 @@ store.openStore();
 const { Mesh } = await import("../../src/mesh/mesh.ts");
 const { loadNodeKey } = await import("../../src/mesh/identity.ts");
 const { installReplica } = await import("../../src/mesh/replica.ts");
-const { installPresence } = await import("../../src/mesh/presence.ts");
+const { installPresence, digest } = await import("../../src/mesh/presence.ts");
 const { installCoordinator, coordinator } = await import("../../src/mesh/coordinator.ts");
 const heart = await import("../../src/heart/heart.ts");
 const { installPlacement } = await import("../../src/mesh/placement.ts");
@@ -103,6 +103,7 @@ const cmds: Record<string, (a: any) => unknown> = {
   wake: (a) => wake(a.kind ?? "think", a.reason ?? "测试"),
   llmDelay: (a) => { llmDelay = a.ms; return true; },
   converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode }),
+  digest: () => digest(),
   live: () => liveTurns().map((t) => ({ conv: t.conv, body: t.body, origin: t.origin, status: t.status })),
   stop: () => { mesh.stop(); setTimeout(() => { ndc.cleanup(); process.exit(0); }, 200); return true; },
 };

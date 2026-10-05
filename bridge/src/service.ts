@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { frameworks } from "./frameworks/index.ts";
-import { syncOnce } from "./bridge.ts";
+import { syncOnce, VERSION } from "./bridge.ts";
+import { startMesh, readBinding } from "./mesh.ts";
 import type { BridgeConfig } from "./types.ts";
 
 const sh = (cmd: string, args: string[]) => new Promise<boolean>((r) => execFile(cmd, args, (e) => r(!e)));
@@ -30,6 +31,16 @@ export async function runDaemon(c: BridgeConfig) {
   if (c.poll > 0) setInterval(() => go("拉取远端"), c.poll * 1000); // 传输层拉取，与 agent 的醒来无关
   log(`soul-bridge 守护中：${c.agent} ↔ ${frameworks[c.framework].label}（${c.home}）${c.poll ? `，每 ${c.poll} 秒拉取远端` : ""}`);
   await go("启动");
+  // 网状层（只读成员）：绑定了同步服务就连上；mesh bind / unbind 之后半分钟内自动跟上，不必重启服务
+  let stopMesh: (() => void) | undefined, bound = "";
+  const meshTick = async () => {
+    const b = readBinding(c.agent), now = b ? `${b.server}|${b.token}` : "";
+    if (now === bound) return;
+    stopMesh?.(); stopMesh = undefined; bound = now;
+    if (b) stopMesh = await startMesh(c, VERSION, log, () => syncOnce(c)).catch((e) => { log(`网状层没有启动：${e.message}`); bound = ""; return undefined; });
+  };
+  await meshTick();
+  setInterval(() => void meshTick(), 30_000);
 }
 
 const unitName = (agent: string) => `soul-bridge-${agent}`;

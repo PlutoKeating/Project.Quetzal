@@ -17,17 +17,17 @@ try { ndc = (await import("node-datachannel")).default as any; } catch {}
 const skip = !ndc && "这台机器没有 node-datachannel（可选依赖）";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-mesh-"));
-const keys: Record<string, NodeKey> = { alpha: loadNodeKey(path.join(tmp, "a.key")), beta: loadNodeKey(path.join(tmp, "b.key")) };
+const keys: Record<string, NodeKey> = { alpha: loadNodeKey(path.join(tmp, "a.key")), beta: loadNodeKey(path.join(tmp, "b.key")), hermes: loadNodeKey(path.join(tmp, "h.key")) };
 
 const registered: Record<string, string> = { alpha: keys.alpha.nodeKey, beta: keys.beta.nodeKey };
 const sync = await fakeSync(registered);
 const conns = sync.conns, SERVER = sync.url;
 
 const warnings: string[] = [];
-function body(me: string, soulKeys: Record<string, string> = { alpha: keys.alpha.nodeKey, beta: keys.beta.nodeKey }, key = keys[me]) {
+function body(me: string, soulKeys: Record<string, string> = { alpha: keys.alpha.nodeKey, beta: keys.beta.nodeKey }, key = keys[me], o: { soulKinds?: Record<string, string>; reader?: boolean } = {}) {
   const m = new Mesh({
     me, key, ndc: ndc!, binding: { server: SERVER, token: me, agent: "x", body: me, account: "t" },
-    keyOf: (b) => soulKeys[b], hello: () => ({ version: "t" }), log: () => {}, warn: (w) => warnings.push(`${me}: ${w}`),
+    keyOf: (b) => soulKeys[b], kindOf: (b) => o.soulKinds?.[b], reader: o.reader, hello: () => ({ version: "t" }), log: () => {}, warn: (w) => warnings.push(`${me}: ${w}`),
   });
   m.start();
   return m;
@@ -112,4 +112,34 @@ test("冒用身体：同步服务转告了冒充者的公钥，但灵魂仓库�
   assert.equal(b.connected().length, 0, "beta 不与冒充者建立连接");
   registered.alpha = keys.alpha.nodeKey;
   fake.stop(); b.stop();
+});
+
+test("只读成员（灵魂桥）：连得上，只能调用可读的方法；发来的事件丢弃；不在 connected() 里、收不到广播；同步服务谎称它是运行基座也不行", { skip }, async () => {
+  const soulKeys = { alpha: keys.alpha.nodeKey, beta: keys.beta.nodeKey, hermes: keys.hermes.nodeKey };
+  const soulKinds = { alpha: "runtime", hermes: "bridge" };
+  registered.hermes = keys.hermes.nodeKey;
+  sync.kinds.hermes = "runtime"; // 同步服务说它是运行基座，灵魂仓库登记的是灵魂桥：以灵魂仓库为准
+  const a = body("alpha", soulKeys, keys.alpha, { soulKinds }), h = body("hermes", soulKeys, keys.hermes, { soulKinds, reader: true });
+  meshes.push(a, h);
+  let poked = 0;
+  a.handle("digest", () => ({ ok: 1 }), true);
+  a.handle("mind.wake", () => { poked++; return "woke"; });
+  a.on("event", () => poked++);
+  const gotPeer: string[] = [];
+  a.on("peer", (s: { body: string }) => gotPeer.push(s.body));
+  await until(() => a.connectedReaders().includes("hermes") && h.connected().includes("alpha"));
+  assert.deepEqual(a.connected(), [], "灵魂桥不是正式成员");
+  assert.ok(!gotPeer.includes("hermes"), "不触发正式成员的上线事件（不复制、不选协调者）");
+  assert.equal(a.peerStatus("hermes").kind, "bridge");
+  assert.deepEqual(await h.request("alpha", "digest"), { ok: 1 });
+  await assert.rejects(h.request("alpha", "mind.wake", { kind: "think" }), /只读成员不能调用/);
+  h.emitTo("alpha", "replica", { table: "messages", rows: [{ id: 1 }] });
+  const heard = new Promise((r) => { h.once("event", () => r("heard")); setTimeout(() => r("silent"), 800); });
+  a.broadcast("soul.pushed", {});
+  assert.equal(await heard, "silent", "广播不发给只读成员");
+  await assert.rejects(a.request("hermes", "anything", {}, 1500), /没有回应/, "只读成员不提供方法");
+  assert.equal(poked, 0);
+  a.stop(); h.stop();
+  delete registered.hermes; delete sync.kinds.hermes;
+  await until(() => !conns.size);
 });

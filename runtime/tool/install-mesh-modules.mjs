@@ -1,5 +1,6 @@
 // 安装网状层的原生组件到 <目标目录>/node_modules：按 mesh-modules.lock.json 的版本下载 npm 包，逐个核对 sha512 后解压。
-// 用法：node install-mesh-modules.mjs <锁定文件> <目标目录> <平台> [registry …]
+// 用法：node install-mesh-modules.mjs [--extra=<名>] <锁定文件> <目标目录> <平台> [registry …]
+//   --extra=bridge：同时装上锁定文件 extra.bridge 里的包（灵魂桥从源代码运行时需要）。
 //   平台：android-arm64 / linux-x64-gnu / linux-arm64-gnu / linux-x64-musl / linux-arm64-musl；registry 依次尝试（默认 npmjs，可再给镜像源）。
 // 只用 Node 内置模块（安卓 Termux 与 Linux 安装器共用）。核对不过就不安装：宁可没有网状层，也不装来路不明的原生代码。
 import fs from "node:fs";
@@ -7,12 +8,15 @@ import path from "node:path";
 import crypto from "node:crypto";
 import zlib from "node:zlib";
 
-const [lockFile, dest, platform, ...registries] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const extras = argv.filter((a) => a.startsWith("--extra=")).map((a) => a.slice(8));
+const [lockFile, dest, platform, ...registries] = argv.filter((a) => !a.startsWith("--extra="));
 if (!lockFile || !dest || !platform) { console.error("用法：node install-mesh-modules.mjs <锁定文件> <目标目录> <平台> [registry …]"); process.exit(2); }
 const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
 const plat = lock.platform[platform];
 if (!plat) { console.error(`不支持的平台：${platform}`); process.exit(3); }
 const pkgs = { ...lock.common, ...plat };
+for (const x of extras) { if (!lock.extra?.[x]) { console.error(`锁定文件里没有 extra.${x}`); process.exit(3); } Object.assign(pkgs, lock.extra[x]); }
 const regs = registries.length ? registries : ["https://registry.npmjs.org"];
 
 async function fetchVerified(name, { version, integrity }) {

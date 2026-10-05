@@ -1,5 +1,8 @@
 // 网状层：同一个 agent 的所有在线身体两两直连（全连接网状网）。同步服务只负责在场与信令转发，
 // 公钥以灵魂仓库为准；每条连接见 link.ts。对上提供：请求 / 应答（request / handle）、事件（emitTo / broadcast → "event"）、在场（"peer"）。
+// 两种成员（DISTRIBUTED.md B4）：运行基座是正式成员，互相复制、选协调者、被调度；灵魂桥（Hermes / OpenClaw）是只读成员，
+// 只能调用登记为可读的方法（看在场与会话），发来的事件一律丢弃，不参与广播、心跳与调度。身体的类型以灵魂仓库的登记为准：
+// 同步服务或灵魂仓库任一方说它是灵魂桥，就只当只读成员。
 import { EventEmitter } from "node:events";
 import crypto from "node:crypto";
 import { Directory, type Binding, type Peer } from "./directory.ts";
@@ -13,6 +16,8 @@ export interface MeshOptions {
   binding: Binding;
   keyOf: (body: string) => string | undefined;   // 灵魂仓库 bodies/<身体>.json 的 meshKey
   refreshKeys?: () => Promise<unknown>;           // 遇到没登记的身体时先拉取一次灵魂仓库
+  kindOf?: (body: string) => string | undefined; // 灵魂仓库 bodies/<身体>.json 的 kind
+  reader?: boolean;                               // 这一端自己是只读成员（灵魂桥）：只连运行基座，不提供方法
   hello: () => { version: string; agentName?: string };
   log: (msg: string) => void;
   warn?: (msg: string) => void;                   // 安全相关的提醒（签名不符、公钥不一致），进时间线
@@ -31,6 +36,8 @@ export class Mesh extends EventEmitter {
   private links = new Map<string, Link>();
   private opener: Opener;
   private handlers = new Map<string, Handler>();
+  private readable = new Set<string>();   // 只读成员可以调用的方法
+  private readers = new Set<string>();    // 连着的只读成员
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   private warned = new Set<string>();
 
@@ -44,7 +51,7 @@ export class Mesh extends EventEmitter {
     this.dir.on("revoked", (e: string) => { this.o.warn?.(e); for (const l of this.links.values()) l.stop(); this.emit("state"); });
     this.dir.on("error", (e: string) => this.o.log(e));
     this.dir.on("peer", (p: Peer) => this.onPeer(p));
-    this.dir.on("peer.removed", (body: string) => { this.links.get(body)?.stop(); this.links.delete(body); this.emit("peer", { body, online: false, link: "closed" }); });
+    this.dir.on("peer.removed", (body: string) => { this.links.get(body)?.stop(); this.links.delete(body); this.emit(this.readers.delete(body) ? "reader" : "peer", { body, online: false, link: "closed" }); });
     this.dir.on("signal", (s: { from: string; data: unknown }) => void this.onSignal(s.from, s.data));
   }
 
@@ -65,13 +72,23 @@ export class Mesh extends EventEmitter {
       this.warned.add(`key:${p.body}:${p.nodeKey}`);
       this.o.warn?.(`同步服务上 ${p.body} 的节点公钥（${fingerprint(p.nodeKey)}）与灵魂仓库登记的（${fingerprint(soulKey)}）不一致：以灵魂仓库为准，连接时会核对`);
     }
-    // 目前只与运行基座直连；灵魂桥（只读成员）以后接入网状层
-    if (p.kind !== "runtime") return;
+    const reader = this.isReader(p.body, p.kind);
+    if (reader === undefined || (reader && this.o.reader)) return; // 不认识的类型不连；只读成员之间不连
+    if (reader) this.readers.add(p.body); else this.readers.delete(p.body);
     const link = this.link(p.body);
     if (p.online) { if (link.state === "idle" || link.state === "closed") link.start(); }
     else link.stop();
-    this.emit("peer", this.peerStatus(p.body));
+    this.emitPeer(p.body);
   }
+
+  /** 这具身体是不是只读成员：同步服务与灵魂仓库都说是运行基座才算正式成员；任一方说是灵魂桥就是只读成员；都不是则 undefined。 */
+  private isReader(body: string, dirKind: string): boolean | undefined {
+    const soulKind = this.o.kindOf?.(body);
+    if (dirKind === "bridge" || soulKind === "bridge") return true;
+    if (dirKind === "runtime" && (soulKind === undefined || soulKind === "runtime")) return false;
+    return undefined;
+  }
+  private emitPeer(body: string) { this.emit(this.readers.has(body) ? "reader" : "peer", this.peerStatus(body)); }
 
   private link(body: string): Link {
     let l = this.links.get(body);
@@ -83,9 +100,9 @@ export class Mesh extends EventEmitter {
       signal: (b) => { this.dir.signal(body, seal(this.o.key, this.o.me, body, b)); },
       log: (m) => this.o.log(m),
     });
-    l.on("open", () => { this.o.log(`与 ${body} 连上了（${l!.path?.local ?? "?"}↔${l!.path?.remote ?? "?"}）`); this.emit("peer", this.peerStatus(body)); });
-    l.on("close", (why: string) => { this.o.log(`与 ${body} 断开：${why}`); this.emit("peer", this.peerStatus(body)); });
-    l.on("path", () => this.emit("peer", this.peerStatus(body)));
+    l.on("open", () => { this.o.log(`与 ${body} 连上了（${l!.path?.local ?? "?"}↔${l!.path?.remote ?? "?"}）${this.readers.has(body) ? "（只读成员）" : ""}`); this.emitPeer(body); });
+    l.on("close", (why: string) => { this.o.log(`与 ${body} 断开：${why}`); this.emitPeer(body); });
+    l.on("path", () => this.emitPeer(body));
     l.on("message", (m: any) => this.onMessage(body, m));
     this.links.set(body, l);
     return l;
@@ -105,10 +122,12 @@ export class Mesh extends EventEmitter {
 
   // ---------- 消息：req / res / ev
   private onMessage(from: string, m: any) {
+    const reader = this.readers.has(from);
     if (m.t === "req" && typeof m.id === "string" && typeof m.m === "string") {
-      const h = this.handlers.get(m.m);
+      if (this.o.reader) return; // 只读成员不提供方法
+      const h = reader && !this.readable.has(m.m) ? undefined : this.handlers.get(m.m);
       const reply = (ok: boolean, v: unknown) => this.links.get(from)?.send({ t: "res", id: m.id, ok, ...(ok ? { r: v } : { e: String(v) }) });
-      if (!h) return reply(false, `没有这个方法：${m.m}`);
+      if (!h) return reply(false, reader && this.handlers.has(m.m) ? `只读成员不能调用 ${m.m}` : `没有这个方法：${m.m}`);
       Promise.resolve().then(() => h(m.p, from)).then((v) => reply(true, v ?? null), (e) => reply(false, (e as Error).message ?? e));
       return;
     }
@@ -118,11 +137,11 @@ export class Mesh extends EventEmitter {
       this.pending.delete(m.id); clearTimeout(p.timer);
       return m.ok ? p.resolve(m.r) : p.reject(new Error(String(m.e)));
     }
-    if (m.t === "ev" && typeof m.e === "string") this.emit("event", { from, name: m.e, data: m.d });
+    if (m.t === "ev" && typeof m.e === "string" && !reader) this.emit("event", { from, name: m.e, data: m.d }); // 只读成员发来的事件丢弃
   }
 
-  /** 注册一个可以被其他身体调用的方法。 */
-  handle(method: string, fn: Handler) { this.handlers.set(method, fn); }
+  /** 注册一个可以被其他身体调用的方法；readable 为真时只读成员（灵魂桥）也可以调用——只给不改变任何状态的方法。 */
+  handle(method: string, fn: Handler, readable = false) { this.handlers.set(method, fn); if (readable) this.readable.add(method); }
 
   /** 调用另一具身体上的方法（对方必须在线且连上；没连上会排队等待，直到超时）。 */
   request<T = unknown>(body: string, method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
@@ -139,15 +158,17 @@ export class Mesh extends EventEmitter {
 
   /** 发一个事件给某具身体 / 所有连上的身体。 */
   emitTo(body: string, name: string, data?: unknown) { return this.links.get(body)?.send({ t: "ev", e: name, d: data }) ?? false; }
-  broadcast(name: string, data?: unknown) { for (const [b, l] of this.links) if (l.state === "open") l.send({ t: "ev", e: name, d: data }); }
+  broadcast(name: string, data?: unknown) { for (const [b, l] of this.links) if (l.state === "open" && !this.readers.has(b)) l.send({ t: "ev", e: name, d: data }); }
 
-  /** 此刻连上的身体。 */
-  connected(): string[] { return [...this.links].filter(([, l]) => l.state === "open").map(([b]) => b); }
+  /** 此刻连上的正式成员（运行基座）。只读成员不在其中：不被调度、不选协调者、不收广播。 */
+  connected(): string[] { return [...this.links].filter(([b, l]) => l.state === "open" && !this.readers.has(b)).map(([b]) => b); }
+  /** 此刻连上的只读成员（灵魂桥）。 */
+  connectedReaders(): string[] { return [...this.links].filter(([b, l]) => l.state === "open" && this.readers.has(b)).map(([b]) => b); }
 
   peerStatus(body: string): PeerStatus {
     const p = this.dir.peers.get(body), l = this.links.get(body), soulKey = this.o.keyOf(body);
     return {
-      body, kind: p?.kind ?? "", version: p?.version ?? "", online: !!p?.online, lastSeen: p?.lastSeen ?? 0,
+      body, kind: this.readers.has(body) ? "bridge" : p?.kind ?? "", version: p?.version ?? "", online: !!p?.online, lastSeen: p?.lastSeen ?? 0,
       link: l?.state ?? "none", path: l?.path, error: l?.lastError || undefined,
       keyOk: !!soulKey && soulKey === p?.nodeKey, fingerprint: p?.nodeKey ? fingerprint(p.nodeKey) : "",
     };

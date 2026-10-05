@@ -55,6 +55,12 @@ test("别处进行中的一轮：看得到、话转过去作为插话、两边�
   assert.deepEqual(await view(b), [["user", "在手机上开始的话题", ""], ["user", "电脑上补充一句", "steer"], ["agent", "honor9 的回复", ""]]);
   assert.deepEqual(await view(a), await view(b));
 
+  // 给只读成员（灵魂桥）的近况：最近的会话与它的最后几句，只取摘要
+  const d = await b.call<any>("digest");
+  assert.equal(d.body, "pc");
+  assert.equal(d.sessions[0].id, "c1");
+  assert.deepEqual(d.recent.map((m: any) => [m.role, m.text]), [["user", "在手机上开始的话题"], ["user", "电脑上补充一句"], ["agent", "honor9 的回复"]]);
+
   // 没有进行中的一轮时，新的一轮由收到消息的身体接
   await b.call("llmDelay", { ms: 0 });
   assert.equal(await b.call("converse", { text: "电脑上新开的话", conv: "c1" }), "pc 的回复");

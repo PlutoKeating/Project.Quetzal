@@ -12,6 +12,8 @@
 //   attach [--agent]            重新安装钩子与后台服务
 //   status [--agent]            配置、最近一次同步、公钥
 //   detach [--agent] [--purge]  拔出：移除钩子与服务，框架文件保持原样；--purge 同时删除本地副本
+//   mesh install|bind --server <https://…>|unbind|status|now [--agent]
+//          多具身体（只读成员）：装组件；绑定到同步服务（给人一个链接与绑定码去批准）；解绑；状态；看其他身体此刻的近况
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +24,8 @@ import { loadConfig, saveConfig, keyPath, repoDir, dirOf, listAgents } from "./c
 import { repoOf, syncOnce, VERSION } from "./bridge.ts";
 import { checkRemote } from "../../runtime/src/memory/soul-repo.ts";
 import { runDaemon, installService, removeService } from "./service.ts";
+import { installModules, bind as bindMesh, unbindMesh, meshStatus, nowPath, nodeKey } from "./mesh.ts";
+import { fingerprint } from "../../runtime/src/mesh/identity.ts";
 import { parseGithub, sshUrl, whoami, ensurePrivateRepo, addDeployKey } from "./github.ts";
 import type { BridgeConfig } from "./types.ts";
 
@@ -109,11 +113,37 @@ async function doctor(c: BridgeConfig, brief = false) {
     ? (await sh("launchctl", ["list", `dev.soulbridge.${c.agent}`])).ok
     : (await sh("systemctl", ["--user", "is-active", `soul-bridge-${c.agent}`])).ok || (await sh("pgrep", ["-f", `run --agent ${c.agent}`])).ok;
   add("后台守护", svc, undefined, "运行 attach");
+  const m = meshStatus(c);
+  if (m.bound) {
+    let fresh = false;
+    try { fresh = Date.now() - fs.statSync(nowPath(c.agent)).mtimeMs < 5 * 60_000; } catch {}
+    add("网状层", m.modules && fresh, m.server, m.modules ? "守护进程没有在更新近况：运行 attach 重启服务，再看服务日志" : "运行 mesh install");
+  }
   let identity: any = {};
   try { identity = JSON.parse(fs.readFileSync(path.join(repoDir(c.agent), "agent.json"), "utf8")); } catch {}
   const result = { ok: checks.every((x) => x.ok), agent: identity.displayName ?? c.agent, body: c.body, framework: c.framework, checks };
   say(brief ? `自检：${result.ok ? "全部通过" : "有问题 → " + checks.filter((x) => !x.ok).map((x) => `${x.name}（${x.fix}）`).join("；")}` : JSON.stringify(result, null, 2));
   if (!result.ok && !brief) process.exitCode = 1;
+}
+
+async function mesh(c: BridgeConfig) {
+  const sub = args[1];
+  if (sub === "install") { if (!(await installModules(say))) process.exitCode = 1; else say("网状层组件已就绪"); return; }
+  if (sub === "bind") {
+    const server = opt("server");
+    if (!server) throw new Error("用 --server 指定同步服务地址（https://…），向人要");
+    if (!(await installModules(say))) { process.exitCode = 1; return; }
+    const { start, done } = await bindMesh(c, server, VERSION);
+    say(JSON.stringify({ needHuman: true, reason: "绑定到同步服务需要人批准", ask: `请在浏览器打开 ${start.verification_uri_complete}（或打开 ${start.verification_uri} 输入绑定码 ${start.user_code}），用 GitHub 登录，核对网页上的公钥指纹是 ${fingerprint(nodeKey(c.agent).nodeKey)}，然后点「批准」。要和其他身体绑定在同一个 GitHub 账户下。`, code: start.user_code, uri: start.verification_uri_complete, expiresInSeconds: start.expires_in }, null, 2));
+    const b = await done;
+    await syncOnce(c); // 把节点公钥写进灵魂仓库的身体登记：其他身体以它为准核对这具身体
+    say(`已绑定（账户 ${b.account}）。守护进程半分钟内连上其他身体；之后 ${nowPath(c.agent)} 里是它们此刻的近况。`);
+    return;
+  }
+  if (sub === "unbind") { await unbindMesh(c.agent); say("已从同步服务解绑。节点密钥保留在本机，灵魂仓库里的登记不变。"); return; }
+  if (sub === "now") { const s = meshStatus(c); say(s.now || (s.bound ? "还没有取到近况（守护进程是否在运行？）" : "还没有绑定同步服务")); return; }
+  if (!sub || sub === "status") { const { now: _now, ...s } = meshStatus(c); say(JSON.stringify(s, null, 2)); return; }
+  throw new Error(`未知的 mesh 子命令：${sub}`);
 }
 
 async function main() {
@@ -131,6 +161,7 @@ async function main() {
     say(`已拔出 ${c.agent}：钩子与服务已移除，${frameworks[c.framework].label} 中的文件保持原样。${args.includes("--purge") ? "本地仓库副本已删除。" : "（仓库里本机的部署密钥可在仓库 Settings → Deploy keys 中删除以彻底吊销）"}`);
     return;
   }
+  if (cmd === "mesh") return mesh(c);
   if (cmd === "status") {
     let last = {};
     try { last = JSON.parse(fs.readFileSync(path.join(dirOf(c.agent), "last-sync.json"), "utf8")); } catch {}

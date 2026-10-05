@@ -50,6 +50,7 @@ flowchart LR
 - **Emergency stop**: with other bodies online, the stop asks whether to freeze "all bodies" or "only this body".
 - **Feishu**: one Feishu bot can only be connected from one body. Choose "who holds Feishu" under Control → Feishu; proactive messages from the other bodies are sent through it.
 - **Hearing**: when several phones hear the same sentence only one copy is kept; when the agent answers aloud, it speaks from the phone you talked to.
+- **Hermes / OpenClaw**: a body with the [soul bridge](https://github.com/PlutoKeating/Project.Quetzal/blob/main/bridge/skills/soul-bridge/SKILL.md) can bind as a **read-only member** (give the sync service address to the agent there; it hands you a link and a binding code): it sees what the agent is doing on which body and the recent conversations, but cannot act on other bodies and is never chosen to think or dream.
 
 ## When disconnected
 

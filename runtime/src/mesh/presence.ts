@@ -9,7 +9,7 @@ import { config } from "../config.ts";
 import { foldRemote, adoptLive, dropBody, localTurns, liveTurns, type LiveTurn } from "../mind/activity.ts";
 import { setConverseRouter, converse, type ConverseOptions } from "../mind/brain.ts";
 import { saveUpload, resolveUpload, MAX_FILE_BYTES } from "../mind/attachments.ts";
-import type { Attachment } from "../store.ts";
+import { listSessions, sessionMessages, type Attachment } from "../store.ts";
 import { log } from "../log.ts";
 
 const FORWARD_FILES_BYTES = 24 << 20; // 随转发的消息一起传过去的附件总量上限
@@ -17,6 +17,19 @@ const FORWARD_FILES_BYTES = 24 << 20; // 随转发的消息一起传过去的附
 /** 这个会话此刻在哪具别的身体上进行（没有则 undefined）。 */
 export function ownerOf(conv: string): string | undefined {
   return liveTurns().find((t) => t.conv === conv && t.origin === "chat" && t.body && t.body !== config.body)?.body;
+}
+
+/** 给只读成员（灵魂桥）看的近况：此刻在进行的轮次（各身体）、最近的会话与最近一个会话的最后几句。只取摘要，不给全部历史。 */
+export function digest() {
+  const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "…" : s);
+  const sessions = listSessions({ limit: 8 }).map((s) => ({ id: s.id, title: s.title, channel: s.channel, updated: s.updated, last: s.last ?? "" }));
+  const latest = sessions[0];
+  return {
+    body: config.body, at: Date.now(),
+    live: liveTurns().map((t) => ({ body: t.body ?? config.body, conv: t.conv, origin: t.origin, channel: t.channel, started: t.started, status: t.status, text: clip(t.text ?? "", 200) })),
+    sessions,
+    recent: latest ? sessionMessages(latest.id, 10).map((m) => ({ ts: m.ts, role: m.role, body: m.body ?? null, text: clip(m.text ?? "", 500) })) : [],
+  };
 }
 
 interface Forward { from: string; text: string; channel: string; o: ConverseOptions; files: { name: string; data: string }[] }
@@ -34,6 +47,7 @@ export function installPresence(mesh: Mesh): () => void {
     } else if (s.link !== "open" && open.has(s.body)) { open.delete(s.body); dropBody(s.body); }
   };
   mesh.handle("presence.live", () => localTurns(config.body));
+  mesh.handle("presence.digest", () => digest(), true); // 只读成员（灵魂桥）唯一能调用的方法
   mesh.handle("chat.forward", async (p: Forward, from: string) => {
     const attachments: Attachment[] = [];
     for (const f of (p.files ?? []).slice(0, 20)) {

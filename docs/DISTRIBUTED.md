@@ -1,6 +1,6 @@
 # 分布式：一个心智，多具身体（1.0 设计稿）
 
-> 状态：**已在 1.0.0 实现**（B4「灵魂桥作为只读成员入网」除外，见 §7）。本文记录 2026-10-05 与所有者逐条拍板的决定、组网方案的实测结论与实施计划；实现完成后，相关内容并入 [ARCHITECTURE.md](ARCHITECTURE.md)、[API.md](API.md)、[SOUL_SYNC.md](SOUL_SYNC.md) 与 [灵魂仓库规范](SOUL_REPO_SPEC.md)（升 v8），本文转为设计说明。目标版本 **1.0.0**，一次做完（不分 0.7 / 0.8 / 0.9 发布）。
+> 状态：**已在 1.0.0 实现**（含 B4「灵魂桥作为只读成员入网」，见 §7）。本文记录 2026-10-05 与所有者逐条拍板的决定、组网方案的实测结论与实施计划；实现完成后，相关内容并入 [ARCHITECTURE.md](ARCHITECTURE.md)、[API.md](API.md)、[SOUL_SYNC.md](SOUL_SYNC.md) 与 [灵魂仓库规范](SOUL_REPO_SPEC.md)（升 v8），本文转为设计说明。目标版本 **1.0.0**，一次做完（不分 0.7 / 0.8 / 0.9 发布）。
 
 ## 0. 现状与问题
 
@@ -171,4 +171,4 @@
 | C7 飞书由指定身体持有 | `mesh/channels.ts`、`channels/feishu.ts` |
 | C8–C9 全网设置、急停、审批、预算 | `mesh/shared.ts` |
 | C10 多只耳朵去重、从听到的身体发声 | `mesh/channels.ts`、`voice/hearing.ts` |
-| **B4 灵魂桥作为只读成员入网** | **未实现**。运行基座目前只与运行基座直连，忽略 `kind` 为 `bridge` 的身体；灵魂桥仍只通过灵魂仓库同步人格与记忆。要让 Hermes / OpenClaw 看到在场状态与会话，需要另行设计它们怎样把这些信息用进各自的上下文 |
+| B4 灵魂桥作为只读成员入网 | `mesh/mesh.ts` 的只读成员（`handle(…, readable)`、`connectedReaders`；类型以灵魂仓库登记为准）、`mesh/presence.ts` 的 `presence.digest`、`bridge/src/mesh.ts`（`mesh bind`、守护进程取近况写 `now.md`，框架里的 agent 读它） |

@@ -2,7 +2,7 @@
 
 把 Hermes Agent / OpenClaw 接入 agent 的灵魂仓库：独立、可随时插拔、全自动双向同步。设计与协议见 [../../docs/SOUL_SYNC.md](../../docs/SOUL_SYNC.md)。
 
-- 运行环境：Node.js 22.18+（直接运行 TypeScript 源码，无需构建、无第三方依赖）与 git。
+- 运行环境：Node.js 22.18+（直接运行 TypeScript 源码，无需构建、无第三方依赖）与 git。多具身体（可选）另需网状层组件 `node-datachannel` 与 `ws`，由 `mesh install` 按运行基座的锁定文件（`runtime/tool/mesh-modules.lock.json`，`extra.bridge`）下载并逐个核对 sha512，装进 `~/.agent-soul/mesh-modules/<版本>/`，程序目录的 `runtime/node_modules` 是指过去的相对链接。
 - 安装方式：把 [技能](../skills/soul-bridge/SKILL.md) 交给框架里的 agent，由它**自己给自己安装、配置、自检与修复**：自动识别框架、复用或自动创建私有灵魂仓库、自动添加部署密钥、预先批准 Hermes 钩子、没有 systemd 时自动改用 crontab。只有缺少 GitHub 凭据等少数情况才会请人类帮忙一次。
 - 测试：`npm test`（引擎单元测试 + 通过真实 CLI 让 Hermes 与 OpenClaw 共享同一个 agent 的端到端测试 + 钩子预批准与自检）。
 
@@ -15,8 +15,13 @@
 | `attach` | 重新安装钩子与服务 |
 | `status` | 配置、最近一次同步结果、公钥 |
 | `detach [--purge]` | 拔出：移除钩子与服务，框架文件保持原样 |
+| `mesh install` | 下载并核对网状层组件 |
+| `mesh bind --server <https://…>` | 作为只读成员绑定到同步服务（kind `bridge`）：输出 `needHuman` JSON（链接、绑定码、公钥指纹），等人批准后保存令牌（`sync.json`，0600）并同步一次，把节点公钥写进灵魂仓库的身体登记 |
+| `mesh unbind` / `mesh status` / `mesh now` | 解绑；连接状态；打印其他身体此刻的近况（`now.md`） |
 
-本地数据：`~/.agent-soul/<agent>/`（`config.json`、`repo/`、`state.json` 基线、`id_ed25519` 部署密钥、`last-sync.json`、`bridge.log`）。
+本地数据：`~/.agent-soul/<agent>/`（`config.json`、`repo/`、`state.json` 基线、`id_ed25519` 部署密钥、`last-sync.json`、`bridge.log`；多具身体时另有 `mesh_ed25519` 节点密钥、`sync.json` 绑定令牌、`now.md` 近况）。
+
+**只读成员**（DISTRIBUTED.md B4）：绑定后守护进程每 30 秒检查一次绑定，连上同一个 agent 在线的运行基座（以灵魂仓库 `bodies/*.json` 的 `meshKey` 与 `kind` 为准），每分钟以及连接变化时调用 `presence.digest` 取近况（各身体进行中的轮次、最近 8 个会话、最近一个会话的最后 10 句，都是摘要），写成 `now.md` 给框架里的 agent 读。运行基座只允许灵魂桥调用 `presence.digest`，它发出的事件一律丢弃；灵魂桥不提供任何方法，不参与复制、心跳、调度与广播。
 
 ```
 src/
@@ -25,6 +30,7 @@ src/
 ├── engine.ts             双侧基线合并（条目 / 文本 / 文件）
 ├── service.ts            守护（watch + 拉取）、systemd 用户服务 / launchd 代理 / crontab @reboot 兜底
 ├── github.ts             创建私有仓库、添加部署密钥（gh CLI 或 GITHUB_TOKEN）
+├── mesh.ts               只读成员：组件安装、绑定 / 解绑、连上运行基座取近况写 now.md
 ├── config.ts             本地配置与基线
 ├── types.ts              Mapping 与 Framework 接口
 └── frameworks/           hermes.ts · openclaw.ts · index.ts（登记）

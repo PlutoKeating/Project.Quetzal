@@ -2,12 +2,12 @@
 import http from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 
-export async function fakeSync(registered: Record<string, string>) {
+export async function fakeSync(registered: Record<string, string>, kinds: Record<string, string> = {}) {
   const conns = new Map<string, WebSocket>();
-  const ctl = { tamper: undefined as ((from: string, to: string, data: any) => any) | undefined, conns, registered, url: "", close: () => {} };
+  const ctl = { tamper: undefined as ((from: string, to: string, data: any) => any) | undefined, conns, registered, kinds, url: "", close: () => {} };
   const server = http.createServer();
   const wss = new WebSocketServer({ server, path: "/v1/ws" });
-  const peer = (b: string, online: boolean) => ({ body: b, kind: "runtime", nodeKey: registered[b], version: "t", online, lastSeen: 0 });
+  const peer = (b: string, online: boolean) => ({ body: b, kind: kinds[b] ?? "runtime", nodeKey: registered[b], version: "t", online, lastSeen: 0 });
   wss.on("connection", (ws) => {
     let me = "";
     ws.on("message", (raw) => {

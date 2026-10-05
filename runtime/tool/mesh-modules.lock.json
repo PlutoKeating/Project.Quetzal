@@ -1,8 +1,11 @@
 {
-  "//": "网状层的原生组件（node-datachannel = libdatachannel 的 Node 绑定，MPL-2.0）。安装器按这里的版本与 sha512 下载并逐个核对，镜像源篡改不了内容。sha512 取自 registry.npmjs.org 的 dist.integrity。升级时改版本并重新取哈希，与 runtime/package.json 的 optionalDependencies 保持一致。",
+  "//": "网状层的原生组件（node-datachannel = libdatachannel 的 Node 绑定，MPL-2.0）。安装器按这里的版本与 sha512 下载并逐个核对，镜像源篡改不了内容。sha512 取自 registry.npmjs.org 的 dist.integrity。升级时改版本并重新取哈希，与 runtime/package.json 的 optionalDependencies 保持一致。extra.bridge 是灵魂桥从源代码运行时额外需要的纯 JS 包（运行基座已打包进去，不需要），版本与 runtime/package-lock.json 一致。",
   "common": {
     "node-datachannel": { "version": "0.33.4", "integrity": "sha512-qiUrdh8vY9XhglEnx91HK0N2JEAAu8qTZl0fcR3yQd0fFrdO39NwDeJD/KpG+WKUb9/o4p2UwnP+/HftA/xMbQ==" },
     "detect-libc": { "version": "2.1.2", "integrity": "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==" }
+  },
+  "extra": {
+    "bridge": { "ws": { "version": "8.22.0", "integrity": "sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==" } }
   },
   "platform": {
     "android-arm64": { "@node-datachannel/android-arm64": { "version": "0.33.4", "integrity": "sha512-Kd1K+drJlxdGmZYBlzh5HHX2E7les99eTWlt7WldZgvJmcGf2z9L/bnUVn4zbhNm2q/MtNZ2tPX2bd+fGlDDpQ==" } },

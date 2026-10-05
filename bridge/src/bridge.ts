@@ -7,9 +7,10 @@ import { SoulRepo } from "../../runtime/src/memory/soul-repo.ts";
 import { syncMappings, type Report } from "./engine.ts";
 import { frameworks } from "./frameworks/index.ts";
 import { keyPath, repoDir, loadState, saveState, dirOf } from "./config.ts";
+import { meshKeyIfAny } from "./mesh.ts";
 import type { BridgeConfig } from "./types.ts";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 /** 灵魂仓库对象。displayName 仅在仓库还没有身份时用于生成第一份身份（规范 §3.5、§4）。 */
 export function repoOf(c: BridgeConfig, displayName?: string) {
@@ -19,7 +20,7 @@ export function repoOf(c: BridgeConfig, displayName?: string) {
     seedIdentity: () => newIdentity(c, displayName),
     seedSoul: (n) => nativeSoul(c) ?? `# ${n}\n`, // 新仓库的人格以框架现有人格为准，避免种子覆盖它
     author: () => ({ name: `${who().displayName ?? c.agent} (${c.body})`, email: `${who().name ?? c.agent}@${c.body}.local` }),
-    bodyInfo: () => ({ kind: "bridge", framework: c.framework, bridge: VERSION, host: os.hostname() }),
+    bodyInfo: () => { const meshKey = meshKeyIfAny(c.agent); return { kind: "bridge", framework: c.framework, bridge: VERSION, host: os.hostname(), ...(meshKey ? { meshKey } : {}) }; }, // meshKey：绑定过网状层才有（规范 v8）
     log: (m) => console.error(`[soul-bridge] ${m}`),
   });
 }
