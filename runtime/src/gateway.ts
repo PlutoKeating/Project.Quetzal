@@ -9,7 +9,7 @@ import { saveUpload, fromUpload, resolveUpload, MAX_FILES, MAX_FILE_BYTES } from
 const str64 = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 64) : undefined);
 import crypto from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import { config, readSecret, writeSecret } from "./config.ts";
+import { config, readSecret, writeSecret, saveConfig } from "./config.ts";
 import { bus } from "./bus.ts";
 import { invoke, status } from "./ops.ts";
 import { converse } from "./mind/brain.ts";
@@ -41,6 +41,8 @@ export function startGateway(safeMode: boolean) {
     },
     "feishu.status": () => feishuStatus(),
     "feishu.set": (p) => setFeishu(p),
+    // 多具身体：指定持有飞书长连接的身体（全网共用的设置；空 = 各自连，只适合一具身体）
+    "feishu.setHolder": (p) => { const b = String(p.body ?? "").trim(); if (b && !/^[a-z0-9][a-z0-9-]{0,39}$/.test(b)) throw new Error("身体名不对"); saveConfig({ channels: { feishuHolder: b } }); return feishuStatus(); },
     "feishu.register": () => { registerFeishu((url) => broadcast("feishu.qr", { url })).then((s) => broadcast("feishu.registered", s), (e) => broadcast("feishu.error", { message: e.description ?? e.message })); return true; },
     "safeMode": () => safeMode,
   };

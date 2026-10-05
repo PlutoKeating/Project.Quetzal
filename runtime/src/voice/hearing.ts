@@ -86,6 +86,19 @@ export function pickSession(text: string, now = Date.now()): string {
 export interface HeardResult { ok: boolean; id: string; text: string; conv?: string; dropped?: string }
 
 const emit = (e: HearingEvent) => bus.emit("hearing", e);
+
+/**
+ * 多具身体（mesh/channels.ts 设置）：dedupe——几只耳朵同时听到同一句话时只留一只（返回 false 表示交给别的身体处理）；
+ * heard——这只耳朵听到的话进了哪个会话（她用 voice_speak 回话时从这具身体说出来）。
+ */
+let meshHooks: { dedupe: (u: { id: string; text: string; at: number }) => Promise<boolean>; heard: (conv: string) => void } | undefined;
+export const setHearingMesh = (h: typeof meshHooks) => { meshHooks = h; };
+/** 测试用：按多具身体的规则判断一句话这只耳朵要不要留，并登记进了哪个会话。 */
+export async function meshHeard(text: string, conv: string, at = Date.now()) {
+  const keep = await (meshHooks?.dedupe({ id: newId(), text, at }) ?? Promise.resolve(true));
+  if (keep) meshHooks?.heard(conv);
+  return keep;
+}
 const newId = () => crypto.randomBytes(6).toString("hex");
 
 /**
@@ -100,8 +113,13 @@ async function deliver(id: string, r: { text: string; status: string }, wait: bo
     return { ok: true, id, text: r.text, dropped };
   }
   bargeIn = bargeIn || isBargeIn(id);
+  if (meshHooks && !bargeIn && !(await meshHooks.dedupe({ id, text: r.text, at: Date.now() }).catch(() => true))) {
+    emit({ id, status: "dropped", text: r.text, reason: "另一具身体也听到了这句话，由那边交给她" });
+    return { ok: true, id, text: r.text, dropped: "另一具身体也听到了" };
+  }
   if (bargeIn) await stopSpeaking();
   const conv = pickSession(r.text);
+  meshHooks?.heard(conv);
   last.conv = conv;
   log("hearing", `听到（${conv.slice(0, 8)}）${bargeIn ? "，对方插嘴" : ""}：${r.text}`);
   emit({ id, status: "final", text: r.text, conv });

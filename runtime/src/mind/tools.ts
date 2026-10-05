@@ -27,7 +27,7 @@ import * as agents from "./agents.ts";
 import { ensureSession, getSession, kv } from "../store.ts";
 import crypto from "node:crypto";
 import { addTimeline, addMessage } from "../store.ts";
-import { remoteBodies, bodiesHooks } from "./bodies.ts";
+import { remoteBodies, bodiesHooks, earOf } from "./bodies.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -181,7 +181,13 @@ const core: Tool[] = [
     name: "voice_speak", permission: "device",
     description: "用你自己的声音说话（Azure 语音合成，由这具身体的扬声器播放）。可以只为这一句临时换音色、风格、语速、音调；想长期换声音用 voice_config。",
     parameters: obj({ text: str("要说的话"), voice: str("可选：音色，如 zh-CN-XiaoxiaoNeural"), style: str("可选：表达风格，如 cheerful、gentle、whispering"), rate: str("可选：语速，如 +10%"), pitch: str("可选：音调，如 -5%") }, ["text"]),
-    handler: async (a) => {
+    handler: async (a, ctx) => {
+      // 多具身体：对方刚才是对着另一具身体的耳朵说话的，就从那具身体说出来（离对方近）
+      const ear = ctx.session?.conv ? earOf(ctx.session.switchTo ?? ctx.session.conv) : undefined;
+      if (ear && ear !== config.body && remoteBodies().some((b) => b.body === ear)) {
+        const r = await bodiesHooks()!.call(ear, "voice_speak", a, "对方刚才对着那具身体说话");
+        return `${r.text}（在 ${ear} 上说的，离对方近）`;
+      }
       const file = await voice.synthesize(String(a.text), { voice: a.voice, style: a.style, rate: a.rate, pitch: a.pitch });
       const r = await player.play(file, String(a.text)); // 有耳朵时由 App 经通话路径播放（回声消除），否则交给身体适配器
       if (r.by === "none") return `已合成：${file}（这具身体不支持播放音频，可以用 shell 自己播放）`;

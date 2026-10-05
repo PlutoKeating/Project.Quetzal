@@ -18,6 +18,9 @@ const { installPlacement } = await import("../../src/mesh/placement.ts");
 const { installLimbs } = await import("../../src/mesh/limbs.ts");
 const { installShared, decideAnywhere, remoteApprovals } = await import("../../src/mesh/shared.ts");
 const guard = await import("../../src/guard/guard.ts");
+const { installChannels } = await import("../../src/mesh/channels.ts");
+const { meshHeard } = await import("../../src/voice/hearing.ts");
+const { earOf } = await import("../../src/mind/bodies.ts");
 const fs = await import("node:fs");
 const { wake } = await import("../../src/mind/brain.ts");
 const { liveTurns } = await import("../../src/mind/activity.ts");
@@ -56,6 +59,7 @@ installCoordinator(mesh);
 installPlacement(mesh, "t", () => false);
 installLimbs(mesh);
 installShared(mesh);
+installChannels(mesh);
 mesh.start();
 
 const cmds: Record<string, (a: any) => unknown> = {
@@ -91,6 +95,8 @@ const cmds: Record<string, (a: any) => unknown> = {
   decide: (a) => decideAnywhere(a.id, a.approve, "测试控制台"),
   addUsage: (a) => { store.addUsage(a.model ?? "m", a.input ?? 0, a.output ?? 0, a.cost ?? 0); return true; },
   usageToday: () => store.usageToday(),
+  heard: (a) => meshHeard(a.text, a.conv, a.at),
+  earOf: (a) => earOf(a.conv) ?? null,
   llmScript: (a) => { llmScript.push(...a.messages); return true; },
   audit: () => store.listAudit(20),
   llmWhere: (a) => { llmWhere = a.where; return true; },

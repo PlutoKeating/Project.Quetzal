@@ -20,6 +20,7 @@ export interface Events {
   mesh: [s: unknown];
   heart: []; // 心脏状态变了（协调者据此把状态广播给其他身体）
   shared: [sections: string[]]; // 本机改了全网共用的设置分区（网状层据此同步给其他身体）
+  "shared.applied": [sections: string[]]; // 采用了其他身体较新的设置分区（相关模块据此生效，例如飞书持有者变了要重连）
   usage: [row: { day: string; model: string; body: string; input: number; output: number; cost: number }]; // 本机的用量变了（各身体合计每日预算）
   "replica.applied": [e: { table: string; rows: any[]; from: string }]; // 从其他身体复制来的行已写入本机（控制台据此刷新会话与对话）
   replica: [e: { table: "messages" | "timeline" | "sessions" | "message.mode"; rows: any[] }]; // 本机新写入的对话、时间线、会话（网状层据此实时复制给其他身体） // 网状层状态变化（绑定进展、同步服务连接、各身体的连接与路径），控制台据此刷新

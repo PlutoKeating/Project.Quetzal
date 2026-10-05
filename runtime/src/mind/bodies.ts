@@ -15,3 +15,8 @@ export const bodiesHooks = () => hooks;
 
 /** 可以在另一具身体上调用的工具：属于那具身体的（设备、命令、进程、文档、她自己造的工具、说话）。心智层面的（记忆、会话、子 agent、保密输入、身份）不跨身体。 */
 export const REMOTE_CORE_TOOLS = new Set(["shell", "shell_jobs", "processes", "read_document", "voice_speak", "tool_write", "tool_read", "tool_delete", "web_fetch"]);
+
+/** 每个会话最近是哪只耳朵（哪具身体）听到对方说话的：她用 voice_speak 回话时从那具身体说出来。 */
+const ears = new Map<string, { body: string; at: number }>();
+export const setEar = (conv: string, body: string) => { ears.set(conv, { body, at: Date.now() }); if (ears.size > 200) ears.delete(ears.keys().next().value!); };
+export const earOf = (conv: string, withinMs = 3 * 60_000) => { const e = ears.get(conv); return e && Date.now() - e.at < withinMs ? e.body : undefined; };

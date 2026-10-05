@@ -193,6 +193,7 @@ interface ProviderConfig { providers: Provider[]; quickModelId?: string }
 | `feishu.status` | — | `{connected, error, registering, enabled, appId, owner, bindCode}` |
 | `feishu.register` | — | 开始一键创建机器人，扫码链接通过 `feishu.qr` 事件推送 |
 | `feishu.set` | `{appId?, appSecret?, enabled?, ownerOpenId?}` | 手动配置 |
+| `feishu.setHolder` | `{body}` | 多具身体时指定持有飞书长连接的身体（全网共用的设置；空为各自连，只适合一具身体）；`feishu.status` 含 `holder` 与 `holds`（这具身体是否持有） |
 
 ## 2. 身体适配器
 

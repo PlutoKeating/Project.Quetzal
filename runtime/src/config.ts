@@ -42,6 +42,8 @@ export interface Config {
   mesh: { server: string; priority: number }; // priority：当协调者的优先级（越大越优先，适合一直开着、接着电源的身体）
   // 多具身体共用的设置分区最近一次被修改的时刻（毫秒）。网状层据此在身体之间同步：较新的修改生效（mesh/shared.ts）
   sharedRev: Record<string, number>;
+  // 通道：feishuHolder 为持有飞书长连接的身体（多具身体时由部署者指定；空 = 这具身体自己连）。全网共用
+  channels: { feishuHolder: string };
   // 语音（Azure 语音服务文本转语音）。密钥单独保存在 secrets/azure_speech_key
   speech: { region: string; endpoint: string; voice: string; style: string; rate: string; pitch: string; volume: string; format: string };
   // 听觉：控制台 App 当耳朵（采集、降噪、断句），基座识别（Azure，与语音合成同一把密钥）并交给她判断要不要回应
@@ -76,6 +78,7 @@ export const defaults: Config = {
   gateway: { port: 7788, host: "127.0.0.1" },
   mesh: { server: "", priority: 0 },
   sharedRev: {},
+  channels: { feishuHolder: "" },
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
   hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "", minChars: 2 },
 };
@@ -103,7 +106,7 @@ export function loadConfig(): Config {
 }
 
 /** 全网统一的设置分区（DISTRIBUTED.md C8）：一处改了，所有身体跟着改。身体名、时区、适配器、网关、飞书、同步服务地址等属于这具身体，不在其中。 */
-export const SHARED_SECTIONS = ["permissions", "budget", "heart", "hearing", "speech", "brain"] as const;
+export const SHARED_SECTIONS = ["permissions", "budget", "heart", "hearing", "speech", "brain", "channels"] as const;
 /** 记下某个共享分区被这具身体改了（设置分区、模型供应商、语音密钥、急停），并通知网状层。 */
 export function markShared(sections: string[]) {
   if (!sections.length) return;

@@ -41,7 +41,7 @@ function adopt(sections: Record<string, { rev: number; value: unknown }>, from: 
     if (s.rev <= (config.sharedRev[name] ?? 0)) continue;
     try { write(name as Section, s.value, s.rev, from); took.push(name); } catch (e) { log("mesh", `采用 ${from} 的设置 ${name} 失败：${(e as Error).message}`); }
   }
-  if (took.length) log("mesh", `采用了 ${from} 较新的设置：${took.join("、")}`);
+  if (took.length) { log("mesh", `采用了 ${from} 较新的设置：${took.join("、")}`); bus.emit("shared.applied", took); }
 }
 
 const pack = (names: readonly string[]) => Object.fromEntries(names.filter((n) => (SECTIONS as readonly string[]).includes(n)).map((n) => [n, { rev: config.sharedRev[n] ?? 0, value: read(n as Section) }]));

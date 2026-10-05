@@ -25,7 +25,7 @@ import { identity } from "../memory/identity.ts";
 
 let channel: lark.LarkChannel | undefined;
 const state = { connected: false, error: "", registering: "" };
-export const feishuStatus = () => ({ ...state, enabled: config.feishu.enabled, appId: config.feishu.appId, owner: !!config.feishu.ownerOpenId, bindCode: config.feishu.bindCode });
+export const feishuStatus = () => ({ ...state, enabled: config.feishu.enabled, appId: config.feishu.appId, owner: !!config.feishu.ownerOpenId, bindCode: config.feishu.bindCode, holder: config.channels.feishuHolder, holds: holdsFeishu() });
 
 const isOwner = (openId?: string) => !!openId && openId === config.feishu.ownerOpenId;
 const send = (to: string, input: lark.SendInput) => channel?.send(to, input).catch((e) => log("feishu", `发送失败：${e.message}`));
@@ -153,10 +153,19 @@ async function handle(msg: lark.NormalizedMessage) {
   }
 }
 
+/** 多具身体时只有一具身体持有飞书长连接（同一个应用开多条长连接，每条消息只随机投递给其中一条）。没指定时这具身体自己连。 */
+export const holdsFeishu = () => !config.channels.feishuHolder || config.channels.feishuHolder === config.body;
+/** 不持有飞书的身体：主动消息转给持有者发出（mesh/ 设置）。 */
+let forwardSay: ((text: string) => boolean) | undefined;
+export const setFeishuForwarder = (f: typeof forwardSay) => { forwardSay = f; };
+/** 持有者收到其他身体转来的主动消息。 */
+export const sayToOwner = (text: string) => void toOwner({ markdown: `💭 **主动消息**（她自己醒来时想跟你说的）\n\n${text}` });
+
 export async function startFeishu() {
   await channel?.disconnect().catch(() => {});
   channel = undefined; state.connected = false;
   const secret = readSecret("feishu_secret");
+  if (!holdsFeishu()) { state.error = `飞书由 ${config.channels.feishuHolder} 持有`; return; }
   if (!config.feishu.enabled || !config.feishu.appId || !secret) return;
   try {
     const owner = config.feishu.ownerOpenId;
@@ -198,7 +207,10 @@ export async function startFeishu() {
 }
 
 export function wireFeishu() {
-  bus.on("say", (text) => void toOwner({ markdown: `💭 **主动消息**（她自己醒来时想跟你说的）\n\n${text}` }));
+  bus.on("say", (text) => { if (holdsFeishu()) sayToOwner(text); else if (!forwardSay?.(text)) log("feishu", `主动消息没能转给飞书的持有者 ${config.channels.feishuHolder}（不在线），只留在「主动消息」会话里`); });
+  const onChannels = (sections: string[]) => { if (sections.includes("channels")) void startFeishu(); }; // 持有者变了：该连的连，不该连的断
+  bus.on("shared", onChannels);
+  bus.on("shared.applied", onChannels);
   bus.on("notice", (text) => void toOwner({ markdown: `🔔 ${text}` }));
   bus.on("approval", (a) => { if (a.status === "pending") void toOwner({ card: approvalCard(a) }); });
   bus.on("secret", (e) => void onSecret(e));
