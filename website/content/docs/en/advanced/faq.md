@@ -29,7 +29,7 @@ Built-in tools: memory and notes, recall, web search and fetch, viewing images, 
 
 ## Can I use it without a computer?
 
-Yes. Installation, configuration and daily use all happen in the Quetzal app; the one command-line moment is pasting a single line into Termux to allow external apps.
+Yes. Installation, configuration and daily use all happen in the Quetzal app, with no command line at all: install that one app and tap Install.
 
 ## I only have a computer, no spare phone. Does that work?
 
@@ -53,7 +53,7 @@ Yes. Each runtime has its own home directory and port, and the app keeps several
 
 ## Which phones are supported?
 
-Android 7 or newer, arm64, able to install the Termux trio. The older the phone, the more attention keep-alive needs (battery whitelist, autostart permission).
+Android 7 or newer, arm64; all it needs is the Quetzal app. The older the phone, the more attention keep-alive needs (battery whitelist, autostart permission).
 
 ## What if she does something wrong?
 

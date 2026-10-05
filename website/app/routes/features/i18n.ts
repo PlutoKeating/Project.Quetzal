@@ -66,11 +66,11 @@ export const messages = defineMessages({
       {
         id: "phone",
         eyebrow: "07 · 装在旧手机上",
-        heading: "一部闲置手机，三步。",
-        lead: "Quetzal App 自带一切。装好 Termux 三件套和 App，跟着向导走，ta 就住进去了。升级 App 就是升级 ta，出了问题自动退回上一版。",
+        heading: "一部闲置手机，一个 App。",
+        lead: "只装一个 App，别的都不用装：Node.js、git、ssh 都在里面。打开，点一下「安装」，半分钟后 ta 就住进去了。升级 App 就是升级 ta。",
         points: ["Android 7 以上、arm64 的手机都可以", "开机自启，重启后 ta 自己醒来", "没有闲置手机？Linux 电脑或服务器一行命令装好"],
         link: "/docs/start/install",
-        art: { steps: ["装 Termux 三件套", "装 Quetzal App", "跟着向导走"], done: "ta 醒来了" },
+        art: { steps: ["装 Quetzal App", "点「安装」", "允许身体权限"], done: "ta 醒来了" },
       },
     ],
     more: {
@@ -151,11 +151,11 @@ export const messages = defineMessages({
       {
         id: "phone",
         eyebrow: "07 · On an old phone",
-        heading: "One spare phone, three steps.",
-        lead: "The Quetzal app brings everything. Install the Termux trio and the app, follow the wizard, and it moves in. Updating the app updates it; if something goes wrong, the previous version comes back by itself.",
+        heading: "One spare phone, one app.",
+        lead: "One app, nothing else to install: Node.js, git and ssh are all inside. Open it, tap \"Install\", and half a minute later it has moved in. Updating the app updates it.",
         points: ["Any Android 7+ arm64 phone will do", "Starts at boot; after a restart it wakes by itself", "No spare phone? One command installs it on a Linux computer or server"],
         link: "/docs/start/install",
-        art: { steps: ["Install the Termux trio", "Install the Quetzal app", "Follow the wizard"], done: "it wakes up" },
+        art: { steps: ["Install the app", "Tap Install", "Allow permissions"], done: "it wakes up" },
       },
     ],
     more: {

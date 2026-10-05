@@ -24,12 +24,11 @@ You need:
 
 - [ ] An **Android 7+ arm64** phone (a retired one is perfect)
 - [ ] Internet access on the phone
-- [ ] The **Termux trio**: Termux, Termux:API, Termux:Boot (all from the same source)
-- [ ] The **Quetzal app** (latest APK from the [download page](/download) or GitHub Releases)
+- [ ] The **Quetzal app** (latest APK from the [download page](/download)): just this one, everything else is inside
 - [ ] At least one model provider API key (OpenAI-compatible, Anthropic, or Google Gemini)
 
 > [!TIP]
-> :bulb: No computer and no command-line skills are required. The only thing you do by hand is paste one line into Termux, because Termux's security model does not let another app do that for you.
+> :bulb: No computer and no command-line skills are required: open the app, tap Install, done in half a minute.
 >
 > No spare phone, just a Linux computer or server? `curl -fsSL https://quetzal.plutokeating.beer/install | bash` installs it in one line (dependencies included, starts at boot, restarts after a crash) and the web console opens in your browser; see [Linux and other machines](/docs/advanced/other-machines).
 

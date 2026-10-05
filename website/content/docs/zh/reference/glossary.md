@@ -51,11 +51,11 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 证书指纹 | certificate fingerprint | 网关自签名证书的 SHA-256 指纹，短格式如 `1a2b 3c4d 5e6f 7a8b`；配对时在 App 与配对通知里核对，之后 App 只认这张证书 |
 | 配对码 | pairing code | 8 位字母数字（如 ABCD-EFGH）、5 分钟有效、输错多次会锁定一段时间，用于另一台设备上的控制台连接网关；同一台机器上的浏览器不需要（网关直接放行） |
 | 网页控制台 | web console | 控制台的网页版，由运行基座的网关托管（`http://127.0.0.1:7788/`），为电脑横屏重新排布；随 npm 包装到 Linux 机器上 |
-| 点火 | ignite | 基座离线时 App 通过 Termux 重新执行开机脚本 |
+| 点火 | ignite | 基座离线时 App 重新启动自己的前台服务（App 内置的运行基座） |
 | 安全模式 | safe mode | 10 分钟内启动超过 5 次后的保护状态：只开网关与飞书 |
 | 此刻 | Now | App 首页：状态、驱动力、ta 想分享的一句话 |
 | 心流 | Flow | App 的时间线页：醒来、做梦、对话的记录 |
 | 主动消息 | proactive message | ta 自己醒来时用 `send_message` 发出的消息 |
 | hands | hands | 预留的屏幕与应用操作接口（尚未实现） |
-| Termux 三件套 | Termux trio | Termux、Termux:API、Termux:Boot，必须来自同一来源 |
-| 家目录 | QUETZAL_HOME | 运行基座的全部数据所在，默认安卓 `~/quetzal`、Linux `~/.quetzal`，可用环境变量改 |
+| 身体接口 | body interface | Quetzal App 在本机提供给内置运行基座的身体能力（传感器、通知、相机、麦克风、定位……），只认令牌，地址与令牌在 `secrets/body.json` |
+| 家目录 | QUETZAL_HOME | 运行基座的全部数据所在，默认安卓 App 数据目录下的 `files/home/quetzal`（旧的 Termux 安装为 `~/quetzal`）、Linux `~/.quetzal`，可用环境变量改 |

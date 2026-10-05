@@ -8,10 +8,10 @@ lib/
 ├── api.dart           网关客户端（连接档案 Profile 带钉住的证书指纹 fp；加密配对 pairInfo / pairFinish）：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版）、点火；HTTP 令牌放请求头 X-Quetzal-Token
 ├── pins.dart          加密连接：网关证书指纹的钉住与配对时的捕获（Pins）、配对证明（PBKDF2，后台 isolate）、网关地址的写法（只填地址时别的机器用 https:7789）、旧的明文局域网档案的识别
 ├── links.dart         打开外部链接的唯一入口：只放行 https（http 只限本机回环地址）
-├── igniter.dart       Termux 桥：RUN_COMMAND 执行、三件套检测与版本、打开应用、电池优化 / 自启动管理页（安卓）
+├── igniter.dart       运行基座桥（MethodChannel quetzal/runtime）：App 内置运行基座的启动 / 重启 / 停止、状态、网关令牌、身体权限、电池优化 / 自启动管理页（安卓）
 ├── hearing.dart       听觉桥：启停原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing）、权限、服务事件；跟随基座 status.hearing.listening，只对本机的 agent（安卓；网页版只跟着状态显示）
-├── installer.dart     安装器：127.0.0.1 临时 HTTP 服务（每次探测 / 安装一个 128 位口令，连同各文件的 SHA-256 放进 RUN_COMMAND 参数；拒绝没有口令、Host 不对、/progress 非 JSON 的请求；只提供白名单里的 assets/install/install.sh 与 assets/runtime/*，接收脚本回报的进度、令牌；令牌经 /health 与一次带令牌的 RPC 核对才算完成）、探测 Termux 是否接受指令（安卓）
-├── updater.dart       App 自身的更新（安卓）：先问官网镜像源 `quetzal.plutokeating.beer/api/releases/latest`（资产地址已改写为官网 `/dl/` 镜像，GitHub 连不上的网络也能用），失败退回 GitHub `releases/latest`（正式版；每次打开界面——启动与从后台回来——都问一次，正在检查时不重复）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk`（名字须合白名单）到缓存目录（进度）→ 用内置发布公钥核对 SHA256SUMS.sig、按 SHA256SUMS 核对 APK（缺任何一样都拒绝）→ 原生核对 APK 的签名证书与当前 App 一致 → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」，新 App 启动后直接进向导升级运行基座
+├── installer.dart     安装器：重启 App 内置的运行基座 → 等 /health（第一次要解开运行环境，最长 180 秒）→ 从家目录读网关令牌，经 /health 与一次带令牌的 RPC 核对才算完成；端口上已有不是本 App 启动的运行基座（旧版 Termux 安装）时不再启动第二个，提示迁移
+├── updater.dart       App 自身的更新（安卓）：先问官网镜像源 `quetzal.plutokeating.beer/api/releases/latest`（资产地址已改写为官网 `/dl/` 镜像，GitHub 连不上的网络也能用），失败退回 GitHub `releases/latest`（正式版；每次打开界面——启动与从后台回来——都问一次，正在检查时不重复）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk`（名字须合白名单）到缓存目录（进度）→ 用内置发布公钥核对 SHA256SUMS.sig、按 SHA256SUMS 核对 APK（缺任何一样都拒绝）→ 原生核对 APK 的签名证书与当前 App 一致 → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」；新 App 带着新版运行基座，装好后由 `MY_PACKAGE_REPLACED` 广播（或打开 App 时）重新启动
 ├── widgets.dart       外壳模式（ShellScope）、页面框架（PageFrame：手机是 Scaffold + AppBar，桌面是主区里的一行标题）、面板宽度（PaneWidth）、底部面板 / 对话框（showSheet）、光团、驱动力条、连接状态、急停、离线横幅、分节卡片、提示
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
@@ -23,7 +23,7 @@ lib/
 │   └── desktop.dart   桌面外壳：导航栏 · 列表栏 · 主区（嵌套 Navigator）· 她此刻
 └── pages/
     ├── pairing.dart   连接一个 agent：探活与配对（加密连接先取 /pair/info、显示证书指纹给人核对，再提交配对证明）；旧的明文局域网档案提示重新配对；本机没有运行基座时的「在这台手机上安装」入口（安卓）；网页版先试本机登录
-    ├── setup.dart     安装向导（也是升级 / 修复入口）：三件套 → 授权 → 在 Termux 粘贴一行开启外部调用 → 安装（分步进度）→ 保活引导（安卓）
+    ├── setup.dart     安装向导（也是升级 / 修复入口）：一键安装（分步进度）→ 身体权限（相机、麦克风、定位、通知；从系统弹窗回来时重新检查）→ 保活引导（安卓）
     ├── agents.dart    多 agent 切换、身份资料、记忆历史与身体列表
     ├── home.dart      此刻：PresenceHead（光团 + 状态）、ThoughtLine、InnerSection、BodySection、poke；手机首页与桌面「她此刻」面板共用
     ├── sessions.dart  会话：SessionsList（列表、新建、重命名、归档与找回；进行中的会话带标记）与手机页
@@ -39,11 +39,19 @@ lib/
     ├── providers.dart 模型（供应商、Key、模型选择、全局顺序）
     └── about.dart     关于（三种形态共用）：简介与链接、版本（控制台 / 运行基座 / GitHub 最新发布）、检查更新、升级——安卓用 updater.dart 的 AppUpdateSection 与安装向导，Linux 桌面版 / 网页版调网关 selfUpdate 让运行基座后台重跑安装脚本，桌面版升完可「重新打开控制台」
 tool/
-├── bundle-runtime.sh  把运行基座内置进 APK（assets/runtime/）
+├── android-runtime/   App 内置的运行环境（只装一个 App）：versions.env（termux-packages 的锁定提交、包名、要编的包、打进 jniLibs 的可执行文件白名单）、
+│                      build-packages.sh（Docker 里以 App 的前缀从源码编 Node.js、git、openssh、proot 及依赖）、pack.sh（依赖闭包 → jniLibs/lib*.so + 原生资源 runtime-env/{rootfs.tar,manifest.json}）
+├── bundle-runtime.sh  把运行基座内置进 APK（assets/runtime/：main.cjs、android.mjs、VERSION）
 ├── build-web.sh       网页版构建（build/web）
 ├── build-linux.sh     Linux 桌面版构建（build/quetzal-<版本>-linux-<架构>-console.tar.gz）
 └── gen-cjk-font.py    网页版的中文字体子集（web/fonts/）
 web/                   网页版的壳：index.html、manifest、图标、fonts/
+android/app/src/main/kotlin/xyz/quetzal/console/
+├── MainActivity.kt    Flutter 桥：运行基座（quetzal/runtime）、听觉（quetzal/hearing）、App 自身更新（quetzal/updater）
+├── RuntimeService.kt  运行基座的前台服务（解开运行环境、复制运行基座、写设备配置、启动 node、退避重启、唤醒锁）与 BootReceiver（开机、App 升级后自启）
+├── BodyServer.kt      身体接口：127.0.0.1 随机端口 + 256 位令牌（写进 QUETZAL_HOME/secrets/body.json），电池、传感器、通知、拍照、录音、定位、振动、手电、剪贴板、播放
+├── Rootfs.kt          解开 rootfs.tar（GNU tar；路径限定在目标目录内）、在前缀里建指向 nativeLibraryDir/lib*.so 的链接、$PREFIX/bin/sh → /system/bin/sh
+└── HearingService.kt  耳朵：麦克风前台服务
 linux/                 Linux 桌面版的运行壳（flutter create 生成，只改了：BINARY_NAME quetzal-console、APPLICATION_ID xyz.quetzal.console（GTK 以它作 Wayland app_id 与 X11 WM_CLASS，桌面项按它配图标）、窗口标题 Quetzal、1280×800、背景 #202020、图标名 xyz.quetzal.console）
 ```
 
@@ -133,7 +141,7 @@ flowchart TB
 | 会话 | 按最近更新排序，显示条数、最后一句、是否进行中；新建、重命名、归档；「已归档」里找回 |
 | 醒来记录（只读） | 她自己醒来思考、做梦（以及某一次对话）的完整过程，显示的内容与对话页一致：缘起（因为 / 想）、工具卡片（点开看参数摘要、完整参数与结果）、中途说的话、正在写的文字，结束后接上日记、心情与想分享的一句话。**没有输入框**：这是她自己的时间，只能看，不能插话；底部一行说明想说话去「聊天」。进行中的一轮从 `sessions.live` 快照重建，随 `activity` 事件增量更新，结束后自动接上时间线里保存的记录（`detail.process`）；断线重连、从后台切回都会重建。入口：首页与心流页顶部「她醒着，在想事情… / 她在做梦…」；心流里每条记录展开后的「完整过程」 |
 | 控制 · 语音 | Azure 语音服务：密钥（只显示末四位）、区域或端点、音色（可从列表选择）、风格、语速、音调、音量、输出格式；试听。她也可以用 voice_config 自己修改 |
-| 控制 · 听觉 | **App 是这具身体的耳朵**（第一次让 App 承担身体的一部分：Android 9 起只有前台服务能常驻拿麦克风，Termux:API 的录音只能定长录文件、切片会丢字，所以耳朵放在 App 里）。原生 `HearingService`：`VOICE_COMMUNICATION` 音源（通话路径，系统在这条路径上做声学回声消除）+ 系统 `AcousticEchoCanceler` / `NoiseSuppressor` / `AutomaticGainControl`，WebRTC VAD（android-vad，MIT，JitPack）逐 20ms 帧断句（停顿 1.5 秒算说完，前置 300ms，单段最长 120 秒），一段话开始就打开到本机网关 `/hear?stream=1` 的分块 POST，边采集边送 PCM（不经过 Flutter，App 退到后台照常），基座流式识别；通知栏常驻「Quetzal 在听」。页面：开关（`setHearing`）、灵敏度（迟钝 / 适中 / 灵敏 → VAD 模式）、会话窗口与最短字数、识别语言、麦克风权限引导；此刻在不在听（没在听的原因来自基座：未开启、急停、Azure 未配置、电量或温度）、最近一句。App 只在基座 `status.hearing.listening` 为真且 agent 在本机（127.0.0.1）时开麦克风，参数变化自动重启服务。**她的声音也由这个服务播放**：耳朵一开就向基座登记为播放器（`player.set`），基座推送 `speak`，服务从 `/media/<文件名>` 取合成语音，MediaCodec 解码后用 `AudioTrack`（`USAGE_VOICE_COMMUNICATION`）播放，回声消除器以它为参考把她自己的声音从麦克风里减掉——「收听音轨 = 麦克风音轨 − 扬声器音轨」；播放期间检测到持续 400ms 人声就是插嘴，本地立即停播并回报（`player.done`，带打断它的那句话的标识），状态行在她说话时显示「她在说话（可以直接插嘴）」。录音不保存。 |
+| 控制 · 听觉 | **App 是这具身体的耳朵**（第一次让 App 承担身体的一部分：Android 9 起只有前台服务能常驻拿麦克风，定长录文件再切片会丢字，所以耳朵是独立的常驻服务，不走身体接口的 `record_audio`）。原生 `HearingService`：`VOICE_COMMUNICATION` 音源（通话路径，系统在这条路径上做声学回声消除）+ 系统 `AcousticEchoCanceler` / `NoiseSuppressor` / `AutomaticGainControl`，WebRTC VAD（android-vad，MIT，JitPack）逐 20ms 帧断句（停顿 1.5 秒算说完，前置 300ms，单段最长 120 秒），一段话开始就打开到本机网关 `/hear?stream=1` 的分块 POST，边采集边送 PCM（不经过 Flutter，App 退到后台照常），基座流式识别；通知栏常驻「Quetzal 在听」。页面：开关（`setHearing`）、灵敏度（迟钝 / 适中 / 灵敏 → VAD 模式）、会话窗口与最短字数、识别语言、麦克风权限引导；此刻在不在听（没在听的原因来自基座：未开启、急停、Azure 未配置、电量或温度）、最近一句。App 只在基座 `status.hearing.listening` 为真且 agent 在本机（127.0.0.1）时开麦克风，参数变化自动重启服务。**她的声音也由这个服务播放**：耳朵一开就向基座登记为播放器（`player.set`），基座推送 `speak`，服务从 `/media/<文件名>` 取合成语音，MediaCodec 解码后用 `AudioTrack`（`USAGE_VOICE_COMMUNICATION`）播放，回声消除器以它为参考把她自己的声音从麦克风里减掉——「收听音轨 = 麦克风音轨 − 扬声器音轨」；播放期间检测到持续 400ms 人声就是插嘴，本地立即停播并回报（`player.done`，带打断它的那句话的标识），状态行在她说话时显示「她在说话（可以直接插嘴）」。录音不保存。 |
 | 控制 · 工具 | 她自己造的工具（`tool_write`）：名字、描述、能力类别、运行方式、超时、缺的依赖、是否停用；点开看参数 schema、源码（等宽）与技能文档 SKILL.md（Markdown）；开关停用 / 启用；删除时可选连技能文档一起删。灵魂仓库里有文档而本机没有实现的技能单列。**只看不编**：改代码由她自己来，技能文档的变更在「记忆历史」里可撤销 |
 | 子 agent | 她派出的子 agent 的进展与「醒来记录」同一套只读界面（`origin` 为 `agent`）：首页与心流顶部出现「她派出的子 agent 在工作…」，点开看完整过程；完成后心流里的「子 agent」条目带报告 |
 | 此刻 | 呼吸光团（睡着暗且慢，醒着亮，思考时出现环绕粒子，急停变红）；状态一句话；听觉开着时状态下方有一行克制的「在听」（有人说话的瞬间亮成主题色，耳朵没开时显示「耳朵没开」）；她想分享的一句话（由她用 share_thought 维护，不是机器状态；折叠三行，点开看完整 Markdown）；她正在思考 / 做梦时的只读入口；「戳一下」「聊天」（首屏，位于「内在」卡片上方）；驱动力、清醒度、困意条；醒来率与抑制原因；身体读数 Chip |
@@ -147,7 +155,7 @@ flowchart TB
 | 控制 · 保密库 | 你通过保密输入交给她的值：名字、说明、时间、来源通道与大小，不显示内容；删除（二次确认） |
 | 控制 · 审批 / 审计 | 审批：理由（Markdown）与参数（JSON）；审计日志：列表一行预览，点开看完整参数与输出 |
 | 控制 · 服务 | 连接、版本、身体、系统资源、可用模型、App 内置的运行基座版本；「Quetzal App」一节（安卓）：当前版本、检查新版本、新版本的大小与「下载并安装」（下载进度 → 核对 → 系统安装器；首次要在系统设置里允许 Quetzal 安装应用，从设置页回来自动接着装）、发布说明、失败时去下载页；点火、升级 / 重装（进安装向导）、重启、重新配对。网页版没有点火与升级（那是安卓安装器的事，Linux 上再运行一次 `npx @plutokeating/quetzal` 即升级） |
-| 安装向导 | 五步卡片：① 三件套（版本检测、下载链接）② 授权 RUN_COMMAND（系统弹窗）③ 在 Termux 粘贴一行开启外部调用（复制并打开 Termux；「检测」让 Termux 回连本机 HTTP 服务确认）④ 安装 / 升级（六个子步骤的进度、失败时显示脚本日志尾部与重试）⑤ 保活引导（忽略电池优化、电池优化名单、厂商自启动管理、打开一次 Termux:Boot）。安装完成时脚本把网关令牌交给控制台，自动连接，不需要配对码。App 升级后内置版本与运行中的不同时，外壳顶部出现「升级」横幅；App 自身有新版时（GitHub 最新正式版比运行中的 App 新）出现「Quetzal App 有新版本 X」横幅，「更新」进服务页，可关掉（本次运行内） |
+| 安装向导 | 三步卡片：① 安装 / 升级（解开运行环境并启动 → 等待响应 → 连接控制台，失败时显示原因与重试；端口被旧版 Termux 安装占着时提示迁移）② 身体权限（相机、麦克风、定位、通知；授予后前台服务重新声明类型）③ 保活引导（忽略电池优化、电池优化名单、厂商自启动管理） |
 
 视觉：Material 3，种子色取当前 agent 的主题色（默认 `#F0A35E`，与官网设计系统的琥珀 accent 一致），默认深色；暗色模式下主色（按钮、进度条）直接用 agent 的主题色、其上文字用设计系统的 accent-fg `#1A120A`，而不是 M3 从种子推导的淡色；暗色背景固定为中性灰 `#202020`（RGB 32,32,32），各层容器为同一灰阶，不随主题色偏色；光团是主题色提高饱和度与亮度后的发光体（集中高光、压暗边缘、外层光晕；睡着时略沉、思考时更亮、急停变红）；动效表达状态、少用文字；光团用 `RepaintBoundary` 隔离重绘。
 
@@ -157,7 +165,7 @@ flowchart TB
 
 | # | 用例 | 流程 |
 |---|---|---|
-| U1 | 首次引导（本机） | 打开 App →「在这台手机上安装 Quetzal」→ 向导：装三件套 → 授权 → 在 Termux 粘贴一行 → 安装（几分钟）→ 自动连接 → 保活引导 → 进入此刻页配置模型 |
+| U1 | 首次引导（本机） | 打开 App →「在这台手机上安装 Quetzal」→ 向导：点「安装」（半分钟）→ 自动连接 → 允许身体权限 → 保活引导 → 进入此刻页配置模型 |
 | U1b | 连接别处的 agent | 填那台机器的地址（只填 IP 或名字，自动用 `https://…:7789`）→ 取 `/pair/info`，显示握手时看到的证书指纹 → 申请配对码 → 系统通知里看到配对码与证书短指纹，核对一致 → 输入（本机算出配对证明，码不上网络）→ 进入此刻页 |
 | U2 | 配置模型 | 控制 → 模型 → 添加供应商 → 添加 Key → 勾选模型 → 保存 → 测试 → 排序 → 她开始按自己的节律醒来（审计记录保存操作） |
 | U3 | 日常旁观 | 此刻页看状态 → 心流里展开最近的醒来 → 记忆里看她记下了什么 |
@@ -166,9 +174,9 @@ flowchart TB
 | U6 | 审批 | 某类能力设为「询问」→ 她想用时产生审批 → 控制 Tab 角标 + 飞书卡片 → 批准或拒绝 → 结果写入时间线与审计 |
 | U7 | 调节节律 | 觉得她太吵或太安静 → 调活跃度 / 暂停自主 / 性格参数 → 心流「分布」视图对比前后 |
 | U8 | 急停与恢复 | 顶部急停 → 一切行动冻结 → 查看心流与审计 → 修正授权或记忆 → 解除急停（二次确认） |
-| U9 | 离线与点火 | 离线横幅 →「点火」→ Termux 启动服务 → 自动重连；失败时给出原因（未装 Termux、未授权、未开启外部调用） |
-| U10 | 安全模式与回滚 | 反复崩溃 → 安全模式横幅 + 飞书通知 → 查看服务页 →「升级 / 重装」重新安装内置版本（安装脚本健康检查失败自动切回上一版） |
-| U21 | 升级 | 外壳横幅「Quetzal App 有新版本 X」（或服务页「检查新版本」）→「更新」→ 服务页「下载并安装」→ 下载、核对 SHA256 →（首次：系统设置里允许 Quetzal 安装应用，回来点「安装」）→ 系统安装器装好 → 打开新 App → 连上后自动进向导第 4 步（没自动进时也有横幅「App 内置的运行基座是 X，正在运行的是 Y」→「升级」）→ 新版本启动、自检通过 → 记忆与配置原样保留。装不了 GitHub 时「去下载页」手动下载 APK，之后的步骤相同 |
+| U9 | 离线与点火 | 离线横幅 →「点火」→ App 重新启动前台服务 → 自动重连；失败时给出原因（运行基座日志在 `QUETZAL_HOME/data/runtime.log`） |
+| U10 | 安全模式与回滚 | 反复崩溃 → 安全模式横幅 + 飞书通知 → 查看服务页 →「升级 / 重装」重启内置的运行基座（安卓没有自动回退；Linux 上安装脚本健康检查失败自动切回上一版） |
+| U21 | 升级 | 外壳横幅「Quetzal App 有新版本 X」（或服务页「检查新版本」）→「更新」→ 服务页「下载并安装」→ 下载、核对 SHA256 →（首次：系统设置里允许 Quetzal 安装应用，回来点「安装」）→ 系统安装器装好 → 新 App 收到「已更新」广播自动重新启动运行基座（厂商拦截时打开一次 App；运行中的版本与内置版本不同时有横幅「升级」）→ 新版本启动、自检通过 → 记忆与配置原样保留。装不了 GitHub 时「去下载页」手动下载 APK，之后的步骤相同 |
 | U11 | 修改记忆 | 记忆页编辑或删除条目 → 她的日记里写入「有人改了我的记忆」→ 她下次醒来知道 |
 | U12 | 预算触顶 | 用量接近上限 → 醒来率被压到 5% → 预算页查看并调整上限 |
 | U13 | 飞书接入 | 控制 → 飞书 → 开始 → 在飞书中确认 → 自动绑定 → 飞书单聊收到「此刻」卡片 |

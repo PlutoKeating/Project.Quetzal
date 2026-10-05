@@ -10,7 +10,7 @@ src/
 ├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式、来源身体；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote：编号段与作者、实时只收对方自己的行、字段类型与长度、时间范围；段尾 2^24 不收，本机的下一个编号不会越段）；用量只收对方自己的行；1.0 前编号的一次性迁移
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时、输出上限）；agent 的命令与后台任务经沙箱执行、工作目录为用户主目录（后台任务可随时停止整个进程组）
-├── sandbox.ts            agent 命令的沙箱：Linux 用 bwrap（密钥目录为空 tmpfs、QUETZAL_HOME 只读、浏览器配置与用户启动文件保护、独立 pid 命名空间），Termux 用 proot（遮住密钥、配置、版本目录、runit 与开机脚本），都没有时 kind=none 并提醒一次；读文件工具的真实路径检查（protectedPath）
+├── sandbox.ts            agent 命令的沙箱：Linux 用 bwrap（密钥目录为空 tmpfs、QUETZAL_HOME 只读、浏览器配置与用户启动文件保护、独立 pid 命名空间），安卓用 proot（遮住密钥、配置、版本目录、runit 与开机脚本，以及 `QUETZAL_HIDE_PATHS` 指定的目录），都没有时 kind=none 并提醒一次；读文件工具的真实路径检查（protectedPath）
 ├── secret-values.ts      基座自己的密钥值（secrets/ 下的令牌、私钥、JSON 里的令牌，模型供应商的 Key），按修改时间缓存：给脱敏与灵魂仓库提交前的检查用
 ├── voice/
 │   ├── azure.ts          语音：Azure 文本转语音（SSML、合成、音色列表、配置与密钥）与语音识别（官方 SDK 推流的连续流式识别 recognizeStream，各段拼成一段话；短语音 REST 的 recognize 兜底，长音频分段）

@@ -24,12 +24,11 @@ Quetzal 不绑定任何具体的 agent：名字、人格、主题色都来自 ta
 
 - [ ] 一台 **Android 7 以上、arm64** 的安卓手机（闲置的旧手机正好）
 - [ ] 手机能上网
-- [ ] **Termux 三件套**：Termux、Termux:API、Termux:Boot（来自同一来源）
-- [ ] **Quetzal App**（从 [下载页](/download) 或 GitHub Releases 获取最新 APK）
+- [ ] **Quetzal App**（从 [下载页](/download) 获取最新 APK）——只装这一个，别的都在里面
 - [ ] 至少一个模型供应商的 API Key（OpenAI 兼容、Anthropic、Google Gemini 都可以）
 
 > [!TIP]
-> :bulb: 全程不需要电脑，也不需要会命令行。唯一要你亲手做的，是在 Termux 里粘贴一行命令，因为 Termux 的安全设计不允许别的应用代劳。
+> :bulb: 全程不需要电脑，也不需要会命令行：打开 App，点「安装」，半分钟就好。
 >
 > 没有闲置手机、只有一台 Linux 电脑或服务器？`curl -fsSL https://quetzal.plutokeating.beer/install | bash` 一行装好（依赖自动补齐、开机自启、崩溃自动重启），网页控制台在浏览器里打开即用，见 [Linux 与其他机器](/docs/advanced/other-machines)。
 

@@ -1,19 +1,20 @@
 ---
 title: 家目录与配置
-description: QUETZAL_HOME 的目录结构、config/quetzal.json 的全部配置项，以及安卓 / Termux 部署的文件约定。
+description: QUETZAL_HOME 的目录结构、config/quetzal.json 的全部配置项，以及安卓（App 内置）、Termux（旧安装）与 Linux 部署的文件约定。
 ---
 
-## `QUETZAL_HOME`（默认：安卓 / Termux `~/quetzal`，Linux 等其他机器 `~/.quetzal`；都可用环境变量改）
+## `QUETZAL_HOME`（默认：安卓 App 数据目录下的 `files/home/quetzal`，旧的 Termux 安装 `~/quetzal`，Linux 等其他机器 `~/.quetzal`；都可用环境变量改）
 
 ```
 config/quetzal.json      运行配置（App 可改）
 config/providers.json    模型供应商（Key 为密文）
-secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、gateway-tls.key / gateway-tls.crt（局域网 HTTPS 的自签名证书）、feishu_secret、soul_ed25519、azure_speech_key
+secrets/                 0700：master.key（Key 加密主密钥）、gateway.token、gateway-tls.key / gateway-tls.crt（局域网 HTTPS 的自签名证书）、feishu_secret、soul_ed25519、azure_speech_key；安卓 App 内置时还有 body.json（身体接口的端口与令牌，App 每次启动重写）
 vault/                   0700：保密库，每项一个 0600 文件；index.json 只记说明
 data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
 data/uploads/<日期>/      对话附件
-data/media/              ta 拍的照片、录音（Termux 适配器）
+data/media/              ta 拍的照片、录音（安卓适配器）
+data/runtime.log         安卓 App 内置时：运行基座与 App 服务的日志（超过 4 MB 轮转一次）
 soul/                    灵魂目录（git 仓库）
 state/starts.json        启动记录（熔断用）
 STOP                     急停标志：存在即冻结一切行动
@@ -27,7 +28,7 @@ STOP                     急停标志：存在即冻结一切行动
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `body` | `default` | 身体名称（日记目录名）；安装器写为机型名 |
-| `adapter` | `""` | 适配器模块路径（Termux 部署用环境变量 `QUETZAL_ADAPTER`） |
+| `adapter` | `""` | 适配器模块路径（安卓 App 与 Termux 部署用环境变量 `QUETZAL_ADAPTER`） |
 | `timezone` | 系统时区（拿不到时 `Asia/Shanghai`） | 生物钟与日记使用的时区 |
 | `heart.activity` | `1` | 活跃度（0–4） |
 | `heart.baseRatePerHour` | `4` | 饱和醒来率 $\lambda_0$ |
@@ -53,26 +54,40 @@ STOP                     急停标志：存在即冻结一切行动
 | `QUETZAL_HOME` | 家目录 |
 | `QUETZAL_ADAPTER` | 身体适配器模块路径 |
 | `QUETZAL_CONSOLE_ACTIVITY` | （Termux 适配器）通知按钮打开的界面，默认 `xyz.quetzal.console/.MainActivity` |
+| `QUETZAL_HIDE_PATHS` | proot 沙箱额外遮住的目录（冒号分隔）；App 内置时由 App 设为它自己的私有数据目录 |
 
-## 安卓 / Termux 部署约定
+## 安卓部署约定（Quetzal App 内置）
 
-Quetzal App 的安装器与点火器按此约定工作：
+App 的前台服务（`RuntimeService`）按此约定工作，`<数据>` 指 `/data/data/xyz.quetzal.console`：
+
+```
+<数据>/files/usr/                 运行环境前缀：共享库、证书、git 模板、网状层原生组件（lib/quetzal/node_modules）；
+                                  bin/node、bin/git、bin/ssh、bin/ssh-keygen、bin/proot 等是指向 APK 原生库目录里 lib*.so 的链接
+<数据>/files/runtime/<版本>/      main.cjs、android.mjs（来自 App 内置资源，只留当前版本）
+<数据>/files/home/                HOME（agent 的命令默认在这里运行）
+<数据>/files/home/quetzal/        QUETZAL_HOME
+```
+
+- App 版本或原生库目录变了（升级）就重新解开运行环境，家目录不动。
+- 环境变量：`PREFIX`、`QUETZAL_HOME`、`QUETZAL_ADAPTER`（`android.mjs`）、`SSL_CERT_FILE`、`GIT_EXEC_PATH`、`PROOT_LOADER`、`QUETZAL_HIDE_PATHS`（`shared_prefs`、`app_flutter`、`databases`、`cache`、`code_cache`）。
+- 第一次启动时写入身体名字（机型，小写）与时区；之后由控制台管理。
+- 守护：进程退出后按退避（2 秒起，最长 1 分钟）重新拉起；开机（`BOOT_COMPLETED`）与 App 升级后（`MY_PACKAGE_REPLACED`）自启，厂商系统要放行「自启动」才收得到。
+
+### 旧的 Termux 安装
+
+1.0.x 时按 Termux 方式装的仍能运行（`runtime/adapters/termux/` 保留），新安装不再使用：
 
 ```
 ~/quetzal/releases/<版本>/        main.cjs、termux.mjs
 ~/quetzal/current → releases/…    运行中的版本
-~/quetzal/previous → releases/…   上一版（回退用）
 $PREFIX/var/service/quetzal/run   runit 服务：QUETZAL_ADAPTER=$HOME/quetzal/current/termux.mjs
-$PREFIX/var/log/sv/quetzal/       日志（svlogd 自动轮转）
+$PREFIX/var/log/sv/quetzal/       日志
 ~/.termux/boot/quetzal            开机脚本：termux-wake-lock + 启动 runit
-~/.termux/termux.properties       allow-external-apps=true
 ```
-
-软件包：`nodejs-lts termux-services termux-api git openssh`。只保留最近 3 个版本。健康检查 40 秒不通过自动切回 `previous`。
 
 ## Linux / npm 部署约定
 
-npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按此约定工作，与安卓同构（Linux 的家目录缺省 `~/.quetzal`，`QUETZAL_HOME` 或 `--home` 可改；0.6.7 之前装在 `~/quetzal` 的，再跑一次安装会自动整目录搬过来）；一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）在它之上再加几样：
+npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按此约定工作，与旧的 Termux 安装同构（Linux 的家目录缺省 `~/.quetzal`，`QUETZAL_HOME` 或 `--home` 可改；0.6.7 之前装在 `~/quetzal` 的，再跑一次安装会自动整目录搬过来）；一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）在它之上再加几样：
 
 ```
 ~/.quetzal/releases/<版本>/              main.cjs、linux.mjs、web/（网页控制台，网关托管 current/web/）

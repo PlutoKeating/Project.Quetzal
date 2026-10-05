@@ -124,7 +124,7 @@ git clone https://github.com/PlutoKeating/Project.Quetzal.git
 cd Project.Quetzal/runtime
 npm ci
 npm test            # unit tests
-npm run build       # produces dist/main.cjs (single file, dependencies bundled), dist/termux.mjs and dist/linux.mjs
+npm run build       # produces dist/main.cjs (single file, dependencies bundled) and the platform adapters dist/android.mjs, dist/linux.mjs, dist/termux.mjs
 QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 

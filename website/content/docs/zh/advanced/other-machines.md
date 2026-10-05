@@ -124,7 +124,7 @@ git clone https://github.com/PlutoKeating/Project.Quetzal.git
 cd Project.Quetzal/runtime
 npm ci
 npm test            # 单元测试
-npm run build       # 生成 dist/main.cjs（单文件，已内置依赖）、dist/termux.mjs 与 dist/linux.mjs
+npm run build       # 生成 dist/main.cjs（单文件，已内置依赖）与各平台适配器 dist/android.mjs、dist/linux.mjs、dist/termux.mjs
 QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 

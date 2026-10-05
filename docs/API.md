@@ -8,7 +8,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 监听 | 地址 | 协议 | 用途 |
 |---|---|---|---|
-| 本机 | `127.0.0.1:<gateway.port>`（默认 7788），另加 `[::1]` 同一端口（有 IPv6 时） | 明文 HTTP / WebSocket | 同一台机器上的控制台（Termux 里的运行基座与同一台手机上的 App、本机的网页控制台、命令行）。永远只在回环地址上，不出这台机器 |
+| 本机 | `127.0.0.1:<gateway.port>`（默认 7788），另加 `[::1]` 同一端口（有 IPv6 时） | 明文 HTTP / WebSocket | 同一台机器上的控制台（App 内置的运行基座与同一个 App、本机的网页控制台、命令行）。永远只在回环地址上，不出这台机器 |
 | 局域网 | `<gateway.host>:<gateway.lanPort>`（默认 7789；`host` 是回环地址时为 `0.0.0.0`） | HTTPS / WSS（TLS 1.2 起） | 别的设备。只在对局域网开放时启动：`gateway.lan` 为真，或 `gateway.host` 不是回环地址（兼容旧配置：`host` 为 `0.0.0.0` 即开放；`npx @plutokeating/quetzal --lan` 两项都写） |
 
 局域网上不再有明文 HTTP：旧配置 `host: 0.0.0.0` 升级后明文只留在 `127.0.0.1`，局域网改走 `lanPort` 的 HTTPS。
@@ -155,7 +155,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `restart` | — （进程退出，由守护者拉起） |
 | `gateway.rotateToken` | — → `{token}`：换一个新的网关令牌并保存，断开其他所有连接（关闭码 4001，它们手里的旧令牌作废），新令牌只返回给发起的这个连接；写审计 |
 | `selfUpdate` | — | 让这具身体在后台重跑一键安装脚本，把运行基座、网页控制台与原生控制台升到最新发布并重启服务一次：`{started, message}`。由适配器的 `upgrade()` 实现（Linux：`systemd-run --user` 起临时单元脱离服务的 cgroup，没有 systemd 用 `setsid`；日志 `logs/upgrade.log`）；安卓没有（App 自己升级） |
-| `supervision` / `setSupervision` | — / `{enabled}` | 守护开关（开机自启 + 退出后自动重启，一个开关管两件事）：`{available, enabled, kind: systemd｜runit｜loop｜none, detail}`。由身体适配器实现：Linux 是 systemd 用户服务（关 = disable + 覆盖片段 `Restart=no`）或一键安装脚本的守护循环（关 = 标志文件 `state/supervise.off` + 删开机项），安卓是 runit `down` 文件 + Termux:Boot 开机脚本；`available` 为假（手动部署）时控制台不显示开关。关闭只影响之后：正在运行的进程不受影响 |
+| `supervision` / `setSupervision` | — / `{enabled}` | 守护开关（开机自启 + 退出后自动重启，一个开关管两件事）：`{available, enabled, kind: systemd｜runit｜loop｜none, detail}`。由身体适配器实现：Linux 是 systemd 用户服务（关 = disable + 覆盖片段 `Restart=no`）或一键安装脚本的守护循环（关 = 标志文件 `state/supervise.off` + 删开机项），安卓（App 内置）是 App 前台服务的「开机与升级后自启、退出后重启」开关（`kind: loop`，经身体接口），旧的 Termux 安装是 runit `down` 文件 + Termux:Boot 开机脚本；`available` 为假（手动部署）时控制台不显示开关。关闭只影响之后：正在运行的进程不受影响 |
 
 **记忆**
 
@@ -262,9 +262,11 @@ interface RawSample {
 
 - 适配器提供的 `notify()` 的内容可能含配对码（连同证书的短指纹）：写日志时应当只在没有别的办法让人看到时才写内容（Linux 适配器：有桌面通知时日志只记标题）；
 
-- 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带两个平台级实现：`runtime/adapters/termux/`（安卓手机 + Termux:API）构建为 `dist/termux.mjs`，由 Quetzal App 的安装器随运行基座放到手机上；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `@plutokeating/quetzal` 随运行基座放到 `~/quetzal/current/`；
+- 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带几个平台级实现：`runtime/adapters/android/`（任意安卓手机）构建为 `dist/android.mjs`，随 Quetzal App 内置；`runtime/adapters/termux/`（旧的 Termux 安装：安卓手机 + Termux:API）构建为 `dist/termux.mjs`；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `@plutokeating/quetzal` 随运行基座放到 `~/quetzal/current/`；
 - 适配器从 `QUETZAL_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理。
+
+安卓适配器经 Quetzal App 的**身体接口**取得身体能力：App 在 127.0.0.1 的随机端口提供 HTTP/1.1 接口（`Authorization: Bearer <令牌>`，令牌 256 位、每次启动重新生成），端口与令牌写在 `QUETZAL_HOME/secrets/body.json`（`{port, token}`，0600）。接口：`GET /v1/info`（机型、光线与加速度传感器名、有没有相机与闪光灯）、`GET /v1/sample`（`battery {level, charging, tempC, health}`、`plugged`、`lux`、`motion`、`screenOn`）、`GET /v1/sensors`、`POST /v1/sensor {name}` → `{values}`、`POST /v1/notify {title, text}`、`POST /v1/play {file}`、`POST /v1/stop`、`POST /v1/vibrate {ms}`、`POST /v1/torch {on}`、`POST /v1/clipboard {text?}` → `{text}`、`POST /v1/location` → `{latitude, longitude, accuracy, ageMinutes}`（定不到新位置时为最近一次已知位置）、`POST /v1/photo {camera, file}`、`POST /v1/record {seconds, file}`、`GET/POST /v1/supervision {enabled}`。成功 `{ok: true, …}`，失败 `{ok: false, error}`；文件路径必须在 `QUETZAL_HOME` 之内；请求体最大 64 KiB。工具与 Termux 适配器同名同参数。
 
 Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Quetzal」按钮）、`playAudio()` / `stopAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`QUETZAL_HOME`（媒体保存位置 `data/media/`）、`QUETZAL_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.quetzal.console/.MainActivity`）。
 
@@ -275,7 +277,7 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `body` | `default` | 身体名称（日记目录名）；安装器写为机型名 |
-| `adapter` | `""` | 适配器模块路径（Termux 部署用环境变量 `QUETZAL_ADAPTER` 指定） |
+| `adapter` | `""` | 适配器模块路径（安卓 App 与 Termux 部署用环境变量 `QUETZAL_ADAPTER` 指定） |
 | `timezone` | 系统时区（拿不到时 `Asia/Shanghai`） | 生物钟与日记使用的时区 |
 | `heart.activity` / `baseRatePerHour` / `paused` | 1 / 4 / false | 活跃度、饱和醒来率、暂停 |
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日预算（多具身体时按全网合计）与身体限制 |

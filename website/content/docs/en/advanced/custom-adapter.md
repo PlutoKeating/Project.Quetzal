@@ -7,7 +7,7 @@ description: Turn a new device into a body with a few dozen lines of TypeScript:
 
 The runtime core does not know whether it runs on a phone, a Raspberry Pi or a server. Everything about the device (sensor sampling, system notifications, playing audio, device actions) comes from the **body adapter**. An adapter is an independently built ES module whose default export is a `BodyAdapter`.
 
-The repository ships two platform-level reference implementations: `runtime/adapters/termux/` (any Android phone + Termux:API, sensors detected by name), built as `dist/termux.mjs`, and `runtime/adapters/linux/` (any Linux machine: battery and temperature from `/sys`, desktop tools by detecting available programs), built as `dist/linux.mjs`.
+The repository ships several platform-level reference implementations: `runtime/adapters/android/` (any Android phone, body abilities served by the Quetzal app's local body interface), built as `dist/android.mjs`; `runtime/adapters/termux/` (older Termux installs: any Android phone + Termux:API, sensors detected by name), built as `dist/termux.mjs`; and `runtime/adapters/linux/` (any Linux machine: battery and temperature from `/sys`, desktop tools by detecting available programs), built as `dist/linux.mjs`.
 
 ## The interface
 
@@ -78,7 +78,9 @@ flowchart TB
 
 Sampling intervals adapt: two minutes while things change, stretching to ten when calm. Sampling never calls a model and is not a wake-up.
 
-## What the Termux adapter provides (reference)
+## What the Android adapter provides (reference)
+
+The same abilities as below, implemented natively by the app (Camera2 for photos; location falls back to the last known fix when no new one arrives); see [Adapter interface](/docs/reference/adapter-interface). The older Termux adapter:
 
 `sample()`: battery / charging / temperature / health, light and motion (sensors detected by name; absent ones are not reported); `notify()` (with an "Open Quetzal" button), `playAudio()`; tools `take_photo`, `record_audio`, `location`, `vibrate`, `torch`, `clipboard`, `read_sensor`. No `speak` (many phones have no system TTS); speech comes from the runtime's `voice_speak` (Azure Speech).
 

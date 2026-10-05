@@ -1,6 +1,6 @@
 ---
 title: Adapter interface
-description: The full types of BodyAdapter, RawSample, AdapterTool and Hands, how adapters are loaded, their constraints, and what the Termux adapter provides.
+description: The full types of BodyAdapter, RawSample, AdapterTool and Hands, how adapters are loaded, their constraints, and what the Android, Termux and Linux adapters provide.
 ---
 
 ## Types
@@ -55,7 +55,7 @@ interface BodyAdapter {
 
 | Source | Notes |
 |---|---|
-| Environment variable `QUETZAL_ADAPTER` | Module path (used by the Termux deployment) |
+| Environment variable `QUETZAL_ADAPTER` | Module path (used by the Android app and the Termux deployment) |
 | Config `adapter` | Path in `config/quetzal.json` |
 | Neither / load failure | Falls back to the `generic` adapter (no sensors; `sample()` returns an empty object) |
 
@@ -71,7 +71,24 @@ interface BodyAdapter {
 - Readings join OS information in the body twin, derive body feelings, and produce sense events by comparison with the previous sample; events adjust drives and trigger re-sampling.
 - `extra` appears verbatim in the "body" section she sees.
 
+## The Android adapter (`runtime/adapters/android/`, built as `dist/android.mjs`)
+
+Used when the Quetzal app runs the built-in runtime: the body abilities come from the app's own native code and reach the runtime through the local **body interface** (a random port on 127.0.0.1, token-only; port and token in `QUETZAL_HOME/secrets/body.json`, invisible to its sandboxed commands).
+
+| Capability | Implementation (app side) |
+|---|---|
+| `sample()` | Battery broadcast (level / charging / temperature / health / power source), light and accelerometer sensors (one reading each, absent ones not reported), screen on |
+| `notify()` | System notification that opens the app |
+| `playAudio()` / `stopAudio()` | The system media player |
+| Tools | `take_photo` (Camera2 capture without preview), `record_audio` (system recorder), `location` (network location; GPS too when precise location is granted; when neither gets a fix, the last known location with how long ago it was), `vibrate` / `torch` / `clipboard` / `read_sensor` (device) |
+| Supervision | The app foreground service's switch: start at boot and after app updates, restart after exit (`kind: loop`) |
+| File paths | Photo and recording output and playback input must stay inside `QUETZAL_HOME` |
+
+Camera, microphone and location need the system permissions granted in the app (step two of the setup wizard); without them the tools report an error and it asks you to allow them. It is a **platform-level** adapter too: any Android phone, everything by detection.
+
 ## The Termux adapter (`runtime/adapters/termux/`, built as `dist/termux.mjs`)
+
+Used by installs made the Termux way in 1.0.x and kept for them; new installs use the Android adapter above.
 
 | Capability | Implementation |
 |---|---|

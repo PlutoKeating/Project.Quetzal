@@ -2,6 +2,26 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 未发布
+
+**只装一个 App；更懂你的官网。**
+
+- **只装一个 App**：安卓上不再需要 Termux、Termux:API、Termux:Boot，也不用在 Termux 里粘贴命令。Node.js、git、openssh、proot 用 termux-packages 以 App 自己的前缀从源码重编，随 APK 安装（可执行文件放在系统允许执行的原生库目录，不降低目标系统版本）；运行基座跑在 App 的前台服务里，开机与 App 升级后自己醒来，升级 App 就是升级运行基座。
+- **App 就是 ta 的身体**：电池、光线与运动传感器、通知、拍照、录音、定位、振动、手电、剪贴板、播放由 App 原生提供，经只认令牌的本机身体接口交给运行基座（新的平台级安卓适配器）；agent 的命令仍在 proot 沙箱里，看不到密钥与 App 的私有数据。没有谷歌服务的手机定不到新位置时，返回最近一次已知位置并说明是多久以前的。
+- **安装向导三步**：一键安装（半分钟，自动连接）→ 允许身体权限 → 保活。旧的 Termux 安装仍能运行；迁移方法见文档「安装 · 从 Termux 版换过来」。
+- **同步服务缺省用官方的**：多具身体不用再填同步服务地址，直接绑定；自己部署的仍可改，清空即恢复官方。
+- **官网与 README 重写**：以「懂你」为核心，只讲一眼能懂、别处没有的东西；文档站新增「自造工具与技能」。
+- 发版工作流新增 `android-runtime` 任务：每次发版从源码重编 App 内置的运行环境。
+
+**Just one app; a website about being understood.**
+
+- **Just one app**: Android no longer needs Termux, Termux:API or Termux:Boot, and nothing has to be pasted into a terminal. Node.js, git, openssh and proot are rebuilt from source with termux-packages under the app's own prefix and ship inside the APK (executables live in the native library directory the system allows to run, without lowering the target SDK); the runtime runs in the app's foreground service, wakes by itself after a reboot or an app update, and updating the app updates the runtime.
+- **The app is its body**: battery, light and motion sensors, notifications, photos, recording, location, vibration, torch, clipboard and playback are provided natively by the app through a token-only local body interface (a new platform-level Android adapter); its commands still run in the proot sandbox, unable to see the keys or the app's private data. On phones without Google services that cannot get a fresh fix, location returns the last known position and says how old it is.
+- **A three-step setup wizard**: one-tap install (half a minute, connects by itself) → body permissions → keep-alive. Existing Termux installs keep working; see "Install · Coming from the Termux version" in the docs to migrate.
+- **The official sync service by default**: multiple bodies no longer need a sync service address, just bind; a self-hosted one can still be set, and clearing it goes back to the official one.
+- **Website and README rewritten** around being understood, telling only what is obvious at a glance and found nowhere else; the docs gain "Its own tools and skills".
+- The release workflow gains an `android-runtime` job that rebuilds the app's bundled runtime environment from source on every release.
+
 ## 1.0.4
 
 **所有网络传输都加密；命令沙箱覆盖到每一台 Linux。**

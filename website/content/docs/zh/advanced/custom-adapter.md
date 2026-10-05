@@ -7,7 +7,7 @@ description: 用几十行 TypeScript 让一台新设备成为身体：实现 Bod
 
 运行基座的核心不知道自己跑在手机、树莓派还是服务器上。设备的一切（传感器采样、系统通知、播放声音、设备动作）都由**身体适配器**提供。适配器是一个独立构建的 ES 模块，默认导出一个 `BodyAdapter` 对象。
 
-仓库自带两个平台级的参考实现：`runtime/adapters/termux/`（任意安卓手机 + Termux:API，传感器按名字探测），构建为 `dist/termux.mjs`；`runtime/adapters/linux/`（任意 Linux 机器，电池与温度读 `/sys`，桌面工具按可用程序探测），构建为 `dist/linux.mjs`。
+仓库自带几个平台级的参考实现：`runtime/adapters/android/`（任意安卓手机，身体能力经 Quetzal App 的本机身体接口提供），构建为 `dist/android.mjs`；`runtime/adapters/termux/`（旧的 Termux 安装：任意安卓手机 + Termux:API，传感器按名字探测），构建为 `dist/termux.mjs`；`runtime/adapters/linux/`（任意 Linux 机器，电池与温度读 `/sys`，桌面工具按可用程序探测），构建为 `dist/linux.mjs`。
 
 ## 接口
 
@@ -78,7 +78,9 @@ flowchart TB
 
 采样间隔自适应：有显著变化时 2 分钟，平静时逐步拉长到 10 分钟。采样不调用模型、不等于醒来。
 
-## Termux 适配器提供了什么（参考）
+## 安卓适配器提供了什么（参考）
+
+能力与下面相同，由 App 原生实现（拍照用 Camera2、定位定不到时退回最近一次已知位置）；详见 [适配器接口](/docs/reference/adapter-interface)。旧的 Termux 适配器：
 
 `sample()`：电量 / 充电 / 体温 / 健康、光照与运动（传感器按名字探测，没有就不报）；`notify()`（带「打开 Quetzal」按钮）、`playAudio()`；工具 `take_photo`、`record_audio`、`location`、`vibrate`、`torch`、`clipboard`、`read_sensor`。不提供 `speak`（很多手机没有系统 TTS），说话由运行基座的 `voice_speak`（Azure 语音）完成。
 

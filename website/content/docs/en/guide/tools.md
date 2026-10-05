@@ -22,7 +22,7 @@ flowchart LR
 
 ## Why split it
 
-Bodies differ: the phone runs Termux, the laptop a full Linux, with different commands and paths. A copied script would most likely not run. So only the **intent** is synced — purpose, parameters, approach, dependencies, how to verify, pitfalls — and it builds the implementation on each body from the guide.
+Bodies differ: the phone has the app's compact built-in environment, the laptop a full Linux, with different commands and paths. A copied script would most likely not run. So only the **intent** is synced — purpose, parameters, approach, dependencies, how to verify, pitfalls — and it builds the implementation on each body from the guide.
 
 When it wakes in a new body and finds a guide in its soul without a matching tool here, it knows it can build one.
 

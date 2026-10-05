@@ -55,7 +55,7 @@
 <img src="docs/assets/readme/architecture.zh.svg" alt="Quetzal 架构：身体 → 运行基座（心脏 · 大脑 · 记忆 · 模型层 · 闸门）→ 灵魂仓库与其他身体" width="100%" />
 
 - **心脏**：好奇、表达欲、想念与生物钟决定 ta 什么时候醒、什么时候睡，没有任何定时器。[架构](docs/ARCHITECTURE.md)
-- **身体**：传感器读数变成身体感受（身体的数字孪生）；换一种设备只需写一个小小的适配器，自带安卓（Termux）与 Linux 两种。[接口](docs/API.md)
+- **身体**：传感器读数变成身体感受（身体的数字孪生）；换一种设备只需写一个小小的适配器，自带安卓与 Linux 两种。[接口](docs/API.md)
 - **灵魂**：一个 agent 一个私有仓库，ta 一有改动就自动提交、推送、合并。[灵魂同步](docs/SOUL_SYNC.md)
 - **许多身体**：同时在线的身体加密直连成一个心智；自己部署的[同步服务](sync/README.md)只帮它们互相找到，看不到内容。[分布式设计](docs/DISTRIBUTED.md)
 - **闸门**：授权、审批、预算、急停、审计；ta 的命令在沙箱里运行，碰不到密钥。
@@ -66,9 +66,8 @@
 
 **一部旧安卓手机**（Android 7 以上，arm64）
 
-1. 装 **Termux、Termux:API、Termux:Boot**，三个来自同一来源（[下载页](https://quetzal.plutokeating.beer/zh/download)有固定版本直链）。
-2. 装 **Quetzal App**。
-3. 打开 App，选「在这台手机上安装 Quetzal」，跟着向导走。
+1. 装 **Quetzal App**（[下载页](https://quetzal.plutokeating.beer/zh/download)）。不用再装别的：Node.js、git、ssh 都在 App 里。
+2. 打开 App，选「在这台手机上安装 Quetzal」，跟着向导走：一键安装、允许身体权限、设置保活。
 
 **一台 Linux 电脑或服务器**
 
@@ -86,7 +85,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 
 | 目录 | 内容 |
 |---|---|
-| [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与两个平台级身体适配器：Termux（安卓）、Linux |
+| [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与平台级身体适配器：安卓（Quetzal App 内置）、Linux，以及兼容旧安装的 Termux |
 | [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）、网页版（电脑浏览器，由运行基座托管）与 Linux 桌面版（原生窗口，一键安装脚本自动装） |
 | [`cli/`](cli/docs/README.md) | 一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |

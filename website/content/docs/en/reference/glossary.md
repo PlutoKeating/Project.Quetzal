@@ -51,11 +51,11 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | certificate fingerprint | 证书指纹 | The SHA-256 fingerprint of the gateway's self-signed certificate, short form like `1a2b 3c4d 5e6f 7a8b`; compared in the app and the pairing notification when pairing, after which the app accepts only that certificate |
 | pairing code | 配对码 | Eight letters and digits (like ABCD-EFGH), valid five minutes, locked for a while after repeated wrong guesses, for a console on another device to connect to the gateway; a browser on the same machine needs none (the gateway lets it in directly) |
 | web console | 网页控制台 | The console as a web page, served by the runtime's gateway (`http://127.0.0.1:7788/`) and laid out for a wide screen; installed on Linux machines by the npm package |
-| ignite | 点火 | The app re-running the boot script through Termux when the runtime is offline |
+| ignite | 点火 | The app starting its own foreground service again (the runtime built into the app) when the runtime is offline |
 | safe mode | 安全模式 | Protective state after more than five starts in ten minutes: gateway and Feishu only |
 | Now | 此刻 | The app's home page: state, drives, the thought she wants to share |
 | Flow | 心流 | The app's timeline page: wake-ups, dreams, conversations |
 | proactive message | 主动消息 | A message she sends with `send_message` when waking on her own |
 | hands | hands | The reserved screen-and-apps interface (not yet implemented) |
-| Termux trio | Termux 三件套 | Termux, Termux:API, Termux:Boot, all from the same source |
-| home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives; default `~/quetzal` on Android and `~/.quetzal` on Linux, overridable |
+| body interface | 身体接口 | The body abilities (sensors, notifications, camera, microphone, location…) the Quetzal app serves locally to its built-in runtime; token-only, address and token in `secrets/body.json` |
+| home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives; default `files/home/quetzal` in the app's data directory on Android (`~/quetzal` for older Termux installs) and `~/.quetzal` on Linux, overridable |

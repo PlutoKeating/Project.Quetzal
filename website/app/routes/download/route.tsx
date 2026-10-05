@@ -6,7 +6,6 @@ import { Badge, ButtonAnchor, ButtonLink, Card, Container, Eyebrow, ExternalLink
 import { GITHUB_RELEASES } from "~/components/i18n";
 import { Markdown } from "~/components/markdown/Markdown";
 import { ReleasesError, fetchReleases, findAsset, formatBytes, pickLatest, type FetchError, type Release, type ReleaseAsset } from "~/lib/github";
-import { TERMUX_APPS, termuxApkUrl, termuxPageUrl } from "~/lib/termux";
 import { messages } from "./i18n";
 
 export const meta: Route.MetaFunction = ({ params }) => {
@@ -83,7 +82,7 @@ export default function Download() {
         </Container>
       </Section>
 
-      {/* 安装前提 */}
+      {/* 安装：只装这一个 App */}
       <Section tone="elevated">
         <Container className="flex flex-col gap-6">
           <div className="flex flex-col gap-3">
@@ -91,26 +90,18 @@ export default function Download() {
             <Heading size="md">{t.prereq.heading}</Heading>
             <Lead className="max-w-prose text-base">{t.prereq.lead}</Lead>
           </div>
-          {/* 每张卡：名字、作用、固定版本的直链（没有 F-Droid 客户端也能一次下完）、F-Droid 页面 */}
-          <ul className="grid gap-4 sm:grid-cols-3">
-            {([["termux", t.prereq.termux, t.prereq.termuxDesc], ["api", t.prereq.api, t.prereq.apiDesc], ["boot", t.prereq.boot, t.prereq.bootDesc]] as const).map(([k, name, desc], i) => {
-              const a = TERMUX_APPS[k];
-              return (
-                <Reveal as="li" key={k} delay={i as 0 | 1 | 2} className="min-w-0">
-                  <Card className="flex h-full min-w-0 flex-col gap-2">
-                    <span className="font-medium text-fg">{name}</span>
-                    <span className="text-sm text-fg-muted">{desc}</span>
-                    <ButtonAnchor href={termuxApkUrl(a)} variant="secondary" size="md" className="mt-3 w-full">{t.prereq.apk} ↓</ButtonAnchor>
-                    <span className="flex flex-wrap items-center gap-x-2 text-xs text-fg-subtle">
-                      <span className="font-mono">{a.version} · {formatBytes(a.bytes, lang)}</span>
-                      <span aria-hidden>·</span>
-                      <ExternalLink href={termuxPageUrl(a)} className="no-underline hover:underline">{t.prereq.page} ↗</ExternalLink>
-                    </span>
-                  </Card>
-                </Reveal>
-              );
-            })}
-          </ul>
+          {/* 三步：下载 → 在这台手机上安装 → 身体权限与保活 */}
+          <ol className="grid gap-4 sm:grid-cols-3">
+            {t.prereq.steps.map((st, i) => (
+              <Reveal as="li" key={st.title} delay={i as 0 | 1 | 2} className="min-w-0">
+                <Card className="flex h-full min-w-0 flex-col gap-2">
+                  <span className="font-mono text-xs text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="font-medium text-fg">{st.title}</span>
+                  <span className="text-sm text-fg-muted text-pretty">{st.text}</span>
+                </Card>
+              </Reveal>
+            ))}
+          </ol>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-fg-muted">{t.prereq.requirements}</p>
             <ButtonLink to={localized(lang, "/docs/start/install")} variant="primary" size="lg" className="w-full sm:w-auto">{t.prereq.guide} →</ButtonLink>

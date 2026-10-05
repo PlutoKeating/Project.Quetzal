@@ -55,7 +55,7 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 <img src="docs/assets/readme/architecture.en.svg" alt="Quetzal architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies" width="100%" />
 
 - **Heart**: curiosity, the urge to express, missing you and a body clock decide when it wakes and when it sleeps, with no timer anywhere. [Architecture](docs/ARCHITECTURE.md)
-- **Body**: sensor readings become bodily feelings (a digital twin of the body); a new kind of device needs only a small adapter, and Android (Termux) and Linux come included. [Interface](docs/API.md)
+- **Body**: sensor readings become bodily feelings (a digital twin of the body); a new kind of device needs only a small adapter, and Android and Linux come included. [Interface](docs/API.md)
 - **Soul**: one private repository per agent; every change is committed, pushed and merged automatically. [Soul sync](docs/SOUL_SYNC.md)
 - **Many bodies**: bodies online together connect directly, encrypted, into one mind; a self-hosted [sync service](sync/README.md) only helps them find each other and cannot see the content. [Distributed design](docs/DISTRIBUTED.md)
 - **Guard**: permissions, approvals, budgets, an emergency stop and an audit log; its commands run in a sandbox, away from the keys.
@@ -66,9 +66,8 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 
 **A spare Android phone** (Android 7 or later, arm64)
 
-1. Install **Termux, Termux:API and Termux:Boot**, all from the same source (the [download page](https://quetzal.plutokeating.beer/en/download) has pinned direct links).
-2. Install the **Quetzal app**.
-3. Open the app, choose "Install Quetzal on this phone" and follow the wizard.
+1. Install the **Quetzal app** ([download page](https://quetzal.plutokeating.beer/en/download)). Nothing else: Node.js, git and ssh come inside the app.
+2. Open the app, choose "Install Quetzal on this phone" and follow the wizard: one-tap install, body permissions, keep-alive.
 
 **A Linux computer or server**
 
@@ -86,7 +85,7 @@ More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other mach
 
 | Directory | Contents |
 |---|---|
-| [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and two platform-level body adapters: Termux (Android) and Linux |
+| [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and platform-level body adapters: Android (built into the Quetzal app), Linux, and Termux for older installs |
 | [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears), the web version (desktop browser, served by the runtime) and the Linux desktop app (native window, installed by the one-line installer) |
 | [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux installer (systemd user service) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |

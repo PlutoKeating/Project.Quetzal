@@ -1,81 +1,51 @@
 ---
 title: Install
-description: Put the Termux trio and the Quetzal app on a spare Android phone, then let the wizard install the runtime inside Termux.
+description: Install just one app, Quetzal, on a spare Android phone, and let the wizard set up the runtime in one tap.
 ---
 
 ## Overview
 
-Four steps: install the Termux trio → install the Quetzal app → install the runtime from the app's wizard → keep the system from killing it. It takes a few minutes and a few tens of megabytes. (Installing on a Linux computer or server is a different path: one line, `curl -fsSL https://quetzal.plutokeating.beer/install | bash`, see [Linux and other machines](/docs/advanced/other-machines).)
+Just one app. The runtime, Node.js, git and ssh all live inside the Quetzal app: no Termux, no command line. (Installing on a Linux computer or server is a different path: one line, `curl -fsSL https://quetzal.plutokeating.beer/install | bash`, see [Linux and other machines](/docs/advanced/other-machines).)
 
 ```mermaid
 flowchart TB
-  A["1. Install the Termux trio<br/>same source"] --> B["2. Install the Quetzal app<br/>download page / Releases"] --> C
-  subgraph C["3. Follow the app wizard"]
+  A["1. Install the Quetzal app"] --> C
+  subgraph C["2. Follow the app's wizard"]
     direction LR
-    C1["Allow commands to Termux"] --> C2["Paste one line in Termux<br/>to allow external apps"] --> C3["Tap Install<br/>the rest is automatic"]
+    C1["Tap Install<br/>half a minute, connects itself"] --> C2["Allow body permissions<br/>camera · microphone · location · notifications"] --> C3["Keep-alive<br/>battery + autostart"]
   end
-  C --> D["4. Keep it alive<br/>battery whitelist + autostart"] --> E(("it wakes up"))
+  C --> E(("it wakes up"))
 ```
 
-## 1. Install the Termux trio
+Requirements: an **Android 7+ arm64** phone.
 
-All three come from F-Droid. These are direct links to pinned versions, so you can download them all at once without the F-Droid client:
+## 1. Install the Quetzal app
 
-- **Termux** · 0.119.0-beta.3 · 110 MB
+Download the latest APK from the [download page](/download) and install it. You may need to allow installing from unknown sources the first time. To make sure the APK has not been tampered with, see [Release signatures and verification](#release-signatures-and-verification) below.
 
-  The Linux environment the runtime lives in.
+## 2. Follow the wizard
 
-  [Download APK](https://f-droid.org/repo/com.termux_1022.apk) [F-Droid page](https://f-droid.org/packages/com.termux/)
+Open Quetzal and choose **"Install Quetzal on this phone"** on the home screen. The wizard has three steps:
 
-- **Termux:API** · 0.53.0 · 3.9 MB
-
-  Battery, sensors, notifications, camera, microphone, location, clipboard; without it she cannot feel her body.
-
-  [Download APK](https://f-droid.org/repo/com.termux.api_1002.apk) [F-Droid page](https://f-droid.org/packages/com.termux.api/)
-
-- **Termux:Boot** · 0.8.1 · 26 KB
-
-  Start on boot; without it you must ignite manually after a reboot.
-
-  [Download APK](https://f-droid.org/repo/com.termux.boot_1000.apk) [F-Droid page](https://f-droid.org/packages/com.termux.boot/)
+1. **Install the runtime**: tap "Install". The app unpacks its bundled runtime environment, starts the runtime and checks the gateway; it takes about half a minute, and the console **connects automatically**, no pairing code needed. The runtime runs in the app's own foreground service (a permanent "lives on this phone" notification).
+2. **Let it feel its body**: tap "Allow" and accept camera, microphone, location (and notifications on Android 13+). This is only the system-level grant; every use still passes the [permissions](/docs/guide/permissions) you set in the app (camera, microphone and location ask every time by default).
+3. **Keep it alive**: add Quetzal to the **battery optimization ignore list** and **allow** it in your vendor's "autostart / background" manager.
 
 > [!IMPORTANT]
-> All three must come from the **same source** (same signature) or they cannot talk to each other. The direct links above and the F-Droid pages are the same source. The Termux on Google Play is deprecated; do not use it.
-
-After installing, **open Termux once** and wait for it to finish initializing (the first launch unpacks the environment and takes a little while).
-
-## 2. Install the Quetzal app
-
-Download the latest APK from the [download page](/download) or GitHub Releases and install it. You may need to allow installing from unknown sources the first time. To make sure the APK has not been tampered with, see [Release signatures and verification](#release-signatures-and-verification) below.
-
-## 3. Install the runtime with the wizard
-
-Open Quetzal and choose **"Install Quetzal on this phone"** on the home screen. The wizard walks you through:
-
-1. **Install the Termux trio**: it checks that all three are installed and their versions match, and links to anything missing.
-2. **Allow Quetzal to send commands to Termux**: the system shows a "Run commands in Termux" permission request; allow it.
-3. **Allow external apps in Termux (the only manual step)**: tap "Copy and open Termux", then in Termux **long-press → Paste → Enter**. Go back to Quetzal and tap "I ran it, check". That line does exactly one thing: it writes `allow-external-apps=true` into Termux's settings so Quetzal can ask Termux to run the install script.
-4. **Install the runtime**: tap "Install". Inside Termux the wizard installs Node.js, runit, the Termux:API command-line tools and git; places the runtime bundled in the app; registers the runit service, logging and boot script; writes the body name and timezone; starts it and runs a health check. You see step-by-step progress. When done the app **connects automatically**; no pairing code is needed.
-
-> [!NOTE]
-> On networks where package downloads are slow (mainland China), the wizard picks a mirror automatically based on your system language. Keep Quetzal in the foreground during installation: the runtime files are served from the app.
-
-## 4. Keep her alive
-
-Android kills background apps. The last wizard step guides you to:
-
-- add **Termux, Termux:Boot, Termux:API and Quetzal** to the **battery optimization ignore list**;
-- **allow** them in your vendor's "autostart / background" manager;
-- **open Termux:Boot once** so the system registers it.
+> Many vendor systems (EMUI, MIUI, ColorOS…) do not let an app be woken in the background unless it is allowed to autostart: without that, it will not wake by itself after a reboot or an app update until you open the app once.
 
 > [!WARNING]
-> Phones with a lock screen password: Android's file-based encryption means Termux's data is unavailable until you **unlock once after a reboot**, so she only wakes after that first unlock. This is not a Quetzal limitation; it applies to anything running in Termux.
+> Phones with a lock screen password: Android's file-based encryption keeps the app's data unavailable until you **unlock once after a reboot**, so it only wakes after that first unlock.
+
+### Coming from the Termux version
+
+If you installed the older Termux-based way: in the old console make sure the soul has been pushed to the soul repository (**Control → Soul sync**), then uninstall the old Quetzal and the three Termux apps and install the new app. Once installed, **do not change the identity first**: connect the same soul repository under **Control → Soul sync**, and its personality and memory come back. Conversations are not in the soul repository and do not move over.
 
 ## After installing
 
-Open Quetzal's **Now** page to see her state and drives. She will not wake until you configure a model. Continue with [First steps](/docs/start/first-steps).
+Open Quetzal's **Now** page to see its state and drives. It will not wake until you configure a model. Continue with [First steps](/docs/start/first-steps).
 
-**Upgrading**: when a new release is out, the app says so at the top; **Control → Service → Quetzal App → Download and install** installs the new app in one tap, and the new app then upgrades its bundled runtime. See [Upgrade and rollback](/docs/guide/upgrade).
+**Upgrading**: when a new release is out, the app says so at the top; **Control → Service → Quetzal App → Download and install** installs the new app in one tap; the new app carries the new runtime and restarts it by itself (open the app once if your vendor blocks that). See [Upgrade and rollback](/docs/guide/upgrade).
 
 ## Release signatures and verification
 

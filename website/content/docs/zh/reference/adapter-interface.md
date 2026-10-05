@@ -1,6 +1,6 @@
 ---
 title: 适配器接口
-description: BodyAdapter、RawSample、AdapterTool、Hands 的完整类型，加载方式与约束，以及 Termux 适配器的能力清单。
+description: BodyAdapter、RawSample、AdapterTool、Hands 的完整类型，加载方式与约束，以及安卓、Termux、Linux 适配器的能力清单。
 ---
 
 ## 类型
@@ -55,7 +55,7 @@ interface BodyAdapter {
 
 | 来源 | 说明 |
 |---|---|
-| 环境变量 `QUETZAL_ADAPTER` | 模块路径（Termux 部署用这个） |
+| 环境变量 `QUETZAL_ADAPTER` | 模块路径（安卓 App 与 Termux 部署用这个） |
 | 配置 `adapter` | `config/quetzal.json` 里的路径 |
 | 都没有 / 加载失败 | 回退到通用适配器 `generic`（无传感器，`sample()` 返回空对象） |
 
@@ -71,7 +71,24 @@ interface BodyAdapter {
 - 读数与操作系统信息一起进入身体孪生，派生身体感受，与上次比较产生 sense 事件，影响驱动力并触发重新抽样。
 - `extra` 原样进入 ta 看到的「身体」段落。
 
+## 安卓适配器（`runtime/adapters/android/`，构建为 `dist/android.mjs`）
+
+Quetzal App 内置运行基座时用它：身体能力由 App 自己的原生代码提供，经本机的**身体接口**交给运行基座（127.0.0.1 的随机端口，只认令牌；端口与令牌在 `QUETZAL_HOME/secrets/body.json`，agent 的命令在沙箱里看不到）。
+
+| 能力 | 实现（App 侧） |
+|---|---|
+| `sample()` | 电池广播（电量 / 充电 / 体温 / 健康 / 充电方式）、光线与加速度传感器（各读一次，没有就不报）、是否亮屏 |
+| `notify()` | 系统通知，点开进入 App |
+| `playAudio()` / `stopAudio()` | 系统媒体播放器 |
+| 工具 | `take_photo`（Camera2 无预览拍照）、`record_audio`（系统录音）、`location`（网络定位；给了精确定位时加 GPS；都定不到时返回最近一次已知位置并说明是多久以前的）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device） |
+| 守护 | App 前台服务的开关：开机与 App 升级后自启、退出后重启（`kind: loop`） |
+| 文件路径 | 拍照、录音的输出与播放的输入都只能在 `QUETZAL_HOME` 之内 |
+
+相机、麦克风、定位需要用户在 App 里授予系统权限（安装向导第二步）；没授权时工具报错，ta 会请你去允许。它同样是**平台级**适配器：任意安卓手机，一切靠探测。
+
 ## Termux 适配器（`runtime/adapters/termux/`，构建为 `dist/termux.mjs`）
+
+1.0.x 按 Termux 方式安装时使用，保留以兼容旧安装；新安装用上面的安卓适配器。
 
 | 能力 | 实现 |
 |---|---|

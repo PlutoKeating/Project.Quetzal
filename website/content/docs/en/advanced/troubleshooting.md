@@ -7,11 +7,9 @@ description: Stuck installs, she never wakes, killed by the system, offline afte
 
 | Symptom | Cause and fix |
 |---|---|
-| "Termux has not responded yet" | The line has not run successfully, or Termux is still initializing after its first launch. Open Termux, wait, paste and press Enter again, then tap "I ran it, check" |
-| "Failed to update package sources" | No network on the phone, or the mirror is down. Try another network; on mainland-China networks the wizard picks a mirror from your system language |
-| "Could not fetch the runtime version" | Quetzal was sent to the background during installation. Keep it in the foreground and retry |
-| "New version did not respond within 40 s, switched back" | The new version failed to start and was rolled back automatically. The log is at `$PREFIX/var/log/sv/quetzal/current` in Termux; feel free to open an issue on GitHub |
-| The three Termux apps do not see each other | They are not from the same source (different signatures). Uninstall all three and reinstall from one source |
+| "A runtime is already running on this phone" | Most likely the old version installed in Termux is still running on the same port. Migrate as in [Coming from the Termux version](/docs/start/install#coming-from-the-termux-version): make sure the soul is pushed, uninstall the Termux version (or `sv down quetzal` in Termux), then come back and install |
+| "The runtime did not respond within 180 seconds" | The built-in runtime failed to start. The log is `files/home/quetzal/data/runtime.log` in the app's data directory (readable from a computer with `adb shell run-as xyz.quetzal.console`, debug builds only); open an issue on GitHub with it. Try **Retry** first |
+| "Could not read the gateway token" / "checking the gateway failed" | The runtime is up but the token does not match, most likely because the data directory was edited by hand. Restart under **Control → Service** and try again |
 
 ## She never wakes
 
@@ -25,13 +23,13 @@ Check in order:
 
 ## Offline / killed by the system
 
-- When the **Now** page shows the offline banner, tap **Ignite**: the app re-runs the boot script through Termux.
-- Killed repeatedly: make sure Termux, Termux:Boot, Termux:API and Quetzal are all on the **battery optimization ignore list** and **allowed** in the vendor's autostart / background manager. Some vendor systems ship a separate power-saving component that ignores the whitelist; it has to be disabled in system settings ([Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) documents this for one old phone).
-- **Offline after a reboot**: phones with a lock screen password must be unlocked once; Termux:Boot must have been opened once to receive the boot broadcast.
+- When the **Now** page shows the offline banner, tap **Ignite**: the app starts its own foreground service again (the permanent "lives on this phone" notification).
+- Killed repeatedly: make sure Quetzal is on the **battery optimization ignore list** and **allowed** in the vendor's autostart / background manager. Some vendor systems ship a separate "power genie" style component that ignores the whitelist and must be turned off or disabled in system settings ([Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) records how on one old phone).
+- **Offline after a reboot or an app update**: phones with a lock screen password must be unlocked once; if the vendor system has not allowed autostart, the boot and update broadcasts are blocked, so open the app once; after allowing autostart this no longer happens.
 
 ## Safe mode
 
-She tells you she "entered safe mode": more than five starts in ten minutes. Only the gateway and Feishu are up; no waking, no model calls. Usually a corrupted configuration or a provider-layer fault. Read the log (`$PREFIX/var/log/sv/quetzal/current` in Termux), fix the cause, then restart from **Control → Service**.
+She tells you she "entered safe mode": more than five starts in ten minutes. Only the gateway and Feishu are up; no waking, no model calls. Usually a corrupted configuration or a provider-layer fault. Read the log (phone: `files/home/quetzal/data/runtime.log` in the app's data directory; Linux: `quetzal logs`), fix the cause, then restart from **Control → Service**.
 
 ## Models
 

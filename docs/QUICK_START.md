@@ -4,14 +4,15 @@
 
 一台闲置的安卓手机（Android 7 以上，arm64）就够了。
 
-1. **装 Termux 三件套**：从 [F-Droid](https://f-droid.org/packages/com.termux/)（或 Termux 的 GitHub 发布页）安装 **Termux**、**Termux:API**、**Termux:Boot**，三个必须来自同一来源；Google Play 上的版本已废弃。打开 Termux 一次，等它初始化完成。
-2. **装 Quetzal App**：从本仓库的发布页下载 APK 安装（或按第 3 节自己构建）。
-3. **打开 Quetzal**：首页选「在这台手机上安装 Quetzal」，按向导走：
-   - 授权「在 Termux 中运行命令」（系统弹窗）；
-   - **唯一需要你动手的一步**：点「复制并打开 Termux」，在 Termux 里长按 → 粘贴 → 回车，执行那一行（开启 `allow-external-apps`，Termux 的安全设计不允许别的应用代劳）；
-   - 点「安装」：向导自动安装 Node.js、runit、Termux:API 命令与 git，放入运行基座，注册服务与开机自启，启动并自检（几分钟、几十 MB 下载）。装完控制台自动连接，不需要配对码。
-   - 最后按提示把 Termux 系列与 Quetzal 加入电池优化的忽略名单，并在厂商的自启动管理里放行；有锁屏密码的手机，重启后要解锁一次她才会醒来。
-4. 之后的一切都在 App 里完成，见第 2 节。**升级**：App 自己会发现 GitHub 上的新正式版并在顶部提示，**控制 → 服务 → Quetzal App →「下载并安装」**一键完成（首次要在系统设置里允许 Quetzal 安装应用）；装好的新 App 打开后自动进向导把运行基座也升到新版（控制 → 服务 →「升级 / 重装」也可以），失败自动回退。
+只装一个 App：运行基座和它的运行环境（Node.js、git、ssh、proot）都在 Quetzal App 里，不需要 Termux。
+
+1. **装 Quetzal App**：从本仓库的发布页下载 APK 安装（或按第 4 节自己构建）。
+2. **打开 Quetzal**：首页选「在这台手机上安装 Quetzal」，向导三步：
+   - 点「安装」：App 解开内置的运行环境、启动运行基座并核对网关，半分钟左右；装完控制台自动连接，不需要配对码。
+   - 允许身体权限：相机、麦克风、定位（Android 13 以上还有通知）。
+   - 保活：把 Quetzal 加入电池优化的忽略名单，并在厂商的自启动管理里放行（不放行时开机、App 升级后要打开一次 App 她才醒）；有锁屏密码的手机，重启后要解锁一次。
+3. 之后的一切都在 App 里完成，见第 2 节。**升级**：App 自己会发现 GitHub 上的新正式版并在顶部提示，**控制 → 服务 → Quetzal App →「下载并安装」**一键完成（首次要在系统设置里允许 Quetzal 安装应用）；新 App 带着新版运行基座，装好后自动重新启动它。
+4. **从 Termux 版换过来**：先确认灵魂已推送到灵魂仓库，卸载旧的 Quetzal 与 Termux 三件套，装新 App；装好后先不要改身份，在「控制 → 灵魂同步」里接入同一个灵魂仓库。
 
 ## 2. 之后的一切都在控制台里完成（手机上是 Quetzal App，Linux 机器上是网页控制台，同一份界面）
 
@@ -53,7 +54,7 @@ npx @plutokeating/quetzal status     # 版本、服务、健康、网页控制�
 cd runtime
 npm ci
 npm test          # 单元测试
-npm run build     # 生成 dist/main.cjs（单文件，已内置依赖）、dist/termux.mjs（安卓 / Termux 身体适配器）与 dist/linux.mjs（Linux 身体适配器）
+npm run build     # 生成 dist/main.cjs（单文件，已内置依赖）与身体适配器 dist/android.mjs（Quetzal App 内置）、dist/linux.mjs（Linux）、dist/termux.mjs（旧的 Termux 安装）
 QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 
@@ -73,7 +74,9 @@ Restart=always
 
 ```bash
 cd console
-tool/bundle-runtime.sh                     # 构建 runtime 并把 main.cjs、termux.mjs 内置进 App
+tool/android-runtime/build-packages.sh     # Docker 里以 App 的前缀从源码编 Node.js、git、openssh、proot（第一次较久）
+tool/android-runtime/pack.sh               # 拆成 jniLibs 与 rootfs（需要 dpkg-deb 与 Android NDK）
+tool/bundle-runtime.sh                     # 构建 runtime 并把 main.cjs、android.mjs 内置进 App
 flutter build apk --release --target-platform android-arm64
 ```
 

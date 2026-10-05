@@ -1,6 +1,6 @@
 ---
 title: Upgrade and rollback
-description: The app finds new releases and installs them in one tap, then upgrades the runtime; on Linux, rerun the install command; a failed health check rolls back automatically; restart and reinstall from the Service page.
+description: On phones, updating the app updates the runtime; on Linux, rerun the install command, and a failed health check rolls back automatically; restart and reinstall from the Service page.
 ---
 
 ## Upgrading
@@ -12,9 +12,12 @@ description: The app finds new releases and installs them in one tap, then upgra
 **Phones**: two layers, both one tap inside the app.
 
 1. **The app itself**: every time you open the app it asks GitHub for the latest release and shows "A new Quetzal app version is available" at the top. Tap **Update** to reach **Control → Service → Quetzal App**, then **Download and install**: it downloads the APK, checks the release signature and its SHA256 (see [Release signatures and verification](/docs/start/install#release-signatures-and-verification)), makes sure the new APK is signed with the same certificate as the installed app, and only then hands it to the system installer; if any check fails it refuses to install. The first time, the system settings open so you can allow Quetzal to install apps; installation continues when you come back. You can also **Check for updates** there any time; if GitHub is unreachable, **Download page** lets you fetch the APK by hand and the rest is the same.
-2. **The runtime**: the Quetzal app bundles the runtime. When the new app opens and notices its bundled version is newer than the running one, it goes straight to the upgrade step of the setup wizard (or offers a **one-tap upgrade** on the home screen); you can also trigger it from **Control → Service → Upgrade / Reinstall**.
+2. **The runtime**: the runtime and its environment (Node.js, git, ssh, proot) live inside the app, so **updating the app updates the runtime**. Once the new app is installed, the system's "app updated" broadcast restarts the runtime by itself; if your vendor system blocks background starts (autostart not allowed), open the app once.
 
-Upgrading runs the same idempotent script as installation:
+> [!NOTE]
+> There is no automatic rollback on phones: if the new runtime fails to start, the app keeps restarting it with backoff and writes the reason to the log (see [Troubleshooting](/docs/advanced/troubleshooting)).
+
+On **Linux machines**, upgrading runs the same idempotent script as installation:
 
 ```mermaid
 flowchart TB
@@ -31,17 +34,17 @@ flowchart TB
 > [!TIP]
 > The app version equals the runtime version. The Service page shows the running version and the version bundled in the app.
 
-## Automatic rollback
+## Automatic rollback (Linux)
 
-If the new version does not pass the health check within 40 seconds, the script points `current` back to the previous version, restarts, and reports the reason in the wizard. Nothing for you to do.
+If the new version does not pass the health check within 40 seconds, the install script points `current` back to the previous version, restarts, and reports the reason. Nothing for you to do.
 
 ## Manual actions
 
 **Control → Service**:
 
-- **Restart**: the process exits and runit brings it back at once (asks for confirmation).
-- **Upgrade / Reinstall**: re-runs the install script; use it to repair a broken installation.
-- **Ignite**: when the runtime is offline, the app re-runs the boot script through Termux.
+- **Restart**: the process exits and its supervisor brings it back at once (on phones the app's foreground service, on Linux systemd or the supervisor loop; asks for confirmation).
+- **Upgrade / Reinstall**: on phones, restarts the app's bundled runtime and checks the gateway; on Linux, re-runs the install script. Use it to repair a broken installation.
+- **Ignite**: when the runtime is offline, the app starts its own foreground service again.
 
 ## Circuit breaker and safe mode
 
