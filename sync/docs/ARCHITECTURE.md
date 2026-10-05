@@ -92,7 +92,7 @@ sync/
 | 资源耗尽 | 请求体 16 KiB 上限、WebSocket 帧 64 KiB、每条连接 10 秒内 200 条消息且 512 KiB、接收方积压超过 1 MiB 断开（4408）；握手前按地址（IPv6 按 /64）限制：同时最多 20 条连接、每分钟 60 次握手；hello 之前只收一条消息、格式不对立即断开、10 秒内必须 hello；30 秒心跳清理半开连接；申请绑定码、轮询与登录按地址限流；限流器条目有硬上限 |
 | 伪造客户端地址绕过限流 | 只在 `SYNC_TRUST_PROXY` 下看请求头：先 `CF-Connecting-IP`（Cloudflare 边缘设置；caddy 模式下 Caddy 删掉客户端自带的），否则 `X-Forwarded-For` 最右一项 |
 | 被解绑或删除后继续使用 | 解绑、删除 agent、删除账户都立即断开对应的连接，令牌作废，作废从它发起的控制台登录与缓存的 TURN 凭据 |
-| 容器逃逸后的影响 | 同步服务：非 root、只读根文件系统、丢弃全部 capability、`no-new-privileges`、内存 256 MiB 与 64 个进程上限、只在内部网络；coturn：以 nobody 运行、只读根文件系统（`/tmp` 与 `/var/lib/coturn` 为 tmpfs）、只保留 `NET_BIND_SERVICE`（镜像里的 turnserver 带这个文件 capability，没有它无法执行）、`no-new-privileges`、内存 256 MiB 与 128 个进程上限；Caddy 只保留 `NET_BIND_SERVICE` |
+| 容器逃逸后的影响 | 同步服务：非 root、只读根文件系统、丢弃全部 capability、`no-new-privileges`、内存 256 MiB 与 64 个进程上限、只在内部网络；coturn：以 nobody 运行（`/tmp` 与 `/var/lib/coturn` 为 tmpfs；不设只读根文件系统，Compose 不能把内联配置放进只读容器）、只保留 `NET_BIND_SERVICE`（镜像里的 turnserver 带这个文件 capability，没有它无法执行）、`no-new-privileges`、内存 256 MiB 与 128 个进程上限；Caddy 只保留 `NET_BIND_SERVICE` |
 | 镜像被替换 | 三个镜像按多架构索引的 `sha256` 摘要固定；换镜像源时保留摘要，拉到的仍是同一份内容 |
 
 **已知限制**：

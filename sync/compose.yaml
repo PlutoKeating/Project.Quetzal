@@ -71,7 +71,8 @@ services:
       - source: turnserver
         target: /etc/coturn/turnserver.conf
     user: "65534:65534" # nobody（镜像本身也是），监听 3478 与中转端口段都不需要 root
-    read_only: true
+    # 不设 read_only：Docker Compose 不能把内联配置（configs.content）放进只读根文件系统的容器（报 `file` is the sole supported option）。
+    # 以 nobody 运行，根文件系统的绝大部分本来就写不了。
     tmpfs: [/tmp, /var/lib/coturn]
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE] # 不是为了低端口：镜像里的 turnserver 带这个文件 capability，边界集里没有它就无法执行
