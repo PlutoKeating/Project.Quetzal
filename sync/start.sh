@@ -140,14 +140,14 @@ configure() {
   [[ -z $turn_host || $turn_host =~ ^[A-Za-z0-9.:-]+$ ]] || die "$(t "TURN_HOST 不合法：$turn_host" "TURN_HOST is invalid: $turn_host")"
   TURN_NAME=${turn_host:-$domain}
   if [[ -n $turn_host && ! $turn_host =~ ^[0-9.:]+$ ]] && have getent; then
-    local tr ip; tr=$(getent ahostsv4 "$turn_host" 2>/dev/null | awk 'NR==1{print $1}'); ip=$(public_ip)
+    local tr ip; tr=$(getent ahostsv4 "$turn_host" 2>/dev/null | awk 'NR==1{print $1}' || true); ip=$(public_ip)
     if [[ -z $tr ]]; then warn "$(t "$turn_host 还没有解析记录：加一条 A 记录指向本机（不开代理）。" "$turn_host does not resolve yet: add an A record pointing here (no proxy).")"
     elif [[ -n $ip && $tr != "$ip" ]]; then warn "$(t "$turn_host 解析到的不是本机的公网地址（开了 CDN 代理？STUN / TURN 必须直连）。" "$turn_host does not resolve to this server's public IP (CDN proxy on? STUN / TURN must connect directly).")"; fi
   fi
 
   # DNS 指向检查（只提醒，不阻止：可能用了 CDN 或 IPv6）；隧道模式下域名本来就指向隧道
   if [[ $FRONT == caddy && $domain != localhost ]] && have getent; then
-    local resolved ip; resolved=$(getent ahostsv4 "$domain" 2>/dev/null | awk 'NR==1{print $1}'); ip=$(public_ip)
+    local resolved ip; resolved=$(getent ahostsv4 "$domain" 2>/dev/null | awk 'NR==1{print $1}' || true); ip=$(public_ip)
     if [[ -z $resolved ]]; then warn "$(t "$domain 还没有解析记录：证书会申请失败。先在 DNS 里加一条 A 记录指向本机。" "$domain does not resolve yet; the certificate request will fail. Add an A record pointing here.")"
     elif [[ -n $ip && $resolved != "$ip" ]]; then warn "$(t "$domain 解析到的地址与本机的公网地址不同（如果用了 CDN，请对这个域名关闭代理：TURN 与 WebSocket 需要直连）。" "$domain resolves to a different address than this server's public IP (if it is behind a CDN proxy, disable proxying for it: TURN and WebSockets need a direct connection).")"; fi
   fi
