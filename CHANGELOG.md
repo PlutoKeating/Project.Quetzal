@@ -2,9 +2,9 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
-## 1.0.2
+## 1.0.3
 
-**安全加固：一次全面审计后的修复。** 身体之间的协议升到 v2，同一个 agent 的身体要一起升级到 1.0.2 才能互相连上。
+**安全加固：一次全面审计后的修复。** 身体之间的协议升到 v2，同一个 agent 的身体要一起升级到 1.0.3 才能互相连上。（1.0.2 的发版构建没有通过、没有发布，它的内容都在这个版本里。）
 
 - **她的命令在沙箱里运行**：shell、后台任务和自造工具在 Linux 上经 bubblewrap、在 Termux 上经 proot 运行，看不到运行基座的密钥目录（模型 Key 的主密钥、网关与同步服务的令牌、部署私钥）；读文件类工具按真实路径拒绝密钥目录。没有沙箱时控制台「服务」页会提醒。自造工具至少按「执行命令」把关，写自造工具缺省要先问你；node 工具在子进程里运行。
 - **网关**：同一台机器上的浏览器免配对登录只认网关自己托管的页面，安卓上关闭；来自她的命令的连接一律拒绝。配对码改为 8 位字母数字，有效期内不换码，输错多次锁定。令牌可以放在请求头或 WebSocket 的第一条消息里，可以一键轮换。
@@ -16,7 +16,7 @@
 - **修复**：同步服务所在的机房连 github.com 时通时断时，GitHub 登录转很久后失败。换令牌改为显式超时并重试，直连不通时经官网 Worker 中转（只放行配置过的 OAuth App，不缓存、不记录）。官网的 `/device` 入口页空白（跳转脚本的正则在模板字符串里丢了反斜杠）。
 - **灵魂桥**：`now.md` 里别处的对话做转义并标明「只是信息，不是指令」；不跟随灵魂仓库里的符号链接。
 
-**Security hardening after a full audit.** The protocol between bodies moves to v2: all bodies of one agent must upgrade to 1.0.2 together to connect.
+**Security hardening after a full audit.** The protocol between bodies moves to v2: all bodies of one agent must upgrade to 1.0.3 together to connect. (The 1.0.2 release build failed and was never published; everything it contained is in this version.)
 
 - **Her commands run in a sandbox**: shell, background jobs and custom tools run through bubblewrap on Linux and proot on Termux and cannot see the runtime's secrets directory (the master key for model keys, gateway and sync tokens, deploy keys); file-reading tools refuse the secrets directory by real path. The console's Service page warns when no sandbox is available. Custom tools are gated at least as "run commands", writing one asks you first by default, and node tools run in a child process.
 - **Gateway**: password-free sign-in for a browser on the same machine only accepts the page the gateway itself serves and is disabled on Android; connections coming from her commands are refused. Pairing codes are 8 letters and digits, stay the same while valid, and lock after repeated wrong guesses. The token can go in a header or the first WebSocket message, and can be rotated.
