@@ -66,7 +66,7 @@ export function storeLang(lang: Lang): void {
 }
 
 /** 不带语言的入口（/device、/account）的跳转脚本：/x?q → /<lang>/account/…?q（/device 对应批准设备页）。 */
-export const FORWARD_SCRIPT = `(function(){var l="en";try{var s=localStorage.getItem(${JSON.stringify(STORAGE_KEY)});if(s==="zh"||s==="en"){l=s}else{var ls=navigator.languages||[navigator.language||""];for(var i=0;i<ls.length;i++){if(/^zh/i.test(ls[i])){l="zh";break}}}}catch(e){}var p=location.pathname.replace(/\/+$/,"");location.replace("/"+l+(p==="/device"?"/account/device":"/account")+location.search+location.hash)})();`;
+export const FORWARD_SCRIPT = `(function(){var l="en";try{var s=localStorage.getItem(${JSON.stringify(STORAGE_KEY)});if(s==="zh"||s==="en"){l=s}else{var ls=navigator.languages||[navigator.language||""];for(var i=0;i<ls.length;i++){if(/^zh/i.test(ls[i])){l="zh";break}}}}catch(e){}var p=location.pathname;while(p.length>1&&p.charAt(p.length-1)==="/")p=p.slice(0,-1);location.replace("/"+l+(p==="/device"?"/account/device":"/account")+location.search+location.hash)})();`;
 
 /** 根路径的跳转脚本（内联到预渲染 HTML，首屏即跳，不等 JS 包）。 */
 export const REDIRECT_SCRIPT = `(function(){try{var k=${JSON.stringify(STORAGE_KEY)};var s=localStorage.getItem(k);var l=(s==="zh"||s==="en")?s:null;if(!l){var ls=navigator.languages||[navigator.language||""];l="en";for(var i=0;i<ls.length;i++){if(/^zh/i.test(ls[i])){l="zh";break}}}location.replace("/"+l+location.search+location.hash)}catch(e){location.replace("/en")}})();`;
