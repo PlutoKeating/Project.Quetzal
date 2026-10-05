@@ -67,6 +67,9 @@ function systemTimezone(): string {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"; } catch { return "Asia/Shanghai"; }
 }
 
+/** 官方同步服务：默认就用它，用户不用填；自己部署的同步服务在控制台「多具身体」里改，清空即恢复官方。 */
+export const OFFICIAL_SYNC = "https://sync.quetzal.plutokeating.beer";
+
 export const defaults: Config = {
   body: "default",
   adapter: "",
@@ -86,7 +89,7 @@ export const defaults: Config = {
   soul: { remote: "", branch: "main", sshMode: "deploy", sshKeyPath: "" },
   gateway: { port: 7788, host: "127.0.0.1", lan: false, lanPort: 7789 },
   sandbox: { allowUnsandboxed: false },
-  mesh: { server: "", priority: 0 },
+  mesh: { server: OFFICIAL_SYNC, priority: 0 },
   sharedRev: {},
   channels: { feishuHolder: "" },
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
@@ -113,6 +116,7 @@ export function loadConfig(): Config {
   const read = (f: string) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return {}; } };
   config = merge(defaults, read(file()));
   if (!config.feishu.bindCode || config.feishu.bindCode.length < 10) config.feishu.bindCode = newBindCode();
+  if (!config.mesh.server) config.mesh.server = OFFICIAL_SYNC; // 旧配置里留空的地址：补上官方同步服务
   sanitize();
   saveConfig();
   return config;

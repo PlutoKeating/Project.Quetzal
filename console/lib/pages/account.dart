@@ -80,7 +80,7 @@ class _NotBound extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(12), children: [
         Section('先绑定这具身体', [
-          const Text('账户由同步服务管理：用 GitHub 登录，同一个 agent 的身体都绑定在账户下。这具身体还没有绑定到同步服务，先在「多具身体」里填写同步服务地址并绑定，然后回到这里登录账户。'),
+          const Text('账户由同步服务管理：用 GitHub 登录，同一个 agent 的身体都绑定在账户下。这具身体还没有绑定到同步服务，先在「多具身体」里点「绑定到同步服务」，然后回到这里登录账户。'),
           const SizedBox(height: 8),
           FilledButton.tonal(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MeshPage())), child: const Text('打开「多具身体」')),
         ]),

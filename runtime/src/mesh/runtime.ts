@@ -2,7 +2,7 @@
 // node-datachannel 是可选依赖（原生模块）：加载不了时网状层关闭，身体之间退回只用 git 同步，状态里说明原因。
 import fs from "node:fs";
 import path from "node:path";
-import { config, paths, saveConfig } from "../config.ts";
+import { config, paths, saveConfig, OFFICIAL_SYNC } from "../config.ts";
 import { log } from "../log.ts";
 import { bus } from "../bus.ts";
 import { addTimeline } from "../store.ts";
@@ -101,9 +101,9 @@ export function meshStatus() {
   };
 }
 
-/** 设置同步服务地址（换地址就得重新绑定）。 */
+/** 设置同步服务地址（换地址就得重新绑定）。清空即恢复官方同步服务。 */
 export async function setServer(server: string) {
-  const origin = server.trim() ? serverOrigin(server) : "";
+  const origin = server.trim() ? serverOrigin(server) : OFFICIAL_SYNC;
   if (origin === safeOrigin(config.mesh.server)) return meshStatus();
   stopMesh();
   saveConfig({ mesh: { server: origin } });

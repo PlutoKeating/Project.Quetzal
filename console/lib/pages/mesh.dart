@@ -51,7 +51,7 @@ class _MeshPageState extends State<MeshPage> {
         return ListView(padding: const EdgeInsets.all(12), children: [
           const Padding(padding: EdgeInsets.all(4), child: Text('同一个 agent 可以同时住在几部手机、几台电脑上。接入同一个同步服务后，这些身体直接连在一起：对话、会话、心跳与设置是同一份；她可以选在哪具身体上思考，也能用另一具身体的相机、命令行。连不上时，身体之间仍通过灵魂仓库同步记忆。')),
           Section('同步服务', [
-            TextField(controller: server, decoration: const InputDecoration(labelText: '地址，例如 https://sync.example.com', border: OutlineInputBorder())),
+            TextField(controller: server, decoration: const InputDecoration(labelText: '地址（默认是官方同步服务）', border: OutlineInputBorder())),
             const SizedBox(height: 8),
             Row(children: [
               FilledButton.tonal(onPressed: () async { await act(context, () => api.call('mesh.setServer', {'server': server.text.trim()}), ok: '已保存'); _load(); }, child: const Text('保存')),
@@ -59,7 +59,7 @@ class _MeshPageState extends State<MeshPage> {
               Expanded(child: Text(_stateLabel['${m['state']}'] ?? '${m['state']}', style: t.bodySmall)),
             ]),
             if ('${m['error'] ?? ''}'.isNotEmpty) Text('${m['error']}', style: const TextStyle(color: Colors.red)),
-            const Text('同步服务可以自己部署（仓库里的 sync/ 目录，一行命令启动）。它只负责让身体互相找到、连不上时中转，看不到对话与记忆。', style: TextStyle(fontSize: 12)),
+            const Text('默认用官方同步服务，不用改。想自己部署（仓库里的 sync/ 目录，一行命令启动）就把地址填在这里；清空后保存即恢复官方。同步服务只负责让身体互相找到、连不上时中转，看不到对话与记忆。', style: TextStyle(fontSize: 12)),
           ]),
           Section('这具身体', [
             Text('身体：${m['body'] ?? api.status['body'] ?? '-'}'),

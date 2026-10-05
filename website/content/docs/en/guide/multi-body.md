@@ -19,7 +19,7 @@ Every console shows which body is talking with you right now; what you say to th
 
 ## What you need
 
-1. **A sync service** that lets bodies find each other and relays when no direct path exists. It stores no conversations or memory — only accounts, agents and body registrations. You can host it yourself (`sync/` in the repository, one Linux server with a public address, one command), see [sync/README](https://github.com/PlutoKeating/Project.Quetzal/blob/main/sync/README.md).
+1. **A sync service** that lets bodies find each other and relays when no direct path exists. It stores no conversations or memory — only accounts, agents and body registrations. By default the official one operated by this project is used; you can also host it yourself (`sync/` in the repository, one Linux server with a public address, one command), see [sync/README](https://github.com/PlutoKeating/Project.Quetzal/blob/main/sync/README.md).
 2. **A soul repository** connected on every body (see [Soul sync](/docs/guide/soul-sync)). The public keys the bodies use to verify each other are registered there — it is the root of trust, so even a compromised sync service cannot impersonate your bodies.
 3. **A GitHub account** to sign in and approve bodies on the sync service's website.
 
@@ -27,7 +27,7 @@ Every console shows which body is talking with you right now; what you say to th
 
 **Control → Multiple bodies**:
 
-1. Enter the sync service address and save. The sync service operated by this project is `https://sync.quetzal.plutokeating.beer`; if you host your own, enter its address.
+1. The sync service defaults to the one operated by this project, `https://sync.quetzal.plutokeating.beer`; nothing to enter. If you host your own, enter its address and save (clear it to go back to the official one).
 2. Choose "Bind to the sync service"; an 8-character code and a link (or QR code) appear.
 3. Open the link in a browser (the site's [Account → Approve a device](/account/device)), sign in with GitHub, enter the code, **check that the key fingerprint on the web page matches the one in the console**, and approve.
 4. Within seconds the body connects to the sync service; other bound bodies that are online connect to it directly (LAN, IPv6, NAT traversal, or relayed through the server when nothing else works — relayed traffic is end-to-end encrypted too).
