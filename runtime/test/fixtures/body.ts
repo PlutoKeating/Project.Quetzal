@@ -10,6 +10,23 @@ store.openStore();
 const { Mesh } = await import("../../src/mesh/mesh.ts");
 const { loadNodeKey } = await import("../../src/mesh/identity.ts");
 const { installReplica } = await import("../../src/mesh/replica.ts");
+const { installPresence } = await import("../../src/mesh/presence.ts");
+const { liveTurns } = await import("../../src/mind/activity.ts");
+const { converse } = await import("../../src/mind/brain.ts");
+const reg = await import("../../src/providers/registry.ts");
+const http = await import("node:http");
+
+// 模拟的模型：回复里带上身体名（看得出是哪具身体在回答），可以设置延迟（制造「正在进行的一轮」）
+let llmDelay = 0;
+const llm = http.createServer((req, res) => {
+  let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
+    const j = JSON.parse(body); const last = j.messages.at(-1); const text = typeof last.content === "string" ? last.content : last.content?.find((c: any) => c.type === "text")?.text ?? "";
+    setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message: { content: `${process.env.BODY} 的回复` } }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); void text; }, llmDelay);
+  });
+});
+await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
+reg.saveProviders({ providers: [{ id: "p", catalogId: "custom", name: "Mock", baseUrl: `http://127.0.0.1:${(llm.address() as any).port}`, protocol: "openai-completions" as const, enabled: true,
+  keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
 const path = await import("node:path");
 const ndc: any = (await import("node-datachannel")).default;
 
@@ -20,6 +37,7 @@ const mesh = new Mesh({
   keyOf: (b) => keys[b], hello: () => ({ version: "t" }), log: () => {},
 });
 installReplica(mesh);
+installPresence(mesh);
 mesh.start();
 
 const cmds: Record<string, (a: any) => unknown> = {
@@ -34,6 +52,9 @@ const cmds: Record<string, (a: any) => unknown> = {
   sessions: () => store.listSessions(),
   timeline: () => store.listTimeline(200),
   idPrefix: () => store.idPrefix(),
+  llmDelay: (a) => { llmDelay = a.ms; return true; },
+  converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode }),
+  live: () => liveTurns().map((t) => ({ conv: t.conv, body: t.body, origin: t.origin, status: t.status })),
   stop: () => { mesh.stop(); setTimeout(() => { ndc.cleanup(); process.exit(0); }, 200); return true; },
 };
 process.on("message", async (m: any) => {

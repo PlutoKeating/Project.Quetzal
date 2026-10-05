@@ -14,7 +14,7 @@ import { addTimeline } from "../store.ts";
 import { bus } from "../bus.ts";
 import { mergeEntries } from "./entries.ts";
 import { VERSION } from "../version.ts";
-import { nodeKey } from "../mesh/runtime.ts";
+import { nodeKey } from "../mesh/node-key.ts";
 export { mergeEntries };
 
 let repo: SoulRepo | undefined;

@@ -294,8 +294,16 @@ export function spawnAgent(spec: agents.AgentSpec, parent: { conv: string; chann
  * ambient：这句话是麦克风听到的环境声音（听觉），以第三种消息类型入库，由她判断是否回应。
  * 排队等待期间视为在工作，不计入会话时间墙。
  */
-export function converse(from: string, text: string, channel: string, o: { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt"; ambient?: boolean } = {}): Promise<string> {
+export type ConverseOptions = { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt"; ambient?: boolean };
+/** 多具身体时的路由（mesh/presence.ts 设置）：这个会话正在另一具身体上进行，就把这句话转过去（作为那一轮的插话 / 打断），返回那边的回执或回复。 */
+let router: ((conv: string, from: string, text: string, channel: string, o: ConverseOptions) => Promise<string> | undefined) | undefined;
+export function setConverseRouter(r: typeof router) { router = r; }
+
+export function converse(from: string, text: string, channel: string, o: ConverseOptions = {}): Promise<string> {
   const conv = o.conv || (channel === "飞书" ? "feishu" : "first");
+  // 路由在保密输入的截取之前：这一轮在哪具身体上，保密值就只在那具身体上被截走
+  const routed = router?.(conv, from, text, channel, { ...o, conv });
+  if (routed) return routed;
   // 保密输入进行中（pass_secret）：这条消息是一项保密值或口令，在入库、进入上下文之前截走，只回一条不含内容的回执。所有通道都经过这里
   const ack = intake(conv, text);
   if (ack !== undefined) return Promise.resolve(ack);

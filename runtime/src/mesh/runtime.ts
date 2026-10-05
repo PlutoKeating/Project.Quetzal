@@ -8,16 +8,16 @@ import { bus } from "../bus.ts";
 import { addTimeline } from "../store.ts";
 import { identity } from "../memory/identity.ts";
 import { VERSION } from "../version.ts";
-import { loadNodeKey, fingerprint, isNodeKey, type NodeKey } from "./identity.ts";
+import { fingerprint, isNodeKey } from "./identity.ts";
+import { nodeKey } from "./node-key.ts";
+import { installPresence } from "./presence.ts";
 import { Mesh } from "./mesh.ts";
 import { startBinding, pollBinding, unbind as unbindRemote, serverOrigin, type Binding } from "./directory.ts";
 import type { Ndc } from "./link.ts";
 import { installReplica } from "./replica.ts";
 
 const BINDING = () => path.join(paths.secrets, "sync.json");
-let key: NodeKey | undefined;
-/** 这具身体的节点密钥（第一次用到时生成）。公钥写进灵魂仓库的身体登记。 */
-export function nodeKey(): NodeKey { return (key ??= loadNodeKey(path.join(paths.secrets, "mesh_ed25519"))); }
+export { nodeKey };
 
 let ndc: Ndc | undefined;
 let ndcError = "";
@@ -64,7 +64,8 @@ export async function startMesh() {
   mesh.on("state", changed);
   mesh.on("peer", changed);
   mesh.on("event", (e: { from: string; name: string; data: unknown }) => bus.emit("mesh.event", e));
-  uninstall = installReplica(mesh); // 一个心智：对话、会话与时间线在身体之间复制
+  const parts = [installReplica(mesh), installPresence(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
+  uninstall = () => parts.forEach((u) => u());
   mesh.start();
   changed();
 }

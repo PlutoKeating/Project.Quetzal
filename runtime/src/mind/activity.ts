@@ -6,6 +6,7 @@
 //   每一轮的进展同时折叠成快照（liveTurns）：客户端断线重连、从后台切回时据此完整恢复进行中的卡片；
 //   其他会话的系统提示也据此知道「另一个自己」此刻在做什么。
 import crypto from "node:crypto";
+import { config } from "../config.ts";
 import { bus, type Activity } from "../bus.ts";
 
 export const SESSION_IDLE_MS = 120_000;
@@ -30,7 +31,7 @@ type Payload = Omit<Activity, "session" | "conv" | "origin" | "channel" | "ts">;
 
 /** 进行中的一轮：由进展事件折叠而成的快照。 */
 export interface LiveTurn {
-  turn: string; conv: string; origin: Activity["origin"]; channel: string; started: number; updated: number;
+  turn: string; conv: string; origin: Activity["origin"]; channel: string; started: number; updated: number; body?: string; // body：在哪具身体上
   text: string; msg: number; status: "queued" | "running"; step: number; live: string; items: Record<string, unknown>[];
 }
 const live = new Map<string, LiveTurn>();
@@ -38,7 +39,7 @@ const live = new Map<string, LiveTurn>();
 export const liveTurns = (): LiveTurn[] => [...live.values()].sort((a, b) => a.started - b.started);
 
 function fold(a: Activity) {
-  if (a.kind === "start") live.set(a.session, { turn: a.session, conv: a.conv, origin: a.origin, channel: a.channel, started: a.ts, updated: a.ts, text: a.text ?? "", msg: a.msg ?? 0, status: "running", step: 0, live: "", items: [] });
+  if (a.kind === "start") live.set(a.session, { turn: a.session, conv: a.conv, origin: a.origin, channel: a.channel, started: a.ts, updated: a.ts, body: a.body, text: a.text ?? "", msg: a.msg ?? 0, status: "running", step: 0, live: "", items: [] });
   const t = live.get(a.session);
   if (!t) return;
   t.updated = a.ts;
@@ -62,6 +63,22 @@ function fold(a: Activity) {
     }
   }
 }
+
+/** 其他身体转来的进展：并进快照并推给本机的控制台（不再转发）。 */
+export function foldRemote(a: Activity) { fold(a); bus.emit("activity", a); }
+/** 采用另一具身体此刻进行中的轮次（刚连上时）。 */
+export function adoptLive(turns: LiveTurn[], body: string) {
+  for (const t of turns) if (t && typeof t.turn === "string" && !live.has(t.turn)) live.set(t.turn, { ...t, body });
+}
+/** 一具身体断开了：它那些进行中的轮次不再有进展，从快照里移除，并告诉控制台这一轮结束了（回复若已生成会经复制到达）。 */
+export function dropBody(body: string) {
+  for (const t of [...live.values()]) if (t.body === body) {
+    live.delete(t.turn);
+    bus.emit("activity", { session: t.turn, conv: t.conv, origin: t.origin, channel: t.channel, ts: Date.now(), body, kind: "error", message: `${body} 断开了，这一轮的进展暂时看不到` });
+  }
+}
+/** 本机进行中的轮次（给刚连上的身体）。 */
+export const localTurns = (me: string) => liveTurns().filter((t) => !t.body || t.body === me);
 
 export class Session {
   readonly id: string;
@@ -98,7 +115,7 @@ export class Session {
   get signal() { return this.ac.signal; }
 
   emit(p: Payload) {
-    const a = { session: this.id, conv: this.conv, origin: this.origin, channel: this.channel, ts: Date.now(), ...p } as Activity;
+    const a = { session: this.id, conv: this.conv, origin: this.origin, channel: this.channel, ts: Date.now(), body: config.body, ...p } as Activity;
     fold(a);
     bus.emit("activity", a);
   }
