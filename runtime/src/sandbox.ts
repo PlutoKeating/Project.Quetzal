@@ -151,8 +151,12 @@ export function sandboxStatus(): SandboxStatus {
  * 比较的是真实路径，不是字符串：符号链接、..、大小写以外的写法都绕不过去。返回拒绝的说明，可以读时为 undefined。
  */
 export function protectedPath(p: string): string | undefined {
-  let f: string;
-  try { f = fs.realpathSync(path.resolve(workDir(), p.replace(/^file:\/\//, ""))); } catch { return undefined; } // 不存在：交给工具自己报「没有这个文件」
+  // 不存在的路径也要判断（按最近的已存在的上级目录取真实路径，再接上余下部分）：否则「没有这个文件」会透露保密库里有没有某个名字
+  let f = path.resolve(workDir(), p.replace(/^file:\/\//, "")), rest = "";
+  for (;;) {
+    try { f = path.join(fs.realpathSync(f), rest); break; }
+    catch { const parent = path.dirname(f); if (parent === f) return undefined; rest = path.join(path.basename(f), rest); f = parent; }
+  }
   const inside = (dir: string) => { const d = real(dir); return f === d || f.startsWith(d + path.sep); };
   if (inside(paths.secrets)) return "没有读取：这是基座的密钥目录，不能读取。";
   if (inside(paths.vault)) return "没有读取：这是保密库，里面的值只能在命令里按路径引用（\"$(cat 路径)\"），不能读出来看。";

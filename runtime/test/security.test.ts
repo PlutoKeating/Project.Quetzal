@@ -74,7 +74,9 @@ test("read_document / view_image：按真实路径拒绝密钥目录与保密库
   const r = await callTool("read_document", { path: link }, "测试");
   assert.match(r.text, /密钥目录/);
   assert.doesNotMatch(r.text, /gw_x/);
-  assert.match((await callTool("read_document", { path: path.join(paths.vault, "demo_token") }, "测试")).text, /保密库/);
+  const vaultFile = saveSecret("read_guard_token", "vault-value-654321");
+  assert.match((await callTool("read_document", { path: vaultFile }, "测试")).text, /保密库/);
+  assert.match((await callTool("read_document", { path: path.join(paths.vault, "no_such_name") }, "测试")).text, /保密库/, "不存在的名字也拒绝，不透露有没有");
   assert.match((await callTool("read_document", { path: `${paths.data}/../secrets/master.key` }, "测试")).text, /密钥目录/);
   assert.match(sandbox.protectedPath(link)!, /密钥目录/);
   assert.equal(sandbox.protectedPath(path.join(paths.data, "nope")), undefined);
