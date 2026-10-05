@@ -7,6 +7,7 @@ import type { Msg } from "../providers/types.ts";
 import { Session } from "./activity.ts";
 import { addTimeline, kv } from "../store.ts";
 import { nudge } from "../heart/heart.ts";
+import { paths } from "../config.ts";
 import { identity } from "../memory/identity.ts";
 import { log } from "../log.ts";
 
@@ -28,6 +29,7 @@ export function agentPrompt(a: AgentSpec): string {
     a.scope ? `## 领域范围\n${a.scope}` : "",
     a.background ? `## 知识背景\n${a.background}` : "",
     `## 工作方式\n可以连续多步调用工具（查资料、执行命令、读文档、记笔记）；中途写下的文字 ${me} 都看得到，${me} 也可能随时给你发消息（会标注为「对方」），要回应它。\n做完（或确定做不了）就调用 finish：title 一句话结论，journal 写完整报告（${me} 只会看到这份报告，把结论、依据、未解决的问题都写清楚）。${a.maxSteps ? `最多 ${a.maxSteps} 步。` : ""}`,
+    `## 红线\n- 不要碰 ${me} 的灵魂目录（${paths.soul}）：不在里面运行 git，不复制、提交或推送它的内容到任何地方；它由基座全自动同步。\n- 推送到别的仓库、改写历史、删除数据、对外发布这类不可逆或对外的操作不要做，把建议写进报告，由 ${me} 和对方决定。`,
   ].filter(Boolean).join("\n\n");
 }
 

@@ -13,12 +13,13 @@
 - **用另一具身体**：新工具 `body_call` 在另一具身体上调用它的工具（相机、命令行、自造工具……，闸门按那边的权限）；`move_to` 把这一轮换到另一具身体继续。
 - **一份设置**：模型供应商与 Key（经加密通道传，对方用自己的主密钥重新加密）、权限、预算（每日合计全网用量）、听觉、语音在一处改了处处生效；急停缺省全网生效，也可以只停这具身体；别处等待批准的请求在哪里都能批准。
 - **飞书**：多具身体时由你指定的一具身体持有飞书连接，其他身体的主动消息转给它发出。**听觉**：几部手机同时听到同一句话只留一份，ta 用声音回话时从你说话的那部手机说出来。
-- **触碰即同步**：ta 的每次工具调用（包括用 shell 直接改文件）之后，基座看一眼灵魂目录，有变化就立即提交（说明写清楚改了什么）、3 秒后推送。推送失败先静默重试约 4 分钟，仍失败就以「基座提醒」插话告诉刚才改过记忆的那一轮。两边都改过同一篇笔记、人格或技能文档时，另一版另存为 `<名>.incoming.md` 交给 ta 裁决。灵魂仓库规范升到 **v8**（v7 仓库无需迁移）。
+- **触碰即同步**：ta 的每次工具调用（包括用 shell 直接改文件）之后，基座看一眼灵魂目录，有变化就立即提交（说明写清楚改了什么）、3 秒后推送。推送失败先静默重试约 4 分钟，仍失败就以「基座提醒」插话告诉刚才改过记忆的那一轮。两边都改过同一篇笔记、人格或技能文档时，另一版另存为 `<名>.incoming.md` 交给 ta 裁决。灵魂仓库规范升到 v8（v7 仓库无需迁移）。
 - **同步服务 `sync/`**：账户（GitHub 登录）、身体绑定、信令与 TURN 中转，部署在一台服务器上，`cd sync && ./start.sh` 一行启动（Docker：Caddy 自动 HTTPS、coturn 按安全指南加固）。不保存 IP、对话与记忆。
 - **安装**：直连组件 `node-datachannel`（原生模块）由安装器按锁定的版本与 sha512 下载核对后装上，缺了也不影响使用（只是没有多具身体）。
 - **升级说明**：消息与心流的编号在第一次启动时迁移为按身体分段的编号（只发生一次）；用量表按身体记录。
 - **修复**：自造的 sh 工具不读参数就退出时，偶尔报 EPIPE 错误。
 - **安全**：灵魂同步只推到配置里的灵魂仓库地址（推送前校正 `origin`，agent 用 shell 改了也会改回）；远端没有 `agent.json` 却有规范以外的内容（例如一个代码仓库）时拒绝合并，不再把别的仓库的历史并进灵魂、也不把记忆推过去。
+- **安全：灵魂仓库与代码仓库彻底隔开**（灵魂仓库规范升到 **v9**，v8 仓库无需迁移）。起因：一具身体上的 agent 推送失败后自己用 shell 把灵魂目录的远端改成了 Quetzal 源代码仓库。现在：每个克隆记下灵魂仓库的根提交，出现陌生的历史就停止同步（不合并、不推送）并提醒；`shell` 工具拦下针对灵魂目录的 git 命令；主 agent 与子 agent 的系统提示新增「红线」（不在灵魂目录里运行 git、灵魂仓库与任何代码仓库无关、同步出错不自己修、不可逆或对外的操作先问人）；git 不会在灵魂目录的 `.git` 丢失时退到上层目录里的别的仓库。灵魂桥的安装指引同样写明。
 
 **Distributed: several bodies, one agent.** An agent's phones, computers and servers join into a mesh and become one mind.
 
@@ -29,12 +30,13 @@
 - **Using another body**: the new tool `body_call` runs a tool on another body (camera, shell, custom tools…, checked against that body's permissions); `move_to` moves the current turn to another body.
 - **One set of settings**: model providers and keys (sent over the encrypted channel and re-encrypted with the receiver's own master key), permissions, budget (daily totals across bodies), hearing and voice change everywhere at once; the emergency stop applies to all bodies by default or to this body only; requests waiting on any body can be approved anywhere.
 - **Feishu**: with several bodies, the body you designate holds the Feishu connection and the others' proactive messages go through it. **Hearing**: when several phones hear the same sentence only one copy is kept, and spoken replies come from the phone you talked to.
-- **Sync on touch**: after every tool call (including shell commands that change files), the runtime checks the soul directory, commits changes immediately with a descriptive message and pushes 3 seconds later. Failed pushes are retried silently for about 4 minutes, then a "runtime notice" is interjected into the turn that touched the memory. When both sides changed the same note, persona or skill document, the other version is saved as `<name>.incoming.md` for the agent to decide. The soul repository specification moves to **v8** (v7 repositories need no migration).
+- **Sync on touch**: after every tool call (including shell commands that change files), the runtime checks the soul directory, commits changes immediately with a descriptive message and pushes 3 seconds later. Failed pushes are retried silently for about 4 minutes, then a "runtime notice" is interjected into the turn that touched the memory. When both sides changed the same note, persona or skill document, the other version is saved as `<name>.incoming.md` for the agent to decide. The soul repository specification moves to v8 (v7 repositories need no migration).
 - **Sync service `sync/`**: accounts (GitHub sign-in), body binding, signaling and TURN relay, deployed on one server with `cd sync && ./start.sh` (Docker: Caddy for automatic HTTPS, coturn hardened per security guidance). It stores no IP addresses, conversations or memory.
 - **Installation**: the direct-connection component `node-datachannel` (a native module) is downloaded and verified against a pinned version and sha512 by the installers; without it everything still works except multiple bodies.
 - **Upgrade notes**: message and flow ids are migrated once, on first start, to per-body id ranges; usage is now recorded per body.
 - **Fix**: custom sh tools that exit without reading their arguments occasionally raised an EPIPE error.
 - **Security**: soul sync only pushes to the configured soul repository (`origin` is corrected before every push, even if the agent changed it from the shell); a remote without `agent.json` but with content outside the specification (such as a code repository) is refused, so foreign history is never merged into the soul and memory is never pushed there.
+- **Security: soul repositories fully separated from code repositories** (the soul repository specification moves to **v9**; v8 repositories need no migration). Cause: after a failed push, an agent on one body used the shell to point its soul directory's remote at the Quetzal source repository. Now each clone records the soul repository's root commits and stops syncing (no merge, no push) with an alert when foreign history appears; the `shell` tool blocks git commands aimed at the soul directory; the main and sub-agent system prompts gain "red lines" (never run git in the soul directory, the soul repository is unrelated to any code repository, do not fix sync errors yourself, ask before irreversible or outward actions); and git no longer falls back to another repository in a parent directory if the soul directory's `.git` is missing. The soul-bridge install guide says the same.
 
 ## 0.6.7
 

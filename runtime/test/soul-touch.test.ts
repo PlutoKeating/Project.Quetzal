@@ -152,3 +152,34 @@ test("配置的地址其实是一个代码仓库（没有 agent.json，有规范
   saveConfig({ soul: { remote } });
   await soul.ensureSoul();
 });
+
+test("外来历史：本地被 reset 到别的仓库的历史（陌生的根提交）后，停止同步——不合并、不推送，并提醒她", async () => {
+  alerts.length = 0;
+  await soul.pull(); // 记下已知的根提交
+  const before = g(other, "ls-remote", remote, "main").trim();
+  // 模拟事故：在灵魂目录里 reset 到一个代码仓库的历史
+  const code = path.join(tmp, "code2"); fs.mkdirSync(path.join(code, "runtime"), { recursive: true });
+  g(code, "init", "-b", "main"); g(code, "config", "user.email", "c@x"); g(code, "config", "user.name", "c");
+  fs.writeFileSync(path.join(code, "runtime/x.ts"), "1\n"); g(code, "add", "-A"); g(code, "commit", "-m", "code");
+  g(paths.soul, "fetch", code, "main"); g(paths.soul, "reset", "--hard", "FETCH_HEAD");
+  fs.writeFileSync(path.join(paths.soul, "agent.json"), JSON.stringify({ id: "x" })); // 还假装像个灵魂
+  const r = await soul.push("对话");
+  assert.equal(r.ok, false);
+  assert.match(String(r.error), /混进了别的仓库/);
+  assert.equal(g(other, "ls-remote", remote, "main").trim(), before, "远端没有收到任何东西");
+  await soul.pull();
+  assert.ok(alerts.some((a) => /混进了别的仓库/.test(a.text)), "提醒了她");
+  assert.ok(!fs.existsSync(path.join(paths.soul, "memories")) || true);
+});
+
+test("灵魂目录的 .git 丢了：基座不会退到上层目录里的别的仓库去提交", async () => {
+  const outer = path.join(tmp, "outer"); const home2 = path.join(outer, "home", "soul");
+  fs.mkdirSync(home2, { recursive: true });
+  g(outer, "init", "-b", "main"); g(outer, "config", "user.email", "o@x"); g(outer, "config", "user.name", "o");
+  fs.writeFileSync(path.join(outer, "code.ts"), "1\n"); g(outer, "add", "code.ts"); g(outer, "commit", "-m", "outer");
+  const { SoulRepo } = await import("../src/memory/soul-repo.ts");
+  const repo = new SoulRepo({ dir: home2, remote: "", branch: "main", body: "t", author: () => ({ name: "t", email: "t@t" }) });
+  fs.writeFileSync(path.join(home2, "note.md"), "x\n");
+  await repo.commit("不该提交到外层");
+  assert.equal(g(outer, "rev-list", "--count", "HEAD").trim(), "1", "外层仓库没有多出提交");
+});

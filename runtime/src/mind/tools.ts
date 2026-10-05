@@ -15,7 +15,7 @@ import { webSearch, BROWSER_HEADERS } from "./search.ts";
 import { loadImage } from "./images.ts";
 import { describeProcesses } from "./processes.ts";
 import * as voice from "../voice/azure.ts";
-import { config } from "../config.ts";
+import { config, paths } from "../config.ts";
 import { requestSecrets, redactSecrets, MAX_ITEMS } from "./secrets.ts";
 import { listManifests, listCustomTools, readTool, readSkill, writeTool, deleteTool, runTool, missingRequires, SKILL_SPEC_URL } from "./custom-tools.ts";
 import { PERMISSION_LABELS } from "../guard/guard.ts";
@@ -36,6 +36,18 @@ export interface Tool extends ToolDef { permission: string; handler: (a: Record<
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties: props, required });
 const str = (description: string) => ({ type: "string", description });
 
+
+/**
+ * 灵魂目录由基座管理：命令里同时出现 git 与灵魂目录，就不执行（硬性拦截，不靠自觉）。
+ * 起因：一次 agent 自己在灵魂目录里改 origin、reset、push，把记忆推进了一个公开的代码仓库，又把代码历史并进了灵魂仓库。
+ */
+export function soulGitBlock(command: string): string | undefined {
+  if (!/(^|[^\w-])git([^\w-]|$)/.test(command)) return undefined;
+  const soul = paths.soul.replace(/\/+$/, "");
+  const touches = command.includes(soul) || /quetzal\/soul\b|QUETZAL_HOME\}?\/soul\b|(^|[\s;&|(])cd\s+soul\b|-C\s+soul\b/.test(command);
+  if (!touches) return undefined;
+  return "没有执行：灵魂目录（你的人格与记忆所在的仓库）由基座全自动同步，不能在里面运行 git——改远端、reset、push、把它的内容提交到别的仓库，都可能把记忆推到错的地方、或把别的历史混进来。你改动灵魂目录里的文件，基座会立即提交并推送；同步出了问题会提醒你，需要人处理的事告诉对方。";
+}
 
 const core: Tool[] = [
   {
@@ -146,6 +158,8 @@ const core: Tool[] = [
     description: "在这具身体上执行一条 shell 命令。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
     parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
     handler: async (a) => {
+      const blocked = soulGitBlock(String(a.command ?? ""));
+      if (blocked) return blocked;
       if (a.background) { const j = startJob(a.command); return `已在后台运行，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
       const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000);
       const out = (r.out + r.err).slice(0, 8000);

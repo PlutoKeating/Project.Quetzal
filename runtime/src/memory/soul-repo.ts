@@ -27,7 +27,7 @@ export interface SoulRepoOptions {
 const LEASE_MS = 30 * 60_000;
 /** 灵魂仓库里允许出现的顶层条目（规范 §2 的固定与必需条目，加上新建仓库常见的 README、LICENSE）。远端没有 agent.json 时据此判断它是不是灵魂仓库。 */
 const SOUL_TOP = new Set([".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "README", "LICENSE", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "skills", "locks", ".gitkeep"]);
-export const SPEC = { spec: "soul-repo", version: 8 };
+export const SPEC = { spec: "soul-repo", version: 9 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",
@@ -38,9 +38,10 @@ export const README_TEMPLATE = (displayName: string) => `# ${displayName} · 灵
 
 这是 agent「${displayName}」的灵魂仓库：身份、人格与记忆。它的所有身体（运行基座、Hermes Agent、OpenClaw……）都通过这个仓库全自动同步。
 
-- **必须保持私有。**
-- 请不要手动修改：同步、合并与版本管理由基座自动完成；需要撤销时，使用控制台的「记忆历史」。
-- 结构与格式遵循 Soul Repository Specification v${SPEC.version}（Project.Quetzal 的 docs/SOUL_REPO_SPEC.md）。
+- **必须保持私有。** 这个仓库由部署者自己创建，只属于这一个 agent，只存放它的灵魂。
+- 它与任何代码仓库都没有关系，包括运行 agent 的程序（Quetzal）的源代码仓库：不要把程序代码放进来，也不要把这里的内容推到别处。
+- 请不要手动修改，也不要在它的克隆里手动运行 git：同步、合并与版本管理由基座自动完成；需要撤销时，使用控制台的「记忆历史」。
+- 结构与格式遵循灵魂仓库规范 v${SPEC.version}（https://quetzal.plutokeating.beer/zh/docs/reference/soul-repo-spec）。
 `;
 
 /** 规范 §7：远端必须是 SSH 地址（测试中可用 SOUL_ALLOW_LOCAL_REMOTE=1 放行本地路径）。返回错误说明或 undefined。 */
@@ -123,6 +124,8 @@ export class SoulRepo {
       env.GIT_SSH_COMMAND = "ssh -o StrictHostKeyChecking=accept-new";
     }
     env.GIT_TERMINAL_PROMPT = "0";
+    // 只在灵魂目录里找仓库：它的 .git 万一丢了，git 也不会往上层目录找、在外面某个代码仓库里提交和推送
+    env.GIT_CEILING_DIRECTORIES = path.dirname(path.resolve(this.o.dir));
     return new Promise((resolve) => execFile("git", ["-C", this.o.dir, ...args], { env, timeout: 120_000, maxBuffer: 16 << 20 }, (e: any, out, err) =>
       resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: String(out), err: String(err || e?.message || "") })));
   }
@@ -259,6 +262,32 @@ export class SoulRepo {
     return false;
   }
 
+  // ---------- 历史完整性：灵魂仓库只能有它自己的历史
+  // 每个克隆记下灵魂仓库已知的根提交（.git/quetzal-soul-roots.json，连同远端地址；身份与「是不是灵魂仓库」的检查通过后才记录）。
+  // 之后本地或远端出现陌生的根提交，说明有别的仓库的历史混了进来（例如有人在灵魂目录里 reset 到一个代码仓库）：停止同步，不合并、不推送，等人处理。
+  // 部署者换了灵魂仓库地址时重新记录（换到一个新建的仓库是正常的；填错成代码仓库由「不是灵魂仓库」的检查拦下）。
+  private rootsFile = () => this.p(".git", "quetzal-soul-roots.json");
+  private async rootsOf(rev: string): Promise<string[]> {
+    const r = await this.git("rev-list", "--max-parents=0", rev);
+    return r.code === 0 ? r.out.split("\n").filter(Boolean) : [];
+  }
+  private known(): string[] | undefined {
+    try { const k = JSON.parse(fs.readFileSync(this.rootsFile(), "utf8")); return k.remote === this.o.remote && Array.isArray(k.roots) ? k.roots : undefined; } catch { return undefined; }
+  }
+  private async recordRoots(revs: string[]) {
+    const roots = new Set([...(this.known() ?? []), ...(await Promise.all(revs.map((r) => this.rootsOf(r)))).flat()]);
+    if (roots.size) fs.writeFileSync(this.rootsFile(), JSON.stringify({ remote: this.o.remote, roots: [...roots].sort(), at: new Date().toISOString() }, null, 2) + "\n");
+  }
+  /** 检查这些引用的历史里有没有陌生的根提交；返回错误说明，正常（或还没有记录）为 undefined。 */
+  async foreignHistory(revs: string[]): Promise<string | undefined> {
+    const known = this.known();
+    if (!known) return undefined;
+    const roots = [...new Set((await Promise.all(revs.map((r) => this.rootsOf(r)))).flat())];
+    const foreign = roots.filter((r) => !known.includes(r));
+    if (!foreign.length) return undefined;
+    return `灵魂仓库的历史里混进了别的仓库（陌生的根提交 ${foreign.map((f) => f.slice(0, 7)).join("、")}），已停止同步：不合并、不推送。可能有人在灵魂目录里手动操作了 git，或远端被推入了别的历史；需要人检查（干净的做法是重新克隆灵魂仓库）`;
+  }
+
   /** 拉取并合并远端，冲突全自动解决。 */
   async pull(): Promise<PullResult> {
     const none: PullResult = { merged: false, incoming: [], resolved: [] };
@@ -269,10 +298,16 @@ export class SoulRepo {
       if (/couldn't find remote ref/i.test(f.err)) return none; // 远端还是空仓库
       this.status.lastError = friendlyGitError(f.err); return none;
     }
+    const foreign = await this.foreignHistory(["HEAD", this.ref()]);
+    if (foreign) { this.status.lastError = foreign; this.o.log?.(foreign); return none; }
     const behind = await this.git("rev-list", "--count", `HEAD..${this.ref()}`);
-    if (behind.code === 0 && behind.out.trim() === "0") { this.status.lastPull = Date.now(); this.status.lastError = ""; return none; }
+    if (behind.code === 0 && behind.out.trim() === "0") {
+      if (!this.known()) await this.recordRoots(["HEAD", this.ref()]);
+      this.status.lastPull = Date.now(); this.status.lastError = ""; return none;
+    }
     await this.commit("拉取前保存");
     if (!(await this.guardIdentity())) return none;
+    if (!this.known()) await this.recordRoots(["HEAD", this.ref()]); // 身份与「是不是灵魂仓库」都检查过了：记下这两段历史的根
     const incoming = (await this.git("log", "--pretty=format:%an%x1f%s", `HEAD..${this.ref()}`)).out.split("\n").filter(Boolean)
       .map((l) => { const [a, s] = l.split("\x1f"); return { body: a.match(/\(([^)]+)\)\s*$/)?.[1] ?? a, subject: s }; });
     const resolved: PullResult["resolved"] = [];
@@ -315,10 +350,12 @@ export class SoulRepo {
     if (!this.o.remote) return { ok: true, pushed: false };
     if (!this.remoteReady()) return { ok: false, pushed: false, kind: "config", error: this.status.lastError };
     await this.ensureOrigin();
+    const foreign = await this.foreignHistory(["HEAD"]);
+    if (foreign) { this.status.lastError = foreign; this.o.log?.(foreign); return { ok: false, pushed: false, kind: "identity", error: foreign }; }
     let r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
     if (r.code !== 0 && gitErrorKind(r.err) === "rejected") {
       const pulled = await this.pull();
-      if (!pulled.merged && this.status.lastError) return { ok: false, pushed: false, kind: /另一个 agent|不是灵魂仓库/.test(this.status.lastError) ? "identity" : gitErrorKind(this.status.lastError), error: this.status.lastError };
+      if (!pulled.merged && this.status.lastError) return { ok: false, pushed: false, kind: /另一个 agent|不是灵魂仓库|混进了别的仓库/.test(this.status.lastError) ? "identity" : gitErrorKind(this.status.lastError), error: this.status.lastError };
       r = await this.git("push", "origin", `HEAD:${this.o.branch}`);
     }
     if (r.code !== 0) { this.status.lastError = friendlyGitError(r.err); return { ok: false, pushed: false, kind: gitErrorKind(r.err), error: this.status.lastError }; }
@@ -337,6 +374,8 @@ export class SoulRepo {
       fs.mkdirSync(this.p("locks"), { recursive: true });
       fs.writeFileSync(this.p("locks", "consolidation.json"), JSON.stringify({ body: this.o.body, until: Date.now() + LEASE_MS }) + "\n");
       await this.commit("取得整理记忆的租约");
+      await this.ensureOrigin();
+      if (await this.foreignHistory(["HEAD"])) return false;
       if ((await this.git("push", "origin", `HEAD:${this.o.branch}`)).code === 0) return true;
     }
     return false;

@@ -60,8 +60,16 @@ let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(f: () => Promise<T>): Promise<T> { const p = queue.then(f); queue = p.catch(() => {}); return p; }
 
 /** 拉取；有新内容时作为「灵魂同步」知觉告知 agent（写入时间线与感官事件）。两边都改过的文件另存了副本时，提醒最近改过它的会话。 */
+let alertedForeign = "";
 export const pull = () => serial(async () => {
   const res = await r().pull();
+  // 灵魂仓库混进了别的历史：同步已停止，告诉她（只提醒一次），也写进心流
+  const err = r().status.lastError;
+  if (/混进了别的仓库|不是灵魂仓库/.test(err) && err !== alertedForeign) {
+    alertedForeign = err;
+    addTimeline("soul", "灵魂同步已停止：仓库里混进了别的历史", { error: err });
+    bus.emit("soul.alert", { text: `${err}\n这不是你能自己修的事：不要在灵魂目录里运行 git。请告诉对方，由对方处理。`, targets: [] } satisfies SoulAlert);
+  }
   const copies = res.resolved.filter((x) => x.incoming);
   if (copies.length) conflictAlert(copies, res.incoming.map((i) => i.body).filter((b) => b !== config.body));
   if (res.merged) {

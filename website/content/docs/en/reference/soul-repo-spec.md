@@ -5,11 +5,12 @@ description: A summary of the soul repository specification (v4): directory tree
 
 ## Scope
 
-This page summarizes the [Soul Repository Specification v8](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
+This page summarizes the [Soul Repository Specification v9](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
 
 ## Repository
 
 - One agent, one repository, **private**; the recommended name is `<agent>.soul`.
+- Created by the deployer and holding only this one agent's soul; it **must not** be shared with any code repository (including the Quetzal source repository), must not contain program code, and its content must not be pushed anywhere else (v9).
 - Only the `main` branch. History is append-only: **no** force push; undo is always a reverse commit.
 
 ## Directory tree
@@ -67,6 +68,10 @@ Implementations **must not** redact, privacy-check or otherwise inspect content,
 - **Default: one dedicated ed25519 key per body**, generated locally, private key mode `0600`, never committed, never copied between bodies; its public key is added to that repository as a **deploy key with Allow write access**; remote access uses `ssh -i <key> -o IdentitiesOnly=yes` with no fallback to ssh-agent, and a missing key refuses remote access with a clear message. To revoke a body, delete its deploy key.
 - **The deployer may explicitly switch to their own key**: a specified private key (still used exclusively), or the system ssh configuration (no `-i`; `~/.ssh/config` and ssh-agent decide). Selectable on the console's Soul sync page.
 
+## Only the soul repository's own history (v9)
+
+Implementations must: reset `origin` to the configured address before every push; refuse to merge a remote that has no `agent.json` but has content outside the specification; record the soul repository's known root commits and stop syncing (with an alert) when an unknown root commit appears; block the agent's git commands aimed at the soul directory and say so in its guidance; and limit git's repository discovery (`GIT_CEILING_DIRECTORIES`). This comes from a real incident: after a failed push, an agent pointed its soul directory's remote at the program's public source repository, a soul commit ended up in the public repository, and the source history was later merged into the soul repository.
+
 ## Version history
 
-v8 adds conflict copies, the body registry's `meshKey`, and no longer requires `lastSeen` on every push; v7 adds the deployer-selectable "specified key" and "system ssh configuration" modes to authentication; v4 removes all content checks and allows extra top-level entries; v3 clarified what counts as an IP address; v2 removed the resident-memory limit and made notes a tree; v1 was the first release. Older repositories need no migration.
+v9 states that the soul repository is created by the deployer and unrelated to any code repository, and adds the five "own history only" implementation requirements; v8 adds conflict copies, the body registry's `meshKey`, and no longer requires `lastSeen` on every push; v7 adds the deployer-selectable "specified key" and "system ssh configuration" modes to authentication; v4 removes all content checks and allows extra top-level entries; v3 clarified what counts as an IP address; v2 removed the resident-memory limit and made notes a tree; v1 was the first release. Older repositories need no migration.
