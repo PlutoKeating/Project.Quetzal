@@ -15,7 +15,7 @@ import { saveUpload, fromUpload, resolveUpload, MAX_FILES, MAX_FILE_BYTES } from
 const str64 = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 64) : undefined);
 import crypto from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import { config, readSecret, writeSecret, saveConfig, isTermux, randomCode } from "./config.ts";
+import { config, readSecret, writeSecret, saveConfig, isAndroid, randomCode } from "./config.ts";
 import { audit } from "./store.ts";
 import { bus } from "./bus.ts";
 import { invoke, status } from "./ops.ts";
@@ -110,7 +110,7 @@ export function startGateway(safeMode: boolean): GatewayHandle {
     bus.emit("notice", text);
   };
   // 本机登录只在：托管着网页控制台、不是安卓（别的应用也能连 127.0.0.1）时提供
-  const localLogin = () => !!web && !isTermux && adapter.name !== "termux";
+  const localLogin = () => !!web && !isAndroid && adapter.name !== "termux" && adapter.name !== "android";
 
   const web = webDir();
   if (web) log("gateway", `网页控制台：${web}`);

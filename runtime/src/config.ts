@@ -6,8 +6,11 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { log } from "./log.ts";
 
-/** 家目录缺省：Termux（安卓）沿用 ~/quetzal（安卓安装器、runit 服务与开机脚本都按此约定）；其他机器（Linux 等）是 ~/.quetzal。环境变量 QUETZAL_HOME 优先。 */
+/** 家目录缺省：Termux（安卓）沿用 ~/quetzal（安卓安装器、runit 服务与开机脚本都按此约定）；其他机器（Linux 等）是 ~/.quetzal。环境变量 QUETZAL_HOME 优先
+ *  （App 内置的运行基座由 App 设置，指向 App 自己的数据目录）。 */
 export const isTermux = /com\.termux/.test(process.env.PREFIX ?? "");
+/** 跑在安卓上（Termux 里，或 App 内置的运行环境）：没有 bubblewrap / Landlock，别的应用也能连本机端口。 */
+export const isAndroid = process.platform === "android" || isTermux;
 export const defaultHome = () => path.join(os.homedir(), isTermux ? "quetzal" : ".quetzal");
 export const HOME = process.env.QUETZAL_HOME ?? defaultHome();
 export const paths = {

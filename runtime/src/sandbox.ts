@@ -23,7 +23,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { paths, isTermux, config } from "./config.ts";
+import { paths, isAndroid, config } from "./config.ts";
 import { log } from "./log.ts";
 import { addTimeline } from "./store.ts";
 
@@ -149,11 +149,13 @@ function landrunArgs(env: NodeJS.ProcessEnv = process.env): string[] {
   return a;
 }
 
-/** proot 遮住的目录：密钥、配置（含灵魂仓库地址与权限）、运行基座的版本目录、runit 服务与开机脚本（改了会在沙箱外执行）。 */
+/** proot 遮住的目录：密钥、配置（含灵魂仓库地址与权限）、运行基座的版本目录、runit 服务与开机脚本（改了会在沙箱外执行），
+ *  以及启动者用 QUETZAL_HIDE_PATHS（冒号分隔）指定的目录——App 内置的运行基座与控制台是同一个系统用户，App 自己的私有数据（存着网关令牌的设置等）要遮住。 */
 function prootHidden(): string[] {
   const prefix = process.env.PREFIX ?? "";
+  const extra = (process.env.QUETZAL_HIDE_PATHS ?? "").split(":").filter((p) => path.isAbsolute(p));
   return [paths.secrets, paths.config, path.join(paths.home, "releases"),
-    ...(prefix ? [path.join(prefix, "var", "service", "quetzal")] : []), path.join(os.homedir(), ".termux", "boot")].filter(exists);
+    ...(prefix ? [path.join(prefix, "var", "service", "quetzal")] : []), path.join(os.homedir(), ".termux", "boot"), ...extra].filter(exists);
 }
 function prootArgs(): string[] {
   const empty = emptyDir();
@@ -168,7 +170,7 @@ function probe(): Probe {
   const q = (p: string) => `'${p.replace(/'/g, "'\\''")}'`;
   const secretsCheck = `cat ${q(path.join(real(paths.secrets), CANARY))} >/dev/null 2>&1 && exit 3; ls -A ${q(real(paths.secrets))} 2>/dev/null | grep -q . && exit 3; exit 0`;
   const ok = (bin: string, args: string[]) => { try { return spawnSync(bin, [...args, sh(), "-c", secretsCheck], { timeout: 10_000, stdio: "ignore" }).status === 0; } catch { return false; } };
-  if (!isTermux && force !== "proot") {
+  if (!isAndroid && force !== "proot") {
     for (const bwrap of [DEDICATED_BWRAP, which("bwrap")]) {
       if (!bwrap || !exists(bwrap) || force === "landlock") continue;
       if (ok(bwrap, [...bwrapArgs(true), "--"])) return { kind: "bwrap", bin: bwrap, pidns: true };
