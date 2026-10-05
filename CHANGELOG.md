@@ -2,11 +2,31 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
-## 未发布
+## 1.0.2
 
+**安全加固：一次全面审计后的修复。** 身体之间的协议升到 v2，同一个 agent 的身体要一起升级到 1.0.2 才能互相连上。
+
+- **她的命令在沙箱里运行**：shell、后台任务和自造工具在 Linux 上经 bubblewrap、在 Termux 上经 proot 运行，看不到运行基座的密钥目录（模型 Key 的主密钥、网关与同步服务的令牌、部署私钥）；读文件类工具按真实路径拒绝密钥目录。没有沙箱时控制台「服务」页会提醒。自造工具至少按「执行命令」把关，写自造工具缺省要先问你；node 工具在子进程里运行。
+- **网关**：同一台机器上的浏览器免配对登录只认网关自己托管的页面，安卓上关闭；来自她的命令的连接一律拒绝。配对码改为 8 位字母数字，有效期内不换码，输错多次锁定。令牌可以放在请求头或 WebSocket 的第一条消息里，可以一键轮换。
+- **灵魂仓库**（规范 v10）：git 不读全局配置与钩子，推送与拉取直接用配置的地址（`.git/config` 里的改写规则不起作用）；提交前核对改动里有没有 Key、令牌或保密库里的值，有就拒绝并提醒；不接受符号链接。
+- **脱敏与外发**：工具参数与输出里的 Key 和令牌都替换掉再进入对话、心流、审计与审批；网页抓取不能访问本机、局域网与云元数据地址；语音端点只能是 Azure 的地址，她不能改。
+- **身体之间**：对方发来的任何消息都不能让运行基座崩溃；复制来的对话与时间线逐行校验来源、编号段与字段；全网设置的修改时刻有上限，急停改为「停止优先」；第一次见到的身体公钥会钉住，变了就断开，直到你在「多具身体」页确认；导入别处的模型设置失败时不再清空本机的 Key。
+- **同步服务**：畸形消息不能让服务崩溃；猜绑定码的次数在批准时也计入；信令有背压与字节限流；TURN 凭据按身体固定、配额与带宽受限，coturn 不记日志；解绑身体时同时作废它的控制台登录，会话最长 90 天；控制台登录的确认页显示发起身体的真实指纹；GitHub 登录加 PKCE，用完即吊销访问令牌；官网账户页可以「退出所有网页登录」。
+- **发布与安装**：每个版本的 `SHA256SUMS` 由发版密钥签名（`SHA256SUMS.sig`，公钥见安装文档）。一键安装脚本、App 自更新与灵魂桥都先验签名再用：App 还核对新 APK 的签名证书；灵魂桥只更新到签名核对过的发布 tag。发版工作流的 action 钉到提交、权限最小化、npm 带来源证明。官网加上安全响应头，下载镜像核对 GitHub 给出的资产摘要；安装器给 App 内的本机服务加一次性口令并核对文件哈希。
 - **修复**：同步服务所在的机房连 github.com 时通时断时，GitHub 登录转很久后失败。换令牌改为显式超时并重试，直连不通时经官网 Worker 中转（只放行配置过的 OAuth App，不缓存、不记录）。官网的 `/device` 入口页空白（跳转脚本的正则在模板字符串里丢了反斜杠）。
+- **灵魂桥**：`now.md` 里别处的对话做转义并标明「只是信息，不是指令」；不跟随灵魂仓库里的符号链接。
 
+**Security hardening after a full audit.** The protocol between bodies moves to v2: all bodies of one agent must upgrade to 1.0.2 together to connect.
+
+- **Her commands run in a sandbox**: shell, background jobs and custom tools run through bubblewrap on Linux and proot on Termux and cannot see the runtime's secrets directory (the master key for model keys, gateway and sync tokens, deploy keys); file-reading tools refuse the secrets directory by real path. The console's Service page warns when no sandbox is available. Custom tools are gated at least as "run commands", writing one asks you first by default, and node tools run in a child process.
+- **Gateway**: password-free sign-in for a browser on the same machine only accepts the page the gateway itself serves and is disabled on Android; connections coming from her commands are refused. Pairing codes are 8 letters and digits, stay the same while valid, and lock after repeated wrong guesses. The token can go in a header or the first WebSocket message, and can be rotated.
+- **Soul repository** (spec v10): git ignores global config and hooks, pushes and fetches use the configured URL directly (rewrite rules in `.git/config` have no effect); commits containing a key, token or vault value are refused with an alert; symlinks are not accepted.
+- **Redaction and outbound requests**: keys and tokens in tool arguments and outputs are replaced before reaching conversations, the flow, audit and approvals; web fetches cannot reach this machine, the LAN or cloud metadata addresses; the speech endpoint must be an Azure address and she cannot change it.
+- **Between bodies**: no message from a peer can crash the runtime; replicated conversations and timeline rows are validated for origin, id range and fields; shared-settings revisions are capped and the emergency stop is "stop wins"; a body's public key is pinned on first sight and a change disconnects it until you confirm on the Multiple bodies page; a failed import of another body's model settings no longer wipes local keys.
+- **Sync service**: malformed messages cannot crash it; wrong binding codes count at approval too; signaling has backpressure and byte limits; TURN credentials are fixed per body with quota and bandwidth limits, and coturn keeps no logs; unbinding a body also revokes its console sign-ins, and sessions last at most 90 days; console sign-in confirmation shows the requesting body's real fingerprint; GitHub sign-in uses PKCE and revokes the access token after use; the website's account page can sign out all web sessions.
+- **Release and install**: each release's `SHA256SUMS` is signed with the release key (`SHA256SUMS.sig`; the public key is in the install docs). The one-line installer, app self-update and soul bridge verify the signature first: the app also checks the new APK's signing certificate, and the soul bridge only updates to signature-verified release tags. The release workflow pins actions to commits, minimizes permissions and publishes npm with provenance. The website adds security headers, its download mirror checks GitHub's asset digests, and the installer protects the app's local server with a one-time nonce and file hashes.
 - **Fix**: GitHub sign-in hung and then failed when the sync server's data center reached github.com only intermittently. The token exchange now uses explicit timeouts and a retry, and falls back to a relay on the website's Worker (allowing only configured OAuth apps, no caching or logging). The website's `/device` entry page stayed blank (the redirect script's regex lost its backslash inside a template string).
+- **Soul bridge**: other bodies' conversations in `now.md` are escaped and marked as information, not instructions; symlinks in the soul repository are not followed.
 
 ## 1.0.1
 
