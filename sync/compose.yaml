@@ -70,12 +70,13 @@ networks:
   internal: {}
 
 configs:
-  # 中转地址显式指定为主网卡的地址（否则 coturn 会把 Docker 网桥等所有网卡地址都当作中转地址）；云服务器的 1:1 NAT 用 external-ip=公网/内网 映射。
+  # 监听与中转地址都显式指定为主网卡的地址（否则 coturn 会在 Docker 网桥、VPN 等所有网卡上监听，并把它们都当作中转地址）；云服务器的 1:1 NAT 用 external-ip=公网/内网 映射。
   # 加固项参考 Enable Security 的 coturn 安全配置指南：只用有时效的 HMAC 凭据；禁止中转到私有、回环、保留地址（防止借 TURN 打进服务器所在的内网）；
   # 关掉 TCP 中转、软件版本属性与 NAT 行为探测（减少放大攻击的增益）；限制配额与分配时长。4.18 起 CLI、DTLS、RFC 5780 默认关闭。
   turnserver:
     content: |
       listening-port=3478
+      listening-ip=${TURN_RELAY_IP:?请运行 ./start.sh 探测 TURN_RELAY_IP}
       no-tls
       realm=${SYNC_DOMAIN}
       fingerprint

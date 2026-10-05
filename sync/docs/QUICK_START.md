@@ -52,7 +52,7 @@ cd Project.Quetzal/sync
 | `TURN_MIN_PORT` / `TURN_MAX_PORT` | TURN 中转端口段，默认 49160–49250 |
 | `SYNC_MAX_AGENTS_PER_USER` / `SYNC_MAX_BODIES_PER_AGENT` | 每个账户的 agent 上限（20）、每个 agent 的身体上限（16） |
 | `NODE_IMAGE` / `CADDY_IMAGE` / `COTURN_IMAGE` / `NPM_REGISTRY` | 镜像与 npm 源；服务器拉不动 Docker Hub 或 npm 时改成可用的镜像源 |
-| `TURN_RELAY_IP` / `TURN_EXTERNAL_IP` | TURN 的中转地址。留空时由 `start.sh` 探测：主网卡（默认路由出口）的 IPv4 作为 `relay-ip`；它是内网地址时（云服务器常见的 1:1 NAT）再探测公网地址，写成 `公网/内网`。必须显式指定，否则 coturn 会把 Docker 网桥等所有网卡地址都当作中转地址。服务器换了地址就清空再运行 `./start.sh` |
+| `TURN_RELAY_IP` / `TURN_EXTERNAL_IP` | TURN 的中转地址。留空时由 `start.sh` 探测：主网卡（默认路由出口）的 IPv4 作为 `relay-ip`；它是内网地址时（云服务器常见的 1:1 NAT）再探测公网地址，写成 `公网/内网`。必须显式指定，否则 coturn 会把 Docker 网桥等所有网卡地址都当作中转地址；coturn 也只在这个地址上监听（不在 Docker 网桥、VPN、回环上开 3478）。服务器换了地址就清空再运行 `./start.sh` |
 | `TURN_ALLOWED_PEER_IP` | 放行中转到某个内网地址。默认禁止中转到一切私有地址（防止借 TURN 打进服务器所在的内网），只在确实需要时填写 |
 
 改完 `.env` 后运行 `./start.sh` 生效。
