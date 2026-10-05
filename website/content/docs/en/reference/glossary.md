@@ -27,7 +27,10 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | soul | 灵魂 | The agent's personality and memory (`SOUL.md`, resident memory, journal, notes, identity) |
 | soul directory | 灵魂目录 | Local `QUETZAL_HOME/soul/`, a git repository |
 | soul repository | 灵魂仓库 | The private git repository shared by all bodies, `<agent>.soul` |
-| soul sync | 灵魂同步 | Fully automatic pull, merge and push by the runtime; she only perceives it |
+| soul sync | 灵魂同步 | Fully automatic pull, merge and push by the runtime; changes to the soul directory are committed and pushed immediately, and only push failures or real conflicts are brought to the agent |
+| multiple bodies | 多具身体 | Bodies online at the same time connected directly into one mind: one conversation, one heart, one set of settings |
+| sync service | 同步服务 | The service (`sync/`) that lets bodies find each other and relays when they cannot connect directly; it holds only accounts and body registrations and cannot see conversations or memory |
+| coordinator | 协调者 | The body that currently holds the heartbeat and decides when the agent wakes; the others follow |
 | soul-bridge | 灵魂桥 | The pluggable sync daemon installed on Hermes / OpenClaw machines |
 | identity guard | 身份守卫 | Refuses to merge repositories whose `agent.json.id` differs |
 | seed identity / seed soul | 种子身份 / 种子人格 | Auto-generated, unmodified identity and personality; yields to an existing remote |

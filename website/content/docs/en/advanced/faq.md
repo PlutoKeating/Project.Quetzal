@@ -45,7 +45,7 @@ No. Without one, identity, personality and memory live in the local soul directo
 
 ## Where is my data?
 
-All on the phone under `QUETZAL_HOME` (default `~/quetzal`): configuration, encrypted keys, the SQLite database (timeline, conversations, audit, usage), the soul directory and the vault. With a soul repository connected, **only personality and memory** are pushed to your own private repository. Quetzal has no cloud service of any kind.
+All on the phone under `QUETZAL_HOME` (default `~/quetzal`): configuration, encrypted keys, the SQLite database (timeline, conversations, audit, usage), the soul directory and the vault. With a soul repository connected, **only personality and memory** are pushed to your own private repository. Quetzal runs no cloud service that keeps your data; the optional [sync service](/docs/guide/multi-body) only helps your bodies find each other and relays when they cannot connect directly, and it cannot see conversations or memory.
 
 ## Can I run two agents at once?
 

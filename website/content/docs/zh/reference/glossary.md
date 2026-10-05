@@ -27,7 +27,10 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 灵魂 | soul | agent 的人格与记忆（`SOUL.md`、常驻记忆、日记、笔记、身份） |
 | 灵魂目录 | soul directory | 本机 `QUETZAL_HOME/soul/`，一个 git 仓库 |
 | 灵魂仓库 | soul repository | 多具身体共享的私有 git 仓库，`<agent>.soul` |
-| 灵魂同步 | soul sync | 基座全自动的拉取、合并、推送；ta 只感知到它发生了 |
+| 灵魂同步 | soul sync | 基座全自动的拉取、合并、推送；ta 改动灵魂目录后立即提交并推送，推送失败或真正的冲突才提醒 ta |
+| 多具身体 | multiple bodies | 同时在线的几具身体直接连成一个心智：一份对话、一颗心、一份设置 |
+| 同步服务 | sync service | 让身体互相找到、打不通时中转的服务（`sync/`）；只有账户与身体登记，看不到对话与记忆 |
+| 协调者 | coordinator | 此刻持有心跳的那具身体，由它决定 ta 什么时候醒来；其他身体跟随 |
 | 灵魂桥 | soul-bridge | 装在 Hermes / OpenClaw 机器上的可插拔同步守护进程 |
 | 身份守卫 | identity guard | 拒绝合并 `agent.json.id` 不同的仓库 |
 | 种子身份 / 种子人格 | seed identity / seed soul | 自动生成、尚未修改的身份与人格；遇到远端已有的会让位 |
