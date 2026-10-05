@@ -52,7 +52,7 @@ flowchart LR
 - **文案原则**：只讲用户一眼能懂、别处没有的东西（自己醒来、身体、灵魂随身、许多身体一个 ta、会长大、你说了算）；协议、算法、参数、文件名一律不上介绍页，放进文档。hero 的标语、英文副标与引言是固定文案，不改。
 
 - **示意图的窄屏规则**：`Frame` 在容器窄于 480px 时把 SVG 文字按比例放大（最多 1.5 倍）补偿缩小，所以**同一行不能左右并排放两段文字**（名字与说明、键与值都上下两行、左对齐），单行文字按放大 1.5 倍后仍须放进画布；文案改长时要在 320 / 360 / 412 宽度下核对。
-- **三条带子** `components/figure.tsx` 的 `WakeCompare`（首页「没有定时器」一节与亮点页 01 共用）：Codex / Claude Code 只在你调用时有点；Hermes / OpenClaw 每 30 分钟一个 heartbeat 刻度；Quetzal 是随清醒度起伏的随机醒来点与大段睡眠。对照口径经查证：Hermes 有 cron，OpenClaw 有 heartbeat（默认 30 分钟）与 cron。
+- **三条带子** `components/figure.tsx` 的 `WakeCompare`（首页「没有定时器」一节与亮点页 03 共用）：Codex / Claude Code 只在你调用时有点；Hermes / OpenClaw 每 30 分钟一个 heartbeat 刻度；Quetzal 是随清醒度起伏的随机醒来点与大段睡眠。对照口径经查证：Hermes 有 cron，OpenClaw 有 heartbeat（默认 30 分钟）与 cron。
 - **凭证小字**：`lib/github.ts` 的 `fetchRepoStats` 取星标与最新版本（星标少于 10 时只显示 GitHub）。
 
 - **呼吸光斑** `Breath`：有机形状的柔光，`animate-breath`（亮度 ±8%、5 秒周期）。
@@ -65,7 +65,7 @@ flowchart LR
 |---|---|---|
 | `/` | 语言跳转 | 内联脚本 |
 | `/:lang` | 首页：hero（slogan 与引言，固定文案）→ 没有定时器（与 Codex / Hermes / OpenClaw 的一处差别 + 三条 24 小时带子 + 凭证小字）→ 别处没有的（四张卡：身体 · 灵魂 · 许多身体 · 会长大，各链到亮点页对应一节）→ 此刻（示例身体）→ 一天 → 它有时候不动 → 你说了算（三条）→ 开始 | `routes/home/i18n.ts`；`ExampleBody.tsx`、`DayStrip.tsx` 只用 `lib/bodyClock` 的模型，不含任何真实设备数据 |
-| `/:lang/features` | 七个亮点故事（没有定时器 · 身体 · 灵魂 · 许多身体 · 会长大 · 你说了算 · 装在旧手机上；通俗标题 + 示意图 + 要点 + 文档链接，左右交替，锚点即故事 id，首页四张卡链到 `#body` `#soul` `#mesh` `#tools`）与「还有这些」网格 | `routes/features/i18n.ts`；示意图为 `routes/features/illustrations.tsx` 里的内联 SVG（只用语义类，文字走 i18n） |
+| `/:lang/features` | 七个亮点故事（灵魂 · 许多身体 · 没有定时器 · 身体 · 会长大 · 你说了算 · 装在旧手机上；通俗标题 + 示意图 + 要点 + 文档链接，左右交替，锚点即故事 id，首页四张卡链到 `#body` `#soul` `#mesh` `#tools`）与「还有这些」网格 | `routes/features/i18n.ts`；示意图为 `routes/features/illustrations.tsx` 里的内联 SVG（只用语义类，文字走 i18n） |
 | `/:lang/docs/*` | 文档教程：侧栏、正文（统一 Markdown 组件）、页内目录 | `content/docs/<lang>/**/*.md`（构建时读取） |
 
 **图表与图片的可读性**（`components/markdown/Mermaid.tsx`、`Lightbox.tsx`）：mermaid 以原始尺寸渲染（`useMaxWidth: false`，字号 16px）；容器窄于 640px 时横向流程图（LR / RL，含子图 direction）自动改为纵向；图比容器宽时，若缩放不低于 0.72 则整体缩放，否则原尺寸横向滚动并提示；每张图与文档里的图片都可点按进入全屏查看（缩放按钮、双向滚动、Esc 关闭）。时序图开启自动换行。架构参考页的总图改用与 README 相同的手绘 SVG（`public/img/architecture.{zh,en}.svg`，由 `scripts/gen-architecture-svg.py` 生成）。

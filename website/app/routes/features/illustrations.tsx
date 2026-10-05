@@ -5,12 +5,12 @@
 import { cx, StatusDot } from "~/design-system/components";
 import { Frame, T, Lamp, WakeCompare, type CompareLabels } from "~/components/figure";
 
-/* 01 三条带子：Codex / Hermes-OpenClaw / Quetzal */
+/* 03 三条带子：Codex / Hermes-OpenClaw / Quetzal */
 export function WakeTimeline({ t }: { t: CompareLabels }) {
   return <WakeCompare t={t} />;
 }
 
-/* 02 传感器 → 身体感受。手机里每行键在上、值在下（同一行放不下放大后的英文）；右侧胶囊加宽。 */
+/* 04 传感器 → 身体感受。手机里每行键在上、值在下（同一行放不下放大后的英文）；右侧胶囊加宽。 */
 export function BodySenses({ t }: { t: { sensors: readonly (readonly string[])[]; feelings: readonly string[] } }) {
   return (
     <Frame label={t.feelings.join(" ")}>
@@ -31,7 +31,7 @@ export function BodySenses({ t }: { t: { sensors: readonly (readonly string[])[]
   );
 }
 
-/* 03 灵魂仓库与多具身体 */
+/* 01 灵魂仓库与多具身体 */
 export function SoulGit({ t }: { t: { repo: string; bodies: readonly string[]; log: readonly (readonly string[])[]; logTitle: string } }) {
   const pos = [[70, 70], [240, 44], [410, 70]] as const;
   return (
@@ -61,7 +61,7 @@ export function SoulGit({ t }: { t: { repo: string; bodies: readonly string[]; l
   );
 }
 
-/* 04 几具身体，一个 ta：三具身体两两相连，中间是同一颗心；电脑上在想事情，借用手机的相机。
+/* 02 几具身体，一个 ta：三具身体两两相连，中间是同一颗心；电脑上在想事情，借用手机的相机。
  *  文字都上下错开（窄屏放大 1.5 倍后同一行放不下两段）。 */
 export function MeshBodies({ t }: { t: { bodies: readonly string[]; center: string; active: string; borrow: string; caption: string } }) {
   const pos = [[240, 58], [80, 196], [400, 196]] as const;
