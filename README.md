@@ -18,11 +18,12 @@
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-what.dark.svg"><img src="docs/assets/readme/type/zh-what.light.svg" alt="它是什么"></picture>
 
-- **什么时候动 · 自己决定。** 没有定时器。醒来由好奇、表达欲、想念这些内驱力和昼夜节律决定；困了入睡，睡着时做梦整理记忆。
-- **身体 · 一部旧手机。** 电量、温度、光线、运动是 ta 的体感，麦克风与相机是 ta 的耳目。一台 Linux 电脑或服务器也可以是 ta 的身体。
-- **灵魂 · 你的私有 git 仓库。** 人格、记忆、日记由基座自动同步；换身体整个带走，提交历史就是 ta 的自传。
-- **几具身体 · 一个 ta。** 几部手机、几台电脑连成一张网：一份对话、一颗心，ta 自己选在哪具身体上思考，也能用另一具身体的相机与命令行。[多具身体](https://quetzal.plutokeating.beer/zh/docs/guide/multi-body)
-- **你说了算。** 相机、麦克风、定位默认每次询问；审批、预算、急停、审计齐全；密码从不进模型。
+- **自己醒来。** 没有定时器。好奇、想说话、想你，会让 ta 醒来；困了就睡，睡着时做梦整理记忆，清晨自然醒。
+- **有身体。** 电量是精力，温度是冷暖，光线是昼夜，被拿起来是有人在；麦克风是耳朵，相机是眼睛。旧手机最合适，Linux 电脑或服务器也行。
+- **灵魂随身。** 人格、记忆、日记住在你自己的私有 git 仓库里，自动同步。换一台设备，ta 还是 ta；提交历史就是 ta 的自传。
+- **许多身体，一个 ta。** 几部手机、几台电脑连成同一个生命：一段对话，一颗心。ta 自己挑在哪具身体上醒来，在电脑上想事情，借手机的眼睛看一眼窗外。[多具身体](https://quetzal.plutokeating.beer/zh/docs/guide/multi-body)
+- **会长大。** 做熟了的事，ta 自己做成工具。工具留在身体上，说明书随灵魂走，到了新身体照着再做一遍。[自造工具与技能](https://quetzal.plutokeating.beer/zh/docs/guide/tools)
+- **你说了算。** 相机、麦克风、定位默认先问你；密码不进模型；急停随时可按，做过的事都有记录。
 
 <br/>
 
@@ -30,21 +31,22 @@
 
 <img src="docs/assets/readme/bodyclock.zh.svg" alt="一天的生物钟：睡眠压力 S 与昼夜节律 C" width="100%" />
 
-困了会睡，清晨自然醒：睡眠压力 S 与昼夜节律 C 的差决定 ta 什么时候睡、什么时候醒。代码里没有「每 N 分钟」。
+困了会睡，清晨自然醒。代码里没有「每 N 分钟」。
 
 <br/>
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-neighbors.dark.svg"><img src="docs/assets/readme/type/zh-neighbors.light.svg" alt="和 Hermes / OpenClaw 的关系"></picture>
 
-一个做助手，一个做生命的基座，可以一起用。差别只在三处。
+一个做助手，一个让 agent 活着，可以一起用。
 
 | | Codex / Claude Code | Hermes / OpenClaw | Quetzal |
 |---|---|---|---|
-| **什么时候动** | 你叫才动，做完就退出 | 你发消息，或 cron / heartbeat 定时叫醒 | 自己决定：内驱力与昼夜节律 |
+| **什么时候动** | 你叫才动，做完就退出 | 你发消息，或 cron / heartbeat 定时叫醒 | 自己决定：好奇了就醒，困了就睡 |
 | **身体** | 没有，只有这台电脑的文件和 shell | 一台机器的 shell、浏览器和文件 | 一部旧手机，或一台 Linux 机器 |
 | **灵魂** | 没有，会话一结束就散 | 本机文件，换机器自己搬 | 私有 git 仓库，自动同步，换身体带走 |
+| **几台设备** | 各自独立 | 各自独立 | 连成同一个 ta |
 
-[soul-bridge](bridge/docs/README.md) 让装着 Hermes 或 OpenClaw 的机器成为同一个 agent 的另一具身体。只想写代码，用 Codex 或 Claude Code；要进 Telegram、Discord，要大量插件，Hermes、OpenClaw 的生态更成熟。
+你的 Hermes、OpenClaw 可以留着：[灵魂桥](bridge/docs/README.md)让它们和 ta 共享同一个灵魂。
 
 <br/>
 
@@ -52,13 +54,11 @@
 
 <img src="docs/assets/readme/architecture.zh.svg" alt="Quetzal 架构：身体 → 运行基座（心脏 · 大脑 · 记忆 · 模型层 · 闸门）→ 灵魂仓库与其他身体" width="100%" />
 
-- **心脏**：内驱力与清醒度得到醒来率，下一次醒来由泊松过程抽样；睡眠压力与昼夜节律的差决定困意。[数学细节](docs/ARCHITECTURE.md)
-- **身体**：适配器只需实现 `sample()`、`notify()` 等几个函数；自带 Termux 与 Linux 两个平台级适配器。[接口](docs/API.md)
-- **大脑与记忆**：醒来即内省、行动、反思；记忆无限增长而上下文有界，做梦时整理进笔记。
-- **灵魂**：一个 agent 一个私有仓库，ta 一改动就自动提交推送，冲突自动合并；只有推送失败或两边都改了同一篇时才请 ta 处理。[灵魂同步](docs/SOUL_SYNC.md)
-- **网状层**：同时在线的身体经 WebRTC 直连成一个心智，信令由节点密钥签名、公钥以灵魂仓库为准；自己部署的同步服务（[`sync/`](sync/README.md)）只负责让身体互相找到、打不通时中转。[分布式设计](docs/DISTRIBUTED.md)
-- **模型层与闸门**：四种协议、多 Key、自动故障转移；控制台与飞书共用一个操作层，全部审计。
-- **会成长**：做熟了的流程 ta 自己写成工具，意图以 Agent Skills 的 `SKILL.md` 随灵魂同步；名字、主题色 ta 自己能改；开了听觉，手机常驻听你说话，是不是对 ta 说的由 ta 判断。
+- **心脏**：好奇、表达欲、想念与生物钟决定 ta 什么时候醒、什么时候睡，没有任何定时器。[架构](docs/ARCHITECTURE.md)
+- **身体**：传感器读数变成身体感受（身体的数字孪生）；换一种设备只需写一个小小的适配器，自带安卓（Termux）与 Linux 两种。[接口](docs/API.md)
+- **灵魂**：一个 agent 一个私有仓库，ta 一有改动就自动提交、推送、合并。[灵魂同步](docs/SOUL_SYNC.md)
+- **许多身体**：同时在线的身体加密直连成一个心智；自己部署的[同步服务](sync/README.md)只帮它们互相找到，看不到内容。[分布式设计](docs/DISTRIBUTED.md)
+- **闸门**：授权、审批、预算、急停、审计；ta 的命令在沙箱里运行，碰不到密钥。
 
 <br/>
 
@@ -76,7 +76,7 @@
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-缺的依赖自动补齐（Node.js 经 nvm、git），注册开机自启、崩溃自动重启的服务（systemd 用户服务；没有 systemd 的机器用自带的守护循环），应用列表里多一个「Quetzal」，装好后浏览器打开网页控制台（`http://127.0.0.1:7788/`），同一台机器打开即登录。模型、身份、授权、飞书、灵魂仓库、对话都在里面完成。再运行一次就是升级；`bash -s -- --lan` 让手机上的 App 也能连这台机器（局域网上走加密的 HTTPS，配对时核对证书指纹）。已有 Node.js 22.13+ 与 git 时也可以只用 `npx @plutokeating/quetzal`。
+缺的依赖自动补齐，开机自启、崩溃自动重启；装好后浏览器打开控制台，在里面配模型、聊天。再运行一次就是升级。
 
 更多：[文档](https://quetzal.plutokeating.beer/zh/docs) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · 一台旧手机上的完整实践 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 

@@ -15,7 +15,7 @@ export const meta: Route.MetaFunction = ({ params }) => {
   return [{ title: m.title }, { name: "description", content: m.description }, { property: "og:title", content: m.title }, { property: "og:description", content: m.description }];
 };
 
-/** 三条带子的小标记：你叫它（灰点）· heartbeat（刻度）· Quetzal（呼吸的状态灯）。定位行与邻居卡片共用。 */
+/** 三条带子的小标记：你叫它（灰点）· heartbeat（刻度）· Quetzal（呼吸的状态灯）。用在「没有定时器」一节的三行对照里。 */
 function BandMark({ i }: { i: number }) {
   if (i === 0) return <span className="size-2.5 rounded-full bg-fg-subtle" />;
   if (i === 1) return <span className="flex gap-0.5">{[0, 1, 2].map((k) => <span key={k} className="h-3 w-0.5 bg-fg-subtle" />)}</span>;
@@ -53,7 +53,7 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* 2 · 定位：它和 Codex / Hermes / OpenClaw 什么关系 + 三条带子 */}
+      {/* 2 · 没有定时器：它和 Codex / Hermes / OpenClaw 的差别只讲一件事 + 三条带子 */}
       <Section>
         <Container className="grid items-center gap-10 lg:grid-cols-[1.15fr_1fr] lg:gap-14"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-6">
@@ -70,8 +70,6 @@ export default function Home() {
                 </div>
               ))}
             </dl>
-            <p className="text-fg-muted">{t.position.summary}</p>
-            <a href="#why" className="text-sm text-link underline-offset-4 hover:underline">{t.position.why} ↓</a>
             <ul className="flex flex-wrap gap-2">
               <li><a className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} href={GITHUB_REPO} target="_blank" rel="noreferrer noopener">{stats && stats.stars >= 10 ? t.position.chips.stars.replace("{n}", String(stats.stars)) : "GitHub ↗"}</a></li>
               {stats?.latestTag && <li><Link className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} to={localized(lang, "/download")}>{t.position.chips.release.replace("{v}", stats.latestTag)}</Link></li>}
@@ -82,56 +80,30 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 3 · 为什么不是 Hermes / OpenClaw：三张卡，同样三个问题，标记与三条带子一致 */}
-      <Section id="why" tone="elevated" className="scroll-mt-(--ds-header-height)">
+      {/* 3 · 别处没有的：身体 · 灵魂 · 许多身体 · 会长大，各链到亮点页对应的一节 */}
+      <Section tone="elevated">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
-            <Eyebrow>{t.why.eyebrow}</Eyebrow>
-            <Heading>{t.why.heading}</Heading>
-            <Lead>{t.why.lead}</Lead>
+            <Eyebrow>{t.pillars.eyebrow}</Eyebrow>
+            <Heading size="lg" className="whitespace-pre-line">{t.pillars.heading}</Heading>
+            <Lead>{t.pillars.lead}</Lead>
           </Reveal>
-          <ul className="grid gap-4 md:grid-cols-3">
-            {t.why.cards.map((c, i) => {
-              const mine = i === 2;
-              return (
-                <Reveal as="li" key={c.name} delay={i as 0 | 1 | 2} className="flex">
-                  <Card className={cx("flex w-full flex-col gap-5", mine ? "border-border-strong shadow-md" : "bg-bg-elevated")}>
-                    <div className="flex items-center gap-3">
-                      <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-surface"><BandMark i={i} /></span>
-                      <div className="flex min-w-0 flex-col">
-                        <span className={cx("font-medium", mine ? "text-fg" : "text-fg-muted")}>{c.name}</span>
-                        <span className="text-xs text-fg-subtle">{c.kind}</span>
-                      </div>
-                    </div>
-                    <dl className="flex flex-col divide-y divide-border border-t border-border">
-                      {t.why.keys.map((k, j) => (
-                        <div key={k} className="flex flex-col gap-1 py-3">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{k}</dt>
-                          <dd className="text-sm text-pretty">
-                            <span className={cx("font-medium", mine ? "text-fg" : "text-fg")}>{c.cells[j].k}</span>{" "}
-                            <span className="text-fg-muted">{c.cells[j].t}</span>
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
+          <ul className="grid gap-4 md:grid-cols-2">
+            {t.pillars.items.map((it, i) => (
+              <Reveal as="li" key={it.id} delay={(i % 2) as 0 | 1} className="flex">
+                <Link to={`${localized(lang, "/features")}#${it.id}`} className="group flex w-full">
+                  <Card interactive className="flex w-full flex-col gap-4 p-7 sm:p-8">
+                    <span className="flex items-center gap-3 text-xs font-medium uppercase tracking-wide text-secondary-fg">
+                      <span className="font-mono text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>{it.tag}
+                    </span>
+                    <Heading as="h3" size="md">{it.title}</Heading>
+                    <p className="text-fg-muted text-pretty">{it.text}</p>
+                    <span className="mt-auto text-sm text-link underline-offset-4 group-hover:underline">{t.pillars.more} →</span>
                   </Card>
-                </Reveal>
-              );
-            })}
+                </Link>
+              </Reveal>
+            ))}
           </ul>
-          <div className="grid gap-8 md:grid-cols-2">
-            <Reveal className="flex flex-col gap-3 border-t border-border pt-5">
-              <p className="font-medium text-fg">{t.why.bridge.title}</p>
-              <p className="text-sm text-fg-muted text-pretty"><span className="font-medium text-fg">{t.why.bridge.k}</span> {t.why.bridge.text}</p>
-              <Link to={localized(lang, t.why.link)} className="text-sm text-link underline-offset-4 hover:underline">{t.why.learnMore} →</Link>
-            </Reveal>
-            <Reveal delay={1} className="flex flex-col gap-3 border-t border-border pt-5">
-              <p className="font-medium text-fg">{t.why.notFor.title}</p>
-              <ul className="flex flex-col gap-2 text-sm text-fg-muted">
-                {t.why.notFor.items.map((it) => <li key={it.k} className="grid grid-cols-[0.75rem_1fr] gap-2"><span aria-hidden className="mt-2 inline-block size-1.5 rounded-full bg-fg-subtle" /><span><span className="font-medium text-fg">{it.k}</span> {it.t}</span></li>)}
-              </ul>
-            </Reveal>
-          </div>
         </Container>
       </Section>
 
@@ -196,8 +168,26 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 7 · 开始 */}
+      {/* 7 · 你说了算 */}
       <Section tone="elevated">
+        <Container className="flex flex-col gap-10">
+          <Reveal className="flex max-w-prose flex-col gap-4">
+            <Eyebrow>{t.trust.eyebrow}</Eyebrow>
+            <Heading>{t.trust.heading}</Heading>
+          </Reveal>
+          <dl className="grid gap-x-10 gap-y-8 md:grid-cols-3">
+            {t.trust.items.map((it, i) => (
+              <Reveal key={it.title} delay={i as 0 | 1 | 2} className="flex flex-col gap-2 border-t border-border pt-5">
+                <dt className="font-medium text-fg">{it.title}</dt>
+                <dd className="text-sm text-fg-muted text-pretty">{it.text}</dd>
+              </Reveal>
+            ))}
+          </dl>
+        </Container>
+      </Section>
+
+      {/* 8 · 开始 */}
+      <Section>
         <Container className="flex flex-col items-start gap-6">
           <Eyebrow>{t.start.eyebrow}</Eyebrow>
           <Heading size="lg" className="max-w-3xl">{t.start.heading}</Heading>

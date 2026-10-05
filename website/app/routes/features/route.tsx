@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { useMessages, isLang, DEFAULT_LANG, localized, useLang } from "~/i18n/core";
 import { ButtonLink, Container, Eyebrow, Heading, Lead, Reveal, Section, cx } from "~/design-system/components";
 import { messages } from "./i18n";
-import { BodySenses, ClockRing, ControlPanel, PhoneSteps, SecretVault, SoulGit, WakeTimeline } from "./illustrations";
+import { BodySenses, ControlPanel, MeshBodies, PhoneSteps, SkillTools, SoulGit, WakeTimeline } from "./illustrations";
 
 export const meta: Route.MetaFunction = ({ params }) => {
   const m = messages[isLang(params.lang) ? params.lang : DEFAULT_LANG];
@@ -17,10 +17,10 @@ export default function Features() {
   const art = (s: Story) => {
     switch (s.id) {
       case "waking": return <WakeTimeline t={s.art as never} />;
-      case "clock": return <ClockRing t={s.art as never} />;
       case "body": return <BodySenses t={s.art as never} />;
       case "soul": return <SoulGit t={s.art as never} />;
-      case "secret": return <SecretVault t={s.art as never} />;
+      case "mesh": return <MeshBodies t={s.art as never} />;
+      case "tools": return <SkillTools t={s.art as never} />;
       case "control": return <ControlPanel t={s.art as never} />;
       default: return <PhoneSteps t={s.art as never} />;
     }

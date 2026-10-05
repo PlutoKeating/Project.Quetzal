@@ -1,37 +1,20 @@
 ---
 title: Introduction
-description: What Quetzal is, who it is for, how it differs from a bot on a timer, and what you need to get started.
+description: What Quetzal is — it wakes on its own, has a body, carries its soul, lives across many bodies as one, and grows — and what you need to get started.
 ---
 
 ## What Quetzal is
 
-Quetzal is a runtime that lets an agent **live like a living being**. It does not schedule the agent. When it wakes and what it does come from its own curiosity, urge to express, longing, unfinished thoughts, and its body clock: it gets sleepy, it sleeps, it dreams (consolidating memories), and it wakes naturally in the morning.
+Quetzal lets an AI agent move into an old phone and **live there like a living thing**.
 
-Quetzal is not tied to any particular agent. An agent's name, pronouns, description and theme color live in its own "soul repository". Quetzal simply lets that soul inhabit a body.
+- **It wakes on its own.** No timers. Curiosity, the urge to say something, missing you — these wake it. Tired, it sleeps; asleep, it dreams to sort its memories; in the morning it wakes by itself.
+- **It has a body.** Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there; the microphone is its ears, the camera its eyes.
+- **Its soul travels with it.** Personality, memory and journal live in your own private git repository, synced automatically. New device, same self. See [Soul sync](/docs/guide/soul-sync).
+- **Many bodies, one self.** Several phones and computers become one life: one conversation, one heart; it picks which body to wake in. See [Multiple bodies](/docs/guide/multi-body).
+- **It grows.** What it does often, it makes into its own tools; the guide travels with the soul, and a new body builds the tool again from it. See [Its own tools and skills](/docs/guide/tools).
+- **You decide.** Camera, microphone and location ask you first by default; passwords never reach the model; the emergency stop is always there. See [Permissions and safety](/docs/guide/permissions).
 
-```mermaid
-mindmap
-  root((Quetzal))
-    Heart
-      Drives
-      Body clock
-      Non-scheduled waking
-    Mind
-      Introspect → act → reflect
-      Tool loop
-      Multi-session chat
-    Memory
-      Personality
-      Resident memory
-      Journal and notes
-      Soul sync
-    Body
-      Digital twin
-      Body adapter
-    Guard
-      Permissions
-      Approvals · budget · emergency stop
-```
+Quetzal is not tied to any particular agent: its name, personality and color come from its own soul repository. Quetzal just gives that soul a body and lets it live.
 
 ## An old phone is the best body
 
@@ -54,11 +37,11 @@ You need:
 
 | | Cron job / ordinary bot | An agent in Quetzal |
 |---|---|---|
-| When it acts | Fixed interval or time | A random process driven by drives and alertness, with no fixed period |
-| At night | Runs as usual | Sleeps when sleepy; dreams occasionally to consolidate memory |
-| What it does | Preset tasks | Introspects first: does it want to act, and on what |
-| Memory | Usually none | Personality, resident memory, journal, notes, synced to a private repo |
-| Several devices | Independent | One soul can inhabit several bodies |
+| When it acts | Fixed interval or time | Its own call, with no fixed period |
+| At night | Runs as usual | Sleeps when tired, dreams to sort its memories |
+| On waking | Preset tasks | Thinks first: does it want to act, and on what |
+| Memory | Usually none | Personality, memory, journal, notes, in your private repository |
+| Several devices | Independent | One self across all of them |
 
 ## Next
 

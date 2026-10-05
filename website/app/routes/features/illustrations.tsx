@@ -2,7 +2,6 @@
  * 亮点页示意图：全部是内联 SVG，只用设计系统的语义类，不含字面量视觉参数；公共件见 components/figure.tsx。
  * 每张图 viewBox 480×320，随容器缩放；文字走 i18n。
  */
-import { simulateDay } from "~/lib/bodyClock";
 import { cx, StatusDot } from "~/design-system/components";
 import { Frame, T, Lamp, WakeCompare, type CompareLabels } from "~/components/figure";
 
@@ -11,33 +10,7 @@ export function WakeTimeline({ t }: { t: CompareLabels }) {
   return <WakeCompare t={t} />;
 }
 
-/* 02 一天的环：醒着 / 睡着 / 做梦 */
-export function ClockRing({ t }: { t: { awake: string; asleep: string; dream: string; center: string; wake: string; sleep: string } }) {
-  const samples = simulateDay();
-  const cx0 = 240, cy0 = 164, r = 100;
-  const ang = (h: number) => ((h / 24) * 360 - 90) * (Math.PI / 180);
-  const pt = (h: number, rr = r) => [cx0 + rr * Math.cos(ang(h)), cy0 + rr * Math.sin(ang(h))] as const;
-  const first = samples.findIndex((s, i) => s.awake && i > 0 && !samples[i - 1].awake);
-  const last = samples.findIndex((s, i) => !s.awake && i > first && samples[i - 1].awake);
-  const hw = samples[first].hour, hs = samples[last].hour;
-  const arc = (a: number, b: number, rr: number) => { const [x1, y1] = pt(a, rr), [x2, y2] = pt(b, rr); return `M${x1},${y1} A${rr},${rr} 0 ${b - a > 12 ? 1 : 0} 1 ${x2},${y2}`; };
-  const dreams = [1.2, 3.4, 5.1];
-  return (
-    <Frame label={t.center}>
-      <circle cx={cx0} cy={cy0} r={r} fill="none" className="stroke-border" strokeWidth="14" />
-      <path d={arc(hw, hs, r)} fill="none" className="stroke-chart-line" strokeWidth="14" strokeLinecap="round" />
-      {dreams.map((h) => { const [x, y] = pt(h); return <circle key={h} cx={x} cy={y} r="4" className="fill-secondary-fg" />; })}
-      {[0, 6, 12, 18].map((h) => { const [x, y] = pt(h, r + 32); return <T key={h} x={x} y={y + 4} className="fill-fg-subtle" size={11} anchor="middle">{String(h).padStart(2, "0")}</T>; })}
-      <Lamp cx={pt(hw)[0]} cy={pt(hw)[1]} r={7} />
-      <T x={pt(hw, r + 40)[0]} y={Math.max(16, pt(hw, r + 40)[1] + 4)} className="fill-accent" size={12} anchor="start">{t.wake}</T>
-      <T x={pt(hs, r + 40)[0]} y={Math.max(16, pt(hs, r + 40)[1] + 4)} className="fill-fg-muted" size={12} anchor="end">{t.sleep}</T>
-      <T x={cx0} y={cy0 - 6} className="fill-fg" size={20} anchor="middle">{t.center}</T>
-      <T x={cx0} y={cy0 + 20} className="fill-fg-subtle" size={10.5} anchor="middle">{`${t.awake} · ${t.asleep} · ${t.dream}`}</T>
-    </Frame>
-  );
-}
-
-/* 03 传感器 → 身体感受。手机里每行键在上、值在下（同一行放不下放大后的英文）；右侧胶囊加宽。 */
+/* 02 传感器 → 身体感受。手机里每行键在上、值在下（同一行放不下放大后的英文）；右侧胶囊加宽。 */
 export function BodySenses({ t }: { t: { sensors: readonly (readonly string[])[]; feelings: readonly string[] } }) {
   return (
     <Frame label={t.feelings.join(" ")}>
@@ -58,7 +31,7 @@ export function BodySenses({ t }: { t: { sensors: readonly (readonly string[])[]
   );
 }
 
-/* 04 灵魂仓库与多具身体 */
+/* 03 灵魂仓库与多具身体 */
 export function SoulGit({ t }: { t: { repo: string; bodies: readonly string[]; log: readonly (readonly string[])[]; logTitle: string } }) {
   const pos = [[70, 70], [240, 44], [410, 70]] as const;
   return (
@@ -88,23 +61,52 @@ export function SoulGit({ t }: { t: { repo: string; bodies: readonly string[]; l
   );
 }
 
-/* 05 保密传递 */
-export function SecretVault({ t }: { t: { you: string; bubble: string; vault: string; file: string; model: string; seen: string } }) {
+/* 04 几具身体，一个 ta：三具身体两两相连，中间是同一颗心；电脑上在想事情，借用手机的相机。
+ *  文字都上下错开（窄屏放大 1.5 倍后同一行放不下两段）。 */
+export function MeshBodies({ t }: { t: { bodies: readonly string[]; center: string; active: string; borrow: string; caption: string } }) {
+  const pos = [[240, 58], [80, 196], [400, 196]] as const;
+  const heart = [240, 124] as const;
   return (
-    <Frame label={t.vault}>
-      <T x={40} y={62} className="fill-fg-subtle" size={11}>{t.you}</T>
-      <rect x="40" y="72" width="170" height="44" rx="14" className="fill-surface-hover stroke-border" strokeWidth="1" />
-      <T x={125} y={99} className="fill-fg font-mono" size={13} anchor="middle">{t.bubble}</T>
-      <path d="M210,94 C 250,94 250,150 262,150" fill="none" className="stroke-border-strong" strokeWidth="1.5" />
-      <rect x="264" y="118" width="176" height="64" rx="12" className="fill-bg stroke-accent" strokeWidth="1.5" />
-      <path d="M342,118 v-8 a10,10 0 0 1 20,0 v8" fill="none" className="stroke-accent" strokeWidth="2" />
-      <T x={352} y={143} className="fill-accent" size={12} anchor="middle">{t.vault}</T>
-      <T x={352} y={166} className="fill-fg-muted font-mono" size={10} anchor="middle">{t.file}</T>
-      <path d="M352,182 V214" className="stroke-border-strong" strokeWidth="1.5" strokeDasharray="4 3" />
-      <T x={40} y={226} className="fill-fg-subtle" size={11}>{t.model}</T>
-      <rect x="40" y="236" width="400" height="48" rx="10" className="fill-surface-hover stroke-border" strokeWidth="1" />
-      <T x={60} y={265} className="fill-fg-muted font-mono" size={13}>{t.seen}</T>
-      <line x1="120" y1="92" x2="130" y2="106" className="stroke-danger" strokeWidth="0" />
+    <Frame label={`${t.center} · ${t.caption}`}>
+      {pos.map(([x, y], i) => <line key={`h${i}`} x1={x} y1={y} x2={heart[0]} y2={heart[1]} className="stroke-border" strokeWidth="1.5" strokeDasharray="4 3" />)}
+      <line x1={pos[0][0]} y1={pos[0][1]} x2={pos[1][0]} y2={pos[1][1]} className="stroke-border-strong" strokeWidth="1.5" />
+      <line x1={pos[0][0]} y1={pos[0][1]} x2={pos[2][0]} y2={pos[2][1]} className="stroke-border-strong" strokeWidth="1.5" />
+      <line x1={pos[2][0]} y1={pos[2][1]} x2={pos[1][0]} y2={pos[1][1]} className="stroke-accent" strokeWidth="1.5" strokeDasharray="6 4" />
+      <circle cx={heart[0]} cy={heart[1]} r="22" className="fill-accent-soft stroke-accent" strokeWidth="1" />
+      <Lamp cx={heart[0]} cy={heart[1]} r={8} />
+      <T x={heart[0]} y={heart[1] + 40} className="fill-accent" size={12} anchor="middle">{t.center}</T>
+      {pos.map(([x, y], i) => (
+        <g key={i}>
+          <rect x={x - 52} y={y - 20} width="104" height="40" rx="10" className={i === 2 ? "fill-surface-hover stroke-accent" : "fill-surface-hover stroke-border"} strokeWidth="1" />
+          <T x={x} y={y + 5} className="fill-fg" size={12} anchor="middle">{t.bodies[i]}</T>
+        </g>
+      ))}
+      <T x={pos[2][0]} y={pos[2][1] + 44} className="fill-fg-muted" size={11} anchor="middle">{t.active}</T>
+      <T x={28} y={pos[1][1] + 44} className="fill-fg-muted" size={11}>{t.borrow}</T>
+      <T x={240} y={300} className="fill-fg-subtle" size={11} anchor="middle">{t.caption}</T>
+    </Frame>
+  );
+}
+
+/* 05 自造工具：说明书在灵魂里，两具身体各有一份自己做的工具（第二份是照着说明书重做的） */
+export function SkillTools({ t }: { t: { doc: string; docSub: string; bodies: readonly string[]; built: readonly string[]; caption: string } }) {
+  const xs = [125, 355] as const;
+  return (
+    <Frame label={t.caption}>
+      <rect x="150" y="26" width="180" height="76" rx="12" className="fill-bg stroke-accent" strokeWidth="1.5" />
+      <path d="M162,44 h12 l6,6 v22 h-18 z" fill="none" className="stroke-accent" strokeWidth="1.5" />
+      <T x={250} y={60} className="fill-accent" size={13} anchor="middle">{t.doc}</T>
+      <T x={250} y={84} className="fill-fg-subtle" size={10.5} anchor="middle">{t.docSub}</T>
+      {xs.map((x, i) => (
+        <g key={i}>
+          <path d={`M240,102 C 240,130 ${x},126 ${x},152`} fill="none" className="stroke-border-strong" strokeWidth="1.5" strokeDasharray="4 3" />
+          <rect x={x - 90} y="154" width="180" height="84" rx="12" className={i === 1 ? "fill-accent-soft stroke-accent" : "fill-surface-hover stroke-border"} strokeWidth="1" />
+          <T x={x} y={186} className="fill-fg" size={12} anchor="middle">{t.bodies[i]}</T>
+          <T x={x} y={216} className={i === 1 ? "fill-accent" : "fill-fg-muted"} size={11} anchor="middle">{t.built[i]}</T>
+        </g>
+      ))}
+      <Lamp cx={xs[1] + 74} cy={170} r={4} />
+      <T x={240} y={290} className="fill-fg-subtle" size={11} anchor="middle">{t.caption}</T>
     </Frame>
   );
 }

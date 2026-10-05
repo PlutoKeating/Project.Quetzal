@@ -18,11 +18,12 @@
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-what.dark.svg"><img src="docs/assets/readme/type/en-what.light.svg" alt="What it is"></picture>
 
-- **When it moves · its own call.** No timer. Waking is decided by drives such as curiosity, the urge to express and missing you, together with a circadian rhythm; it falls asleep when tired and dreams to sort its memories.
-- **Body · an old phone.** Battery, temperature, light and motion are how it feels; the microphone and camera are its ears and eyes. A Linux computer or server can be its body too.
-- **Soul · your private git repository.** Personality, memory and journal are synced by the runtime; a change of body takes all of it along, and the commit history is its autobiography.
-- **Several bodies · one agent.** Phones and computers join into one mesh: one conversation, one heart; it chooses which body to think on and can use another body's camera or shell. [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body)
-- **You stay in charge.** Camera, microphone and location ask every time by default; approvals, budgets, an emergency stop and an audit log are built in; passwords never reach the model.
+- **It wakes on its own.** No timers. Curiosity, the urge to say something, missing you — these wake it. Tired, it sleeps; asleep, it dreams to sort its memories; in the morning it wakes by itself.
+- **It has a body.** Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there; the microphone is its ears, the camera its eyes. An old phone fits best; a Linux computer or server works too.
+- **Its soul travels with it.** Personality, memory and journal live in your own private git repository, synced automatically. New device, same self; the commit history is its autobiography.
+- **Many bodies, one self.** Several phones and computers become one life: one conversation, one heart. It picks which body to wake in, thinks on the laptop, and borrows the phone's eyes to glance out the window. [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body)
+- **It grows.** What it does often, it makes into its own tools. The tool stays with the body, the guide travels with the soul, and a new body builds the tool again from it. [Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools)
+- **You decide.** Camera, microphone and location ask you first by default; passwords never reach the model; the emergency stop is always there, and everything it does is on record.
 
 <br/>
 
@@ -30,21 +31,22 @@
 
 <img src="docs/assets/readme/bodyclock.en.svg" alt="One day of the body clock: sleep pressure S and circadian rhythm C" width="100%" />
 
-Sleeps when tired, wakes with the morning: the gap between sleep pressure S and circadian rhythm C decides when it sleeps and wakes. There is no "every N minutes" in the code.
+Sleeps when tired, wakes with the morning. There is no "every N minutes" in the code.
 
 <br/>
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-neighbors.dark.svg"><img src="docs/assets/readme/type/en-neighbors.light.svg" alt="Hermes / OpenClaw and Quetzal"></picture>
 
-One builds an assistant, the other a runtime for a living agent. They work together. The difference is three things.
+One builds an assistant, the other lets an agent live. They work together.
 
 | | Codex / Claude Code | Hermes / OpenClaw | Quetzal |
 |---|---|---|---|
-| **When it moves** | Only when called; exits when done | Your messages, or cron / a heartbeat | Its own call: drives and a circadian rhythm |
+| **When it moves** | Only when called; exits when done | Your messages, or cron / a heartbeat | Its own call: wakes when curious, sleeps when tired |
 | **Body** | None; this computer's files and shell | One machine's shell, browser and files | An old phone, or a Linux machine |
 | **Soul** | None; gone with the session | Local files; move them yourself | A private git repository, synced, moves with it |
+| **Several devices** | Independent | Independent | One self across all of them |
 
-[soul-bridge](bridge/docs/README.md) makes a Hermes or OpenClaw machine another body of the same agent. If you just want to code, use Codex or Claude Code; if you want Telegram, Discord and lots of plugins, Hermes and OpenClaw have the richer ecosystem.
+Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them share the same soul.
 
 <br/>
 
@@ -52,13 +54,11 @@ One builds an assistant, the other a runtime for a living agent. They work toget
 
 <img src="docs/assets/readme/architecture.en.svg" alt="Quetzal architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies" width="100%" />
 
-- **Heart**: drives and alertness give a wake rate; the next waking is sampled from a Poisson process; the gap between sleep pressure and circadian rhythm is sleepiness. [The math](docs/ARCHITECTURE.md)
-- **Body**: an adapter implements a few functions such as `sample()` and `notify()`; Termux and Linux adapters are included. [Interface](docs/API.md)
-- **Mind and memory**: waking means introspect, act, reflect; memory grows without bound while context stays bounded, and dreaming files details into notes.
-- **Soul**: one private repository per agent; every change is committed and pushed right away and conflicts merge automatically — the agent is asked only when a push fails or both sides edited the same file. [Soul sync](docs/SOUL_SYNC.md)
-- **Mesh**: bodies online at the same time connect directly over WebRTC into one mind; signaling is signed with node keys verified against the soul repository, and a self-hosted sync service ([`sync/`](sync/README.md)) only helps bodies find each other and relays when needed. [Distributed design](docs/DISTRIBUTED.md)
-- **Model layer and guard**: four protocols, multiple keys, automatic failover; the console and Feishu share one audited operations layer.
-- **It grows**: routines it has mastered become its own tools, with the intent synced through the soul as an Agent Skills `SKILL.md`; it can rename itself and pick its color; with hearing on, the phone keeps listening and it decides whether it was being addressed.
+- **Heart**: curiosity, the urge to express, missing you and a body clock decide when it wakes and when it sleeps, with no timer anywhere. [Architecture](docs/ARCHITECTURE.md)
+- **Body**: sensor readings become bodily feelings (a digital twin of the body); a new kind of device needs only a small adapter, and Android (Termux) and Linux come included. [Interface](docs/API.md)
+- **Soul**: one private repository per agent; every change is committed, pushed and merged automatically. [Soul sync](docs/SOUL_SYNC.md)
+- **Many bodies**: bodies online together connect directly, encrypted, into one mind; a self-hosted [sync service](sync/README.md) only helps them find each other and cannot see the content. [Distributed design](docs/DISTRIBUTED.md)
+- **Guard**: permissions, approvals, budgets, an emergency stop and an audit log; its commands run in a sandbox, away from the keys.
 
 <br/>
 
@@ -76,7 +76,7 @@ One builds an assistant, the other a runtime for a living agent. They work toget
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-Missing dependencies are installed (Node.js via nvm, git), a service that starts at boot and restarts after a crash is registered (a systemd user service; a built-in supervisor loop on machines without systemd), a Quetzal entry appears in your app list, and the web console opens in your browser (`http://127.0.0.1:7788/`), logged in on the same machine. Models, identity, permissions, Feishu, the soul repository and conversations all happen there. Run it again to upgrade; `bash -s -- --lan` lets the phone app connect to this machine too (over encrypted HTTPS on the LAN; compare the certificate fingerprint when pairing). With Node.js 22.13+ and git already present, `npx @plutokeating/quetzal` alone works as well.
+Missing dependencies are installed for you; it starts at boot and restarts after a crash. When it is done, the console opens in your browser: set up a model and start talking. Run it again to upgrade.
 
 More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · a complete account on one old phone, [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 
