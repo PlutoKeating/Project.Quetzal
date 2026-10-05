@@ -4,13 +4,15 @@
 process.env.QUETZAL_HOME ??= "";
 const { loadConfig, saveConfig, paths } = await import("../../src/config.ts");
 loadConfig();
-saveConfig({ body: process.env.BODY });
+saveConfig({ body: process.env.BODY, mesh: { priority: Number(process.env.PRIORITY ?? 0) } });
 const store = await import("../../src/store.ts");
 store.openStore();
 const { Mesh } = await import("../../src/mesh/mesh.ts");
 const { loadNodeKey } = await import("../../src/mesh/identity.ts");
 const { installReplica } = await import("../../src/mesh/replica.ts");
 const { installPresence } = await import("../../src/mesh/presence.ts");
+const { installCoordinator, coordinator } = await import("../../src/mesh/coordinator.ts");
+const heart = await import("../../src/heart/heart.ts");
 const { liveTurns } = await import("../../src/mind/activity.ts");
 const { converse } = await import("../../src/mind/brain.ts");
 const reg = await import("../../src/providers/registry.ts");
@@ -38,6 +40,7 @@ const mesh = new Mesh({
 });
 installReplica(mesh);
 installPresence(mesh);
+installCoordinator(mesh);
 mesh.start();
 
 const cmds: Record<string, (a: any) => unknown> = {
@@ -52,6 +55,10 @@ const cmds: Record<string, (a: any) => unknown> = {
   sessions: () => store.listSessions(),
   timeline: () => store.listTimeline(200),
   idPrefix: () => store.idPrefix(),
+  coordinator: () => coordinator(),
+  heart: () => { const h = heart.snapshot(); return { follower: h.follower, drives: h.drives, S: h.S, unconsolidated: h.unconsolidated }; },
+  nudge: (a) => heart.nudge(a.reason ?? "测试", a.drives ?? {}),
+  experience: (a) => heart.addExperience(a.n ?? 1),
   llmDelay: (a) => { llmDelay = a.ms; return true; },
   converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode }),
   live: () => liveTurns().map((t) => ({ conv: t.conv, body: t.body, origin: t.origin, status: t.status })),

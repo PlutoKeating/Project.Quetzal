@@ -18,6 +18,7 @@ export interface Events {
   "soul.alert": [e: { text: string; targets: ({ id: string; conv: string; origin: string; switchTo?: string; closed?: boolean } | undefined)[] }]; // 灵魂同步要她知道的事（推送失败、冲突副本待裁决）：大脑插话进对应的会话，已结束则开新的一轮
   "soul.pushed": [e: { files: string[] }];
   mesh: [s: unknown];
+  heart: []; // 心脏状态变了（协调者据此把状态广播给其他身体）
   "replica.applied": [e: { table: string; rows: any[]; from: string }]; // 从其他身体复制来的行已写入本机（控制台据此刷新会话与对话）
   replica: [e: { table: "messages" | "timeline" | "sessions" | "message.mode"; rows: any[] }]; // 本机新写入的对话、时间线、会话（网状层据此实时复制给其他身体） // 网状层状态变化（绑定进展、同步服务连接、各身体的连接与路径），控制台据此刷新
   "mesh.event": [e: { from: string; name: string; data: unknown }]; // 其他身体经网状层发来的事件 // 她碰过的变更已推送到远端（网状层据此通知其他身体立即拉取）

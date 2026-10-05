@@ -156,6 +156,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | 方法 | 参数 | 说明 |
 |---|---|---|
 | `mesh` | — | `{server, bound, account, fingerprint, available, state, error, clockSkewMs, peers, binding}`：`state` 为 `off`（没配地址、没绑定或缺组件）/ `connecting` / `online` / `offline` / `unauthorized`（令牌失效，需重新绑定）；`fingerprint` 为本机节点公钥指纹（绑定时与网页上的核对）；`available` 为原生组件能否加载；`peers` 为同一 agent 的其他身体 `[{body, kind, version, online, lastSeen, link: none｜idle｜connecting｜authenticating｜open｜closed, path?: {local, remote, rtt}, error?, keyOk, fingerprint}]`（`path` 的 `local` / `remote` 为候选类型 host / srflx / prflx / relay，不含地址；`keyOk` 为同步服务转告的公钥与灵魂仓库登记的一致）；`binding` 为进行中的绑定 `{code, uri, expires}` 或 `null`。也在 `status` 的 `mesh` 字段里 |
+| `mesh` 的 `coordinator` 字段 | — | 此刻持有心跳的身体（没有连上其他身体时就是自己）；`status.heart.follower` 为真表示这具身体的心脏在跟随协调者 |
 | `mesh.setServer` | `{server}` | 设置同步服务地址（只接受 HTTPS；本机地址除外）；换地址需要重新绑定。空字符串关闭网状层 |
 | `mesh.bind` | — | 开始绑定：向同步服务申请设备码，返回的状态里 `binding.code` 是要在网页上输入的短码、`binding.uri` 是带短码的链接；批准后自动保存令牌并连上（经 `mesh` 事件推送进展） |
 | `mesh.cancelBind` / `mesh.unbind` | — | 取消进行中的绑定 / 解绑（通知同步服务作废令牌，删除本机的绑定；节点密钥保留） |
@@ -243,6 +244,6 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
 | `gateway.port` / `gateway.host` | 7788 / `127.0.0.1` | 网关端口与监听地址；`0.0.0.0` 对局域网开放（Linux 安装器的 `--lan`） |
-| `mesh.server` | "" | 同步服务地址（HTTPS）；绑定令牌在 `secrets/sync.json`，节点密钥在 `secrets/mesh_ed25519` |
+| `mesh.server` / `mesh.priority` | "" / 0 | 同步服务地址（HTTPS；绑定令牌在 `secrets/sync.json`，节点密钥在 `secrets/mesh_ed25519`）；当协调者的优先级（越大越优先，适合一直开着、接着电源的身体） |
 | `hearing.enabled` / `windowMin` / `sensitivity` / `language` / `minChars` | false / 10 / 2 / ""（取她的偏好语言）/ 2 | 听觉：开关；最近会话多少分钟内有更新就并入（0 为每句新开）；灵敏度 1 迟钝 / 2 适中 / 3 灵敏（App 的 VAD 模式）；识别语言；短于此字数当没听清 |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |

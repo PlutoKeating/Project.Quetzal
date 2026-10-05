@@ -11,6 +11,7 @@ import { VERSION } from "../version.ts";
 import { fingerprint, isNodeKey } from "./identity.ts";
 import { nodeKey } from "./node-key.ts";
 import { installPresence } from "./presence.ts";
+import { installCoordinator, coordinator } from "./coordinator.ts";
 import { Mesh } from "./mesh.ts";
 import { startBinding, pollBinding, unbind as unbindRemote, serverOrigin, type Binding } from "./directory.ts";
 import type { Ndc } from "./link.ts";
@@ -64,7 +65,7 @@ export async function startMesh() {
   mesh.on("state", changed);
   mesh.on("peer", changed);
   mesh.on("event", (e: { from: string; name: string; data: unknown }) => bus.emit("mesh.event", e));
-  const parts = [installReplica(mesh), installPresence(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
+  const parts = [installReplica(mesh), installPresence(mesh), installCoordinator(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
   uninstall = () => parts.forEach((u) => u());
   mesh.start();
   changed();
@@ -80,7 +81,7 @@ export function meshStatus() {
     server: config.mesh.server, bound: !!b && serverOrigin(b.server) === safeOrigin(config.mesh.server), account: live?.account || b?.account || "",
     fingerprint: fingerprint(nodeKey().nodeKey), available: !ndcError,
     state: live?.state ?? "off", error: ndcError || lastError || live?.error || "", clockSkewMs: live?.clockSkewMs ?? 0,
-    peers: live?.peers ?? [],
+    peers: live?.peers ?? [], coordinator: coordinator(),
     binding: binding ? { code: binding.code, uri: binding.uri, expires: binding.expires } : null,
   };
 }

@@ -22,12 +22,47 @@ let onWake: WakeHandler = async () => {};
 let lastReason = "";
 let nextCandidateAt = 0;
 
+// ---------- 一个心智、多具身体（mesh/coordinator.ts）：只有协调者的心脏抽样醒来；其他身体「跟随」——
+// 它们的感觉、对话带来的驱动力变化、经历与性格调整都转给协调者，协调者把心脏状态广播回来（换协调者时从最新状态接着跳）。
+type HeartOp = "nudge" | "experience" | "openLoops" | "personality";
+let follower = false;
+let forward: ((op: HeartOp, args: unknown[]) => void) | undefined;
+/** 设为跟随（不抽样醒来，操作转给协调者）或恢复为自己跳。 */
+export function setFollower(f: boolean, fwd?: (op: HeartOp, args: unknown[]) => void) {
+  follower = f; forward = f ? fwd : undefined;
+  if (f) { clearTimeout(timer); nextCandidateAt = 0; } else schedule();
+  bus.emit("state");
+}
+export const isFollower = () => follower;
+/** 协调者收到其他身体转来的心脏操作。 */
+export function applyHeartOp(op: HeartOp, args: unknown[]) {
+  if (op === "nudge") nudge(String(args[0] ?? ""), (args[1] ?? {}) as Partial<M.Drives>, (args[2] ?? {}) as { wake?: boolean });
+  else if (op === "experience") addExperience(Number(args[0]) || 1);
+  else if (op === "openLoops") setOpenLoops(Number(args[0]) || 0);
+  else if (op === "personality") adjustPersonality((args[0] ?? {}) as Record<string, number>);
+}
+/** 导出心脏状态（协调者广播给其他身体）。 */
+export function heartState() { ensure(); return { state, personality, lastReason }; }
+/**
+ * 采用协调者广播的心脏状态。之前自己也在跳（两个分区重新连上）时合并：睡眠压力与待整理的经历取较大值，其余以协调者为准。
+ */
+export function adoptHeart(h: { state: M.HeartState; personality: M.Personality; lastReason?: string }, merge = false) {
+  ensure();
+  if (!h?.state || !h.personality) return;
+  const next = { ...h.state, drives: { ...h.state.drives } };
+  if (merge) { next.S = Math.max(next.S, state.S); next.unconsolidated = Math.max(next.unconsolidated, state.unconsolidated); }
+  state = next; personality = { ...M.defaultPersonality, ...h.personality };
+  if (h.lastReason) lastReason = h.lastReason;
+  kv.set("heart", state); kv.set("personality", personality);
+  bus.emit("state");
+}
+
 const localHour = (now: number) => {
   const s = new Date(now).toLocaleString("en-US", { timeZone: config.timezone, hour12: false, hour: "numeric", minute: "numeric" });
   const [h, m] = s.split(":").map(Number);
   return (h % 24) + m / 60;
 };
-const persist = () => { kv.set("heart", state); kv.set("personality", personality); };
+const persist = () => { kv.set("heart", state); kv.set("personality", personality); bus.emit("heart"); };
 export const stopped = () => fs.existsSync(paths.stop);
 
 /** 身体与闸门的抑制系数。 */
@@ -78,14 +113,14 @@ export function snapshot() {
     mode: busy ? "active" : s.mode, S: s.S, C: c, sleepiness: M.sleepiness(s, c), alertness: M.alertness(s, c),
     drives: s.drives, unconsolidated: s.unconsolidated,
     ratePerHour: M.hazard(s, c, personality, config.heart.baseRatePerHour, inh.k),
-    inhibitors: inh.why, lastReason, nextCandidateAt, personality,
+    inhibitors: inh.why, lastReason, nextCandidateAt, personality, follower,
   };
 }
 
 let started = false;
 function schedule() {
   clearTimeout(timer);
-  if (busy || !started) return;
+  if (busy || !started || follower) return;
   const c = integrate();
   const inh = inhibition();
   const rate = M.hazard(state, c, personality, config.heart.baseRatePerHour, inh.k);
@@ -131,6 +166,7 @@ async function fire(kind: WakeKind, reason: string) {
 
 /** 外部事件：推动驱动力并立即按新状态重新抽样。 */
 export function nudge(reason: string, d: Partial<M.Drives> = {}, opts: { wake?: boolean } = {}) {
+  if (follower && forward) return forward("nudge", [reason, d, opts]);
   ensure();
   integrate();
   for (const [k, v] of Object.entries(d)) (state.drives as any)[k] = Math.max(0, Math.min(1, (state.drives as any)[k] + v!));
@@ -140,14 +176,15 @@ export function nudge(reason: string, d: Partial<M.Drives> = {}, opts: { wake?: 
   schedule();
 }
 
-export function addExperience(n = 1) { ensure(); state.unconsolidated += n; persist(); }
-export function setOpenLoops(count: number) { ensure(); state.drives.openLoops = Math.min(1, count / 5); persist(); }
+export function addExperience(n = 1) { if (follower && forward) return forward("experience", [n]); ensure(); state.unconsolidated += n; persist(); }
+export function setOpenLoops(count: number) { if (follower && forward) return forward("openLoops", [count]); ensure(); state.drives.openLoops = Math.min(1, count / 5); persist(); }
 export const isBusy = () => busy;
 export const mode = () => (ensure(), state.mode);
 export function markBusy(b: boolean) { busy = b; if (!b) schedule(); else clearTimeout(timer); bus.emit("state"); }
 
 /** agent 自己修改性格参数（有界）。 */
 export function adjustPersonality(patch: Record<string, number>): string {
+  if (follower && forward) { forward("personality", [patch]); return `已交给此刻的协调者调整：${Object.keys(patch).join("、") || "（空）"}`; }
   ensure();
   const out: string[] = [];
   const set = (obj: any, key: string, v: number, lo: number, hi: number) => { obj[key] = Math.max(lo, Math.min(hi, v)); out.push(`${key}=${obj[key]}`); };
