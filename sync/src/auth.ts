@@ -1,6 +1,6 @@
 // 登录：GitHub OAuth（arctic）+ 服务端会话（做法按 Lucia 的会话指南：随机令牌放 Cookie，库里只存它的 SHA-256，滑动续期）。
 // 不保存 GitHub 的访问令牌，只读公开资料（不申请任何 scope）。
-import { GitHub, generateState, OAuth2RequestError } from "arctic";
+import { GitHub, generateState } from "arctic";
 import type { Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Db, User } from "./db.ts";
@@ -13,23 +13,51 @@ export interface GitHubClient { authorizationUrl(state: string): URL; user(code:
 
 export function githubClient(cfg: Config): GitHubClient | undefined {
   if (!cfg.github) return undefined;
-  const gh = new GitHub(cfg.github.id, cfg.github.secret, `${cfg.publicUrl}/auth/github/callback`);
+  const redirectUri = `${cfg.publicUrl}/auth/github/callback`;
+  const gh = new GitHub(cfg.github.id, cfg.github.secret, redirectUri);
+  const { id, secret } = cfg.github;
   return {
     authorizationUrl: (state) => gh.createAuthorizationURL(state, []),
     async user(code) {
-      let tokens;
-      try { tokens = await gh.validateAuthorizationCode(code); }
-      catch (e) { throw new Error(e instanceof OAuth2RequestError ? `GitHub 拒绝了授权码：${e.code}` : `无法连接 GitHub：${(e as Error).message}`); }
-      const r = await fetch("https://api.github.com/user", {
-        headers: { Authorization: `Bearer ${tokens.accessToken()}`, Accept: "application/vnd.github+json", "User-Agent": "quetzal-sync" },
+      const accessToken = await exchangeCode({ id, secret, code, redirectUri, relay: cfg.githubRelay });
+      const r = await retry(() => fetch("https://api.github.com/user", {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json", "User-Agent": "quetzal-sync" },
         signal: AbortSignal.timeout(10_000),
-      });
+      }));
       if (!r.ok) throw new Error(`读取 GitHub 资料失败：HTTP ${r.status}`);
       const u = await r.json() as { id: number; login: string; name?: string | null };
       if (!Number.isInteger(u.id) || typeof u.login !== "string") throw new Error("GitHub 返回的资料不完整");
       return { id: u.id, login: u.login, name: u.name ?? "" };
     },
   };
+}
+
+/** 网络错误时再试一次（连 GitHub 时通时断的机房里常见）；GitHub 明确的回应不重试。 */
+async function retry<T>(f: () => Promise<T>, times = 2): Promise<T> {
+  for (let i = 1; ; i++) {
+    try { return await f(); } catch (e) { if (i >= times) throw e; await new Promise((r) => setTimeout(r, 500)); }
+  }
+}
+
+/** 授权码换访问令牌：先直连 github.com（各 8 秒、试两次），不通时经配置的中转（GITHUB_OAUTH_RELAY，例如官网 Worker）。
+ *  请求体原样是 OAuth 2.0 的表单；中转只转发，不保存。GitHub 明确拒绝（bad_verification_code 等）时不再换路。 */
+export async function exchangeCode(o: { id: string; secret: string; code: string; redirectUri: string; relay?: string }, fetcher: typeof fetch = fetch): Promise<string> {
+  const body = new URLSearchParams({ client_id: o.id, client_secret: o.secret, code: o.code, redirect_uri: o.redirectUri }).toString();
+  const targets = ["https://github.com/login/oauth/access_token", ...(o.relay ? [o.relay] : [])];
+  let lastError = "";
+  for (const url of targets) {
+    try {
+      const r = await retry(() => fetcher(url, { method: "POST", body, headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "User-Agent": "quetzal-sync" }, signal: AbortSignal.timeout(8_000) }), url === targets[0] ? 2 : 1);
+      const j = await r.json().catch(() => ({})) as { access_token?: string; error?: string };
+      if (typeof j.access_token === "string" && j.access_token) return j.access_token;
+      if (j.error && r.status < 500 && !["relay_not_configured", "client_not_allowed", "upstream_unreachable"].includes(j.error)) throw Object.assign(new Error(`GitHub 拒绝了授权码：${j.error}`), { final: true });
+      lastError = `${new URL(url).host} 返回 ${r.status}${j.error ? ` ${j.error}` : ""}`;
+    } catch (e) {
+      if ((e as { final?: boolean }).final) throw e;
+      lastError = `${new URL(url).host}：${(e as Error).message}`;
+    }
+  }
+  throw new Error(`无法连接 GitHub（${lastError}）`);
 }
 
 const DAY = 86_400_000;

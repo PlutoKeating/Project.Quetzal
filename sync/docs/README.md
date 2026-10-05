@@ -22,6 +22,7 @@ TypeScript（只用可擦除语法），由 Node 直接运行源码，没有构�
 | `SYNC_DATA_DIR` | `/data` | 数据库目录 |
 | `SYNC_TRUST_PROXY` | 否 | 前面有反向代理时为 `1`：客户端地址取 `X-Forwarded-For` 的最右一项 |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | 空 | GitHub 登录 |
+| `GITHUB_OAUTH_RELAY` | 空 | 换令牌的中转（HTTPS）：直连 `github.com` 两次都失败时经它转发授权码换令牌的请求（服务器连 GitHub 时通时断的机房用） |
 | `TURN_SECRET` | 空 | 至少 32 个字符；空则只给 STUN |
 | `TURN_URLS` / `STUN_URLS` | 由公开地址推出 | 逗号分隔，覆盖缺省的 `turn:<主机>:3478?transport=udp|tcp`、`stun:<主机>:3478` |
 | `TURN_TTL_SECONDS` | 3600 | TURN 凭据有效期 |

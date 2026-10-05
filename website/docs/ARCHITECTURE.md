@@ -69,4 +69,5 @@ flowchart LR
 - **预渲染**：账户页预渲染时只有外壳（标题、子导航），水合后才读取登录状态与数据（`routes/account/shell.tsx` 的 `AccountShell` 与 `useLoad`）；`robots: noindex`。
 - **子导航高亮**按去掉尾斜杠的路径比较（托管时目录页会补上尾斜杠，`NavLink` 的精确匹配会失效）。
 - App 的「控制 → 账户」与这里用同一套接口（经运行基座，控制台登录），见 `sync/docs/PROTOCOL.md` §5。
+- **换令牌的中转**：官方同步服务所在的机房连 `github.com` 时通时断，它直连失败时经官网 Worker 的 `POST /api/oauth/github/token` 转发授权码换令牌的请求（`worker/index.ts`）。只放行 Worker 变量 `OAUTH_CLIENT_IDS`（在 Cloudflare 控制台设置，不入库；没设置就不转发）里的 client_id，只转发到 `github.com/login/oauth/access_token`，不缓存、不记录请求体，不开 CORS。
 

@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 未发布
+
+- **修复**：同步服务所在的机房连 github.com 时通时断时，GitHub 登录转很久后失败。换令牌改为显式超时并重试，直连不通时经官网 Worker 中转（只放行配置过的 OAuth App，不缓存、不记录）。官网的 `/device` 入口页空白（跳转脚本的正则在模板字符串里丢了反斜杠）。
+
+- **Fix**: GitHub sign-in hung and then failed when the sync server's data center reached github.com only intermittently. The token exchange now uses explicit timeouts and a retry, and falls back to a relay on the website's Worker (allowing only configured OAuth apps, no caching or logging). The website's `/device` entry page stayed blank (the redirect script's regex lost its backslash inside a template string).
+
 ## 1.0.1
 
 **账户：官网是唯一的前端，App 里也能管理账户。**

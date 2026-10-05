@@ -13,6 +13,7 @@ const schema = z.object({
   SYNC_TRUST_PROXY: bool, // 前面有反向代理（compose 里的 Caddy，或隧道模式的 cloudflared）时为真：客户端地址取 X-Forwarded-For 最右一项
   GITHUB_CLIENT_ID: z.string().default(""),
   GITHUB_CLIENT_SECRET: z.string().default(""),
+  GITHUB_OAUTH_RELAY: z.union([z.literal(""), z.url({ protocol: /^https$/ })]).default(""), // 直连 github.com 不通时，换令牌经这里中转（例如官网 Worker 的 /api/oauth/github/token）
   TURN_SECRET: z.string().default(""), // 与 coturn 的 static-auth-secret 相同；空则不签发 TURN 凭据
   TURN_HOST: z.string().regex(/^[A-Za-z0-9.:-]*$/).default(""), // STUN / TURN 用的主机名或地址，缺省与公开地址相同（公开地址经 CDN / 隧道代理时必须单独指定一个直连的）
   TURN_URLS: list, // 缺省 turn:<TURN_HOST>:3478（UDP 与 TCP）
@@ -42,6 +43,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     dataDir: c.SYNC_DATA_DIR,
     trustProxy: c.SYNC_TRUST_PROXY,
     github: c.GITHUB_CLIENT_ID && c.GITHUB_CLIENT_SECRET ? { id: c.GITHUB_CLIENT_ID, secret: c.GITHUB_CLIENT_SECRET } : undefined,
+    githubRelay: c.GITHUB_OAUTH_RELAY || undefined,
     turn: c.TURN_SECRET ? {
       secret: c.TURN_SECRET,
       urls: c.TURN_URLS.length ? c.TURN_URLS : [`turn:${host}:3478?transport=udp`, `turn:${host}:3478?transport=tcp`],

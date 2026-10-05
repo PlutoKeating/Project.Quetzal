@@ -143,3 +143,22 @@ test("控制台登录：只有本账户下的身体能申请；令牌只能用�
   assert.equal((await owner.web("/v1/web/consoles/revoke", { id: handle })).status, 200);
   assert.equal((await asConsole("/v1/web/account")).status, 401);
 });
+
+test("换令牌：直连 github.com 不通时经中转；GitHub 明确拒绝时不换路；中转没配置时如实报错", async () => {
+  const { exchangeCode } = await import("../src/auth.ts");
+  const o = { id: "cid", secret: "sec", code: "c", redirectUri: `${PUBLIC}/auth/github/callback`, relay: "https://relay.example/token" };
+  const calls: string[] = [];
+  const ok = (j: unknown, status = 200) => new Response(JSON.stringify(j), { status, headers: { "content-type": "application/json" } });
+  const down = (async (url: string) => { calls.push(new URL(url).host); if (url.includes("github.com")) throw new Error("connect timeout"); return ok({ access_token: "gho_x" }); }) as typeof fetch;
+  assert.equal(await exchangeCode(o, down), "gho_x");
+  assert.deepEqual(calls, ["github.com", "github.com", "relay.example"], "直连试两次再走中转");
+  calls.length = 0;
+  const denied = (async (url: string) => { calls.push(new URL(url).host); return ok({ error: "bad_verification_code" }); }) as typeof fetch;
+  await assert.rejects(exchangeCode(o, denied), /拒绝了授权码：bad_verification_code/);
+  assert.deepEqual(calls, ["github.com"]);
+  const relayOff = (async (url: string) => { if (url.includes("github.com")) throw new Error("connect timeout"); return ok({ error: "relay_not_configured" }, 503); }) as typeof fetch;
+  await assert.rejects(exchangeCode(o, relayOff), /无法连接 GitHub（relay\.example 返回 503 relay_not_configured）/);
+  let body = "";
+  await exchangeCode({ ...o, relay: undefined }, (async (_u: string, init: RequestInit) => { body = String(init.body); return ok({ access_token: "t" }); }) as typeof fetch);
+  assert.deepEqual(Object.fromEntries(new URLSearchParams(body)), { client_id: "cid", client_secret: "sec", code: "c", redirect_uri: `${PUBLIC}/auth/github/callback` });
+});

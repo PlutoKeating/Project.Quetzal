@@ -5,13 +5,17 @@
 //                               设置 Secret GITHUB_TOKEN 可提高到 5000 次 / 小时）。返回的 JSON 把每个资产的 browser_download_url
 //                               改写为上面的 /dl/ 地址，原地址放在 github_download_url，客户端先走官网、失败再退回 GitHub。
 //                               另存一份 7 天的陈旧副本：上游限流或出错时用它顶上（X-Upstream: stale），页面与 App 不至于空白。
+//   POST /api/oauth/github/token  GitHub OAuth 换令牌的中转（给本项目运营的同步服务用）：它所在的中国大陆机房连 github.com 时通时断，
+//                               直连失败时经这里转发 github.com/login/oauth/access_token。只放行 Worker 变量 OAUTH_CLIENT_IDS（逗号分隔，
+//                               在 Cloudflare 控制台设置，不入库）里的 client_id，没设置就不转发；只转发这一个地址，
+//                               不缓存、不记录请求体（里面有 client_secret 与授权码），也不给浏览器开 CORS。
 // 没有任何账号、令牌写在这里；GITHUB_TOKEN 是可选的 Worker Secret（wrangler secret put GITHUB_TOKEN）。
 const REPO = "PlutoKeating/Project.Quetzal";
 const TAG = /^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/;
 const ASSET = /^(?:quetzal-[A-Za-z0-9.+-]+\.(?:apk|tar\.gz)|SHA256SUMS(?:-[a-z0-9-]+)?)$/;
 const API_TTL = 300, DL_TTL = 7 * 86400, STALE_TTL = 7 * 86400;
 
-interface Env { ASSETS: { fetch(req: Request): Promise<Response> }; GITHUB_TOKEN?: string }
+interface Env { ASSETS: { fetch(req: Request): Promise<Response> }; GITHUB_TOKEN?: string; OAUTH_CLIENT_IDS?: string }
 interface Ctx { waitUntil(p: Promise<unknown>): void }
 const cacheOf = () => (caches as unknown as { default: Cache }).default;
 const cors = (h: Headers) => { h.set("Access-Control-Allow-Origin", "*"); h.set("Access-Control-Expose-Headers", "x-ratelimit-remaining, x-ratelimit-reset, Content-Length"); return h; };
@@ -20,6 +24,7 @@ const text = (status: number, body: string) => new Response(body, { status, head
 export default {
   async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/api/oauth/github/token") return oauthToken(request, env);
     if (url.pathname.startsWith("/dl/") || url.pathname.startsWith("/api/")) {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(new Headers({ "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS", "Access-Control-Allow-Headers": "Accept" })) });
       if (request.method !== "GET" && request.method !== "HEAD") return text(405, "只支持 GET");
@@ -98,4 +103,26 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
 function withHeaders(res: Response, head: boolean): Response {
   const headers = cors(new Headers(res.headers));
   return new Response(head ? null : res.body, { status: res.status, headers });
+}
+
+/** GitHub OAuth 换令牌的中转：同步服务 POST application/x-www-form-urlencoded（client_id、client_secret、code、redirect_uri），原样转给 GitHub。 */
+async function oauthToken(request: Request, env: Env): Promise<Response> {
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  if (request.method !== "POST") return json(405, { error: "method_not_allowed" });
+  if (!(request.headers.get("Content-Type") ?? "").startsWith("application/x-www-form-urlencoded")) return json(415, { error: "form_required" });
+  const body = await request.text();
+  if (body.length > 4096) return json(413, { error: "too_large" });
+  const form = new URLSearchParams(body);
+  const allowed = new Set((env.OAUTH_CLIENT_IDS ?? "").split(",").map((x) => x.trim()).filter(Boolean));
+  if (!allowed.size) return json(503, { error: "relay_not_configured" });
+  if (!allowed.has(form.get("client_id") ?? "")) return json(403, { error: "client_not_allowed" });
+  try {
+    const r = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST", body: form.toString(),
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "User-Agent": "quetzal-sync-relay" },
+    });
+    return new Response(await r.text(), { status: r.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  } catch {
+    return json(502, { error: "upstream_unreachable" });
+  }
 }

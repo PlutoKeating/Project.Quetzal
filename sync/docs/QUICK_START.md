@@ -44,6 +44,7 @@ cd Project.Quetzal/sync
 |---|---|
 | `SYNC_DOMAIN` | 必填，域名 |
 | `SYNC_WEB_URL` | 网页前端（可选）：登录、账户、批准设备的页面放在这个站点上（官方部署为 `https://quetzal.plutokeating.beer`，它的账户页调用的是官方同步服务）；自建时留空，用同步服务自带的页面 |
+| `GITHUB_OAUTH_RELAY` | 服务器连 `github.com` 时通时断（中国大陆机房常见，表现为登录转很久后「登录没有完成」）时填写：直连失败才经它中转换令牌。官方部署用官网 Worker 的 `https://quetzal.plutokeating.beer/api/oauth/github/token`，它只放行 Worker 变量 `OAUTH_CLIENT_IDS` 里的 App |
 | `SYNC_FRONT` | `caddy`（默认，本机 80 / 443，自动 HTTPS）或 `tunnel`（见 §2.1） |
 | `SYNC_LOCAL_PORT` | 隧道模式下同步服务在 `127.0.0.1` 上的端口，默认 8788 |
 | `TURN_HOST` | STUN / TURN 的主机名或 IP，写进发给身体的 `turn:` / `stun:` 地址；留空与 `SYNC_DOMAIN` 相同。隧道模式或域名开了 CDN 代理时必填，必须直连本机 |
