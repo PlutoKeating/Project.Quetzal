@@ -143,7 +143,7 @@ export const approvalCard = (a: { id: string; action: string; reason: string; ar
   card(`请求批准：${a.action}`, a.status === "pending" ? "orange" : a.status === "approved" ? "green" : "red", [
     md(`**理由**：${a.reason || "（未说明）"}\n**参数**：\`${JSON.stringify(a.args).slice(0, 500)}\``),
     a.status === "pending"
-      ? row(button("✅ 批准", { op: "decide", args: { id: a.id, approve: true }, approval: a }, "primary_filled"), button("❌ 拒绝", { op: "decide", args: { id: a.id, approve: false }, approval: a }, "danger"))
+      ? row(button("✅ 批准", { op: "decide", args: { id: a.id, approve: true, body: (a as any).body }, approval: a }, "primary_filled"), button("❌ 拒绝", { op: "decide", args: { id: a.id, approve: false, body: (a as any).body }, approval: a }, "danger"))
       : md(a.status === "approved" ? "✅ 已批准" : "❌ 已拒绝"),
   ]);
 

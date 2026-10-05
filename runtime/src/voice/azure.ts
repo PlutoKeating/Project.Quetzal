@@ -1,9 +1,9 @@
 // 语音：Azure 语音服务（Speech）的文本转语音 REST 接口。合成 → 保存音频 → 交给身体适配器播放。
 //   配置在 config.speech（区域或自定义端点、音色、风格、语速、音调、音量、输出格式），密钥在 secrets/azure_speech_key。
-//   用户在控制台设置，agent 也可以用 voice_config 工具自己选音色、改配置。
+//   用户在控制台设置，agent 也可以用 voice_config 工具自己选音色、改配置（端点除外）。端点只接受 Azure 的 HTTPS 域名（config.ts 的 speechEndpointOk）：密钥随每次请求发往它。
 import fs from "node:fs";
 import path from "node:path";
-import { config, saveConfig, paths, readSecret, writeSecret, markShared } from "../config.ts";
+import { config, saveConfig, paths, readSecret, writeSecret, markShared, speechEndpointOk, speechRegionOk } from "../config.ts";
 import * as sdk from "microsoft-cognitiveservices-speech-sdk";
 
 export type SpeechConfig = typeof config.speech;
@@ -21,6 +21,8 @@ export function speechStatus() {
 /** 修改配置；key 为空字符串时保留原密钥。 */
 export function setSpeech(patch: Partial<SpeechConfig> & { key?: string }) {
   const { key, ...rest } = patch;
+  if (typeof rest.endpoint === "string" && !speechEndpointOk(rest.endpoint.trim())) throw new Error("端点只能是 Azure 语音服务的 HTTPS 地址（*.microsoft.com、*.azure.com、*.cognitiveservices.azure.com）");
+  if (typeof rest.region === "string" && !speechRegionOk(rest.region.trim())) throw new Error("区域只能是字母、数字与连字符，如 eastasia");
   if (key) { writeSecret(KEY, key.trim()); markShared(["speechKey"]); }
   const clean = Object.fromEntries(Object.entries(rest).filter(([k, v]) => k in config.speech && typeof v === "string").map(([k, v]) => [k, (v as string).trim()]));
   saveConfig({ speech: clean });
@@ -42,6 +44,8 @@ export function ssml(text: string, c: SpeechConfig) {
 function need(c: SpeechConfig) {
   const key = readSecret(KEY);
   if (!key) throw new Error("还没有配置 Azure 语音密钥（控制台 → 控制 → 语音，或用 voice_config 设置）");
+  // 密钥随请求发往端点：只发给 Azure 的域名（配置加载与保存时已经校验，这里再挡一次）
+  if (!speechEndpointOk(c.endpoint) || !speechRegionOk(c.region)) throw new Error("语音端点不是 Azure 的地址，拒绝发送密钥");
   if (!base(c)) throw new Error("还没有配置 Azure 语音的区域（region，如 eastasia）或端点");
   return key;
 }

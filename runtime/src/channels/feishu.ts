@@ -9,7 +9,7 @@
 // 接入：控制台一键扫码创建机器人（registerApp），自动获得凭据并绑定扫码的人，全程无需命令行。
 import crypto from "node:crypto";
 import * as lark from "@larksuiteoapi/node-sdk";
-import { config, saveConfig, readSecret, writeSecret } from "../config.ts";
+import { config, saveConfig, readSecret, writeSecret, newBindCode } from "../config.ts";
 import { bus } from "../bus.ts";
 import { log } from "../log.ts";
 import { invoke } from "../ops.ts";
@@ -25,6 +25,8 @@ import { identity } from "../memory/identity.ts";
 
 let channel: lark.LarkChannel | undefined;
 const state = { connected: false, error: "", registering: "" };
+const bindFails = new Map<string, number>(); // 发送者 → 绑定码错误次数
+let bindFailsTotal = 0;
 export const feishuStatus = () => ({ ...state, enabled: config.feishu.enabled, appId: config.feishu.appId, owner: !!config.feishu.ownerOpenId, bindCode: config.feishu.bindCode, holder: config.channels.feishuHolder, holds: holdsFeishu() });
 
 const isOwner = (openId?: string) => !!openId && openId === config.feishu.ownerOpenId;
@@ -176,8 +178,14 @@ export async function startFeishu() {
     });
     channel.on("message", async (msg) => {
       if (msg.chatType !== "p2p") return;
-      if (!config.feishu.ownerOpenId) { // 手动配置凭据时的绑定：发送控制台上显示的绑定码
-        if (msg.content.trim() !== config.feishu.bindCode) { await send(msg.chatId, { text: "请发送控制台「飞书」页上显示的绑定码完成绑定。" }); return; }
+      if (!config.feishu.ownerOpenId) { // 手动配置凭据时的绑定：发送控制台上显示的绑定码（10 位随机；每人最多错 5 次，全局错 20 次换一个新码）
+        if ((bindFails.get(msg.senderId) ?? 0) >= 5) return;
+        if (msg.content.trim().toUpperCase() !== config.feishu.bindCode.toUpperCase()) {
+          bindFails.set(msg.senderId, (bindFails.get(msg.senderId) ?? 0) + 1);
+          if (++bindFailsTotal >= 20) { bindFailsTotal = 0; bindFails.clear(); saveConfig({ feishu: { bindCode: newBindCode() } }); log("feishu", "绑定码错误次数太多，已换新的绑定码（见控制台「飞书」页）"); }
+          await send(msg.chatId, { text: "请发送控制台「飞书」页上显示的绑定码完成绑定。" }); return;
+        }
+        bindFails.clear(); bindFailsTotal = 0;
         saveConfig({ feishu: { ownerOpenId: msg.senderId } });
         await send(msg.chatId, { card: views.welcome() });
         return void startFeishu(); // 以白名单模式重连

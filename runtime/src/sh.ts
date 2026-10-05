@@ -1,15 +1,20 @@
-// 执行外部命令（shell 工具、适配器等），带超时与输出上限。
+// 执行外部命令（shell 工具、适配器等），带超时与输出上限。agent 的命令（shell、后台任务）一律经 sandbox.ts 包进沙箱。
 import { execFile } from "node:child_process";
+import { wrap } from "./sandbox.ts";
 
-export function run(cmd: string, args: string[] = [], timeoutMs = 20_000): Promise<{ code: number; out: string; err: string }> {
+export function run(cmd: string, args: string[] = [], timeoutMs = 20_000, o: { cwd?: string } = {}): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 4 << 20 }, (e: any, out, err) =>
+    execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 4 << 20, cwd: o.cwd }, (e: any, out, err) =>
       resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: String(out), err: String(err || e?.message || "") }));
   });
 }
 
+const agentShell = () => process.env.SHELL || "sh";
+
+/** agent 的一条 shell 命令：在沙箱里、以用户主目录为工作目录执行。 */
 export function shell(script: string, timeoutMs = 60_000) {
-  return run(process.env.SHELL || "sh", ["-c", script], timeoutMs);
+  const w = wrap(agentShell(), ["-c", script]);
+  return run(w.cmd, w.args, timeoutMs, { cwd: w.cwd });
 }
 
 // ---------- 后台任务：长时间运行的命令放到后台，agent 可以随时查看输出或停止（整个进程组）
@@ -19,7 +24,8 @@ const jobs = new Map<string, Job>();
 const KEEP = 64 * 1024; // 每个任务保留最近 64 KiB 输出
 
 export function startJob(command: string): Job {
-  const proc = spawn(process.env.SHELL || "sh", ["-c", command], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  const w = wrap(agentShell(), ["-c", command]);
+  const proc = spawn(w.cmd, w.args, { cwd: w.cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   const job: Job = { id: Math.random().toString(36).slice(2, 8), command, started: Date.now(), code: null, out: "", proc };
   const add = (b: Buffer) => { job.out = (job.out + b.toString()).slice(-KEEP); };
   proc.stdout!.on("data", add); proc.stderr!.on("data", add);

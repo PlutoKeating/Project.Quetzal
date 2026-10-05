@@ -26,6 +26,8 @@ import * as player from "./voice/player.ts";
 import * as meshRt from "./mesh/runtime.ts";
 import * as acct from "./mesh/account.ts";
 import { remoteApprovals, decideAnywhere } from "./mesh/shared.ts";
+import { sandboxStatus } from "./sandbox.ts";
+import { checkKeyPath } from "./memory/soul-repo.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -35,6 +37,7 @@ export const status = () => ({
   thought: mem.thought(), // 她想分享的一句话（首页展示）
   hearing: hearing.hearingStatus(), // 听觉：App 据 listening 决定要不要开麦克风
   mesh: meshRt.meshStatus(), // 网状层：同步服务、绑定、各身体的连接
+  sandbox: sandboxStatus(), // agent 命令的沙箱：kind 为 bwrap / proot / none（none 时控制台应提示安装）
 });
 
 export const ops = {
@@ -44,6 +47,7 @@ export const ops = {
   "mesh.bind": async (_: unknown, actor: string) => { const r = await meshRt.bind(); audit(actor, "mesh.bind", "", { server: r.server }, "started"); return r; },
   "mesh.cancelBind": () => meshRt.cancelBind(),
   "mesh.setPriority": (a: { priority: number }, actor: string) => { const p = Math.max(0, Math.min(100, Math.round(Number(a.priority) || 0))); saveConfig({ mesh: { priority: p } }); audit(actor, "mesh.setPriority", "", { priority: p }, "ok"); return meshRt.meshStatus(); },
+  "mesh.acceptPin": (a: { body: string }, actor: string) => { const r = meshRt.acceptPin(String(a.body ?? "")); audit(actor, "mesh.acceptPin", "", { body: a.body }, "ok"); return r; },
   "mesh.unbind": async (_: unknown, actor: string) => { const r = await meshRt.unbindMesh(); audit(actor, "mesh.unbind", "", {}, "ok"); return r; },
   // 账户（控制台登录后管理同步服务上的整个账户；与官网账户页同一套接口）
   account: () => acct.accountStatus(),
@@ -105,7 +109,7 @@ export const ops = {
   permissions: () => Object.entries(guard.PERMISSION_LABELS).map(([id, label]) => ({ id, label, level: guard.level(id) })),
   setPermission: (a: { id: string; level: Level }, actor: string) => { guard.setLevel(a.id, a.level, actor); return true; },
   approvals: () => [...guard.approvals(), ...remoteApprovals()], // 含其他身体上等待批准的（带 body）
-  decide: (a: { id: string; approve: boolean; note?: string }, actor: string) => decideAnywhere(a.id, a.approve, actor, a.note), // 其他身体上的审批转过去
+  decide: (a: { id: string; approve: boolean; note?: string; body?: string }, actor: string) => decideAnywhere(a.id, a.approve, actor, a.note, typeof a.body === "string" && a.body ? a.body : undefined), // 其他身体上的审批转过去；body 指明是哪具身体上的（审批号可能重复）
   budget: () => ({ ...config.budget, usage: usageToday() }),
   setBudget: (a: Partial<typeof config.budget>, actor: string) => { saveConfig({ budget: a }); audit(actor, "budget", "", a, "ok"); return config.budget; },
 
@@ -130,6 +134,7 @@ export const ops = {
     if (bad) throw new Error(bad);
     if (a.sshMode && !["deploy", "custom", "system"].includes(a.sshMode)) throw new Error("sshMode 只能是 deploy、custom 或 system");
     if (a.sshMode === "custom" && !(a.sshKeyPath ?? config.soul.sshKeyPath).trim()) throw new Error("指定私钥时要填私钥路径");
+    if (a.sshKeyPath) { const bad = checkKeyPath(soul.sshKeyFor({ sshMode: "custom", sshKeyPath: a.sshKeyPath })!); if (bad) throw new Error(bad); }
     saveConfig({ soul: a }); audit(actor, "soul.config", "", { ...a }, "ok");
     if (config.soul.sshMode === "deploy") await ensureSoulKey(); // 先点「接入」后点「显示公钥」也行：部署密钥不在就先生成
     await soul.ensureSoul(); await soul.pull(); await soul.push("接入灵魂仓库");

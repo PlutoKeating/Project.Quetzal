@@ -17,7 +17,7 @@ import { addExperience, setOpenLoops, markBusy, isBusy, nudge, stopped, type Wak
 import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
 import { Session, SessionTimeout, Interrupted, summarize } from "./activity.ts";
-import { intake } from "./secrets.ts";
+import { intake, redactArgs } from "./secrets.ts";
 import { noteSilence } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
 import { bus } from "../bus.ts";
@@ -96,7 +96,7 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
       continue;
     }
     for (const c of r.toolCalls) {
-      const card = { call: c.id, name: c.name, summary: c.name === "finish" ? String(c.args.title ?? "") : summarize(c.args) };
+      const card = { call: c.id, name: c.name, summary: c.name === "finish" ? String(c.args.title ?? "") : summarize(redactArgs(c.args)) }; // 参数里的保密值不进进展事件与过程记录
       if (c.name === "finish") {
         finish = c.args; messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: "好的" });
         s.emit({ kind: "tool", ...card, status: "ok", ms: 0 });
@@ -106,7 +106,7 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
       const t0 = Date.now();
       const out = await s.hold(() => callTool(c.name, c.args, reason, { session: s })); // 执行工具即在工作：暂停会话时间墙
       s.emit({ kind: "tool", ...card, status: out.status, ms: Date.now() - t0, result: out.text.split("\n").find((l) => l.trim())?.slice(0, 120) ?? "" });
-      steps.push({ tool: c.name, args: c.args, result: out.text.slice(0, 1500) });
+      steps.push({ tool: c.name, args: redactArgs(c.args), result: out.text.slice(0, 1500) });
       messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: out.text.slice(0, 12000) });
     }
     if (s.movedTo) { // move_to：换到另一具身体继续，这一轮在这里结束

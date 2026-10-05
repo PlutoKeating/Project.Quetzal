@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 
+process.env.SPEECH_ALLOW_LOCAL_ENDPOINT = "1"; // 语音端点只接受 Azure 的域名；测试用本地模拟服务
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-voice-"));
 const { loadConfig } = await import("../src/config.ts");
 loadConfig();

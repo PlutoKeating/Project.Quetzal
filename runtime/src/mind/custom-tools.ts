@@ -2,10 +2,14 @@
 //   实现只在这具身体上：QUETZAL_HOME/tools/<名>/tool.json（名字、描述、参数 JSON Schema、能力类别、超时、依赖）+ tool.sh 或 tool.mjs。
 //   意图随灵魂同步：灵魂仓库 skills/<名>/SKILL.md，采用 Agent Skills 开放标准（YAML 头 name / description，正文自由）。
 //   其他身体（运行基座、Hermes、OpenClaw……）读到技能文档后，可以按文档在自己那里实现；本机有文档没实现时，系统提示会提醒她。
+//   执行：一律在子进程里、经沙箱运行（node 工具也不在运行基座的进程里 import）。调用时闸门按声明的类别与「执行命令」中较严的一个检查。
 //   热加载：每次组装工具表时按目录 mtime 重读，不用重启；缺依赖（requires 里的命令不存在）的工具不挂进工具表，只在提示里说明。
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { wrap } from "../sandbox.ts";
 import { paths } from "../config.ts";
 import { PERMISSION_LABELS } from "../guard/guard.ts";
 import { run } from "../sh.ts";
@@ -189,29 +193,56 @@ export function setToolEnabled(name: string, enabled: boolean): boolean {
 
 // ---------- 执行
 
-/** 运行一个工具。sh：参数以 JSON 写入 stdin，并展开为环境变量 ARG_<名>（非字符串值为 JSON）；node：默认导出 async (args) => string。 */
+/** node 工具的启动器：在子进程里加载 tool.mjs、读 stdin 的参数、调用默认导出，把结果写在标记行之后（工具自己的 console.log 改写到 stderr）。 */
+const NODE_RUNNER = `
+const marker = process.env.QUETZAL_TOOL_MARKER;
+console.log = console.info = console.error;
+let input = ""; process.stdin.setEncoding("utf8");
+for await (const c of process.stdin) input += c;
+const mod = await import(process.env.QUETZAL_TOOL_FILE);
+const f = mod.default ?? mod.handler;
+if (typeof f !== "function") { console.error("tool.mjs 必须默认导出一个函数 async (args) => string"); process.exit(2); }
+setInterval(() => {}, 1 << 30); // 工具返回的 Promise 永远不结束时也让进程活着，等父进程按超时杀掉
+const out = await f(JSON.parse(input || "{}"), { dir: process.env.QUETZAL_TOOL_DIR, home: process.env.QUETZAL_TOOL_HOME });
+process.stdout.write("\\n" + marker + "\\n" + JSON.stringify(out == null ? "" : typeof out === "string" ? out : JSON.stringify(out, null, 2)));
+process.exit(0);
+`;
+
+/**
+ * 运行一个工具：一律在子进程里、经沙箱（sandbox.ts）运行，超时整组杀掉。
+ * sh：参数以 JSON 写入 stdin，并展开为环境变量 ARG_<名>（非字符串值为 JSON），stdout 即结果；
+ * node：子进程里加载 tool.mjs，默认导出 async (args, {dir, home}) => string，返回值即结果（不在运行基座的进程里 import，碰不到基座的内存）。
+ */
 export async function runTool(m: ToolManifest, args: Record<string, any>): Promise<string> {
   const dir = toolDir(m.name);
-  if (m.runtime === "node") {
-    const file = sourceFile(m.name, "node");
-    const mod = await import(`file://${file}?v=${fs.statSync(file).mtimeMs}`); // 带 mtime 让改写后的模块重新加载
-    const f = mod.default ?? mod.handler;
-    if (typeof f !== "function") throw new Error("tool.mjs 必须默认导出一个函数 async (args) => string");
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error(`超过 ${m.timeout} 秒没有返回`)), m.timeout * 1000); });
-    try { const out = await Promise.race([f(args, { dir, home: paths.home }), timeout]); return out == null ? "" : typeof out === "string" ? out : JSON.stringify(out, null, 2); }
-    finally { clearTimeout(timer); }
-  }
   const env: Record<string, string> = { ...process.env as Record<string, string> };
-  for (const [k, v] of Object.entries(args ?? {})) if (/^[A-Za-z_]\w*$/.test(k)) env[`ARG_${k}`] = typeof v === "string" ? v : JSON.stringify(v);
+  const marker = `--quetzal-tool-result-${crypto.randomBytes(8).toString("hex")}--`;
+  let cmd: string, argv: string[];
+  if (m.runtime === "node") {
+    Object.assign(env, { QUETZAL_TOOL_MARKER: marker, QUETZAL_TOOL_FILE: pathToFileURL(sourceFile(m.name, "node")).href, QUETZAL_TOOL_DIR: dir, QUETZAL_TOOL_HOME: paths.home });
+    cmd = process.execPath; argv = ["--input-type=module", "-e", NODE_RUNNER];
+  } else {
+    for (const [k, v] of Object.entries(args ?? {})) if (/^[A-Za-z_]\w*$/.test(k)) env[`ARG_${k}`] = typeof v === "string" ? v : JSON.stringify(v);
+    cmd = "sh"; argv = [sourceFile(m.name, "sh")];
+  }
+  const w = wrap(cmd, argv, dir);
   return new Promise((resolve, reject) => {
-    const p = spawn("sh", [sourceFile(m.name, "sh")], { cwd: dir, env, stdio: ["pipe", "pipe", "pipe"] });
+    const p = spawn(w.cmd, w.args, { cwd: w.cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
     let out = "", err = "";
     const cap = (s: string, b: Buffer) => (s + b.toString()).slice(-(4 << 20));
     p.stdout.on("data", (b) => (out = cap(out, b))); p.stderr.on("data", (b) => (err = cap(err, b)));
-    const t = setTimeout(() => { p.kill("SIGKILL"); reject(new Error(`超过 ${m.timeout} 秒没有结束，已终止`)); }, m.timeout * 1000);
+    const kill = () => { try { process.kill(-p.pid!, "SIGKILL"); } catch { try { p.kill("SIGKILL"); } catch { /* 已退出 */ } } };
+    const t = setTimeout(() => { kill(); reject(new Error(`超过 ${m.timeout} 秒没有${m.runtime === "node" ? "返回" : "结束"}，已终止`)); }, m.timeout * 1000);
     p.on("error", (e) => { clearTimeout(t); reject(e); });
-    p.on("close", (code) => { clearTimeout(t); code === 0 ? resolve(out || err) : reject(new Error(`退出码 ${code}：${(err || out).trim().slice(0, 1500)}`)); });
+    p.on("close", (code) => {
+      clearTimeout(t);
+      if (m.runtime === "node") {
+        const i = out.lastIndexOf(`\n${marker}\n`);
+        if (code === 0 && i >= 0) { try { return resolve(JSON.parse(out.slice(i + marker.length + 2))); } catch { /* 落到下面报错 */ } }
+        return reject(new Error(`退出码 ${code}：${(err || out).trim().slice(0, 1500)}`));
+      }
+      code === 0 ? resolve(out || err) : reject(new Error(`退出码 ${code}：${(err || out).trim().slice(0, 1500)}`));
+    });
     p.stdin.on("error", () => {}); // 不读参数就退出的工具是合法的：写 stdin 时的 EPIPE 不算错（退出码与输出照常判断）
     p.stdin.end(JSON.stringify(args ?? {}));
   });

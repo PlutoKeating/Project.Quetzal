@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { bus } from "./bus.ts";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
+import { log } from "./log.ts";
 
 /** 家目录缺省：Termux（安卓）沿用 ~/quetzal（安卓安装器、runit 服务与开机脚本都按此约定）；其他机器（Linux 等）是 ~/.quetzal。环境变量 QUETZAL_HOME 优先。 */
 export const isTermux = /com\.termux/.test(process.env.PREFIX ?? "");
@@ -67,10 +69,13 @@ export const defaults: Config = {
   timezone: systemTimezone(),
   heart: { activity: 1, baseRatePerHour: 4, paused: false },
   budget: { dailyTokens: 2_000_000, dailyCostUsd: 5, minBattery: 15, maxTempC: 45 },
-  // 相机、麦克风、定位、操作屏幕默认「每次询问」：新装的用户先看见她想做什么，再决定放开；其余默认允许
+  // 相机、麦克风、定位、操作屏幕、造工具默认「每次询问」：新装的用户先看见她想做什么，再决定放开；其余默认允许。
+  // 注意：shell（执行命令）为「允许」时，其他类别的限制挡不住她——命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录）。
+  // 这是产品上的取舍（她要能干活），文档（docs/API.md §3）写明；要真正收紧，先把 shell 改成「每次询问」。
   permissions: {
     network: "allow", shell: "allow", device: "allow", camera: "ask", microphone: "ask",
     location: "ask", message: "allow", self_modify: "allow", memory: "allow", hands: "ask", secret: "allow", session: "allow", body: "allow",
+    tool_write: "ask", // 造工具：写的是之后会被执行的代码（mind/tools.ts）
   },
   brain: { maxOutputTokens: 4096 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
@@ -94,15 +99,43 @@ function merge<T>(base: T, over: unknown): T {
 
 export let config: Config = defaults;
 
+/** 家目录与其中不该给别的系统用户看的目录：0700（只改这几个目录本身，不递归）。 */
+const PRIVATE_DIRS = () => [paths.home, paths.secrets, paths.vault, paths.config, paths.data, paths.soul, paths.state];
+
 export function loadConfig(): Config {
-  for (const p of Object.values(paths)) if (p !== paths.stop) fs.mkdirSync(p, { recursive: true });
-  fs.chmodSync(paths.secrets, 0o700);
-  fs.chmodSync(paths.vault, 0o700);
+  for (const p of Object.values(paths)) if (p !== paths.stop) fs.mkdirSync(p, { recursive: true, mode: 0o700 });
+  for (const d of PRIVATE_DIRS()) { try { fs.chmodSync(d, 0o700); } catch { /* 不是自己的目录（如共享的家目录）就不动 */ } }
   const read = (f: string) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return {}; } };
   config = merge(defaults, read(file()));
-  if (!config.feishu.bindCode) config.feishu.bindCode = Math.random().toString(36).slice(2, 8);
+  if (!config.feishu.bindCode || config.feishu.bindCode.length < 10) config.feishu.bindCode = newBindCode();
+  sanitize();
   saveConfig();
   return config;
+}
+
+/** 不易看错的字母表（去掉 0/O、1/l/I）：配对码、绑定码共用。 */
+export const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const randomCode = (n: number) => Array.from({ length: n }, () => CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)]).join("");
+/** 飞书手动绑定用的绑定码：10 位，密码学随机。 */
+export const newBindCode = () => randomCode(10);
+
+/**
+ * Azure 语音的自定义端点只允许 Azure 的域名（HTTPS）：密钥随每次请求发往这个地址，指到别处就是把密钥交出去。
+ * 设置分区 speech 会在身体之间同步，所以加载、保存（含来自其他身体的）时都校验，不合规的端点清空。
+ */
+const AZURE_HOSTS = [/\.microsoft\.com$/, /\.azure\.com$/, /\.cognitiveservices\.azure\.com$/, /\.tts\.speech\.microsoft\.com$/];
+export function speechEndpointOk(endpoint: string): boolean {
+  if (!endpoint) return true;
+  try {
+    const u = new URL(endpoint);
+    if (process.env.SPEECH_ALLOW_LOCAL_ENDPOINT === "1" && u.hostname === "127.0.0.1") return true; // 只给测试的本地模拟服务用
+    return u.protocol === "https:" && !u.username && !u.password && AZURE_HOSTS.some((re) => re.test(u.hostname.toLowerCase()));
+  } catch { return false; }
+}
+export const speechRegionOk = (region: string) => !region || /^[a-z0-9-]{1,40}$/i.test(region);
+function sanitize() {
+  if (!speechEndpointOk(config.speech.endpoint)) { log("config", `语音端点不是 Azure 的地址，已清空：${config.speech.endpoint.slice(0, 80)}`); config.speech.endpoint = ""; }
+  if (!speechRegionOk(config.speech.region)) config.speech.region = "";
 }
 
 /** 全网统一的设置分区（DISTRIBUTED.md C8）：一处改了，所有身体跟着改。身体名、时区、适配器、网关、飞书、同步服务地址等属于这具身体，不在其中。 */
@@ -118,7 +151,7 @@ export function markShared(sections: string[]) {
 
 /** 保存配置。remote：来自其他身体的同步（不再标记、不再转发）。 */
 export function saveConfig(patch?: unknown, o: { remote?: boolean } = {}) {
-  if (patch) config = merge(config, patch);
+  if (patch) { config = merge(config, patch); sanitize(); }
   const touched = patch && !o.remote ? Object.keys(patch as object).filter((k) => (SHARED_SECTIONS as readonly string[]).includes(k)) : [];
   if (touched.length) { markShared(touched); return; }
   fs.writeFileSync(file(), JSON.stringify(config, null, 2));
@@ -128,6 +161,13 @@ export function readSecret(name: string): string | undefined {
   try { return fs.readFileSync(path.join(paths.secrets, name), "utf8").trim() || undefined; } catch { return undefined; }
 }
 
+/** 写一个密钥文件：先写临时文件、fsync，再原子改名（写到一半断电不会留下半个密钥）；已有的文件也明确改成 0600。 */
 export function writeSecret(name: string, value: string) {
-  fs.writeFileSync(path.join(paths.secrets, name), value, { mode: 0o600 });
+  fs.mkdirSync(paths.secrets, { recursive: true, mode: 0o700 });
+  const f = path.join(paths.secrets, name), tmp = `${f}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+  const fd = fs.openSync(tmp, "w", 0o600);
+  try { fs.writeSync(fd, value); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, f);
+  fs.chmodSync(f, 0o600);
 }

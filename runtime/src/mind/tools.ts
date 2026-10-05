@@ -3,7 +3,7 @@
 import path from "node:path";
 import { bus } from "../bus.ts";
 import { audit, listAudit } from "../store.ts";
-import { check } from "../guard/guard.ts";
+import { check, level } from "../guard/guard.ts";
 import { shell, startJob, stopJob, getJob, listJobs } from "../sh.ts";
 import * as mem from "../memory/memory.ts";
 import { adjustPersonality } from "../heart/heart.ts";
@@ -16,7 +16,9 @@ import { loadImage } from "./images.ts";
 import { describeProcesses } from "./processes.ts";
 import * as voice from "../voice/azure.ts";
 import { config, paths } from "../config.ts";
-import { requestSecrets, redactSecrets, MAX_ITEMS } from "./secrets.ts";
+import { requestSecrets, redactSecrets, redactArgs, MAX_ITEMS } from "./secrets.ts";
+import { protectedPath, workDir } from "../sandbox.ts";
+import { guardedFetch } from "./fetch-guard.ts";
 import { listManifests, listCustomTools, readTool, readSkill, writeTool, deleteTool, runTool, missingRequires, SKILL_SPEC_URL } from "./custom-tools.ts";
 import { PERMISSION_LABELS } from "../guard/guard.ts";
 import { identity, setIdentity } from "../memory/identity.ts";
@@ -31,14 +33,18 @@ import { remoteBodies, bodiesHooks, earOf } from "./bodies.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
-export interface Tool extends ToolDef { permission: string; handler: (a: Record<string, any>, ctx: ToolContext) => Promise<string> }
+/** also：除了 permission 还要满足的类别，闸门按其中最严的一个检查（自造工具一律加上 shell；tool_write 加上 tool_write）。 */
+export interface Tool extends ToolDef { permission: string; also?: string[]; handler: (a: Record<string, any>, ctx: ToolContext) => Promise<string> }
+
+// 造工具（写会被执行的代码）单独一个能力类别，缺省「每次询问」（config.ts）。标签放进闸门的表里，控制台与飞书的权限页才列得出来。
 
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties: props, required });
 const str = (description: string) => ({ type: "string", description });
 
 
 /**
- * 灵魂目录由基座管理：命令里同时出现 git 与灵魂目录，就不执行（硬性拦截，不靠自觉）。
+ * 灵魂目录由基座管理：命令里同时出现 git 与灵魂目录，就不执行。这只是提示（换个写法就绕得过去），不是边界：
+ * 真正的保护在 soul-repo.ts（推送只用配置里的地址、忽略 .git/config 里的改写、禁用钩子）与沙箱（灵魂目录的 .git 在沙箱里只读）。
  * 起因：一次 agent 自己在灵魂目录里改 origin、reset、push，把记忆推进了一个公开的代码仓库，又把代码历史并进了灵魂仓库。
  */
 export function soulGitBlock(command: string): string | undefined {
@@ -49,10 +55,13 @@ export function soulGitBlock(command: string): string | undefined {
   return "没有执行：灵魂目录（你的人格与记忆所在的仓库）由基座全自动同步，不能在里面运行 git——改远端、reset、push、把它的内容提交到别的仓库，都可能把记忆推到错的地方、或把别的历史混进来。你改动灵魂目录里的文件，基座会立即提交并推送；同步出了问题会提醒你，需要人处理的事告诉对方。";
 }
 
-/** 基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥）不给 agent 碰：读到账户令牌就能删掉整个账户。 */
+/**
+ * 基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥、飞书与语音的密钥）不给 agent 碰：读到账户令牌就能删掉整个账户。
+ * 这只是提示，不是边界：边界是沙箱（sandbox.ts，密钥目录在 agent 的命令里不存在）与读文件工具的真实路径检查（protectedPath）。
+ */
 export function secretsBlock(text: string): string | undefined {
   const dir = paths.secrets.replace(/\/+$/, "");
-  const touches = text.includes(dir) || /quetzal\/secrets\b|QUETZAL_HOME\}?\/secrets\b|(^|[\s;&|(])cd\s+secrets\b|sync-account\.json|(^|[\s/])sync\.json\b|master\.key|gateway\.token|mesh_ed25519|soul_ed25519/.test(text);
+  const touches = text.includes(dir) || /quetzal\/secrets\b|QUETZAL_HOME\}?\/secrets\b|(^|[\s;&|(])cd\s+secrets\b|sync-account\.json|(^|[\s/])sync\.json\b|master\.key|gateway\.token|mesh_ed25519|soul_ed25519|feishu_secret|azure_speech_key/.test(text);
   return touches ? "没有执行：基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥）不能读取、复制或使用。需要这些能力的事由基座或对方在控制台里做。" : undefined;
 }
 
@@ -109,9 +118,10 @@ const core: Tool[] = [
     name: "web_fetch", permission: "network", description: "读取一个网页的正文文本。",
     parameters: obj({ url: str("网址"), offset: { type: "number", description: "从第几个字符开始（用于翻页）" } }, ["url"]),
     handler: async (a) => {
-      const res = await fetch(a.url, { headers: BROWSER_HEADERS, signal: AbortSignal.timeout(30_000) });
-      const type = res.headers.get("content-type") ?? "";
-      const raw = await res.text();
+      // 只能访问公网：本机网关、局域网、云元数据一律拒绝，重定向每一跳都重新检查（fetch-guard.ts）
+      const res = await guardedFetch(String(a.url ?? ""), BROWSER_HEADERS, 30_000);
+      const type = res.type;
+      const raw = res.text;
       const text = type.includes("html") ? htmlToText(raw) : raw;
       const off = Number(a.offset) || 0;
       return `[${res.status}] 共 ${text.length} 字符\n` + text.slice(off, off + 8000);
@@ -126,8 +136,10 @@ const core: Tool[] = [
       const list = (Array.isArray(a.paths) ? a.paths : [a.paths]).filter(Boolean).slice(0, 4).map(String);
       const out: string[] = [];
       let sent = 0;
-      for (const p of list) {
-        const key = path.resolve(p);
+      for (const p0 of list) {
+        const p = path.resolve(workDir(), p0), key = p; // 相对路径按命令的工作目录（用户主目录）解析，检查与读取用同一个绝对路径
+        const denied = protectedPath(p);
+        if (denied) { out.push(`✗ ${p0}：${denied}`); continue; }
         if (ctx.session.seen.has(key)) { out.push(`= ${p}：这张图这一轮已经在你眼前（随消息附带或刚看过），就是同一张，不再重复发送`); continue; }
         try {
           const { image, note } = await loadImage(p);
@@ -158,11 +170,14 @@ const core: Tool[] = [
     name: "read_document", permission: "shell",
     description: "读取本地文档的文字内容（分页，每次约 2 万字）：Word（docx/doc）、PowerPoint（pptx/ppt，含备注）、Excel（xlsx/xls，按工作表输出为制表符分隔）、PDF、OpenDocument（odt/ods/odp）、EPUB、HTML、RTF、各类文本；zip 会列出内容。用户上传的附件在附件列表里给出了本地路径。",
     parameters: obj({ path: str("文件的本地路径"), offset: { type: "number", description: "从第几个字开始（用于翻页）" } }, ["path"]),
-    handler: async (a) => secretsBlock(String(a.path)) ?? readDocument(String(a.path), Number(a.offset) || 0),
+    handler: async (a) => {
+      const p = path.resolve(workDir(), String(a.path ?? "").replace(/^file:\/\//, ""));
+      return protectedPath(p) ?? readDocument(p, Number(a.offset) || 0); // 比较真实路径（跟随符号链接），不是字符串
+    },
   },
   {
     name: "shell", permission: "shell",
-    description: "在这具身体上执行一条 shell 命令。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
+    description: "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
     parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
     handler: async (a) => {
       const blocked = soulGitBlock(String(a.command ?? "")) ?? secretsBlock(String(a.command ?? ""));
@@ -217,16 +232,18 @@ const core: Tool[] = [
   },
   {
     name: "voice_config", permission: "self_modify",
-    description: "查看或修改你的声音配置（Azure 语音服务）。action=get 查看当前配置；voices 列出可选音色（可用 locale 过滤，如 zh-CN，结果含每个音色支持的风格）；set 修改：region（如 eastasia）或 endpoint（自定义端点）、key（密钥）、voice（音色）、style（默认风格，空表示不用）、rate / pitch（如 +10% / -5%）、volume（0–100）、format（输出格式）。",
+    description: "查看或修改你的声音配置（Azure 语音服务）。action=get 查看当前配置；voices 列出可选音色（可用 locale 过滤，如 zh-CN，结果含每个音色支持的风格）；set 修改：region（如 eastasia）、key（密钥）、voice（音色）、style（默认风格，空表示不用）、rate / pitch（如 +10% / -5%）、volume（0–100）、format（输出格式）。",
     parameters: obj({ action: { type: "string", enum: ["get", "voices", "set"] }, locale: str("voices 用：语言，如 zh-CN"),
-      region: str(""), endpoint: str(""), key: str(""), voice: str(""), style: str(""), rate: str(""), pitch: str(""), volume: str(""), format: str("") }, ["action"]),
+      region: str(""), key: str(""), voice: str(""), style: str(""), rate: str(""), pitch: str(""), volume: str(""), format: str("") }, ["action"]),
     handler: async (a) => {
       if (a.action === "voices") {
         const list = await voice.listVoices(a.locale ?? "zh-CN");
         return list.slice(0, 120).map((v) => `${v.name}（${v.local}，${v.gender}${v.styles.length ? `，风格：${v.styles.join("/")}` : ""}）`).join("\n") || "没有找到音色";
       }
       if (a.action === "set") {
-        const { action, locale, ...patch } = a;
+        // 端点只能由对方在控制台改：密钥随每次请求发往端点，指到别处就是把密钥交出去
+        if (a.endpoint !== undefined && String(a.endpoint).trim() !== config.speech.endpoint) return "没有修改：语音端点只能由对方在控制台的「语音」页修改。你可以改区域、音色、风格、语速、音调、音量与格式。";
+        const { action, locale, endpoint, ...patch } = a;
         return JSON.stringify(voice.setSpeech(patch));
       }
       return JSON.stringify(voice.speechStatus());
@@ -289,7 +306,7 @@ const core: Tool[] = [
     },
   },
   {
-    name: "tool_write", permission: "self_modify",
+    name: "tool_write", permission: "self_modify", also: ["tool_write"], // 写的是之后会被执行的代码：缺省每次询问
     description: `新建或改写一个你自己的工具。把做过多次、步骤稳定、以后还会用的流程写成工具，之后就能像内置工具一样直接调用（出现在工具表里，经闸门按 permission 检查）。实现只在这具身体上（QUETZAL_HOME/tools/<name>/）；意图文档 skill 随灵魂同步到其他身体，它们可以按文档自己实现，所以新工具必须写 skill。runtime=sh：source 是 shell 脚本，调用时参数以 JSON 从 stdin 传入，同时展开为环境变量 ARG_<参数名>（非字符串为 JSON），stdout 就是结果；runtime=node：source 是 ES 模块，默认导出 async (args, {dir, home}) => string，可以 import Node 内置模块。改写时只传要改的字段（name 必传）。所有参数以后都可以按需再改。`,
     parameters: obj({
       name: str("工具名：小写字母开头，可含数字、下划线、连字符，最长 40"),
@@ -422,6 +439,7 @@ function customTools(): Tool[] {
   const names = new Set(builtinNames());
   return listManifests().filter((m) => m.enabled && !names.has(m.name) && !missingRequires(m.requires).length).map((m) => ({
     name: m.name, description: m.description, parameters: m.parameters, permission: m.permission in PERMISSION_LABELS ? m.permission : "shell",
+    also: ["shell"], // 自造工具执行的是代码：声明的类别不能放宽闸门，至少和「执行命令」一样严
     handler: (args) => runTool(m, args),
   }));
 }
@@ -484,17 +502,24 @@ export { listCustomTools };
 
 export type ToolStatus = "ok" | "error" | "denied";
 
+const RANK = { allow: 0, ask: 1, deny: 2 } as const;
+/** 几个能力类别里最严的一个（禁止 > 询问 > 允许；一样严时取前面的）。 */
+export function strictest(perms: string[]): string {
+  return perms.reduce((a, b) => (RANK[level(b)] > RANK[level(a)] ? b : a));
+}
+
 export async function callTool(name: string, args: Record<string, any>, reason: string, ctx: ToolContext = {}): Promise<{ text: string; status: ToolStatus }> {
   const t = allTools().find((x) => x.name === name);
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };
-  if (!(await check(t.permission, name, reason, args))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
+  const safe = redactArgs(args); // 参数里的保密值不进审批、时间线与审计
+  if (!(await check(strictest([t.permission, ...(t.also ?? [])]), name, reason, safe))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
     const out = redactSecrets(await t.handler(args, ctx)); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计
-    audit("agent", name, reason, args, out.slice(0, 500));
+    audit("agent", name, reason, safe, out.slice(0, 500));
     return { text: out, status: "ok" };
   } catch (e: any) {
     const msg = redactSecrets(String(e.message));
-    audit("agent", name, reason, args, `error: ${msg}`);
+    audit("agent", name, reason, safe, `error: ${msg}`);
     return { text: `出错了：${msg}`, status: "error" };
   } finally {
     // 触碰即同步：任何工具（包括 shell、自造工具）碰了灵魂目录，立即提交并安排推送

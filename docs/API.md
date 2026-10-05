@@ -4,24 +4,31 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 ## 1. 网关
 
-缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788）；配置 `gateway.host` 为 `0.0.0.0` 可对局域网开放（`npx @plutokeating/quetzal --lan`），此时配对码与令牌是唯一门槛，只在可信的局域网里这样做。`main.cjs` 旁边有 `web/index.html`（npm 安装器放的网页控制台；或环境变量 `QUETZAL_WEB_DIR` 指定）时，网关同时托管这些静态文件：`GET /` 就是控制台。
+缺省只监听 `127.0.0.1:<gateway.port>`（默认 7788）；配置 `gateway.host` 为 `0.0.0.0` 可对局域网开放（`npx @plutokeating/quetzal --lan`），此时配对码与令牌是唯一门槛。
+
+**局域网模式的风险**：网关是明文 HTTP / WebSocket，同一个网络里能抓包的人（公共 Wi-Fi、被入侵的路由器、ARP 欺骗）能看到令牌与全部对话，拿到令牌就等于拿到整个控制台（包括账户管理与灵魂仓库地址）。只在自己可信的家庭网络里用；更推荐保持只监听本机，从别的机器用 ssh 隧道连：`ssh -N -L 7788:127.0.0.1:7788 <用户>@<这台机器>`，然后连 `127.0.0.1:7788`（经隧道来的连接对网关来说就是本机连接）。怀疑令牌泄露时用 `gateway.rotateToken` 换一个。
+
+**令牌的传法**：HTTP 接口用请求头 `Authorization: Bearer <令牌>` 或 `X-Quetzal-Token: <令牌>`；WebSocket 连上 `/rpc` 后第一条消息发 `{"auth": "<令牌>"}`（5 秒内，不对或超时以关闭码 4401 断开，通过后才收到 `hello`）。旧式的查询参数 `?token=` 仍然接受（兼容旧控制台），但它会出现在代理与浏览器历史里，新客户端不要再用。
+
+`main.cjs` 旁边有 `web/index.html`（npm 安装器放的网页控制台；或环境变量 `QUETZAL_WEB_DIR` 指定）时，网关同时托管这些静态文件：`GET /` 就是控制台。
 
 ### 1.1 HTTP
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌，供点火器探活 |
-| GET | `/auth/local` | `{ok, token}`：只给**同一台机器上的浏览器**（连接来自回环地址、Host 是本机名、Origin（若有）也是本机），网页控制台打开即登录；其他来源 403。任何本机进程本来就读得到 `secrets/gateway.token`，所以这不扩大信任边界；ssh 隧道转发来的连接也算本机 |
+| GET | `/auth/local` | `{ok, token}`：只给**同一台机器上打开着网关自己托管的网页控制台的浏览器**，打开即登录。条件：网关托管着网页控制台（`web/` 存在）、不是安卓（安卓上别的应用也能连 127.0.0.1）；连接来自回环地址、Host 是本机名；**必须**带 `Origin` 且正好是网关自己的源（`http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>`；开发时别的源只能由环境变量 `QUETZAL_DEV_ORIGINS`（逗号分隔）明确列出），CORS 只对这个 Origin 放行；发起连接的进程不是运行基座的子孙（agent 的命令、后台任务、自造工具都是，Linux 上读 `/proc` 判断）。其他情况 403。注意：本机进程并不都读得到 `secrets/gateway.token`——agent 的命令在沙箱里读不到它（ARCHITECTURE §8.1），安卓上别的应用也读不到；`Origin` 头命令行程序能伪造，所以挡 agent 的是子孙进程检查与沙箱。ssh 隧道转发来的连接也算本机 |
 | GET | `/<静态文件>` | 网页控制台（`web/` 目录存在时）：`/` → `index.html`，没有扩展名的未知路径也回退到 `index.html`（单页应用），带 ETag |
-| POST | `/pair/start` | 生成 6 位配对码（5 分钟有效），通过适配器的系统通知与飞书下发 |
-| POST | `/pair/finish` | `{code}` → `{ok, token}`；错误码 403（不正确）、410（失效或尝试超过 5 次） |
-| GET | `/media/<文件名>?token=<令牌>` | 她的声音：控制台 App 取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |
-| POST | `/hear?started=<毫秒时刻>&token=<令牌>[&stream=1&id=<标识>&bargein=1]` | 听觉。`bargein=1`：这句话打断了她的播放（App 本地已停播），以「打断」并入。`stream=1`：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输），基座用官方 SDK 流式识别，中间结果经 `hearing` 事件推送；否则请求体为一整句 WAV（最多 4 MiB）一次识别。→ `{ok, id, text, conv?, dropped?}`；`started` 为这句话开始的时刻，用于判断是不是她自己在说话（丢弃）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
-| POST | `/upload?name=<文件名>&token=<令牌>` | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `QUETZAL_HOME/data/uploads/<日期>/` |
-| GET | `/uploads/<rel>?token=<令牌>` | 下载附件（控制台预览图片）；只能访问 uploads 目录内的文件 |
+| POST | `/pair/start` | 生成 8 位配对码（字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`，密码学随机，通知里显示为 `ABCD-EFGH`；5 分钟有效），通过适配器的系统通知与飞书下发 → `{ok, expires}`。码还有效时再请求不换新码、不清零尝试次数（30 秒后可以再提醒一次）。Linux 适配器有桌面通知时服务日志里只记「控制台配对」，没有桌面的机器才把配对码写进日志 |
+| POST | `/pair/finish` | `{code}`（不区分大小写，空格与连字符不计）→ `{ok, token}`；错误码 403（不正确）、410（失效，或这个码已试过 5 次）、429（累计失败超过 5 次后全局锁定，按 30 秒 × 2^(n−6) 退避，最长 1 小时，`retryAfter` 为秒数；成功一次清零）、413（请求体超过 16 KB）。两个配对接口都检查 Host（防 DNS 重绑定）：回环连接只认本机名；局域网连接认 IP 字面量、`gateway.host` 与环境变量 `QUETZAL_GATEWAY_HOSTS`（逗号分隔，如 `mybox.local`）列出的名字 |
+| GET | `/media/<文件名>`（令牌见上） | 她的声音：控制台 App 取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |
+| POST | `/hear?started=<毫秒时刻>[&stream=1&id=<标识>&bargein=1]`（令牌见上） | 听觉。`bargein=1`：这句话打断了她的播放（App 本地已停播），以「打断」并入。`stream=1`：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输），基座用官方 SDK 流式识别，中间结果经 `hearing` 事件推送；否则请求体为一整句 WAV（最多 4 MiB）一次识别。→ `{ok, id, text, conv?, dropped?}`；`started` 为这句话开始的时刻，用于判断是不是她自己在说话（丢弃）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
+| POST | `/upload?name=<文件名>`（令牌见上） | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `QUETZAL_HOME/data/uploads/<日期>/` |
+| GET | `/uploads/<rel>`（令牌见上） | 下载附件（控制台预览图片）；只能访问 uploads 目录内的文件：路径本身是符号链接的、跟随链接后出了 uploads 的都是 404 |
 
-### 1.2 WebSocket `/rpc?token=<令牌>`
+### 1.2 WebSocket `/rpc`
 
+- 认证：连上后第一条消息 `{"auth": "<令牌>"}`（5 秒内）；或旧式的 `/rpc?token=<令牌>`。单条消息最多 4 MiB。
 - 请求：`{"id": 1, "method": "status", "params": {}}`
 - 响应：`{"id": 1, "result": …}` 或 `{"id": 1, "error": {"code", "message"}}`
 - 推送：`{"event": "<名称>", "data": …}`
@@ -67,8 +74,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
-| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought}`；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
-| `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `place`（多具身体时，这次醒来选在了哪具身体上 `{kind, reason, intent, where}`）、`mesh`（网状层的事：绑定、心跳交接、安全提醒）、`hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份）、`session`（切到新会话 / 压缩了上下文）、`agent`（派出 / 完成 / 停止子 agent，完成的条目带 `journal`、`process`、`steps`））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数与结果（结果最多 1500 字） |
+| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox}`；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜proot｜none, hidden[], readonly[], note}`（`none` 时 agent 的命令能读到密钥目录，控制台应提示重新运行安装脚本装上 bubblewrap / proot，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
+| `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `place`（多具身体时，这次醒来选在了哪具身体上 `{kind, reason, intent, where}`）、`mesh`（网状层的事：绑定、心跳交接、安全提醒）、`hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份）、`session`（切到新会话 / 压缩了上下文）、`agent`（派出 / 完成 / 停止子 agent，完成的条目带 `journal`、`process`、`steps`）、`sandbox`（没有可用的沙箱，启动时提醒一次））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数与结果（结果最多 1500 字） |
 | `messages` | `{limit?}` | 全部会话里最近的对话（正序） |
 | `audit` | `{limit?}` | 审计记录 |
 
@@ -101,7 +108,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
-| `speech` / `setSpeech` | — / `{region?, endpoint?, key?, voice?, style?, rate?, pitch?, volume?, format?}` | 查看 / 修改配置；密钥只返回末四位，留空不改 |
+| `speech` / `setSpeech` | — / `{region?, endpoint?, key?, voice?, style?, rate?, pitch?, volume?, format?}` | 查看 / 修改配置；密钥只返回末四位，留空不改。`endpoint` 只接受 Azure 语音服务的 HTTPS 地址（`*.microsoft.com`、`*.azure.com`、`*.cognitiveservices.azure.com`），否则报错；配置文件里或其他身体同步来的不合规端点会被清空。她的 `voice_config` 不能改端点 |
 | `speechVoices` | `{locale?}` | 可选音色（含支持的风格） |
 | `speechTest` | `{text?}` | 用当前配置合成并播放一句 |
 
@@ -130,11 +137,12 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `pause` | `{paused}` |
 | `personality` | `{changes: {"tau.curiosity": 2, …}}`（有界） |
 | `stop` / `unstop` | `{reason?, scope?: all｜body}` / —（多具身体时急停缺省全网生效；`scope: "body"` 只停这具身体，别处的解除清不掉它） |
-| `permissions` / `setPermission` | — / `{id, level: allow｜ask｜deny}` |
-| `approvals` / `decide` | — / `{id, approve, note?}`（多具身体时含其他身体上等待批准的，带 `body`；批准转给那具身体处理） |
+| `permissions` / `setPermission` | — / `{id, level: allow｜ask｜deny}`（见 §3 `permissions.*`：「执行命令」为允许时，其他类别挡不住她） |
+| `approvals` / `decide` | — / `{id, approve, note?, body?}`（多具身体时含其他身体上等待批准的，带 `body`；批准转给那具身体处理。`body` 取审批列表里的那一项：给了就只找那具身体上的；不给而编号在几具身体上都有时不处理，返回 `false`） |
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |
 | `restart` | — （进程退出，由守护者拉起） |
+| `gateway.rotateToken` | — → `{token}`：换一个新的网关令牌并保存，断开其他所有连接（关闭码 4001，它们手里的旧令牌作废），新令牌只返回给发起的这个连接；写审计 |
 | `selfUpdate` | — | 让这具身体在后台重跑一键安装脚本，把运行基座、网页控制台与原生控制台升到最新发布并重启服务一次：`{started, message}`。由适配器的 `upgrade()` 实现（Linux：`systemd-run --user` 起临时单元脱离服务的 cgroup，没有 systemd 用 `setsid`；日志 `logs/upgrade.log`）；安卓没有（App 自己升级） |
 | `supervision` / `setSupervision` | — / `{enabled}` | 守护开关（开机自启 + 退出后自动重启，一个开关管两件事）：`{available, enabled, kind: systemd｜runit｜loop｜none, detail}`。由身体适配器实现：Linux 是 systemd 用户服务（关 = disable + 覆盖片段 `Restart=no`）或一键安装脚本的守护循环（关 = 标志文件 `state/supervise.off` + 删开机项），安卓是 runit `down` 文件 + Termux:Boot 开机脚本；`available` 为假（手动部署）时控制台不显示开关。关闭只影响之后：正在运行的进程不受影响 |
 
@@ -156,16 +164,17 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
-| `mesh` | — | `{server, bound, account, fingerprint, available, state, error, clockSkewMs, peers, binding}`：`state` 为 `off`（没配地址、没绑定或缺组件）/ `connecting` / `online` / `offline` / `unauthorized`（令牌失效，需重新绑定）；`fingerprint` 为本机节点公钥指纹（绑定时与网页上的核对）；`available` 为原生组件能否加载；`peers` 为同一 agent 的其他身体 `[{body, kind, version, online, lastSeen, link: none｜idle｜connecting｜authenticating｜open｜closed, path?: {local, remote, rtt}, error?, keyOk, fingerprint}]`（`path` 的 `local` / `remote` 为候选类型 host / srflx / prflx / relay，不含地址；`keyOk` 为同步服务转告的公钥与灵魂仓库登记的一致）；`binding` 为进行中的绑定 `{code, uri, expires}` 或 `null`。也在 `status` 的 `mesh` 字段里 |
+| `mesh` | — | `{server, bound, account, fingerprint, available, state, error, clockSkewMs, peers, binding}`：`state` 为 `off`（没配地址、没绑定或缺组件）/ `connecting` / `online` / `offline` / `unauthorized`（令牌失效，需重新绑定）；`fingerprint` 为本机节点公钥指纹（绑定时与网页上的核对）；`available` 为原生组件能否加载；`peers` 为同一 agent 的其他身体 `[{body, kind, version, online, lastSeen, link: none｜idle｜connecting｜authenticating｜open｜closed, path?: {local, remote, rtt}, error?, keyOk, fingerprint, pinMismatch?}]`（`path` 的 `local` / `remote` 为候选类型 host / srflx / prflx / relay，不含地址；`keyOk` 为同步服务转告的公钥与灵魂仓库登记的一致、且与钉住的一致；`pinMismatch` 为真表示它在灵魂仓库里的公钥变了或从灵魂桥变成了运行基座，确认（`mesh.acceptPin`）之前不连接）；`binding` 为进行中的绑定 `{code, uri, expires}` 或 `null`。也在 `status` 的 `mesh` 字段里 |
 | `mesh` 的 `coordinator` 字段 | — | 此刻持有心跳的身体（没有连上其他身体时就是自己）；`status.heart.follower` 为真表示这具身体的心脏在跟随协调者 |
 | `mesh.setServer` | `{server}` | 设置同步服务地址（只接受 HTTPS；本机地址除外）；换地址需要重新绑定。空字符串关闭网状层 |
 | `mesh.bind` | — | 开始绑定：向同步服务申请设备码，返回的状态里 `binding.code` 是要在网页上输入的短码、`binding.uri` 是带短码的链接；批准后自动保存令牌并连上（经 `mesh` 事件推送进展） |
 | `mesh.setPriority` | `{priority}` | 这具身体当协调者的优先级（0–100，越大越优先；适合一直开着、接着电源的身体） |
 | `mesh.cancelBind` / `mesh.unbind` | — | 取消进行中的绑定 / 解绑（通知同步服务作废令牌，删除本机的绑定；节点密钥保留） |
+| `mesh.acceptPin` | `{body}` | 确认某具身体新的节点公钥（或从灵魂桥变成运行基座）：钉住灵魂仓库里现在登记的，重新连接；返回同 `mesh`。只在 `peers` 里那一项 `pinMismatch` 为真、并且核对过指纹时用 |
 
 推送事件 `mesh`：数据同 `mesh` 方法，网状层状态变化时推送（绑定进展、同步服务连接、各身体的连接与路径）。
 
-**账户**（`mesh/account.ts`）：控制台管理同步服务上的整个账户，与官网的账户页是同一套接口（[sync/docs/PROTOCOL.md](../sync/docs/PROTOCOL.md) §5）。前提是这具身体已绑定；再做一次控制台登录，账户令牌存在 `secrets/sync-account.json`（0600）。这些方法只给持网关令牌的控制台用，agent 的工具里没有，agent 的命令执行工具也读不到密钥目录。
+**账户**（`mesh/account.ts`）：控制台管理同步服务上的整个账户，与官网的账户页是同一套接口（[sync/docs/PROTOCOL.md](../sync/docs/PROTOCOL.md) §5）。前提是这具身体已绑定；再做一次控制台登录，账户令牌存在 `secrets/sync-account.json`（0600）。这些方法只给持网关令牌的控制台用，agent 的工具里没有；agent 的命令在沙箱里运行，那里没有密钥目录（沙箱为 `none` 时没有这层保护，见 `status.sandbox`）。
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
@@ -240,6 +249,8 @@ interface RawSample {
 
 约束：
 
+- 适配器提供的 `notify()` 的内容可能含配对码：写日志时应当只在没有别的办法让人看到时才写内容（Linux 适配器：有桌面通知时日志只记标题）；
+
 - 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带两个平台级实现：`runtime/adapters/termux/`（安卓手机 + Termux:API）构建为 `dist/termux.mjs`，由 Quetzal App 的安装器随运行基座放到手机上；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `@plutokeating/quetzal` 随运行基座放到 `~/quetzal/current/`；
 - 适配器从 `QUETZAL_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理。
@@ -259,11 +270,11 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日预算（多具身体时按全网合计）与身体限制 |
 | `channels.feishuHolder` | "" | 多具身体时持有飞书长连接的身体（全网共用）；空为这具身体自己连 |
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
-| `permissions.*` | `camera` / `microphone` / `location` / `hands` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作） |
+| `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码）。一个工具按它所属类别中最严的一个检查：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；想真正收紧，先把 `shell` 改成 `ask` |
 | `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
 | `gateway.port` / `gateway.host` | 7788 / `127.0.0.1` | 网关端口与监听地址；`0.0.0.0` 对局域网开放（Linux 安装器的 `--lan`） |
 | `mesh.server` / `mesh.priority` | "" / 0 | 同步服务地址（HTTPS；绑定令牌在 `secrets/sync.json`，节点密钥在 `secrets/mesh_ed25519`）；当协调者的优先级（越大越优先，适合一直开着、接着电源的身体） |
 | `hearing.enabled` / `windowMin` / `sensitivity` / `language` / `minChars` | false / 10 / 2 / ""（取她的偏好语言）/ 2 | 听觉：开关；最近会话多少分钟内有更新就并入（0 为每句新开）；灵敏度 1 迟钝 / 2 适中 / 3 灵敏（App 的 VAD 模式）；识别语言；短于此字数当没听清 |
-| `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |
+| `speech.region` / `endpoint`（只接受 Azure 的 HTTPS 域名） / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |

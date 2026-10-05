@@ -59,10 +59,15 @@ export function fromUpload(rel: string): Attachment | undefined {
   return { id: base.slice(0, 12), name, path: f, rel: path.relative(uploadsDir(), f).split(path.sep).join("/"), mime, size: fs.statSync(f).size, kind };
 }
 
-/** 把 uploads 下的相对路径解析成文件（用于下载预览），拒绝越界。 */
+/** 把 uploads 下的相对路径解析成文件（用于下载预览），拒绝越界：路径本身是符号链接的不要，跟随链接后的真实路径也必须仍在 uploads 里。 */
 export function resolveUpload(rel: string): string | undefined {
   const root = uploadsDir(), f = path.resolve(root, rel);
-  return f.startsWith(root + path.sep) && fs.existsSync(f) && fs.statSync(f).isFile() ? f : undefined;
+  if (!f.startsWith(root + path.sep)) return undefined;
+  try {
+    if (!fs.lstatSync(f).isFile()) return undefined; // 符号链接、目录都不要
+    const realRoot = fs.realpathSync(root), realF = fs.realpathSync(f);
+    return realF.startsWith(realRoot + path.sep) ? f : undefined; // 中间某一级目录是符号链接时，真实路径会出 uploads
+  } catch { return undefined; }
 }
 
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);

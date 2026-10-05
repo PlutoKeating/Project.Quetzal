@@ -133,10 +133,10 @@ const adapter: BodyAdapter = {
       extra,
     };
   },
-  // 系统通知：有桌面时用 notify-send；同时写到标准输出（服务日志），没有桌面的机器从日志里看配对码
+  // 系统通知：有桌面时用 notify-send，服务日志里只记标题（配对码这类内容不留在日志里）；没有桌面（或弹不出来）的机器才把内容写进日志，从日志里看配对码
   async notify(title, text) {
-    process.stdout.write(`[linux] 通知：${title} — ${text}\n`);
-    if (desktop() && have("notify-send")) await run("notify-send", ["-a", "Quetzal", "-u", "normal", title, text], 10_000);
+    const shown = desktop() && have("notify-send") && (await run("notify-send", ["-a", "Quetzal", "-u", "normal", title, text], 10_000)).code === 0;
+    process.stdout.write(shown ? `[linux] 通知：${title}（内容见桌面通知或控制台）\n` : `[linux] 通知：${title} — ${text}\n`);
   },
   // 播放音频（如语音合成的结果）：后台播放，立即返回；stopAudio 停止
   async playAudio(file) {

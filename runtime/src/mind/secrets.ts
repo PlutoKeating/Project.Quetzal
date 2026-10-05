@@ -8,13 +8,15 @@
 //      SECRET_IDLE_MS 内没有动静自动放弃。放弃时已收到的值直接丢弃，不落盘。
 //   保密库：QUETZAL_HOME/vault/（0700），每项一个文件（0600，文件名即名字，内容即值），index.json 记录说明、时间与来源通道（不含值）。
 //   它只属于这具身体：不在灵魂仓库里，不会同步到别的身体。agent 在命令里用 "$(cat 路径)" 或 < 路径 引用。
-//   兜底：所有工具输出在交给模型、写入审计之前经过 redactSecrets，出现的保密值替换为 ‹secret:名字›（只防无意泄露，挡不住刻意变换编码）。
+//   兜底：所有工具输出在交给模型、写入审计之前经过 redactSecrets，出现的保密值替换为 ‹secret:名字›（只防无意泄露，挡不住刻意变换编码）；
+//   基座自己的密钥（secrets/ 下的令牌、主密钥、私钥，模型供应商的 Key）同样替换。工具参数在写进审计、时间线、审批与过程记录之前经过 redactArgs。
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { paths } from "../config.ts";
 import { bus, type SecretEvent } from "../bus.ts";
 import { identity } from "../memory/identity.ts";
+import { baseSecrets } from "../secret-values.ts";
 
 export const SECRET_IDLE_MS = 10 * 60_000;
 export const MAX_ITEMS = 20;
@@ -76,9 +78,18 @@ function needles(): [string, string][] {
   }
   return cache.list;
 }
+/** 保密库的值与基座自己的密钥（见 secret-values.ts），按长度从长到短。 */
+export const allSecretValues = (): [string, string][] => [...needles(), ...baseSecrets()].sort((a, b) => b[0].length - a[0].length);
 export function redactSecrets(text: string): string {
-  for (const [v, name] of needles()) if (text.includes(v)) text = text.split(v).join(`‹secret:${name}›`);
+  for (const [v, name] of allSecretValues()) if (text.includes(v)) text = text.split(v).join(`‹secret:${name}›`);
   return text;
+}
+/** 工具参数里的保密值同样替换（参数会写进审计、时间线、审批与过程记录）。返回替换后的副本，原参数不变。 */
+export function redactArgs<T>(args: T): T {
+  const s = JSON.stringify(args ?? null);
+  const r = redactSecrets(s);
+  if (r === s) return args;
+  try { return JSON.parse(r); } catch { return { redacted: r } as T; }
 }
 
 // ---------- 保密输入：每个会话同时最多一次

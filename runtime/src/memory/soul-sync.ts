@@ -15,6 +15,7 @@ import { bus } from "../bus.ts";
 import { mergeEntries } from "./entries.ts";
 import { VERSION } from "../version.ts";
 import { nodeKey } from "../mesh/node-key.ts";
+import { allSecretValues } from "../mind/secrets.ts";
 export { mergeEntries };
 
 let repo: SoulRepo | undefined;
@@ -34,6 +35,9 @@ function r(): SoulRepo {
       seedSoul,
       bodyInfo: () => ({ kind: "runtime", runtime: VERSION, meshKey: nodeKey().nodeKey }), // meshKey：网状层的节点公钥（规范 v8），其他身体以它为准核对这具身体
       log: (m) => log("soul", m),
+      // 提交前检查（规范 v10 §5.2）：这具身体的密钥与保密库里的值出现在改动里就不提交
+      secrets: () => allSecretValues().map(([v]) => v),
+      onSecret: secretAlert,
     });
     if (prev) repo.status = prev;
     key = k;
@@ -122,9 +126,9 @@ export const describeFiles = (files: string[]) => {
 export const touched = (t: Toucher) => serial(async () => {
   const files = await r().changes().catch(() => [] as string[]);
   if (!files.length) return files;
-  await r().commit(`${t.tool}：${describeFiles(files)}`);
   const touch: Touch = { ...t, files, ts: Date.now() };
-  for (const f of files) lastTouch.set(f, touch);
+  for (const f of files) lastTouch.set(f, touch); // 先记下：提交时发现密钥要提醒碰过它的会话
+  if (!(await r().commit(`${t.tool}：${describeFiles(files)}`)) && /有这具身体的密钥/.test(r().status.lastError)) return files;
   if (lastTouch.size > 500) lastTouch.delete(lastTouch.keys().next().value!);
   unpushed.push(touch);
   schedulePush(PUSH_DEBOUNCE_MS);
@@ -171,6 +175,17 @@ function pushAlert(touches: Touch[], res: PushResult) {
   log("soul", `推送失败（${res.kind}），提醒 ${touches.length} 次触碰所在的会话`);
   addTimeline("soul", `灵魂同步：推送失败（${files}）`, { kind: res.kind, error: res.error });
   bus.emit("soul.alert", { text, targets: [...new Map(touches.map((t) => [t.session?.id ?? "", t.session])).values()] } satisfies SoulAlert);
+}
+
+/** 密钥混进了灵魂目录：提醒最近碰过这些文件的会话（同一组文件只提醒一次，删掉后再出现会再提醒）。 */
+let alertedSecret = "";
+function secretAlert(files: string[]) {
+  const key = files.slice().sort().join("|");
+  if (key === alertedSecret) return;
+  alertedSecret = key;
+  const list = files.map((f) => `- ${path.join(paths.soul, f)}`).join("\n");
+  addTimeline("soul", "灵魂同步：改动里有密钥，没有提交", { files });
+  bus.emit("soul.alert", { text: `灵魂同步拒绝提交：下面的文件里有这具身体的密钥（基座的令牌、私钥、模型 Key 或保密库里的值）。灵魂仓库会同步到其他身体与远端，密钥不能放进去：\n${list}\n请把密钥从这些文件里删掉（需要记住「有这么一个密钥」可以只写名字和用途）。删掉之前，灵魂目录的改动都不会同步。`, targets: [...new Set(files.map((f) => lastTouch.get(f)?.session))] } satisfies SoulAlert);
 }
 
 function conflictAlert(copies: PullResult["resolved"], bodies: string[]) {
