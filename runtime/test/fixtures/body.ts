@@ -39,6 +39,8 @@ const llm = http.createServer((req, res) => {
 await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
 reg.saveProviders({ providers: [{ id: "p", catalogId: "custom", name: "Mock", baseUrl: `http://127.0.0.1:${(llm.address() as any).port}`, protocol: "openai-completions" as const, enabled: true,
   keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
+// 每具测试身体的模拟模型在自己的进程里：供应商配置不参与身体之间的同步（修改时刻记为 0，严格更新的才会被采用）
+saveConfig({ sharedRev: { providers: 0 } }, { remote: true });
 const path = await import("node:path");
 const ndc: any = (await import("node-datachannel")).default;
 
