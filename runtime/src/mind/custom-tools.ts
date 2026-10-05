@@ -212,6 +212,7 @@ export async function runTool(m: ToolManifest, args: Record<string, any>): Promi
     const t = setTimeout(() => { p.kill("SIGKILL"); reject(new Error(`超过 ${m.timeout} 秒没有结束，已终止`)); }, m.timeout * 1000);
     p.on("error", (e) => { clearTimeout(t); reject(e); });
     p.on("close", (code) => { clearTimeout(t); code === 0 ? resolve(out || err) : reject(new Error(`退出码 ${code}：${(err || out).trim().slice(0, 1500)}`)); });
+    p.stdin.on("error", () => {}); // 不读参数就退出的工具是合法的：写 stdin 时的 EPIPE 不算错（退出码与输出照常判断）
     p.stdin.end(JSON.stringify(args ?? {}));
   });
 }
