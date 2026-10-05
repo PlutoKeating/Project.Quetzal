@@ -54,3 +54,7 @@ app.*.map.json
 /android/key.properties
 *.jks
 *.keystore
+
+# 内置运行环境（tool/android-runtime/pack.sh 生成）
+/android/app/src/main/jniLibs/
+/android/app/src/main/assets/runtime-env/

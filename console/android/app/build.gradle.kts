@@ -43,6 +43,10 @@ android {
         }
     }
 
+    // 内置运行环境的可执行文件以 lib*.so 放在 jniLibs 里（tool/android-runtime/pack.sh 生成，不入库）：必须解压到 nativeLibraryDir 才能执行
+    packaging { jniLibs { useLegacyPackaging = true } }
+    defaultConfig { ndk { abiFilters += listOf("arm64-v8a") } }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName(if (hasKey) "release" else "debug")

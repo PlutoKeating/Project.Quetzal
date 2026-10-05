@@ -1,44 +1,38 @@
-// Termux 桥：控制台与同一台手机上的 Termux 之间的全部原生交互（MethodChannel quetzal/igniter）。
-//   点火（启动运行基座服务）、安装器下发命令、检测三件套、打开系统设置里的保活页面。
-//   命令通过 Termux 的 RUN_COMMAND 接口执行，前提是 Termux 的 ~/.termux/termux.properties 里 allow-external-apps=true，
-//   且本应用已获「在 Termux 中运行命令」权限（系统弹窗）。
+// 运行基座桥：控制台与 App 内置的运行基座之间的原生交互（MethodChannel quetzal/runtime）。
+//   只装一个 App：Node.js、git、ssh、proot 随 APK 一起安装（见 tool/android-runtime/），运行基座在 App 自己的前台服务里运行（RuntimeService）。
+//   点火 = 启动前台服务；升级 = 重启它（新版 App 带着新版运行基座，重启即升级）；网关令牌直接从家目录读取，同一台手机不需要配对码。
+//   另有身体权限（相机、麦克风、定位、通知）与保活（电池优化、厂商自启动管理）。
 import 'package:flutter/services.dart';
 
 class Igniter {
-  static const _ch = MethodChannel('quetzal/igniter');
-  static const prefix = '/data/data/com.termux/files/usr';
-  static const home = '/data/data/com.termux/files/home';
-  static const termux = 'com.termux', termuxApi = 'com.termux.api', termuxBoot = 'com.termux.boot';
+  static const _ch = MethodChannel('quetzal/runtime');
 
-  /// 三件套的版本号；没装返回 null。
-  static Future<String?> version(String pkg) async { try { return await _ch.invokeMethod<String>('packageVersion', {'pkg': pkg}); } catch (_) { return null; } }
-  static Future<bool> available() async => (await version(termux)) != null;
-  static Future<bool> hasPermission() async { try { return await _ch.invokeMethod<bool>('hasPermission') ?? false; } catch (_) { return false; } }
-  static Future<void> requestPermission() => _ch.invokeMethod('requestPermission');
-  static Future<void> openTermux() => _ch.invokeMethod('openApp', {'pkg': termux});
-  static Future<void> openApp(String pkg) => _ch.invokeMethod('openApp', {'pkg': pkg});
-  static Future<void> openAppDetails(String pkg) => _ch.invokeMethod('openAppDetails', {'pkg': pkg});
-  /// 系统的「忽略电池优化」列表（用户在里面找到 Termux 与 Quetzal 放行）。
+  /// 这个 App 里有没有内置运行环境（开发版可能没有）。
+  static Future<bool> available() async { try { return await _ch.invokeMethod<bool>('bundled') ?? false; } catch (_) { return false; } }
+  /// {installed, running, version, error}
+  static Future<Map> status() async { try { return await _ch.invokeMethod<Map>('status') ?? {}; } catch (_) { return {}; } }
+  /// 网关令牌（运行基座第一次启动后才有）。
+  static Future<String?> token() async { try { return await _ch.invokeMethod<String>('token'); } catch (_) { return null; } }
+  static Future<void> restart() => _ch.invokeMethod('restart');
+  static Future<void> stop() => _ch.invokeMethod('stop');
+
+  /// 点火：启动前台服务（已在运行则无事）。返回 null 表示已启动；否则返回原因。
+  static Future<String?> ignite() async {
+    if (!await available()) return '这个 App 没有内置运行基座（开发版）';
+    try { await _ch.invokeMethod('start'); return null; } on PlatformException catch (e) { return '点火失败：${e.message}'; }
+  }
+
+  /// 身体权限：{camera, microphone, location, notifications} → 是否已授权。
+  static Future<Map<String, bool>> bodyPermissions() async {
+    try { return Map<String, bool>.from(await _ch.invokeMethod<Map>('bodyPermissions') ?? {}); } catch (_) { return {}; }
+  }
+  /// 请求身体权限（系统弹窗）。授权后重启前台服务，让它带上相应的前台服务类型（后台使用相机、麦克风、定位的前提）。
+  static Future<void> requestBodyPermissions() => _ch.invokeMethod('requestBodyPermissions');
+
+  /// 系统的「忽略电池优化」列表。
   static Future<void> openBatterySettings() => _ch.invokeMethod('openBatterySettings');
   /// 请求把本应用加入忽略电池优化（系统弹窗）。
   static Future<void> requestIgnoreBattery() => _ch.invokeMethod('requestIgnoreBattery');
-  /// 各厂商的「自启动 / 后台运行」管理页；找不到时打开 Termux 的应用详情。
+  /// 各厂商的「自启动 / 后台运行」管理页；找不到时打开本应用的详情页。
   static Future<void> openAutostart() => _ch.invokeMethod('openAutostart');
-
-  /// 在 Termux 里后台执行一个程序。只负责发出指令，不等待结果（结果由程序自己回报，见 installer.dart）。
-  static Future<void> run(String path, List<String> args) => _ch.invokeMethod('run', {'path': path, 'args': args});
-  static Future<void> bash(String script) => run('$prefix/bin/bash', ['-c', script]);
-
-  /// 点火：重新执行开机脚本（唤醒锁 + runit），再拉起 quetzal 服务。返回 null 表示已发出指令；否则返回原因。
-  static Future<String?> ignite() async {
-    if (!await available()) return '没有安装 Termux，无法自动点火';
-    if (!await hasPermission()) { await requestPermission(); return '请先允许「在 Termux 中运行命令」权限，然后再点一次'; }
-    try {
-      await run('$home/.termux/boot/quetzal', <String>[]);
-      await run('$prefix/bin/sv', ['up', '$prefix/var/service/quetzal']);
-      return null;
-    } on PlatformException catch (e) {
-      return '点火失败：${e.message}（请确认 Termux 设置中 allow-external-apps=true）';
-    }
-  }
 }

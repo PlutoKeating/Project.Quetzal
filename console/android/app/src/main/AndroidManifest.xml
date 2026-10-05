@@ -1,6 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <!-- 内置运行基座（RuntimeService）：常驻前台服务、开机自启、息屏不睡；身体能力（BodyServer）：相机、定位、振动 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 听觉：常驻麦克风前台服务（Android 9 起后台拿不到麦克风；10+ 要声明 microphone 类型；14+ 要 FOREGROUND_SERVICE_MICROPHONE；13+ 显示前台通知要 POST_NOTIFICATIONS） -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -16,6 +26,7 @@
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="true"
+        android:extractNativeLibs="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -44,6 +55,21 @@
             android:name=".HearingService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+        <!-- 内置运行基座：Node.js 与运行基座跑在这个前台服务里；身体接口也由它提供 -->
+        <service
+            android:name=".RuntimeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|camera|microphone|location">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs the user's own AI agent runtime (Node.js) on this phone around the clock" />
+        </service>
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <!-- 把缓存目录里下载好的 APK 以 content:// 交给系统安装器（res/xml/file_paths.xml） -->
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -66,9 +92,6 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
-        <package android:name="com.termux" />
-        <package android:name="com.termux.api" />
-        <package android:name="com.termux.boot" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

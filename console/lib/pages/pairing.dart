@@ -20,7 +20,7 @@ class PairingPage extends StatefulWidget {
 
 class _PairingPageState extends State<PairingPage> {
   bool? alive;
-  bool termux = false; // 这台手机装了 Termux：可以在本机安装运行基座
+  bool bundled = false; // 这个 App 内置了运行基座：可以在本机安装
   bool requested = false, busy = false;
   PairInfo? info; // 加密连接：运行基座的证书指纹（给人核对）
   String probeError = '';
@@ -41,8 +41,8 @@ class _PairingPageState extends State<PairingPage> {
     } else {
       ok = await api.health();
     }
-    final t = hasBody && await Igniter.available();
-    if (mounted) setState(() { alive = ok; termux = t; info = i; probeError = err; });
+    final t = hasBody && await Igniter.available(); // 这个 App 内置了运行基座
+    if (mounted) setState(() { alive = ok; bundled = t; info = i; probeError = err; });
     if (ok && isWeb && !secure && await api.localLogin()) api.connect(); // 网页版：同一台机器直接登录
   }
 
@@ -76,7 +76,7 @@ class _PairingPageState extends State<PairingPage> {
           if (hasBody && alive == false && api.profiles.length <= 1 && !secure) Card(child: ListTile(
             leading: const Icon(Icons.phone_android),
             title: const Text('在这台手机上安装 Quetzal'),
-            subtitle: Text(termux ? '已装 Termux，几分钟装好，自动连接' : '需要先安装 Termux；向导会一步步带你完成'),
+            subtitle: Text(bundled ? '不用再装别的，一分钟左右装好，自动连接' : '这个构建没有内置运行基座（开发版）'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () async { await Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage())); _probe(); },
           )),

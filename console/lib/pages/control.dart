@@ -506,7 +506,7 @@ List<Widget> sandboxLines(BuildContext context, Map sb) {
     Text('命令沙箱：${switch (kind) { 'bwrap' => 'bubblewrap', 'landlock' => 'Landlock', 'proot' => 'proot（尽力而为）', 'none' => '无', _ => kind }}'),
     if ('${sb['note'] ?? ''}'.isNotEmpty && kind != 'none') Text('${sb['note']}', style: Theme.of(context).textTheme.bodySmall),
     if (kind == 'none') ...[
-      Text(allow ? '没有可用的沙箱，而且你允许了不隔离运行：她执行的命令能读写这个用户的全部文件，包括运行基座的密钥。' : '没有可用的沙箱：为了不让她的命令读到运行基座的密钥，她的命令一律不执行。重新运行一次安装命令即可补上沙箱（Linux：bubblewrap 或 Landlock；Termux：proot）。', style: err),
+      Text(allow ? '没有可用的沙箱，而且你允许了不隔离运行：她执行的命令能读写这个用户的全部文件，包括运行基座的密钥。' : '没有可用的沙箱：为了不让她的命令读到运行基座的密钥，她的命令一律不执行。重新运行一次安装命令即可补上沙箱（Linux：bubblewrap 或 Landlock；安卓：App 内置的 proot）。', style: err),
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         title: const Text('允许不隔离运行（不安全）'),
@@ -593,7 +593,7 @@ class _AppUpdateSectionState extends State<AppUpdateSection> {
   });
 }
 
-/// 守护开关：开机自启 + 退出后自动重启，一个开关管两件事。由身体适配器实现（Linux：systemd 用户服务或守护循环；安卓：runit + Termux:Boot）；没有守护者的身体不显示。
+/// 守护开关：开机自启 + 退出后自动重启，一个开关管两件事。由身体适配器实现（Linux：systemd 用户服务或守护循环；安卓：Quetzal App 的前台服务与开机广播）；没有守护者的身体不显示。
 class _SupervisionSection extends StatefulWidget {
   const _SupervisionSection();
   @override

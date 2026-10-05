@@ -18,18 +18,37 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Termux 桥（MethodChannel quetzal/igniter）：
- *  - run：通过 Termux 的 RUN_COMMAND 接口在 Termux 里后台执行一个程序（点火、安装器）。
- *    需要 Termux 的 ~/.termux/termux.properties 中 allow-external-apps=true，并授予本应用 RUN_COMMAND 权限。
- *  - 三件套检测、打开应用、系统的电池优化 / 各厂商自启动管理页（保活引导）。
+ * 运行基座桥（MethodChannel quetzal/runtime）：App 内置的运行基座（RuntimeService，只装一个 App）——
+ *  启动 / 重启 / 停止、状态、网关令牌（同一个 App 直接读家目录）、身体权限（相机、麦克风、定位、通知），
+ *  系统的电池优化 / 各厂商自启动管理页（保活引导）。装过内置运行基座的，打开 App 时若服务没在运行就拉起（App 升级后系统会停掉它）。
  * 听觉桥（MethodChannel quetzal/hearing + EventChannel quetzal/hearing/events）：启停耳朵（HearingService）、麦克风权限、服务事件。
  * 更新桥（MethodChannel quetzal/updater）：App 自身的更新——自己的版本号、缓存目录、是否允许安装未知应用、打开对应设置页、
  *  用 FileProvider 把下载好的 APK 交给系统安装器（Dart 侧 updater.dart 负责问 GitHub、下载与校验）。
  *  交给安装器之前核对 APK 的包名与签名证书和正在运行的 App 一致（checkApk；install 里再查一次，不一致就拒绝）。
  */
 class MainActivity : FlutterActivity() {
-    private val perm = "com.termux.permission.RUN_COMMAND"
     private var hearingSink: EventChannel.EventSink? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (RuntimeService.installed(this) && !RuntimeService.running && Rootfs.bundled(this)) RuntimeService.start(this)
+    }
+
+    private fun bodyPermissions(): Map<String, Boolean> {
+        fun has(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+        return mapOf(
+            "camera" to has(android.Manifest.permission.CAMERA),
+            "microphone" to has(android.Manifest.permission.RECORD_AUDIO),
+            "location" to has(android.Manifest.permission.ACCESS_COARSE_LOCATION),
+            "notifications" to (Build.VERSION.SDK_INT < 33 || has("android.permission.POST_NOTIFICATIONS")),
+        )
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // 身体权限变了：运行中的前台服务重新声明类型（后台使用相机、麦克风、定位的前提）
+        if (requestCode == 3 && RuntimeService.running) RuntimeService.start(this)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -81,35 +100,24 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quetzal/igniter").setMethodCallHandler { call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quetzal/runtime").setMethodCallHandler { call, result ->
             when (call.method) {
-                "packageVersion" -> result.success(version(call.argument<String>("pkg")!!))
-                "hasPermission" -> result.success(checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED)
-                "requestPermission" -> { requestPermissions(arrayOf(perm), 1); result.success(null) }
-                "run" -> {
-                    val path = call.argument<String>("path")!!
-                    val args = call.argument<List<String>>("args") ?: emptyList()
-                    try {
-                        val i = Intent().apply {
-                            setClassName("com.termux", "com.termux.app.RunCommandService")
-                            action = "com.termux.RUN_COMMAND"
-                            putExtra("com.termux.RUN_COMMAND_PATH", path)
-                            putExtra("com.termux.RUN_COMMAND_ARGUMENTS", args.toTypedArray())
-                            putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
-                        }
-                        startService(i)
-                        result.success(true)
-                    } catch (e: Exception) {
-                        result.error("IGNITE_FAILED", e.message, null)
-                    }
-                }
-                "openApp" -> {
-                    val pkg = call.argument<String>("pkg")!!
-                    val i = packageManager.getLaunchIntentForPackage(pkg)
-                    if (i != null) startActivity(i) else result.error("NO_APP", "没有安装 $pkg", null).also { return@setMethodCallHandler }
+                "bundled" -> result.success(Rootfs.bundled(this))
+                "status" -> result.success(mapOf("installed" to RuntimeService.installed(this), "running" to RuntimeService.running, "version" to RuntimeService.version, "error" to RuntimeService.lastError))
+                "token" -> result.success(RuntimeService.token(this))
+                "start" -> { RuntimeService.start(this); result.success(null) }
+                "restart" -> {
+                    RuntimeService.stop(this)
+                    android.os.Handler(mainLooper).postDelayed({ RuntimeService.start(this) }, 1500) // 等旧进程退出、端口释放
                     result.success(null)
                 }
-                "openAppDetails" -> { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + call.argument<String>("pkg")))); result.success(null) }
+                "stop" -> { RuntimeService.stop(this); result.success(null) }
+                "bodyPermissions" -> result.success(bodyPermissions())
+                "requestBodyPermissions" -> {
+                    val wanted = mutableListOf(android.Manifest.permission.CAMERA, android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION) // 精确定位可以不给（Android 12+ 可选「大致位置」）；没有谷歌服务的手机网络定位常常不可用，给了才能退回 GPS
+                    if (Build.VERSION.SDK_INT >= 33) wanted.add("android.permission.POST_NOTIFICATIONS")
+                    requestPermissions(wanted.toTypedArray(), 3); result.success(null)
+                }
                 "openBatterySettings" -> { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); result.success(null) }
                 "requestIgnoreBattery" -> {
                     val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -155,7 +163,7 @@ class MainActivity : FlutterActivity() {
 
     private fun version(pkg: String): String? = try { packageManager.getPackageInfo(pkg, 0).versionName } catch (e: Exception) { null }
 
-    /** 各厂商的自启动 / 后台运行管理页（尽力而为），都打不开时退回 Termux 的应用详情页。 */
+    /** 各厂商的自启动 / 后台运行管理页（尽力而为），都打不开时退回本应用的详情页。 */
     private fun openAutostart() {
         val candidates = listOf(
             "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
@@ -173,6 +181,6 @@ class MainActivity : FlutterActivity() {
             val i = Intent().setComponent(ComponentName(pkg, cls)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (packageManager.resolveActivity(i, 0) != null) { try { startActivity(i); return } catch (_: Exception) {} }
         }
-        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:com.termux")))
+        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
     }
 }

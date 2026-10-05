@@ -73,7 +73,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/mermaid/
-    - assets/install/
     - assets/runtime/   # 内置的运行基座（tool/bundle-runtime.sh 生成，不入库）
 
   # To add assets to your application, add an assets section, like this:
