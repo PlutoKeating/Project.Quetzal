@@ -3,7 +3,7 @@
     { "id": "start", "title": { "zh": "开始", "en": "Getting started" },
       "pages": ["introduction", "install", "first-steps"] },
     { "id": "guide", "title": { "zh": "使用指南", "en": "Guide" },
-      "pages": ["models", "identity", "permissions", "feishu", "soul-sync", "multi-body", "multi-agent", "secrets", "upgrade"] },
+      "pages": ["models", "identity", "permissions", "feishu", "soul-sync", "multi-body", "tools", "multi-agent", "secrets", "upgrade"] },
     { "id": "advanced", "title": { "zh": "进阶", "en": "Advanced" },
       "pages": ["other-machines", "soul-bridge", "custom-adapter", "troubleshooting", "faq"] },
     { "id": "reference", "title": { "zh": "参考", "en": "Reference" },
