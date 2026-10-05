@@ -55,6 +55,7 @@ src/
 │   ├── placement.ts      运行位置：各身体的概况（body.overview）、打分推荐、她在内省时选 where；在选中的身体上执行醒来（mind.wake）
 │   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
 │   ├── shared.ts         全网共用：设置分区（较新的修改生效）、模型供应商连同 Key（接收方重新加密）、语音密钥、全网急停、审批（在哪里批准都行）、每日用量合计
+│   ├── channels.ts       通道：飞书只由指定的身体持有（其他身体的主动消息转过去）；几只耳朵同时听到同一句话只留一只；记下哪只耳朵听到的（voice_speak 从那里说）
 │   ├── node-key.ts       这具身体的节点密钥（灵魂同步写身体登记时用，不依赖整个网状层）
 │   └── runtime.ts        绑定到运行时：配置、绑定令牌（secrets/sync.json）、原生组件的按需加载、身体登记的公钥、soul.pushed → 其他身体立即拉取；网关的 mesh.* 方法
 ├── guard/guard.ts        能力授权、审批队列、急停、审计
