@@ -6,6 +6,7 @@
 //   soul/memories/USER.md          关于你的认识（同上）
 //   soul/journal/<身体>/<日期>.md  情节记忆：每具身体各写各的日记，互不冲突
 //   soul/notes/<主题>.md           语义记忆：长期知识与思考，所有身体共享
+import { safeSegment } from "./portable-path.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { config, paths } from "../config.ts";
@@ -95,7 +96,8 @@ export function recentJournal(maxChars = 3000): string {
 
 // ---------- 笔记（语义记忆）：notes/ 下的目录树（规范 §3.9），最多 4 层，例如 身体/honor9/硬件
 export const NOTE_DEPTH = 4;
-const slug = (s: string) => s.trim().replace(/[\\/:*?"<>|\s]+/g, "-").replace(/^\.+/, "").slice(0, 60) || "untitled";
+// 每一段在 Windows 上也要放得下（规范 v13 §3.13）：去掉控制字符，截到 60 字后再去掉结尾的点、保留名后面加 _
+const slug = (s: string) => safeSegment(s.trim().replace(/[\\/:*?"<>|\s\x00-\x1f]+/g, "-").replace(/^\.+/, "").slice(0, 60) || "untitled");
 /** 「分类/子分类/主题」→ 规范化的相对路径（不含 .md）；每段按文件名规则处理，超出层数的并入最后一段。 */
 export function notePath(title: string): string {
   const segs = title.split("/").map((x) => x.trim()).filter(Boolean);

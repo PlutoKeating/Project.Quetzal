@@ -13,6 +13,7 @@ import { pathToFileURL } from "node:url";
 import { wrapArgv, wrapScript, powershellPath, psq } from "../sandbox.ts";
 import { isWindows, which as whichCmd, killTree } from "../platform.ts";
 import { paths } from "../config.ts";
+import { reservedName } from "../memory/portable-path.ts";
 import { PERMISSION_LABELS } from "../guard/guard.ts";
 import { run } from "../sh.ts";
 
@@ -137,6 +138,7 @@ export async function writeTool(spec: ToolSpec, reserved: Set<string>): Promise<
   const name = String(spec.name ?? "").trim();
   if (!NAME_RE.test(name)) throw new Error("name 只能用小写字母、数字、下划线、连字符，以字母开头，最长 40 个字符");
   if (reserved.has(name)) throw new Error(`「${name}」是内置工具的名字，换一个`);
+  if (reservedName(name)) throw new Error(`「${name}」是 Windows 的保留名，技能目录在 Windows 身体上放不下，换一个`);
   const prev = readManifest(name);
   const runtime = spec.runtime ?? prev?.runtime;
   if (!runtimesHere().includes(runtime as Runtime)) throw new Error(`runtime 在这具身体上只能是 ${runtimesHere().join(" / ")}${isWindows && runtime === "sh" ? "（这具身体是 Windows：用 ps1（PowerShell）或 node 实现同样的意图）" : ""}`);

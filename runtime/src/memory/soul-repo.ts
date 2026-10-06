@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { mergeEntries } from "./entries.ts";
+import { windowsUnfit } from "./portable-path.ts";
 
 export interface SoulRepoOptions {
   statusFile?: string; // 同步状态的落盘位置（可选）：lastPull / lastPush / lastError
@@ -57,7 +58,7 @@ const CONFIG_KEEP = /^(core\.(repositoryformatversion|filemode|bare|logallrefupd
 const LEASE_MS = 30 * 60_000;
 /** 灵魂仓库里允许出现的顶层条目（规范 §2 的固定与必需条目，加上新建仓库常见的 README、LICENSE）。远端没有 agent.json 时据此判断它是不是灵魂仓库。 */
 const SOUL_TOP = new Set([".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "README", "LICENSE", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "skills", "locks", ".gitkeep"]);
-export const SPEC = { spec: "soul-repo", version: 12 };
+export const SPEC = { spec: "soul-repo", version: 13 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",
@@ -96,6 +97,8 @@ export interface PullResult {
   incoming: { body: string; subject: string }[]; // 合入的其他身体的提交
   // 自动解决的冲突。incoming：两边都改过的文本文件，落选的那一版另存的副本（相对路径，*.incoming.md，不入库），留给 agent 裁决
   resolved: { file: string; kept: "local" | "remote"; how: string; incoming?: string }[];
+  // Windows 身体：仓库里放不下的路径（保留名、结尾的点或空格、只差大小写……，规范 v13 §3.13），没有写进工作区，仍在仓库里原样保留
+  skipped?: { path: string; why: string }[];
 }
 
 /** 推送的结果。kind：失败的类别——network（网络，值得静默重试）、auth（部署密钥被拒）、hostkey、notfound、identity（远端属于另一个 agent）、config（地址或私钥配置有误）、rejected（拉取合并后仍被拒）、other。 */
@@ -138,7 +141,7 @@ let githubVia443 = false; // 这个进程里 GitHub 的 22 端口不通、已经
 
 export class SoulRepo {
   // 同步状态落在 statusFile（有的话），重启后页面上的「上次拉取 / 上次推送」不会归零；任何字段一改就写盘
-  status: { lastPull: number; lastPush: number; lastError: string };
+  status: { lastPull: number; lastPush: number; lastError: string; skipped?: { path: string; why: string }[] };
   o: SoulRepoOptions;
   constructor(o: SoulRepoOptions) {
     this.o = o;
@@ -193,7 +196,11 @@ export class SoulRepo {
     //   Windows：/dev/null 作为钩子目录会被解析成「当前盘根目录\\dev\\null」（普通用户能在 C:\\ 下建它），所以指向家目录里一个空目录（沙箱里不可见）；
     //   笔记的目录树加上家目录前缀容易超过 260 个字符，打开长路径（系统配置里的 core.longpaths 因为不读系统配置而不生效）
     const safety = ["-c", `core.hooksPath=${WIN ? winEmpty().dir : "/dev/null"}`, "-c", "core.fsmonitor=false", "-c", "core.symlinks=false", "-c", "protocol.ext.allow=never",
-      "-c", `protocol.file.allow=${process.env.SOUL_ALLOW_LOCAL_REMOTE === "1" ? "always" : "never"}`, ...(WIN ? ["-c", "core.longpaths=true", "-c", "core.autocrlf=false"] : [])];
+      "-c", `protocol.file.allow=${process.env.SOUL_ALLOW_LOCAL_REMOTE === "1" ? "always" : "never"}`, ...(WIN ? ["-c", "core.longpaths=true", "-c", "core.autocrlf=false",
+        // 放不下的路径由 sparse-checkout 排除在工作区之外（windowsExclude）；protectNTFS 会连索引都不让进、合并直接失败，所以关掉它，
+        // 它挡的 .git 别名（git~1、.git. 等）与带冒号的流名由 windowsExclude 一并排除，不会写到磁盘上
+        "-c", "core.protectNTFS=false", "-c", "core.sparseCheckout=true"] : [])];
+    if (WIN && this.exists && !fs.existsSync(this.p(".git", "info", "sparse-checkout"))) { try { fs.mkdirSync(this.p(".git", "info"), { recursive: true }); fs.writeFileSync(this.p(".git", "info", "sparse-checkout"), "/*\n"); } catch { /* 下次 */ } }
     return new Promise((resolve) => execFile("git", [...safety, "-C", this.o.dir, ...args], { env, timeout: 120_000, maxBuffer: 16 << 20, windowsHide: true }, (e: any, out, err) =>
       resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: String(out), err: String(err || e?.message || "") })));
   }
@@ -236,12 +243,12 @@ export class SoulRepo {
 
   /** 克隆远端；远端不可用或未配置时本地初始化。 */
   async ensure(): Promise<"cloned" | "initialized" | "existing"> {
-    if (this.exists) { await this.configure(); if (this.scaffold()) await this.commit("补齐灵魂仓库规范结构"); return "existing"; }
+    if (this.exists) { await this.configure(); await this.windowsExclude(["HEAD"]); if (this.scaffold()) await this.commit("补齐灵魂仓库规范结构"); return "existing"; }
     fs.mkdirSync(path.dirname(this.o.dir), { recursive: true });
     if (this.remoteReady()) {
       fs.rmSync(this.o.dir, { recursive: true, force: true });
-      const r = await new SoulRepo({ ...this.o, dir: path.dirname(this.o.dir) }).git("clone", "-b", this.o.branch, this.o.remote, this.o.dir);
-      if (r.code === 0) { await this.configure(); if (this.scaffold()) await this.commit("补齐灵魂仓库规范结构"); return "cloned"; }
+      const r = await new SoulRepo({ ...this.o, dir: path.dirname(this.o.dir) }).git("clone", ...(WIN ? ["--no-checkout"] : []), "-b", this.o.branch, this.o.remote, this.o.dir);
+      if (r.code === 0) { await this.winCheckout(); await this.configure(); if (this.scaffold()) await this.commit("补齐灵魂仓库规范结构"); return "cloned"; }
       // 空仓库没有分支时 clone -b 会失败：改为不指定分支再试
       const r2 = await new SoulRepo({ ...this.o, dir: path.dirname(this.o.dir) }).git("clone", this.o.remote, this.o.dir);
       if (r2.code === 0) { await this.git("checkout", "-B", this.o.branch); await this.configure(); if (this.scaffold()) await this.commit("补齐灵魂仓库规范结构"); return "cloned"; }
@@ -253,6 +260,26 @@ export class SoulRepo {
     this.scaffold();
     await this.commit("补齐灵魂仓库规范结构");
     return "initialized";
+  }
+
+  /** Windows：克隆时先不检出，排除放不下的路径后再检出。 */
+  private async winCheckout() {
+    if (!WIN) return;
+    await this.windowsExclude(["HEAD"]);
+    await this.git("read-tree", "-mu", "HEAD");
+  }
+
+  /** Windows：把这些版本里放不下的路径写进 sparse-checkout 的排除（非 cone 模式），记在 status.skipped。其他平台什么也不做。 */
+  async windowsExclude(revs: string[]): Promise<{ path: string; why: string }[]> {
+    if (!WIN) return [];
+    const files = new Set<string>();
+    for (const rev of revs) { const r = await this.git("ls-tree", "-r", "-z", "--name-only", rev); if (r.code === 0) for (const f of r.out.split("\0")) if (f) files.add(f); }
+    const bad = windowsUnfit([...files]);
+    const esc = (p: string) => p.replace(/[\\*?[\]!#]/g, "\\$&").replace(/ $/, "\\ ");
+    fs.mkdirSync(this.p(".git", "info"), { recursive: true });
+    fs.writeFileSync(this.p(".git", "info", "sparse-checkout"), ["/*", ...bad.map((b) => `!/${esc(b.path)}`)].join("\n") + "\n");
+    this.status.skipped = bad;
+    return bad;
   }
 
   /** 推送前确认 origin 仍是配置里的灵魂仓库地址：有人在灵魂目录里手动改了它（例如 agent 用 shell），就改回来并提醒。推送本身直接用配置里的地址，不依赖它。 */
@@ -421,6 +448,7 @@ export class SoulRepo {
     const links = (await this.git("ls-tree", "-r", "-z", this.ref())).out.split("\0").filter((l) => l.startsWith("120000 ")).map((l) => l.slice(l.indexOf("\t") + 1));
     if (links.length) { this.status.lastError = `远端的灵魂仓库里有符号链接（${links.slice(0, 3).join("、")}），已拒绝合并：灵魂仓库只放普通文件（规范 §5.2）`; this.o.log?.(this.status.lastError); return none; }
     if (!(await this.guardIdentity())) return none;
+    const skipped = await this.windowsExclude(["HEAD", this.ref()]); // Windows：放不下的路径不写进工作区（规范 v13 §3.13）
     // 本地与远端没有共同的历史：这具身体接入时没克隆成，先在本地建了仓库。合并后只保留远端的历史（见下面的 flatten），
     // 本地那段独立的历史不带上去——否则它的根提交会让其他身体的「只同步自己的历史」检查停下同步
     const unrelated = (await this.git("merge-base", "HEAD", this.ref())).code !== 0;
@@ -458,7 +486,7 @@ export class SoulRepo {
     }
     this.status.lastPull = Date.now(); this.status.lastError = "";
     if (unrelated) await this.flatten();
-    return { merged: true, incoming, resolved };
+    return { merged: true, incoming, resolved, ...(skipped.length ? { skipped } : {}) };
   }
 
   /** 把刚做的合并换成只有远端一个父提交的普通提交（内容不变）：本地接入前那段独立的历史不进灵魂仓库。 */

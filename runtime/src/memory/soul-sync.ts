@@ -61,7 +61,7 @@ let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(f: () => Promise<T>): Promise<T> { const p = queue.then(f); queue = p.catch(() => {}); return p; }
 
 /** 拉取；有新内容时作为「灵魂同步」知觉告知 agent（写入时间线与感官事件）。两边都改过的文件另存了副本时，提醒最近改过它的会话。 */
-let alertedForeign = "";
+let alertedForeign = "", alertedSkipped = "";
 export const pull = () => serial(async () => {
   const res = await r().pull();
   // 灵魂仓库混进了别的历史：同步已停止，告诉她（只提醒一次），也写进心流
@@ -70,6 +70,13 @@ export const pull = () => serial(async () => {
     alertedForeign = err;
     addTimeline("soul", "灵魂同步已停止：仓库里混进了别的历史", { error: err });
     bus.emit("soul.alert", { text: `${err}\n这不是你能自己修的事：不要在灵魂目录里运行 git。请告诉对方，由对方处理。`, targets: [] } satisfies SoulAlert);
+  }
+  // Windows 身体：有放不下的路径被跳过（规范 v13 §3.13）。同一组只提醒一次：她可以在别的身体上改名，或者告诉对方
+  const skipped = (res.skipped ?? []).map((x) => `${x.path}（${x.why}）`).join("、");
+  if (skipped && skipped !== alertedSkipped) {
+    alertedSkipped = skipped;
+    addTimeline("soul", "灵魂同步：有文件在这台 Windows 上放不下，已跳过", { skipped: res.skipped });
+    bus.emit("soul.alert", { text: `灵魂仓库里有 ${res.skipped!.length} 个文件在这台 Windows 电脑上放不下，没有写到磁盘上（它们仍在仓库里，别的身体照常能用）：${skipped.slice(0, 600)}。在 Linux 或手机那具身体上把它们改名（换掉保留名、去掉结尾的点或空格、合并只差大小写的路径），这里下次同步就会出现。`, targets: [] } satisfies SoulAlert);
   }
   const copies = res.resolved.filter((x) => x.incoming);
   if (copies.length) conflictAlert(copies, res.incoming.map((i) => i.body).filter((b) => b !== config.body));
