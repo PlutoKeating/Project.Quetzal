@@ -5,7 +5,7 @@ description: Make a machine running Hermes Agent or OpenClaw another body of the
 
 ## What it is
 
-**soul-bridge** is a small, independent, pluggable daemon installed on a machine running [Hermes Agent](https://hermes-agent.nousresearch.com/) or OpenClaw. It syncs that framework's personality and memory files with the soul repository in **both directions**: the one on the phone and the one on the computer are the same soul.
+**soul-bridge** is a small background program that you install on a machine running [Hermes Agent](https://hermes-agent.nousresearch.com/) or OpenClaw, and can remove again at any time. It syncs that framework's personality and memory files with the soul repository in **both directions**, so the agent on the phone and the one on the computer share the same soul.
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ The **Hermes / OpenClaw** section of **Control → Advanced → Sync** has a rea
 3. run one `init` that does everything: generate a deploy key, add it with write access when `gh` or `GITHUB_TOKEN` is available, clone, import the existing personality and memory, install hooks and the background service, sync once;
 4. run `doctor` and fix what it suggests.
 
-Only when GitHub credentials are missing, git is missing with no sudo, or the same error fails three times does it send you one consolidated message, usually just **adding the deploy public key once on the GitHub website**.
+It messages you only when GitHub credentials are missing, git is missing and there is no sudo, or the same error happens three times. It then sends one message with everything it needs, usually just **adding the deploy public key once on the GitHub website**.
 
 > [!TIP]
 > You never need to open a terminal.
@@ -49,11 +49,11 @@ Only when GitHub credentials are missing, git is missing with no sudo, or the sa
 | Shared notes | — | `memory/notes/**.md` per file, both ways |
 | Takes effect | Next session | Next turn |
 
-The bridge **copies** files and remembers a baseline on both sides: additions in the framework are kept, deletions are honoured, and entries cut by a character limit stay in the soul instead of being mistaken for deletions.
+The bridge **copies** files and remembers a baseline on both sides. Additions in the framework are kept and deletions are carried over. Entries cut by a character limit stay in the soul, because the bridge does not count them as deletions.
 
 ## When it syncs
 
-Hermes: after memory tool calls, at session end, on file changes, plus periodic pulls. OpenClaw: on start, `/new`, `/reset`, after compaction, on file changes, plus periodic pulls. The periodic pull is only a transport detail (that machine cannot receive push notifications) and has nothing to do with the agent's waking.
+Hermes: after memory tool calls, at session end, on file changes, plus periodic pulls. OpenClaw: on start, `/new`, `/reset`, after compaction, on file changes, plus periodic pulls. The periodic pull exists because that machine cannot receive push notifications; it has nothing to do with the agent's waking.
 
 ## Commands (for troubleshooting)
 
@@ -69,4 +69,4 @@ Local data lives in `~/.agent-soul/<agent>/`: configuration, repository copy, ba
 
 ## Unplugging
 
-Have the agent there run `detach`, or simply delete its deploy key on GitHub: it can no longer write to the soul repository, and the framework's files stay as they are.
+Have the agent there run `detach`, or delete its deploy key on GitHub so it can no longer write to the soul repository. The framework's files stay as they are.

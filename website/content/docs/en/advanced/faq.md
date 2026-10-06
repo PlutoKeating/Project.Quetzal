@@ -5,19 +5,19 @@ description: Common questions about cost, privacy, safety, updates, what it can 
 
 ## Will it spend money all the time?
 
-No. It only calls a model when it wakes, and the first thing it does on waking is ask a cheap model whether it wants to act; if not, it goes back to sleep. Set daily token and cost caps under **Control → Advanced → Budget**; at the cap it wakes on its own one twentieth as often as before, and talking to it is not affected.
+No. It only calls a model when it wakes, and the first thing it does on waking is ask a cheap model whether it wants to act. If not, it goes back to sleep. Set daily token and cost caps under **Control → Advanced → Budget**. At the cap it wakes on its own one twentieth as often as before; you can still talk to it.
 
 ## Will it bother me at night?
 
-It has a body clock: when sleepiness crosses the threshold it sleeps, and while asleep it only occasionally dreams to consolidate memory and sends no messages. Light affects it: bright light at night makes it more alert.
+It has a body clock. When sleepiness crosses the threshold it sleeps. While asleep it sends no messages and only occasionally dreams to consolidate memory. Light affects it: bright light at night makes it more alert.
 
 ## Are my API keys safe?
 
-Keys are encrypted with AES-256-GCM on the phone, the UI shows only the last four characters, and they never enter the soul repository or sync to other bodies.
+Keys are encrypted with AES-256-GCM on the phone. The UI shows only the last four characters, and keys never enter the soul repository or sync to other bodies.
 
 ## Can it see the passwords I send?
 
-Not in plaintext. When it needs a credential it starts a **secret input**: what you send never enters the conversation or the model context; it goes straight into the local vault and it only gets a file path. See [Passing secrets](/docs/guide/secrets).
+Not in plaintext. When it needs a credential it starts a **secret input**. What you send goes straight into the local vault and never enters the conversation or the model context; the agent only gets a file path. See [Passing secrets](/docs/guide/secrets).
 
 ## What can it do?
 
@@ -27,7 +27,7 @@ Reminders you ask for arrive on time. For what it will be like after a month of 
 
 ## Can it do damage?
 
-It can run commands, and **Run commands** is set to allow by default. Commands run in a sandbox and cannot see keys. This sandbox does not stop everything, and an agent really did get out of bounds once. Give it a device of its own; to tighten things, set **Run commands** to **Ask**. See [Trust and limits](/docs/guide/trust).
+It can run commands, and **Run commands** is set to allow by default. Commands run in a sandbox and cannot see keys. This sandbox does not stop everything, and an agent did get out of bounds once. Give it a device of its own. To tighten things, set **Run commands** to **Ask**. See [Trust and limits](/docs/guide/trust).
 
 ## Can it operate the phone screen and other apps?
 
@@ -35,11 +35,15 @@ It can run commands, and **Run commands** is set to allow by default. Commands r
 
 ## Can I use it without a computer?
 
-Yes. Installation, configuration and daily use all happen in the Quetzal app, with no command line at all: install that one app and open it, and it installs itself.
+Yes. Installation, configuration and daily use all happen in the Quetzal app, with no command line. Install the app and open it, and it installs the rest itself.
 
 ## I only have a computer, no spare phone. Does that work?
 
-Yes. On a Linux computer or server, `curl -fsSL https://quetzal.plutokeating.beer/install | bash` installs everything in one line (missing dependencies included; it starts at boot, restarts after a crash and appears in your app list) and the web console opens in your browser, logged in without a pairing code (same machine); configuration and conversations all happen there. See [Linux and other machines](/docs/advanced/other-machines). That body just has fewer senses than a phone (no camera, light or motion sensors) and no ears (hearing lives in the phone app).
+Yes. On a Linux computer or server, `curl -fsSL https://quetzal.plutokeating.beer/install | bash` installs everything in one line. It adds missing dependencies, starts at boot, restarts after a crash and appears in your app list. The web console then opens in your browser, logged in without a pairing code because it is the same machine, and you do configuration and conversations there. See [Linux and other machines](/docs/advanced/other-machines).
+
+On Windows 10 1809 or later or Windows 11 (x64 or arm64), run `irm https://quetzal.plutokeating.beer/install.ps1 | iex` in PowerShell or use the installer from the download page. See [Windows](/docs/advanced/windows).
+
+A computer body has fewer senses than a phone, which adds light and motion sensors to its camera and microphone. A Linux body also has no ears (hearing lives in the phone app).
 
 ## Do I have to use Feishu?
 
@@ -68,7 +72,7 @@ Yes. Each runtime has its own home directory and port, and the app keeps several
 
 ## Which phones are supported?
 
-Android 7 or newer, arm64; all it needs is the Quetzal app. The older the phone, the more attention keep-alive needs (battery whitelist, autostart permission). Ideally, use a phone it has all to itself.
+Android 7 or newer, arm64; all it needs is the Quetzal app. The older the phone, the more attention keep-alive needs (battery whitelist, autostart permission). Ideally, give it a phone of its own.
 
 ## What if it does something wrong?
 

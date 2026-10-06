@@ -11,11 +11,11 @@ In PowerShell, run:
 irm https://quetzal.plutokeating.beer/install.ps1 | iex
 ```
 
-Or download `quetzal-<version>-windows-x64-setup.exe` (`arm64` for ARM PCs) from the [download page](/download) and double-click it. Both install the same package; the one-liner first checks the release signature and hash, then runs it silently.
+Or download `quetzal-<version>-windows-x64-setup.exe` (`arm64` for ARM PCs) from the [download page](/download) and double-click it. Both install the same package. The one-liner checks the release signature and hash first, then runs the installer silently.
 
 Requirements: Windows 10 1809 or later, or Windows 11; x64 or arm64.
 
-Installation shows **one** administrator prompt, for the things that need administrator rights:
+Installation shows **one** administrator prompt, which covers these steps:
 
 - creating a low-privilege local user `srt-sandbox`, plus firewall rules that let it reach the network only through a proxy (the agent's commands run as this user; see section 3);
 - installing Node.js (22.13 or later), Git and Python 3 if they are missing, using the official installers bundled in the package (Node.js 24, Git for Windows, Python 3.14) into Program Files so the sandbox user can read them; existing installations are left alone;
@@ -36,17 +36,17 @@ When it finishes, the console opens and a wizard walks you through sign-in and a
 
 ## 2. How it stays on
 
-- **Runs from boot**: the scheduled task `\Quetzal\Runtime-Boot` starts the runtime at boot as you (S4U, no password stored). If the PC crashes and restarts with nobody signed in, the agent is still running in the background; you can talk to it and use the emergency stop from your phone as usual.
+- **Runs from boot**: the scheduled task `\Quetzal\Runtime-Boot` starts the runtime at boot as you (S4U, no password stored). If the PC crashes and restarts with nobody signed in, the agent still runs in the background, and you can talk to it and use the emergency stop from your phone as usual.
 - **After sign-in**: Quetzal appears in the tray (closing the window only hides it). The runtime started at boot cannot see the desktop, so screenshots, notifications, the clipboard, opening web pages, playing sound, photos and recordings go through a "body helper" the tray starts after sign-in. With nobody signed in, the agent says plainly that someone needs to sign in.
 - **Crash restart**: the supervisor restarts the runtime 3 seconds after it exits, and waits longer if it keeps exiting within 10 minutes. The Supervision switch under Advanced · Run in the console turns this off.
-- **Upgrade**: one tap under About in the console. The installer closes the running Quetzal (you agreed to this when you tapped), and if the new version is not healthy within 40 seconds it goes back to the previous one.
+- **Upgrade**: one tap under About in the console. The installer closes the running Quetzal (tapping the button agrees to this). If the new version is not healthy within 40 seconds, it goes back to the previous one.
 - **Uninstall**: "Uninstall Quetzal" in the Start menu, or Settings → Apps. Configuration and memories in `home\` are kept by default.
 
 On some PCs the account lacks the "Log on as a batch job" right and the boot task cannot be registered; then only the sign-in task exists, and the agent runs only after someone signs in. The install log says so.
 
 ## 3. What the agent can reach
 
-The agent's commands run in PowerShell (PowerShell 7 if installed, otherwise the built-in 5.1), and they do not run as you: they run as the `srt-sandbox` user created at install time ([sandbox-runtime](https://github.com/anthropics/sandbox-runtime), Anthropic's open-source sandbox, Apache-2.0).
+The agent's commands run in PowerShell (PowerShell 7 if installed, otherwise the built-in 5.1) as the `srt-sandbox` user created at install time, a separate account from yours ([sandbox-runtime](https://github.com/anthropics/sandbox-runtime), Anthropic's open-source sandbox, Apache-2.0).
 
 | | Can | Cannot |
 |---|---|---|
@@ -58,7 +58,7 @@ To let it reach another folder, add the absolute path to `sandbox.share` in `hom
 
 If the sandbox is not installed (for example the administrator prompt was declined), the agent's commands do not run at all, and the console asks you to run the installer again.
 
-**The remaining risks**, stated plainly:
+**Remaining risks:**
 
 - The `srt-sandbox` user is shared by every program on this PC that uses sandbox-runtime (Claude Code, for example). Access granted to it while Quetzal runs applies to them too.
 - Commands in the sandbox can resolve domain names (connections are still blocked), and the proxy token appears on a command line that other programs in the same session can read.

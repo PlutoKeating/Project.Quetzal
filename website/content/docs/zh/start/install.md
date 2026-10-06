@@ -5,7 +5,9 @@ description: 在一台闲置的安卓手机上只装一个 Quetzal App，跟着�
 
 ## 总览
 
-只装一个 App。运行基座、Node.js、git、ssh 都在 Quetzal App 里，不需要 Termux，也不需要命令行。（装到 Linux 电脑或服务器上是另一条路：一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`，见 [Linux 与其他机器](/docs/advanced/other-machines)；Windows 电脑在 PowerShell 里运行 `irm https://quetzal.plutokeating.beer/install.ps1 | iex`，见 [Windows](/docs/advanced/windows)。）
+在安卓手机上只装一个 App。运行基座、Node.js、git、ssh 都在 Quetzal App 里，不需要 Termux，也不需要命令行。
+
+装在电脑上：Linux 电脑或服务器运行一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`，见 [Linux 与其他机器](/docs/advanced/other-machines)；Windows 10（1809 起）或 Windows 11 电脑（x64 或 arm64）在 PowerShell 里运行 `irm https://quetzal.plutokeating.beer/install.ps1 | iex`，也可以从 [下载页](/download) 下载安装包，见 [Windows](/docs/advanced/windows)。
 
 ```mermaid
 flowchart TB
@@ -21,33 +23,39 @@ flowchart TB
 
 ## 1. 安装 Quetzal App
 
-从 [下载页](/download) 下载最新的 APK 并安装。首次安装可能需要允许「安装未知来源应用」。想确认 APK 没被改过，见下面的 [发布签名与校验](#发布签名与校验)。
+从 [下载页](/download) 下载最新的 APK 并安装。第一次安装时，手机可能要你允许「安装未知来源应用」。想确认 APK 没被改过，见下面的 [发布签名与校验](#发布签名与校验)。
 
 ## 2. 跟着向导走
 
 打开 Quetzal：这台手机上还没有运行基座时，App 直接进入安装向导（连接页上的「在这台手机上安装」也能进来），一共五步：
 
-1. **安装**：打开即开始，不用点。App 解开内置的运行环境、启动运行基座、核对网关，半分钟左右完成；控制台**自动连接**，不需要配对码。运行基座跑在 App 自己的前台服务里（通知栏常驻一条「ta 住在这台手机里」）。
-2. **权限**：装好后自动弹出系统授权，依次同意相机、麦克风、定位（以及 Android 13 以上的通知）；错过了点「允许」再来一次。这只是系统层面的授权；ta 每次使用前，仍然要经过你在 App 里设的[权限](/docs/guide/permissions)（相机、麦克风、定位默认每次询问）。
+1. **安装**：打开 App 就开始，不用点。App 解开内置的运行环境、启动运行基座、核对网关，半分钟左右完成，控制台随后**自动连接**，不需要配对码。运行基座跑在 App 自己的前台服务里，通知栏会常驻一条「ta 住在这台手机里」。
+2. **权限**：装好后自动弹出系统授权，依次同意相机、麦克风、定位（Android 13 以上还有通知）；错过了，点「允许」再来一次。这一步是系统层面的授权。ta 每次使用这些能力前，还要经过你在 App 里设的[权限](/docs/guide/permissions)（相机、麦克风、定位默认每次询问）。
 3. **后台运行**：把 Quetzal 加入**电池优化的忽略名单**，并在厂商的「自启动设置」里**放行**它。
 4. **登录**（可跳过）：点「登录」，App 直接打开浏览器，在网页上登录并批准即可（第一次会经 GitHub 跳一次，建好私有灵魂仓库），见 [多具身体](/docs/guide/multi-body)。以后也可以在 **控制 → 设备** 里登录。
 5. **模型**（可跳过）：点「选择模型」配置供应商与 Key，见 [第一步](/docs/start/first-steps)。
 
 > [!IMPORTANT]
-> 不少厂商系统（如 EMUI、MIUI、ColorOS）默认不让没放行的应用在后台被唤起：不放行「自启动」，开机后、App 升级后 ta 不会自己醒来，要打开一次 App 才行。
+> 不少厂商系统（如 EMUI、MIUI、ColorOS）默认不让没放行的应用在后台启动。没有放行「自启动」时，开机后、App 升级后 ta 不会自己醒来，要打开一次 App 才行。
 
 > [!WARNING]
 > 有锁屏密码的手机：Android 的文件级加密要求**重启后解锁一次**，App 的数据才可用，ta 才会醒来。
 
 ### 从 Termux 版换过来
 
-以前按 Termux 方式装的用户：先在旧版控制台确认灵魂已推送到灵魂仓库（旧版的 **控制 → 灵魂同步**），然后卸载旧的 Quetzal 与 Termux 三个应用，装新的 App；装好后**先不要改身份**，在 **控制 → 高级 → 同步** 里接入同一个灵魂仓库，ta 的人格与记忆就回来了。对话记录不在灵魂仓库里，不会随之迁移。
+以前按 Termux 方式装的用户，按这个顺序换：
+
+1. 在旧版控制台的 **控制 → 灵魂同步** 里，确认灵魂已推送到灵魂仓库。
+2. 卸载旧的 Quetzal 与 Termux 三个应用，装新的 App。
+3. 装好后**先不要改身份**，在 **控制 → 高级 → 同步** 里接入同一个灵魂仓库，ta 的人格与记忆就回来了。
+
+对话记录不在灵魂仓库里，不会跟着迁移过来。
 
 ## 装好之后
 
-打开 Quetzal 的「此刻」页，你会看到 ta 的状态与驱动力。在给 ta 配置模型之前 ta 不会醒来。接着看 [第一步](/docs/start/first-steps)。
+打开 Quetzal 的「此刻」页，你会看到 ta 的状态与驱动力。给 ta 配置好模型之后，ta 才会醒来。接着看 [第一步](/docs/start/first-steps)。
 
-**升级**：以后有新版时 App 会在顶部提示，点「更新」进 **控制 → 关于**，点「更新到 x.y.z」一键装好新 App；新 App 带着新版运行基座，打开后运行基座在后台自动换成新版（被厂商拦截时打开一次 App 即可）；详见 [升级与回退](/docs/guide/upgrade)。
+**升级**：有新版时，App 会在顶部提示。点「更新」进 **控制 → 关于**，再点「更新到 x.y.z」，新 App 一步装好。新 App 里带着新版运行基座，打开后运行基座会在后台自动换成新版（被厂商系统拦住时，打开一次 App 即可）。详见 [升级与回退](/docs/guide/upgrade)。
 
 ## 发布签名与校验
 
@@ -62,7 +70,7 @@ flowchart TB
 QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8
 ```
 
-App 的自身更新、Linux 一键安装脚本、灵魂桥的 `self-update` 都内置了这把公钥，签名或哈希对不上就拒绝安装。手动下载时也可以自己核对：把安装包与这两个文件放在同一个目录，装有 Node.js（15 以上）即可：
+App 的自身更新、Linux 一键安装脚本、Windows 的一行安装命令、灵魂桥的 `self-update` 都内置了这把公钥，签名或哈希对不上就拒绝安装。手动下载时也可以自己核对：把安装包与这两个文件放在同一个目录，在装有 Node.js（15 以上）的电脑上运行：
 
 ```bash
 # 1. 核对签名：SHA256SUMS 确实出自本项目的发布流水线

@@ -9,21 +9,21 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 |---|---|---|
 | runtime | 运行基座 | Quetzal's core program (single file `main.cjs`) that lets an agent live in a body |
 | agent | agent | The "she / he / it" living in the runtime; identity comes from `agent.json` in the soul repository |
-| body | 身体 | A device running a runtime (or soul-bridge); one agent may have several bodies |
+| body | 身体 | A device running a runtime (or soul-bridge): an Android phone, a Linux or [Windows](/docs/advanced/windows) computer, or another machine with Node.js; one agent may have several bodies |
 | body adapter | 身体适配器 | The only boundary between device and core: sampling, notifications, playback, device tools |
-| body twin | 身体数字孪生 | Physical samples mirrored into an internal model that derives energy, warmth, brightness, picked-up and other feelings |
+| body twin | 身体数字孪生 | Physical samples mirrored into an internal model that derives feelings such as energy, warmth, brightness and being picked up |
 | sense event | sense 事件 | A significant change in body state (plugged in, light, moved, hot…) that adjusts drives |
 | heart | 心脏 | The module deciding when to wake: drives, body clock, wake sampling |
-| drives | 内驱力 | Curiosity, expression, longing, open loops, each 0–1, saturating over time |
+| drives | 内驱力 | Curiosity, expression, longing, open loops, each 0–1, rising toward 1 over time |
 | body clock | 生物钟 | Two-process model of sleep pressure S and circadian rhythm C; sleepiness = S − C |
 | wake rate (hazard) | 醒来率 | Instantaneous probability density of waking (per hour), from drives, alertness and inhibition |
 | inhibition | 抑制 | Multiplicative factors on the wake rate: stop, pause, no model, heat, low battery, offline, budget spent |
 | mind | 大脑 | Execution of one wake-up or conversation: introspect → tool loop → reflect (finish) |
 | quick model | 内省模型 | A cheap model used on waking for the "do I feel like acting?" check |
 | dream | 做梦 | A wake-up during sleep that consolidates memory (moving detail from resident memory into notes) |
-| session | 会话 | A container for a conversation; processed in order within, in parallel across, visible to each other |
+| session | 会话 | A container for a conversation; messages in one session are handled in order, different sessions run in parallel and can see each other |
 | steer / queue / interrupt | 插话 / 排队 / 打断 | Three ways a message is handled while it is working |
-| idle wall | 时间墙 | No-progress timers: 90 s per model call, 120 s per session |
+| idle wall | 时间墙 | Timers that stop a run when nothing progresses: 90 s per model call, 120 s per session |
 | soul | 灵魂 | The agent's personality and memory (`SOUL.md`, resident memory, journal, notes, identity) |
 | soul directory | 灵魂目录 | Local `QUETZAL_HOME/soul/`, a git repository |
 | soul repository | 灵魂仓库 | The private git repository shared by all bodies, `<agent>.soul` |
@@ -33,7 +33,7 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | coordinator | 协调者 | The body that currently holds the heartbeat and decides when the agent wakes; the others follow |
 | soul-bridge | 灵魂桥 | The pluggable sync daemon installed on Hermes / OpenClaw machines |
 | identity guard | 身份守卫 | Refuses to merge repositories whose `agent.json.id` differs |
-| seed identity / seed soul | 种子身份 / 种子人格 | Auto-generated, unmodified identity and personality; yields to an existing remote |
+| seed identity / seed soul | 种子身份 / 种子人格 | Identity and personality generated automatically and not yet edited; an existing remote repository takes precedence over them |
 | consolidation lease | 整理租约 | A 30-minute lock taken in the repository before dreaming, so two bodies do not consolidate at once |
 | resident memory | 常驻记忆 | `memories/MEMORY.md` and `USER.md`, §-separated entries, unlimited |
 | notes | 笔记 | Shared long-term notes in a tree up to 4 levels deep |
@@ -50,12 +50,12 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | gateway | 网关 | The runtime's interface: plain HTTP + WebSocket RPC on the local `127.0.0.1:7788`; when open to the LAN also `https://<address>:7789` (HTTPS / WSS) |
 | certificate fingerprint | 证书指纹 | The SHA-256 fingerprint of the gateway's self-signed certificate, short form like `1a2b 3c4d 5e6f 7a8b`; compared in the app and the pairing notification when pairing, after which the app accepts only that certificate |
 | pairing code | 配对码 | Eight letters and digits (like ABCD-EFGH), valid five minutes, locked for a while after repeated wrong guesses, for a console on another device to connect to the gateway; a browser on the same machine needs none (the gateway lets it in directly) |
-| web console | 网页控制台 | The console as a web page, served by the runtime's gateway (`http://127.0.0.1:7788/`) and laid out for a wide screen; installed on Linux machines by the npm package |
+| web console | 网页控制台 | The console as a web page, served by the runtime's gateway (`http://127.0.0.1:7788/`) and laid out for a wide screen; installed by the npm package on Linux and by the installer on Windows |
 | start (ignite) | 启动 | The app starting its own foreground service again (the runtime built into the app) when the runtime is offline; the **Start** button on the offline banner |
 | safe mode | 安全模式 | Protective state after more than five starts in ten minutes: gateway and Feishu only |
 | Now | 此刻 | The app's home page: state, drives, the thought it wants to share |
 | Flow | 心流 | The app's timeline page: wake-ups, dreams, conversations |
 | proactive message | 主动消息 | A message it sends with `send_message` when waking on its own |
-| hands | hands | The reserved screen-and-apps interface (not yet implemented) |
+| hands | hands | The reserved interface for operating the screen and apps (not yet implemented) |
 | body interface | 身体接口 | The body abilities (sensors, notifications, camera, microphone, location…) the Quetzal app serves locally to its built-in runtime; token-only, address and token in `secrets/body.json` |
-| home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives; default `files/home/quetzal` in the app's data directory on Android (`~/quetzal` for older Termux installs) and `~/.quetzal` on Linux, overridable |
+| home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives; default `files/home/quetzal` in the app's data directory on Android (`~/quetzal` for older Termux installs), `%LOCALAPPDATA%\Quetzal\home` on Windows and `~/.quetzal` on Linux, overridable |

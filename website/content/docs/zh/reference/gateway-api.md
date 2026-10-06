@@ -5,14 +5,18 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 
 ## 概览
 
-网关的明文 HTTP 只监听本机 `127.0.0.1:<gateway.port>`（默认 7788，另有 `[::1]`）。对局域网开放时（`gateway.lan` 为真，或 `gateway.host` 不是回环地址，如 `0.0.0.0`），另在 `<gateway.host>:<gateway.lanPort>`（默认 7789）开 HTTPS / WSS，接口完全相同：证书是运行基座自己生成的自签名证书（ECDSA P-256，10 年，`secrets/gateway-tls.key` / `gateway-tls.crt`），**指纹**为 SHA-256（证书 DER）的小写十六进制，原生控制台钉住它；局域网上不再有明文。所有控制入口（App、网页控制台、飞书、主机工具）共用同一个操作层，行为一致、都写审计。`main.cjs` 旁边有 `web/index.html`（npm 安装器放的网页控制台）时，网关同时托管这些静态文件。
+网关的明文 HTTP 只监听本机 `127.0.0.1:<gateway.port>`（默认 7788，另有 `[::1]`）。
+
+对局域网开放时（`gateway.lan` 为真，或 `gateway.host` 不是回环地址，如 `0.0.0.0`），网关另在 `<gateway.host>:<gateway.lanPort>`（默认 7789）开 HTTPS / WSS，接口完全相同，局域网上没有明文。证书是运行基座自己生成的自签名证书（ECDSA P-256，10 年，`secrets/gateway-tls.key` / `gateway-tls.crt`）；**指纹**是证书 DER 的 SHA-256，写成小写十六进制，原生控制台钉住它。
+
+所有控制入口（App、网页控制台、飞书、主机工具）共用同一个操作层，行为一致，都写审计。`main.cjs` 旁边有 `web/index.html`（npm 安装器放的网页控制台）时，网关同时托管这些静态文件。
 
 ## HTTP
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌 |
-| GET | `/auth/local` | `{ok, token}`：只在本机明文监听上，只给同一台机器上的浏览器（连接来自回环地址、Host 是本机名、Origin 若有也是本机），网页控制台打开即登录；其他来源 403。本机进程本来就读得到令牌文件，所以不扩大信任边界；ssh 隧道转发来的连接也算本机 |
+| GET | `/auth/local` | `{ok, token}`：只在本机明文监听上提供，只给同一台机器上的浏览器（连接来自回环地址、Host 是本机名、有 Origin 时也是本机），让网页控制台打开即登录；其他来源返回 403。本机进程本来就读得到令牌文件，所以信任边界没有扩大；ssh 隧道转发来的连接也算本机 |
 | GET | `/`、`/<静态文件>` | 网页控制台（`web/` 存在时）：没有扩展名的未知路径回退到 `index.html`，带 ETag |
 | GET | `/pair/info` | `{ok, fingerprint, short, body, version, tls: true}`，无需令牌：证书指纹（完整与「1a2b 3c4d 5e6f 7a8b」短格式）、身体名、版本 |
 | POST | `/pair/start` | 生成 8 位配对码（字母数字，5 分钟有效；有效期内重复申请不换码，输错多次会锁定），连同证书短指纹通过适配器通知与飞书下发 |
@@ -42,7 +46,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `secret` | 保密输入状态（永远不含值） |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入 |
 
-`activity.kind`：`start` / `queued` / `steer` / `step` / `delta`（流式片段）/ `text` / `tool`（执行中与执行后各一条）/ `alive`（15 秒心跳）/ `done` / `error`。进行中的每一轮同时保存为快照（`sessions.live`），客户端随时可以完整重建界面。
+`activity.kind`：`start` / `queued` / `steer` / `step` / `delta`（流式片段）/ `text` / `tool`（执行中与执行后各一条）/ `alive`（15 秒心跳）/ `done` / `error`。进行中的每一轮同时保存为快照（`sessions.live`），客户端随时可以用它完整重建界面。
 
 ### 方法
 
@@ -82,8 +86,8 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |
 | `restart` | — |
-| `selfUpdate` | — | 让这具身体后台重跑一键安装脚本升到最新发布并重启一次：`{started, message}`（Linux 适配器实现；安卓由 App 自己升级） |
-| `supervision` / `setSupervision` | — / `{enabled}` | 守护开关（开机自启 + 退出后自动重启，一个开关管两件事）：`{available, enabled, kind: systemd｜runit｜loop｜none, detail}`。由身体适配器实现：Linux 是 systemd 用户服务（关 = disable + 覆盖片段 `Restart=no`）或一键安装脚本的守护循环（关 = 标志文件 `state/supervise.off` + 删开机项），安卓（App 内置）是 App 前台服务的「开机与升级后自启、退出后重启」开关（`kind: loop`），旧的 Termux 安装是 runit `down` 文件 + Termux:Boot 开机脚本；`available` 为假（手动部署）时控制台不显示开关。关闭只影响之后：正在运行的进程不受影响 |
+| `selfUpdate` | — | 让这具身体在后台重跑一键安装脚本，升到最新发布并重启一次：`{started, message}`（Linux 与 Windows 适配器实现；安卓由 App 自己升级） |
+| `supervision` / `setSupervision` | — / `{enabled}` | 守护开关，一个开关同时管开机自启和退出后自动重启：`{available, enabled, kind: systemd｜runit｜loop｜task｜none, detail}`。由身体适配器实现：Linux 是 systemd 用户服务（关 = disable + 覆盖片段 `Restart=no`）或一键安装脚本的守护循环（关 = 标志文件 `state/supervise.off` + 删开机项）；Windows 是安装器注册的计划任务（`kind: task`，关 = 标志文件 `state\supervise.off`）；安卓（App 内置）是 App 前台服务的「开机与升级后自启、退出后重启」开关（`kind: loop`）；旧的 Termux 安装是 runit `down` 文件 + Termux:Boot 开机脚本。`available` 为假（手动部署）时控制台不显示开关。关闭只影响之后的拉起，正在运行的进程照常运行 |
 
 **记忆**
 
@@ -121,4 +125,4 @@ interface ProviderConfig { providers: Provider[]; quickModelId?: string }
 **飞书**：`feishu.status`、`feishu.register`、`feishu.set`。
 
 > [!NOTE]
-> 这里是概览。字段级的完整描述见仓库里的 [docs/API.md](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/API.md)，以代码为准。
+> 本页是概览。字段级的完整描述见仓库里的 [docs/API.md](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/API.md)，两者不一致时以代码为准。

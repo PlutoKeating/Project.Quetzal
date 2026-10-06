@@ -1,9 +1,9 @@
 ---
 title: 家目录与配置
-description: QUETZAL_HOME 的目录结构、config/quetzal.json 的全部配置项，以及安卓（App 内置）、Termux（旧安装）与 Linux 部署的文件约定。
+description: QUETZAL_HOME 的目录结构、config/quetzal.json 的全部配置项，以及安卓（App 内置）、Termux（旧安装）、Linux 与 Windows 部署的文件约定。
 ---
 
-## `QUETZAL_HOME`（默认：安卓 App 数据目录下的 `files/home/quetzal`，旧的 Termux 安装 `~/quetzal`，Linux 等其他机器 `~/.quetzal`；都可用环境变量改）
+## `QUETZAL_HOME`（默认：安卓 App 数据目录下的 `files/home/quetzal`，旧的 Termux 安装 `~/quetzal`，Windows `%LOCALAPPDATA%\Quetzal\home`，Linux 等其他机器 `~/.quetzal`；都可用环境变量改）
 
 ```
 config/quetzal.json      运行配置（App 可改）
@@ -21,7 +21,7 @@ STOP                     急停标志：存在即冻结一切行动
 ```
 
 > [!IMPORTANT]
-> `secrets/`、`vault/`、`config/providers.json` 只属于这具身体，不进灵魂仓库、不同步。备份手机时请连同家目录一起备份。
+> `secrets/`、`vault/`、`config/providers.json` 只属于这具身体，不进灵魂仓库，也不同步。备份手机时请连同家目录一起备份。
 
 ## `config/quetzal.json`
 
@@ -45,7 +45,7 @@ STOP                     急停标志：存在即冻结一切行动
 | `gateway.lan` / `gateway.lanPort` / `gateway.host` | `false` / `7789` / `127.0.0.1` | 对局域网开放（`lan` 为真或 `host` 不是回环地址）：在 `host`（回环时为 `0.0.0.0`）:`lanPort` 上开 HTTPS / WSS |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | `""` / `""` / `zh-CN-XiaoxiaoNeural` / `""` / `0%` / `0%` / `100` / `audio-24khz-48kbitrate-mono-mp3` | Azure 语音（密钥在 `secrets/azure_speech_key`） |
 
-所有这些都能在控制台（手机 App 或网页版）里改，不需要手编文件。
+这些配置项都能在控制台（手机 App 或网页版）里修改，不需要手动编辑文件。
 
 ## 环境变量
 
@@ -58,7 +58,7 @@ STOP                     急停标志：存在即冻结一切行动
 
 ## 安卓部署约定（Quetzal App 内置）
 
-App 的前台服务（`RuntimeService`）按此约定工作，`<数据>` 指 `/data/data/xyz.quetzal.console`：
+App 的前台服务（`RuntimeService`）按下面的约定工作，`<数据>` 指 `/data/data/xyz.quetzal.console`：
 
 ```
 <数据>/files/usr/                 运行环境前缀：共享库、证书、git 模板、网状层原生组件（lib/quetzal/node_modules）；
@@ -68,14 +68,14 @@ App 的前台服务（`RuntimeService`）按此约定工作，`<数据>` 指 `/d
 <数据>/files/home/quetzal/        QUETZAL_HOME
 ```
 
-- App 版本或原生库目录变了（升级）就重新解开运行环境，家目录不动。
+- App 版本或原生库目录变了（升级）时，重新解开运行环境，家目录保持原样。
 - 环境变量：`PREFIX`、`QUETZAL_HOME`、`QUETZAL_ADAPTER`（`android.mjs`）、`SSL_CERT_FILE`、`GIT_EXEC_PATH`、`PROOT_LOADER`、`QUETZAL_HIDE_PATHS`（`shared_prefs`、`app_flutter`、`databases`、`cache`、`code_cache`）。
-- 第一次启动时写入身体名字（机型，小写）与时区；之后由控制台管理。
-- 守护：进程退出后按退避（2 秒起，最长 1 分钟）重新拉起；开机（`BOOT_COMPLETED`）与 App 升级后（`MY_PACKAGE_REPLACED`）自启，厂商系统要放行「自启动」才收得到。
+- 第一次启动时写入身体名字（机型，小写）与时区，之后由控制台管理。
+- 守护：进程退出后按退避间隔（2 秒起，最长 1 分钟）重新拉起；开机（`BOOT_COMPLETED`）与 App 升级后（`MY_PACKAGE_REPLACED`）自动启动，厂商系统要放行「自启动」才收得到这两个广播。
 
 ### 旧的 Termux 安装
 
-1.0.x 时按 Termux 方式装的仍能运行（`runtime/adapters/termux/` 保留），新安装不再使用：
+1.0.x 时按 Termux 方式装的身体仍能运行（`runtime/adapters/termux/` 保留），新安装不再使用这种方式：
 
 ```
 ~/quetzal/releases/<版本>/        main.cjs、termux.mjs
@@ -87,7 +87,7 @@ $PREFIX/var/log/sv/quetzal/       日志
 
 ## Linux / npm 部署约定
 
-npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按此约定工作，与旧的 Termux 安装同构（Linux 的家目录缺省 `~/.quetzal`，`QUETZAL_HOME` 或 `--home` 可改；0.6.7 之前装在 `~/quetzal` 的，再跑一次安装会自动整目录搬过来）；一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）在它之上再加几样：
+npm 包 `@plutokeating/quetzal`（`npx @plutokeating/quetzal`）按下面的约定工作，目录结构与旧的 Termux 安装相同。Linux 的家目录缺省为 `~/.quetzal`，可用 `QUETZAL_HOME` 或 `--home` 修改；0.6.7 之前装在 `~/quetzal` 的，再跑一次安装会自动把整个目录搬过来。一键安装脚本（`curl -fsSL https://quetzal.plutokeating.beer/install | bash`）在此之上再加几样：
 
 ```
 ~/.quetzal/releases/<版本>/              main.cjs、linux.mjs、web/（网页控制台，网关托管 current/web/）
@@ -107,4 +107,25 @@ journalctl --user -u quetzal            日志（quetzal logs）
 没有 systemd 时：~/.quetzal/bin/quetzal-supervise（守护循环）、~/.quetzal/state/supervise.{pid,lock}、~/.quetzal/logs/runtime.log、crontab @reboot、~/.config/autostart/quetzal-runtime.desktop
 ```
 
-要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）自动切回 `previous`。`--lan` 把 `config/quetzal.json` 的 `gateway.host` 写为 `0.0.0.0`、`gateway.lan` 写为 `true`（局域网上走 HTTPS，端口 7789；`quetzal status` 打印地址与证书指纹）。装完在浏览器里打开 `http://127.0.0.1:7788/`（`npx @plutokeating/quetzal open`），同一台机器免配对码。
+要求 Node.js 22.13+。只保留最近 3 个版本。健康检查 40 秒不通过（或 `/health` 的版本不符）时自动切回 `previous`。`--lan` 把 `config/quetzal.json` 的 `gateway.host` 写为 `0.0.0.0`、`gateway.lan` 写为 `true`（局域网上走 HTTPS，端口 7789；`quetzal status` 打印地址与证书指纹）。装完在浏览器里打开 `http://127.0.0.1:7788/`（`npx @plutokeating/quetzal open`），同一台机器免配对码。
+
+## Windows 部署约定
+
+Windows 上，一行 `install.ps1` 与安装包 `quetzal-<版本>-windows-<x64|arm64>-setup.exe` 都把文件装进 `%LOCALAPPDATA%\Quetzal`，用指针文件代替符号链接：
+
+```
+%LOCALAPPDATA%\Quetzal\
+├── home\                 QUETZAL_HOME
+├── runtime\<版本>\        main.cjs、windows.mjs、windows-body.mjs、windows-supervise.mjs、web\ 等
+├── runtime\current.txt    正在用的版本；previous.txt 指向上一版
+├── console\<版本>\        控制台 quetzal-console.exe；console\current.txt 同上
+├── bin\                  命令行 quetzal.cmd 与计划任务的启动器
+└── node.txt              运行基座用的 node.exe 的位置
+```
+
+- 守护：计划任务 `\Quetzal\Runtime-Boot`（开机，不用登录）与 `\Quetzal\Runtime-Logon`（登录时）经 `bin\quetzal-supervise.ps1` 运行守护进程 `windows-supervise.mjs`，退出后退避重启；`home\state\supervise.off` 暂停拉起。
+- 日志：`home\logs\runtime.log`（`quetzal logs`），升级日志 `home\logs\upgrade.log`。
+- `home\secrets\desktop-body.json`：身体助手的端口与令牌。
+- 升级 40 秒健康检查不通过时，把指针退回上一版。
+
+安装、沙箱与命令行见 [Windows](/docs/advanced/windows)。

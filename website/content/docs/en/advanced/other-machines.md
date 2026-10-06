@@ -5,7 +5,7 @@ description: A Linux computer or server becomes a body with one curl command: de
 
 ## When this applies
 
-A phone is the best body; a laptop, a small home server, a Raspberry Pi or a cloud VM can run the runtime too. Linux machines have a one-line installer; for Windows PCs see [Windows](/docs/advanced/windows); other systems follow section 4 by hand.
+A phone is the best body, but a laptop, a small home server, a Raspberry Pi or a cloud VM can run the runtime too. Linux machines have a one-line installer (this page). Windows PCs are covered in [Windows](/docs/advanced/windows). Other systems follow section 4 by hand.
 
 ## 1. Linux: one command
 
@@ -13,10 +13,14 @@ A phone is the best body; a laptop, a small home server, a Raspberry Pi or a clo
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-The only prerequisites are Linux, `curl` (or `wget`) and bash 4+. Everything else missing gets installed. Architectures: x86_64 and arm64 get everything, native console included; on architectures without official Node binaries, such as LoongArch (loongarch64), RISC-V and armv6l, the script downloads the matching Node 22 from the Node.js project's [unofficial-builds](https://unofficial-builds.nodejs.org) into `~/.quetzal/node/` (checked against `SHASUMS256.txt` from the same release directory first; there are no GPG signatures there), so the runtime and the web console work as usual, only without the native console (upstream Flutter does not support LoongArch yet), and the app-list entry opens the browser. Afterwards:
+You need Linux, `curl` (or `wget`) and bash 4+. The script installs anything else that is missing.
+
+On x86_64 and arm64 you get everything, native console included. Architectures without official Node binaries, such as LoongArch (loongarch64), RISC-V and armv6l, get the matching Node 22 from the Node.js project's [unofficial-builds](https://unofficial-builds.nodejs.org) in `~/.quetzal/node/`. The script checks it against `SHASUMS256.txt` from the same release directory first (there are no GPG signatures there). The runtime and the web console then work as usual, but there is no native console (upstream Flutter does not support LoongArch yet), and the app-list entry opens the browser.
+
+Afterwards:
 
 - The **web console** `http://127.0.0.1:7788/` is open in your browser, logged in without a pairing code on the same machine; models, identity, permissions, Feishu, the soul repository and conversations all live there (section 2).
-- Your app list has a **Quetzal** entry (the orb icon) that opens the **native console** (the Flutter Linux desktop build, downloaded from the GitHub Release of the same version into `~/.quetzal/console/`); the taskbar, Alt-Tab and the activities overview all show Quetzal's own icon, independent of any browser. When no native package exists for this version (arm64, older releases) or the download fails, it falls back to the browser: Chromium-family browsers open it as a separate window, Firefox opens it in the default browser, and the taskbar then shows the browser's icon.
+- Your app list has a **Quetzal** entry (the orb icon) that opens the **native console** (the Flutter Linux desktop build, downloaded from the GitHub Release of the same version into `~/.quetzal/console/`); the taskbar, Alt-Tab and the activities overview show Quetzal's own icon. When no native package exists for this version (arm64, older releases) or the download fails, it falls back to the browser: Chromium-family browsers open it as a separate window, Firefox opens it in the default browser, and the taskbar then shows the browser's icon.
 - The terminal has a `quetzal` command (`~/.local/bin/quetzal`, available in new terminals): `quetzal status` / `logs -f` / `open` / `rollback` / `uninstall`.
 - It starts by itself at boot and comes back within 3 seconds after a crash or kill; running the same command again upgrades.
 
@@ -63,7 +67,7 @@ The commands it runs (shell, custom tools) run in a sandbox and cannot see the r
 3. **Still not possible** (the kernel forbids it, or inside a container): the kernel's own **Landlock** is used instead, through the landrun launcher downloaded and verified against the release signature; no administrator rights needed.
 4. **Otherwise**: proot on Debian / Ubuntu (best-effort isolation).
 
-When none is available the runtime **refuses to run its commands**, so they cannot read the secrets; the console's **Control → Advanced → Runtime** page explains why. Add a sandbox and rerun the install command. If you really need to, you can explicitly turn on running without isolation there (unsafe).
+When none is available the runtime **refuses to run its commands**, so they cannot read the secrets; the console's **Control → Advanced → Runtime** page explains why. Add a sandbox and rerun the install command. You can also turn on running without isolation on that page (unsafe).
 
 ### 1.1 Just the npm package: `npx @plutokeating/quetzal`
 
@@ -94,11 +98,11 @@ Common commands (after the one-line install, `npx @plutokeating/quetzal` can be 
 
 ### What this body can sense
 
-The Linux adapter detects everything: a laptop reports battery level and charging, CPU temperature goes into extra; with a desktop session it can show notifications, play sound, take screenshots, read the clipboard and open URLs; with a camera and microphone it can take photos and record. On a headless server those tools simply say so instead of failing. Details in [Adapter interface](/docs/reference/adapter-interface).
+The Linux adapter detects what the machine has. A laptop reports battery level and charging, and CPU temperature goes into extra. With a desktop session it can show notifications, play sound, take screenshots, read the clipboard and open URLs. With a camera and microphone it can take photos and record. On a headless server those tools report that they are unavailable. Details in [Adapter interface](/docs/reference/adapter-interface).
 
 ## 2. The web console: usable as soon as it is installed, no phone needed
 
-Open `http://127.0.0.1:7788/`. This is the Quetzal app as a web page, the same console laid out afresh for a wide screen: navigation (chat / flow / memory / control) and the current section's list on the left, what you are reading in the middle, and on the right, always, how it is right now (the orb, the thought it wants to share, a wake in progress, requests waiting for your approval, its inner state and body). Models, identity, permissions, Feishu, the soul repository and conversations all happen here, exactly as in the app.
+Open `http://127.0.0.1:7788/`. This is the Quetzal app as a web page, laid out for a wide screen: navigation (chat / flow / memory / control) and the current section's list on the left, what you are reading in the middle, and on the right, always, how it is right now (the orb, the thought it wants to share, a wake in progress, requests waiting for your approval, its inner state and body). Models, identity, permissions, Feishu, the soul repository and conversations all work here as in the app.
 
 - **No pairing code**: a browser on the same machine is logged in as soon as the page opens (the gateway only accepts requests from the loopback address with a local Host header; see [Gateway API](/docs/reference/gateway-api)).
 - **Headless server**: forward the port with `ssh -L 7788:127.0.0.1:7788 <server>` and open the same address in your local browser; a tunnelled connection counts as local to the gateway.
@@ -124,7 +128,7 @@ git clone https://github.com/PlutoKeating/Project.Quetzal.git
 cd Project.Quetzal/runtime
 npm ci
 npm test            # unit tests
-npm run build       # produces dist/main.cjs (single file, dependencies bundled) and the platform adapters dist/android.mjs, dist/linux.mjs, dist/termux.mjs
+npm run build       # produces dist/main.cjs (single file, dependencies bundled) and the platform adapters dist/android.mjs, dist/linux.mjs, dist/termux.mjs, dist/windows.mjs
 QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 
@@ -135,7 +139,7 @@ Environment variables:
 | `QUETZAL_HOME` | Home directory (default `~/.quetzal`): configuration, secrets, data and the soul directory |
 | `QUETZAL_ADAPTER` | Path to a body adapter module; unset means the generic adapter (OS information only, no sensors) |
 
-The runtime only handles its own logic; **process supervision is external**: if it exits, restart it. A systemd user service, for example:
+**Process supervision is external**: when the runtime exits, something else has to restart it. For example, a systemd user service:
 
 ```ini
 [Unit]
@@ -156,7 +160,7 @@ WantedBy=default.target
 
 Connecting works as in section 3 (a manual deployment has no web console unless you place the console's web build next to `main.cjs` as `web/` or point `QUETZAL_WEB_DIR` at it); to open the gateway to the LAN set `gateway.lan` to `true` (or `gateway.host` to `0.0.0.0`) in `config/quetzal.json`: HTTPS / WSS opens on the LAN (`gateway.lanPort`, default 7789) while plain HTTP stays on this machine. **Adapters without `notify`** (such as the generic one) cannot show the pairing code; in that case read the token from `QUETZAL_HOME/secrets/gateway.token` and enter it directly.
 
-The generic adapter has no sensors. A few dozen lines give this machine an adapter so the agent can feel its body or gain device tools. See [Custom body adapter](/docs/advanced/custom-adapter).
+The generic adapter has no sensors. A few dozen lines of code give this machine its own adapter, so the agent can feel its body and use device tools. See [Custom body adapter](/docs/advanced/custom-adapter).
 
 ## Development mode
 
