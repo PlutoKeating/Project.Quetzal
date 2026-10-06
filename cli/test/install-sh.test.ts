@@ -78,3 +78,22 @@ test("console_runs_here：只读解析 ELF；本机已有的程序通过，缺�
   const tools = spawnSync("bash", ["-c", "command -v readelf || command -v objdump"]).status === 0;
   if (tools) assert.notEqual(miss.code, 0);
 });
+
+test("原生控制台只缺托盘图标的库：记下缺的是它，按发行版的包名补装；需要密码时不在转圈中途问", () => {
+  // 一个依赖 libayatana-appindicator3.so.1 的「插件」：用 readelf 读得到的 NEEDED 就行，伪造 lib_present 让这台机器「没有」它
+  const d = mkdtempSync(join(tmpdir(), "quetzal-console-"));
+  mkdirSync(join(d, "lib"));
+  copyFileSync(process.execPath, join(d, "quetzal-console"));
+  const r = sh(`elf_needed(){ case "$1" in *plugin.so) echo libayatana-appindicator3.so.1;; *) echo libc.so.6;; esac; }; elf_glibc(){ :; }
+    lib_present(){ [[ $1 != libayatana-appindicator3.so.1 ]]; }; : > "${d}/lib/libtray_manager_plugin.so"
+    console_runs_here "${d}"; echo "rc=$? missing=[\${MISSING_LIBS# }]"`);
+  assert.match(r.out, /rc=1 missing=\[libayatana-appindicator3\.so\.1\]/);
+  const out = join(d, "pkg.txt");
+  const pkg = (pm: string) => sh(`PM=${pm}; SUDO=""; pkg_install(){ echo "装 $*" > "${out}"; }; install_tray_lib; cat "${out}"`).out;
+  assert.equal(pkg("apt"), "装 libayatana-appindicator3-1");
+  assert.equal(pkg("dnf"), "装 libayatana-appindicator-gtk3");
+  assert.equal(pkg("pacman"), "装 libayatana-appindicator");
+  assert.equal(sh(`PM=none; SUDO=""; install_tray_lib; echo rc=$?`).out, "rc=1");
+  // 需要密码（sudo -n 不行）：不装
+  assert.equal(sh(`PM=apt; SUDO=false_sudo; false_sudo(){ return 1; }; pkg_install(){ echo 装了 > "${out}.x"; }; install_tray_lib; echo rc=$?; [ -e "${out}.x" ] && echo 被装了`).out, "rc=1");
+});

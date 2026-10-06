@@ -21,6 +21,7 @@ import 'platform/caps.dart';
 import 'platform/fonts.dart' as fonts;
 import 'platform/location.dart' as loc;
 import 'platform/pin.dart';
+import 'platform/tray.dart';
 import 'shell/desktop.dart';
 
 /// 暗色模式的背景：固定 RGB(32,32,32)，与主题色无关。
@@ -35,6 +36,7 @@ void main() async {
   wakes.start(); // 跟踪她正在进行的醒来（首页与心流页的只读入口）
   hearing.start(); // 耳朵：安卓上跟随基座的听觉开关启停本机的麦克风前台服务；网页版只跟着状态显示
   runApp(const ConsoleApp());
+  initTray(); // 桌面版：右上角状态栏的托盘图标（关窗收进托盘）；网页版与安卓什么都不做
 }
 
 class ConsoleApp extends StatelessWidget {

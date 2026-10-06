@@ -16,7 +16,7 @@ lib/
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
 ├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble
-├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、
+├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、tray（桌面版右上角的托盘图标：tray_manager 0.5.3 + window_manager，底层 libayatana-appindicator3；菜单为 ta 的名字与状态、显示 / 隐藏窗口、急停、退出控制台；有托盘时关窗收进托盘，起不来时照常关闭；网页版空实现）、
 │                      location（页面来源、URL #片段、标题）、fonts（网页版加载自带的中文子集）、mermaid（安卓 WebView / 网页 iframe，同一份 assets/mermaid/view.html，postMessage 桥；Linux 桌面版没有 WebView，退化为显示源码）
 ├── shell/
 │   ├── nav.dart       桌面外壳的位置（区 / 子项 / 条目），网页版与 URL 的 #片段互相同步

@@ -19,7 +19,7 @@ flutter pub get
 flutter test
 flutter build apk --release --target-platform android-arm64
 tool/build-web.sh             # 网页版 → build/web（不入库）：引擎资源自带不走 CDN、不注册 Service Worker、只留 CanvasKit；构建时把 assets/runtime 挪开不打进去
-tool/build-linux.sh           # Linux 桌面版 → build/quetzal-<版本>-linux-<x64|arm64>-console.tar.gz（不入库）：需要 clang、cmake、ninja、pkg-config、libgtk-3-dev；同样挪开 assets/runtime
+tool/build-linux.sh           # Linux 桌面版 → build/quetzal-<版本>-linux-<x64|arm64>-console.tar.gz（不入库）：需要 clang、cmake、ninja、pkg-config、libgtk-3-dev、libayatana-appindicator3-dev（托盘图标）；同样挪开 assets/runtime
 ```
 
 网页版由 `../cli/tool/bundle-runtime.sh` 调用上面的脚本并复制进 npm 包的 `dist/runtime/web/`，安装器再放到 `~/.quetzal/current/web/`，网关托管。Flutter 不在 PATH 里时 `FLUTTER=<路径> tool/build-web.sh`。本机调试：`flutter run -d chrome` 连一个运行中的网关也能免配对码（网关对本机其他端口的页面也放行）。

@@ -2,7 +2,7 @@
 # 构建 Linux 桌面版控制台（原生窗口，不借浏览器）：flutter build linux → build/linux/<arch>/release/bundle/，再打成
 #   build/quetzal-<版本>-linux-<x64|arm64>-console.tar.gz（顶层目录 quetzal-console/，可执行文件 quetzal-console）。
 # 一键安装脚本（cli/install.sh）在有桌面的机器上从 GitHub Release 下载同版本的这个包放到 ~/quetzal/console/，应用列表与任务栏显示 Quetzal 自己的图标。
-# 需要：Flutter（FLUTTER=<路径> 可指定）、clang、cmake、ninja、pkg-config、libgtk-3-dev（Debian/Ubuntu：apt install clang cmake ninja-build pkg-config libgtk-3-dev）。
+# 需要：Flutter（FLUTTER=<路径> 可指定）、clang、cmake、ninja、pkg-config、libgtk-3-dev、libayatana-appindicator3-dev（托盘图标）（Debian/Ubuntu：apt install clang cmake ninja-build pkg-config libgtk-3-dev libayatana-appindicator3-dev）。
 set -eu
 cd "$(dirname "$0")/.."
 # assets/runtime/ 是安卓安装器内置的运行基座（几 MB），桌面版用不着：构建期间挪开，结束后放回（与 build-web.sh 相同）

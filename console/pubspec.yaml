@@ -49,6 +49,8 @@ dependencies:
   web: ^1.1.1
   package_info_plus: ^10.2.2
   cryptography: ^2.9.0   # App 自身更新：用内置公钥核对 SHA256SUMS.sig（Ed25519，纯 Dart 实现）
+  tray_manager: 0.5.3   # 桌面版的托盘图标（Linux 底层是 libayatana-appindicator3）
+  window_manager: 0.5.2   # 桌面版：关窗时收进托盘、从托盘显示 / 隐藏窗口
 
 dev_dependencies:
   flutter_test:
@@ -74,6 +76,7 @@ flutter:
   assets:
     - assets/mermaid/
     - assets/runtime/   # 内置的运行基座（tool/bundle-runtime.sh 生成，不入库）
+    - assets/tray/      # 桌面版托盘图标
 
   # To add assets to your application, add an assets section, like this:
   # assets:

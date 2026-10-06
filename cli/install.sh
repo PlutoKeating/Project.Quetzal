@@ -745,8 +745,10 @@ lib_present() {
   local d; for d in /lib /usr/lib /lib64 /usr/lib64 /lib/*-linux-gnu /usr/lib/*-linux-gnu /usr/local/lib; do [[ -e $d/$1 ]] && return 0; done
   return 1
 }
+MISSING_LIBS=""   # 原生控制台缺的共享库（console_runs_here 填）
 console_runs_here() { # 解包目录
   local d=$1 f lib v sys bad=0
+  MISSING_LIBS=""
   have readelf || have objdump || { echo "readelf / objdump 都没有：跳过原生控制台的依赖检查" >>"$LOG"; return 0; }
   LDCACHE=$( { ldconfig -p || /sbin/ldconfig -p; } 2>/dev/null ) || LDCACHE=""
   sys=$(getconf GNU_LIBC_VERSION 2>/dev/null | sed 's/^glibc //')
@@ -754,7 +756,7 @@ console_runs_here() { # 解包目录
     [[ -f $f ]] || continue
     while IFS= read -r lib; do
       [[ -z $lib || -e "$d/lib/$lib" ]] && continue
-      lib_present "$lib" || { echo "$(basename "$f"): $lib not found" >>"$LOG"; bad=1; }
+      lib_present "$lib" || { echo "$(basename "$f"): $lib not found" >>"$LOG"; bad=1; [[ " $MISSING_LIBS " == *" $lib "* ]] || MISSING_LIBS="$MISSING_LIBS $lib"; }
     done < <(elf_needed "$f")
     if [[ $sys =~ ^[0-9]+\.[0-9]+ ]]; then
       while IFS= read -r v; do ver_gt "$v" "$sys" && { echo "$(basename "$f"): GLIBC_$v > $sys" >>"$LOG"; bad=1; }; done < <(elf_glibc "$f" | sort -u)
@@ -782,9 +784,17 @@ download_console() { # 版本 架构 目标目录：下载同版本的原生控�
   tar -xzf "$tmp" -C "$dir.part" --strip-components=1 || return 1
   rm -f "$tmp"
   [[ -x "$dir.part/quetzal-console" ]] || return 1
-  # 发行版太旧（glibc / GTK 版本不够）时装了也起不来：缺依赖就放弃，退回浏览器
-  console_runs_here "$dir.part" || return 1
+  # 发行版太旧（glibc / GTK 版本不够）时装了也起不来：缺依赖就放弃，退回浏览器。
+  # 只缺托盘图标用的 libayatana-appindicator3（一些精简的桌面没装）：能免密装就用包管理器补上再查一次
+  if ! console_runs_here "$dir.part"; then
+    [[ ${MISSING_LIBS# } == libayatana-appindicator3.so.1 ]] && install_tray_lib && console_runs_here "$dir.part" || return 1
+  fi
   rm -rf "$dir"; mv "$dir.part" "$dir"
+}
+install_tray_lib() { # 托盘图标的系统库：只在 root / 免密 sudo（或这次安装里已经输过密码）时装，不在转圈中途问密码
+  local p; case "$PM" in apt) p=libayatana-appindicator3-1;; dnf|yum) p=libayatana-appindicator-gtk3;; pacman|xbps) p=libayatana-appindicator;; zypper) p=libayatana-appindicator3-1;; *) return 1;; esac
+  [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1 || { echo "缺 $p：需要 root 权限才能装，这次不装（装上后再跑一次安装命令即可用原生控制台）" >>"$LOG"; return 1; }
+  pkg_install "$p" >>"$LOG" 2>&1
 }
 install_native_console() {
   local v; v=$(installed_version); [[ -n $v ]] || return 0

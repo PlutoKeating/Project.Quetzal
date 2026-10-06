@@ -261,7 +261,7 @@ jobs:
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/flutter/bin/flutter" --version
       - name: 桌面构建依赖
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev
       - name: 构建（console/tool/build-linux.sh → quetzal-<版本>-linux-${{ matrix.arch }}-console.tar.gz）
         run: flutter precache --linux && console/tool/build-linux.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
