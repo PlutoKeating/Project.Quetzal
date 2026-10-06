@@ -221,6 +221,10 @@ function Explain-Setup([int]$code) {
 
 function Install-Core {
   $ErrorActionPreference = 'Stop'
+# SHA-256（小写十六进制），直接用 .NET：从 PowerShell 7 启动的 Windows PowerShell 5.1 会继承 7 的 PSModulePath，Get-FileHash 这类模块里的命令可能找不到；
+# 下面一行同理把模块路径改回 5.1 自己的
+function Sha256Hex([string]$path) { $s = [IO.File]::OpenRead($path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return (($h.ComputeHash($s) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $h.Dispose() } } finally { $s.Dispose() } }
+if ($PSVersionTable.PSEdition -ne 'Core') { $env:PSModulePath = (@([IO.Path]::Combine([Environment]::GetFolderPath('MyDocuments'), 'WindowsPowerShell', 'Modules'), [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')) -join ';') }
   $ProgressPreference = 'SilentlyContinue'   # the progress bar makes Invoke-WebRequest many times slower in Windows PowerShell 5.1
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
   $upgrade = $env:QUETZAL_UPGRADE -eq '1'
@@ -284,7 +288,7 @@ function Install-Core {
     $exe = Join-Path $tmp $name
     $got = $false
     foreach ($b in $bases) {
-      if ((Fetch "$b/$name" $exe 1800) -and ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -eq $want)) { $got = $true; break }
+      if ((Fetch "$b/$name" $exe 1800) -and ((Sha256Hex $exe) -eq $want)) { $got = $true; break }
       Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
     }
     if (-not $got) { Bad (T '下载失败，或文件与签名清单里的 SHA-256 不符。' 'The download failed, or the file does not match the SHA-256 in the signed list.'); return 9 }

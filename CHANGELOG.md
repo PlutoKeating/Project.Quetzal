@@ -2,6 +2,14 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.5.1
+
+- 1.5.0 的 Windows 安装包没有发布出来（构建时下载安装包的依赖出错），这一版补上。1.5.0 里写的 Windows 支持都在这一版里。
+- Windows 安装更稳：从 PowerShell 7 里启动安装时，不再因为找不到系统命令而中途失败。
+
+- The 1.5.0 Windows installer was not published (downloading its build dependencies failed); this release adds it. Everything listed for Windows under 1.5.0 is in this release.
+- More reliable Windows installation: starting it from PowerShell 7 no longer fails partway because a system command could not be found.
+
 ## 1.5.0
 
 - **装到 Windows 电脑上**：Windows 10（1809 起）或 Windows 11，x64 与 arm64。在 PowerShell 里运行一行 `irm https://quetzal.plutokeating.beer/install.ps1 | iex`，或在下载页下载安装包。安装时请求一次管理员权限；电脑重启后不用登录，ta 也在后台运行，登录后托盘里有 Quetzal。

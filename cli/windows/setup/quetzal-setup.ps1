@@ -26,6 +26,9 @@ param(
   [switch]$Upgrade
 )
 
+# SHA-256 (lowercase hex) via .NET: Windows PowerShell 5.1 started from PowerShell 7 inherits 7's PSModulePath, and module commands such as Get-FileHash may then be missing
+function Sha256Hex([string]$path) { $s = [IO.File]::OpenRead($path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return (($h.ComputeHash($s) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $h.Dispose() } } finally { $s.Dispose() } }
+if ($PSVersionTable.PSEdition -ne 'Core') { $env:PSModulePath = (@([IO.Path]::Combine([Environment]::GetFolderPath('MyDocuments'), 'WindowsPowerShell', 'Modules'), [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')) -join ';') } # same reason: back to 5.1's own module path
 # Continue, not Stop: in Windows PowerShell 5.1 a native command writing to a redirected stderr becomes a terminating error under Stop.
 # Cmdlets whose failure matters use -ErrorAction Stop inside try / catch; .NET exceptions throw either way.
 $ErrorActionPreference = 'Continue'
@@ -178,7 +181,7 @@ function Machine-Needed($found) {
   if ($m.sid -ne $me.User.Value) { return 'different user' }
   if ($m.root -ne $Root) { return 'different root' }
   $srt = Srt-Path
-  if (Test-Path -LiteralPath $srt) { if ($m.srtSha256 -ne (Get-FileHash -LiteralPath $srt -Algorithm SHA256).Hash.ToLowerInvariant()) { return 'sandbox helper changed' } }
+  if (Test-Path -LiteralPath $srt) { if ($m.srtSha256 -ne (Sha256Hex $srt)) { return 'sandbox helper changed' } }
   if (-not $m.srtOk) { return 'sandbox not installed last time' }
   return ''
 }
@@ -233,7 +236,7 @@ function Machine {
     Write-Text (Join-Path $Root 'deps.json') ([ordered]@{ node = $node; git = $git; python = $py } | ConvertTo-Json)
     $srt = Srt-Path
     $marker = [ordered]@{ schema = $MachineSchema; sid = $me.User.Value; user = $me.Name; root = $Root; date = (Get-Date).ToString('o');
-      srtSha256 = $(if (Test-Path -LiteralPath $srt) { (Get-FileHash -LiteralPath $srt -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' });
+      srtSha256 = $(if (Test-Path -LiteralPath $srt) { (Sha256Hex $srt) } else { '' });
       srtOk = [bool]$r.srt.ok; bootTask = [bool]$r.tasks.boot; logonTask = [bool]$r.tasks.logon; bootError = [string]$r.tasks.bootError }
     if ($r.tasks.logon) { Write-Text (Join-Path $Root 'machine.json') ($marker | ConvertTo-Json) }
     if (-not $r.tasks.boot) { Log ("start-at-boot task (S4U) not registered: " + $r.tasks.bootError + " -- Quetzal will start when you log on") }

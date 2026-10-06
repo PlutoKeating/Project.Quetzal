@@ -221,6 +221,8 @@ function Explain-Setup([int]$code) {
 
 function Install-Core {
   $ErrorActionPreference = 'Stop'
+function Sha256Hex([string]$path) { $s = [IO.File]::OpenRead($path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return (($h.ComputeHash($s) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $h.Dispose() } } finally { $s.Dispose() } }
+if ($PSVersionTable.PSEdition -ne 'Core') { $env:PSModulePath = (@([IO.Path]::Combine([Environment]::GetFolderPath('MyDocuments'), 'WindowsPowerShell', 'Modules'), [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')) -join ';') }
   $ProgressPreference = 'SilentlyContinue'   # the progress bar makes Invoke-WebRequest many times slower in Windows PowerShell 5.1
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
   $upgrade = $env:QUETZAL_UPGRADE -eq '1'
@@ -284,7 +286,7 @@ function Install-Core {
     $exe = Join-Path $tmp $name
     $got = $false
     foreach ($b in $bases) {
-      if ((Fetch "$b/$name" $exe 1800) -and ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -eq $want)) { $got = $true; break }
+      if ((Fetch "$b/$name" $exe 1800) -and ((Sha256Hex $exe) -eq $want)) { $got = $true; break }
       Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
     }
     if (-not $got) { Bad (T (Z '5LiL6L295aSx6LSl77yM5oiW5paH5Lu25LiO562+5ZCN5riF5Y2V6YeM55qEIFNIQS0yNTYg5LiN56ym44CC') 'The download failed, or the file does not match the SHA-256 in the signed list.'); return 9 }

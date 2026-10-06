@@ -19,6 +19,9 @@ param(
   [Parameter(Mandatory = $true)][string]$Result
 )
 
+# SHA-256 (lowercase hex) via .NET: Windows PowerShell 5.1 started from PowerShell 7 inherits 7's PSModulePath, and module commands such as Get-FileHash may then be missing
+function Sha256Hex([string]$path) { $s = [IO.File]::OpenRead($path); try { $h = [Security.Cryptography.SHA256]::Create(); try { return (($h.ComputeHash($s) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $h.Dispose() } } finally { $s.Dispose() } }
+if ($PSVersionTable.PSEdition -ne 'Core') { $env:PSModulePath = (@([IO.Path]::Combine([Environment]::GetFolderPath('MyDocuments'), 'WindowsPowerShell', 'Modules'), [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')) -join ';') } # same reason: back to 5.1's own module path
 $ErrorActionPreference = 'Continue'
 $Root = $Root.TrimEnd('\')
 $Utf8 = New-Object System.Text.UTF8Encoding $false
@@ -49,7 +52,7 @@ function Install-Dep([string]$key, $lock) {
   if (-not $e) { return @{ ok = $false; error = "no $key entry in deps.json" } }
   $file = Join-Path $Deps $e.file
   if (-not (Test-Path -LiteralPath $file)) { return @{ ok = $false; error = "missing $file" } }
-  $got = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+  $got = (Sha256Hex $file)
   if ($got -ne $e.sha256) { return @{ ok = $false; error = "sha256 mismatch for $($e.file): $got" } }
   $logs = Join-Path $Root 'logs-setup'
   [IO.Directory]::CreateDirectory($logs) | Out-Null
