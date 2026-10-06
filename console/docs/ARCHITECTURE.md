@@ -5,19 +5,23 @@
 ```
 lib/
 ├── main.dart          主题、外壳模式（按宽度：手机 / 桌面）、手机外壳（顶部连接状态 + 急停，底部 4 个 Tab）；App 更新后运行基座落后时在后台自动重启成内置版本（不进向导，失败才给「重试」）
-├── api.dart           网关客户端（连接档案 Profile 带钉住的证书指纹 fp；加密配对 pairInfo / pairFinish）：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版）、点火；HTTP 令牌放请求头 X-Quetzal-Token
+├── api.dart           网关客户端（连接档案 Profile 带钉住的证书指纹 fp；加密配对 pairInfo / pairFinish）：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版问 /auth/local；桌面版先读家目录里的 secrets/gateway.token、核对后才用）、点火；HTTP 令牌放请求头 X-Quetzal-Token
 ├── pins.dart          加密连接：网关证书指纹的钉住与配对时的捕获（Pins）、配对证明（PBKDF2，后台 isolate）、网关地址的写法（只填地址时别的机器用 https:7789）、旧的明文局域网档案的识别
 ├── links.dart         打开外部链接的唯一入口：只放行 https（http 只限本机回环地址）
 ├── igniter.dart       运行基座桥（MethodChannel quetzal/runtime）：App 内置运行基座的启动 / 重启 / 停止、状态、网关令牌、身体权限、电池优化 / 自启动管理页（安卓）
-├── hearing.dart       听觉桥：启停原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing）、权限、服务事件；跟随基座 status.hearing.listening，只对本机的 agent（安卓；网页版只跟着状态显示）
+├── hearing.dart       听觉：跟随基座 status.hearing.listening 启停本机的耳朵（只对本机的 agent）——安卓是原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing），
+│                      桌面版是控制台进程里的 DesktopEar（platform/ear_io.dart）；耳朵开着时登记为播放器、播放 speak；权限、事件、界面上的一句话（网页版只跟着状态显示）
+├── ear/               桌面版耳朵的纯 Dart 部分：pcm.dart（任意采样率 / 声道 → 16 kHz 单声道 20 ms 帧）、segmenter.dart（VAD 迟滞、前置 300 ms、单段 120 秒，与安卓同参数）
 ├── installer.dart     安装器：重启 App 内置的运行基座 → 等 /health（第一次要解开运行环境，最长 180 秒）→ 从家目录读网关令牌，经 /health 与一次带令牌的 RPC 核对才算完成；端口上已有不是本 App 启动的运行基座（旧版 Termux 安装）时不再启动第二个，提示迁移
 ├── updater.dart       App 自身的更新（安卓）：先问官网镜像源 `quetzal.plutokeating.beer/api/releases/latest`（资产地址已改写为官网 `/dl/` 镜像，GitHub 连不上的网络也能用），失败退回 GitHub `releases/latest`（正式版；每次打开界面——启动与从后台回来——都问一次，正在检查时不重复）→ 比版本号 → 下载 `quetzal-<版本>-android-arm64.apk`（名字须合白名单）到缓存目录（进度）→ 用内置发布公钥核对 SHA256SUMS.sig、按 SHA256SUMS 核对 APK（缺任何一样都拒绝）→ 原生核对 APK 的签名证书与当前 App 一致 → 需要时带去「允许安装未知应用」→ 交给系统安装器（MethodChannel quetzal/updater）；记下「正在从哪个版本更新」；新 App 带着新版运行基座，装好后由 `MY_PACKAGE_REPLACED` 广播（或打开 App 时）重新启动
 ├── widgets.dart       外壳模式（ShellScope）、页面框架（PageFrame：手机是 Scaffold + AppBar，桌面是主区里的一行标题）、面板宽度（PaneWidth）、底部面板 / 对话框（showSheet）、光团、驱动力条、连接状态、急停、离线横幅、分节卡片、提示
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
 ├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble
-├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、tray（桌面版右上角的托盘图标，以及换新版本：每分钟与运行基座重新连上时检查自己的可执行文件还是不是 console/current 那一个，不是了——窗口没开就以 --replace --background 悄悄换上新版本，窗口开着就在外壳顶部提示「新版本已装好 · 重新打开」；代表后台的运行基座：运行基座连得上就显示，连不上超过 20 秒收起，与控制台窗口开没开无关；菜单为打开 Quetzal（没有窗口就打开，有就提到最前）、急停 · 本机、急停 · 全部设备、退出（网关 quit：停掉后台服务，整个 Quetzal 退出）；控制台是单实例（linux/runner/my_application.cc：再次启动只把激活转给已在运行的那个，--background 只起托盘不开窗口，--replace 接管旧实例），登录桌面时由自启动项以 --background 拉起，关窗只是隐藏窗口；tray_manager 0.5.3 + window_manager，底层 libayatana-appindicator3，Linux 上单击图标就是弹出菜单，不调 Linux 不支持的 setToolTip；网页版空实现）、
-│                      location（页面来源、URL #片段、标题）、fonts（网页版加载自带的中文子集）、mermaid（安卓 WebView / 网页 iframe，同一份 assets/mermaid/view.html，postMessage 桥；Linux 桌面版没有 WebView，退化为显示源码）
+├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux / Windows 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、
+│                      desktop（desktop_paths.dart 纯函数：家目录、网关令牌、Windows 的 ROOT 与 current.txt 指针、身体助手命令、退避；desktop_io.dart：读令牌并核对、Windows 身体助手的看护 BodyHelper）、
+│                      ear（桌面版耳朵 DesktopEar：采集 Linux parec / pw-record / arecord、Windows record_windows，断句，分块 POST /hear，播放 Linux pw-play / paplay / ffplay / mpv、Windows winmm）、fvad（libfvad 的 dart:ffi 绑定）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、tray（桌面版右上角的托盘图标，以及换新版本：每分钟与运行基座重新连上时检查自己的可执行文件还是不是 console/current 那一个，不是了——窗口没开就以 --replace --background 悄悄换上新版本，窗口开着就在外壳顶部提示「新版本已装好 · 重新打开」；代表后台的运行基座：运行基座连得上就显示，连不上超过 20 秒收起，与控制台窗口开没开无关；菜单为打开 Quetzal（没有窗口就打开，有就提到最前）、急停 · 本机、急停 · 全部设备、退出（网关 quit：停掉后台服务，整个 Quetzal 退出；Windows 上连同身体助手）；控制台是单实例（linux/runner/my_application.cc；windows/runner/main.cpp 用命名互斥量 + 按窗口类名找到已在运行的那个：再次启动只把激活转给它，--background 只起托盘不开窗口，--replace 接管旧实例），登录桌面时由自启动项（Linux 桌面自启动项、Windows 的 HKCU Run）以 --background 拉起，关窗只是隐藏窗口；tray_manager 0.5.3 + window_manager，Linux 底层 libayatana-appindicator3，单击图标就是弹出菜单，不调 Linux 不支持的 setToolTip；Windows 用 .ico，左键打开窗口、右键菜单；换新版本的判断 Linux 按 console/current 符号链接与 /proc 的 (deleted)，Windows 按 console\current.txt 指针比较自己所在的版本目录（正在运行的 exe 删不掉）；网页版空实现）、
+│                      location（页面来源、URL #片段、标题）、fonts（网页版加载自带的中文子集）、mermaid（同一份 assets/mermaid/view.html 与内置 mermaid.js：安卓 WebView、网页 iframe、Windows WebView2（webview_windows）、Linux 运行壳里看不见的 WebKitGTK 截图成 PNG；桌面上缺网页引擎时请运行基座画 SVG（mermaid.render），见 §5）
 ├── shell/
 │   ├── nav.dart       桌面外壳的位置（区 / 子项 / 条目），网页版与 URL 的 #片段互相同步
 │   └── desktop.dart   桌面外壳：导航栏 · 列表栏 · 主区（嵌套 Navigator）· 她此刻
@@ -44,6 +48,7 @@ tool/
 ├── bundle-runtime.sh  把运行基座内置进 APK（assets/runtime/：main.cjs、android.mjs、VERSION）
 ├── build-web.sh       网页版构建（build/web）
 ├── build-linux.sh     Linux 桌面版构建（build/quetzal-<版本>-linux-<架构>-console.tar.gz）
+├── build-windows.ps1  Windows 桌面版构建（build/quetzal-<版本>-windows-<架构>-console.zip，带 VC++ 运行库）
 └── gen-cjk-font.py    网页版的中文字体子集（web/fonts/）
 web/                   网页版的壳：index.html、manifest、图标、fonts/
 android/app/src/main/kotlin/xyz/quetzal/console/
@@ -52,7 +57,12 @@ android/app/src/main/kotlin/xyz/quetzal/console/
 ├── BodyServer.kt      身体接口：127.0.0.1 随机端口 + 256 位令牌（写进 QUETZAL_HOME/secrets/body.json），电池、传感器、通知、拍照、录音、定位、振动、手电、剪贴板、播放
 ├── Rootfs.kt          解开 rootfs.tar（GNU tar；路径限定在目标目录内）、在前缀里建指向 nativeLibraryDir/lib*.so 的链接、$PREFIX/bin/sh → /system/bin/sh；删目录一律用不跟随符号链接的 deleteTree（旧版本运行基座目录里的 node_modules 链接指向网状层组件，跟随链接删会把它们删光）；发现 node_modules 被删空就重新解压
 └── HearingService.kt  耳朵：麦克风前台服务
-linux/                 Linux 桌面版的运行壳（flutter create 生成，只改了：BINARY_NAME quetzal-console、APPLICATION_ID xyz.quetzal.console（GTK 以它作 Wayland app_id 与 X11 WM_CLASS，桌面项按它配图标）、窗口标题 Quetzal、1280×800、背景 #202020、图标名 xyz.quetzal.console）
+linux/                 Linux 桌面版的运行壳（flutter create 生成，改了：BINARY_NAME quetzal-console、APPLICATION_ID xyz.quetzal.console（GTK 以它作 Wayland app_id 与 X11 WM_CLASS，桌面项按它配图标）、窗口标题 Quetzal、1280×800、背景 #202020、图标名 xyz.quetzal.console；
+│                      单实例；runner/mermaid_renderer.cc：MethodChannel quetzal/mermaid，按需 dlopen WebKitGTK 渲染 Mermaid；把 native/fvad 编成 bundle/lib/libfvad.so）
+windows/               Windows 桌面版的运行壳（flutter create 生成，改了：BINARY_NAME quetzal-console、窗口标题 Quetzal、1280×800、窗口类名 QUETZAL_CONSOLE_WINDOW、背景 #202020、程序图标与版本信息；
+│                      runner/main.cpp + single_instance.h：命名互斥量 Local\xyz.quetzal.console 单实例、--background / --replace；flutter_window.cpp：MethodChannel quetzal/desktop 的 adopt（身体助手放进随控制台结束的作业对象）；
+│                      源码按 UTF-8 编译（/utf-8）；把 native/fvad 编成 exe 旁的 fvad.dll）
+native/fvad/           libfvad（WebRTC VAD 的独立 C 库，BSD-3，锁定上游提交，未改）：桌面版耳朵的断句
 ```
 
 状态管理只用 `ChangeNotifier`（全局 `api`、跟踪进行中醒来的 `wakes`、桌面位置 `nav`）+ `ListenableBuilder`，不引入额外框架。**同一份页面在两种外壳里都成立**：二级页面一律用 `PageFrame`，手机上它是 Scaffold + AppBar，桌面主区里它是一行标题；弹出面板一律用 `showSheet`，手机是底部面板，桌面是居中对话框；气泡与过程卡片按 `PaneWidth`（所在面板的宽度）而不是窗口宽度限制自己。
@@ -143,6 +153,7 @@ flowchart TB
 | 醒来记录（只读） | 她自己醒来思考、做梦（以及某一次对话）的完整过程，显示的内容与对话页一致：缘起（因为 / 想）、工具卡片（点开看参数摘要、完整参数与结果）、中途说的话、正在写的文字，结束后接上日记、心情与想分享的一句话。**没有输入框**：这是她自己的时间，只能看，不能插话；底部一行说明想说话去「聊天」。进行中的一轮从 `sessions.live` 快照重建，随 `activity` 事件增量更新，结束后自动接上时间线里保存的记录（`detail.process`）；断线重连、从后台切回都会重建。入口：首页与心流页顶部「她醒着，在想事情… / 她在做梦…」；心流里每条记录展开后的「完整过程」 |
 | 控制 · 声音（她的声音） | Azure 语音服务：只填密钥（只显示末四位），区域自动找出；配好后可选音色（点开从列表选）与试听；「更多」里是区域与自定义端点（端点只有对方能改，不交给她）。风格、语速、音调、音量、输出格式不在界面上，由她用 voice_config 调 |
 | 控制 · 声音（听你说话） | **App 是这具身体的耳朵**（第一次让 App 承担身体的一部分：Android 9 起只有前台服务能常驻拿麦克风，定长录文件再切片会丢字，所以耳朵是独立的常驻服务，不走身体接口的 `record_audio`）。原生 `HearingService`：`VOICE_COMMUNICATION` 音源（通话路径，系统在这条路径上做声学回声消除）+ 系统 `AcousticEchoCanceler` / `NoiseSuppressor` / `AutomaticGainControl`，WebRTC VAD（android-vad，MIT，JitPack）逐 20ms 帧断句（停顿 1.5 秒算说完，前置 300ms，单段最长 120 秒），一段话开始就打开到本机网关 `/hear?stream=1` 的分块 POST，边采集边送 PCM（不经过 Flutter，App 退到后台照常），基座流式识别；通知栏常驻「Quetzal 在听」。页面：开关（`setHearing`）、灵敏度（迟钝 / 适中 / 灵敏 → VAD 模式）、会话窗口与最短字数、识别语言、麦克风权限引导；此刻在不在听（没在听的原因来自基座：未开启、急停、Azure 未配置、电量或温度）、最近一句。App 只在基座 `status.hearing.listening` 为真且 agent 在本机（127.0.0.1）时开麦克风，参数变化自动重启服务。**她的声音也由这个服务播放**：耳朵一开就向基座登记为播放器（`player.set`），基座推送 `speak`，服务从 `/media/<文件名>` 取合成语音，MediaCodec 解码后用 `AudioTrack`（`USAGE_VOICE_COMMUNICATION`）播放，回声消除器以它为参考把她自己的声音从麦克风里减掉——「收听音轨 = 麦克风音轨 − 扬声器音轨」；播放期间检测到持续 400ms 人声就是插嘴，本地立即停播并回报（`player.done`，带打断它的那句话的标识），状态行在她说话时显示「她在说话（可以直接插嘴）」。录音不保存。 |
+| 控制 · 声音（桌面版的耳朵） | 桌面版（Linux / Windows）也是耳朵与播放器，规则与安卓相同（只在 `status.hearing.listening` 为真且连本机运行基座时开麦克风，参数变了自动重开），实现见 §5.2。没有系统回声消除：她说话时状态行只显示「她在说话」，不提示插嘴。Linux 没有录音程序、Windows 关了麦克风隐私开关时，开耳朵失败的原因显示在这一节，一分钟内不反复重试 |
 | 控制 · 高级 · 工具 | 她自己造的工具（`tool_write`）：名字、描述、能力类别、运行方式、超时、缺的依赖、是否停用；点开看参数 schema、源码（等宽）与技能文档 SKILL.md（Markdown）；开关停用 / 启用；删除时可选连技能文档一起删。灵魂仓库里有文档而本机没有实现的技能单列。**只看不编**：改代码由她自己来，技能文档的变更在「记忆历史」里可撤销 |
 | 子 agent | 她派出的子 agent 的进展与「醒来记录」同一套只读界面（`origin` 为 `agent`）：首页与心流顶部出现「她派出的子 agent 在工作…」，点开看完整过程；完成后心流里的「子 agent」条目带报告 |
 | 此刻 | 呼吸光团（睡着暗且慢，醒着亮，思考时出现环绕粒子，急停变红）；状态一句话；听觉开着时状态下方有一行克制的「在听」（有人说话的瞬间亮成主题色，耳朵没开时显示「耳朵没开」）；她想分享的一句话（由她用 share_thought 维护，不是机器状态；折叠三行，点开看完整 Markdown）；她正在思考 / 做梦时的只读入口；「戳一下」「聊天」（首屏，位于「内在」卡片上方）；驱动力、清醒度、困意条；醒来率与抑制原因；身体读数 Chip |
@@ -192,4 +203,34 @@ flowchart TB
 | U23 | 她造了一个工具 | 她在对话或醒来时用 `tool_write` 沉淀流程 → 心流「工具」记录 → 控制 → 工具里看定义、源码与技能文档 → 不放心就停用或删除 → 技能文档随灵魂同步，别的身体按文档自己实现 |
 | U24 | 她改了自己的名字 | 她用 `edit_identity` → 顶栏称呼与主题色随 `state` 推送立即变化 → 心流「身份」记录 → 身份页里能看到她自选的颜色 |
 | U25 | Linux 上第一次打开 | `npx @plutokeating/quetzal` 装好 → 浏览器自动打开 `http://127.0.0.1:7788/` → 页面向网关要令牌（`/auth/local`，同一台机器免配对码）→ 还没有模型时打开向导（登录、模型两步）→ 进入桌面外壳：对话区自动打开最近的会话（没有就新建）→ 她开始按自己的节律醒来；右栏「她此刻」始终可见 |
+| U26 | Windows 上第一次打开 | 安装器装好运行基座与控制台 → 登录时 HKCU Run 以 `--background` 拉起控制台（只起托盘）→ 托盘进程拉起身体助手 → 打开 Quetzal：读家目录里的网关令牌直接连上（不需要配对码）→ 还没有模型时打开向导（登录、模型两步）→ 关窗收进托盘；升级后托盘按 `console\current.txt` 发现新版本，窗口没开就悄悄换上 |
+| U27 | 在电脑上用声音和她说话 | 声音页打开「听你说话」→ 桌面版开始听（Linux 用 parec 等，Windows 用 Media Foundation）→ 说话 → 会话里出现环境声音 → 她用 voice_speak 回话时声音从电脑放出来，这段时间耳朵不收音；说完再接着说 |
 | U20 | 给她密钥 | 她需要令牌 / 密码 → 在对话里说明并发起保密输入 → 输入框上方出现提示条 → 每项发一条（遮挡输入，不进入对话）→ 点「完成」→ 存入保密库，她只拿到路径 → 控制 → 高级 → 保密库可查看与删除 |
+
+## 5. 桌面版：Mermaid 图与耳朵的选型
+
+### 5.1 Mermaid 图
+
+目标：桌面版（Linux 与 Windows）和安卓、网页版一样，把她写的 Mermaid 画成图，而且是同一个 mermaid.js（v11，`assets/mermaid/`）画的，样子一致、离线可用。
+
+| 平台 | 做法 | 为什么 |
+|---|---|---|
+| Windows | `webview_windows`（BSD-3）把 WebView2 以纹理嵌进 Flutter，经虚拟主机映射加载安装目录里的 `view.html`（NavigateToString 有 2 MB 上限，装不下 mermaid.js），页面回报高度，内嵌时点一下全屏 | WebView2 是 Windows 11 自带、Windows 10 多数随 Edge 装好的系统组件，不必随包分发浏览器；纹理嵌入能放进滚动列表。没选 `flutter_inappwebview`：它的 Windows 实现同样基于 WebView2，但会把安卓 / iOS / macOS / 网页的实现一起带进来，安卓上已有 `webview_flutter` |
+| Linux | 运行壳（`linux/runner/mermaid_renderer.cc`）按需 `dlopen` WebKitGTK（`libwebkit2gtk-4.1`，退回 4.0），在一个看不见的离屏窗口里跑 `view.html`，按图的原始尺寸排版后整页截图（透明背景，2–4 倍像素），PNG 交给 Flutter 显示，点开全屏可缩放拖动 | Flutter 的 Linux 嵌入没有平台视图，任何 GTK 部件都嵌不进 Flutter 的画面，所以「嵌入网页视图」在 Linux 上走不通；截图之后就是一张普通图片，排版、滚动都由 Flutter 管。`dlopen` 让 WebKitGTK 不成为构建与启动的硬依赖（没装的机器照常运行，只是画图走兜底）。离屏窗口拿不到 GL 上下文，WebKitGTK 2.42 起默认的 DMABuf 渲染器在这里起不来，所以只在这个进程里设 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（退回共享内存，只影响这个看不见的页面）。本机（WebKitGTK 2.52）实测：流程图、时序图、状态图都能画，中文与 HTML 标签正常，mermaid 的语法错误原样报回 |
+| 两边的兜底 | 机器上没有 WebView2 运行时 / WebKitGTK 时，调网关 `mermaid.render {code, dark}` → `{svg}`，由 `flutter_svg` 显示；运行基座计划用纯 JS、零 DOM 的 beautiful-mermaid（MIT）在 Node 里画 | 不往控制台里塞一个浏览器。代价：flutter_svg 不支持 `<style>`、CSS 变量、`<marker>`、`<foreignObject>`，beautiful-mermaid 的原始输出里这些都有，运行基座要先把它整理成自包含的静态 SVG（颜色写成具体值、箭头画成路径），接口约定见 [API §1.3](../../docs/API.md)；运行基座还没提供时显示源码 |
+
+不选的：`webview_cef`（Chromium 内核要随包带上百 MB）、`flutter_inappwebview_linux`（还是 beta，基于多数桌面没装的 WPE WebKit）、在 Dart 里重写 Mermaid 的排版（造轮子，且与其他形态画得不一样）。
+
+### 5.2 耳朵
+
+安卓的耳朵是原生前台服务（见 §3「控制 · 声音」）；桌面版在控制台进程里做同样的事（`platform/ear_io.dart` 的 `DesktopEar`，由 `hearing.dart` 按运行基座的意愿启停），参数与安卓一致：16 kHz 单声道 16 位 PCM、20 ms 一帧、连续 100 ms 有人声才开始、连续 1.5 秒没有才算说完、前置 300 ms、单段最长 120 秒，一句话开始就打开到本机网关 `/hear?stream=1&started=…&id=…` 的分块 POST，边说边送。
+
+| 部分 | 做法 | 为什么 |
+|---|---|---|
+| 采集 · Linux | 依次试 `parec`、`pw-record`、`arecord`，都要 16 kHz 单声道 s16le 裸 PCM 写到标准输出 | 与运行基座的 Linux 适配器一样按可用程序探测；PulseAudio、PipeWire、纯 ALSA 都有一条路，不给控制台加原生依赖（`record_linux` 只会用 `parecord`） |
+| 采集 · Windows | `record_platform_interface` + `record_windows`（Media Foundation，流式 PCM） | 维护活跃、Windows 上不需要额外运行库；只取平台接口与 Windows 实现，不把安卓 / iOS / 网页的录音实现带进来。设备给的格式与请求的不同时，它会回报实际格式，由 `PcmFramer` 转成 16 kHz 单声道 |
+| 断句 | libfvad（WebRTC VAD 抽出来的 C 库，BSD-3，源码锁在 `native/fvad/`）经 `dart:ffi`，迟滞与分段在纯 Dart 的 `Segmenter` 里 | 与安卓的 android-vad（WebRTC 版）是同一套算法，「只听近处 / 适中 / 轻声也听」三档在两边含义一致；几十 KB、不带模型、没有新的运行时依赖。没选 Silero（要 onnxruntime，十几 MB，还会把安卓的原生库一起带进 APK） |
+| 播放 | 登记为播放器（`player.set`），`speak` 的语音带令牌下载到临时目录，Linux 依次试 `pw-play`、`paplay`、`ffplay`、`mpv`（与适配器相同；放不了 mp3 的会立刻失败，换下一个），Windows 用系统 winmm 的 MCI（能放 mp3）；放完回报 `player.done`、删掉临时文件 | 声音从控制台出来，耳朵才知道什么时候该闭上；Windows 上运行基座可能在会话 0，放不出声音 |
+| 回声与插嘴 | **不做**。她说话时（本机正在放她的声音、或运行基座推来的 `speaking` 窗口之内，再加 300 ms 余音）耳朵不断句、不送音频，正在说的那句就此结束送出；播放不会被对方打断（`interrupted` 恒为假），界面只写「她在说话」 | 安卓靠系统的通话音频路径与声学回声消除器把她的声音从麦克风里减掉，桌面上没有可靠的对应物：PulseAudio 的 echo-cancel 模块要手动加载，PipeWire 要另配，Windows 的通信处理只对通话类应用生效。做不到就如实降级，不把她自己的声音当成有人说话。运行基座目前没有按 `started` 丢弃她说话期间的音频，桌面版在本地就不送 |
+
+录音不落盘；耳朵只在连的是本机运行基座（127.0.0.1）时开，令牌放请求头。

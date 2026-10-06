@@ -256,6 +256,8 @@ sequenceDiagram
 
 基座这边（`voice/hearing.ts`）：Azure 语音识别——App 以分块 POST 边说边送 PCM，基座用官方 SDK（`microsoft-cognitiveservices-speech-sdk`，WebSocket 推流，连续识别：一段话里有停顿、说得长也不截断，各段结果拼起来）流式识别，中间结果经 `hearing` 事件推给控制台流式显示，失败时用已收到的音频走短语音 REST 兜底（超过 60 秒按 50 秒分段）；与语音合成同一把密钥，区域或端点自动推导 → 太短或没听清的不打扰她 → 挑会话：最近一个有更新的会话在 `hearing.windowMin` 分钟内就并入，否则新开（标题取第一句话）→ 以**第三种消息类型 `ambient`（环境声音）**入库，不是对方发的消息、也不是她的话 → `converse` 以「你听到附近有人说」的框架交给她，并说明：是不是对她说的、要不要回应由她判断，不回应只回复「沉默」（不入库，这句环境声音标为 `ignored`、控制台隐藏，心流里记一笔「听到有人说话，没有回应」；回应了则保留显示）；对方用声音说话时往往也希望听到声音，可以用 `voice_speak` 念出来——建议而不是强制。**她说话时对方可以插嘴（收听音轨 = 麦克风音轨 − 扬声器音轨）**：耳朵开着时 App 登记为她的播放器（`player.set`），`voice_speak` / 试听的合成语音经 `speak` 事件交给 App 用通话音频路径（`USAGE_VOICE_COMMUNICATION`）播放；采集用 `VOICE_COMMUNICATION` 音源并挂系统的声学回声消除器，它以本机正在放的声音为参考从麦克风里减掉她自己的声音，所以她说话时耳朵只剩下对方的声音。播放期间检测到持续 400ms 的人声就是插嘴：App 本地立即停播、回报 `player.done {interrupted, utterance}`，那句话以「打断」并入她当前的工作；`voice_speak` 的结果会告诉她「说到一半被打断了」。基座不做任何文本比对。没有播放器（耳朵没开、或 agent 不在这台手机上）时声音仍由身体适配器播放，说话窗口按码率估计。听觉受预算里的最低电量（充电时除外）与温度限制；急停时不听。配置在 `hearing.*`，控制台「控制 → 听觉」与她自己的 `hearing_config` 都能改；App 只在 `status.hearing.listening` 为真且 agent 在本机（127.0.0.1）时开麦克风。
 
+桌面版控制台（Linux / Windows）同样当耳朵与播放器：在控制台进程里采集麦克风（Linux 用 parec / pw-record / arecord，Windows 用 Media Foundation），用同一套 WebRTC VAD 参数断句（自带 libfvad），同样分块 POST `/hear?stream=1`，并登记为播放器播放 `speak` 的语音。桌面上拿不到可靠的系统回声消除，所以如实降级：她说话时（本机在放她的声音，或 `speaking` 窗口之内）耳朵不送音频，也不做插嘴（`player.done` 的 `interrupted` 恒为假）。见 [console 文档](../console/docs/ARCHITECTURE.md)。
+
 ### 5.4 会话与子 agent：由她自己掌握
 
 三个会话操作工具（能力类别 `session`，默认允许），对应控制台 / 飞书里人类用的 `/new`、`/compact`、`/assign-agents`，但由她自己决定要不要用、什么时候用、怎么用（系统提示只说明用途）：
@@ -424,6 +426,7 @@ flowchart LR
 | 入口 | 方式 | 说明 |
 |---|---|---|
 | 控制台 App | 网关 WebSocket：同一台手机上连本机明文端口；别的机器上的运行基座连 HTTPS / WSS（钉住证书指纹） | 见 [console 文档](../console/docs/README.md) |
+| 桌面版控制台 | Linux / Windows 原生窗口 + 同一个 WebSocket；连本机网关时直接读 `secrets/gateway.token`（同一个系统用户，经一次带令牌的核对），读不到再走 `GET /auth/local` | 托盘、耳朵与播放器；Windows 上还看护身体助手（`windows-body.mjs`）。见 [console 文档](../console/docs/README.md) |
 | 网页控制台 | 网关托管的静态页面（`current/web/`）+ 同一个 WebSocket | 控制台的 Flutter Web 构建，为电脑横屏重新排布；同一台机器上打开网关自己托管的页面时经 `GET /auth/local` 免配对码登录（`web.ts`；Origin 必须是网关自己的源，安卓上不提供） |
 | 飞书 | 长连接（无需公网） | 单聊自动推送「此刻」卡片；机器人菜单事件；卡片按钮与表单直接调用操作层，原地刷新卡片 |
 | 主机 | 端口转发到网关 | 与控制台同一套 API |
