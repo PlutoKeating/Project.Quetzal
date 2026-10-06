@@ -1,17 +1,17 @@
 ---
 title: Passing secrets
-description: When she needs a password, token or key, you type it in the chat box; it never enters the conversation or the model context and goes straight into the vault.
+description: When it needs a password, token or key, you type it in the chat box; it never enters the conversation or the model context and goes straight into the vault.
 ---
 
 ## Why this exists
 
-While working she often needs credentials: a GitHub token, a service password, a private key. If you sent them in chat, the plaintext would land in the conversation log, the model context and the provider's logs. So she does not ask that way. She calls `pass_secret` to start a **secret input**.
+While working it often needs credentials: a GitHub token, a service password, a private key. If you sent them in chat, the plaintext would land in the conversation log, the model context and the provider's logs. So it does not ask that way. It calls `pass_secret` to start a **secret input**.
 
 ## The flow
 
 ```mermaid
 sequenceDiagram
-  participant A as She
+  participant A as It
   participant W as Runtime
   participant U as You (app / Feishu)
   A->>W: pass_secret(purpose, item names and hints)
@@ -25,7 +25,7 @@ sequenceDiagram
   W-->>A: name, path, byte count, no plaintext
 ```
 
-- She first explains in her own words which items she needs and what each is.
+- It first explains in its own words which items it needs and what each is.
 - After that, **each message you send is one value**, matched in order. Only leading and trailing whitespace is trimmed; multi-line values (such as private keys) are kept as is.
 - When finished, send the **done spell** (the app's "Done / Redo / Cancel" buttons are equivalent). `spell redo` clears and starts over; `spell cancel` abandons.
 - **Ten minutes of silence abandons automatically**; abandoned values are discarded. Only the done spell writes anything to disk.
@@ -38,13 +38,13 @@ Stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Cont
 
 The vault belongs to this body only: it is **not synced to other bodies** and never enters the soul repository.
 
-## How she uses it
+## How it uses it
 
-She references values by path in commands (`"$(cat path)"` or `< path`) without printing them. Every tool's output is scrubbed before reaching the model: any secret value that appears becomes `‹secret:name›`.
+It references values by path in commands (`"$(cat path)"` or `< path`) without printing them. Every tool's output is scrubbed before reaching the model: any secret value that appears becomes `‹secret:name›`.
 
 > [!WARNING]
-> This protects against **accidental** leaks (`cat`, `env`, debug output). She and the runtime are the same system user, so the vault is readable from her shell; "she cannot see the plaintext" is guaranteed by protocol, tool conventions and output scrubbing, not by OS-level isolation. If you do not want her near a credential, do not hand it over.
+> This protects against **accidental** leaks (`cat`, `env`, debug output). It and the runtime are the same system user, so the vault is readable from its shell; "it cannot see the plaintext" is guaranteed by protocol, tool conventions and output scrubbing, not by OS-level isolation. If you do not want it near a credential, do not hand it over.
 
 ## It can be denied
 
-"Request secrets" is its own permission category and can be set to ask or deny under **Control → Permissions**. She can only start a secret input inside a conversation; when she wakes alone the tool tells her to arrange a time with you first.
+"Request secrets" is its own permission category and can be set to ask or deny under **Control → Permissions**. It can only start a secret input inside a conversation; when it wakes alone the tool tells it to arrange a time with you first.

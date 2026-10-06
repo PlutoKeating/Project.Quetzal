@@ -37,7 +37,7 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | `state` | Full state, same as `status` (debounced 500 ms) |
 | `timeline` | New timeline entry `{id, ts, kind, title, detail}` |
 | `approval` | Approval `{id, action, reason, args, status}` |
-| `say` | Something she says proactively |
+| `say` | Something it says proactively |
 | `activity` | Progress `{session, conv, origin, channel, ts, kind, …}`; `kind` below |
 | `secret` | Secret-input state (never contains values) |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | Feishu one-tap setup |

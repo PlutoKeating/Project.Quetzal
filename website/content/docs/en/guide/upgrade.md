@@ -28,8 +28,8 @@ flowchart TB
   D -- no --> F[Switch back to previous and restart]
 ```
 
-- Her memory, configuration, keys and vault live in the home directory, separate from version directories, so **upgrades leave them untouched**.
-- After an upgrade she wakes again on the new version, as if after a nap.
+- Its memory, configuration, keys and vault live in the home directory, separate from version directories, so **upgrades leave them untouched**.
+- After an upgrade it wakes again on the new version, as if after a nap.
 
 > [!TIP]
 > The app version equals the runtime version. **Control → Advanced → Runtime** shows the running version; **About** shows the app's.
@@ -54,3 +54,5 @@ More than five starts within ten minutes is treated as repeated crashing: the ru
 ## Releases on GitHub
 
 Every production release is published on GitHub Releases with release notes. The [download page](/download) reads the latest and past versions live.
+
+Quetzal is still changing fast, and some days several versions come out. Before upgrading you can read what the new version changed. Upgrading leaves its memory alone, and every change to the soul repository format works with old repositories. Your bodies must run the same version to connect; see [Trust and limits](/docs/guide/trust#how-fast-updates-come).

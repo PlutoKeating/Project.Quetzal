@@ -46,11 +46,11 @@ flowchart TB
 
 ## Introspection model
 
-You can nominate a **quick (introspection) model**. When she wakes she uses it first for a lightweight judgement: does she feel like doing anything, and what. A cheap, fast model here saves most of the cost of "woke up and went back to sleep".
+You can nominate a **quick (introspection) model**. When it wakes it uses it first for a lightweight judgement: does it feel like doing anything, and what. A cheap, fast model here saves most of the cost of "woke up and went back to sleep".
 
 ## Models that can see images
 
-When you send her pictures, routing only picks models that **accept images**. The order of evidence: your manual `vision` flag → the public catalog's input modalities → the model name. If none qualifies the image is dropped and the message says so.
+When you send it pictures, routing only picks models that **accept images**. The order of evidence: your manual `vision` flag → the public catalog's input modalities → the model name. If none qualifies the image is dropped and the message says so.
 
 ## Special providers
 
@@ -60,8 +60,8 @@ A few providers have extra conventions handled by separate compatibility modules
 
 - Keys are encrypted with **AES-256-GCM** on the phone; the master key lives in `QUETZAL_HOME/secrets/`;
 - Every interface returns only the **last four characters**;
-- Keys **never enter the soul repository**: they do not travel when she changes bodies; each body is configured separately.
+- Keys **never enter the soul repository**: they do not travel when it changes bodies; each body is configured separately.
 
 ## Usage and budget
 
-Tokens and estimated cost per call are recorded locally and shown in **Now** and **Control → Advanced → Budget**. When the budget is spent her wake rate drops sharply (see [Permissions and safety](/docs/guide/permissions)).
+Tokens and estimated cost per call are recorded locally and shown in **Now** and **Control → Advanced → Budget**. When the budget is spent its wake rate drops sharply (see [Permissions and safety](/docs/guide/permissions)).

@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Stuck installs, she never wakes, killed by the system, offline after reboot, safe mode, model errors, Feishu and soul sync problems.
+description: Stuck installs, it never wakes, killed by the system, offline after reboot, safe mode, model errors, Feishu and soul sync problems.
 ---
 
 ## During installation
@@ -11,7 +11,7 @@ description: Stuck installs, she never wakes, killed by the system, offline afte
 | "The runtime did not respond within 180 seconds" | The built-in runtime failed to start. The log is `files/home/quetzal/data/runtime.log` in the app's data directory (readable from a computer with `adb shell run-as xyz.quetzal.console`, debug builds only); open an issue on GitHub with it. Try **Retry** first |
 | "Could not read the gateway token" / "checking the gateway failed" | The runtime is up but the token does not match, most likely because the data directory was edited by hand. Restart under **Control → Advanced → Runtime** and try again |
 
-## She never wakes
+## It never wakes
 
 Check in order:
 
@@ -19,7 +19,7 @@ Check in order:
 - [ ] **Control → Rhythm**: not paused; activity is not 0.
 - [ ] No emergency stop in the top bar.
 - [ ] **Control → Advanced → Budget**: today's budget is not spent; battery above the minimum or charging; temperature normal.
-- [ ] In the first hour or two after installation her drives are still building up; quiet is normal. Try **Poke**.
+- [ ] In the first hour or two after installation its drives are still building up; quiet is normal. Try **Poke**.
 
 ## Offline / killed by the system
 
@@ -29,7 +29,7 @@ Check in order:
 
 ## Safe mode
 
-She tells you she "entered safe mode": more than five starts in ten minutes. Only the gateway and Feishu are up; no waking, no model calls. Usually a corrupted configuration or a provider-layer fault. Read the log (phone: `files/home/quetzal/data/runtime.log` in the app's data directory; Linux: `quetzal logs`), fix the cause, then restart from **Control → Advanced → Runtime**.
+It tells you it "entered safe mode": more than five starts in ten minutes. Only the gateway and Feishu are up; no waking, no model calls. Usually a corrupted configuration or a provider-layer fault. Read the log (phone: `files/home/quetzal/data/runtime.log` in the app's data directory; Linux: `quetzal logs`), fix the cause, then restart from **Control → Advanced → Runtime**.
 
 ## Models
 
@@ -53,7 +53,7 @@ She tells you she "entered safe mode": more than five starts in ten minutes. Onl
 | Connect fails with "address must be SSH" | Use `git@github.com:you/repo.git`, not https |
 | Push rejected | The deploy key lacks **Allow write access**, or the public key was added to a different repository |
 | "Different identity, refusing to merge" | Another agent lives in that repository. Create a new one for this agent |
-| The two sides look out of sync | Sync is event-driven: wait for her next wake-up / conversation, or tap "Sync now" under **Control → Advanced → Sync** |
+| The two sides look out of sync | Sync is event-driven: wait for its next wake-up / conversation, or tap "Sync now" under **Control → Advanced → Sync** |
 
 ## The web console (Linux)
 

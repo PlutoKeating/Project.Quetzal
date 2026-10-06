@@ -11,7 +11,7 @@ Quetzal is not bound to any particular agent. An agent's identity is one file, `
 |---|---|
 | `id` | A UUID generated at birth that **never changes**; it keeps two agents' memories from mixing |
 | `name` | Identifier (lowercase letters, digits, hyphens) |
-| `displayName` | Shown in the UI and used to address her |
+| `displayName` | Shown in the UI and used to address it |
 | `pronouns` | Pronouns |
 | `description` | A one-line description |
 | `color` | Theme color `#RRGGBB`; the app's colors follow it |
@@ -19,23 +19,23 @@ Quetzal is not bound to any particular agent. An agent's identity is one file, `
 
 ## Changing it in the console
 
-On **Control**, tap her name at the top → **Identity**: display name, pronouns, description, theme color, preferred language (the identifier is not edited here). Saving writes to her soul directory; with a soul repository connected it becomes a commit synced to every body.
+On **Control**, tap its name at the top → **Identity**: display name, pronouns, description, theme color, preferred language (the identifier is not edited here). Saving writes to its soul directory; with a soul repository connected it becomes a commit synced to every body.
 
 > [!TIP]
-> The name in the top bar, how she is addressed everywhere, and the theme color all come from here. With several agents connected, the UI changes as you switch.
+> The name in the top bar, how it is addressed everywhere, and the theme color all come from here. With several agents connected, the UI changes as you switch.
 
 ## Seed identity and seed personality
 
-Freshly installed and not yet named, she has an auto-generated **seed identity** (`seed: true`) and a **seed personality** (`SOUL.md`) derived from it. "Seed" means "not yet modified":
+Freshly installed and not yet named, it has an auto-generated **seed identity** (`seed: true`) and a **seed personality** (`SOUL.md`) derived from it. "Seed" means "not yet modified":
 
-- as soon as you rename her in the app, the seed flag is cleared;
+- as soon as you rename it in the app, the seed flag is cleared;
 - when connecting to a soul repository **another body has already lived in**, the seed identity **yields**: the repository's identity and personality are adopted and the two sides' memories merged.
 
-So if you are adding a new body to an existing agent, **connect the soul repository first, then worry about identity**. For a brand-new agent, naming her first is fine.
+So if you are adding a new body to an existing agent, **connect the soul repository first, then worry about identity**. For a brand-new agent, naming it first is fine.
 
 ## Personality
 
-The personality is `SOUL.md`, the first section of her system prompt. View and edit it under **Memory → Core**; she can also rewrite it herself with `rewrite_soul` (this falls under the "rewrite memory" permission category, which you can set to ask or deny).
+The personality is `SOUL.md`, the first section of its system prompt. View and edit it under **Memory → Core**; it can also rewrite it itself with `rewrite_soul` (this falls under the "rewrite memory" permission category, which you can set to ask or deny).
 
 ## Several agents
 

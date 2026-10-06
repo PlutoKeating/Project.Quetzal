@@ -29,7 +29,7 @@ A drive's approach:
 
 $$d' = 1 - (1-d)\,e^{-\Delta t/\tau}$$
 
-This is the **two-process model** from sleep research (sleep pressure plus circadian rhythm). With default parameters she falls asleep around 22:40 and wakes around 7:50, with no timetable.
+This is the **two-process model** from sleep research (sleep pressure plus circadian rhythm). With default parameters it falls asleep around 22:40 and wakes around 7:50, with no timetable.
 
 ```mermaid
 stateDiagram-v2
@@ -88,7 +88,7 @@ sequenceDiagram
   alt not now
     B-->>H: a little curiosity satisfied, back to rest
   else engage
-    loop until she stops calling tools (or finish)
+    loop until it stops calling tools (or finish)
       B->>P: system prompt + task + tools
       P-->>B: text / tool calls
       B->>G: check(capability category)
@@ -100,11 +100,11 @@ sequenceDiagram
   end
 ```
 
-The system prompt is assembled in order: personality → situation → resident memory → memory index → auto-retrieved relevant memories → the thought she wants to share → body → inner state and open loops → soul-sync perception → recent journal → other sessions.
+The system prompt is assembled in order: personality → situation → resident memory → memory index → auto-retrieved relevant memories → the thought it wants to share → body → inner state and open loops → soul-sync perception → recent journal → other sessions.
 
-**She sets the pace**: there is no step limit. Runaway protection comes from two no-progress idle walls (model call 90 s, session 120 s) and the emergency stop.
+**It sets the pace**: there is no step limit. Runaway protection comes from two no-progress idle walls (model call 90 s, session 120 s) and the emergency stop.
 
-**Sessions**: conversations belong to sessions; one session is processed in order, different sessions in parallel, and sessions can see each other (the system prompt includes other sessions' recent activity and turns in progress). A message sent while she works is an **interjection** by default, or can be **queued** or **interrupt**.
+**Sessions**: conversations belong to sessions; one session is processed in order, different sessions in parallel, and sessions can see each other (the system prompt includes other sessions' recent activity and turns in progress). A message sent while it works is an **interjection** by default, or can be **queued** or **interrupt**.
 
 ## Memory: unbounded storage, bounded context
 
@@ -117,7 +117,7 @@ Storage has no cap; only a small part enters the context each time (text-structu
 | Journal | One file per body per day | Recent days' excerpts (about 3000 chars) |
 | Auto retrieval | All of the above | Current topic as query, BM25-style scoring, most relevant fragments (about 3000 chars) |
 
-While dreaming she moves detail from resident memory into notes and tidies the tree so it stays easy to find.
+While dreaming it moves detail from resident memory into notes and tidies the tree so it stays easy to find.
 
 ## Provider layer
 

@@ -5,12 +5,12 @@ description: Create the bot with one tap, bind yourself, then do everything from
 
 ## What it gives you
 
-With Feishu connected she has a second place to talk to you. Everything in Feishu happens through **interactive cards**; no commands.
+With Feishu connected it has a second place to talk to you. Everything in Feishu happens through **interactive cards**; no commands.
 
-- The direct chat receives a **"Now" card**: state, drives, the thought she wants to share.
-- Chat: just message the bot. If she is working, your message is merged as an interjection by default.
+- The direct chat receives a **"Now" card**: state, drives, the thought it wants to share.
+- Chat: just message the bot. If it is working, your message is merged as an interjection by default.
 - Approvals, permissions, pause and emergency stop are card buttons that call the same operations layer as the app.
-- Messages she sends when waking on her own are marked "💭 proactive".
+- Messages it sends when waking on its own are marked "💭 proactive".
 
 ## One-tap setup
 
@@ -41,10 +41,10 @@ The bot is named after the agent's display name and the person who performed the
 
 ## Chatting in Feishu
 
-- Just send messages. Her reply comes within the turn in progress; messages received while she is working get a reaction emoji and are merged before the next model call.
+- Just send messages. Its reply comes within the turn in progress; messages received while it is working get a reaction emoji and are merged before the next model call.
 - Send **`/new [title]`** to start a new session.
-- Images and files are downloaded through Feishu's message-resource API and handed to her as attachments.
-- When she asks for a password or key she sends a **secret input** card (see [Passing secrets](/docs/guide/secrets)). Feishu does not let bots recall your messages, so **recall the ones containing secrets yourself** afterwards.
+- Images and files are downloaded through Feishu's message-resource API and handed to it as attachments.
+- When it asks for a password or key it sends a **secret input** card (see [Passing secrets](/docs/guide/secrets)). Feishu does not let bots recall your messages, so **recall the ones containing secrets yourself** afterwards.
 
 ## Optional: bot menu
 

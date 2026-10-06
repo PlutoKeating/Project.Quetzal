@@ -1,6 +1,6 @@
 ---
 title: First steps
-description: The first ten minutes after installing: configure a model, name her, poke her, chat a little, then watch her wake up on her own.
+description: The first ten minutes after installing: configure a model, name it, poke it, chat a little, then watch its wake up on its own.
 ---
 
 ## Checklist :white_check_mark:
@@ -8,8 +8,8 @@ description: The first ten minutes after installing: configure a model, name her
 - [ ] Configure at least one model provider and key
 - [ ] Give the agent a name and a theme color
 - [ ] Glance at the permissions
-- [ ] Poke her, or chat a little
-- [ ] Wait in **Flow** for her first self-initiated wake-up
+- [ ] Poke it, or chat a little
+- [ ] Wait in **Flow** for its first self-initiated wake-up
 
 ## 1. Configure a model
 
@@ -25,35 +25,36 @@ To add several keys, pick models by hand, reorder or use a custom API URL, tap *
 Details in [Models and providers](/docs/guide/models).
 
 > [!TIP]
-> Once a model is configured she starts waking at her own rhythm. With no model she never wakes: the guard holds her wake rate at zero.
+> Once a model is configured it starts waking at its own rhythm. With no model it never wakes: the guard holds its wake rate at zero.
 
 ## 2. Identity
 
-On **Control**, tap her name at the top → **Identity**: a display name, a theme color, a one-line description. The app's wording and colors follow. Identity is written to her soul directory, and once a soul repository is connected it syncs to every body. See [Identity](/docs/guide/identity).
+On **Control**, tap its name at the top → **Identity**: a display name, a theme color, a one-line description. The app's wording and colors follow. Identity is written to its soul directory, and once a soul repository is connected it syncs to every body. See [Identity](/docs/guide/identity).
 
 ## 3. Permissions
 
-**Control → Permissions**: camera, microphone, location and screen control default to "ask". When she wants to use one she sends you a request, shown at the top of this page, and acts only after you approve. Switch to "allow" once you are comfortable. See [Permissions and safety](/docs/guide/permissions).
+**Control → Permissions**: camera, microphone, location and building tools default to "ask". When it wants to use one it sends you a request, shown at the top of this page, and acts only after you approve. Switch to "allow" once you are comfortable. See [Permissions and safety](/docs/guide/permissions).
 
-## 4. Poke her, chat a little
+## 4. Poke it, chat a little
 
 The **Now** page has two entry points:
 
-- **Poke**: raises her longing and curiosity and immediately re-samples the next wake-up, without forcing one.
-- **Chat**: a message wakes her from sleep. While she replies you watch what she does in real time (which tools she calls, what she writes). If you send another message while she is working, it is merged into the current turn as an **interjection** by default; you can also queue it or interrupt.
+- **Poke**: raises its longing and curiosity and immediately re-samples the next wake-up, without forcing one.
+- **Chat**: a message wakes it from sleep. While it replies you watch what it does in real time (which tools it calls, what it writes). If you send another message while it is working, it is merged into the current turn as an **interjection** by default; you can also queue it or interrupt.
 
 ## 5. Watch the first wake-up
 
-**Flow** is her timeline: every wake-up, dream and conversation leaves an entry. Expand one to see the trigger (why, and what she intended), the process, the journal entry and her mood.
+**Flow** is its timeline: every wake-up, dream and conversation leaves an entry. Expand one to see the trigger (why, and what it intended), the process, the journal entry and its mood.
 
-When she wakes is decided by drives and alertness. While awake, a drive $d$ approaches 1 with time constant $\tau$:
+When it wakes is decided by drives and alertness. While awake, a drive $d$ approaches 1 with time constant $\tau$:
 
 $$d' = 1 - (1-d)\,e^{-\Delta t/\tau}$$
 
-The wake rate grows with the square of the weighted mean drive, times alertness and an inhibition factor. So for the first hour or two after installation, with nothing having happened yet, she may stay quiet as if observing. Let her speak first.
+The wake rate grows with the square of the weighted mean drive, times alertness and an inhibition factor. So for the first hour or two after installation, with nothing having happened yet, it may stay quiet as if observing. Let it speak first.
 
 ## Next
 
-- Let her talk to you in Feishu: [Feishu](/docs/guide/feishu)
-- Give her personality and memory a home, and let her live in several bodies: [Soul sync](/docs/guide/soul-sync)
-- Understand how she works inside: [Architecture](/docs/reference/architecture)
+- See what it will do over the next month: [A month in](/docs/start/first-month)
+- Let it talk to you in Feishu: [Feishu](/docs/guide/feishu)
+- Give its personality and memory a home, and let it live in several bodies: [Soul sync](/docs/guide/soul-sync)
+- Understand how it works inside: [Architecture](/docs/reference/architecture)

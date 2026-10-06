@@ -22,7 +22,7 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | quick model | 内省模型 | A cheap model used on waking for the "do I feel like acting?" check |
 | dream | 做梦 | A wake-up during sleep that consolidates memory (moving detail from resident memory into notes) |
 | session | 会话 | A container for a conversation; processed in order within, in parallel across, visible to each other |
-| steer / queue / interrupt | 插话 / 排队 / 打断 | Three ways a message is handled while she is working |
+| steer / queue / interrupt | 插话 / 排队 / 打断 | Three ways a message is handled while it is working |
 | idle wall | 时间墙 | No-progress timers: 90 s per model call, 120 s per session |
 | soul | 灵魂 | The agent's personality and memory (`SOUL.md`, resident memory, journal, notes, identity) |
 | soul directory | 灵魂目录 | Local `QUETZAL_HOME/soul/`, a git repository |
@@ -53,9 +53,9 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | web console | 网页控制台 | The console as a web page, served by the runtime's gateway (`http://127.0.0.1:7788/`) and laid out for a wide screen; installed on Linux machines by the npm package |
 | start (ignite) | 启动 | The app starting its own foreground service again (the runtime built into the app) when the runtime is offline; the **Start** button on the offline banner |
 | safe mode | 安全模式 | Protective state after more than five starts in ten minutes: gateway and Feishu only |
-| Now | 此刻 | The app's home page: state, drives, the thought she wants to share |
+| Now | 此刻 | The app's home page: state, drives, the thought it wants to share |
 | Flow | 心流 | The app's timeline page: wake-ups, dreams, conversations |
-| proactive message | 主动消息 | A message she sends with `send_message` when waking on her own |
+| proactive message | 主动消息 | A message it sends with `send_message` when waking on its own |
 | hands | hands | The reserved screen-and-apps interface (not yet implemented) |
 | body interface | 身体接口 | The body abilities (sensors, notifications, camera, microphone, location…) the Quetzal app serves locally to its built-in runtime; token-only, address and token in `secrets/body.json` |
 | home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives; default `files/home/quetzal` in the app's data directory on Android (`~/quetzal` for older Termux installs) and `~/.quetzal` on Linux, overridable |

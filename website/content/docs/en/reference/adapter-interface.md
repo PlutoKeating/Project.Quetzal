@@ -69,7 +69,7 @@ interface BodyAdapter {
 
 - `startSenses` calls `sample()` periodically, adapting between 2 and 10 minutes, and never calls a model.
 - Readings join OS information in the body twin, derive body feelings, and produce sense events by comparison with the previous sample; events adjust drives and trigger re-sampling.
-- `extra` appears verbatim in the "body" section she sees.
+- `extra` appears verbatim in the "body" section it sees.
 
 ## The Android adapter (`runtime/adapters/android/`, built as `dist/android.mjs`)
 

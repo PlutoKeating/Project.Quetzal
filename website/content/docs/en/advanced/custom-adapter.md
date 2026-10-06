@@ -43,7 +43,7 @@ export default adapter;
 
 | Member | Required | Notes |
 |---|---|---|
-| `name` / `describe` | yes | `describe` is one sentence about this body, written into her self-image |
+| `name` / `describe` | yes | `describe` is one sentence about this body, written into its self-image |
 | `sample()` | yes | One physical sample; every field optional: report what you have |
 | `init()` | no | Called once at start |
 | `notify()` | no | Local system notification; without it pairing codes can only be read from the token file |

@@ -56,14 +56,14 @@ The script's source is [`cli/install.sh`](https://github.com/PlutoKeating/Projec
 
 ### Command sandbox
 
-The commands she runs (shell, custom tools) run in a sandbox and cannot see the runtime's secrets (model keys, tokens, deploy keys). The install script prepares one in this order:
+The commands it runs (shell, custom tools) run in a sandbox and cannot see the runtime's secrets (model keys, tokens, deploy keys). The install script prepares one in this order:
 
 1. **bubblewrap**, installed with the machine's package manager (every major distribution has it).
 2. **Ubuntu 23.10 and later** restrict "unprivileged user namespaces" with AppArmor by default, so bubblewrap cannot create a sandbox. The script asks for your administrator password once and installs a Quetzal-only copy of bubblewrap with an AppArmor profile that applies only to it (`/usr/local/lib/quetzal/bwrap`, `/etc/apparmor.d/quetzal-bwrap`); the system bubblewrap and this system protection are left alone, and both are removed on uninstall.
 3. **Still not possible** (the kernel forbids it, or inside a container): the kernel's own **Landlock** is used instead, through the landrun launcher downloaded and verified against the release signature; no administrator rights needed.
 4. **Otherwise**: proot on Debian / Ubuntu (best-effort isolation).
 
-When none is available the runtime **refuses to run her commands**, so they cannot read the secrets; the console's **Control → Advanced → Runtime** page explains why. Add a sandbox and rerun the install command. If you really need to, you can explicitly turn on running without isolation there (unsafe).
+When none is available the runtime **refuses to run its commands**, so they cannot read the secrets; the console's **Control → Advanced → Runtime** page explains why. Add a sandbox and rerun the install command. If you really need to, you can explicitly turn on running without isolation there (unsafe).
 
 ### 1.1 Just the npm package: `npx @plutokeating/quetzal`
 

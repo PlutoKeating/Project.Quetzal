@@ -19,9 +19,10 @@ Every console shows which body is talking with you right now; what you say to th
 
 ## What you need
 
-1. **A sync service** that lets bodies find each other and relays when no direct path exists. It stores no conversations or memory — only accounts, agents and body registrations. By default the official one operated by this project is used; you can also host it yourself (`sync/` in the repository, one Linux server with a public address, one command), see [sync/README](https://github.com/PlutoKeating/Project.Quetzal/blob/main/sync/README.md).
+1. **A sync service** that lets bodies find each other and relays when no direct path exists. It stores no conversations or memory — only accounts, agents and body registrations. By default the official one run personally by this project's author is used; you can also host it yourself (`sync/` in the repository, one Linux server with a public address, one command), see [sync/README](https://github.com/PlutoKeating/Project.Quetzal/blob/main/sync/README.md).
 2. **A soul repository** connected on every body (see [Soul sync](/docs/guide/soul-sync)). The public keys the bodies use to verify each other are registered there — it is the root of trust, so even a compromised sync service cannot impersonate your bodies.
-3. **A GitHub account** to sign in and approve bodies on the sync service's website.
+3. **A GitHub account** to sign in and approve bodies on the sync service's website. The GitHub app you install at sign-in can manage the repositories you chose; see [Trust and limits](/docs/guide/trust#what-the-github-app-can-do).
+4. **The same version** on every body. 1.0.3 changed the protocol bodies use to connect, so bodies on different versions cannot connect, and the timeline says "Upgrade both sides to the same version to connect".
 
 ## Signing in a body
 

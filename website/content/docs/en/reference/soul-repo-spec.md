@@ -31,7 +31,7 @@ This page summarizes the [Soul Repository Specification v12](https://github.com/
 └── locks/consolidation.json   optional  consolidation lease
 ```
 
-Extra top-level entries **may** appear (things she put there herself); implementations must not delete them. Missing fixed and required entries are **filled in automatically** on connection as one commit. UTF-8, LF, no file over 1 MiB, no binaries.
+Extra top-level entries **may** appear (things it put there itself); implementations must not delete them. Missing fixed and required entries are **filled in automatically** on connection as one commit. UTF-8, LF, no file over 1 MiB, no binaries.
 
 ## File formats
 

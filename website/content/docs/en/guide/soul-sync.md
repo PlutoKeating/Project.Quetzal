@@ -11,25 +11,38 @@ One agent can live in several "bodies" at once: a runtime on a phone, a computer
 <agent>.soul/
 ├── agent.json            identity
 ├── SOUL.md               personality
-├── memories/MEMORY.md    her own resident notes
-├── memories/USER.md      what she knows about you
+├── memories/MEMORY.md    its own resident notes
+├── memories/USER.md      what it knows about you
 ├── journal/<body>/        each body writes its own journal
 ├── notes/                shared long-term notes (a tree)
 └── bodies/<body>.json     body registry
 ```
 
-**Sync and versioning are fully automatic.** She neither needs to nor can operate it; she only perceives that "soul sync happened".
+**Sync and versioning are fully automatic.** It neither needs to nor can operate it; it only perceives that "soul sync happened".
 
-## Connecting in the console
+## Set up automatically when you sign in with GitHub
 
-1. Create a **private** repository on GitHub (recommended name `<agent>.soul`); it can be empty.
+In the setup wizard or under **Control → Devices**, tap **Sign in with GitHub** and approve this device on the website. The first time you sign in, GitHub asks you to install the Quetzal app and choose which repositories it can manage. After that:
+
+- **A new user**: a private repository is created under your account, this device gets a deploy key of its own, and its initial soul is pushed.
+- **A new device for an existing user**: this device gets a deploy key and pulls down its existing personality and memory.
+
+For what this app can do and how to take it back, see [Trust and limits](/docs/guide/trust#what-the-github-app-can-do).
+
+## Connecting your own repository by hand
+
+If you do not sign in, or you want a git host other than GitHub:
+
+1. Create a **private** repository on your git host (recommended name `<agent>.soul`); it can be empty.
 2. **Control → Advanced → Sync**, tap **Show public key** under **Soul repository**, then add that key under the repository's **Settings → Deploy keys** with **Allow write access** ticked. (Instead of **Deploy key** you can pick **a specified private key** or **system ssh**: the latter hands over to `~/.ssh/config` and ssh-agent on the machine running the runtime, and the address may use a Host alias from that config; since the runtime runs as a background service it usually cannot reach your login session's ssh-agent, so set an IdentityFile for that Host.)
-3. Enter the repository's **SSH address** (`git@github.com:you/<agent>.soul.git`) → **Save**.
+3. Enter the repository's **SSH address** (`git@github.com:you/<agent>.soul.git`; other hosts work the same way) → **Save**.
 
 From then on sync is automatic. Each body has its own deploy key; to unplug a body, delete its deploy key.
 
 > [!IMPORTANT]
 > The repository must be private and the address must be SSH. On first connection, if another body's personality already lives there, it is adopted and both sides' memories are merged.
+>
+> Quetzal does not check what is in the repository: whatever it writes gets committed. For passwords, use [Passing secrets](/docs/guide/secrets); they never enter the repository.
 
 ## When sync happens
 
@@ -65,13 +78,13 @@ Sync is entirely event-driven; there is no periodic sync:
 
 Dreaming rewrites resident memory. To keep two bodies from consolidating at the same time, a body takes a 30-minute **consolidation lease** in the repository before dreaming; if it cannot, it only naps.
 
-## She perceives it
+## It perceives it
 
-When changes from other bodies are pulled, the timeline records "soul sync: n changes from xx", her curiosity and longing rise slightly, and the system prompt gains a "soul sync (perception)" section (including changes still waiting to be pushed and conflict copies awaiting a decision). Everyday sync needs nothing from the agent; only push failures and real conflicts are brought to its attention.
+When changes from other bodies are pulled, the timeline records "soul sync: n changes from xx", its curiosity and longing rise slightly, and the system prompt gains a "soul sync (perception)" section (including changes still waiting to be pushed and conflict copies awaiting a decision). Everyday sync needs nothing from the agent; only push failures and real conflicts are brought to its attention.
 
 ## History and revert
 
-**Control → Advanced → Memory history** lists every commit (which body, when, what changed) with diffs. **Revert** creates a reverse commit (history is kept), syncs to all bodies, and she learns from her journal that "someone reverted a memory change".
+**Control → Advanced → Memory history** lists every commit (which body, when, what changed) with diffs. **Revert** creates a reverse commit (history is kept), syncs to all bodies, and it learns from its journal that "someone reverted a memory change".
 
 ## Related
 
