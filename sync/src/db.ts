@@ -6,7 +6,7 @@ import { now, sha256 } from "./util.ts";
 
 export interface User { id: number; github_id: number; login: string; name: string; created: number; last_login: number }
 /** agent 登记按账户隔离：(账户, agent id) 唯一。agent id 不是秘密，若全局唯一，别人知道了就能抢先占住。id 是内部行号。 */
-export interface Agent { id: number; user_id: number; agent_id: string; name: string; created: number }
+export interface Agent { id: number; user_id: number; agent_id: string; name: string; created: number; soul_repo: string }
 export interface Body { agent: number; body: string; kind: string; node_key: string; version: string; created: number; last_seen: number }
 /** 会话：网页登录（Cookie）或控制台登录（运行基座代 App 持有的 Bearer 令牌；label 为发起它的身体，agent 为那具身体所属 agent 的内部编号，
  *  1.0.1 建的旧行为 null）。id 是令牌的 SHA-256。created 用来限制绝对寿命（MAX_SESSION_DAYS），不随续期改变。 */
@@ -14,6 +14,11 @@ export interface Session { id: string; user_id: number; expires: number; kind: "
 export interface DeviceCode {
   id: string; user_code: string; agent_id: string; agent_name: string; body: string; kind: string; node_key: string; version: string;
   created: number; expires: number; last_poll: number; status: "pending" | "approved" | "denied"; user_id: number | null;
+  /** 1.1：身体申请时登记的部署公钥（ssh-ed25519，可为空）；批准后链接灵魂仓库的进展（'' | pending | done | failed）、仓库与失败原因。
+   *  agent_id 为空表示身体还不知道自己属于哪个 agent（新装的灵魂桥），由批准的人选。 */
+  soul_key: string; soul_status: "" | "pending" | "done" | "failed"; soul_repo: string; soul_error: string;
+  /** 链接票据的 SHA-256：批准时发给批准者（网页或 App），凭它走 /soul/link，不依赖浏览器里的登录会话。 */
+  soul_ticket: string;
 }
 
 /** 会话无论怎么续期，自创建起最长有效天数。 */
@@ -56,6 +61,15 @@ export function openDb(dataDir: string) {
     ALTER TABLE sessions ADD COLUMN last_used INTEGER NOT NULL DEFAULT 0;`);
   // 1.0.2：控制台登录记下身体所属的 agent（解绑时一并作废）；旧行没有创建时间的，从升级这一刻起算绝对寿命
   if (!cols.has("agent")) db.exec("ALTER TABLE sessions ADD COLUMN agent INTEGER");
+  // 1.1：身体申请时带上部署公钥，批准后经 GitHub App 链接灵魂仓库；agent 记下它的灵魂仓库
+  const codeCols = new Set((db.prepare("PRAGMA table_info(device_codes)").all() as { name: string }[]).map((c) => c.name));
+  if (!codeCols.has("soul_key")) db.exec(`ALTER TABLE device_codes ADD COLUMN soul_key TEXT NOT NULL DEFAULT '';
+    ALTER TABLE device_codes ADD COLUMN soul_status TEXT NOT NULL DEFAULT '';
+    ALTER TABLE device_codes ADD COLUMN soul_repo TEXT NOT NULL DEFAULT '';
+    ALTER TABLE device_codes ADD COLUMN soul_error TEXT NOT NULL DEFAULT '';
+    ALTER TABLE device_codes ADD COLUMN soul_ticket TEXT NOT NULL DEFAULT '';`);
+  const agentCols = new Set((db.prepare("PRAGMA table_info(agents)").all() as { name: string }[]).map((c) => c.name));
+  if (!agentCols.has("soul_repo")) db.exec("ALTER TABLE agents ADD COLUMN soul_repo TEXT NOT NULL DEFAULT ''");
   db.prepare("UPDATE sessions SET created = ? WHERE created = 0").run(now());
   const q = <T>(sql: string) => { const s = db.prepare(sql); return { get: (...a: any[]) => s.get(...a) as T | undefined, all: (...a: any[]) => s.all(...a) as T[], run: (...a: any[]) => s.run(...a) }; };
 
@@ -93,8 +107,13 @@ export function openDb(dataDir: string) {
       version = excluded.version, created = excluded.created, last_seen = excluded.last_seen`),
     seenBody: q("UPDATE bodies SET last_seen = ?, version = ? WHERE agent = ? AND body = ?"),
     deleteBody: q("DELETE FROM bodies WHERE agent = ? AND body = ?"),
-    insertCode: q(`INSERT INTO device_codes (id, user_code, agent_id, agent_name, body, kind, node_key, version, created, expires)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    insertCode: q(`INSERT INTO device_codes (id, user_code, agent_id, agent_name, body, kind, node_key, version, created, expires, soul_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    codeAgent: q("UPDATE device_codes SET agent_id = ?, agent_name = ? WHERE id = ? AND status = 'pending'"),
+    codeSoul: q("UPDATE device_codes SET soul_status = ?, soul_repo = ?, soul_error = ?, expires = max(expires, ?) WHERE id = ?"),
+    agentSoulRepo: q("UPDATE agents SET soul_repo = ? WHERE id = ?"),
+    codeTicket: q("UPDATE device_codes SET soul_ticket = ? WHERE id = ?"),
+    codeByTicket: q<DeviceCode>("SELECT * FROM device_codes WHERE soul_ticket = ? AND soul_ticket != ''"),
     codeById: q<DeviceCode>("SELECT * FROM device_codes WHERE id = ?"),
     codeByUser: q<DeviceCode>("SELECT * FROM device_codes WHERE user_code = ?"),
     pollCode: q("UPDATE device_codes SET last_poll = ? WHERE id = ?"),
@@ -167,8 +186,15 @@ export function openDb(dataDir: string) {
     }),
 
     /** 设备码：库里只存设备码的 SHA-256；短码要给人看，明文存，有效期 15 分钟。 */
-    insertCode: (deviceCode: string, user: string, c: Pick<DeviceCode, "agent_id" | "agent_name" | "body" | "kind" | "node_key" | "version">, expires: number) =>
-      s.insertCode.run(sha256(deviceCode), user, c.agent_id, c.agent_name, c.body, c.kind, c.node_key, c.version, now(), expires),
+    insertCode: (deviceCode: string, user: string, c: Pick<DeviceCode, "agent_id" | "agent_name" | "body" | "kind" | "node_key" | "version"> & { soul_key?: string }, expires: number) =>
+      s.insertCode.run(sha256(deviceCode), user, c.agent_id, c.agent_name, c.body, c.kind, c.node_key, c.version, now(), expires, c.soul_key ?? ""),
+    /** 还没指定 agent 的码（新装的灵魂桥）：批准时由人选定。 */
+    setCodeAgent: (id: string, agentId: string, name: string) => s.codeAgent.run(agentId, name, id),
+    /** 链接灵魂仓库的进展；进行中时把码的有效期延到至少 extendTo（人在 GitHub 上授权、安装要一点时间）。 */
+    setCodeSoul: (id: string, status: DeviceCode["soul_status"], repo = "", error = "", extendTo = 0) => s.codeSoul.run(status, repo, error.slice(0, 300), extendTo, id),
+    setAgentSoulRepo: (id: number, repo: string) => s.agentSoulRepo.run(repo, id),
+    setCodeTicket: (id: string, ticket: string) => s.codeTicket.run(sha256(ticket), id),
+    codeByTicket: (ticket: string) => s.codeByTicket.get(sha256(ticket)),
     codeByDevice: (deviceCode: string) => s.codeById.get(sha256(deviceCode)),
     codeByUser: (user: string) => s.codeByUser.get(user),
     pollCode: (id: string) => s.pollCode.run(now(), id),

@@ -23,6 +23,14 @@ export function normalizeUserCode(input: string) {
   return `${s.slice(0, 4)}-${s.slice(4)}`;
 }
 
+/** 核对词：从设备码的哈希取 3 个表情（64 选 3，约 18 位）。身体在发给人的消息里给出，批准页显示同样的 3 个，人一眼比对：
+ *  别人发来的钓鱼链接对不上自己的 agent 刚说的那 3 个。不是秘密，也不参与认证。 */
+const CHECK_EMOJI = [..."🦊🐳🦉🐢🦋🐝🐙🦔🐧🦄🐌🦀🐬🦜🐞🦩🌙⭐🌈🔥🌊🍀🌵🌻🍄🌸🍎🍋🍇🍑🥝🍵☕🎈🎵🎲🧩🔑🔔📚🎨🧭⏰🚲⛵🚀🏔🌋🏝🎪🧸🪁🕯💎🧲🔭🪐🌍🍯🥐🧀🍩🍉🌰"];
+export function checkWords(idHex: string): string {
+  const b = Buffer.from(idHex.slice(0, 6), "hex");
+  return [b[0] % 64, b[1] % 64, b[2] % 64].map((i) => CHECK_EMOJI[i]).join("");
+}
+
 /** 节点公钥（ed25519，32 字节，base64url）的指纹：原始公钥字节的 SHA-256 前 16 个十六进制字符，4 个一组。身体在本机显示同样的指纹，给人核对。 */
 export const fingerprint = (nodeKey: string) =>
   crypto.createHash("sha256").update(Buffer.from(nodeKey, "base64url")).digest("hex").slice(0, 16).replace(/(.{4})(?!$)/g, "$1 ");

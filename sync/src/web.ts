@@ -13,7 +13,9 @@ import type { Hub } from "./hub.ts";
 import type { Sessions } from "./auth.ts";
 import type { DeviceCode } from "./db.ts";
 import { check, decide } from "./device.ts";
-import { fingerprint } from "./util.ts";
+import { fingerprint, checkWords, randomToken } from "./util.ts";
+import { sshFingerprint } from "./github-app.ts";
+import type { Auth } from "./app.ts";
 
 /** 按短码找待批准的码：先看次数限制，找不到（含已过期）计入输错次数。由 app.ts 提供（它持有限流器与客户端地址）。 */
 export type FindCode = (c: Context, userId: number, input: unknown) => { code: DeviceCode } | { error: "too_many" | "bad_code" };
@@ -23,14 +25,14 @@ const json = <T extends z.ZodType>(schema: T) => async (c: Context): Promise<z.i
   return r.success ? r.data : undefined;
 };
 const CodeBody = json(z.object({ code: z.string().max(20) }));
-const DecideBody = json(z.object({ code: z.string().max(20), approve: z.boolean() }));
+const DecideBody = json(z.object({ code: z.string().max(20), approve: z.boolean(), agent: z.string().max(64).optional() }));
 const BodyRef = json(z.object({ agent: z.string().max(64), body: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/) }));
 const AgentRef = json(z.object({ agent: z.string().max(64) }));
 const Empty = json(z.object({}));
 const Confirm = json(z.object({ confirm: z.literal(true) }));
 const ConsoleRef = json(z.object({ id: z.string().regex(/^[0-9a-f]{16}$/) }));
 
-export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; sessions: Sessions; findCode: FindCode; loginEnabled: boolean }) {
+export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; sessions: Sessions; findCode: FindCode; auth: Auth }) {
   const { db, cfg, hub, sessions, findCode } = deps;
   const origins = new Set([cfg.publicUrl, ...(cfg.webUrl ? [cfg.webUrl] : [])]);
 
@@ -56,7 +58,7 @@ export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; 
   /** 登录状态：前端据此显示「用 GitHub 登录」或账户。 */
   app.get("/v1/web/session", (c) => {
     const u = user(c);
-    return c.json({ loginEnabled: deps.loginEnabled, user: u ? { login: u.login, name: u.name } : null });
+    return c.json({ loginEnabled: !!deps.auth.github, user: u ? { login: u.login, name: u.name } : null });
   });
 
   /** 账户：agent 与各自的身体（不含令牌，公钥只给指纹）。 */
@@ -94,6 +96,11 @@ export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; 
       body: code.body, kind: code.kind, version: code.version, fingerprint: fp,
       replaces: d.replaces, newAgent: d.newAgent, createdAt: code.created, expires: code.expires,
       ...(d.body ? { bodyFingerprint: fp, bodyBoundAt: d.body.created } : {}),
+      check: checkWords(code.id),
+      // 带部署公钥的身体：批准后在同一个标签页经 GitHub 跳一次，把这把公钥加到灵魂仓库（只加这一把，这里给人看它的指纹）
+      ...(code.soul_key ? { soulKey: sshFingerprint(code.soul_key), soulLink: !!deps.auth.soul } : {}),
+      // 身体没说属于哪个 agent：让人选（或新建）
+      ...(d.choose ? { choose: db.agentsOf(u.id).map((a) => ({ id: a.agent_id, name: a.name, repo: a.soul_repo })) } : {}),
     });
   });
 
@@ -104,9 +111,13 @@ export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; 
     if (!p) return c.json({ error: "bad_request" }, 400);
     const f = findCode(c, u.id, p.code);
     if ("error" in f) return c.json({ error: f.error }, f.error === "too_many" ? 429 : 404);
-    const d = decide(db, cfg, f.code, u.id, p.approve);
-    if (!d.ok) return c.json({ error: d.error }, d.error === "bad_code" ? 404 : 409);
-    return c.json({ ok: true, approved: p.approve });
+    const soulLinkable = !!deps.auth.soul && !!f.code.soul_key;
+    const d = decide(db, cfg, f.code, u.id, p.approve, { agent: p.agent, soulLinkable });
+    if (!d.ok) return c.json({ error: d.error }, d.error === "bad_code" ? 404 : d.error === "bad_agent" ? 400 : 409);
+    // 还要链接灵魂仓库：前端（网页或 App）把人带到这个地址，同一个标签页经 GitHub 跳一次就回来
+    let next: string | undefined;
+    if (p.approve && soulLinkable) { const ticket = randomToken("qsl_"); db.setCodeTicket(f.code.id, ticket); next = `${cfg.publicUrl}/soul/link?t=${ticket}`; }
+    return c.json({ ok: true, approved: p.approve, ...(next ? { next } : {}) });
   });
 
   app.post("/v1/web/bodies/remove", async (c) => {

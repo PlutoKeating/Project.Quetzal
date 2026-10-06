@@ -30,12 +30,15 @@ sequenceDiagram
 
 | 字段 | 规则 |
 |---|---|
-| `agent.id` | `agent.json` 的 `id`（UUID） |
+| `agent.id` | `agent.json` 的 `id`（UUID）。**可以不给**：新装的灵魂桥还读不到灵魂仓库、不知道自己属于哪个 agent，由批准的人选定（或新建），见 §2.1 |
 | `agent.name` | 显示名，1–80 字符 |
 | `body` | `^[a-z0-9][a-z0-9-]{0,39}$`，与灵魂仓库里的身体名相同 |
 | `kind` | `runtime`（运行基座）或 `bridge`（灵魂桥，只读成员） |
 | `nodeKey` | §1 |
 | `version` | 身体的软件版本，最长 32 字符 |
+| `soulKey` | 可选。这具身体的部署公钥（`ssh-ed25519 …`，注释会去掉）：批准后加到灵魂仓库，见 §2.1 |
+
+返回里另有 `check`：3 个表情组成的**核对词**（由设备码的哈希决定）。身体把它和链接一起交给人，批准页显示同样的 3 个——别人发来的钓鱼链接对不上。它不是秘密，也不参与认证。
 
 - `/v1/device/token` 的错误：`authorization_pending`（还没批准）、`slow_down`（轮询太快，间隔加 5 秒）、`access_denied`（被拒绝）、`expired_token`（15 分钟过期，需要重新开始）、`invalid_grant`（设备码不存在或已经用过）。
 - 令牌（`access_token`，`qsb_` 开头）只在批准后第一次轮询时生成并返回一次，服务端只存它的 SHA-256。身体把它存进自己的密钥目录（运行基座：`QUETZAL_HOME/secrets/sync.json`，0600；灵魂桥：`~/.agent-soul/<agent>/sync.json`）。
@@ -43,6 +46,37 @@ sequenceDiagram
 - 同一 agent 下再次绑定同名身体：新令牌生效，旧令牌立即作废，旧连接被断开。
 - 限流（客户端地址见 §5.1 末尾，IPv6 按 /64 计）：每个地址 10 分钟内最多申请 10 次绑定码（含控制台登录码）、轮询 240 次；输错短码（查询与批准都算，过期的码也算输错）每个账户 10 分钟内最多 10 次、每个地址最多 30 次，用完后一律 429，命中也不给。
 - `verification_uri` 指向网页前端（配置了 `SYNC_WEB_URL` 时为 `<前端>/device`，否则为同步服务自带的 `/device`）。
+
+### 2.1 一个链接接入：批准时顺带把部署密钥加到灵魂仓库
+
+登录与灵魂仓库共用**一个 GitHub App**（管理员在 `/setup/github-app` 用 GitHub 的「从配置清单创建」一键生成，权限只有 Administration 写与默认的 Metadata 读，凭据存在数据目录的 `github-app.json`，0600）。同步服务平时**不持有**任何能改用户仓库的权限。
+
+```mermaid
+sequenceDiagram
+  participant B as 身体（灵魂桥 / 运行基座）
+  participant S as 同步服务
+  participant U as 人（网页或 App）
+  participant G as GitHub
+  B->>S: POST /v1/device/code {…, soulKey}
+  S-->>B: {user_code, verification_uri_complete, check: "🦊🌙🍵", …}
+  B->>U: 链接 + 核对词（在对话里）
+  U->>S: 批准（核对词、身体、公钥指纹；身体没给 agent 时选一个或新建）
+  S-->>U: {next: /soul/link?t=<一次性票据>}
+  U->>S: 打开 next（同一个标签页；App 里打开外部浏览器）
+  S->>G: 用户授权（授权码 + PKCE）；没安装 App 时先去安装页，装完带新的授权码回来
+  G-->>S: /soul/callback → 短时用户令牌
+  S->>G: 核对是批准者的 GitHub 账户 → 在安装范围里找（或建）<agent>.soul → 加这一把部署密钥（可写）
+  S->>G: 吊销令牌
+  S-->>U: 回到前端 /device?soul=linked
+  B->>S: 轮询 /v1/device/token
+  S-->>B: {access_token, …, soul: {repo, remote: "git@github.com:<repo>.git"}}
+```
+
+- 批准后、链接完成之前，轮询照常返回 `authorization_pending`；码的有效期延到批准后 15 分钟。链接失败时身体仍拿到令牌，`soul` 为 `{error}`。
+- **一次性票据**（`qsl_` 开头，256 位，库里只存哈希）只在批准的响应里发给批准者，只对这一个码、只在「待链接」时有效，用过即失效；它让网页与 App 都能走这一步，不依赖浏览器里的登录会话。
+- 用户令牌只在那一次回调的内存里：核对 GitHub 数字 id 与批准者相同，只给挑出的那个仓库加码里登记的那一把公钥（批准页显示过它的 `SHA256:` 指纹），不论成败立即吊销（`DELETE /applications/{client_id}/token`）。
+- 挑仓库：agent 记下的仓库 → 安装范围里名为 `<agent 短名>.soul` 的私有仓库 → 唯一的 `*.soul` 私有仓库；有几个分不清时不猜，报错；一个都没有时以用户身份新建 `<短名>.soul`（私有）。
+- state、PKCE 的 code_verifier 与票据都放在 10 分钟的 HttpOnly Cookie 里；从安装页回来时 GitHub 不一定带 state，此时仍要求 Cookie 里的 PKCE 与票据，且令牌必须属于批准者。
 
 其他接口：
 
@@ -117,7 +151,7 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
 | GET | `/v1/web/session` | — | `{loginEnabled, user: {login, name} \| null}` |
 | GET | `/v1/web/account` | — | `{user, limits: {agents, bodies}, agents: [{id, name, created, bodies: [{body, kind, version, created, lastSeen, online, fingerprint}]}], consoles: [{id, body, created, lastUsed, current}]}`；没登录 401 |
 | POST | `/v1/web/device/lookup` | `{code}` | 待批准的码，见下；错误 `bad_code`（404：不存在或已过期，二者不区分；计入输错次数）、`too_many`（429：输错次数用完，命中也返回它）、`decided` / `too_many_agents` / `too_many_bodies` / `not_yours`（409） |
-| POST | `/v1/web/device/decide` | `{code, approve}` | `{ok, approved}`；错误同上（同样计入输错次数）；请求体不对为 400 `bad_request` |
+| POST | `/v1/web/device/decide` | `{code, approve, agent?}` | `{ok, approved, next?}`：`agent` 为身体没给 agent 时人选的 agent id 或 `"new"`（账户里已有 agent 时必须给，否则 400 `bad_agent`）；带部署公钥且配置了 GitHub App 时返回 `next`（§2.1，前端把人带过去）；错误同上（同样计入输错次数）；请求体不对为 400 `bad_request` |
 | POST | `/v1/web/bodies/remove` | `{agent, body}` | 解绑一具身体（立即断开）；不是你的或不存在为 404 |
 | POST | `/v1/web/agents/remove` | `{agent}` | 删除一个 agent 与它的所有身体 |
 | POST | `/v1/web/consoles/revoke` | `{id}` | 吊销一个控制台登录（`id` 为 `consoles[].id`） |
@@ -139,6 +173,10 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
   "newAgent": false,                // 这个 agent 第一次绑定到这个账户
   "createdAt": 1790000000000,       // 码的申请时间（毫秒）
   "expires": 1790000900000,         // 码的到期时间（毫秒）
+  "check": "🦊🌙🍵",                 // 核对词（§2），与身体给出的一致
+  "soulKey": "SHA256:…",            // 只在身体带了部署公钥时：它的指纹（与 GitHub 设置页的写法一致）
+  "soulLink": true,                 // 批准后会经 GitHub 把它加到灵魂仓库（同步服务配置了 GitHub App）
+  "choose": [{ "id": "<uuid>", "name": "…", "repo": "owner/x.soul" }], // 只在身体没给 agent 时：账户里可选的 agent（空数组表示新建）
   // 只在 kind 为 console 时：
   "bodyFingerprint": "3f2a 9c01 77be d4e0", // 发起它的那具已绑定身体的节点公钥指纹（与 fingerprint 相同），请与那具身体控制台上显示的核对
   "bodyBoundAt": 1789000000000      // 那具身体的绑定时间（毫秒）

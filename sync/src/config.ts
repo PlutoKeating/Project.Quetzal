@@ -22,6 +22,7 @@ const schema = z.object({
   SYNC_SESSION_DAYS: z.coerce.number().int().min(1).max(90).default(30), // 滑动续期；无论怎么续，会话自创建起最长 90 天
   SYNC_MAX_AGENTS_PER_USER: z.coerce.number().int().min(1).default(20),
   SYNC_MAX_BODIES_PER_AGENT: z.coerce.number().int().min(1).default(16),
+  SYNC_ADMINS: list, // 管理员的 GitHub 用户名（逗号分隔）：只有他们能在 /setup/github-app 一键创建 GitHub App
 });
 
 export type Config = ReturnType<typeof loadConfig>;
@@ -53,5 +54,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     sessionDays: c.SYNC_SESSION_DAYS,
     maxAgents: c.SYNC_MAX_AGENTS_PER_USER,
     maxBodies: c.SYNC_MAX_BODIES_PER_AGENT,
+    admins: c.SYNC_ADMINS.map((x) => x.toLowerCase()),
   };
 }

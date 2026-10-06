@@ -14,6 +14,7 @@ import type { Hub } from "./hub.ts";
 import { Sessions, beginLogin, finishLogin, type GitHubClient } from "./auth.ts";
 import { DeviceRequest, createCode, createConsoleCode, decide, check, poll } from "./device.ts";
 import { installWebApi, type FindCode } from "./web.ts";
+import { installSoulRoutes, type SoulAuth } from "./soul-link.ts";
 import { layout, pickLang, t, ago, type Lang } from "./pages.ts";
 import { RateLimiter, normalizeUserCode, fingerprint, log, clientIp as pickIp, ipKey } from "./util.ts";
 import { PROTOCOL } from "./hub.ts";
@@ -22,8 +23,11 @@ export const VERSION = "1.1.0";
 
 const TokenRequest = z.object({ device_code: z.string().min(1).max(200) });
 
-export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHubClient }) {
-  const { db, cfg, hub, github } = deps;
+/** 登录与灵魂仓库用同一个 GitHub App；管理员创建 App 之后凭据会换，所以经这个可变的持有者取用（server.ts 负责更新）。 */
+export interface Auth extends SoulAuth { github?: GitHubClient }
+
+export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
+  const { db, cfg, hub, auth } = deps;
   const sessions = new Sessions(db, cfg);
   const limits = {
     code: new RateLimiter(10, 10 * 60_000),      // 每个地址 10 分钟最多申请 10 次绑定码
@@ -54,16 +58,19 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     c.html(layout(lang(c), nonce(c), title, content, { user: sessions.user(c)?.login }), status as 200);
 
   const app = new Hono();
-  app.use("*", secureHeaders({
+  // 安全头：创建 GitHub App 的那一页要把配置清单提交到 github.com，只有它放宽 form-action；其他页面只许提交到本站
+  const headers = (formAction: string[]) => secureHeaders({
     contentSecurityPolicy: {
-      defaultSrc: ["'none'"], styleSrc: [NONCE], imgSrc: ["'self'"], formAction: ["'self'"],
+      defaultSrc: ["'none'"], styleSrc: [NONCE], imgSrc: ["'self'"], formAction,
       frameAncestors: ["'none'"], baseUri: ["'none'"],
     },
     strictTransportSecurity: cfg.secure ? "max-age=31536000; includeSubDomains" : false,
     referrerPolicy: "no-referrer",
     crossOriginResourcePolicy: "same-site", // 网页前端与同步服务同站不同源（/v1/web/* 经 CORS 读取）
     permissionsPolicy: { camera: [], microphone: [], geolocation: [] },
-  }));
+  });
+  const normal = headers(["'self'"]), setup = headers(["https://github.com"]);
+  app.use("*", (c, next) => (c.req.path === "/setup/github-app" ? setup(c, next) : normal(c, next)));
   // 网页表单的 POST 只接受来自本站的请求（Origin 与 Sec-Fetch-Site 二者之一通过即可）；配合 SameSite=Lax 的会话 Cookie。
   // /v1/* 不用 Cookie（令牌在请求体或 Authorization 头里），不存在 CSRF，身体的请求也不带 Origin
   const csrfCheck = csrf({ origin: cfg.publicUrl });
@@ -87,10 +94,10 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
   });
 
   // ---------- 给身体的接口
-  app.get("/v1/health", (c) => c.json({ ok: true, service: "quetzal-sync", version: VERSION, protocol: PROTOCOL, login: !!github, turn: !!cfg.turn, online: hub.count() }));
+  app.get("/v1/health", (c) => c.json({ ok: true, service: "quetzal-sync", version: VERSION, protocol: PROTOCOL, login: !!auth.github, turn: !!cfg.turn, online: hub.count() }));
 
   app.post("/v1/device/code", async (c) => {
-    if (!github) return c.json({ error: "login_disabled" }, 503);
+    if (!auth.github) return c.json({ error: "login_disabled" }, 503);
     if (!limits.code.take(clientIp(c))) return c.json({ error: "slow_down" }, 429);
     const r = DeviceRequest.safeParse(await c.req.json().catch(() => null));
     if (!r.success) return c.json({ error: "invalid_request", issues: r.error.issues.map((i) => i.path.join(".")) }, 400);
@@ -116,7 +123,7 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
   /** 控制台登录：已绑定的运行基座代它的控制台（App）申请一对码，人在网页上批准后，身体用设备码轮询（/v1/device/token）拿到账户会话令牌。
    *  灵魂桥是只读成员，没有控制台，不能申请（403）。 */
   app.post("/v1/console/code", (c) => {
-    if (!github) return c.json({ error: "login_disabled" }, 503);
+    if (!auth.github) return c.json({ error: "login_disabled" }, 503);
     const b = bearer(c);
     if (!b) return c.json({ error: "unauthorized" }, 401);
     if (b.kind !== "runtime") return c.json({ error: "runtime_only" }, 403);
@@ -131,7 +138,8 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     return c.json({ ok: true });
   });
 
-  installWebApi(app, { db, cfg, hub, sessions, findCode, loginEnabled: !!github });
+  installWebApi(app, { db, cfg, hub, sessions, findCode, auth });
+  installSoulRoutes(app, { db, cfg, sessions, auth });
 
   // ---------- 给人的网页（没有配置 SYNC_WEB_URL 时；配置了时上面已跳走）
   app.get("/", (c) => {
@@ -139,25 +147,25 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; github?: GitHub
     return page(c, s.title, html`
       <h1>${s.title}</h1><p>${s.tagline}</p><p>${s.intro}</p>
       ${user ? html`<p><a class="btn primary" href="/account?lang=${lang(c)}">${s.account}</a></p>`
-        : github ? html`<p><a class="btn primary" href="/login?lang=${lang(c)}">${s.login}</a></p>`
+        : auth.github ? html`<p><a class="btn primary" href="/login?lang=${lang(c)}">${s.login}</a></p>`
         : html`<p class="note err">${s.loginDisabled}</p>`}
       <h2>${s.storesTitle}</h2><ul>${s.stores.map((x) => html`<li>${x}</li>`)}</ul>
       <h2>${s.notStoresTitle}</h2><ul>${s.notStores.map((x) => html`<li>${x}</li>`)}</ul>`);
   });
 
   app.get("/login", (c) => {
-    if (!github) return c.redirect("/");
+    if (!auth.github) return c.redirect("/");
     if (!limits.login.take(clientIp(c))) return c.text("Too many requests", 429);
-    return c.redirect(beginLogin(c, cfg, github, c.req.query("return_to") ?? (cfg.webUrl ? `${cfg.webUrl}/account` : `/account?lang=${lang(c)}`)).toString());
+    return c.redirect(beginLogin(c, cfg, auth.github, c.req.query("return_to") ?? (cfg.webUrl ? `${cfg.webUrl}/account` : `/account?lang=${lang(c)}`)).toString());
   });
 
   app.get("/auth/github/callback", async (c) => {
-    if (!github) return c.redirect("/");
+    if (!auth.github) return c.redirect("/");
     const { state, verifier, returnTo } = finishLogin(c, cfg);
     const code = c.req.query("code"), got = c.req.query("state");
     if (!state || !verifier || !code || code.length > 100 || !got || got !== state) return c.redirect(cfg.webUrl ? `${cfg.webUrl}/account?login=failed` : "/?lang=" + lang(c)); // state 不符：可能是伪造的回调，什么都不做
     try {
-      const u = await github.user(code, verifier);
+      const u = await auth.github.user(code, verifier);
       const user = db.upsertUser(u.id, u.login, u.name);
       sessions.create(c, user.id);
       return c.redirect(returnTo);

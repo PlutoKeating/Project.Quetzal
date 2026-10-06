@@ -5,18 +5,31 @@ import type { Server } from "node:http";
 import type { Config } from "./config.ts";
 import { openDb } from "./db.ts";
 import { Hub } from "./hub.ts";
-import { createApp } from "./app.ts";
+import { createApp, type Auth } from "./app.ts";
 import { githubClient, type GitHubClient } from "./auth.ts";
+import { loadApp, saveApp, soulGitHub, type AppInfo, type SoulGitHub } from "./github-app.ts";
 import { RateLimiter, clientIp, ipKey } from "./util.ts";
 
 /** 每个客户端地址同时最多几条 WebSocket（一户人家的几具身体共用一个出口地址也够用）。 */
 export const MAX_WS_PER_IP = 20;
 
-export function createSyncServer(cfg: Config, opts: { github?: GitHubClient | null } = {}) {
+export function createSyncServer(cfg: Config, opts: { github?: GitHubClient | null; soul?: SoulGitHub; fetcher?: typeof fetch } = {}) {
   const db = openDb(cfg.dataDir);
   const hub = new Hub(db, cfg);
-  const github = opts.github === null ? undefined : opts.github ?? githubClient(cfg);
-  const app = createApp({ db, cfg, hub, github });
+  // 登录与灵魂仓库用同一个 GitHub App：数据目录里有管理员一键创建的 App（github-app.json）就用它的凭据，否则用 .env 里的 OAuth App（旧部署）
+  const withApp = (a: AppInfo | undefined): Config => (a ? { ...cfg, github: { id: a.clientId, secret: a.clientSecret } } : cfg);
+  const saved = loadApp(cfg.dataDir);
+  const auth: Auth = {
+    github: opts.github === null ? undefined : opts.github ?? githubClient(withApp(saved), opts.fetcher),
+    soul: opts.soul ?? (saved ? soulGitHub(saved, opts.fetcher) : undefined),
+    fetcher: opts.fetcher,
+    onApp(a) { // 管理员刚创建了 App：保存凭据并立即换上，不用重启
+      if (cfg.dataDir !== ":memory:") saveApp(cfg.dataDir, a);
+      if (opts.github === undefined) auth.github = githubClient(withApp(a), opts.fetcher);
+      auth.soul = opts.soul ?? soulGitHub(a, opts.fetcher);
+    },
+  };
+  const app = createApp({ db, cfg, hub, auth });
   const server = createAdaptorServer({ fetch: app.fetch }) as Server;
   // 信令消息很小（SDP 与 ICE 候选），64 KiB 足够；不开压缩（避免压缩相关的放大与侧信道问题）
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
@@ -39,7 +52,7 @@ export function createSyncServer(cfg: Config, opts: { github?: GitHubClient | nu
   purge.unref();
   db.purge();
   return {
-    db, hub, app, server, github,
+    db, hub, app, server, auth, get github() { return auth.github; },
     listen: (port = cfg.port, host = cfg.host) => new Promise<number>((resolve) => server.listen(port, host, () => resolve((server.address() as { port: number }).port))),
     close: () => new Promise<void>((resolve) => {
       clearInterval(purge); hub.close(); wss.close();
