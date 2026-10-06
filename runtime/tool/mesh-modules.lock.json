@@ -12,6 +12,8 @@
     "linux-x64-gnu": { "@node-datachannel/linux-x64-gnu": { "version": "0.33.4", "integrity": "sha512-xN0x3lcQ87qwOAmf1dBLVWrYY40LQ7pM4Y9wuNjP+EtN4IwiXqrhPdgupzGAElxna+n2NgBG0gT60dZpgoYU2Q==" } },
     "linux-arm64-gnu": { "@node-datachannel/linux-arm64-gnu": { "version": "0.33.4", "integrity": "sha512-rR4yjwxpI1miLSrruLGcfR9yfw0Qebw+Twt+u+lKsL9SwmXxTm5pJhUAa9RU+c35oZ98IyAxGFjRwwq85BTbog==" } },
     "linux-x64-musl": { "@node-datachannel/linux-x64-musl": { "version": "0.33.4", "integrity": "sha512-FWqJEjL7TqOPmsqdfwmG/BUwOXQN7MfpEU8kzw6ePbglUbwgdc3976Ls9BCBUXyPgEJyLo8YE1LJyWAlbXWyvA==" } },
-    "linux-arm64-musl": { "@node-datachannel/linux-arm64-musl": { "version": "0.33.4", "integrity": "sha512-MR4o1F0aREj/AtbNlXL20YiNx8/pDI8L/5B4Vr9ldiEDottD0IOdCd0khB8fpr5Np2CW7WwU9QG+uto00QGVdw==" } }
+    "linux-arm64-musl": { "@node-datachannel/linux-arm64-musl": { "version": "0.33.4", "integrity": "sha512-MR4o1F0aREj/AtbNlXL20YiNx8/pDI8L/5B4Vr9ldiEDottD0IOdCd0khB8fpr5Np2CW7WwU9QG+uto00QGVdw==" } },
+    "win32-x64": { "@node-datachannel/win32-x64-msvc": { "version": "0.33.4", "integrity": "sha512-eU0w/9ykrNaA5vWs5gjVs3Qxa45jbQ8mYoMyh5OWnRCE5GzXKxHCpfhFUnO+jGqi0KxkyP0hSA6fiwXXkirk6g==" } },
+    "win32-arm64": { "@node-datachannel/win32-arm64-msvc": { "version": "0.33.4", "integrity": "sha512-TeDV2tSPm+qAnF6MIPlLFTIlobSYLwOVe3/wQl+8hD/q3cEPTQi7vByFaQQ5lRULKKdnjKRR5iDMsxMilqbtXA==" } }
   }
 }
