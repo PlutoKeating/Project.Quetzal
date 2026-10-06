@@ -6,6 +6,7 @@
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
+#include "mermaid_renderer.h"
 
 // 单实例（xyz.quetzal.console）：
 //   - 再次启动（例如从应用列表点开）时，新进程只把「激活」转给已经在运行的那个，然后退出；已在运行的把窗口提到最前（没有窗口就打开）。
@@ -90,6 +91,8 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+  // Mermaid 图：看不见的 WebKitGTK 渲染成 PNG（MethodChannel quetzal/mermaid）
+  mermaid_renderer_register(fl_engine_get_binary_messenger(fl_view_get_engine(view)));
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
