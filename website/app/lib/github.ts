@@ -1,6 +1,7 @@
 /**
  * GitHub Releases 客户端：下载页的唯一数据来源。
- * 不硬编码任何版本号或下载链接；匿名调用公开 API（每 IP 每小时 60 次），结果缓存在 sessionStorage 10 分钟。
+ * 不硬编码任何版本号或下载链接。每次都先问官网镜像源（它自己在边缘缓存，浏览器不再另存，刷新就是最新）；
+ * 镜像源不通、退回直连 GitHub 公开 API（每 IP 每小时 60 次）时，才用 sessionStorage 里 10 分钟内的结果省额度。
  */
 
 export const GITHUB_OWNER = "PlutoKeating";
@@ -143,17 +144,17 @@ function writeCache(data: Release[]): void {
 }
 
 export async function fetchReleases(options: { force?: boolean } = {}): Promise<Release[]> {
-  if (!options.force) {
-    const cached = readCache();
-    if (cached) return cached;
-  }
   // 先走官网自己的镜像源（/api/releases：Cloudflare 边缘缓存，资产地址已改写为 /dl/ 镜像，GitHub 连不上的网络也能用），不行再直连 GitHub
   // 镜像源的 403 / 429 是它自己对 GitHub 的额度用完了（Cloudflare 出口 IP 共享），与访客无关：照样退回直连，访客自己的额度另算
   let res: Response;
   try {
-    res = await fetch(SITE_RELEASES_API, { headers: { Accept: "application/json" } });
+    res = await fetch(SITE_RELEASES_API, { headers: { Accept: "application/json" }, cache: "no-cache" });
     if (!res.ok) throw new Error(`site ${res.status}`);
   } catch {
+    if (!options.force) {
+      const cached = readCache();
+      if (cached) return cached;
+    }
     try {
       res = await fetch(RELEASES_API, { headers: { Accept: "application/vnd.github+json" } });
     } catch {

@@ -4,7 +4,7 @@
 //                               核对通过才在 Cloudflare 边缘缓存 7 天（按 tag 不可变）；不符或没有 digest 时不缓存（见 download）。
 //   /dl/latest/android.apk     302 到最新正式发布的 APK（/dl/<tag>/<名字>）：下载页在脚本跑起来之前就有这个链接，
 //                               旧手机的浏览器跑不动页面脚本时照样能下载。
-//   /api/releases[/latest]      GitHub 发布接口的镜像（匿名 60 次 / 小时 / IP 是对 Cloudflare 出口算的，所以边缘缓存 5 分钟；
+//   /api/releases[/latest]      GitHub 发布接口的镜像（匿名 60 次 / 小时 / IP 是对 Cloudflare 出口算的，所以边缘缓存 5 分钟，浏览器不另存；
 //                               设置 Secret GITHUB_TOKEN 可提高到 5000 次 / 小时）。返回的 JSON 把每个资产的 browser_download_url
 //                               改写为上面的 /dl/ 地址，原地址放在 github_download_url，客户端先走官网、失败再退回 GitHub。
 //                               另存一份 7 天的陈旧副本：上游限流或出错时用它顶上（X-Upstream: stale），页面与 App 不至于空白。
@@ -184,12 +184,12 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
   const key = new Request(`${url.origin}${url.pathname}`, { method: "GET" });
   const staleKey = new Request(`${url.origin}${url.pathname}?stale=1`, { method: "GET" });
   const hit = await cache.match(key);
-  if (hit) return withHeaders(hit, request.method === "HEAD");
+  if (hit) return fresh(withHeaders(hit, request.method === "HEAD"));
   const upstream = `https://api.github.com/repos/${REPO}/releases${latest ? "/latest" : "?per_page=30"}`;
   const h: Record<string, string> = { "User-Agent": "quetzal-site-mirror", Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
   if (env.GITHUB_TOKEN) h.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
   // 上游失败（连不上、限流、5xx）：有陈旧副本就用它，没有才把错误原样给出去（客户端据此退回直连 GitHub）
-  const stale = async () => { const s = await cache.match(staleKey); if (!s) return undefined; const r = withHeaders(s, request.method === "HEAD"); r.headers.set("X-Upstream", "stale"); r.headers.set("Cache-Control", "public, max-age=60"); return r; };
+  const stale = async () => { const s = await cache.match(staleKey); if (!s) return undefined; const r = withHeaders(s, request.method === "HEAD"); r.headers.set("X-Upstream", "stale"); return fresh(r); };
   let res: Response;
   try { res = await fetch(upstream, { headers: h }); }
   catch (e) { return (await stale()) ?? text(502, `连不上 GitHub 接口：${(e as Error).message}`); }
@@ -214,8 +214,11 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
   const out = new Response(body, { status: 200, headers });
   const staleCopy = new Response(body, { status: 200, headers: new Headers({ ...Object.fromEntries(headers), "Cache-Control": `public, max-age=${STALE_TTL}` }) });
   ctx.waitUntil(Promise.all([cache.put(key, out.clone()), cache.put(staleKey, staleCopy)]));
-  return withHeaders(out, request.method === "HEAD");
+  return fresh(withHeaders(out, request.method === "HEAD"));
 }
+
+/** 发布接口给浏览器的响应不让浏览器另存（边缘那份 5 分钟的缓存照旧）：访客一刷新就拿到边缘上最新的一份。 */
+function fresh(res: Response): Response { res.headers.set("Cache-Control", "no-cache"); return res; }
 
 function withHeaders(res: Response, head: boolean): Response {
   const headers = cors(new Headers(res.headers));
