@@ -16,7 +16,7 @@ const { installCoordinator, coordinator } = await import("../../src/mesh/coordin
 const heart = await import("../../src/heart/heart.ts");
 const { installPlacement } = await import("../../src/mesh/placement.ts");
 const { installLimbs } = await import("../../src/mesh/limbs.ts");
-const { installShared, decideAnywhere, remoteApprovals } = await import("../../src/mesh/shared.ts");
+const { installShared, decideAnywhere, remoteApprovals, alignStatus } = await import("../../src/mesh/shared.ts");
 const guard = await import("../../src/guard/guard.ts");
 const { installChannels } = await import("../../src/mesh/channels.ts");
 const { meshHeard } = await import("../../src/voice/hearing.ts");
@@ -87,6 +87,7 @@ const cmds: Record<string, (a: any) => unknown> = {
     c.providers.push({ id: a.id, catalogId: "custom", name: a.id, baseUrl: "https://llm.example", protocol: "openai-completions", enabled: false, keys: [{ id: `${a.id}-k`, label: "k", lastFour: "", enabled: true, secret: a.secret } as any], models: [] });
     reg.saveProviders(c, reg.configVersion()); return true;
   },
+  aligned: (a) => alignStatus(a.body) ?? null,
   providerSecret: (a) => reg.exportProviders().providers.find((p) => p.id === a.id)?.keys[0]?.secret ?? null,
   providerCipher: (a) => (JSON.parse(fs.readFileSync(path.join(paths.config, "providers.json"), "utf8")).providers.find((p: any) => p.id === a.id)?.keys[0]?.ciphertext ?? null),
   stopNow: (a) => { guard.emergencyStop("测试", "测试急停", { scope: a.scope }); return true; },

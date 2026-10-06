@@ -92,10 +92,24 @@ function read(section: Section): unknown {
   return (config as any)[section];
 }
 
+// ---------- 与每具身体对齐设置的结果（控制台「多具身体」页显示：哪些设置采用了对方的、失败的原因）
+const LABEL: Record<string, string> = { providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
+export interface AlignStatus { at: number; took: string[]; error?: string }
+const aligned = new Map<string, AlignStatus>();
+const note = (body: string, took: string[], error?: string) => {
+  const prev = aligned.get(body);
+  aligned.set(body, { at: Date.now(), took: took.length ? took.map((n) => LABEL[n] ?? n) : error ? [] : prev?.took ?? [], ...(error ? { error } : {}) });
+};
+/** 与某具身体最近一次对齐设置的结果（还没对齐过为 undefined）。 */
+export const alignStatus = (body: string): AlignStatus | undefined => aligned.get(body);
+
 function write(section: Section, value: any, from: string): boolean {
   if (section === "providers") {
     const { rejected } = importProviders(value, `${from}（同步）`);
-    if (rejected.length) log("mesh", `${from} 同步来的模型供应商里有 ${rejected.length} 个不合格，保留本机原来的：${rejected.join("、")}`);
+    if (rejected.length) {
+      log("mesh", `${from} 同步来的模型供应商里有 ${rejected.length} 个不合格，保留本机原来的：${rejected.join("、")}`);
+      note(from, [], `${from} 的模型供应商里有 ${rejected.length} 个没采用（地址不是 HTTPS）：${rejected.join("、")}`);
+    }
   } else if (section === "speechKey") {
     if (typeof value !== "string" || value.length > 1000 || /[^\x21-\x7e]/.test(value)) throw new Error("语音密钥格式不对");
     setSpeechKeyRemote(value);
@@ -109,9 +123,9 @@ function write(section: Section, value: any, from: string): boolean {
 }
 
 /** 远端的设置比本机新的就采用（逐个分区）。修改时刻晚于「现在 + 5 分钟」的拒收；急停不看修改时刻（见 applyStop）。 */
-function adopt(sections: unknown, from: string) {
+function adopt(sections: unknown, from: string): string[] {
   const took: string[] = [];
-  if (!sections || typeof sections !== "object") return;
+  if (!sections || typeof sections !== "object") return took;
   for (const [name, s] of Object.entries(sections as Record<string, { rev: unknown; value: unknown }>)) {
     if (!(SECTIONS as readonly string[]).includes(name) || typeof s?.rev !== "number" || !Number.isFinite(s.rev)) continue;
     if (s.rev > Date.now() + FUTURE_MS) { log("mesh", `${from} 的设置 ${name} 修改时刻在未来（时钟不准？），不采用`); continue; }
@@ -120,9 +134,14 @@ function adopt(sections: unknown, from: string) {
       if (!write(name as Section, s.value, from)) continue;
       if (s.rev > (config.sharedRev[name] ?? 0)) saveConfig({ sharedRev: { [name]: s.rev } }, { remote: true });
       took.push(name);
-    } catch (e) { log("mesh", `采用 ${from} 的设置 ${name} 失败：${name === "providers" || name === "speechKey" ? "格式不对" : String((e as Error).message).slice(0, 200)}`); }
+    } catch (e) {
+      const why = name === "providers" || name === "speechKey" ? "格式不对" : String((e as Error).message).slice(0, 200);
+      log("mesh", `采用 ${from} 的设置 ${name} 失败：${why}`);
+      note(from, [], `没能采用 ${from} 的${LABEL[name] ?? name}：${why}`);
+    }
   }
   if (took.length) { bus.emit("state"); log("mesh", `采用了 ${from} 较新的设置：${took.join("、")}`); bus.emit("shared.applied", took); }
+  return took;
 }
 
 const pack = (names: readonly string[]) => Object.fromEntries(names.filter((n) => (SECTIONS as readonly string[]).includes(n)).map((n) => [n, { rev: config.sharedRev[n] ?? 0, value: read(n as Section) }]));
@@ -181,7 +200,7 @@ export function installShared(mesh: Mesh): () => void {
   const onApproval = (a: Approval) => { if (!a.body || a.body === config.body) mesh.broadcast("approval", { ...a, body: config.body }); };
   const onUsage = (row: unknown) => mesh.broadcast("usage", [row]);
   const onEvent = (e: { from: string; name: string; data: any }) => {
-    if (e.name === "settings") adopt(e.data, e.from);
+    if (e.name === "settings") { const took = adopt(e.data, e.from); if (took.length) note(e.from, took); }
     else if (e.name === "approval") {
       const a = approvalOf(e.data, e.from);
       if (!a) return;
@@ -196,11 +215,12 @@ export function installShared(mesh: Mesh): () => void {
       const limit = Date.now() + FUTURE_MS;
       const newer = Object.entries(revs && typeof revs === "object" ? revs : {})
         .filter(([n, r]) => n === "stop" || (typeof r === "number" && r <= limit && r > (config.sharedRev[n] ?? 0))).map(([n]) => n);
-      if (newer.length) adopt(await mesh.request(s.body, "settings.get", { sections: newer }, 30_000), s.body);
+      const took = newer.length ? adopt(await mesh.request(s.body, "settings.get", { sections: newer }, 30_000), s.body) : [];
+      if (!aligned.get(s.body)?.error || took.length) note(s.body, took);
       const pending = await mesh.request<unknown>(s.body, "approvals.pending", {}, 15_000);
       for (const x of Array.isArray(pending) ? pending.slice(0, 200) : []) { const a = approvalOf(x, s.body); if (a?.status === "pending") { rememberRemote(a); bus.emit("approval", a); } }
       applyUsage(await mesh.request(s.body, "usage.today", {}, 15_000), s.body);
-    } catch (e) { log("mesh", `与 ${s.body} 对齐设置失败：${(e as Error).message}`); }
+    } catch (e) { log("mesh", `与 ${s.body} 对齐设置失败：${(e as Error).message}`); note(s.body, [], `对齐设置失败：${String((e as Error).message).slice(0, 200)}`); }
   };
 
   bus.on("shared", onShared);

@@ -31,7 +31,7 @@ export interface MeshOptions {
 }
 
 export type Handler = (params: any, from: string) => unknown | Promise<unknown>;
-export interface PeerStatus { body: string; kind: string; version: string; online: boolean; lastSeen: number; link: string; path?: { local: string; remote: string; rtt: number }; error?: string; keyOk: boolean; fingerprint: string; pinMismatch?: boolean }
+export interface PeerStatus { body: string; kind: string; version: string; online: boolean; lastSeen: number; link: string; path?: { local: string; remote: string; rtt: number }; error?: string; keyOk: boolean; registered: boolean; fingerprint: string; pinMismatch?: boolean }
 
 /** 钉住的身体：第一次见到时的公钥与类型。 */
 export interface Pin { meshKey: string; kind: "runtime" | "bridge"; at: number }
@@ -92,6 +92,7 @@ export class Mesh extends EventEmitter {
   private readable = new Set<string>();   // 只读成员可以调用的方法
   private readers = new Set<string>();    // 连着的只读成员
   private mismatch = new Set<string>();   // 公钥或类型与钉住的不符、等待确认的身体
+  private sigErrors = new Map<string, string>(); // 最近一次拒绝某具身体的连接请求的原因（控制台显示；认证通过后清掉）
   private pending = new Map<string, { body: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   private warned = new Recent(200);
   private warnTimes: number[] = [];
@@ -276,9 +277,11 @@ export class Mesh extends EventEmitter {
     if (!r.ok) {
       if (!retried && r.unknown && (await this.refresh())) return this.onSignal(from, data, true);
       this.warn(`拒绝了来自 ${clip(from, 40)} 的信令：${clip(r.error, 120)}`, `sig:${from}:${r.error}`);
+      this.sigErrors.set(from, `拒绝了它的连接请求：${clip(r.error, 120)}`);
       return;
     }
     if (r.env.from !== from) return; // 同步服务标注的来源与签名的来源不一致：丢弃
+    this.sigErrors.delete(from);
     this.link(from).onSignal(r.env.body);
   }
 
@@ -350,8 +353,8 @@ export class Mesh extends EventEmitter {
     const p = this.dir.peers.get(body), l = this.links.get(body), soulKey = this.o.keyOf(body), mismatch = this.mismatch.has(body);
     return {
       body, kind: this.readers.has(body) ? "bridge" : p?.kind ?? "", version: p?.version ?? "", online: !!p?.online, lastSeen: p?.lastSeen ?? 0,
-      link: l?.state ?? "none", path: l?.path, error: l?.lastError || undefined,
-      keyOk: !!soulKey && soulKey === p?.nodeKey && !mismatch, fingerprint: p?.nodeKey ? fingerprint(p.nodeKey) : "",
+      link: l?.state ?? "none", path: l?.path, error: l?.lastError || this.sigErrors.get(body) || undefined,
+      keyOk: !!soulKey && soulKey === p?.nodeKey && !mismatch, registered: !!soulKey, fingerprint: p?.nodeKey ? fingerprint(p.nodeKey) : "",
       ...(mismatch ? { pinMismatch: true } : {}),
     };
   }

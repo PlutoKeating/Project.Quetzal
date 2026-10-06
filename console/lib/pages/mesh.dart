@@ -7,6 +7,14 @@ import '../api.dart';
 import '../widgets.dart';
 import '../links.dart';
 
+/// 与这具身体对齐设置的结果：失败就写原因；采用了对方的哪些设置；都一致时只写对齐的时刻。
+String _settingsLabel(Map s) {
+  final err = '${s['error'] ?? ''}';
+  if (err.isNotEmpty) return '设置同步：$err';
+  final took = (s['took'] as List?)?.join('、') ?? '';
+  return took.isEmpty ? '设置已一致（${hm(s['at'] as num? ?? 0)}）' : '设置已同步：采用了它的$took（${hm(s['at'] as num? ?? 0)}）';
+}
+
 /// 连接路径的说法：候选类型 host / srflx / prflx / relay → 人话（不显示地址）。
 String pathLabel(Map? p) {
   if (p == null) return '';
@@ -98,8 +106,10 @@ class _MeshPageState extends State<MeshPage> {
                 p['online'] == true ? (_linkLabel['${p['link']}'] ?? '${p['link']}') : '离线${(p['lastSeen'] ?? 0) == 0 ? '' : '（上次在线 ${hm(p['lastSeen'])}）'}',
                 if (p['path'] != null) pathLabel(p['path'] as Map),
                 if (p['pinMismatch'] == true) '公钥或类型与第一次见到时不同，已断开：确认是你自己重装或换了钥匙再点「确认」',
-                if (p['keyOk'] == false && p['online'] == true && p['pinMismatch'] != true) '公钥与灵魂仓库登记的不一致（等灵魂仓库同步，或检查是否被冒充）',
+                if (p['keyOk'] == false && p['online'] == true && p['pinMismatch'] != true)
+                  p['registered'] == false ? '本机的灵魂仓库里还没有它的登记，连不上：等灵魂同步拉到它（灵魂同步页没有报错就会自动连上）' : '公钥与灵魂仓库登记的不一致（等灵魂仓库同步，或检查是否被冒充）',
                 if ('${p['error'] ?? ''}'.isNotEmpty && p['link'] != 'open') '${p['error']}',
+                if (p['link'] == 'open' && p['settings'] is Map) _settingsLabel(p['settings'] as Map),
               ].where((s) => s.isNotEmpty).join(' · ')),
               trailing: p['pinMismatch'] == true ? TextButton(onPressed: () async {
                 if (await confirm(context, '确认 ${p['body']} 的新公钥', '新的公钥指纹：${p['fingerprint']}\n\n只有在你确定是自己重装了那具身体、或换了它的钥匙时才确认；否则可能有人在冒充它。确认后这具身体重新连上。') && context.mounted) {

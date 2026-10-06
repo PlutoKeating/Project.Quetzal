@@ -52,6 +52,7 @@ test("设置、Key、急停、审批、用量：一处改了，所有身体跟�
   step = "Key";
   await phone.call("addProviderKey", { id: "shared-llm", secret: "sk-shared-0123456789" });
   await until(async () => (await pc.call("providerSecret", { id: "shared-llm" })) === "sk-shared-0123456789");
+  assert.ok(((await pc.call<any>("aligned", { body: "phone" }))?.took ?? []).includes("模型与 Key"), "多具身体页能看到采用了对方的模型与 Key");
   assert.notEqual(await pc.call("providerCipher", { id: "shared-llm" }), await phone.call("providerCipher", { id: "shared-llm" }));
 
   // 全网急停与解除

@@ -14,7 +14,7 @@ import { installPresence } from "./presence.ts";
 import { installCoordinator, coordinator } from "./coordinator.ts";
 import { installPlacement } from "./placement.ts";
 import { installLimbs } from "./limbs.ts";
-import { installShared } from "./shared.ts";
+import { installShared, alignStatus } from "./shared.ts";
 import { installChannels } from "./channels.ts";
 import { snapshot } from "../heart/heart.ts";
 import { Mesh, filePins } from "./mesh.ts";
@@ -96,7 +96,7 @@ export function meshStatus() {
     server: config.mesh.server, priority: config.mesh.priority, body: config.body, bound: !!b && serverOrigin(b.server) === safeOrigin(config.mesh.server), account: live?.account || b?.account || "",
     fingerprint: fingerprint(nodeKey().nodeKey), available: !ndcError,
     state: live?.state ?? "off", error: ndcError || lastError || live?.error || "", clockSkewMs: live?.clockSkewMs ?? 0,
-    peers: live?.peers ?? [], coordinator: coordinator(),
+    peers: (live?.peers ?? []).map((p) => ({ ...p, settings: alignStatus(p.body) ?? null })), coordinator: coordinator(),
     binding: binding ? { code: binding.code, uri: binding.uri, expires: binding.expires, check: binding.check } : null,
   };
 }
