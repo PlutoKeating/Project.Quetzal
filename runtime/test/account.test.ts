@@ -51,7 +51,7 @@ test("控制台登录 → 账户接口 → 令牌被吊销后回到未登录", a
   const t = Date.now();
   while (!acct.accountStatus().signedIn) { if (Date.now() - t > 8000) throw new Error("等登录超时"); await new Promise((r) => setTimeout(r, 100)); }
   const file = path.join(paths.secrets, "sync-account.json");
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
   assert.equal(acct.accountStatus().account, "pluto");
   assert.equal(((await acct.account.get()) as any).user.login, "pluto");
   await assert.rejects(acct.account.lookup("XXXX-XXXX"), /bad_code/);
@@ -82,6 +82,6 @@ test("一次登录：绑定时随批准拿到的控制台令牌直接存下，�
   assert.equal(b.consoleToken, "qsc_account");
   acct.adoptConsoleToken(url, b.consoleToken!, b.account);
   assert.deepEqual([acct.accountStatus().signedIn, acct.accountStatus().account], [true, "pluto"]);
-  assert.equal(fs.statSync(path.join(paths.secrets, "sync-account.json")).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(paths.secrets, "sync-account.json")).mode & 0o777, 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
   assert.equal(((await acct.account.get()) as any).user.login, "pluto");
 });

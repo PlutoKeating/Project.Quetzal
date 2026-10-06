@@ -79,10 +79,10 @@ export const README_TEMPLATE = (displayName: string) => `# ${displayName} · 灵
 export function checkRemote(remote: string): string | undefined {
   if (!remote) return undefined;
   if (/^(git@[\w.-]+:[\w.-]+\/[\w.-]+|ssh:\/\/[\w.-]+@[\w.-]+(:\d+)?\/)/.test(remote)) return undefined;
-  if (process.env.SOUL_ALLOW_LOCAL_REMOTE === "1" && (remote.startsWith("/") || remote.startsWith("file://"))) return undefined;
+  if (process.env.SOUL_ALLOW_LOCAL_REMOTE === "1" && isLocal(remote)) return undefined;
   return "灵魂仓库必须使用 SSH 地址（如 git@github.com:<用户>/<agent>.soul.git），并通过本身体专属的部署私钥访问；不允许 HTTPS、令牌或密码";
 }
-const isLocal = (remote: string) => remote.startsWith("/") || remote.startsWith("file://");
+const isLocal = (remote: string) => remote.startsWith("/") || remote.startsWith("file://") || /^[A-Za-z]:[\\/]/.test(remote); // 本地路径（只在测试里用作远端），含 Windows 的盘符路径
 
 /** 规范 §6：灵魂仓库是私有仓库，内容不做任何脱敏或隐私检查，不会因内容拒绝提交。只对会拖慢 git 的东西提醒（不拦）。 */
 export function lintContent(file: string, buf: Buffer): string[] {

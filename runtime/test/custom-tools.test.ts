@@ -16,24 +16,31 @@ const { systemPrompt } = await import("../src/mind/prompt.ts");
 const { identity } = await import("../src/memory/identity.ts");
 
 const names = () => allTools().map((t) => t.name);
+// Windows 身体上没有 sh：同一套测试用 PowerShell 的 ps1 实现（意图相同，实现各写各的）
+const WIN = process.platform === "win32";
+const RT = WIN ? "ps1" : "sh";
+const SRC = WIN ? {
+  echo: "'hi'", bad: "if ( {", greet: '$json = [Console]::In.ReadToEnd().Trim()\n"hi $env:ARG_who x$env:ARG_n json=$json"', fail: '[Console]::Error.WriteLine("oops"); exit 3',
+} : { echo: "echo hi", bad: "if then fi (", greet: 'read json\necho "hi $ARG_who x$ARG_n json=$json"', fail: "echo oops >&2; exit 3" };
 
 test("写入校验：名字、保留名、schema、语法、新工具必须带技能文档", async () => {
   const reserved = new Set(builtinNames());
-  await assert.rejects(ct.writeTool({ name: "Bad Name", description: "x", runtime: "sh", source: "echo hi", skill: "s" }, reserved), /name 只能/);
-  await assert.rejects(ct.writeTool({ name: "shell", description: "x", runtime: "sh", source: "echo hi", skill: "s" }, reserved), /内置工具/);
-  await assert.rejects(ct.writeTool({ name: "no-skill", description: "x", runtime: "sh", source: "echo hi" }, reserved), /技能/);
-  await assert.rejects(ct.writeTool({ name: "bad-schema", description: "x", runtime: "sh", source: "echo hi", skill: "s", parameters: { type: "array" } as any }, reserved), /type 必须是 object/);
-  await assert.rejects(ct.writeTool({ name: "bad-sh", description: "x", runtime: "sh", source: "if then fi (", skill: "s" }, reserved), /语法检查/);
+  await assert.rejects(ct.writeTool({ name: "Bad Name", description: "x", runtime: RT, source: SRC.echo, skill: "s" }, reserved), /name 只能/);
+  await assert.rejects(ct.writeTool({ name: "shell", description: "x", runtime: RT, source: SRC.echo, skill: "s" }, reserved), /内置工具/);
+  await assert.rejects(ct.writeTool({ name: "no-skill", description: "x", runtime: RT, source: SRC.echo }, reserved), /技能/);
+  await assert.rejects(ct.writeTool({ name: "bad-schema", description: "x", runtime: RT, source: SRC.echo, skill: "s", parameters: { type: "array" } as any }, reserved), /type 必须是 object/);
+  await assert.rejects(ct.writeTool({ name: "bad-sh", description: "x", runtime: RT, source: SRC.bad, skill: "s" }, reserved), /语法检查/);
+  if (WIN) await assert.rejects(ct.writeTool({ name: "posix-only", description: "x", runtime: "sh", source: "echo hi", skill: "s" }, reserved), /这具身体是 Windows/);
   await assert.rejects(ct.writeTool({ name: "bad-node", description: "x", runtime: "node", source: "export default (", skill: "s" }, reserved), /语法检查/);
   assert.ok(!fs.existsSync(path.join(paths.tools, "bad-sh")), "语法不通过的新工具不留目录");
-  await assert.rejects(ct.writeTool({ name: "bad-perm", description: "x", runtime: "sh", source: "echo", skill: "s", permission: "root" }, reserved), /permission 必须是/);
+  await assert.rejects(ct.writeTool({ name: "bad-perm", description: "x", runtime: RT, source: SRC.echo, skill: "s", permission: "root" }, reserved), /permission 必须是/);
 });
 
-test("sh 工具：参数经 stdin JSON 与环境变量传入，热加载进工具表并经闸门调用", async () => {
+test("sh / ps1 工具：参数经 stdin JSON 与环境变量传入，热加载进工具表并经闸门调用", async () => {
   const r = await ct.writeTool({
-    name: "greet", description: "打招呼", runtime: "sh", permission: "shell", timeout: 5,
+    name: "greet", description: "打招呼", runtime: RT, permission: "shell", timeout: 15,
     parameters: { type: "object", properties: { who: { type: "string" }, n: { type: "number" } }, required: ["who"] },
-    source: 'read json\necho "hi $ARG_who x$ARG_n json=$json"',
+    source: SRC.greet,
     skill: "## 用途\n对人打招呼。\n## 参数\nwho：对谁；n：次数。",
   }, new Set(builtinNames()));
   assert.match(r, /已创建工具 greet/);
@@ -66,13 +73,13 @@ test("node 工具：默认导出 async (args) => string，改写后重新加载�
   assert.equal(out.status, "error");
   assert.match(out.text, /超过 1 秒/);
   assert.ok(Date.now() - t0 < 3000);
-  await ct.writeTool({ name: "fail_sh", description: "失败", runtime: "sh", source: "echo oops >&2; exit 3", skill: "总是失败" }, reserved);
+  await ct.writeTool({ name: "fail_sh", description: "失败", runtime: RT, source: SRC.fail, skill: "总是失败" }, reserved);
   assert.match((await callTool("fail_sh", {}, "测试")).text, /退出码 3：oops/);
 });
 
 test("缺依赖的工具不挂载、停用的不挂载；系统提示列出三类", async () => {
   const reserved = new Set(builtinNames());
-  const r = await ct.writeTool({ name: "need_x", description: "需要不存在的命令", runtime: "sh", source: "no-such-cmd-xyz", requires: ["no-such-cmd-xyz"], skill: "依赖 no-such-cmd-xyz" }, reserved);
+  const r = await ct.writeTool({ name: "need_x", description: "需要不存在的命令", runtime: RT, source: "no-such-cmd-xyz", requires: ["no-such-cmd-xyz"], skill: "依赖 no-such-cmd-xyz" }, reserved);
   assert.match(r, /缺少 no-such-cmd-xyz/);
   assert.ok(!names().includes("need_x"));
   assert.ok(ct.setToolEnabled("greet", false));

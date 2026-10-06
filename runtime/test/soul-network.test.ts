@@ -27,7 +27,7 @@ test("GitHub 的 SSH 地址识别", () => {
   assert.ok(!isGithubSsh("ssh://git@github.com:2222/me/a.soul.git"));
 });
 
-test("22 端口被断开时自动改走 443，之后先走 443", async () => {
+test("22 端口被断开时自动改走 443，之后先走 443", { skip: process.platform === "win32" && "用 sh 写的假 ssh；Windows 上 git 用系统自带的 OpenSSH" }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-soulnet-"));
   // 假的 ssh：22 端口一律「被断开」；带 Port=443 + HostName=ssh.github.com 时把远端命令放到本地的「GitHub」目录里执行
   const bin = path.join(tmp, "bin"), gh = path.join(tmp, "github"), log = path.join(tmp, "ssh.log");

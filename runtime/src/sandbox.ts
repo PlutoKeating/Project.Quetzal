@@ -222,11 +222,18 @@ let srtError = "";
 let srtPreparing: Promise<void> | undefined;
 let srtMgr: SrtManager | undefined;
 const mainDir = () => path.dirname(process.argv[1] ?? process.execPath);
-const srtWinPath = () => process.env.QUETZAL_SRT_WIN || path.join(mainDir(), "srt-win", "srt-win.exe");
+let srtModule: any;
+/** srt-win.exe：环境变量指定的 > main.cjs 旁边 srt-win\ 里的（发布时放的） > 开发与测试时 npm 包自带的。 */
+const srtWinPath = () => {
+  if (process.env.QUETZAL_SRT_WIN) return process.env.QUETZAL_SRT_WIN;
+  const bundled = path.join(mainDir(), "srt-win", "srt-win.exe");
+  return fs.existsSync(bundled) || !srtModule?.VENDORED_SRT_WIN_EXE ? bundled : srtModule.VENDORED_SRT_WIN_EXE;
+};
 
 async function loadSrt(): Promise<SrtManager> {
   const bundled = process.env.QUETZAL_SRT_MODULE || path.join(mainDir(), "srt.mjs");
   const m: any = fs.existsSync(bundled) ? await import(pathToFileURL(bundled).href) : await import("@anthropic-ai/sandbox-runtime");
+  srtModule = m;
   return m.SandboxManager as SrtManager;
 }
 
@@ -281,9 +288,9 @@ export function prepareSandbox(): Promise<void> {
   srtState = "preparing";
   srtPreparing = (async () => {
     try {
+      srtMgr = await loadSrt();
       const exe = srtWinPath();
       if (!fs.existsSync(exe)) throw new Error(`缺少 ${exe}（重新运行安装）`);
-      srtMgr = await loadSrt();
       await srtMgr.initialize({
         network: { allowedDomains: [], deniedDomains: [] },
         filesystem: srtFilesystem(),
@@ -325,6 +332,7 @@ function runWrapped(w: { cmd: string; args: string[]; cwd: string; env?: NodeJS.
 export async function wrapScript(script: string, cwd = workDir(), env: Record<string, string> = {}): Promise<{ cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {
   if (isWindows) {
     if (srtState === "idle" || srtState === "preparing") await prepareSandbox();
+    try { fs.mkdirSync(cwd, { recursive: true }); } catch { /* 下面启动时报错 */ }
     const assign = Object.entries(env).map(([k, v]) => `$env:${k}=${psq(v)};`).join("");
     if (current().kind === "srt") return srtWrap(assign + script, cwd);
     if (!allowUnsandboxed()) throw new SandboxUnavailable();

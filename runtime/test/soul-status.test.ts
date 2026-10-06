@@ -30,9 +30,9 @@ test("git 报错翻译成人话，并保留原文", () => {
 });
 
 test("访问方式决定钥匙：deploy 用本机部署密钥，custom 用指定路径（支持 ~），system 不指定", () => {
-  assert.match(sshKeyFor({ sshMode: "deploy" })!, /secrets\/soul_ed25519$/);
-  assert.match(sshKeyFor({})!, /secrets\/soul_ed25519$/);
-  assert.equal(sshKeyFor({ sshMode: "custom", sshKeyPath: "~/.ssh/id_ed25519" }), path.join(process.env.HOME ?? "", ".ssh/id_ed25519"));
+  assert.match(sshKeyFor({ sshMode: "deploy" })!, /secrets[\\/]soul_ed25519$/);
+  assert.match(sshKeyFor({})!, /secrets[\\/]soul_ed25519$/);
+  assert.equal(sshKeyFor({ sshMode: "custom", sshKeyPath: "~/.ssh/id_ed25519" }), path.join(os.homedir(), ".ssh/id_ed25519"));
   assert.equal(sshKeyFor({ sshMode: "custom", sshKeyPath: "/k" }), "/k");
   assert.equal(sshKeyFor({ sshMode: "custom", sshKeyPath: "" }), undefined);
   assert.equal(sshKeyFor({ sshMode: "system" }), undefined);

@@ -50,8 +50,8 @@ const lastCode = () => notices.at(-1)!.match(/配对码 ([A-Z0-9]{4})-([A-Z0-9]{
 
 test("证书：首次生成并保存（私钥 0600），ECDSA P-256 自签名、10 年、CN=quetzal-<身体名>；再次读取指纹不变", () => {
   const key = path.join(paths.secrets, "gateway-tls.key"), crt = path.join(paths.secrets, "gateway-tls.crt");
-  assert.equal(fs.statSync(key).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(crt).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(key).mode & 0o777, 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
+  if (process.platform !== "win32") assert.equal(fs.statSync(crt).mode & 0o777, 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
   const x = new crypto.X509Certificate(fs.readFileSync(crt));
   assert.equal(x.subject, "CN=quetzal-tlsbox");
   assert.equal((x.publicKey.asymmetricKeyDetails as any).namedCurve, "prime256v1");

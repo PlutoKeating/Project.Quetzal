@@ -41,7 +41,7 @@ test("进程表：过滤、标出自己与后台任务", async (t) => {
   assert.match(r.text, /我自己是 pid \d+/);
 });
 
-test("shell：输出为空且命令丢弃了 stderr 时提醒，不把空当作「没有」", async () => {
+test("shell：输出为空且命令丢弃了 stderr 时提醒，不把空当作「没有」", { skip: process.platform === "win32" && "提醒针对 POSIX shell 的 2>/dev/null" }, async () => {
   const r = await callTool("shell", { command: "ps --no-such-flag 2>/dev/null | grep xyz" }, "回应你");
   assert.match(r.text, /输出为空，而命令把 stderr 丢弃了/);
   const ok = await callTool("shell", { command: "echo hi 2>/dev/null" }, "回应你");

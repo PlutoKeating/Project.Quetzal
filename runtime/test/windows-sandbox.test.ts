@@ -41,8 +41,11 @@ test("密钥与配置读不到，工作区与 data 可写，.git 不可写，保
   const r = await sh.shell(`try { Get-Content -LiteralPath '${path.join(paths.secrets, "gateway.token")}' -ErrorAction Stop; 'LEAK' } catch { 'denied' }`);
   assert.match(r.out, /denied/); assert.doesNotMatch(r.out, /gw_secret|LEAK/);
   assert.match((await sh.shell(`try { Get-ChildItem -LiteralPath '${paths.config}' -ErrorAction Stop | Out-Null; 'LEAK' } catch { 'denied' }`)).out, /denied/);
-  assert.match((await sh.shell(`Set-Content -LiteralPath (Join-Path $PWD 'a.txt') -Value ok; Get-Content a.txt`)).out, /ok/, "工作区可写");
-  assert.match((await sh.shell(`Set-Content -LiteralPath '${path.join(paths.data, "b.txt")}' -Value ok; 'wrote'`)).out, /wrote/);
+  const ws = process.env.QUETZAL_WORKSPACE!;
+  const w = await sh.shell(`"pwd=$PWD"; Set-Content -LiteralPath '${path.join(ws, "a.txt")}' -Value ok; Get-Content -LiteralPath '${path.join(ws, "a.txt")}'`);
+  assert.match(w.out, /ok/, `工作区可写：${w.out}${w.err}`);
+  const d = await sh.shell(`Set-Content -LiteralPath '${path.join(paths.data, "b.txt")}' -Value ok; 'wrote'`);
+  assert.match(d.out, /wrote/, d.out + d.err);
   assert.match((await sh.shell(`try { Set-Content -LiteralPath '${path.join(paths.soul, ".git", "x")}' -Value x -ErrorAction Stop; 'LEAK' } catch { 'denied' }`)).out, /denied/);
   const { saveSecret } = await import("../src/mind/secrets.ts");
   const v = saveSecret("demo_token", "vault-value-123456");

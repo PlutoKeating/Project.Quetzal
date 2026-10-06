@@ -40,7 +40,7 @@ test("节点密钥：生成后持久化（0600），公钥 43 个字符；规范
   const again = loadNodeKey(path.join(tmp, "a.key"));
   assert.equal(again.nodeKey, keys.alpha.nodeKey);
   assert.ok(isNodeKey(keys.alpha.nodeKey));
-  assert.equal(fs.statSync(path.join(tmp, "a.key")).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(tmp, "a.key")).mode & 0o777, 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
   assert.equal(canonical({ b: 1, a: [2, { d: 3, c: 4 }] }), canonical({ a: [2, { c: 4, d: 3 }], b: 1 }));
   assert.match(fingerprint(keys.alpha.nodeKey), /^[0-9a-f]{4}( [0-9a-f]{4}){3}$/);
 });

@@ -18,7 +18,8 @@ export async function shell(script: string, timeoutMs = 60_000) {
   let w: Awaited<ReturnType<typeof wrapScript>>;
   try { w = await wrapScript(script); }
   catch (e) { if (e instanceof SandboxUnavailable) return { code: 126, out: "", err: e.message }; throw e; } // 没有沙箱：不执行，说明交给她
-  return run(w.cmd, w.args, timeoutMs, { cwd: w.cwd, env: w.env });
+  const r = await run(w.cmd, w.args, timeoutMs, { cwd: w.cwd, env: w.env });
+  return isWindows ? { ...r, out: r.out.replace(/\r\n/g, "\n"), err: r.err.replace(/\r\n/g, "\n") } : r; // PowerShell 的 CRLF：给她看的统一成 LF
 }
 
 // ---------- 后台任务：长时间运行的命令放到后台，agent 可以随时查看输出或停止（整个进程组）

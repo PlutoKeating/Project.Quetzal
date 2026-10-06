@@ -57,9 +57,9 @@ test("协议：每条消息一项，结束口令落盘；回执与工具结果�
   const f = path.join(paths.vault, "github_token");
   assert.ok(text.includes(f));
   assert.equal(fs.readFileSync(f, "utf8"), TOKEN); // 单行的值原样写入（去掉首尾空白）
-  assert.equal(mode(f), 0o600);
-  assert.equal(mode(paths.vault), 0o700);
-  assert.equal(mode(path.join(paths.vault, "index.json")), 0o600);
+  if (process.platform !== "win32") assert.equal(mode(f), 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
+  if (process.platform !== "win32") assert.equal(mode(paths.vault), 0o700); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
+  if (process.platform !== "win32") assert.equal(mode(path.join(paths.vault, "index.json")), 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
   assert.ok(!fs.readFileSync(path.join(paths.vault, "index.json"), "utf8").includes(TOKEN));
   assert.deepEqual(events.map((e) => [e.status, e.got]), [["open", 0], ["progress", 1], ["progress", 2], ["done", 2]]);
   assert.ok(!JSON.stringify(events).includes(TOKEN));
@@ -122,14 +122,14 @@ test("参数校验：名字不合规、重复、同一会话重复发起", async
 
 test("兜底：工具输出里出现的保密值被替换；保密库列表与删除", async () => {
   const f = path.join(paths.vault, "github_token");
-  const out = await callTool("shell", { command: `cat ${f}; echo; echo "Bearer $(cat ${f})"` }, "测试");
+  const out = await callTool("shell", { command: process.platform === "win32" ? `Get-Content -Raw '${f}'; "Bearer $((Get-Content -Raw '${f}').Trim())"` : `cat ${f}; echo; echo "Bearer $(cat ${f})"` }, "测试");
   assert.ok(!out.text.includes(TOKEN));
-  assert.match(out.text, /‹secret:github_token›\nBearer ‹secret:github_token›/);
+  assert.match(out.text, /‹secret:github_token›\n+Bearer ‹secret:github_token›/);
   assert.ok(!JSON.stringify(store.listAudit(20)).includes(TOKEN)); // 审计里也没有
-  const pem = await callTool("shell", { command: `head -2 ${path.join(paths.vault, "pem")}` }, "测试"); // 多行的值：只输出其中几行也替换
+  const pem = await callTool("shell", { command: process.platform === "win32" ? `Get-Content -TotalCount 2 '${path.join(paths.vault, "pem")}'` : `head -2 ${path.join(paths.vault, "pem")}` }, "测试"); // 多行的值：只输出其中几行也替换
   assert.ok(!pem.text.includes("AAAAB3NzaC1yc2EAAAADAQAB"));
 
-  assert.match(systemPrompt(), /## 保密库[\s\S]*- github_token：GitHub 的 PAT（.*vault\/github_token）/);
+  assert.match(systemPrompt(), /## 保密库[\s\S]*- github_token：GitHub 的 PAT（.*vault[\\/]github_token）/);
   assert.ok(!systemPrompt().includes(TOKEN));
   assert.ok(!JSON.stringify(ops.secrets()).includes(TOKEN));
   assert.equal(ops["secrets.delete"]({ name: "cf_token" }, "控制台"), true);
@@ -176,7 +176,7 @@ test("端到端：她调用 pass_secret，对方在对话里发值与口令；�
   assert.deepEqual(store.sessionMessages("e2e").map((m) => m.text), ["帮我登录 npm", "收到了，这就去登录。"]); // 保密值与口令都没有成为对话
   assert.equal(seen.length, 2);
   const toolMsg = seen[1].messages.find((m: any) => m.role === "tool").content;
-  assert.match(toolMsg, /npm_token → .*vault\/npm_token/);
+  assert.match(toolMsg, /npm_token → .*vault[\\/]npm_token/);
   for (const blob of [JSON.stringify(seen), JSON.stringify(store.listAudit(50)), JSON.stringify(store.listTimeline(20)), JSON.stringify(store.recentMessages(50)), JSON.stringify(events)])
     assert.ok(!blob.includes(NPM));
 });

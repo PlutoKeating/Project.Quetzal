@@ -50,7 +50,7 @@ test("内容不做检查：写进了像令牌的值也照常提交（v11 §6）"
   assert.match(g(repo.o.dir, "show", "HEAD:notes/x.md"), new RegExp(SECRET));
 });
 
-test("不提交符号链接；远端有符号链接时拒绝合并", async () => {
+test("不提交符号链接；远端有符号链接时拒绝合并", { skip: process.platform === "win32" && "Windows 上建符号链接要开发者模式或管理员；检出一律按普通文件（core.symlinks=false）" }, async () => {
   fs.symlinkSync("/etc/passwd", path.join(repo.o.dir, "notes", "link.md"));
   await repo.commit("链接");
   assert.doesNotMatch(g(repo.o.dir, "ls-files", "-s"), /^120000/m);

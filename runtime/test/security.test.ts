@@ -71,11 +71,11 @@ test("没有可用沙箱时默认拒绝执行（fail-closed）；部署者明确
     assert.match(r.err, /没有执行：.*沙箱/);
     await assert.rejects(() => startJob("echo hi"), /没有执行/);
     saveConfig({ sandbox: { allowUnsandboxed: true } } as never);
-    assert.equal((await shell("echo hi")).out, "hi\n");
+    assert.equal((await shell("echo hi")).out, "hi\n"); // Windows 上是 PowerShell：输出的 CRLF 统一成 LF
   } finally { saveConfig({ sandbox: { allowUnsandboxed: false } } as never); delete process.env.QUETZAL_SANDBOX; sandbox.resetSandbox(); }
 });
 
-test("Landlock 授权展开：只拆开含有特殊路径的目录，藏起的不授权，只读与可写按规则", () => {
+test("Landlock 授权展开：只拆开含有特殊路径的目录，藏起的不授权，只读与可写按规则", { skip: process.platform === "win32" && "Landlock 只在 Linux 上" }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ll-"));
   for (const d of ["a/b/secret", "a/b/keep", "a/c", "d"]) fs.mkdirSync(path.join(root, d), { recursive: true });
   fs.writeFileSync(path.join(root, "a/file"), "");
@@ -181,9 +181,9 @@ test("密钥文件：原子写入、0600；主密钥损坏时报错而不是重�
   fs.writeFileSync(f, "old", { mode: 0o644 });
   writeSecret("probe", "new-value");
   assert.equal(readSecret("probe"), "new-value");
-  assert.equal(fs.statSync(f).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(f).mode & 0o777, 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
   assert.equal(fs.readdirSync(paths.secrets).filter((x) => x.endsWith(".tmp")).length, 0);
-  assert.equal(fs.statSync(paths.home).mode & 0o777, 0o700);
+  if (process.platform !== "win32") assert.equal(fs.statSync(paths.home).mode & 0o777, 0o700); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
   const { encrypt } = await import("../src/crypto.ts");
   const good = readSecret("master.key")!;
   fs.writeFileSync(path.join(paths.secrets, "master.key"), "");
@@ -209,4 +209,12 @@ test("网关令牌的取法：Bearer、X-Quetzal-Token、旧的查询参数", ()
   assert.equal(tokenOf(req("/upload", { "x-quetzal-token": "def" })), "def");
   assert.equal(tokenOf(req("/upload?token=ghi")), "ghi");
   assert.equal(tokenOf(req("/upload")), "");
+});
+
+test("Windows：密钥目录与保密库的 ACL 只有本用户与 SYSTEM（chmod 在 Windows 上不起作用）", { skip: process.platform !== "win32" && "只在 Windows 上" }, () => {
+  for (const d of [paths.secrets, paths.vault]) {
+    const acl = execFileSync("icacls", [d], { encoding: "utf8" });
+    assert.doesNotMatch(acl, /Everyone|BUILTIN\\Users|Authenticated Users|\(I\)/, `${d} 不该有别的用户，也不该有继承来的权限：\n${acl}`);
+    assert.match(acl, new RegExp(`${process.env.USERNAME}:\\(OI\\)\\(CI\\)\\(F\\)`, "i"));
+  }
 });

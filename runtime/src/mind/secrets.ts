@@ -18,6 +18,11 @@ import { bus, type SecretEvent } from "../bus.ts";
 import { identity } from "../memory/identity.ts";
 import { baseSecrets } from "../secret-values.ts";
 
+/** 在命令里怎么引用保密库里的值：Windows 的 PowerShell 没有 < 重定向。 */
+export const USAGE = () => process.platform === "win32"
+  ? "用法：在 PowerShell 命令里用 (Get-Content -Raw 路径).Trim() 引用，例如 Get-Content -Raw 路径 | gh auth login --with-token、$env:TOKEN = (Get-Content -Raw 路径).Trim()。"
+  : "用法：在 shell 命令里用 \"$(cat 路径)\" 或 < 路径 引用，例如 gh auth login --with-token < 路径、export TOKEN=\"$(cat 路径)\"。";
+
 export const SECRET_IDLE_MS = 10 * 60_000;
 export const MAX_ITEMS = 20;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -167,7 +172,7 @@ function end(c: Capture, status: "done" | "cancelled" | "expired"): SecretEvent 
     : !saved.length ? "对方发回了结束口令，但没有提供任何内容，保密库没有变化。问问对方是不是遇到了问题。"
     : `已存入保密库 ${saved.length} 项（你看不到明文，也不要设法把它们输出出来）：
 ${saved.map((s) => `- ${s.name} → ${s.path}（${s.bytes} 字节）`).join("\n")}${missing.length ? `\n对方没有提供：${missing.join("、")}` : ""}
-用法：在 shell 命令里用 "$(cat 路径)" 或 < 路径 引用，例如 gh auth login --with-token < 路径、export TOKEN="$(cat 路径)"。工具输出里出现的保密值会被基座替换成 ‹secret:名字›。`);
+${USAGE()}工具输出里出现的保密值会被基座替换成 ‹secret:名字›。`);
   const e = view(c, status, saved.length);
   bus.emit("secret", e);
   return e;
