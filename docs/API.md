@@ -168,7 +168,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `setSoul` | `{text}` |
 | `journalList` / `journal` | — / `{body, day}` |
 | `notes` / `note` / `search` | — → `[{name, title, summary, mtime, size}]`（`name` 为目录树中的相对路径，如 `身体/honor9/硬件`）/ `{name}` / `{query}`（按相关度检索对话、笔记、日记与常驻记忆） |
-| `reminders` / `reminders.cancel` | — / `{id}` | 她答应的提醒 `[{id, text, at, when, repeat}]`（`when` 为下一次的当地说法，`repeat` 为重复规则的说法、一次性为空）/ 取消一条，返回剩下的。设提醒由她用 `reminder` 工具 |
+| `reminders` / `reminders.cancel` | — / `{id}` | 她答应的提醒 `[{id, text, at, when, repeat}]`（`when` 为下一次的当地说法，软提醒是时间窗的说法，`repeat` 为重复规则的说法、一次性为空）/ 取消一条，返回剩下的。设提醒由她用 `reminder` 工具 |
 | `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | 灵魂仓库地址（只接受 SSH 地址，见规范 §7）与访问方式 `sshMode`（`deploy` 本机部署密钥 / `custom` 指定私钥 `sshKeyPath` / `system` 系统 ssh 配置）、本机部署公钥（没有则生成）、立即同步；`status` 含 `lastPull`、`lastPush`、`lastError`（落盘，重启不归零）与 `unpushed`（她碰过、已提交但还在本机等待推送的改动数）。她每次工具调用后碰了灵魂目录都会立即提交、3 秒去抖推送（见 SOUL_SYNC.md）；推送失败与冲突副本由基座直接提醒她，时间线 `kind` 为 `soul` |
 | `agent` / `setAgent` | — / `{displayName?, name?, pronouns?, description?, color?, language?}`（写入 agent.json 并同步；她自己改用工具 `edit_identity`，留时间线 `identity`） |
 | `bodies` | — → 灵魂仓库中登记的身体 |

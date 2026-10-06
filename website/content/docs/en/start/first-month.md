@@ -32,7 +32,7 @@ For the first hour or two after installing, it may stay quiet. How often it wake
 - **Read.** Everything in the soul repository is a Markdown file. To see the version of you that it knows, open `memories/USER.md`.
 - **Edit.** If it got something wrong, tell it, and it will fix it. You can also edit the file on GitHub; it picks up the change the next time it wakes.
 - **Revert.** **Control → Advanced → Memory history** lists every change. **Revert** creates a reverse commit.
-- **Ask it to remind you.** Say "remind me to take my pills at 8 tomorrow morning" or "remind me about the meeting every Monday at 9". It records the reminder, and the runtime sends a notification on time whether it is awake or asleep. **Now** lists upcoming reminders; tap the cross to cancel one.
+- **Ask it to remind you.** Say "remind me to take my pills at 8 tomorrow morning" or "remind me about the meeting every Monday at 9". It records the reminder, and the runtime sends a notification on time whether it is awake or asleep. For things that are not urgent, say "remind me to return the book sometime in the next two days": it waits until you are around (you pick up the phone, or have just messaged it), says why it chose that moment, and stays quiet at night. **Now** lists upcoming reminders; tap the cross to cancel one.
 - **Look up old remarks.** Search covers conversations from every session, notes and journal. Ask "what was that shop we talked about last week" and it first turns "last week" into specific days, then searches those days.
 
 ## What it cannot do
