@@ -8,6 +8,8 @@
 //   GET  /…                      → 网页控制台的静态文件（current/web/ 存在时），见 web.ts
 //   WS   /rpc                    → 令牌在第一条消息 {"auth": "<令牌>"}（5 秒内）或旧式的 ?token=；之后 请求 {id, method, params} / 响应 {id, result | error} / 推送 {event, data}
 //   HTTP 接口的令牌：Authorization: Bearer <令牌>、X-Quetzal-Token 头，或旧式的 ?token=（兼容旧控制台）
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import http from "node:http";
 import https from "node:https";
 import fs from "node:fs";
@@ -57,6 +59,17 @@ const same = (given: string, token: string) => { const g = Buffer.from(given), t
 
 export interface GatewayHandle { plain: http.Server; tls?: https.Server; fingerprint: string; ready: Promise<void>; close(): Promise<void> }
 
+/** Mermaid 渲染器单独打包成 main.cjs 旁边的 mermaid.mjs（布局库较大，安卓用不到），只在桌面控制台要用时加载；开发时直接加载源码。 */
+let mermaidMod: Promise<{ renderMermaidSvg(code: string, dark?: boolean): Promise<string> }> | undefined;
+function mermaid() {
+  if (!mermaidMod) {
+    const bundled = path.join(path.dirname(process.argv[1] ?? ""), "mermaid.mjs");
+    const spec = fs.existsSync(bundled) ? pathToFileURL(bundled).href : "./mermaid.ts"; // 变量：不让打包器把它并进 main.cjs
+    mermaidMod = import(spec).catch((e) => { mermaidMod = undefined; throw new Error(`这具身体没有 Mermaid 渲染组件（${e.message.split("\n")[0]}）`); });
+  }
+  return mermaidMod;
+}
+
 export function startGateway(safeMode: boolean): GatewayHandle {
   let token = gatewayToken();
   const cert = gatewayTls(config.body);
@@ -76,6 +89,8 @@ export function startGateway(safeMode: boolean): GatewayHandle {
     "feishu.setHolder": (p) => { const b = String(p.body ?? "").trim(); if (b && !/^[a-z0-9][a-z0-9-]{0,39}$/.test(b)) throw new Error("身体名不对"); saveConfig({ channels: { feishuHolder: b } }); return feishuStatus(); },
     "feishu.register": () => { registerFeishu((url) => broadcast("feishu.qr", { url })).then((s) => broadcast("feishu.registered", s), (e) => broadcast("feishu.error", { message: e.description ?? e.message })); return true; },
     "safeMode": () => safeMode,
+    // Mermaid 图的兜底渲染：桌面控制台没有网页引擎时画成静态 SVG（mermaid.ts）。只读，不记审计
+    "mermaid.render": async (p) => ({ svg: await (await mermaid()).renderMermaidSvg(String(p.code ?? ""), p.dark === true) }),
     // 换一个新的网关令牌：保存、断开其他所有连接（它们手里的旧令牌作废），把新令牌返回给发起的这个控制台
     "gateway.rotateToken": (_p, ws?: WebSocket) => {
       token = crypto.randomBytes(24).toString("base64url");

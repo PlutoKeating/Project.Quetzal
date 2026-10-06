@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-only",
   "description": "通用的 Agentic 生命运行基座：心脏、大脑、记忆、身体、闸门、网关",
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --external:node-datachannel --external:@anthropic-ai/sandbox-runtime --outfile=dist/main.cjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs && esbuild adapters/linux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/linux.mjs && esbuild adapters/android/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/android.mjs && esbuild adapters/windows/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows.mjs && esbuild adapters/windows/body.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows-body.mjs && esbuild adapters/windows/supervise-main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows-supervise.mjs && node tool/build-srt.mjs",
+    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --external:node-datachannel --external:@anthropic-ai/sandbox-runtime --outfile=dist/main.cjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs && esbuild adapters/linux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/linux.mjs && esbuild adapters/android/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/android.mjs && esbuild adapters/windows/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows.mjs && esbuild adapters/windows/body.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows-body.mjs && esbuild adapters/windows/supervise-main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows-supervise.mjs && esbuild src/mermaid.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/mermaid.mjs && node tool/build-srt.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "dev": "QUETZAL_HOME=./.dev node --experimental-strip-types src/main.ts"
   },
@@ -15,6 +15,7 @@
     "@larksuiteoapi/node-sdk": "^1.74.0",
     "@peculiar/asn1-schema": "2.10.0",
     "@peculiar/asn1-x509": "2.10.0",
+    "beautiful-mermaid": "1.1.3",
     "croner": "10.0.1",
     "jpeg-js": "^0.4.4",
     "microsoft-cognitiveservices-speech-sdk": "^1.52.0",
