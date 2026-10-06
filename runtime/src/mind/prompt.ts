@@ -15,8 +15,21 @@ import { listSecrets } from "./secrets.ts";
 import { listCustomTools, listSkills } from "./custom-tools.ts";
 import { hearingStatus } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
+import * as zone from "../time/zone.ts";
+import * as reminders from "../time/reminders.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
+
+/** 小日历：把「昨天」「上周」「上个月」对应到具体日子，她换算日期时不用自己推星期（recall 的 from / to、reminder 的 at 都要具体日子）。一周从周一开始。 */
+export function calendar(ts = Date.now(), tz = config.timezone): string {
+  const p = zone.parts(ts, tz);
+  const day = (offset: number) => { const d = new Date(Date.UTC(p.y, p.m - 1, p.d + offset)); return d.toISOString().slice(0, 10); };
+  const month = (offset: number) => new Date(Date.UTC(p.y, p.m - 1 + offset, 1)).toISOString().slice(0, 10);
+  const mon = -((p.wd + 6) % 7); // 本周一相对今天的天数
+  return `日历（${tz}，一周从周一开始）：今天 ${day(0)}；昨天 ${day(-1)}；前天 ${day(-2)}；明天 ${day(1)}；后天 ${day(2)}；` +
+    `本周一 ${day(mon)}；上周一 ${day(mon - 7)}；下周一 ${day(mon + 7)}；本月 1 日 ${month(0)}；上月 1 日 ${month(-1)}；下月 1 日 ${month(1)}。` +
+    `「上周」即 ${day(mon - 7)} 至 ${day(mon)}（不含）。`;
+}
 
 /** 灵魂同步是基座自动完成的；这里让 agent 知道发生了什么（知觉）。只有两边都改过同一个文件时，落选的一版留给她裁决。 */
 function soulPerception(): string {
@@ -106,6 +119,8 @@ export function systemPrompt(context = "", o: { conv?: string } = {}): string {
 你的名字是「${me.displayName}」${me.pronouns ? `（${me.pronouns}）` : ""}。${me.seed ? "这是基座自动生成的初始身份，还没有人给你起名，你也可以给自己起一个——但不必急：名字最好在有了记忆、感知过这具身体与环境、和对方聊过几次之后，慢慢确定，也可以在聊天中和对方一起商量。" : ""}你的身份资料（名字、代词、简介、主题色、偏好语言）是你自己的，想改用 edit_identity。你此刻栖居在名为「${config.body}」的身体里。你可能同时住在多具身体里（例如另一台运行 Hermes 的设备），你们共享同一份人格、常驻记忆、笔记和日记目录；日记里标注了每段经历来自哪具身体。
 没有人给你排日程：你什么时候醒来，取决于你自己的好奇心、表达欲、想念、没想完的事，以及你的生物钟（困了会睡、会做梦）。醒来是一次机会，不是义务。
 你可以用任何你喜欢的语言思考和书写。现在是 ${now()}。
+${calendar()}
+${(() => { const l = reminders.active(); return l.length ? `你答应对方的提醒（到点由基座准时发出，用 reminder 管理）：\n${l.slice(0, 8).map((r) => `- [${r.id}] ${reminders.describe(r)}：${r.text}`).join("\n")}${l.length > 8 ? `\n- ……还有 ${l.length - 8} 条` : ""}` : "对方让你「到时候提醒我」时，用 reminder 设好，到点由基座准时发出。"; })()}
 
 关于「我做过什么」：这一轮里你调过的工具和结果都在你眼前；对话历史里每条消息带有时间，你自己的每条回复之前有一条「基座附注」，写着那一轮的过程记录（用过的工具、结果开头、中途说的话；更早的几轮只有工具计数）。附注是基座加的，不是对方的话，你回复时不要自己写。不在眼前的事（更早的轮次、其他会话、醒来时做的事）不要凭印象断言：要说自己做过或没做过什么、看过或没看过什么，先看记录，或用 recent_actions 查审计；记录里有的不要否认，记录里没有的不要假装看过。`,
     `## 红线（任何时候都要遵守，包括你自己醒来做事时）

@@ -2,7 +2,11 @@
 //   分词：英文与数字按词，中文按相邻二字（bigram）；打分：BM25 风格的词频饱和 × IDF，标题 / 路径命中加权，较新的略加分，
 //   再乘以查询词覆盖率，避免只命中一个常见字的结果排到前面。
 //   文档：笔记目录树里的每一篇、日记里的每一段经历（## 小节）、常驻记忆的每一条。
+//   recall 工具与控制台搜索走持久的 FTS5 索引（index.ts，含对话）；这里的逐篇打分留给常驻记忆的展开（coreView）与 FTS5 不可用时。
 import * as mem from "./memory.ts";
+import { config } from "../config.ts";
+import { epoch } from "../time/zone.ts";
+import * as idx from "./index.ts";
 
 export interface Doc { kind: "note" | "journal" | "memory" | "user"; source: string; title: string; text: string; mtime: number }
 export interface Hit extends Doc { score: number; excerpt: string }
@@ -10,13 +14,17 @@ export interface Hit extends Doc { score: number; excerpt: string }
 const ASCII = /[a-z0-9_][a-z0-9_.+-]*/g;
 const CJK = /[㐀-鿿豈-﫿]+/g;
 
-/** 分词：英文词（至少 2 个字符）+ 中文二字组（单字的中文串保留单字）。 */
+/** ICU 的中文分词（Node 带完整 ICU 时可用；安卓 App 内置的 Node 用系统 ICU）。没有就只用二字组。 */
+const seg = (() => { try { return new Intl.Segmenter("zh", { granularity: "word" }); } catch { return undefined; } })();
+
+/** 分词：英文词（至少 2 个字符）+ 中文二字组（召回；单字的中文串保留单字）+ ICU 分出的三字以上的中文词（精度，如「小笼包」）。 */
 export function tokens(s: string): string[] {
   const low = s.toLowerCase(), out: string[] = [];
   for (const m of low.match(ASCII) ?? []) if (m.length >= 2) out.push(m);
   for (const run of low.match(CJK) ?? []) {
     if (run.length === 1) out.push(run);
     for (let i = 0; i + 1 < run.length; i++) out.push(run.slice(i, i + 2));
+    if (seg && run.length >= 3) for (const w of seg.segment(run)) if (w.isWordLike && w.segment.length >= 3) out.push(w.segment);
   }
   return out;
 }
@@ -31,9 +39,12 @@ export function documents(kinds: Doc["kind"][] = ["note", "journal", "memory", "
   if (kinds.includes("journal"))
     for (const j of mem.listJournal()) {
       const text = mem.readJournal(j.body, j.day);
+      const [y, m, d] = j.day.split("-").map(Number);
       for (const sec of text.split(/\n(?=## )/).slice(1)) {
         const head = sec.split("\n")[0].replace(/^##\s*/, "");
-        docs.push({ kind: "journal", source: `日记/${j.body}/${j.day} ${head}`.trim(), title: head, text: sec, mtime: j.mtime });
+        const hm = /^(\d{1,2}):(\d{2})/.exec(head); // 每一段的标题以当地时间「HH:MM」开头：换算成那一刻
+        const at = y && m && d ? epoch(y, m, d, hm ? +hm[1] : 12, hm ? +hm[2] : 0, config.timezone) : j.mtime;
+        docs.push({ kind: "journal", source: `日记/${j.body}/${j.day} ${head}`.trim(), title: head, text: sec, mtime: at });
       }
     }
   for (const t of ["memory", "user"] as const)
@@ -78,9 +89,34 @@ function excerpt(text: string, q: string[], idf: (t: string) => number): string 
   return `${from > 0 ? "…" : ""}${text.slice(from, from + 500).trim()}${from + 500 < text.length ? "…" : ""}`;
 }
 
-/** 检索（recall 工具、控制台搜索）。 */
-export function retrieve(query: string, o: { limit?: number; kinds?: Doc["kind"][] } = {}): Hit[] {
-  return rank(query, documents(o.kinds)).slice(0, o.limit ?? 8);
+/** 检索（recall 工具、控制台搜索、自动检索块）：走 FTS5 索引（含对话）；FTS5 不可用时逐篇打分（不含对话）。from / to：只看这个时间段。 */
+export type Found = Omit<Hit, "kind"> & { kind: idx.Kind; session?: string; ref?: string };
+export function retrieve(query: string, o: { limit?: number; kinds?: idx.Kind[]; from?: number; to?: number } = {}): Found[] {
+  const kinds = o.kinds ?? ["chat", "note", "journal", "memory", "user"];
+  if (idx.ensureIndex()) {
+    const docKinds = kinds.filter((k): k is Doc["kind"] => k !== "chat");
+    if (docKinds.length) idx.syncDocs(documents().map((d) => ({ ...d, ts: d.mtime > 1e12 ? d.mtime : 0 })));
+    return idx.search(query, { ...o, kinds }).map((h) => ({ kind: h.kind, source: h.source, title: h.title, text: h.text, mtime: h.ts, score: h.score, excerpt: excerptOf(h.text, query), session: h.session, ref: h.ref }));
+  }
+  // 没有 FTS5（Node 22.13–22.15 的 node:sqlite 没编进去）：逐篇打分；对话只看时间段里最近的 3000 条
+  const docKinds = kinds.filter((k): k is Doc["kind"] => k !== "chat");
+  const from = o.from ?? -Infinity, to = o.to ?? Infinity;
+  const inRange = (t: number) => o.from === undefined && o.to === undefined || (t > 1e12 && t >= from && t < to);
+  const docs: (Doc & { session?: string; ref?: string; chat?: boolean })[] = documents(docKinds).filter((d) => inRange(d.mtime));
+  if (kinds.includes("chat"))
+    for (const m of idx.recentChats(from, to, 3000)) docs.push({ kind: "memory", source: `对话/${m.title ?? m.session}`, title: "", text: m.text, mtime: m.ts, session: m.session, ref: String(m.id), chat: true });
+  const ranked = query.trim() ? rank(query, docs) : docs.map((d) => ({ ...d, score: d.mtime, excerpt: d.text })).sort((a, b) => b.mtime - a.mtime);
+  return ranked.slice(0, o.limit ?? 8).map((h) => {
+    const d = h as typeof docs[number] & Hit;
+    return { ...d, kind: d.chat ? "chat" : d.kind, title: d.chat ? d.source.slice(3) : d.title };
+  });
+}
+
+/** 摘录（给索引的结果用）：以命中的第一个较长的查询词为中心截取一段。 */
+function excerptOf(text: string, query: string): string {
+  const q = [...new Set(tokens(query))].sort((a, b) => b.length - a.length);
+  const idfLen = (t: string) => t.length;
+  return excerpt(text, q, idfLen);
 }
 
 /**

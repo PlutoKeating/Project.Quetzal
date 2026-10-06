@@ -4,7 +4,9 @@ import path from "node:path";
 import { loadConfig, config, paths } from "./config.ts";
 import { openStore, addTimeline, addMessage, ensureSession } from "./store.ts";
 import { loadAdapter, startSenses, sample, adapter } from "./body/twin.ts";
-import { startHeart } from "./heart/heart.ts";
+import { startHeart, isFollower, nudge } from "./heart/heart.ts";
+import { startReminders, when } from "./time/reminders.ts";
+import { backfillChat } from "./memory/index.ts";
 import { wake } from "./mind/brain.ts";
 import { ensureSoul } from "./memory/soul-sync.ts";
 import { displayName } from "./memory/identity.ts";
@@ -49,6 +51,19 @@ async function main() {
   wireFeishu();
   await startFeishu();
   bus.on("say", (text) => { ensureSession("inbox", "主动消息", "主动"); addMessage("agent", "主动", text, { session: "inbox" }); void adapter.notify?.(displayName(), text).catch(() => {}); });
+  // 提醒：答应了对方的事必须准点——不经模型，到点直接把她写好的话发出去（主动消息：控制台、飞书、系统通知），再轻轻告诉她。
+  //   安全模式下也照常（不需要模型）；多具身体时只有持心跳的那具身体触发。
+  startReminders(async (r, late) => {
+    const tail = late > 120_000 ? `（原定 ${when(r.at, r.tz)}，晚了 ${Math.round(late / 60_000)} 分钟）` : "";
+    bus.emit("say", `${r.text}${tail}`);
+    addTimeline("reminder", `到点提醒了对方：${r.text}`, { id: r.id, late });
+    nudge(`到点提醒了对方：${r.text}`, { social: 0.05 });
+  }, () => !isFollower(), 30_000);
+  bus.on("reminders.missed", (r, late) => {
+    bus.emit("say", `抱歉，错过了一个提醒：${r.text}（原定 ${when(r.at, config.timezone)}，那时我这边没在运行）`);
+    addTimeline("reminder", `错过了提醒：${r.text}（晚了 ${Math.round(late / 3_600_000)} 小时）`, { id: r.id, late, missed: true });
+  });
+  backfillChat(); // 历史对话在后台补进检索索引
 
   if (safeMode) {
     addTimeline("safe", "反复崩溃，进入安全模式");

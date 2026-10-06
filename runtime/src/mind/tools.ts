@@ -24,6 +24,8 @@ import { PERMISSION_LABELS } from "../guard/guard.ts";
 import { identity, setIdentity } from "../memory/identity.ts";
 import * as soul from "../memory/soul-sync.ts";
 import * as hearing from "../voice/hearing.ts";
+import * as reminders from "../time/reminders.ts";
+import { parseLocal, parseDuration, parts } from "../time/zone.ts";
 import * as player from "../voice/player.ts";
 import * as agents from "./agents.ts";
 import { ensureSession, getSession, kv } from "../store.ts";
@@ -99,9 +101,36 @@ const core: Tool[] = [
     handler: async (a) => mem.deleteNote(a.name),
   },
   {
-    name: "recall", permission: "memory", description: "检索全部记忆：笔记目录树、所有日记（包括其他身体的）、常驻记忆里没展开的条目。按相关度排序，中文直接写一句话或几个词即可。",
-    parameters: obj({ query: str("想找什么") }, ["query"]),
-    handler: async (a) => mem.search(a.query),
+    name: "recall", permission: "memory",
+    description: "检索全部记忆：过去的对话（所有会话、所有身体）、笔记目录树、所有日记、常驻记忆里没展开的条目。按相关度排序，中文直接写一句话或几个词即可。" +
+      "「上周聊过的」「昨天说的」这类有时间的：先按系统提示里的日历换算成具体日子，用 from / to 限定（当地日期或时刻，如 2026-09-28 或 2026-10-06T14:00，区间含 from 不含 to）；只给时间不给 query 时，按时间列出那段时间的对话与日记。" +
+      "结果里的对话带会话名、时刻与前后各一句。",
+    parameters: obj({
+      query: str("想找什么（可空，只按时间列出）"),
+      from: str("从何时起（当地日期或时刻，可选）"), to: str("到何时为止，不含（当地日期或时刻，可选）"),
+      scope: { type: "string", enum: ["all", "chats", "memory"], description: "all 全部（默认）；chats 只看对话；memory 只看笔记、日记与常驻记忆" },
+    }),
+    handler: async (a) => {
+      const range = timeRange(a.from, a.to);
+      if (typeof range === "string") return range;
+      if (!String(a.query ?? "").trim() && range.from === undefined && range.to === undefined) return "给出要找的内容，或者用 from / to 给一个时间段";
+      const kinds = a.scope === "chats" ? ["chat"] as const : a.scope === "memory" ? ["note", "journal", "memory", "user"] as const : undefined;
+      const head = range.label ? `（时间段：${range.label}）\n` : "";
+      return head + mem.search(String(a.query ?? ""), { from: range.from, to: range.to, kinds: kinds ? [...kinds] : undefined, limit: String(a.query ?? "").trim() ? 8 : 20 });
+    },
+  },
+  {
+    name: "reminder", permission: "message",
+    description: "提醒与日程：对方让你「到时候提醒我」时用它。到点由基座准时把 text 发给对方（系统通知、飞书、控制台的主动消息），不管你那时醒着还是睡着，也会告诉你。" +
+      "action=add：text 是到时直接发给对方的话，用你自己的口吻写好（如「该吃药啦，饭后那片」）；时间三选一或组合——at 当地时刻（如 2026-10-08T08:00，先按系统提示里的日历把「明早」「下周三」换算成日期）、in 多久之后（30m、2h、1d、1h30m）、cron 重复规则（5 段：分 时 日 月 星期，如每周一 9:00「0 9 * * 1」、每个工作日 7:30「30 7 * * 1-5」、每月 1 号 10:00「0 10 1 * *」），重复的可加 until 截止。返回规范化的时间与接下来几次，请核对后告诉对方。" +
+      "action=list：列出所有提醒。action=cancel：按 id 取消。action=update：按 id 改 text / at / in / cron / until（cron 给空字符串改成一次性）。",
+    parameters: obj({
+      action: { type: "string", enum: ["add", "list", "cancel", "update"] },
+      id: str("cancel / update 用：提醒的编号"), text: str("到时发给对方的话"),
+      at: str("当地时刻，如 2026-10-08T08:00"), in: str("多久之后，如 30m、2h、1d"),
+      cron: str("重复规则（5 段 cron）"), until: str("重复到何时为止（当地日期或时刻）"),
+    }, ["action"]),
+    handler: async (a, ctx) => reminderTool(a, ctx.session?.conv),
   },
   {
     name: "open_loop", permission: "memory", description: "管理未完成的念头：add 记下一件以后还想继续的事；close 放下或完成一件（用 id）。",
@@ -525,4 +554,57 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
     // 触碰即同步：任何工具（包括 shell、自造工具）碰了灵魂目录，立即提交并安排推送
     await soul.touched({ tool: name, session: ctx.session }).catch(() => {});
   }
+}
+
+
+// ---------- 时间参数（recall 的 from / to、reminder 的 at / in / until）：只收明确的当地时刻与时长，「上周」这类说法由她按系统提示里的日历换算
+const WD = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+function dayText(ts: number) { const p = parts(ts, config.timezone); return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}（${WD[p.wd]}）${p.h || p.mi ? ` ${String(p.h).padStart(2, "0")}:${String(p.mi).padStart(2, "0")}` : ""}`; }
+
+/** recall 的时间段：返回毫秒区间与给人看的说法；格式不对返回错误说明。 */
+function timeRange(from: unknown, to: unknown): { from?: number; to?: number; label: string } | string {
+  const f = typeof from === "string" && from.trim() ? parseLocal(from, config.timezone) : undefined;
+  const t = typeof to === "string" && to.trim() ? parseLocal(to, config.timezone) : undefined;
+  if (typeof from === "string" && from.trim() && f === undefined) return `from 的写法不对：「${from}」。用当地日期或时刻，如 2026-09-28 或 2026-09-28T14:00`;
+  if (typeof to === "string" && to.trim() && t === undefined) return `to 的写法不对：「${to}」。用当地日期或时刻，如 2026-10-05`;
+  if (f !== undefined && t !== undefined && t <= f) return "to 要晚于 from";
+  if (f === undefined && t === undefined) return { label: "" };
+  return { from: f, to: t, label: `${f !== undefined ? dayText(f) : "最早"} 至 ${t !== undefined ? `${dayText(t)}（不含）` : "现在"}` };
+}
+
+function reminderTool(a: Record<string, any>, conv?: string): string {
+  const tz = config.timezone, now = Date.now();
+  const line = (r: reminders.Reminder) => `[${r.id}] ${reminders.describe(r)}：${r.text}`;
+  const timeOf = (): number | string | undefined => {
+    if (typeof a.at === "string" && a.at.trim()) { const v = parseLocal(a.at, tz); return v ?? `at 的写法不对：「${a.at}」。用当地时刻，如 2026-10-08T08:00`; }
+    if (typeof a.in === "string" && a.in.trim()) { const d = parseDuration(a.in); return d !== undefined ? now + d : `in 的写法不对：「${a.in}」。用 30m、2h、1d、1h30m 这样的写法`; }
+    return undefined;
+  };
+  const untilOf = (): number | string | undefined => {
+    if (typeof a.until !== "string" || !a.until.trim()) return undefined;
+    return parseLocal(a.until, tz) ?? `until 的写法不对：「${a.until}」`;
+  };
+  try {
+    if (a.action === "list") {
+      const list = reminders.active();
+      return list.length ? list.map(line).join("\n") : "没有提醒";
+    }
+    if (a.action === "cancel") { const r = reminders.cancel(String(a.id ?? "")); return `已取消：${r.text}`; }
+    const at = timeOf(), until = untilOf();
+    if (typeof at === "string") return at;
+    if (typeof until === "string") return until;
+    if (a.action === "update") {
+      const r = reminders.update(String(a.id ?? ""), {
+        text: typeof a.text === "string" ? a.text : undefined, at,
+        cron: typeof a.cron === "string" ? (a.cron.trim() ? a.cron : null) : undefined, until,
+      });
+      return `已改好 ${line(r)}`;
+    }
+    if (a.action !== "add") return "action 只能是 add / list / cancel / update";
+    const cron = typeof a.cron === "string" && a.cron.trim() ? a.cron : undefined;
+    if (at === undefined && !cron) return "没有给时间：用 at（当地时刻）、in（多久之后）或 cron（重复规则）";
+    const r = reminders.add({ text: String(a.text ?? ""), at, cron, until, conv, by: "agent" }, now);
+    const next = reminders.upcoming(r, 3).map((t) => reminders.when(t, tz));
+    return `已设好 [${r.id}] ${reminders.describe(r)}：${r.text}${r.cron ? `\n接下来：${next.join("、")}` : ""}\n（请核对时间是否就是对方说的，不对就用 update 改）`;
+  } catch (e) { return `没有设好：${(e as Error).message}`; }
 }

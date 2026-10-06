@@ -4,6 +4,7 @@
 //     Key 只经网状层端到端加密、双方以节点密钥认证过的通道传，接收方用自己的主密钥重新加密保存。
 //   - 审批：一具身体上等待批准的事，所有身体的控制台都看得到；在哪里批准都行（转给发起的那具身体）。
 //   - 预算：用量按身体记，每日预算看全网合计。
+//   - 提醒：按条目合并（time/reminders.ts 的 merge：同一编号以较新的修改为准，删除留墓碑），不看分区的修改时刻；一改就广播，连上时互相拉一次。
 //   - 来自别处的设置先校验：修改时刻不能晚于「现在 + 5 分钟」（一个远在未来的时刻会让这个分区再也改不动）；
 //     每个分区只留认得的键、类型与缺省值一致的值。急停是「停优先」：别处停了随时跟着停；解除只解除对方明确解除的那几次急停（见 stopState）。
 import fs from "node:fs";
@@ -16,9 +17,11 @@ import { exportProviders, importProviders } from "../providers/registry.ts";
 import { speechKey, setSpeechKeyRemote } from "../voice/azure.ts";
 import { emergencyStop, releaseStop, stopScope, decide as decideLocal, approvals as localApprovals } from "../guard/guard.ts";
 import { usageRows, applyUsage, kv } from "../store.ts";
+import * as reminders from "../time/reminders.ts";
 import { log } from "../log.ts";
 
-const SECTIONS = [...SHARED_SECTIONS, "providers", "speechKey", "stop"] as const;
+const SECTIONS = [...SHARED_SECTIONS, "providers", "speechKey", "stop", "reminders"] as const;
+const MERGED = new Set(["stop", "reminders"]); // 按内容合并、不看修改时刻的分区
 type Section = (typeof SECTIONS)[number];
 const FUTURE_MS = 5 * 60_000;
 const BODY_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -89,11 +92,12 @@ function read(section: Section): unknown {
   if (section === "providers") return exportProviders();
   if (section === "speechKey") return speechKey();
   if (section === "stop") return stopState();
+  if (section === "reminders") return reminders.all();
   return (config as any)[section];
 }
 
 // ---------- 与每具身体对齐设置的结果（控制台「设备」页显示：哪些设置采用了对方的、失败的原因）
-const LABEL: Record<string, string> = { providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
+const LABEL: Record<string, string> = { reminders: "提醒", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
 export interface AlignStatus { at: number; took: string[]; error?: string }
 const aligned = new Map<string, AlignStatus>();
 const note = (body: string, took: string[], error?: string) => {
@@ -114,6 +118,7 @@ function write(section: Section, value: any, from: string): boolean {
     if (typeof value !== "string" || value.length > 1000 || /[^\x21-\x7e]/.test(value)) throw new Error("语音密钥格式不对");
     setSpeechKeyRemote(value);
   } else if (section === "stop") return applyStop(value, from);
+  else if (section === "reminders") return reminders.merge(value);
   else {
     const clean = sanitizeSection(section, value);
     if (!clean) throw new Error("格式不对");
@@ -129,7 +134,7 @@ function adopt(sections: unknown, from: string): string[] {
   for (const [name, s] of Object.entries(sections as Record<string, { rev: unknown; value: unknown }>)) {
     if (!(SECTIONS as readonly string[]).includes(name) || typeof s?.rev !== "number" || !Number.isFinite(s.rev)) continue;
     if (s.rev > Date.now() + FUTURE_MS) { log("mesh", `${from} 的设置 ${name} 修改时刻在未来（时钟不准？），不采用`); continue; }
-    if (name !== "stop" && s.rev <= (config.sharedRev[name] ?? 0)) continue;
+    if (!MERGED.has(name) && s.rev <= (config.sharedRev[name] ?? 0)) continue;
     try {
       if (!write(name as Section, s.value, from)) continue;
       if (s.rev > (config.sharedRev[name] ?? 0)) saveConfig({ sharedRev: { [name]: s.rev } }, { remote: true });
@@ -176,7 +181,7 @@ export function backfillRevs(): string[] {
   const mtime = (f: string) => { try { return Math.min(Math.floor(fs.statSync(f).mtimeMs), Date.now()); } catch { return 0; } };
   const stamp: Record<string, number> = {};
   for (const s of SECTIONS) {
-    if (s === "stop" || (config.sharedRev[s] ?? 0) > 0) continue;
+    if (MERGED.has(s) || (config.sharedRev[s] ?? 0) > 0) continue;
     let t = 0;
     if (s === "providers") { if (exportProviders().providers.length) t = mtime(path.join(paths.config, "providers.json")); }
     else if (s === "speechKey") { if (speechKey()) t = mtime(path.join(paths.secrets, "azure_speech_key")); }
@@ -214,7 +219,7 @@ export function installShared(mesh: Mesh): () => void {
       const revs = await mesh.request<Record<string, unknown>>(s.body, "settings.revs", {}, 15_000);
       const limit = Date.now() + FUTURE_MS;
       const newer = Object.entries(revs && typeof revs === "object" ? revs : {})
-        .filter(([n, r]) => n === "stop" || (typeof r === "number" && r <= limit && r > (config.sharedRev[n] ?? 0))).map(([n]) => n);
+        .filter(([n, r]) => MERGED.has(n) || (typeof r === "number" && r <= limit && r > (config.sharedRev[n] ?? 0))).map(([n]) => n);
       const took = newer.length ? adopt(await mesh.request(s.body, "settings.get", { sections: newer }, 30_000), s.body) : [];
       if (!aligned.get(s.body)?.error || took.length) note(s.body, took);
       const pending = await mesh.request<unknown>(s.body, "approvals.pending", {}, 15_000);
@@ -223,14 +228,16 @@ export function installShared(mesh: Mesh): () => void {
     } catch (e) { log("mesh", `与 ${s.body} 对齐设置失败：${(e as Error).message}`); note(s.body, [], `对齐设置失败：${String((e as Error).message).slice(0, 200)}`); }
   };
 
+  const onReminders = () => onShared(["reminders"]);
   bus.on("shared", onShared);
+  bus.on("reminders.changed", onReminders);
   bus.on("approval", onApproval);
   bus.on("usage", onUsage);
   mesh.on("event", onEvent);
   mesh.on("peer", onPeer);
   setApprovalRouter((body, id, approve, note) => mesh.request<boolean>(body, "approval.decide", { id, approve, note }, 15_000));
   return () => {
-    bus.off("shared", onShared as any); bus.off("approval", onApproval as any); bus.off("usage", onUsage as any);
+    bus.off("shared", onShared as any); bus.off("reminders.changed", onReminders); bus.off("approval", onApproval as any); bus.off("usage", onUsage as any);
     mesh.off("event", onEvent); mesh.off("peer", onPeer); setApprovalRouter(undefined); remote.clear();
   };
 }

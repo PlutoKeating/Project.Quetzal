@@ -196,11 +196,21 @@ export function noteTree(dir = "", maxChars = 2500): string {
   return out;
 }
 
-/** 在笔记、日记与常驻记忆中检索（见 retrieval.ts），返回可读的结果。 */
-export function search(query: string, limit = 8): string {
-  const hits = retrieve(query, { limit });
-  return hits.length ? hits.map((h) => `【${h.source}】\n${h.excerpt}`).join("\n\n") : "没有找到相关记忆";
+/** 在对话、笔记、日记与常驻记忆中检索（见 retrieval.ts / index.ts），返回可读的结果。from / to：只看这个时间段（毫秒）。 */
+export function search(query: string, o: { limit?: number; from?: number; to?: number; kinds?: Kind[] } = {}): string {
+  const hits = retrieve(query, { limit: o.limit ?? 8, from: o.from, to: o.to, kinds: o.kinds });
+  if (!hits.length) return "没有找到相关记忆";
+  const at = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const who = (r: string) => (r === "user" ? "对方" : r === "agent" ? "我" : "（环境声音）");
+  const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim(); return x.length > n ? `${x.slice(0, n)}…` : x; };
+  return hits.map((h) => {
+    if (h.kind !== "chat") return `【${h.source}】${h.mtime > 1e12 && h.kind === "note" ? `（改于 ${at(h.mtime)}）` : ""}\n${h.excerpt}`;
+    const ctx = around(Number(h.ref), 1).map((m) => `${m.id === Number(h.ref) ? "→ " : "  "}${who(m.role)}：${clip(String(m.text ?? ""), m.id === Number(h.ref) ? 400 : 120)}`);
+    return `【对话 · 会话「${h.title || h.session}」· ${at(h.mtime)}】\n${ctx.join("\n")}`;
+  }).join("\n\n");
 }
+
+import { around, type Kind } from "./index.ts";
 
 // ---------- 未完成的念头
 import { kv } from "../store.ts";
