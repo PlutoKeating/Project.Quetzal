@@ -1,8 +1,11 @@
-// 进程列表：直接读 /proc，不依赖 ps 命令。
+// 进程列表：Linux / 安卓直接读 /proc，不依赖 ps 命令；Windows 用 PowerShell 读 Win32_Process（CIM）。
 //   有的沙箱里 ps 缺失、报错或看不到进程，而命令里的 2>/dev/null 会把报错吞掉，输出为空看起来就像"没有进程"，
 //   她据此断言"没有后台进程"——可她自己就跑在 node 进程里。这里给她一个不会撒谎的来源，并标出哪个是她自己。
 import fs from "node:fs";
+import { execFile } from "node:child_process";
 import { listJobs } from "../sh.ts";
+import { isWindows } from "../platform.ts";
+import { powershellPath, PS_PREAMBLE } from "../sandbox.ts";
 
 export interface Proc { pid: number; ppid: number; state: string; startedMs: number; cmd: string }
 
@@ -23,8 +26,9 @@ function bootTime(): number {
   return bootMs;
 }
 
-/** 当前用户能看到的全部进程（Android 的 /proc 带 hidepid，只看得到自己这个用户的）。没有 /proc（非 Linux）时抛错。 */
-export function listProcesses(): Proc[] {
+/** 当前用户能看到的全部进程（Android 的 /proc 带 hidepid，只看得到自己这个用户的）。Windows 走 CIM；别的系统没有 /proc 时抛错。 */
+export async function listProcesses(): Promise<Proc[]> {
+  if (isWindows) return listWindows();
   const boot = bootTime();
   const out: Proc[] = [];
   for (const d of fs.readdirSync("/proc")) {
@@ -41,12 +45,24 @@ export function listProcesses(): Proc[] {
   return out.sort((a, b) => a.pid - b.pid);
 }
 
+/** Windows：Win32_Process（别的用户的进程只有名字，命令行要管理员才看得到）。 */
+function listWindows(): Promise<Proc[]> {
+  const script = PS_PREAMBLE + "Get-CimInstance Win32_Process | ForEach-Object { $c = if ($_.CommandLine) { $_.CommandLine } else { '[' + $_.Name + ']' }; $t = if ($_.CreationDate) { [DateTimeOffset]::new($_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }; \"$($_.ProcessId)`t$($_.ParentProcessId)`t$t`t$($c -replace '[\\r\\n\\t]', ' ')\" }";
+  return new Promise((resolve, reject) => execFile(powershellPath(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { timeout: 30_000, maxBuffer: 16 << 20, windowsHide: true }, (e, out) => {
+    if (e && !out) return reject(e);
+    resolve(String(out).split(/\r?\n/).filter(Boolean).map((l) => {
+      const [pid, ppid, t, ...cmd] = l.split("\t");
+      return { pid: Number(pid), ppid: Number(ppid), state: "R", startedMs: Number(t) || NaN, cmd: cmd.join(" ") };
+    }).filter((p) => Number.isFinite(p.pid)).sort((a, b) => a.pid - b.pid));
+  }));
+}
+
 const ago = (ms: number) => { if (!Number.isFinite(ms)) return "?"; const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? `${s}秒` : s < 3600 ? `${Math.round(s / 60)}分` : `${(s / 3600).toFixed(1)}时`; };
 
 /** 给她看的进程表：可按命令行子串过滤；标出她自己、她的父进程与她启动的后台任务。 */
-export function describeProcesses(filter = "", limit = 80): string {
+export async function describeProcesses(filter = "", limit = 80): Promise<string> {
   let list: Proc[];
-  try { list = listProcesses(); } catch (e: any) { return `这具身体上读不到进程列表（${e.message}）`; }
+  try { list = await listProcesses(); } catch (e: any) { return `这具身体上读不到进程列表（${e.message}）`; }
   const jobs = new Map(listJobs().filter((j) => !j.ended && j.proc.pid).map((j) => [j.proc.pid!, j.id]));
   const q = filter.trim().toLowerCase();
   const hit = q ? list.filter((p) => p.cmd.toLowerCase().includes(q) || String(p.pid) === q) : list;

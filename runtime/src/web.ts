@@ -9,10 +9,13 @@
 //     （读 /proc/net/tcp 的 uid 列），同样不能是运行基座的子孙。没有 Origin 的请求不可能来自别的网页（跨源 fetch 浏览器一定带 Origin，
 //     不带 Origin 的 no-cors 请求读不到响应），而别的系统用户的进程连 uid 这一关也过不去。
 //     安卓（Termux）上不提供：别的应用能连 127.0.0.1，而控制台 App 由安装器直接拿到令牌。
+//     Windows：原生桌面控制台直接读 secrets\gateway.token（同一个用户），这里只服务浏览器；子孙进程检查用 netstat 找出连接所属的进程，
+//     再沿 Win32_Process 的父进程往上找（fromDescendantWin，查不出来按「是」处理）。她的命令在沙箱用户里、连不到回环，这是第二道。
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import net from "node:net";
+import { execFile } from "node:child_process";
 
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
@@ -130,6 +133,35 @@ export function fromDescendant(req: Req, serverPort: number): boolean {
     for (const fd of fds) { try { if (fs.readlinkSync(`/proc/${pid}/fd/${fd}`) === want) return true; } catch { /* 已关闭 */ } }
   }
   return false;
+}
+
+/** Windows：发起这个连接的进程是不是运行基座的子孙。netstat 找连接的所属进程，CIM 取父进程表；任何一步失败都返回 true（拒绝）。 */
+export async function fromDescendantWin(req: Req, serverPort: number): Promise<boolean> {
+  const port = req.socket.remotePort;
+  if (!port) return true;
+  const exec = (cmd: string, args: string[]) => new Promise<string>((resolve, reject) => execFile(cmd, args, { timeout: 15_000, maxBuffer: 8 << 20, windowsHide: true }, (e, out) => (e ? reject(e) : resolve(String(out)))));
+  try {
+    const owner = netstatOwner(await exec("netstat", ["-ano", "-p", "TCP"]), port, serverPort) ?? netstatOwner(await exec("netstat", ["-ano", "-p", "TCPv6"]), port, serverPort);
+    if (owner === undefined) return true;
+    const ps = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const table = await exec(ps, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }"]);
+    const parent = new Map(table.split(/\r?\n/).filter(Boolean).map((l) => l.trim().split(/\s+/).map(Number) as [number, number]));
+    return isDescendant(owner, process.pid, parent);
+  } catch { return true; }
+}
+/** netstat -ano 的输出里，本地端口为 port、对端端口为 serverPort 的那条连接的进程号。 */
+export function netstatOwner(text: string, port: number, serverPort: number): number | undefined {
+  for (const line of text.split(/\r?\n/)) {
+    const c = line.trim().split(/\s+/);
+    if (c.length >= 5 && /^TCP/i.test(c[0]) && c[1].endsWith(`:${port}`) && c[2].endsWith(`:${serverPort}`)) return Number(c[c.length - 1]);
+  }
+  return undefined;
+}
+/** 沿父进程表往上找，pid 是不是 root 的子孙（防环：最多走 64 层）。 */
+export function isDescendant(pid: number, root: number, parent: Map<number, number>): boolean {
+  let p = pid;
+  for (let i = 0; i < 64; i++) { const pp = parent.get(p); if (pp === undefined || pp === 0 || pp === p) return false; if (pp === root) return true; p = pp; }
+  return true;
 }
 
 /** 托管静态文件：/ → index.html；没有扩展名的未知路径回退到 index.html（单页应用的路由）；带 ETag，命中返回 304。处理了返回 true。 */

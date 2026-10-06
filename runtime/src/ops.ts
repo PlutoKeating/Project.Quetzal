@@ -1,4 +1,6 @@
 // 操作层：控制台网关与飞书卡片共用的一套操作。任何控制入口都只调用这里，保证行为一致、都有审计。
+import path from "node:path";
+import { ensureSshKeyFile } from "./ssh-key.ts";
 import fs from "node:fs";
 import { config, saveConfig, paths, type Level } from "./config.ts";
 import { audit, listTimeline, listAudit, usageToday, recentMessages, listSessions, ensureSession, updateSession, sessionMessages } from "./store.ts";
@@ -230,9 +232,7 @@ export const ops = {
 
 /** 本机访问灵魂仓库的部署密钥：没有就生成（ed25519，无口令），返回公钥。 */
 async function ensureSoulKey(): Promise<string> {
-  const key = `${paths.secrets}/soul_ed25519`;
-  if (!fs.existsSync(key)) await run("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", `quetzal@${config.body}`, "-f", key]);
-  return fs.readFileSync(`${key}.pub`, "utf8").trim();
+  return ensureSshKeyFile(path.join(paths.secrets, "soul_ed25519"), `quetzal@${config.body}`); // Node 内置 crypto 生成，不依赖 ssh-keygen
 }
 
 /** 一个链接接入：绑定时带上部署公钥；批准时同步服务经 GitHub 链接好灵魂仓库后，这里采用它（与人在「高级 · 同步」页里接入相同）。

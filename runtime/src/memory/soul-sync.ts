@@ -5,6 +5,7 @@
 //   - 拉取：醒来与对话前；合并时两边都改过的文本文件，落选的一版另存为副本，提醒最近改过它的会话裁决。
 import { config, paths } from "../config.ts";
 import path from "node:path";
+import os from "node:os";
 import fs from "node:fs";
 import { log } from "../log.ts";
 import { seedSoul } from "./memory.ts";
@@ -44,7 +45,7 @@ function r(): SoulRepo {
 /** 按配置决定访问远端的私钥：deploy = 本机专属部署私钥；custom = 使用者指定（支持 ~）；system = 不指定，交给 ~/.ssh/config 与 ssh-agent。 */
 export function sshKeyFor(s: { sshMode?: string; sshKeyPath?: string }): string | undefined {
   if (s.sshMode === "system") return undefined;
-  if (s.sshMode === "custom") { const p = (s.sshKeyPath ?? "").trim(); return p ? (p.startsWith("~/") ? path.join(process.env.HOME ?? "", p.slice(2)) : p) : undefined; }
+  if (s.sshMode === "custom") { const p = (s.sshKeyPath ?? "").trim(); return p ? (/^~[\\/]/.test(p) ? path.join(os.homedir(), p.slice(2)) : p) : undefined; }
   return path.join(paths.secrets, "soul_ed25519");
 }
 

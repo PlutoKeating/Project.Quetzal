@@ -5,13 +5,14 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { log } from "./log.ts";
+import { isWindows, windowsRoot, restrictToOwner, renameRetry } from "./platform.ts";
 
-/** 家目录缺省：Termux（安卓）沿用 ~/quetzal（安卓安装器、runit 服务与开机脚本都按此约定）；其他机器（Linux 等）是 ~/.quetzal。环境变量 QUETZAL_HOME 优先
+/** 家目录缺省：Termux（安卓）沿用 ~/quetzal（安卓安装器、runit 服务与开机脚本都按此约定）；Windows 是 %LOCALAPPDATA%\Quetzal\home；其他机器（Linux 等）是 ~/.quetzal。环境变量 QUETZAL_HOME 优先
  *  （App 内置的运行基座由 App 设置，指向 App 自己的数据目录）。 */
 export const isTermux = /com\.termux/.test(process.env.PREFIX ?? "");
 /** 跑在安卓上（Termux 里，或 App 内置的运行环境）：没有 bubblewrap / Landlock，别的应用也能连本机端口。 */
 export const isAndroid = process.platform === "android" || isTermux;
-export const defaultHome = () => path.join(os.homedir(), isTermux ? "quetzal" : ".quetzal");
+export const defaultHome = () => isWindows ? path.join(windowsRoot(), "home") : path.join(os.homedir(), isTermux ? "quetzal" : ".quetzal");
 export const HOME = process.env.QUETZAL_HOME ?? defaultHome();
 export const paths = {
   home: HOME,
@@ -47,7 +48,8 @@ export interface Config {
   gateway: { port: number; host: string; lan: boolean; lanPort: number };
   // 网状层：同步服务的地址（HTTPS）。绑定后的令牌在 secrets/sync.json；节点密钥在 secrets/mesh_ed25519
   // 命令沙箱：没有可用的沙箱时，她的命令缺省一律不执行；allowUnsandboxed 为真时照常执行（部署者在控制台明确打开，不安全）。只属于这具身体，不随多具身体同步
-  sandbox: { allowUnsandboxed: boolean };
+  //   share：Windows 上另外授权给她读写的文件夹（绝对路径；缺省只有工作区 %USERPROFILE%\Quetzal，见 sandbox.ts）
+  sandbox: { allowUnsandboxed: boolean; share: string[] };
   mesh: { server: string; priority: number }; // priority：当协调者的优先级（越大越优先，适合一直开着、接着电源的身体）
   // 多具身体共用的设置分区最近一次被修改的时刻（毫秒）。网状层据此在身体之间同步：较新的修改生效（mesh/shared.ts）
   sharedRev: Record<string, number>;
@@ -91,7 +93,7 @@ export const defaults: Config = {
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
   soul: { remote: "", branch: "main", sshMode: "deploy", sshKeyPath: "" },
   gateway: { port: 7788, host: "127.0.0.1", lan: false, lanPort: 7789 },
-  sandbox: { allowUnsandboxed: false },
+  sandbox: { allowUnsandboxed: false, share: [] },
   mesh: { server: OFFICIAL_SYNC, priority: 0 },
   sharedRev: {},
   channels: { feishuHolder: "" },
@@ -115,7 +117,8 @@ const PRIVATE_DIRS = () => [paths.home, paths.secrets, paths.vault, paths.config
 
 export function loadConfig(): Config {
   for (const p of Object.values(paths)) if (p !== paths.stop) fs.mkdirSync(p, { recursive: true, mode: 0o700 });
-  for (const d of PRIVATE_DIRS()) { try { fs.chmodSync(d, 0o700); } catch { /* 不是自己的目录（如共享的家目录）就不动 */ } }
+  // POSIX：0700（不是自己的目录就不动）。Windows：chmod 不起作用，密钥目录与保密库用 ACL 收紧为只有本用户（家目录本身在用户自己的 %LOCALAPPDATA% 里）
+  for (const d of isWindows ? [paths.secrets, paths.vault] : PRIVATE_DIRS()) restrictToOwner(d, 0o700);
   const read = (f: string) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return {}; } };
   config = merge(defaults, read(file()));
   if (!config.feishu.bindCode || config.feishu.bindCode.length < 10) config.feishu.bindCode = newBindCode();
@@ -173,13 +176,13 @@ export function readSecret(name: string): string | undefined {
   try { return fs.readFileSync(path.join(paths.secrets, name), "utf8").trim() || undefined; } catch { return undefined; }
 }
 
-/** 写一个密钥文件：先写临时文件、fsync，再原子改名（写到一半断电不会留下半个密钥）；已有的文件也明确改成 0600。 */
+/** 写一个密钥文件：先写临时文件、fsync，再原子改名（写到一半断电不会留下半个密钥）；已有的文件也明确改成 0600（Windows 上靠 secrets/ 的 ACL，见 loadConfig）。 */
 export function writeSecret(name: string, value: string) {
   fs.mkdirSync(paths.secrets, { recursive: true, mode: 0o700 });
   const f = path.join(paths.secrets, name), tmp = `${f}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   const fd = fs.openSync(tmp, "w", 0o600);
   try { fs.writeSync(fd, value); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, f);
+  renameRetry(tmp, f); // Windows：目标被杀毒软件等短暂占用时重试
   fs.chmodSync(f, 0o600);
 }

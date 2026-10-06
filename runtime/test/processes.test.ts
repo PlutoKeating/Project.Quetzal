@@ -17,9 +17,9 @@ const { describeBody } = await import("../src/body/twin.ts");
 
 const linux = fs.existsSync("/proc/self/stat");
 
-test("读 /proc：能看到自己，带父进程与启动时间", (t) => {
-  if (!linux) return t.skip("没有 /proc");
-  const me = listProcesses().find((p) => p.pid === process.pid)!;
+test("读进程列表：能看到自己，带父进程与启动时间", async (t) => {
+  if (!linux && process.platform !== "win32") return t.skip("没有 /proc");
+  const me = (await listProcesses()).find((p) => p.pid === process.pid)!;
   assert.ok(me, "列表里应有自己");
   assert.equal(me.ppid, process.ppid);
   assert.match(me.cmd, /node/);
@@ -27,14 +27,14 @@ test("读 /proc：能看到自己，带父进程与启动时间", (t) => {
 });
 
 test("进程表：过滤、标出自己与后台任务", async (t) => {
-  if (!linux) return t.skip("没有 /proc");
-  const j = sh.startJob("sleep 5");
+  if (!linux && process.platform !== "win32") return t.skip("没有 /proc");
+  const j = await sh.startJob("sleep 5");
   await new Promise((r) => setTimeout(r, 150));
-  const all = describeProcesses();
+  const all = await describeProcesses();
   assert.match(all, new RegExp(`^${process.pid}\\t${process.ppid}\\t\\S+\\t\\S+\\t.*node.* ←我自己（运行基座）$`, "m"));
   assert.match(all, new RegExp(`←我的后台任务 ${j.id}$`, "m"));
-  assert.match(describeProcesses(String(process.pid)), /匹配「\d+」1 个/);
-  assert.match(describeProcesses("绝不会有这个命令"), /没有匹配的进程；但我自己 pid \d+ 确实在运行/);
+  assert.match(await describeProcesses(String(process.pid)), /匹配「\d+」1 个/);
+  assert.match(await describeProcesses("绝不会有这个命令"), /没有匹配的进程；但我自己 pid \d+ 确实在运行/);
   sh.stopJob(j.id);
   const r = await callTool("processes", { filter: "node" }, "回应你");
   assert.equal(r.status, "ok");

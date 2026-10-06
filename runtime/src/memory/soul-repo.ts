@@ -11,6 +11,7 @@
 //     不跟 file:// 协议；.git/config 里白名单以外的键（url.*.insteadOf、core.sshCommand、filter.* 等）在操作前删掉；推送与拉取直接用配置里的地址，
 //     不经 origin；不检出、不提交、不合并符号链接。内容不做任何检查（规范 v11 §6）。
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { mergeEntries } from "./entries.ts";
@@ -32,6 +33,20 @@ export function checkKeyPath(p: string): string | undefined {
   if (!path.isAbsolute(p)) return `私钥路径必须是绝对路径：${p}`;
   if (/[\x00-\x1f\x7f]/.test(p)) return "私钥路径里有控制字符";
   return undefined;
+}
+const WIN = process.platform === "win32";
+/** Windows：git 用的空配置文件与空钩子目录（在家目录的 state\ 里：沙箱里不可见、不可写）。 */
+function winEmpty(): { file: string; dir: string } {
+  const base = path.join(process.env.QUETZAL_HOME ?? path.join(process.env.LOCALAPPDATA ?? os.homedir(), "Quetzal", "home"), "state", "git-empty");
+  const dir = path.join(base, "hooks"), file = path.join(base, "gitconfig");
+  try { fs.mkdirSync(dir, { recursive: true }); for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true }); if (!fs.existsSync(file) || fs.statSync(file).size) fs.writeFileSync(file, ""); } catch { /* 下次再建 */ }
+  return { dir, file };
+}
+/** git 用哪个 ssh：Windows 上优先系统自带的 OpenSSH（按 NTFS 权限检查私钥），没有再用 Git 自带的。 */
+function sshProgram(): string {
+  if (!WIN) return "ssh";
+  const sys = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "OpenSSH", "ssh.exe");
+  return fs.existsSync(sys) ? shellQuote(sys.replace(/\\/g, "/")) : "ssh";
 }
 /** 按 POSIX shell 规则加单引号（GIT_SSH_COMMAND 由 shell 解析）。 */
 export const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -158,26 +173,28 @@ export class SoulRepo {
   private run(args: string[], via443: boolean): Promise<{ code: number; out: string; err: string }> {
     const env = { ...process.env };
     // 不读系统与全局配置（~/.gitconfig 里的 url.*.insteadOf 等也能改写地址）
-    env.GIT_CONFIG_NOSYSTEM = "1"; env.GIT_CONFIG_GLOBAL = "/dev/null";
+    env.GIT_CONFIG_NOSYSTEM = "1"; env.GIT_CONFIG_GLOBAL = WIN ? winEmpty().file : "/dev/null";
     delete env.GIT_CONFIG_PARAMETERS; delete env.GIT_CONFIG_COUNT; delete env.GIT_DIR; delete env.GIT_WORK_TREE;
     if (this.o.sshKey) {
       // 规范 §7：只使用指定的这把私钥（本身体专属的部署私钥，或使用者指定的私钥），不回退到 ssh-agent 或默认密钥；~/.ssh/config 里的 Host 别名、HostName、Port 仍然生效
       const bad = checkKeyPath(this.o.sshKey);
       if (bad) return Promise.resolve({ code: 1, out: "", err: bad });
-      env.GIT_SSH_COMMAND = `ssh -i ${shellQuote(this.o.sshKey)} -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20`;
+      env.GIT_SSH_COMMAND = `${sshProgram()} -i ${shellQuote(this.o.sshKey)} -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20`;
       delete env.SSH_AUTH_SOCK;
     } else {
       // 系统 ssh 配置：钥匙由 ~/.ssh/config（IdentityFile）与 ssh-agent 决定
-      env.GIT_SSH_COMMAND = "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"; // 连不上时 20 秒就放弃，好及时改走 443
+      env.GIT_SSH_COMMAND = `${sshProgram()} -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20`; // 连不上时 20 秒就放弃，好及时改走 443
     }
     if (via443) env.GIT_SSH_COMMAND += ` ${VIA_443}`;
     env.GIT_TERMINAL_PROMPT = "0";
     // 只在灵魂目录里找仓库：它的 .git 万一丢了，git 也不会往上层目录找、在外面某个代码仓库里提交和推送
     env.GIT_CEILING_DIRECTORIES = path.dirname(path.resolve(this.o.dir));
     // 不执行钩子、不用 fsmonitor（都能执行任意命令）、不跟 file:// 与 ext:: 协议、符号链接按普通文件检出（测试用本地路径做远端时放行 file）
-    const safety = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.symlinks=false", "-c", "protocol.ext.allow=never",
-      "-c", `protocol.file.allow=${process.env.SOUL_ALLOW_LOCAL_REMOTE === "1" ? "always" : "never"}`];
-    return new Promise((resolve) => execFile("git", [...safety, "-C", this.o.dir, ...args], { env, timeout: 120_000, maxBuffer: 16 << 20 }, (e: any, out, err) =>
+    //   Windows：/dev/null 作为钩子目录会被解析成「当前盘根目录\\dev\\null」（普通用户能在 C:\\ 下建它），所以指向家目录里一个空目录（沙箱里不可见）；
+    //   笔记的目录树加上家目录前缀容易超过 260 个字符，打开长路径（系统配置里的 core.longpaths 因为不读系统配置而不生效）
+    const safety = ["-c", `core.hooksPath=${WIN ? winEmpty().dir : "/dev/null"}`, "-c", "core.fsmonitor=false", "-c", "core.symlinks=false", "-c", "protocol.ext.allow=never",
+      "-c", `protocol.file.allow=${process.env.SOUL_ALLOW_LOCAL_REMOTE === "1" ? "always" : "never"}`, ...(WIN ? ["-c", "core.longpaths=true", "-c", "core.autocrlf=false"] : [])];
+    return new Promise((resolve) => execFile("git", [...safety, "-C", this.o.dir, ...args], { env, timeout: 120_000, maxBuffer: 16 << 20, windowsHide: true }, (e: any, out, err) =>
       resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: String(out), err: String(err || e?.message || "") })));
   }
 

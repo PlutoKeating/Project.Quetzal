@@ -61,7 +61,8 @@ export async function shrink(file: string, only?: "ffmpeg" | "magick" | "convert
     ["magick", [file, "-auto-orient", "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, "-quality", "85", out]],
     ["convert", [file, "-auto-orient", "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, "-quality", "85", out]],
   ];
-  for (const [cmd, args] of tries.filter(([c]) => !only || c === only)) {
+  // Windows 上的 convert 是系统自带的 FAT→NTFS 转换程序（System32\convert.exe），不是 ImageMagick：不调用
+  for (const [cmd, args] of tries.filter(([c]) => (!only || c === only) && !(c === "convert" && process.platform === "win32"))) {
     const r = await run(cmd, args, 60_000);
     if (r.code === 0 && fs.existsSync(out) && fs.statSync(out).size > 0) return out;
   }

@@ -1,6 +1,8 @@
 // 身体的数字孪生：把适配器报告的物理采样镜像为内部模型，再派生出"身体感受"（精力、冷热、明暗、安静/被拿起）。
 // 感知采样不调用 LLM，也不等于醒来；显著变化作为 sense 事件交给心脏，由心脏决定醒来的可能性是否改变。
+import { pathToFileURL } from "node:url";
 import os from "node:os";
+import path from "node:path";
 import fs from "node:fs";
 import { bus } from "../bus.ts";
 import { paths } from "../config.ts";
@@ -27,7 +29,7 @@ export let body: Body = {
 export async function loadAdapter(spec: string | undefined) {
   if (spec) {
     try {
-      const mod = await import(spec.startsWith("/") ? "file://" + spec : spec);
+      const mod = await import(path.isAbsolute(spec) ? pathToFileURL(spec).href : spec); // Windows 的 C:\… 也要转成 file:// 网址
       adapter = mod.default as BodyAdapter;
     } catch (e: any) { log("body", `适配器加载失败，改用通用适配器：${e.message}`); }
   }
