@@ -1,10 +1,12 @@
 // 版本目录布局：放入、切换、回滚、清理，与 Android 安装器的约定一致。
-import { test } from "node:test";
+import { test as base } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { layout, putRelease, switchTo, rollback, prune, versionOf, patchConfig, readConfig, defaultBody, needsMigration, migrateHome, defaultHome } from "../src/layout.ts";
+// Linux 专用（install.sh、符号链接的版本目录）：Windows 上跳过，Windows 的版本指针见 windows.test.ts
+const test = (name: string, fn: () => void | Promise<void>) => base(name, { skip: process.platform === "win32" && "只用于 Linux" }, fn);
 
 function fixture() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-cli-"));

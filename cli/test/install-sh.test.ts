@@ -1,5 +1,5 @@
 // 一键安装脚本 install.sh 里的校验与引用函数：去掉最后一行 main 调用后 source 进 bash，单独调用。
-import { test } from "node:test";
+import { test as base } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
@@ -7,6 +7,8 @@ import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync } fro
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+// Linux 专用（install.sh、符号链接的版本目录）：Windows 上跳过，Windows 的版本指针见 windows.test.ts
+const test = (name: string, fn: () => void | Promise<void>) => base(name, { skip: process.platform === "win32" && "只用于 Linux" }, fn);
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "install.sh");
 const body = readFileSync(script, "utf8").replace(/\nmain "\$@"\s*$/, "\n");

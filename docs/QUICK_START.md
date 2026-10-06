@@ -50,6 +50,20 @@ npx @plutokeating/quetzal status     # 版本、服务、健康、网页控制�
 
 装好之后的一切（第 2 节的全部配置，以及对话）都在**网页控制台**里完成：这台机器上的浏览器打开 `http://127.0.0.1:7788/` 即登录，不需要配对码也不需要手机。它就是 Quetzal App 的网页版，为电脑横屏重新排布（导航栏 · 列表栏 · 主区 · 她此刻），功能与 App 一致；地址栏的 `#/…` 记录位置，可收藏。再运行一次 `npx @plutokeating/quetzal` 就是升级。没有桌面的服务器：`ssh -L 7788:127.0.0.1:7788 <服务器>` 转发端口后在本机浏览器打开同样的地址（同一台机器的判定看连接来源，隧道算本机）。手机上的 App 也可以连这台机器（先 `--lan` 开放）：**连接新的 agent** → 只填这台机器的地址（如 `192.168.1.8`，App 自动用加密连接 `https://…:7789`）→ 核对 App 显示的证书指纹与 `npx @plutokeating/quetzal status` 里的一致 → **申请配对码**（配对码连同证书指纹弹桌面通知，没有桌面的从 `npx @plutokeating/quetzal logs` 里看）。没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）用 `npx @plutokeating/quetzal run` 前台运行，交给自己的守护者。npm 包的实现在 [`cli/`](../cli/docs/README.md)。
 
+## 在一台 Windows 电脑上安装（使用者）
+
+Windows 10 1809 或更新，x64 或 arm64。在 PowerShell 里：
+
+```powershell
+irm https://quetzal.plutokeating.beer/install.ps1 | iex
+```
+
+不会用 PowerShell 的话，从[下载页](https://quetzal.plutokeating.beer/zh/download)取 `quetzal-<版本>-windows-<x64|arm64>-setup.exe` 双击安装，做的事相同。安装程序以你自己的身份把 Quetzal 装进 `%LOCALAPPDATA%\Quetzal`，缺 Node.js、Git、Python 就一起装上；中途 Windows 请求一次管理员权限，用来装这些依赖、她执行命令用的隔离环境（专门的 `srt-sandbox` 账户）和开机自启。电脑重启后不用登录她也会运行；截图、通知、麦克风这类要用桌面的能力在你登录后才有。装完自动打开控制台。
+
+开着「智能应用控制」的电脑会拦下 Quetzal 还没有代码签名的程序：一行命令会说明原因、打开设置页，等你关掉后自动继续（在部分 Windows 版本上关掉后要重装系统才能再打开）。从下载页下载的 setup.exe 暂未签名，SmartScreen 会提示「已保护你的电脑」，点「更多信息 › 仍要运行」。
+
+装好后终端里有 `quetzal` 命令（`status` / `logs -f` / `open` / `rollback` / `uninstall`）。升级在控制台的「关于」里点一下，新版本 40 秒内不健康就自动退回。卸载：开始菜单的「卸载 Quetzal」，或「设置 › 应用」；数据默认保留。实现见 [`cli/docs/README.md`](../cli/docs/README.md)「Windows」。
+
 ## 4. 部署到其他机器（部署者）
 
 任何能跑 Node.js 22.13+ 与 git 的机器都能成为身体。

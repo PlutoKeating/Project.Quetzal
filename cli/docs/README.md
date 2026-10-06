@@ -2,7 +2,7 @@
 
 把运行基座装到一台 Linux 机器上有两层：使用者看到的是一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`（本目录的 `install.sh`，见下文），它补齐依赖、注册守护、写桌面快捷方式，内部调用的是 npm 包 `npx @plutokeating/quetzal`。与 Quetzal App 的安装器（Android）对应：App 把内置的运行基座装进 Termux 交给 runit，这个包把内置的运行基座装进 `~/.quetzal` 交给 systemd 用户服务。版本目录、配置、健康检查与回滚的约定完全相同，所以同一套文档与控制台都适用。包里还带着**网页控制台**（控制台的 Flutter Web 构建），随运行基座放进版本目录，由网关托管，装完在浏览器里打开。
 
-TypeScript / Node.js 22.13+（内置 `node:sqlite` 不再需要标志），零运行时依赖：包里只有打包好的 `dist/quetzal.mjs`（命令行）与 `dist/runtime/`（运行基座 `main.cjs`、Linux 身体适配器 `linux.mjs`、`VERSION`、网页控制台 `web/`，约 25 MB）。`package.json` 声明 `os: ["linux"]`，其他系统上 npm 直接拒绝安装。
+TypeScript / Node.js 22.13+（内置 `node:sqlite` 不再需要标志），零运行时依赖：包里只有打包好的 `dist/quetzal.mjs`（命令行）与 `dist/runtime/`（运行基座 `main.cjs`、Linux 身体适配器 `linux.mjs`、`VERSION`、网页控制台 `web/`，约 25 MB）。`package.json` 声明 `os: ["linux", "win32"]`：Windows 上由安装包安装（见下文「Windows」），这个包的命令行在 Windows 上只做运维。
 
 ## 使用者看到的
 
@@ -52,11 +52,71 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall # 
 
 验证：`bash -n`、shellcheck（`docker run --rm -v "$PWD/install.sh:/s.sh:ro" koalaman/shellcheck:stable -s bash /s.sh`），以及在干净容器里以管道喂给 bash（`cat install.sh | docker run -i --rm debian:bookworm-slim bash -c 'cat >/tmp/i.sh; apt-get update -qq && apt-get install -y -qq curl ca-certificates; cat /tmp/i.sh | bash -s -- --no-open'`）跑通 debian-slim（root、无 git）、ubuntu（非 root + sudo + 假桌面）、fedora、archlinux、alpine（musl）、alpine + `QUETZAL_NODE_ARCH=x64-musl`（unofficial-builds 直接下载 Node 的路径，与龙芯共用）。systemd 与桌面集成只能在真机验证。
 
+## Windows（setup.exe、install.ps1、winget）
+
+Windows 10 1809 起，x64 与 arm64。三种装法，做的事相同：
+
+```powershell
+irm https://quetzal.plutokeating.beer/install.ps1 | iex     # 首选：PowerShell 里一行
+```
+
+或从下载页取 `quetzal-<版本>-windows-<x64|arm64>-setup.exe` 双击安装；winget 清单已备好（见下文），还没有提交到 winget 官方仓库。不需要管理员身份运行，中途 Windows 请求一次管理员权限。
+
+目录（`docs/WINDOWS_DECISIONS.md` 4.1）：`ROOT = %LOCALAPPDATA%\Quetzal`，`home\` 是 `QUETZAL_HOME`；`runtime\<版本>\`（`main.cjs`、`windows.mjs`、`windows-body.mjs`、`windows-supervise.mjs`、`srt.mjs`、`quetzal.mjs`、`VERSION`、`web\`、`srt-win\srt-win.exe`、`node_modules\`）与指针 `runtime\current.txt` / `previous.txt`（一行版本号，代替 Linux 的符号链接）；`console\<版本>\quetzal-console.exe` 与 `console\current.txt`；`node.txt`（运行基座用的 node.exe）；`bin\quetzal.cmd`（命令行，`bin` 加进用户 PATH）、`bin\quetzal-supervise.ps1`（守护启动器）；`uninstall.exe`；`install.log`（安装日志）。
+
+### setup.exe 做什么（`windows/setup/quetzal.nsi`）
+
+| 步骤 | 做法 |
+|---|---|
+| 检查 | Windows 10 build 17763 以上；安装包架构与真实 CPU 一致（arm64 机器上不装 x64 版）；简繁中文系统显示中文，其余英文 |
+| 正在运行的 Quetzal | 按进程路径与命令行找守护、运行基座、身体助手、控制台；问过用户（静默安装时由 `/CLOSEAPPS` 表示同意）后先写 `home\state\quit` 让守护进程连同运行基座退出、结束计划任务，15 秒后还在的强制结束 |
+| 文件 | 以用户身份装进 ROOT（上面的目录）；`bin\` 里的两个文件每个版本都一样 |
+| 依赖 | 以用户身份查找：Node.js 22.13+ 且架构与安装包一致（ARM 上的 x64 Node 加载不了 arm64 的网状层组件）、Git、Python 3（跳过 `WindowsApps` 里的应用商店占位程序）。缺的才把内嵌的官方安装包解出来 |
+| 一次提权 | `quetzal-machine.ps1` 以管理员运行一次：缺的 Node.js 24 / Git / Python 3.14 **机器范围**静默安装（沙箱用户才读得到；安装前按 `deps.json` 再核对一次 SHA-256）；`srt-win.exe install --proxy-port-range 60080-60089`（sandbox-runtime 0.0.78 的 `installArgs`：建 `srt-sandbox` 账户与 WFP 规则，代理端口段用它的默认值；配置不同（退出码 13）时加 `--force` 重装）；注册计划任务 `\Quetzal\Runtime-Boot`（开机、安装用户、S4U 不存密码、失败每分钟重启、无时限、电池也跑）与 `\Quetzal\Runtime-Logon`（登录、交互），两者都执行 `powershell.exe -WindowStyle Hidden -File ROOT\bin\quetzal-supervise.ps1`。S4U 注册失败只留登录任务，记进 `install.log` 与 `machine.json`。机器级步骤都已就绪（`machine.json` 里同一用户、同一 ROOT、同一个 `srt-win.exe`、沙箱装好过）时升级不再提权 |
+| 切换 | `previous.txt` ← `current.txt` ← 新版本，`console\current.txt` 跟着走；`config\quetzal.json` 没有 `body` 时写机型名（`Win32_ComputerSystem.Model` 或 BIOS 的 `SystemProductName`，去掉厂商占位值，规整为 `^[a-z0-9][a-z0-9-]{0,39}$`，Windows 保留名加 `-pc`；拿不到用计算机名） |
+| 启动与健康检查 | 先跑开机任务（S4U），不行跑登录任务，再不行直接拉起启动器；40 秒内 `GET http://127.0.0.1:<端口>/health` 的版本相符才算成功，否则指针退回上一版并重启（退出码 20）；成功后只留当前与上一版 |
+| 桌面 | 开始菜单「Quetzal」与「卸载 Quetzal」；`HKCU\…\Run` 的 `Quetzal` = `"<控制台>" --background`（登录时只起托盘，托盘看护身体助手）；通知用的 AppUserModelID `xyz.quetzal.console`（`HKCU\Software\Classes\AppUserModelId`）；按用户的「应用」卸载项 |
+
+守护启动器 `quetzal-supervise.ps1` 读 `node.txt` 与 `current.txt`，从注册表重建 PATH（刚装的 Git / Python 也找得到），清掉 `state\quit`，以 `QUETZAL_ROOT`、`QUETZAL_HOME` 前台运行 `"<node>" ROOT\runtime\<当前>\windows-supervise.mjs`，退出码原样返回（非 0 时开机任务一分钟后重启它）。路径稳定，所以升级不必重新注册任务。
+
+参数：`/S` 静默、`/CLOSEAPPS` 同意关闭正在运行的 Quetzal、`/OPEN` 装完打开控制台窗口（静默时默认只起托盘）、`/ELEVATE` 强制重做机器级步骤、`/UPGRADE` 从控制台发起的升级（在会话 0 里需要提权时不弹 UAC，退出码 14「需要在这台电脑上运行一次安装」）。退出码：0 成功，3 正在运行且没同意关闭，4 关不掉，5 系统或架构不符，13 没有可用的 Node.js，14 见上，20 新版本不健康已退回，21 不健康且没有上一版，70 内部错误。
+
+卸载（开始菜单、「设置 › 应用」或 `quetzal uninstall`）：关掉进程，再提权一次删除计划任务并执行 `srt-win uninstall`（移除 `srt-sandbox` 账户与 WFP 规则），删用户 PATH 里的 `bin`、Run 项、AUMID、快捷方式与程序文件；问要不要删数据（`home\`，默认保留，静默时 `/PURGE`）。Node.js、Git、Python 保留。
+
+### install.ps1（官网的 `/install.ps1`）
+
+源文件是 `windows/install.src.ps1`（中文直接写），`node windows/gen-install-ps1.mjs` 生成纯 ASCII 的 `install.ps1`（中文字符串换成运行时解码的 UTF-8 base64，Windows PowerShell 5.1 按 ANSI 代码页读脚本）；官网构建时由 `website/scripts/postbuild.mjs` 复制为 `/install.ps1`。兼容 Windows PowerShell 5.1；整段逻辑在函数里，最后一行才调用。步骤：
+
+1. 系统版本、真实 CPU 架构（注册表 `Session Manager\Environment` 与 WMI `Win32_Processor`，ARM 上的 x64 模拟进程也认得出 arm64）。
+2. 智能应用控制（`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` 的 `VerifiedAndReputablePolicyState`：1 开、2 评估、0 关）：开着就说明原因（它会拦下还没有代码签名的控制台、`srt-win.exe`、网状层的 `.node`），打开「应用和浏览器控制」设置页，等用户关掉后自动继续；评估模式只提示。
+3. 版本：`QUETZAL_VERSION`，否则官网的 `/api/releases/latest`，不通再问 GitHub API。
+4. 发版清单：`SHA256SUMS` 与 `SHA256SUMS.sig`，先官网镜像源 `/dl/<标签>/`、再直连 GitHub Release（与 `install.sh` 相同；信任根是签名）。Ed25519 验签在 PowerShell 里按 RFC 8032 用 `System.Numerics.BigInteger` 实现（.NET Framework 没有 Ed25519），公钥与 `install.sh` 同一个；再确认 `commit <提交> <标签>` 行，取出 setup.exe 的 SHA-256。
+5. 下载 setup.exe，`Get-FileHash` 相符才以 `/S` 运行（交互时加 `/OPEN`；Quetzal 正在运行时先问，`QUETZAL_YES=1` 不问）。
+
+环境变量（`iex` 不能传参数）：`QUETZAL_VERSION`、`QUETZAL_LANG=zh|en`、`QUETZAL_YES=1`；控制台发起的升级设 `QUETZAL_UPGRADE=1`（静默、不提问、允许关闭正在运行的 Quetzal、传 `/UPGRADE`）与 `QUETZAL_UPGRADE_ID`，输出追加到 `home\logs\upgrade.log`：开头 `== 升级 <编号> 开始 <时间>（目标 <版本>）`，每步一行以 ▸ ✓ ! ✗ 开头，结尾 `== 升级 <编号> 退出码 <n>`（运行基座的 `parseUpgradeLog` 读它）。交互运行时不调用 `exit`（会关掉用户的窗口）。
+
+### 内嵌依赖与构建
+
+`windows/deps.lock.json` 锁定 Node.js 24 LTS、Git for Windows、Python 3.14 的 x64 与 arm64 官方安装包（nodejs.org 的 `.msi`、github.com/git-for-windows 的 `.exe`、python.org 的 `.exe`）与 NSIS，写明下载地址、SHA-256、大小与哈希的出处。`node windows/fetch-deps.mjs <x64|arm64> <目录>`（`--tool nsis` 取 NSIS）只接受官方 https 主机，大小或哈希不符就失败。升级某一项：改 `version`、`file`、`url`、`sha256`、`size` 与 `source`，哈希从官方的 `SHASUMS256.txt` / 发布说明 / python.org 的发布文件记录取，再运行一次 `fetch-deps.mjs` 实际下载核对。
+
+`node windows/build-setup.mjs --version … --arch … --runtime <runtime/dist> --srt-win … --mesh … --web … --cli <quetzal.mjs> --console <解开的控制台> --deps … --makensis … --out …` 把各部分放进暂存目录（布局即安装后的布局），再 `makensis` 编译。发版工作流的 `windows` job 在 `windows-latest`（x64）与 `windows-11-arm`（arm64）上完成全部步骤，并静默装一遍、看状态、再卸载作为不阻断的冒烟测试。
+
+安装包与其中的程序暂未做 Authenticode 代码签名：从下载页下载的 setup.exe 会被 SmartScreen 提示，开着智能应用控制的电脑会拦（install.ps1 下载的文件没有网络来源标记，SmartScreen 不拦）。
+
+### winget
+
+`windows/winget/` 是 `PlutoKeating.Quetzal` 的清单模板（用户范围的 nullsoft 安装包，`/CLOSEAPPS`，x64 与 arm64）。发版后：`node windows/winget/make-manifests.mjs --version X.Y.Z --sums SHA256SUMS --sig SHA256SUMS.sig --out <目录>`（哈希只取自验过签名的清单），`winget validate` 后由所有者向 `microsoft/winget-pkgs` 提交。
+
+### 命令行
+
+安装后终端里的 `quetzal`（`bin\quetzal.cmd` → `"<node.txt>" runtime\<current.txt>\quetzal.mjs`）：`status`（版本、两个计划任务、健康、网关、局域网）、`open`（原生控制台，没有就用浏览器打开网页版）、`run`（前台运行，调试用）、`logs [-f]`（`home\logs\runtime.log`）、`start` / `stop` / `restart`（计划任务与 `state\quit`）、`rollback`（互换两个指针）、`uninstall [--purge]`（打开卸载程序）。`install` 在 Windows 上提示改用 setup.exe 或 install.ps1。
+
 ## 开发
 
 | 命令 | 作用 |
 |---|---|
-| `npm test` | 单元测试（版本目录布局、systemd 单元文件与路径转义；`install.sh` 的发版签名校验、sha256 核对、引用转义与 ELF 依赖检查——去掉最后一行后 `source` 进 bash 单独调用函数） |
+| `npm test` | 单元测试（版本目录布局、systemd 单元文件与路径转义；`install.sh` 的发版签名校验、sha256 核对、引用转义与 ELF 依赖检查——去掉最后一行后 `source` 进 bash 单独调用函数，这两组在 Windows 上跳过；Windows 的版本指针、schtasks 输出解析与日志；依赖锁与下载核对、安装包构建的纯函数、winget 清单；`install.ps1` 与源文件一致且纯 ASCII，有 `powershell.exe` 或 `pwsh` 时再跑 PowerShell 测试：Ed25519 的 RFC 8032 测试向量与发版签名格式、升级日志首尾行、setup 辅助脚本的纯逻辑） |
+| `node windows/gen-install-ps1.mjs` | 改了 `windows/install.src.ps1` 之后重新生成 `install.ps1` |
 | `npm run build` | 类型检查 → `tool/bundle-runtime.sh`（构建 `../runtime` 并把 `main.cjs`、`linux.mjs`、版本号放进 `dist/runtime/`；再调用 `../console/tool/build-web.sh` 构建网页控制台放进 `dist/runtime/web/`，需要 Flutter，`FLUTTER=<路径>` 可指定，`QUETZAL_NO_WEB=1` 跳过）→ esbuild 打包 `dist/quetzal.mjs` |
 | `npm pack` | 本地打包验证：`npx ./quetzal-<版本>.tgz status` |
 
