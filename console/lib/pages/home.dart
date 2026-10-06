@@ -119,6 +119,32 @@ class ModelNudge extends ApiWidget { // 自己跟着 api 重建：父级里是 c
   }
 }
 
+/// 她答应的提醒：接下来的几条（时间、是否重复、内容），可以取消。设提醒是对她说，这里不新建。没有就不占位。
+class RemindersSection extends ApiWidget {
+  final bool compact;
+  const RemindersSection({super.key, this.compact = false});
+  @override
+  Widget view(BuildContext context) {
+    final list = ((api.status['reminders'] as List?) ?? []).cast<Map>();
+    if (list.isEmpty) return const SizedBox.shrink();
+    final t = Theme.of(context).textTheme, cs = Theme.of(context).colorScheme;
+    final rows = [
+      for (final r in list.take(compact ? 3 : 6))
+        ListTile(
+          dense: true, contentPadding: EdgeInsets.zero, minLeadingWidth: 0,
+          leading: Icon(r['repeat'] == '' ? Icons.alarm : Icons.repeat, size: 18, color: cs.onSurfaceVariant),
+          title: Text('${r['text']}', maxLines: 2, overflow: TextOverflow.ellipsis),
+          subtitle: Text('${r['repeat'] == '' ? '' : '${r['repeat']} · '}${r['when']}', style: t.bodySmall),
+          trailing: IconButton(tooltip: '取消', icon: const Icon(Icons.close, size: 18), onPressed: () async {
+            if (await confirm(context, '取消提醒', '${r['text']}') && context.mounted) await act(context, () => api.call('reminders.cancel', {'id': r['id']}).then((_) => api.refresh()));
+          }),
+        ),
+      if (list.length > (compact ? 3 : 6)) Text('还有 ${list.length - (compact ? 3 : 6)} 条', style: t.bodySmall),
+    ];
+    return compact ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows) : Section('提醒', rows);
+  }
+}
+
 /// 手机首页。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -145,6 +171,7 @@ class HomePage extends StatelessWidget {
             Expanded(child: FilledButton.icon(icon: const Icon(Icons.chat_bubble), label: const Text('聊天'), onPressed: () => openChat(context))),
           ]),
         ),
+        const RemindersSection(),
         const InnerSection(),
         const BodySection(),
       ]),

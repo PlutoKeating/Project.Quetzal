@@ -387,6 +387,10 @@ class _PresencePane extends StatelessWidget {
             label('待你决定'),
             for (final a in api.approvals) Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: ApprovalCard(a as Map, compact: true)),
           ],
+          if (((api.status['reminders'] as List?) ?? []).isNotEmpty) ...[
+            label('提醒'),
+            const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: RemindersSection(compact: true)),
+          ],
           label('内在'),
           const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: InnerSection(compact: true)),
           label('身体'),

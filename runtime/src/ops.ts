@@ -29,6 +29,7 @@ import * as acct from "./mesh/account.ts";
 import { remoteApprovals, decideAnywhere } from "./mesh/shared.ts";
 import { sandboxStatus, resetSandbox } from "./sandbox.ts";
 import { checkKeyPath } from "./memory/soul-repo.ts";
+import * as reminders from "./time/reminders.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -39,9 +40,16 @@ export const status = () => ({
   hearing: hearing.hearingStatus(), // 听觉：App 据 listening 决定要不要开麦克风
   mesh: meshRt.meshStatus(), // 网状层：同步服务、绑定、各身体的连接
   sandbox: sandboxStatus(), // agent 命令的沙箱：kind 为 bwrap / proot / none（none 时控制台应提示安装）
+  reminders: reminderView(), // 她答应的提醒（首页显示接下来的几条）
 });
 
+/** 控制台看到的提醒：下一次的说法、是否重复、内容。 */
+const reminderView = () => reminders.active().slice(0, 20).map((r) => ({ id: r.id, text: r.text, at: r.at, when: reminders.when(r.at, r.tz), repeat: r.cron ? reminders.cronText(r.cron) : "" }));
+
 export const ops = {
+  // 提醒：控制台只看与取消；设提醒是对她说（reminder 工具）
+  reminders: () => reminderView(),
+  "reminders.cancel": (a: { id: string }, actor: string) => { const r = reminders.cancel(String(a?.id ?? "")); audit(actor, "reminders.cancel", "", { id: r.id }, "ok"); return reminderView(); },
   // 网状层（多具身体连成一个心智）：同步服务地址、设备码绑定、解绑
   mesh: () => meshRt.meshStatus(),
   "mesh.setServer": async (a: { server: string }, actor: string) => { const r = await meshRt.setServer(String(a.server ?? "")); audit(actor, "mesh.setServer", "", { server: r.server }, "ok"); return r; },
