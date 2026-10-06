@@ -5,6 +5,8 @@
 #   quetzal-<版本>-linux-arm64-console.tar.gz（同上，arm64）
 #   quetzal-android-runtime-<配方哈希>.tar.gz   App 内置运行环境的 jniLibs 与 rootfs（以后的发版按配方哈希核对签名后直接取用，不再重编）
 #   quetzal-<版本>-landrun-linux-<x64|arm64>.tar.gz   Landlock 沙箱启动器 landrun（第三方，MIT，附许可证）：bubblewrap 用不了的 Linux 机器上用
+#   quetzal-<版本>-windows-<x64|arm64>-setup.exe      Windows 安装包（NSIS，cli/windows/）：内嵌运行基座、Windows 控制台、命令沙箱 srt-win 与
+#                                                      Node.js / Git / Python 的官方安装包（cli/windows/deps.lock.json 锁定版本与 SHA-256）；install.ps1 下载它
 #   SHA256SUMS       上面每个资产一行 `<sha256>  <文件名>`，外加一行 `commit <提交> <标签>`（这个版本对应的源码提交）
 #   SHA256SUMS.sig   SHA256SUMS 的 Ed25519 签名（base64）。公钥写死在 App（console/lib/updater.dart）、一键安装脚本（cli/install.sh）
 #                    与 soul-bridge（bridge/src）里，官网文档「发布签名与校验」给出校验方法；私钥只在仓库 Secret RELEASE_SIGNING_KEY（PKCS8 PEM）
@@ -270,9 +272,112 @@ jobs:
           path: console/build/quetzal-*-linux-*-console.tar.gz
           if-no-files-found: error
 
+  # Windows 安装包：x64 与 arm64 各在原生的 Windows runner 上构建。控制台由 console/tool/build-windows.ps1 打包；运行基座 npm ci + build
+  # （dist/main.cjs、windows.mjs、windows-body.mjs、windows-supervise.mjs、srt.mjs；srt-win.exe 取自 sandbox-runtime 包里对应架构的 vendor 目录）；
+  # 网状层原生组件按 runtime/tool/mesh-modules.lock.json 的 win32-<架构> 条目核对 sha512 装好；命令行 quetzal.mjs 与网页控制台取自 npm-pack 构建的包
+  # （与 Linux 发布的是同一份）；Node.js / Git / Python 与 NSIS 按 cli/windows/deps.lock.json 下载核对；最后 makensis 编译 setup.exe。
+  windows:
+    needs: [prepare, npm-pack]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x64
+          - runner: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      V: ${{ needs.prepare.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Flutter（git clone 官方仓库的版本标签并核对提交）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $f = Join-Path $env:RUNNER_TEMP 'flutter'
+          git clone --depth 1 --branch $env:FLUTTER_VERSION https://github.com/flutter/flutter.git $f
+          if ((git -C $f rev-parse HEAD) -ne $env:FLUTTER_COMMIT) { throw "Flutter $env:FLUTTER_VERSION 的提交不符" }
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $f 'bin')
+          & (Join-Path $f 'bin/flutter.bat') --version
+      - name: 控制台（console/tool/build-windows.ps1 → quetzal-<版本>-windows-<架构>-console.zip）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          flutter precache --windows
+          ./console/tool/build-windows.ps1
+          $zip = Get-ChildItem -Path console/build -Filter "quetzal-$env:V-windows-$env:ARCH-console.zip" | Select-Object -First 1
+          if (-not $zip) { throw "没有找到 console/build/quetzal-$env:V-windows-$env:ARCH-console.zip" }
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath (Join-Path $env:RUNNER_TEMP 'console')
+      - name: 运行基座（npm ci + build）与网状层原生组件（win32-<架构>，核对 sha512）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          Push-Location runtime
+          npm ci --no-audit --no-fund
+          npm run build
+          Pop-Location
+          node runtime/tool/install-mesh-modules.mjs runtime/tool/mesh-modules.lock.json (Join-Path $env:RUNNER_TEMP 'mesh') "win32-$env:ARCH" https://registry.npmjs.org
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-tgz
+          path: out-npm
+      - name: 命令行与网页控制台（取自 npm 包）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $tgz = Get-ChildItem out-npm -Filter 'plutokeating-quetzal-*.tgz' | Select-Object -First 1
+          $d = Join-Path $env:RUNNER_TEMP 'npm'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          tar -xzf $tgz.FullName -C $d
+          if (-not (Test-Path (Join-Path $d 'package/dist/quetzal.mjs'))) { throw 'npm 包里没有 dist/quetzal.mjs' }
+          if (-not (Test-Path (Join-Path $d 'package/dist/runtime/web/index.html'))) { throw 'npm 包里没有网页控制台' }
+      - name: 下载并核对 Node.js / Git / Python 官方安装包与 NSIS（cli/windows/deps.lock.json）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          node cli/windows/fetch-deps.mjs $env:ARCH (Join-Path $env:RUNNER_TEMP 'deps')
+          node cli/windows/fetch-deps.mjs --tool nsis (Join-Path $env:RUNNER_TEMP 'tools')
+          Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP 'tools/nsis-3.13.zip') -DestinationPath (Join-Path $env:RUNNER_TEMP 'tools')
+      - name: 编译安装包（makensis → out/quetzal-<版本>-windows-<架构>-setup.exe）
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $t = $env:RUNNER_TEMP
+          $icon = @()
+          if (Test-Path console/windows/runner/resources/app_icon.ico) { $icon = @('--icon', 'console/windows/runner/resources/app_icon.ico') }
+          node cli/windows/build-setup.mjs --version $env:V --arch $env:ARCH --runtime runtime/dist `
+            --srt-win "runtime/node_modules/@anthropic-ai/sandbox-runtime/vendor/srt-win/$env:ARCH/srt-win.exe" `
+            --mesh (Join-Path $t 'mesh') --web (Join-Path $t 'npm/package/dist/runtime/web') --cli (Join-Path $t 'npm/package/dist/quetzal.mjs') `
+            --console (Join-Path $t 'console') --deps (Join-Path $t 'deps') --makensis (Join-Path $t 'tools/nsis-3.13/makensis.exe') `
+            --stage (Join-Path $t 'stage') --out out @icon
+      # 冒烟测试：在这台用完即弃的 runner 上静默安装（runner 以管理员运行，不弹 UAC）、看健康检查、计划任务与状态，再静默卸载。
+      # 只作参考，失败不阻断发版：S4U、沙箱这些真机行为以 Windows 实机为准。
+      - name: 冒烟测试（静默安装 → 状态 → 卸载）
+        continue-on-error: true
+        run: |
+          $exe = Get-ChildItem out -Filter "quetzal-$env:V-windows-$env:ARCH-setup.exe" | Select-Object -First 1
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S', '/CLOSEAPPS' -Wait -PassThru
+          "setup.exe 退出码 $($p.ExitCode)"
+          $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
+          Get-Content -LiteralPath (Join-Path $root 'install.log') -ErrorAction SilentlyContinue
+          & (Join-Path $root 'bin/quetzal.cmd') status
+          Get-Content -LiteralPath (Join-Path $root 'home/logs/runtime.log') -Tail 40 -ErrorAction SilentlyContinue
+          $u = Start-Process -FilePath (Join-Path $root 'uninstall.exe') -ArgumentList '/S', '/PURGE' -Wait -PassThru
+          "uninstall.exe 退出码 $($u.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: out/quetzal-*-windows-*-setup.exe
+          if-no-files-found: error
+
   # 汇总全部资产 → 一份 SHA256SUMS（含提交行）→ Ed25519 签名并用公钥自检 → 构建来源证明 → 创建 Release。只用官方 action 与运行器自带工具。
   release:
-    needs: [prepare, build-apk, linux-console, npm-pack]
+    needs: [prepare, build-apk, linux-console, npm-pack, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write        # 创建 Release、上传资产
@@ -322,10 +427,11 @@ jobs:
         run: |
           [ -n "$RELEASE_SIGNING_KEY" ] || { echo "::error::缺少 Secret RELEASE_SIGNING_KEY（Ed25519 私钥，PKCS8 PEM）"; exit 1; }
           cd out
-          for f in "quetzal-$V-android-arm64.apk" "quetzal-$V-linux-x64-console.tar.gz" "quetzal-$V-linux-arm64-console.tar.gz" "quetzal-$V-landrun-linux-x64.tar.gz" "quetzal-$V-landrun-linux-arm64.tar.gz"; do
+          for f in "quetzal-$V-android-arm64.apk" "quetzal-$V-linux-x64-console.tar.gz" "quetzal-$V-linux-arm64-console.tar.gz" "quetzal-$V-landrun-linux-x64.tar.gz" "quetzal-$V-landrun-linux-arm64.tar.gz" \
+                   "quetzal-$V-windows-x64-setup.exe" "quetzal-$V-windows-arm64-setup.exe"; do
             [ -f "$f" ] || { echo "::error::缺少资产 $f"; exit 1; }
           done
-          { sha256sum quetzal-*.apk quetzal-*.tar.gz; printf 'commit %s %s\n' "$GITHUB_SHA" "$GITHUB_REF_NAME"; } > SHA256SUMS
+          { sha256sum quetzal-*.apk quetzal-*.tar.gz quetzal-*.exe; printf 'commit %s %s\n' "$GITHUB_SHA" "$GITHUB_REF_NAME"; } > SHA256SUMS
           node -e '
           const c = require("crypto"), f = require("fs");
           const data = f.readFileSync("SHA256SUMS");
@@ -336,13 +442,14 @@ jobs:
           '
           cat SHA256SUMS SHA256SUMS.sig
 
-      - name: 构建来源证明（APK、Linux 控制台与 SHA256SUMS）
+      - name: 构建来源证明（APK、Linux 控制台、Windows 安装包与 SHA256SUMS）
         if: github.event_name == 'push'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             out/quetzal-*.apk
             out/quetzal-*.tar.gz
+            out/quetzal-*.exe
             out/SHA256SUMS
 
       - name: 提取发布说明（CHANGELOG.md 的对应小节）
@@ -364,7 +471,7 @@ jobs:
           PRE=(); case "$GITHUB_REF_NAME" in *-*) PRE=(--prerelease);; esac
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "Quetzal $V" --notes "$(cat "$RUNNER_TEMP/NOTES.md")" --generate-notes "${PRE[@]}" \
-            out/quetzal-*.apk out/quetzal-*.tar.gz out/SHA256SUMS out/SHA256SUMS.sig
+            out/quetzal-*.apk out/quetzal-*.tar.gz out/quetzal-*.exe out/SHA256SUMS out/SHA256SUMS.sig
 
   # npm 包：Release 成功之后才发布。只下载构建好的 tgz，不检出、不构建；两个 registry 各用一份独立的 npm 用户配置
   # （带作用域的包按 @作用域:registry 决定发到哪、用哪条凭据，--registry 参数不改变凭据查找）。
