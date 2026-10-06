@@ -35,7 +35,7 @@ export interface Hands {
 export interface SupervisionState {
   available: boolean;                       // 这具身体有没有可控制的守护者（手动运行、自定义部署时为 false，控制台不显示开关）
   enabled: boolean;                         // 开机自启且退出后自动重启
-  kind: "systemd" | "runit" | "loop" | "none";
+  kind: "systemd" | "runit" | "loop" | "task" | "none"; // task：Windows 的计划任务
   detail: string;                           // 给人看的一句话：守护者是谁、怎么拉起
 }
 export interface Supervision {
