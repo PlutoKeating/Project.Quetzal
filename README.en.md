@@ -40,7 +40,7 @@ Its memory is Markdown written for people. A month in, open your soul repository
 | After doing a job a few times | Asks whether it may make it into a tool | `skills/`, Permissions in the app |
 | When something is wrong | You undo that change under Memory history | every change is a git commit |
 
-It has no alarms or calendar, and it cannot operate other apps yet. See [A month in](https://quetzal.plutokeating.beer/en/docs/start/first-month).
+It cannot operate other apps yet. See [A month in](https://quetzal.plutokeating.beer/en/docs/start/first-month).
 
 <br/>
 

@@ -25,7 +25,7 @@ lib/
     ├── pairing.dart   连接一个 agent：探活与配对（加密连接先取 /pair/info、显示证书指纹给人核对，再提交配对证明）；旧的明文局域网档案提示重新配对；安卓上本机没有运行基座而 App 内置了它时直接进安装向导；网页版先试本机登录
     ├── setup.dart     安装向导（也是升级 / 修复入口）：一次只展开一步——安卓上：安装（打开即开始）→ 权限（装好自动弹系统请求）→ 后台运行（能检测已允许）→ 登录（设备码，申请到就打开浏览器）→ 模型；电脑上（Linux 桌面版、网页版）只有登录与模型，第一次连上还没有模型时外壳打开一次（每个连接一次）；登录与后台运行可跳过；升级模式只有第一步，完成自动返回
     ├── agents.dart    多 agent 切换、身份资料（名字、代词、简介、语言、颜色；标识符不在界面上改）、记忆历史
-    ├── home.dart      此刻：PresenceHead（光团 + 状态）、ModelNudge（还没有模型时唯一的入口）、ThoughtLine、InnerSection、BodySection、poke；手机首页与桌面「她此刻」面板共用
+    ├── home.dart      此刻：PresenceHead（光团 + 状态）、ModelNudge（还没有模型时唯一的入口）、RemindersSection（她答应的提醒：时间、是否重复、内容，可取消；没有就不占位）、ThoughtLine、InnerSection、BodySection、poke；手机首页与桌面「她此刻」面板共用
     ├── sessions.dart  会话：SessionsList（列表、新建、重命名、归档与找回；进行中的会话带标记）与手机页
     ├── chat.dart      对话：ChatView（一个会话的完整内容：实时过程、附件、发送方式、保密输入、贴底与「新消息」；桌面 Enter 发送）与手机页
     ├── wake.dart      醒来记录（只读）：WakeView 与手机页；WakeWatch 跟踪进行中的醒来

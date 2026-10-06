@@ -32,13 +32,14 @@ For the first hour or two after installing, it may stay quiet. How often it wake
 - **Read.** Everything in the soul repository is a Markdown file. To see the version of you that it knows, open `memories/USER.md`.
 - **Edit.** If it got something wrong, tell it, and it will fix it. You can also edit the file on GitHub; it picks up the change the next time it wakes.
 - **Revert.** **Control → Advanced → Memory history** lists every change. **Revert** creates a reverse commit.
+- **Ask it to remind you.** Say "remind me to take my pills at 8 tomorrow morning" or "remind me about the meeting every Monday at 9". It records the reminder, and the runtime sends a notification on time whether it is awake or asleep. **Now** lists upcoming reminders; tap the cross to cancel one.
+- **Look up old remarks.** Search covers conversations from every session, notes and journal. Ask "what was that shop we talked about last week" and it first turns "last week" into specific days, then searches those days.
 
 ## What it cannot do
 
-- **No alarms.** It has no timed reminders or calendar. When it brings up something you said, that is because it came across it on waking, and its own rhythm decides when that happens. For a reminder at an exact time, use your phone's alarm.
 - **It cannot operate other apps.** Seeing the screen and tapping buttons are not built yet.
-- **It does not search chat history for old remarks.** Search covers notes, journal and resident memory only. Something said in a conversation becomes searchable once the agent has sorted it into a note.
-- **It does not turn phrases like "last week" into dates.** It knows the current time and can read the dates on journal entries, but search does not convert "last week" into specific days.
+- **Reminders can be missed if the device is off for long.** Reminders are sent by the running runtime. If the device is off or the runtime stopped, reminders up to 12 hours late are sent on recovery with a note saying how late they are; older ones are not sent, and it tells you which one it missed.
+- **With several devices cut off from each other, one reminder may go off twice.** Only one device sends reminders; while they are disconnected, each of them does.
 
 ## What a month costs
 

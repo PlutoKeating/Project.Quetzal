@@ -23,7 +23,7 @@ Not in plaintext. When it needs a credential it starts a **secret input**: what 
 
 Built-in tools: memory and notes, recall, web search and fetch, viewing images, reading documents (Word / PowerPoint / Excel / PDF and more), running commands and background jobs, listing processes, speaking (Azure Speech), proactive messages, sharing a thought, bounded changes to its own personality parameters, rewriting its personality, building its own tools, starting subagents. Plus the tools the device provides: on a phone, photos, audio recording, location, vibration, torch, clipboard and sensors; on a computer, photos, audio recording, screenshots, clipboard, and opening files and URLs.
 
-It has no timed reminders or calendar. For what it will be like after a month of use, see [A month in](/docs/start/first-month).
+Reminders you ask for arrive on time. For what it will be like after a month of use, see [A month in](/docs/start/first-month).
 
 ## Can it do damage?
 

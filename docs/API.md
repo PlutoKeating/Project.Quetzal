@@ -84,7 +84,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
-| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox}`；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜landlock｜proot｜none, hidden[], readonly[], note, allowUnsandboxed}`（`none` 时她的命令缺省一律不执行，`allowUnsandboxed` 为真时才不隔离执行；控制台应提示重新运行安装命令补上沙箱，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
+| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox, reminders}`；`reminders` 同 `reminders` 方法；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜landlock｜proot｜none, hidden[], readonly[], note, allowUnsandboxed}`（`none` 时她的命令缺省一律不执行，`allowUnsandboxed` 为真时才不隔离执行；控制台应提示重新运行安装命令补上沙箱，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护，更新时推送 `state` |
 | `sandbox.allowUnsandboxed` | `{allow}` | 没有可用沙箱时是否允许她的命令不隔离执行（不安全；缺省不允许）。只属于这具身体，不随多具身体同步；返回新的 `sandbox` 状态，记审计 |
 | `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `place`（多具身体时，这次醒来选在了哪具身体上 `{kind, reason, intent, where}`）、`mesh`（网状层的事：绑定、心跳交接、安全提醒）、`hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份）、`session`（切到新会话 / 压缩了上下文）、`agent`（派出 / 完成 / 停止子 agent，完成的条目带 `journal`、`process`、`steps`）、`sandbox`（没有可用的沙箱，启动时提醒一次））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数与结果（结果最多 1500 字） |
 | `messages` | `{limit?}` | 全部会话里最近的对话（正序） |
@@ -167,7 +167,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `editMemory` | `{target: memory｜user, action: add｜replace｜remove, content?, oldText?}` |
 | `setSoul` | `{text}` |
 | `journalList` / `journal` | — / `{body, day}` |
-| `notes` / `note` / `search` | — → `[{name, title, summary, mtime, size}]`（`name` 为目录树中的相对路径，如 `身体/honor9/硬件`）/ `{name}` / `{query}`（按相关度检索笔记、日记与常驻记忆） |
+| `notes` / `note` / `search` | — → `[{name, title, summary, mtime, size}]`（`name` 为目录树中的相对路径，如 `身体/honor9/硬件`）/ `{name}` / `{query}`（按相关度检索对话、笔记、日记与常驻记忆） |
+| `reminders` / `reminders.cancel` | — / `{id}` | 她答应的提醒 `[{id, text, at, when, repeat}]`（`when` 为下一次的当地说法，`repeat` 为重复规则的说法、一次性为空）/ 取消一条，返回剩下的。设提醒由她用 `reminder` 工具 |
 | `soulConfig` / `setSoulConfig` / `soulKey` / `syncSoul` | 灵魂仓库地址（只接受 SSH 地址，见规范 §7）与访问方式 `sshMode`（`deploy` 本机部署密钥 / `custom` 指定私钥 `sshKeyPath` / `system` 系统 ssh 配置）、本机部署公钥（没有则生成）、立即同步；`status` 含 `lastPull`、`lastPush`、`lastError`（落盘，重启不归零）与 `unpushed`（她碰过、已提交但还在本机等待推送的改动数）。她每次工具调用后碰了灵魂目录都会立即提交、3 秒去抖推送（见 SOUL_SYNC.md）；推送失败与冲突副本由基座直接提醒她，时间线 `kind` 为 `soul` |
 | `agent` / `setAgent` | — / `{displayName?, name?, pronouns?, description?, color?, language?}`（写入 agent.json 并同步；她自己改用工具 `edit_identity`，留时间线 `identity`） |
 | `bodies` | — → 灵魂仓库中登记的身体 |

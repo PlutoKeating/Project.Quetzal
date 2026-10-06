@@ -39,7 +39,7 @@ export const messages = defineMessages({
         { when: "第一个月", text: "ta 写了几十篇日记。同一件事做过几次，ta 会问你能不能把它做成自己的工具。" },
         { when: "任何时候", text: "哪一条记错了，在「记忆历史」里撤销那一次改动。" },
       ],
-      note: "这里写的是 ta 的做法。ta 不设闹钟：ta 想起你的事，是因为醒来翻到了它。",
+      note: "这里写的是 ta 自己什么时候醒。你让 ta 提醒的事，到点会准时提醒你。",
       more: "一个月里会发生什么",
     },
     pillars: {
@@ -146,7 +146,7 @@ export const messages = defineMessages({
         { when: "Month one", text: "It has written dozens of journal entries. When it has done the same job a few times, it asks you whether it may turn it into a tool of its own." },
         { when: "Any time", text: "If a memory is wrong, undo that change under Memory history." },
       ],
-      note: "This describes how it works. It sets no alarms: it remembers your plans because it reads its notes when it wakes.",
+      note: "This is about when it wakes on its own. Reminders you ask for arrive on time.",
       more: "What happens in a month",
     },
     pillars: {

@@ -40,7 +40,7 @@ ta 的记忆是写给人看的 Markdown 文件。一个月后，打开你的灵�
 | 做熟一件事 | 问你能不能把它做成工具 | `skills/`，App 的「权限」 |
 | 记错了 | 你在「记忆历史」里撤销那一次改动 | 每一次改动都是一次 git 提交 |
 
-ta 没有闹钟提醒和日程，也还不会操作别的 App。详见 [一个月后](https://quetzal.plutokeating.beer/zh/docs/start/first-month)。
+ta 还不会操作别的 App。详见 [一个月后](https://quetzal.plutokeating.beer/zh/docs/start/first-month)。
 
 <br/>
 
