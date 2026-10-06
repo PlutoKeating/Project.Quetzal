@@ -4,7 +4,7 @@ import path from "node:path";
 import { paths } from "../config.ts";
 import type { Protocol } from "./types.ts";
 
-export interface CatalogModel { id: string; name: string; context: number; output: number; toolCall: boolean; vision?: boolean; cost?: { input: number; output: number } }
+export interface CatalogModel { id: string; name: string; context: number; output: number; toolCall: boolean; vision?: boolean; released?: string; cost?: { input: number; output: number } } // released：发布日期 YYYY-MM-DD（快速接入按它挑最新的）
 export interface CatalogProvider { id: string; name: string; api: string; protocol: Protocol; models: CatalogModel[] }
 
 const DEFAULT_BASE: Record<string, string> = {
@@ -33,6 +33,7 @@ export async function refreshCatalog(): Promise<CatalogProvider[]> {
     models: Object.values(p.models ?? {}).map((m: any) => ({
       id: m.id, name: m.name ?? m.id, context: m.limit?.context ?? 0, output: m.limit?.output ?? 0, toolCall: !!m.tool_call,
       vision: visionOf(m),
+      ...(typeof m.release_date === "string" ? { released: m.release_date } : {}),
       cost: m.cost ? { input: m.cost.input ?? 0, output: m.cost.output ?? 0 } : undefined,
     })),
   })).sort((a, b) => a.name.localeCompare(b.name));
@@ -41,9 +42,9 @@ export async function refreshCatalog(): Promise<CatalogProvider[]> {
 }
 
 let refreshing = false;
-/** 缓存是旧格式（没有「能否看图」信息）时，在后台刷新一次。 */
+/** 缓存是旧格式（没有「能否看图」或发布日期）时，在后台刷新一次。 */
 function refreshIfStale(c: { providers: CatalogProvider[] }) {
-  if (refreshing || c.providers.some((p) => p.models.some((m) => typeof m.vision === "boolean"))) return;
+  if (refreshing || c.providers.some((p) => p.models.some((m) => typeof m.vision === "boolean" && typeof m.released === "string"))) return;
   refreshing = true;
   refreshCatalog().catch(() => {}).finally(() => { refreshing = false; });
 }

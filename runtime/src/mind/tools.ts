@@ -232,7 +232,7 @@ const core: Tool[] = [
   },
   {
     name: "voice_config", permission: "self_modify",
-    description: "查看或修改你的声音配置（Azure 语音服务）。action=get 查看当前配置；voices 列出可选音色（可用 locale 过滤，如 zh-CN，结果含每个音色支持的风格）；set 修改：region（如 eastasia）、key（密钥）、voice（音色）、style（默认风格，空表示不用）、rate / pitch（如 +10% / -5%）、volume（0–100）、format（输出格式）。",
+    description: "查看或修改你的声音配置（Azure 语音服务）。action=get 查看当前配置；voices 列出可选音色（可用 locale 过滤，如 zh-CN，结果含每个音色支持的风格）；set 修改：key（密钥；只给密钥时自动找出它的区域）、region（如 eastasia）、voice（音色）、style（默认风格，空表示不用）、rate / pitch（如 +10% / -5%）、volume（0–100）、format（输出格式）。",
     parameters: obj({ action: { type: "string", enum: ["get", "voices", "set"] }, locale: str("voices 用：语言，如 zh-CN"),
       region: str(""), key: str(""), voice: str(""), style: str(""), rate: str(""), pitch: str(""), volume: str(""), format: str("") }, ["action"]),
     handler: async (a) => {
@@ -244,7 +244,7 @@ const core: Tool[] = [
         // 端点只能由对方在控制台改：密钥随每次请求发往端点，指到别处就是把密钥交出去
         if (a.endpoint !== undefined && String(a.endpoint).trim() !== config.speech.endpoint) return "没有修改：语音端点只能由对方在控制台的「声音」页修改。你可以改区域、音色、风格、语速、音调、音量与格式。";
         const { action, locale, endpoint, ...patch } = a;
-        return JSON.stringify(voice.setSpeech(patch));
+        return JSON.stringify(await voice.setSpeechAuto(patch));
       }
       return JSON.stringify(voice.speechStatus());
     },

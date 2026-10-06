@@ -61,3 +61,27 @@ test("控制台登录 → 账户接口 → 令牌被吊销后回到未登录", a
   assert.equal(acct.accountStatus().signedIn, false);
   assert.ok(seen.some((x) => x.startsWith("POST /v1/console/code qsb_")), "申请码时带的是身体令牌");
 });
+
+test("一次登录：绑定时随批准拿到的控制台令牌直接存下，账户页即为已登录；格式不对的不收", async () => {
+  revoked = false;
+  const { pollBinding } = await import("../src/mesh/binding.ts");
+  const fake = http.createServer((req, res) => {
+    let body = ""; req.on("data", (d) => (body += d)); req.on("end", () => {
+      const code = JSON.parse(body).device_code;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ access_token: "qsb_new", agent: { id: "a" }, body: "honor9", account: "pluto", console: { access_token: code === "good" ? "qsc_account" : "not a token", expires_in: 1 } }));
+    });
+  });
+  await new Promise<void>((r) => fake.listen(0, "127.0.0.1", () => r()));
+  const furl = `http://127.0.0.1:${(fake.address() as { port: number }).port}`;
+  const start = (device_code: string) => ({ device_code, user_code: "X", verification_uri: "", verification_uri_complete: "", expires_in: 30, interval: 1 });
+  const bad = await pollBinding(furl, start("bad"), new AbortController().signal);
+  assert.equal(bad.consoleToken, undefined);
+  const b = await pollBinding(furl, start("good"), new AbortController().signal);
+  fake.close();
+  assert.equal(b.consoleToken, "qsc_account");
+  acct.adoptConsoleToken(url, b.consoleToken!, b.account);
+  assert.deepEqual([acct.accountStatus().signedIn, acct.accountStatus().account], [true, "pluto"]);
+  assert.equal(fs.statSync(path.join(paths.secrets, "sync-account.json")).mode & 0o777, 0o600);
+  assert.equal(((await acct.account.get()) as any).user.login, "pluto");
+});

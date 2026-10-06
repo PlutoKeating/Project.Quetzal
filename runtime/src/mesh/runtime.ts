@@ -131,8 +131,9 @@ export async function bind() {
   lastError = "";
   changed();
   pollBinding(config.mesh.server, start, abort.signal).then(async (b) => {
-    const { soul, ...saved } = b;
+    const { soul, consoleToken, ...saved } = b;
     fs.writeFileSync(BINDING(), JSON.stringify(saved, null, 2), { mode: 0o600 });
+    if (consoleToken) (await import("./account.ts")).adoptConsoleToken(b.server, consoleToken, b.account);
     binding = undefined;
     addTimeline("mesh", `这具身体绑定到了同步服务（账户 ${b.account}）`, { server: b.server });
     if (soul && "remote" in soul && soulLink) {

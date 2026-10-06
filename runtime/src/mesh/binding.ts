@@ -28,7 +28,7 @@ export async function startBinding(server: string, req: { agent: { id?: string; 
 }
 
 /** 绑定第二步：按间隔轮询，直到人在网页上批准或拒绝、或过期。返回令牌（带部署公钥申请的，另有灵魂仓库链接的结果 soul）。 */
-export async function pollBinding(server: string, b: BindStart, signal: AbortSignal): Promise<Binding & { soul?: SoulLink }> {
+export async function pollBinding(server: string, b: BindStart, signal: AbortSignal): Promise<Binding & { soul?: SoulLink; consoleToken?: string }> {
   let interval = Math.max(1, b.interval) * 1000;
   const deadline = Date.now() + b.expires_in * 1000;
   while (Date.now() < deadline) {
@@ -38,7 +38,10 @@ export async function pollBinding(server: string, b: BindStart, signal: AbortSig
       const s = r.json.soul;
       const soul: SoulLink | undefined = s && typeof s.remote === "string" && /^git@github\.com:[\w.-]+\/[\w.-]+\.git$/.test(s.remote) && typeof s.repo === "string" ? { repo: s.repo, remote: s.remote }
         : s && typeof s.error === "string" ? { error: s.error.slice(0, 300) } : undefined;
-      return { server: serverOrigin(server), token: r.json.access_token, agent: r.json.agent?.id ?? "", body: r.json.body ?? "", account: r.json.account ?? "", ...(soul ? { soul } : {}) };
+      // 同一次批准顺带的控制台登录（同步服务 1.2 起）：有就存下，App 不用再批准一次就能管理账户
+      const c = r.json.console?.access_token;
+      const consoleToken = typeof c === "string" && /^qsc_[\w-]{1,96}$/.test(c) ? c : undefined;
+      return { server: serverOrigin(server), token: r.json.access_token, agent: r.json.agent?.id ?? "", body: r.json.body ?? "", account: r.json.account ?? "", ...(soul ? { soul } : {}), ...(consoleToken ? { consoleToken } : {}) };
     }
     const err = r.json.error;
     if (err === "slow_down") interval += 5000;

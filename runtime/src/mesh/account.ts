@@ -1,6 +1,7 @@
 // 账户：App（控制台）「设备」页里进入的「账户」页经运行基座管理同步服务上的账户（与官网的账户页是同一套接口，见 sync/docs/PROTOCOL.md §5）。
-// 运行基座手里的身体令牌只代表这具身体；要管理账户，先做一次「控制台登录」：这具身体（已绑定）向同步服务申请一对码，
-// 人在官网的「批准设备」页批准后，拿到一个账户会话令牌（qsc_，存 secrets/sync-account.json，0600）。之后控制台的账户操作都由这里带上它转发。
+// 运行基座手里的身体令牌只代表这具身体；管理账户要一个账户会话令牌（qsc_，存 secrets/sync-account.json，0600）。
+// 它通常在绑定时就随同一次批准一起拿到（adoptConsoleToken）；旧的同步服务不给、或被吊销后，才单独做一次「控制台登录」：
+// 这具身体（已绑定）向同步服务申请一对码，人在官网的「批准设备」页批准。之后控制台的账户操作都由这里带上它转发。
 // 令牌失效（被吊销、过期、账户删除）时删除本地文件，控制台回到「登录」。agent 的工具不提供这些操作，只有持网关令牌的控制台能用。
 import fs from "node:fs";
 import path from "node:path";
@@ -22,6 +23,13 @@ function saved(): Saved | undefined {
   try { const s = JSON.parse(fs.readFileSync(FILE(), "utf8")) as Saved; return s.token?.startsWith("qsc_") && s.server ? s : undefined; } catch { return undefined; }
 }
 function forget() { fs.rmSync(FILE(), { force: true }); }
+
+/** 绑定时随同一次批准拿到的控制台登录：直接存下，账户页即为已登录。 */
+export function adoptConsoleToken(server: string, token: string, account: string) {
+  fs.writeFileSync(FILE(), JSON.stringify({ server: serverOrigin(server), token, account, at: Date.now() } satisfies Saved, null, 2), { mode: 0o600 });
+  signing?.abort.abort(); signing = undefined; lastError = "";
+  changed();
+}
 
 /** 账户页的状态：bound 为这具身体已绑定同步服务（控制台登录的前提）；signedIn 为已有账户会话；signing 为进行中的登录（给人看的码与链接）。 */
 export function accountStatus() {

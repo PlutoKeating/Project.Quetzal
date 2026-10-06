@@ -13,6 +13,7 @@ import { body, adapter } from "./body/twin.ts";
 import { loadProviders, publicView, configVersion, saveProviders } from "./providers/registry.ts";
 import { routes, testModel, remoteModels } from "./providers/router.ts";
 import { getCatalog, refreshCatalog } from "./providers/catalog.ts";
+import { quickSetup } from "./providers/quick.ts";
 import { bus } from "./bus.ts";
 import type { ProviderConfig } from "./providers/types.ts";
 import { VERSION } from "./version.ts";
@@ -76,7 +77,7 @@ export const ops = {
 
   // 语音（Azure）：密钥只返回末四位
   speech: () => voice.speechStatus(),
-  setSpeech: (a: Partial<voice.SpeechConfig> & { key?: string }, actor: string) => { audit(actor, "speech", "", { ...a, key: a.key ? "****" : undefined }, "ok"); return voice.setSpeech(a); },
+  setSpeech: async (a: Partial<voice.SpeechConfig> & { key?: string }, actor: string) => { const r = await voice.setSpeechAuto(a); audit(actor, "speech", "", { ...a, key: a.key ? "****" : undefined, region: r.region }, "ok"); return r; },
   speechVoices: (a: { locale?: string }) => voice.listVoices(a.locale ?? ""),
   speechTest: async (a: { text?: string }) => { const f = await voice.synthesize(a.text || "你好，这是我的声音。"); const r = await player.play(f, a.text || "你好，这是我的声音。"); return { ok: true, file: f, played: r.by !== "none", by: r.by }; },
   // 控制台 App 的耳朵开着时登记为她的播放器（回声消除需要声音从 App 的通话路径放出来）；播完或被插嘴后回报
@@ -155,6 +156,7 @@ export const ops = {
   refreshCatalog: async () => ({ fetchedAt: Date.now(), providers: await refreshCatalog() }),
   testModel: (a: { providerId: string; model: string }) => testModel(a.providerId, a.model),
   remoteModels: (a: { providerId: string }) => remoteModels(a.providerId),
+  "providers.quick": async (a: { catalogId: string; key: string }, actor: string) => { const r = await quickSetup(a, actor); audit(actor, "providers.quick", "", { catalogId: a.catalogId }, r.ok ? `ok ${r.models.join(",")}` : r.message); return r; },
   /** 飞书卡片用的快捷操作：在全局顺序中移动一个模型 / 启停一个模型 */
   moveModel: (a: { modelId: string; delta: number }, actor: string) => {
     const c = structuredClone(loadProviders());

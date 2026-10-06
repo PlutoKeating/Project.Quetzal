@@ -29,6 +29,36 @@ export function setSpeech(patch: Partial<SpeechConfig> & { key?: string }) {
   return speechStatus();
 }
 
+/** Azure 语音服务的公有云区域（国内的世纪互联区域用另一套域名，不在其中）。常用的亚洲区域排在前面。 */
+export const SPEECH_REGIONS = ["eastasia", "southeastasia", "japaneast", "japanwest", "koreacentral", "centralindia", "australiaeast", "eastus", "eastus2", "westus", "westus2", "westus3", "centralus", "northcentralus", "southcentralus", "westcentralus", "canadacentral", "brazilsouth", "northeurope", "westeurope", "uksouth", "francecentral", "germanywestcentral", "norwayeast", "swedencentral", "switzerlandnorth", "switzerlandwest", "italynorth", "qatarcentral", "uaenorth", "southafricanorth"];
+
+/**
+ * 这把密钥属于哪个区域：同时向各区域的官方令牌接口（*.api.cognitive.microsoft.com/sts/v1.0/issueToken）申请一次令牌，认它的就是。
+ * 有好几个都认时优先 prefer（原来的区域）。都不认返回空。只发往微软自己的域名。
+ */
+export async function detectRegion(key: string, prefer = "", f: typeof fetch = fetch): Promise<string> {
+  const hits = await Promise.all(SPEECH_REGIONS.map(async (r) => {
+    try {
+      const res = await f(`https://${r}.api.cognitive.microsoft.com/sts/v1.0/issueToken`, { method: "POST", headers: { "Ocp-Apim-Subscription-Key": key, "content-length": "0" }, signal: AbortSignal.timeout(10_000) });
+      return res.ok ? r : "";
+    } catch { return ""; }
+  }));
+  const ok = hits.filter(Boolean);
+  return ok.includes(prefer) ? prefer : ok[0] ?? "";
+}
+
+/** 控制台与 voice_config 的修改入口：给了新密钥、又没指定区域也没用自定义端点时，自动找出它的区域（找不到就不保存，说明原因）。 */
+export async function setSpeechAuto(patch: Partial<SpeechConfig> & { key?: string }, f: typeof fetch = fetch) {
+  const key = typeof patch.key === "string" ? patch.key.trim() : "";
+  const endpoint = typeof patch.endpoint === "string" ? patch.endpoint.trim() : config.speech.endpoint;
+  if (key && !(typeof patch.region === "string" && patch.region.trim()) && !endpoint) {
+    const region = await detectRegion(key, config.speech.region, f);
+    if (!region) throw new Error("这把密钥在各个区域都不认：检查是不是复制完整了，或者在「更多」里填写区域");
+    patch = { ...patch, region };
+  }
+  return setSpeech(patch);
+}
+
 /** 多具身体之间同步语音密钥（经网状层的加密通道）。 */
 export const speechKey = () => readSecret(KEY) ?? "";
 export function setSpeechKeyRemote(key: string) { if (key) writeSecret(KEY, key); }
