@@ -8,8 +8,15 @@ import * as svc from "./service.ts";
 import { health } from "./health.ts";
 import { install, placeRelease, bundled, gatewayPort, gatewayHost, consoleUrl, hasConsole } from "./install.ts";
 import { lanEnabled, lanPort, lanUrls, certFingerprint } from "./lan.ts";
+import * as win from "./windows.ts";
 
-const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as { version: string };
+const isWin = process.platform === "win32";
+/** 版本：npm 包里读 ../package.json；Windows 安装包把本文件放在 runtime\<版本>\quetzal.mjs，旁边是 VERSION。 */
+function cliVersion(): string {
+  try { return (JSON.parse(fs.readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")) as { version: string }).version; }
+  catch { return fs.readFileSync(fileURLToPath(new URL("./VERSION", import.meta.url)), "utf8").trim(); }
+}
+const pkg = { version: cliVersion() };
 const say = (s: string) => console.log(s);
 process.stdout.on("error", () => {}); // 输出被管道提前关闭（如 | head）时不报错
 
@@ -35,11 +42,14 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
   --no-open          装完不自动打开浏览器
 
 装好之后的一切（模型、身份、授权、飞书、灵魂仓库）都在网页控制台里完成：这台机器上的浏览器打开 http://127.0.0.1:<端口>/ 即登录。
-手机上的 Quetzal App 也能连：连接新的 agent → 填这台机器的地址 → 申请配对码（桌面通知弹出；没有桌面的机器从 quetzal logs 里看）。`;
+手机上的 Quetzal App 也能连：连接新的 agent → 填这台机器的地址 → 申请配对码（桌面通知弹出；没有桌面的机器从 quetzal logs 里看）。
+
+Windows：用安装包 setup.exe 或 PowerShell 里的 irm https://quetzal.plutokeating.beer/install.ps1 | iex 安装与升级；
+这个命令（安装后的 quetzal）提供 status、open、run、logs、start、stop、restart、rollback、uninstall，--home 默认 %LOCALAPPDATA%\\Quetzal\\home。`;
 
 function parse(argv: string[]) {
   const o: { cmd?: string; home: string; lan?: boolean; force: boolean; purge: boolean; follow: boolean; lines: number; open: boolean } =
-    { home: defaultHome(), force: false, purge: false, follow: false, lines: 80, open: true };
+    { home: isWin ? win.winLayout().home : defaultHome(), force: false, purge: false, follow: false, lines: 80, open: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--home") o.home = path.resolve(argv[++i] ?? "");
@@ -61,7 +71,7 @@ function parse(argv: string[]) {
 function requireNode() {
   const [maj, min] = process.versions.node.split(".").map(Number);
   if (maj < 22 || (maj === 22 && min < 13)) throw new Error(`需要 Node.js 22.13 以上（内置 node:sqlite），当前 ${process.versions.node}`);
-  if (process.platform !== "linux") throw new Error("这个包只支持 Linux；其他系统请看 https://quetzal.plutokeating.beer");
+  if (process.platform !== "linux" && process.platform !== "win32") throw new Error("这个包只支持 Linux 与 Windows；其他系统请看 https://quetzal.plutokeating.beer");
 }
 
 async function status(home: string) {
@@ -114,8 +124,9 @@ async function main() {
   const o = parse(process.argv.slice(2));
   const cmd = o.cmd ?? "install";
   if (cmd === "help") return say(HELP);
-  if (cmd === "version") return say(`quetzal ${pkg.version}（内置运行基座 ${bundled().version}）`);
+  if (cmd === "version") return say(isWin ? `quetzal ${pkg.version}` : `quetzal ${pkg.version}（内置运行基座 ${bundled().version}）`);
   requireNode();
+  if (isWin) return winMain(cmd, o);
   const l = layout(o.home);
   switch (cmd) {
     case "install": {
@@ -145,6 +156,76 @@ async function main() {
       else say(`家目录 ${l.home} 保留（配置、记忆、对话）；要一起删除请加 --purge`);
       return;
     }
+    default: throw new Error(`不认识的命令：${cmd}\n\n${HELP}`);
+  }
+}
+
+// ---------------------------------------------------------------- Windows
+async function winStatus(wl: win.WinLayout) {
+  const l = layout(wl.home);
+  const cur = win.currentVersion(wl), prev = win.previousVersion(wl);
+  const h = await health(gatewayPort(l));
+  say(`安装目录  ${wl.root}`);
+  say(`家目录    ${wl.home}`);
+  say(`版本      ${cur ?? "（未安装）"}${prev ? `（上一版 ${prev}）` : ""}`);
+  for (const t of win.TASKS) { const s = await win.taskStatus(t); say(`计划任务  ${t}：${s ? s : "未注册"}`); }
+  say(`运行基座  ${h ? `${h.version} ${h.safeMode ? "安全模式" : h.mode}` : "没有响应"}`);
+  const host = gatewayHost(l);
+  say(`网关      127.0.0.1:${gatewayPort(l)}（明文，只在本机）`);
+  if (lanEnabled(l)) {
+    const fp = certFingerprint(l);
+    say(`局域网    ${lanUrls(l).join("、") || "（没找到局域网地址）"}（HTTPS / WSS，监听 ${host === "127.0.0.1" ? "0.0.0.0" : host}:${lanPort(l)}）`);
+    say(`证书指纹  ${fp ? `${fp.short}（完整：${fp.hex}）` : "（运行基座启动后生成）"}`);
+  } else say("局域网    未开放");
+  const dir = win.currentDir(wl);
+  say(`控制台    ${win.consoleExe(wl) ?? "（没有原生控制台）"}${dir && fs.existsSync(path.join(dir, "web", "index.html")) ? `；网页版 ${consoleUrl(l)}` : ""}`);
+}
+
+/** 打开控制台：原生控制台（console\current.txt）在就启动它，否则用默认浏览器打开网页控制台。 */
+function winOpen(wl: win.WinLayout) {
+  const exe = win.consoleExe(wl);
+  const url = consoleUrl(layout(wl.home));
+  const [cmd, args] = exe ? [exe, []] : ["explorer.exe", [url]];
+  const p = spawn(cmd, args, { stdio: "ignore", detached: true });
+  p.on("error", (e) => say(`打不开（${e.message}）：请手动打开 ${url}`));
+  p.on("spawn", () => { p.unref(); say(exe ? "已打开原生控制台" : `已在浏览器里打开 ${url}`); });
+}
+
+/** 前台运行当前版本（调试用；正常由计划任务里的守护进程运行）。 */
+async function winRun(wl: win.WinLayout) {
+  const dir = win.currentDir(wl);
+  if (!dir) throw new Error("还没有安装：先运行 setup.exe 或 install.ps1");
+  const child = spawn(process.execPath, ["--enable-source-maps", path.join(dir, "main.cjs")], {
+    cwd: dir, stdio: "inherit", env: { ...process.env, QUETZAL_ROOT: wl.root, QUETZAL_HOME: wl.home, QUETZAL_ADAPTER: path.join(dir, "windows.mjs") },
+  });
+  for (const s of ["SIGINT", "SIGTERM"] as const) process.on(s, () => child.kill(s));
+  return new Promise<number>((r) => child.on("exit", (c) => r(c ?? 1)));
+}
+
+async function winWaitDown(wl: win.WinLayout, seconds = 20) {
+  const port = gatewayPort(layout(wl.home));
+  for (let i = 0; i < seconds; i++) { if (!(await health(port))) return true; await new Promise((r) => setTimeout(r, 1000)); }
+  return false;
+}
+
+async function winMain(cmd: string, o: ReturnType<typeof parse>) {
+  const wl = win.winLayout(win.winRoot(), o.home);
+  switch (cmd) {
+    case "install": throw new Error("Windows 上请用安装包 setup.exe，或在 PowerShell 里运行：irm https://quetzal.plutokeating.beer/install.ps1 | iex");
+    case "status": return winStatus(wl);
+    case "open": return winOpen(wl);
+    case "run": process.exitCode = await winRun(wl); return;
+    case "logs": process.exitCode = await win.winLogs(wl, o.lines, o.follow); return;
+    case "start": say(await win.winStart(wl)); return;
+    case "stop": await win.winStop(wl); say((await winWaitDown(wl)) ? "已停止" : "已请求停止，运行基座还在响应（稍后再看 quetzal status）"); return;
+    case "restart": await win.winStop(wl); await winWaitDown(wl); say(await win.winStart(wl)); return;
+    case "rollback": {
+      const v = win.winRollback(wl);
+      if (!v) throw new Error("没有可回滚的版本");
+      await win.winStop(wl); await winWaitDown(wl); await win.winStart(wl);
+      say(`已切回 ${v}`); return;
+    }
+    case "uninstall": say(win.winUninstall(wl, o.purge)); return;
     default: throw new Error(`不认识的命令：${cmd}\n\n${HELP}`);
   }
 }
