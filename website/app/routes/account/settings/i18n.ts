@@ -4,7 +4,7 @@ export const messages = defineMessages({
   zh: {
     heading: "设置",
     profileHeading: "PlutoKeating 账号",
-    profile: "密码、通行密钥、关联 GitHub 都在账号里管理。",
+    profile: "名字、邮箱、通行密钥、关联 GitHub 都在账号里管理。",
     manage: "管理账号",
     logoutHeading: "退出登录",
     logout: "在这个浏览器上退出",
@@ -22,7 +22,7 @@ export const messages = defineMessages({
   en: {
     heading: "Settings",
     profileHeading: "PlutoKeating account",
-    profile: "Password, passkeys and linked GitHub are managed in your account.",
+    profile: "Name, email, passkeys and linked GitHub are managed in your account.",
     manage: "Manage account",
     logoutHeading: "Sign out",
     logout: "Sign out of this browser",

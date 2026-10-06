@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Route } from "./+types/route";
 import { DEFAULT_LANG, isLang, useMessages } from "~/i18n/core";
 import { Button, ButtonAnchor, Card, Heading } from "~/design-system/components";
-import { ACCOUNT_URL, sync, SyncError } from "~/lib/sync";
+import { accountUrl, sync, SyncError } from "~/lib/sync";
 import { AccountShell, errorText } from "../shell";
 import { accountMessages } from "../i18n";
 import { messages } from "./i18n";
@@ -37,7 +37,7 @@ function Settings({ login, onDone }: { login: string; onDone: (msg: string) => v
         <Heading as="h2" size="sm">{t.profileHeading}</Heading>
         <p className="font-mono text-sm text-fg">{login}</p>
         <p className="text-sm text-fg-muted">{t.profile}</p>
-        <ButtonAnchor variant="secondary" href={ACCOUNT_URL} target="_blank" rel="noopener" className="self-start">{t.manage}</ButtonAnchor>
+        <ButtonAnchor variant="secondary" href="#" onClick={(e) => { e.preventDefault(); window.location.assign(accountUrl(window.location.href)); }} className="self-start">{t.manage}</ButtonAnchor>
       </Card>
       <Card className="flex flex-col items-start gap-3">
         <Heading as="h2" size="sm">{t.logoutHeading}</Heading>

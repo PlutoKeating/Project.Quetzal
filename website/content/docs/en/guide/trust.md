@@ -12,7 +12,7 @@ Before you put an AI that acts on its own into your phone, you should know three
 | **Your devices** | Everything: conversations, settings, encrypted model keys, the vault, its soul directory | — |
 | **The model provider** (the one you chose) | The content of every conversation and of every wake-up where it thinks | Passwords in the vault, your other keys |
 | **GitHub** (your private soul repository) | Its personality, memory, journal, notes and tool guides | Conversation history, settings, model keys |
-| **PlutoKeating account** (the author's single account, used to sign in) | Your email, sign-in credentials (passwords only as hashes, passkeys only as public keys) and sign-in records | Everything in Quetzal |
+| **PlutoKeating account** (the author's single account, used to sign in) | Your email, sign-in methods (no passwords; passkeys only as public keys) and sign-in records | Everything in Quetzal |
 | **The sync service** (run by the author personally, used by default) | Your account's id, username, display name and email, and the id of the GitHub account used to link the soul repository; the agent's name, id and soul repository name; each device's name, kind, version, public key and when it was last online | Conversations, memory, personality, model keys, IP addresses |
 | **Feishu** (optional) | Messages sent and received through Feishu | Everything else |
 

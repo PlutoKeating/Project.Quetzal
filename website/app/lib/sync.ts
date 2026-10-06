@@ -2,8 +2,8 @@
 // 官网是唯一给人看的前端：登录、账户、批准身体、控制台登录都在这里；同步服务只提供接口。
 // 会话 Cookie 属于同步服务（与官网同站不同源），所以请求一律 credentials: "include"；改动类请求是 JSON（跨源时浏览器先预检）。
 export const SYNC_ORIGIN = "https://sync.quetzal.plutokeating.beer";
-/** 账号本身（邮箱、密码、通行密钥、关联 GitHub）在统一账号服务的账号面板里管理。 */
-export const ACCOUNT_URL = "https://id.plutokeating.beer/auth/v1/account";
+/** 账号本身（名字、邮箱、通行密钥、关联 GitHub）在统一账号服务的设置页里管理；改完点「返回」回到 back。 */
+export const accountUrl = (back: string) => `https://id.plutokeating.beer/self-service/settings/browser?return_to=${encodeURIComponent(back)}`;
 
 export interface SessionInfo { loginEnabled: boolean; user: { login: string; name: string; email?: string } | null }
 export interface AccountBody { body: string; kind: "runtime" | "bridge" | string; version: string; created: number; lastSeen: number; online: boolean; fingerprint: string }
