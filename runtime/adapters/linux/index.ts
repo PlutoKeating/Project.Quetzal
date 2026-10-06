@@ -8,7 +8,7 @@ import type { ChildProcess } from "node:child_process";
 import type { BodyAdapter, AdapterTool, RawSample } from "../../src/body/adapter.ts";
 import { run, start, have, first, readText, prettyName, pickBattery, pickThermal, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "./linux.ts";
 import * as supervise from "./supervise.ts";
-import { upgrade } from "./upgrade.ts";
+import { upgrade, upgradeStatus } from "./upgrade.ts";
 
 const MEDIA = path.join(process.env.QUETZAL_HOME ?? path.join(os.homedir(), ".quetzal"), "data", "media"); // Linux 的家目录缺省 ~/.quetzal（服务里总是由 QUETZAL_HOME 指定）
 const POWER = "/sys/class/power_supply";
@@ -151,6 +151,7 @@ const adapter: BodyAdapter = {
   tools,
   supervision: { status: supervise.status, set: supervise.set }, // 守护开关：systemd 用户服务或一键安装脚本的守护循环
   upgrade, // 从控制台升级：后台重跑一键安装脚本（systemd-run 脱离服务的 cgroup）
+  upgradeStatus, // 读 logs/upgrade.log：进行中、退出码、最后一步
   // speak 不提供：与 Termux 适配器一致，说话统一由运行基座的 voice_speak 完成
   // hands：看屏幕与操作其他应用——只提供 screenshot 工具；点击与输入待做
 };

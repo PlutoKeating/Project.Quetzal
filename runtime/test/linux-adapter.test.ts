@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pickBattery, pickThermal, prettyName, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "../adapters/linux/linux.ts";
 import { hasRebootLine, withRebootLine, DROPIN_OFF } from "../adapters/linux/supervise.ts";
-import { upgradeShell, detachCommand } from "../adapters/linux/upgrade.ts";
+import { upgradeShell, detachCommand, parseUpgradeLog } from "../adapters/linux/upgrade.ts";
 
 test("挑出整机电池，跳过蓝牙鼠标之类的外设电池", () => {
   assert.equal(pickBattery([{ name: "ADP0", type: "Mains" }, { name: "hidpp_battery_7", type: "Battery", scope: "Device" }, { name: "BAT0", type: "Battery" }]), "BAT0");
@@ -77,4 +77,23 @@ test("从控制台升级：命令下载安装脚本并写日志；有 systemd �
   assert.equal(a.cmd, "systemd-run"); assert.ok(a.args.includes("--unit=u1") && a.args.includes("--user"));
   const b = detachCommand(sh, false);
   assert.equal(b.cmd, "setsid"); assert.equal(b.args[0], "-f");
+});
+
+test("升级指定版本；日志里每次升级带编号，读得出进行中、成功、失败与最后一步", () => {
+  const sh = upgradeShell("/h/l.log", undefined, "1.2.3", "100");
+  assert.match(sh, /bash -s -- --no-open --version 1\.2\.3/);
+  assert.match(sh, /== 升级 100 开始.*（目标 1\.2\.3）/);
+  assert.match(sh, /pipefail/, "下载脚本失败也算失败");
+  assert.doesNotMatch(upgradeShell("/h/l.log", undefined, "1.2.3; rm -rf /", "1"), /rm -rf/, "版本号不合格就不带");
+  const t0 = 1_000_000;
+  assert.deepEqual(parseUpgradeLog(""), { running: false });
+  const started = `== 升级 ${t0} 开始 Tue（目标 1.2.3）\n◆ Runtime\n  ▸ Downloading @plutokeating/quetzal@1.2.3\n`;
+  assert.deepEqual(parseUpgradeLog(started, t0 + 1000), { running: true, id: String(t0), startedAt: t0, target: "1.2.3", step: "Downloading @plutokeating/quetzal@1.2.3" });
+  assert.equal(parseUpgradeLog(started, t0 + 16 * 60_000).stalled, true, "超过 15 分钟算卡住，不再挡着下一次");
+  const failed = `${started}curl: (35) TLS connect error\n== 升级 ${t0} 退出码 35\n`;
+  assert.deepEqual(parseUpgradeLog(failed, t0), { running: false, id: String(t0), startedAt: t0, target: "1.2.3", exitCode: 35, step: "curl: (35) TLS connect error" });
+  // 只看最近一次；旧格式的记录不影响
+  const two = `== Tue 从控制台发起升级\n== 退出码 0\n${failed}== 升级 ${t0 + 5} 开始 Tue\n  ✓ Native console in place\n== 升级 ${t0 + 5} 退出码 0\n`;
+  const st = parseUpgradeLog(two, t0);
+  assert.equal(st.exitCode, 0); assert.equal(st.target, undefined); assert.equal(st.step, "Native console in place");
 });
