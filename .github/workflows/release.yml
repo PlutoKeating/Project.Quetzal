@@ -172,6 +172,14 @@ jobs:
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/flutter/bin/flutter" --version
 
+      # 运行基座的测试要真的执行命令，而没有沙箱时基座一律拒绝执行（1.0.4 起）。ubuntu-24.04 的 AppArmor 默认禁止非特权用户命名空间，
+      # bubblewrap 用不了：只在这台用完即弃的运行器上装 bubblewrap 并放开这项限制
+      - name: 测试用的命令沙箱（bubblewrap）
+        run: |
+          sudo apt-get install -y -q bubblewrap >/dev/null
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --dev /dev --proc /proc true && echo "bubblewrap 可用"
+
       - name: 构建运行基座并内置进 App（npm ci + test + build）
         run: console/tool/bundle-runtime.sh
 

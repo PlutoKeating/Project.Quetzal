@@ -2,7 +2,7 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
-## 1.1.1
+## 1.1.2
 
 **一个链接接入：不用再去 GitHub 找任何页面。**
 
@@ -11,7 +11,7 @@
 - **登录与灵魂仓库共用一个 GitHub App**：只对你选中的灵魂仓库有管理权限。
 - 灵魂桥的自检新增「访问方式」：发现借用了本机个人 SSH 密钥的主机别名时提醒重新 `connect`，换成专属的部署密钥。
 
-（1.1.0 的发版构建卡在 CI 上、没有发布，它的内容都在这个版本里：）
+（1.1.0 的发版构建卡在 CI 上、1.1.1 的构建因 CI 运行器没有命令沙箱而测试失败，都没有发布，它们的内容都在这个版本里：）
 
 **只装一个 App；更懂你的官网。**
 
@@ -38,7 +38,7 @@
 - **Sign-in and the soul repository share one GitHub App**, with admin rights only on the soul repositories you select.
 - soul-bridge's doctor gains an "access method" check: if the repository is reached through a personal SSH host alias, it asks you to `connect` again and switch to its own deploy key.
 
-(The 1.1.0 release build stalled in CI and was never published; everything in it is part of this version:)
+(The 1.1.0 release build stalled in CI and the 1.1.1 build failed its tests on a CI runner without a command sandbox; neither was published, and everything in them is part of this version:)
 
 **Just one app; a website about being understood.**
 
