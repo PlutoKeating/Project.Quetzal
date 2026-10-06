@@ -97,3 +97,12 @@ test("原生控制台只缺托盘图标的库：记下缺的是它，按发行�
   // 需要密码（sudo -n 不行）：不装
   assert.equal(sh(`PM=apt; SUDO=false_sudo; false_sudo(){ return 1; }; pkg_install(){ echo 装了 > "${out}.x"; }; install_tray_lib; echo rc=$?; [ -e "${out}.x" ] && echo 被装了`).out, "rc=1");
 });
+
+test("装运行基座：选定的源装不上（镜像还没同步到刚发布的版本）就换另一个源", () => {
+  const run = (mirror: string, okFrom: string) => sh(`MIRROR=${mirror}; VERSION=9.9.9; PKG=@x/y; NODE=/bin/node; NPM=/bin/false; NPM_PREFIX=/tmp/x
+    npm_install_from(){ echo "试 $1" >&3; [[ $1 == ${okFrom} ]]; }; npm_install_pkg 3>&1; echo rc=$?`).out;
+  assert.equal(run("cn", "https://registry.npmmirror.com"), "试 https://registry.npmmirror.com\nrc=0");
+  assert.equal(run("cn", "https://registry.npmjs.org"), "试 https://registry.npmmirror.com\n试 https://registry.npmjs.org\nrc=0");
+  assert.equal(run("off", "https://registry.npmmirror.com"), "试 https://registry.npmjs.org\n试 https://registry.npmmirror.com\nrc=0");
+  assert.match(run("off", "none"), /rc=1$/);
+});

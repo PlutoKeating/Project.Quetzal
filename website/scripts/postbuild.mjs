@@ -32,7 +32,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self' data:",
-  `connect-src 'self' ${SYNC} https://api.github.com https://cloudflareinsights.com`,
+  `connect-src 'self' ${SYNC} https://api.github.com https://registry.npmjs.org https://cloudflareinsights.com`, // registry.npmjs.org：直连 GitHub 的退路按 npm 的版本封顶
   "object-src 'none'",
   "frame-ancestors 'none'",
   "base-uri 'none'",

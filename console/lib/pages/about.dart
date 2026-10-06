@@ -11,7 +11,7 @@ import '../api.dart';
 import '../installer.dart';
 import '../platform/caps.dart';
 import '../platform/net.dart' as net;
-import '../updater.dart' show AppRelease, UpdateState, appUpdater, compareVersions, downloadPage, latestReleaseApi, siteLatestApi, githubRepo;
+import '../updater.dart' show AppRelease, UpdateState, appUpdater, compareVersions, directLatest, downloadPage, siteLatestApi, githubRepo;
 import '../widgets.dart';
 import 'setup.dart';
 import '../links.dart';
@@ -100,11 +100,19 @@ class _AboutPageState extends State<AboutPage> {
     setState(() { checking = true; checkError = null; });
     try {
       // 官网镜像源优先，退回 GitHub
-      net.HttpReply r;
-      try { r = await net.request('GET', siteLatestApi, timeout: const Duration(seconds: 15)); if (r.status >= 400) throw '镜像源 ${r.status}'; }
-      catch (_) { r = await net.request('GET', latestReleaseApi, timeout: const Duration(seconds: 15)); }
-      if (r.status >= 400) throw '读取发布信息失败（${r.status}）${r.status == 403 ? '，稍后再试' : ''}';
-      final rel = AppRelease.fromJson(jsonDecode(r.body) as Map);
+      Map j;
+      try {
+        final r = await net.request('GET', siteLatestApi, timeout: const Duration(seconds: 15)); if (r.status >= 400) throw '镜像源 ${r.status}';
+        j = jsonDecode(r.body) as Map;
+      } catch (_) {
+        // 直连 GitHub：发布列表按 npm 上运行基座的版本封顶（两者取较老的）
+        j = await directLatest((u) async {
+          final x = await net.request('GET', u, timeout: const Duration(seconds: 15));
+          if (x.status >= 400) throw '读取发布信息失败（${x.status}）${x.status == 403 ? '，稍后再试' : ''}';
+          return jsonDecode(x.body);
+        });
+      }
+      final rel = AppRelease.fromJson(j);
       if (mounted) setState(() => latest = rel);
     } catch (e) { if (mounted) setState(() => checkError = '$e'); }
     if (mounted) setState(() => checking = false);

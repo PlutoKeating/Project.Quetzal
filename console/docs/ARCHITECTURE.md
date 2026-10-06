@@ -37,7 +37,7 @@ lib/
     ├── tools.dart     工具：她自己造的工具（定义、源码、技能文档）与灵魂仓库里的技能文档；停用 / 启用、删除
     ├── hearing.dart   听觉：开关、灵敏度、会话窗口、识别语言、麦克风权限；此刻在不在听、最近听到的话
     ├── providers.dart 模型（供应商、Key、模型选择、全局顺序）
-    └── about.dart     关于（三种形态共用）：简介与链接，一张「版本」卡片（当前版本一行 + 此刻唯一的状态或动作：已是最新 / 升级到 x / 进度 / 重新打开）——安卓用 updater.dart 的 appUpdater 与安装向导，Linux 桌面版 / 网页版调网关 selfUpdate（带上要升到的版本）让运行基座后台重跑安装脚本、每 3 秒查 selfUpdateStatus（失败、卡住、跑完版本没变都说明原因并可重试），桌面版升完点「重新打开」（等新进程启动后才退出旧的）
+    └── about.dart     关于（三种形态共用）：简介与链接，一张「版本」卡片（当前版本一行 + 此刻唯一的状态或动作：已是最新 / 升级到 x / 进度 / 重新打开）——安卓用 updater.dart 的 appUpdater 与安装向导，「最新版」先问官网的发布接口（已按 npm 上运行基座的版本封顶），不通时直连 GitHub 的发布列表并自己按 npm 封顶（updater.dart 的 directLatest）；Linux 桌面版 / 网页版调网关 selfUpdate（带上要升到的版本）让运行基座后台重跑安装脚本、每 3 秒查 selfUpdateStatus（失败、卡住、跑完版本没变都说明原因并可重试），桌面版升完点「重新打开」（等新进程启动后才退出旧的）
 tool/
 ├── android-runtime/   App 内置的运行环境（只装一个 App）：versions.env（termux-packages 的锁定提交、包名、要编的包、打进 jniLibs 的可执行文件白名单）、
 │                      build-packages.sh（Docker 里以 App 的前缀从源码编 Node.js、git、openssh、proot 及依赖）、pack.sh（依赖闭包 → jniLibs/lib*.so + 原生资源 runtime-env/{rootfs.tar,manifest.json}）

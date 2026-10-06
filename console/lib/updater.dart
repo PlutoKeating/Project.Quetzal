@@ -15,16 +15,38 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'platform/caps.dart';
 
 const githubRepo = 'PlutoKeating/Project.Quetzal';
-const latestReleaseApi = 'https://api.github.com/repos/$githubRepo/releases/latest';
 /// 官网的镜像源（website/worker/index.ts）：GitHub 在不少网络里连不上，先问它；它返回的资产地址已指向官网的 /dl/ 镜像，原地址在 github_download_url。
 const siteOrigin = 'https://quetzal.plutokeating.beer';
+/// 官网镜像源的 latest 已经取了「GitHub 正式版与 npm 上运行基座两者中较老的一个」；直连 GitHub 时自己按 npm 封顶（directLatest）。
 const siteLatestApi = '$siteOrigin/api/releases/latest';
+const releasesListApi = 'https://api.github.com/repos/$githubRepo/releases?per_page=30';
+const npmLatestApi = 'https://registry.npmjs.org/@plutokeating%2Fquetzal/latest';
 const downloadPage = 'https://quetzal.plutokeating.beer/download';
 const apkArch = 'arm64'; // 发版工作流只出 quetzal-<版本>-android-arm64.apk（见 .github/workflows/release.yml）
 /// 发布签名公钥（Ed25519 原始 32 字节，base64url）：发版工作流用对应的私钥（仓库 Secret RELEASE_SIGNING_KEY）签 SHA256SUMS。
 const releasePublicKey = 'QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8';
 /// 只接受这种名字的安装包（也用作缓存目录里的文件名，不能带路径）。
 final apkNamePattern = RegExp(r'^quetzal-[A-Za-z0-9.+-]+-android-arm64\.apk$');
+
+/// 发布列表里不是草稿、不是预发布、v 开头、且不比 npm 上的运行基座新的版本中最高的那个（npm 为 null 时不封顶）。
+/// 资源分两处发布（GitHub Release 与 npm），两边上线有先后：取较老的，免得拿到新的 App / 控制台、电脑上装到的却是旧的运行基座。
+Map? pickCappedRelease(List<Map> list, String? npm) {
+  final ok = list.where((r) => RegExp(r'^v\d').hasMatch('${r['tag_name']}') && r['draft'] != true && r['prerelease'] != true
+      && (npm == null || compareVersions('${r['tag_name']}'.substring(1), npm) <= 0)).toList()
+    ..sort((a, b) => compareVersions('${b['tag_name']}'.substring(1), '${a['tag_name']}'.substring(1)));
+  return ok.isEmpty ? null : ok.first;
+}
+
+/// 官网镜像源不通、直连 GitHub 时的「最新版」：发布列表按 npm 的版本封顶（npm 读不到时不封顶）。get 取一个地址的 JSON。
+Future<Map> directLatest(Future<Object?> Function(String url) get) async {
+  final list = await get(releasesListApi);
+  if (list is! List) throw '发布接口返回的不是列表';
+  String? npm;
+  try { final j = await get(npmLatestApi); if (j is Map && j['version'] is String) npm = j['version'] as String; } catch (_) {}
+  final r = pickCappedRelease(list.whereType<Map>().toList(), npm);
+  if (r == null) throw '还没有正式发布';
+  return r;
+}
 
 /// 比较两个版本号：返回负数表示 a 旧于 b。数字段逐段比；带 `-` 预览后缀的比同号的正式版旧。
 int compareVersions(String a, String b) {
@@ -144,14 +166,15 @@ class AppUpdater extends ChangeNotifier {
     await autoCheck();
   }
 
-  /// 问 GitHub 最新的正式版（`releases/latest` 不含预览版与草稿）。同一时刻只有一个检查在进行。
+  /// 问最新的正式版：官网镜像源（已按 npm 封顶），不通再直连 GitHub 的发布列表并按 npm 封顶。同一时刻只有一个检查在进行。
   Future<void> check() async {
     if (!hasBody || busy) return;
     state = UpdateState.checking; error = null; notifyListeners();
     try {
       await currentVersion();
       Map j;
-      try { j = await fetchJson(Uri.parse(siteLatestApi)); } catch (_) { j = await fetchJson(Uri.parse(latestReleaseApi)); } // 官网镜像源优先，退回 GitHub
+      try { j = await fetchJson(Uri.parse(siteLatestApi)); }
+      catch (_) { j = await directLatest((u) async => jsonDecode(utf8.decode(await fetchBytes(Uri.parse(u), accept: 'application/json')))); } // 官网镜像源优先，退回 GitHub（按 npm 封顶）
       latest = AppRelease.fromJson(j);
       state = hasUpdate ? UpdateState.available : UpdateState.upToDate;
     } catch (e) { _fail('$e'); return; }

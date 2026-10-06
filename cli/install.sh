@@ -574,10 +574,16 @@ ensure_node() {
 # ---------------------------------------------------------------- 3. 运行基座（npm 包装进 ~/.quetzal/npm，由它完成版本目录、配置、systemd、健康检查）
 NPM_PREFIX=""; QCLI=""
 npm_install_pkg() {
-  local reg=()
-  [[ $MIRROR == cn ]] && reg=(--registry=https://registry.npmmirror.com)
+  # 先用选定的源（国内镜像或官方），装不上再换另一个：镜像同步有延迟，刚发布的版本（控制台按版本号升级时）可能还没到镜像上
+  local first=https://registry.npmjs.org second=https://registry.npmmirror.com
+  [[ $MIRROR == cn ]] && { first=https://registry.npmmirror.com; second=https://registry.npmjs.org; }
+  npm_install_from "$first" && return 0
+  echo "从 $first 装 $PKG@$VERSION 失败，改用 $second" >>"$LOG"
+  npm_install_from "$second"
+}
+npm_install_from() {
   # npm 的 shebang 是 #!/usr/bin/env node：直接下载的 Node 不在 PATH 里，这里把它的目录放到最前面
-  PATH="$(dirname "$NODE"):$PATH" "$NPM" install -g --prefix "$NPM_PREFIX" --no-fund --no-audit --loglevel=error "${reg[@]}" "$PKG@$VERSION"
+  PATH="$(dirname "$NODE"):$PATH" "$NPM" install -g --prefix "$NPM_PREFIX" --no-fund --no-audit --loglevel=error --registry="$1" "$PKG@$VERSION"
 }
 cli_install() {
   local args=(install --home "$HOME_DIR" --no-open)

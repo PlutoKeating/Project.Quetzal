@@ -4,6 +4,8 @@
  * 镜像源不通、退回直连 GitHub 公开 API（每 IP 每小时 60 次）时，才用 sessionStorage 里 10 分钟内的结果省额度。
  */
 
+import { NPM_LATEST_API, capReleases } from "./versions";
+
 export const GITHUB_OWNER = "PlutoKeating";
 export const GITHUB_REPO_NAME = "Project.Quetzal";
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO_NAME}/releases?per_page=30`;
@@ -143,10 +145,16 @@ function writeCache(data: Release[]): void {
   }
 }
 
+/** npm 上运行基座的最新版本；读不到为 undefined（不封顶）。 */
+async function npmLatest(): Promise<string | undefined> {
+  try { const r = await fetch(NPM_LATEST_API, { headers: { Accept: "application/json" } }); const j = (await r.json()) as { version?: unknown }; return typeof j.version === "string" ? j.version : undefined; }
+  catch { return undefined; }
+}
+
 export async function fetchReleases(options: { force?: boolean } = {}): Promise<Release[]> {
   // 先走官网自己的镜像源（/api/releases：Cloudflare 边缘缓存，资产地址已改写为 /dl/ 镜像，GitHub 连不上的网络也能用），不行再直连 GitHub
   // 镜像源的 403 / 429 是它自己对 GitHub 的额度用完了（Cloudflare 出口 IP 共享），与访客无关：照样退回直连，访客自己的额度另算
-  let res: Response;
+  let res: Response, direct = false;
   try {
     res = await fetch(SITE_RELEASES_API, { headers: { Accept: "application/json" }, cache: "no-cache" });
     if (!res.ok) throw new Error(`site ${res.status}`);
@@ -157,6 +165,7 @@ export async function fetchReleases(options: { force?: boolean } = {}): Promise<
     }
     try {
       res = await fetch(RELEASES_API, { headers: { Accept: "application/vnd.github+json" } });
+      direct = true;
     } catch {
       throw new ReleasesError({ kind: "network" });
     }
@@ -170,7 +179,9 @@ export async function fetchReleases(options: { force?: boolean } = {}): Promise<
     throw new ReleasesError({ kind: "http", status: res.status });
   }
   if (!res.ok) throw new ReleasesError({ kind: "http", status: res.status });
-  const data = normalizeReleases(await res.json());
+  // 直连 GitHub 时自己按 npm 上运行基座的版本封顶（官网镜像源已经封顶过）：两者取较老的，见 versions.ts
+  const raw = await res.json();
+  const data = normalizeReleases(direct && Array.isArray(raw) ? capReleases(raw, await npmLatest()) : raw);
   writeCache(data);
   return data;
 }

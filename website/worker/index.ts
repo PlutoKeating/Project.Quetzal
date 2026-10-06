@@ -8,11 +8,15 @@
 //                               设置 Secret GITHUB_TOKEN 可提高到 5000 次 / 小时）。返回的 JSON 把每个资产的 browser_download_url
 //                               改写为上面的 /dl/ 地址，原地址放在 github_download_url，客户端先走官网、失败再退回 GitHub。
 //                               另存一份 7 天的陈旧副本：上游限流或出错时用它顶上（X-Upstream: stale），页面与 App 不至于空白。
+//                               「最新」取 GitHub 正式版与 npm 上运行基座（@plutokeating/quetzal 的 latest）两者中较老的一个：v 开头、比 npm 新的
+//                               发布不出现（latest 也从剩下的里挑），免得用户拿到了新的 App / 控制台，电脑上装到的却还是旧的运行基座。
+//                               npm 读不到时用 7 天内的上一次结果；从来没读到过就不限（X-Npm-Version 标明用的是哪个）。
 //   POST /api/oauth/github/token  GitHub OAuth 换令牌的中转（给本项目运营的同步服务用）：它所在的中国大陆机房连 github.com 时通时断，
 //                               直连失败时经这里转发 github.com/login/oauth/access_token。只放行 Worker 变量 OAUTH_CLIENT_IDS（逗号分隔，
 //                               在 Cloudflare 控制台设置，不入库）里的 client_id，没设置就不转发；只转发这一个地址，
 //                               不缓存、不记录请求体（里面有 client_secret 与授权码），也不给浏览器开 CORS。
 // 没有任何账号、令牌写在这里；GITHUB_TOKEN 是可选的 Worker Secret（wrangler secret put GITHUB_TOKEN）。
+import { NPM_LATEST_API, capReleases, pickLatest } from "../app/lib/versions";
 const REPO = "PlutoKeating/Project.Quetzal";
 const TAG = /^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/;
 // 资产：APK、Linux 控制台包、合并的 SHA256SUMS 与它的签名 SHA256SUMS.sig（旧版本还有按架构分开的 SHA256SUMS-linux-*）
@@ -177,7 +181,26 @@ async function latestApk(url: URL, env: Env, ctx: Ctx): Promise<Response> {
   return new Response(null, { status: 302, headers: cors(new Headers({ Location: `${url.origin}/dl/${tag}/${apk}`, "Cache-Control": "public, max-age=60" })) });
 }
 
-/** /api/releases 与 /api/releases/latest：镜像 api.github.com，改写资产地址，边缘缓存 5 分钟。 */
+/** npm 上运行基座的最新版本（边缘缓存 5 分钟，另存 7 天的陈旧副本）。读不到返回 undefined。 */
+async function npmLatest(origin: string, ctx: Ctx): Promise<string | undefined> {
+  const cache = cacheOf();
+  const key = new Request(`${origin}/api/_npm-latest`, { method: "GET" }), staleKey = new Request(`${origin}/api/_npm-latest?stale=1`, { method: "GET" });
+  const hit = await cache.match(key);
+  if (hit) return (await hit.text()) || undefined;
+  let v: string | undefined;
+  try {
+    const r = await fetch(NPM_LATEST_API, { headers: { Accept: "application/json", "User-Agent": "quetzal-site-mirror" } });
+    if (r.ok) { const j = await r.json() as { version?: unknown }; if (typeof j.version === "string" && /^\d+\.\d+\.\d+/.test(j.version)) v = j.version; }
+  } catch { /* 下面用陈旧副本 */ }
+  if (!v) { const s = await cache.match(staleKey); return s ? (await s.text()) || undefined : undefined; }
+  ctx.waitUntil(Promise.all([
+    cache.put(key, new Response(v, { headers: { "Cache-Control": `public, max-age=${API_TTL}` } })),
+    cache.put(staleKey, new Response(v, { headers: { "Cache-Control": `public, max-age=${STALE_TTL}` } })),
+  ]));
+  return v;
+}
+
+/** /api/releases 与 /api/releases/latest：镜像 api.github.com，改写资产地址，按 npm 的版本封顶，边缘缓存 5 分钟。 */
 async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise<Response> {
   const latest = url.pathname.endsWith("/latest");
   const cache = cacheOf();
@@ -185,7 +208,7 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
   const staleKey = new Request(`${url.origin}${url.pathname}?stale=1`, { method: "GET" });
   const hit = await cache.match(key);
   if (hit) return fresh(withHeaders(hit, request.method === "HEAD"));
-  const upstream = `https://api.github.com/repos/${REPO}/releases${latest ? "/latest" : "?per_page=30"}`;
+  const upstream = `https://api.github.com/repos/${REPO}/releases?per_page=30`; // latest 也从列表里挑（要先按 npm 封顶）
   const h: Record<string, string> = { "User-Agent": "quetzal-site-mirror", Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
   if (env.GITHUB_TOKEN) h.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
   // 上游失败（连不上、限流、5xx）：有陈旧副本就用它，没有才把错误原样给出去（客户端据此退回直连 GitHub）
@@ -209,8 +232,12 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
     }
     return r;
   };
-  const body = JSON.stringify(Array.isArray(data) ? data.map((r) => rewrite(r as Record<string, unknown>)) : rewrite(data as Record<string, unknown>));
-  const headers = cors(new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${API_TTL}`, "X-Upstream": "github" }));
+  const npm = await npmLatest(url.origin, ctx);
+  const list = capReleases((Array.isArray(data) ? data : []).map((r) => rewrite(r as Record<string, unknown>)), npm);
+  const pick = latest ? pickLatest(list) : undefined;
+  if (latest && !pick) return text(404, "还没有正式发布");
+  const body = JSON.stringify(latest ? pick : list);
+  const headers = cors(new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${API_TTL}`, "X-Upstream": "github", "X-Npm-Version": npm ?? "unknown" }));
   const out = new Response(body, { status: 200, headers });
   const staleCopy = new Response(body, { status: 200, headers: new Headers({ ...Object.fromEntries(headers), "Cache-Control": `public, max-age=${STALE_TTL}` }) });
   ctx.waitUntil(Promise.all([cache.put(key, out.clone()), cache.put(staleKey, staleCopy)]));

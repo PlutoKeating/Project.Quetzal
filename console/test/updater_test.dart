@@ -101,4 +101,25 @@ void main() {
       expect(() => AppUpdater.fetchJson(Uri.parse('http://127.0.0.1:${server.port}/arr')), throwsA(anything));
     } finally { await server.close(force: true); }
   });
+
+  test('最新版取 GitHub 正式版与 npm 上运行基座两者中较老的一个', () {
+    final list = <Map>[
+      {'tag_name': 'v9.9.9', 'draft': false, 'prerelease': false},
+      {'tag_name': 'v9.9.8', 'draft': false, 'prerelease': false},
+      {'tag_name': 'android-runtime-abc', 'draft': false, 'prerelease': true},
+      {'tag_name': 'v9.9.10-rc.1', 'draft': false, 'prerelease': true},
+      {'tag_name': 'v9.9.7', 'draft': false, 'prerelease': false},
+    ];
+    expect(pickCappedRelease(list, '9.9.8')?['tag_name'], 'v9.9.8'); // GitHub 上线了 9.9.9，npm 还是 9.9.8
+    expect(pickCappedRelease(list, '9.9.9')?['tag_name'], 'v9.9.9');
+    expect(pickCappedRelease(list, '9.9.10')?['tag_name'], 'v9.9.9'); // npm 更新：取 GitHub 的
+    expect(pickCappedRelease(list, null)?['tag_name'], 'v9.9.9'); // npm 读不到：不封顶
+    expect(pickCappedRelease(list, '1.0.0'), isNull);
+  });
+
+  test('直连 GitHub 时按 npm 封顶；npm 读不到时不封顶', () async {
+    final list = [{'tag_name': 'v1.1.10', 'draft': false, 'prerelease': false}, {'tag_name': 'v1.1.9', 'draft': false, 'prerelease': false}];
+    expect((await directLatest((u) async => u == releasesListApi ? list : {'version': '1.1.9'}))['tag_name'], 'v1.1.9');
+    expect((await directLatest((u) async => u == releasesListApi ? list : throw 'npm 连不上'))['tag_name'], 'v1.1.10');
+  });
 }
