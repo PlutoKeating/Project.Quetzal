@@ -50,12 +50,12 @@ def svg(name, lines, font, size, leading, align="left", rule=False):
         (OUT / f"{name}.{scheme}.svg").write_text(doc)
 
 # 定义行：两行，居中，衬线
-svg("zh-intro", ["Quetzal 是开源的 agent 运行基座。", "让一个 AI agent 住进一部旧手机，像生命一样活着。"], SERIF, 28, 44, "center")
-svg("en-intro", ["Quetzal is an open-source runtime for agents.", "An AI agent moves into an old phone and lives there like a living thing."], SERIF, 28, 44, "center")
+svg("zh-intro", ["Quetzal 是开源的 agent 运行基座。", "让一个 AI 住进你的旧手机，记得你说过的话，自己醒来，困了就睡。"], SERIF, 28, 44, "center")
+svg("en-intro", ["Quetzal is an open-source runtime for agents.", "An AI moves into your old phone, remembers what you say, and wakes on its own."], SERIF, 28, 44, "center")
 # 小节标题：衬线，左侧一段琥珀线
 HEADINGS = {
-  "zh": {"what": "它是什么", "day": "一天", "neighbors": "和 Hermes / OpenClaw 的关系", "how": "它是怎么做到的", "install": "装上它", "deeper": "看得更深"},
-  "en": {"what": "What it is", "day": "One day", "neighbors": "Hermes / OpenClaw and Quetzal", "how": "How it works", "install": "Install", "deeper": "Go deeper"},
+  "zh": {"what": "它是什么", "month": "一个月后", "day": "一天", "neighbors": "和 Hermes / OpenClaw 的关系", "how": "它是怎么做到的", "trust": "托付之前", "install": "装上它", "deeper": "看得更深"},
+  "en": {"what": "What it is", "month": "A month in", "day": "One day", "neighbors": "Hermes / OpenClaw and Quetzal", "how": "How it works", "trust": "Before you trust it", "install": "Install", "deeper": "Go deeper"},
 }
 for lang, hs in HEADINGS.items():
     for key, text in hs.items(): svg(f"{lang}-{key}", [text], SERIF, 26, 0, rule=True)

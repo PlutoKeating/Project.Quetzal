@@ -1,6 +1,12 @@
-# 一键上手（设计稿）
+# 一键上手（设计说明）
 
-> 状态：**设计稿，待所有者确认后实施**。目标：新用户装好以后只做「一次 GitHub 登录 + 填一个模型 Key」；老用户只做「一次 GitHub 登录」。实现完成后并入 [ARCHITECTURE.md](ARCHITECTURE.md)、[API.md](API.md)、[sync/docs/PROTOCOL.md](../sync/docs/PROTOCOL.md) 与文档站，本文转为设计说明。
+> 状态：**已实现（1.1.0 起，1.2.0 补上一次登录与模型快速接入）**，实现与本稿有出入，以 [sync/docs/PROTOCOL.md §2.1](../sync/docs/PROTOCOL.md)、[console/docs/USER_JOURNEY.md](../console/docs/USER_JOURNEY.md) 与代码为准。本文保留为当时的设计记录。
+>
+> 与本稿不同的地方：
+> - 没有设备上的 GitHub 设备授权，也没有 `POST /v1/auth/github` 与运行基座的 `onboard/` 模块。实际流程是：身体申请绑定码时带上部署公钥 → 人在网页（官网账户页或 App 打开的浏览器）批准 → 同一个标签页经 GitHub 用户授权跳一次（没装 App 先去安装页）→ 同步服务找到或新建 `<短名>.soul` 私有仓库、加这一把部署密钥、立即吊销令牌 → 身体轮询拿到令牌、灵魂仓库地址与控制台登录。
+> - GitHub App 的权限只有 Administration 写与默认的 Metadata 读（建仓库也由 Administration 写覆盖），见 `sync/src/github-app.ts`。同步服务不保存 App 私钥，从不以 App 身份调用。
+> - 模型不按 Key 前缀识别供应商：用户点一个供应商、粘贴 Key，运行基座自动挑模型、试通、排好（`providers.quick`）。
+> - 「跳过，先本地用」照旧可选。
 
 ## 0. 现状与问题
 

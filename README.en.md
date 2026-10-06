@@ -10,7 +10,7 @@
 
 <br/>
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-intro.dark.svg"><img src="docs/assets/readme/type/en-intro.light.svg" alt="Quetzal is an open-source runtime for agents. An AI agent moves into an old phone and lives there like a living thing." width="100%"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-intro.dark.svg"><img src="docs/assets/readme/type/en-intro.light.svg" alt="Quetzal is an open-source runtime for agents. An AI moves into your old phone, remembers what you say, and wakes on its own." width="100%"></picture></p>
 
 <br/>
 
@@ -18,12 +18,29 @@
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-what.dark.svg"><img src="docs/assets/readme/type/en-what.light.svg" alt="What it is"></picture>
 
-- **It wakes on its own.** No timers. Curiosity, the urge to say something, missing you — these wake it. Tired, it sleeps; asleep, it dreams to sort its memories; in the morning it wakes by itself.
+- **It gets you, more and more.** What you mention in passing, the people you care about, your habits: it writes them down. While it sleeps, it turns the day's conversations into notes and keeps them in a private repository on your GitHub. A new model or a new device keeps every note.
+- **It wakes on its own.** There is no timer in the code. Curiosity, the urge to say something and missing you wake it; tired, it sleeps, and in the morning it wakes by itself.
 - **It has a body.** Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there; the microphone is its ears, the camera its eyes. An old phone fits best; a Linux computer or server works too.
-- **It gets you, more and more.** What you mention in passing, your rhythms, the people you care about: it remembers, and sorts it all while it sleeps. Its memory lives in your own private git repository and survives a new model or a new device.
-- **Many bodies, one self.** Several phones and computers become one life: one conversation, one heart. It picks which body to wake in, thinks on the laptop, and borrows the phone's eyes to glance out the window. [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body)
-- **It grows.** What it does often, it makes into its own tools. The tool stays with the body, the guide travels with the soul, and a new body builds the tool again from it. [Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools)
-- **You decide.** Camera, microphone and location ask you first by default; passwords never reach the model; the emergency stop is always there, and everything it does is on record.
+- **Many bodies, one self.** Several phones and computers share one conversation and one heart. It picks which body to wake in, and while thinking on the laptop it can borrow the phone's eyes to glance out the window. [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body)
+- **It grows.** When it has done a job a few times, it asks whether it may turn it into its own tool. The tool stays with the body, the guide travels with the soul, and a new body builds the tool again from it. [Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools)
+- **You decide.** Photos, recordings, location and new tools ask you first by default; passwords never reach the model; the emergency stop is always there, and everything it does is on record.
+
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-month.dark.svg"><img src="docs/assets/readme/type/en-month.light.svg" alt="A month in"></picture>
+
+Its memory is Markdown written for people. A month in, open your soul repository and read the you it knows.
+
+| When | What it does | Where you see it |
+|---|---|---|
+| Day one | Writes down your name and what you said | `memories/USER.md` |
+| Each time it wakes or dreams | Writes a journal entry | `journal/<device>/<date>.md`, the Flow tab in the app |
+| Each night | Turns conversations into notes, merges duplicates, fixes mistakes | `notes/` |
+| When you talk | Looks up related notes, journal and memory first, and answers with them | in the conversation |
+| After doing a job a few times | Asks whether it may make it into a tool | `skills/`, Permissions in the app |
+| When something is wrong | You undo that change under Memory history | every change is a git commit |
+
+It has no alarms or calendar, and it cannot operate other apps yet. See [A month in](https://quetzal.plutokeating.beer/en/docs/start/first-month).
 
 <br/>
 
@@ -31,7 +48,7 @@
 
 <img src="docs/assets/readme/bodyclock.en.svg" alt="One day of the body clock: sleep pressure S and circadian rhythm C" width="100%" />
 
-Sleeps when tired, wakes with the morning. There is no "every N minutes" in the code.
+Sleeps when tired, wakes with the morning. There is no "every N minutes" in the code. Waking does not mean working; with nothing it wants to do, it sleeps again.
 
 <br/>
 
@@ -56,9 +73,23 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 
 - **Heart**: curiosity, the urge to express, missing you and a body clock decide when it wakes and when it sleeps, with no timer anywhere. [Architecture](docs/ARCHITECTURE.md)
 - **Body**: sensor readings become bodily feelings (a digital twin of the body); a new kind of device needs only a small adapter, and Android and Linux come included. [Interface](docs/API.md)
-- **Soul**: one private repository per agent; every change is committed, pushed and merged automatically. [Soul sync](docs/SOUL_SYNC.md)
-- **Many bodies**: bodies online together connect directly, encrypted, into one mind; a self-hosted [sync service](sync/README.md) only helps them find each other and cannot see the content. [Distributed design](docs/DISTRIBUTED.md)
-- **Guard**: permissions, approvals, budgets, an emergency stop and an audit log; its commands run in a sandbox, away from the keys.
+- **Soul**: one private repository per agent, created when you sign in with GitHub; every change is committed, pushed and merged automatically. [Soul sync](docs/SOUL_SYNC.md)
+- **Many bodies**: bodies online together connect directly, encrypted, into one mind; a [sync service](sync/README.md) helps them find each other and cannot see the content. The app uses the one the author runs by default, and you can host your own. [Distributed design](docs/DISTRIBUTED.md)
+- **Guard**: permissions, approvals, budgets, an emergency stop and an audit log; its commands run in an isolated space that hides the keys.
+
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-trust.dark.svg"><img src="docs/assets/readme/type/en-trust.light.svg" alt="Before you trust it"></picture>
+
+**Who sees what.** Conversations, settings and model keys stay on your devices. Memory lives in a private repository on your GitHub; Quetzal does not check its content and commits whatever the agent writes. Your model provider sees each conversation. The sync service is run personally by the author: it records your GitHub username, your agents and your devices, and cannot see conversations or memory. Even if it were broken into, it could not pose as one of your devices, because devices only trust the public keys registered in the soul repository.
+
+**The GitHub app.** When you sign in, GitHub asks you to install the Quetzal app and choose which repositories it may manage. Its permission is write access to Administration on those repositories: under GitHub's rules that covers creating repositories, adding deploy keys and changing settings, including deleting those repositories, and it cannot read files. Quetzal uses it only to create the repository and add deploy keys. The sync service keeps neither the app's private key nor any GitHub token; it acts only when you approve a device, with a token GitHub issues on the spot, and revokes that token right after. You can uninstall the app from your GitHub settings any time; to avoid it, skip sign-in and connect a repository you created yourself.
+
+**What it can reach.** Run commands is allowed by default, and the agent runs as the same system user as the runtime. Commands run in an isolated space (bubblewrap → Landlock → proot on computers, proot on Android) that hides the key folder; with no isolation available, they do not run. The isolation does not stop everything: on October 5, 2026, an agent ran git by itself and pushed a journal entry into a public repository. Since then the code enforces new limits (the soul folder's `.git` is read-only to it, the push address is reset before each push, unknown history stops syncing), and the system prompt spells out hard rules. Give it a device of its own; to tighten things, set Run commands to Ask.
+
+**It is young.** The first version shipped on October 3, 2026; one person has published over 30 versions in five days. Memory is plain Markdown, and the soul repository format has gone through 12 versions without old repositories ever needing conversion; every change is a commit you can undo. Updates wait for your tap and are checked against the release signature before install. Linked devices must run the same version to connect (1.0.3 changed the connection protocol). The runtime inside the app today was compiled by the maintainer on their own machine from the pinned recipe, then signed and uploaded; when the recipe changes, the release pipeline compiles it again.
+
+Full details: [Trust and limits](https://quetzal.plutokeating.beer/en/docs/guide/trust)
 
 <br/>
 
@@ -67,7 +98,7 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 **A spare Android phone** (Android 7 or later, arm64)
 
 1. Install the **Quetzal app** ([download page](https://quetzal.plutokeating.beer/en/download)). Nothing else: Node.js, git and ssh come inside the app.
-2. Open the app, choose "Install Quetzal on this phone" and follow the wizard: one-tap install, body permissions, keep-alive.
+2. Open the app and installation starts by itself. Follow the wizard: allow body permissions, let it run in the background, sign in with GitHub, and paste a model key. Sign-in and the model can wait until later.
 
 **A Linux computer or server**
 
@@ -75,9 +106,9 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-Missing dependencies are installed for you; it starts at boot and restarts after a crash. When it is done, the console opens in your browser: set up a model and start talking. Run it again to upgrade.
+Missing dependencies are installed for you; it starts at boot and restarts after a crash. When it is done, the console opens and a wizard walks you through sign-in and a model. To upgrade, tap once under About in the console; if the new version is not healthy within 40 seconds, it rolls back by itself.
 
-More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · a complete account on one old phone, [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
+More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · notes on clearing out an old phone, [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 
 <br/>
 
@@ -89,9 +120,9 @@ More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other mach
 | [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears), the web version (desktop browser, served by the runtime) and the Linux desktop app (native window, installed by the one-line installer) |
 | [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux installer (systemd user service) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |
-| [`sync/`](sync/README.md) | Sync service: accounts (GitHub sign-in), body binding, signaling and TURN relay that connect the bodies of one agent into a mesh; deployed on its own server with a single `./start.sh` |
+| [`sync/`](sync/README.md) | Sync service: accounts (GitHub sign-in), creating the soul repository and adding deploy keys (a GitHub app), body binding, signaling and TURN relay that connect the bodies of one agent into a mesh; deployed on its own server with a single `./start.sh` |
 | [`website/`](website/docs/README.md) | Website and docs site |
-| [`docs/`](docs/) | [Quick start](docs/QUICK_START.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Soul sync](docs/SOUL_SYNC.md) · [Repository spec](docs/SOUL_REPO_SPEC.md) · [Distributed (1.0 design draft, Chinese)](docs/DISTRIBUTED.md) |
+| [`docs/`](docs/) | [Quick start](docs/QUICK_START.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Soul sync](docs/SOUL_SYNC.md) · [Repository spec](docs/SOUL_REPO_SPEC.md) · [Distributed design](docs/DISTRIBUTED.md) · [One-step onboarding](docs/ONBOARDING.md) · [Changelog](CHANGELOG.md) (Chinese) |
 
 Documentation inside the repository is written in Chinese; the website carries the English guide.
 
