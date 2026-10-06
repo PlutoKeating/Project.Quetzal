@@ -2,7 +2,7 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
-## 未发布
+## 1.1.0
 
 **只装一个 App；更懂你的官网。**
 
@@ -13,6 +13,15 @@
 - **官网与 README 重写**：以「懂你」为核心，只讲一眼能懂、别处没有的东西；文档站新增「自造工具与技能」。
 - 发版工作流新增 `android-runtime` 任务：每次发版从源码重编 App 内置的运行环境。
 
+（1.0.4 没有单独发布，它的内容都在这个版本里：）
+
+**所有网络传输都加密；命令沙箱覆盖到每一台 Linux。**
+
+- **局域网也加密**：运行基座在局域网上只提供 HTTPS / WSS（端口 7789，自签名证书），本机回环之外不再有明文 HTTP。手机 App 配对时不再把配对码发上网络：用配对码和看到的证书指纹算出一个证明（PBKDF2）交给运行基座核对，中间人既拿不到配对码也冒充不了证书；配对后 App 只认这张证书（包括图片、上传与听觉）。旧版 App 存的 `http://局域网地址` 会提示重新配对。
+- **命令沙箱**：Linux 上依次用 bubblewrap → Landlock（landrun）→ proot。Ubuntu 23.10 起 AppArmor 默认限制非特权用户命名空间，安装脚本会给 Quetzal 装一份专用的 bubblewrap 与只属于它的 AppArmor 配置（沙箱里启动的程序拿不到任何能力），不改系统的 bubblewrap、不关这项保护。每种沙箱第一次使用前都用探针文件验证密钥确实看不到。
+- **没有沙箱就不执行**：一种沙箱都没有时，ta 的命令缺省一律不执行（以前是不隔离照常执行）；确实需要时可以在控制台「服务」页明确允许不隔离运行。
+- 新增发布资产 `quetzal-<版本>-landrun-linux-<x64|arm64>.tar.gz`（第三方 landrun，MIT，附许可证），纳入签名的 `SHA256SUMS`。
+
 **Just one app; a website about being understood.**
 
 - **Just one app**: Android no longer needs Termux, Termux:API or Termux:Boot, and nothing has to be pasted into a terminal. Node.js, git, openssh and proot are rebuilt from source with termux-packages under the app's own prefix and ship inside the APK (executables live in the native library directory the system allows to run, without lowering the target SDK); the runtime runs in the app's foreground service, wakes by itself after a reboot or an app update, and updating the app updates the runtime.
@@ -22,14 +31,7 @@
 - **Website and README rewritten** around being understood, telling only what is obvious at a glance and found nowhere else; the docs gain "Its own tools and skills".
 - The release workflow gains an `android-runtime` job that rebuilds the app's bundled runtime environment from source on every release.
 
-## 1.0.4
-
-**所有网络传输都加密；命令沙箱覆盖到每一台 Linux。**
-
-- **局域网也加密**：运行基座在局域网上只提供 HTTPS / WSS（端口 7789，自签名证书），本机回环之外不再有明文 HTTP。手机 App 配对时不再把配对码发上网络：用配对码和看到的证书指纹算出一个证明（PBKDF2）交给运行基座核对，中间人既拿不到配对码也冒充不了证书；配对后 App 只认这张证书（包括图片、上传与听觉）。旧版 App 存的 `http://局域网地址` 会提示重新配对。
-- **命令沙箱**：Linux 上依次用 bubblewrap → Landlock（landrun）→ proot。Ubuntu 23.10 起 AppArmor 默认限制非特权用户命名空间，安装脚本会给 Quetzal 装一份专用的 bubblewrap 与只属于它的 AppArmor 配置（沙箱里启动的程序拿不到任何能力），不改系统的 bubblewrap、不关这项保护。每种沙箱第一次使用前都用探针文件验证密钥确实看不到。
-- **没有沙箱就不执行**：一种沙箱都没有时，ta 的命令缺省一律不执行（以前是不隔离照常执行）；确实需要时可以在控制台「服务」页明确允许不隔离运行。
-- 新增发布资产 `quetzal-<版本>-landrun-linux-<x64|arm64>.tar.gz`（第三方 landrun，MIT，附许可证），纳入签名的 `SHA256SUMS`。
+(1.0.4 was never released on its own; everything in it is part of this version:)
 
 **Every network transport is encrypted; the command sandbox now covers every Linux machine.**
 
