@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { Db } from "./db.ts";
 import type { Config } from "./config.ts";
 import type { Hub } from "./hub.ts";
-import { Sessions, beginLogin, finishLogin, type GitHubClient } from "./auth.ts";
+import { Sessions, beginLogin, finishLogin, type LoginClient } from "./auth.ts";
 import { DeviceRequest, createCode, createConsoleCode, decide, check, poll } from "./device.ts";
 import { installWebApi, type FindCode } from "./web.ts";
 import { installSoulRoutes, type SoulAuth } from "./soul-link.ts";
@@ -23,8 +23,8 @@ export const VERSION = "1.3.1";
 
 const TokenRequest = z.object({ device_code: z.string().min(1).max(200) });
 
-/** 登录与灵魂仓库用同一个 GitHub App；管理员创建 App 之后凭据会换，所以经这个可变的持有者取用（server.ts 负责更新）。 */
-export interface Auth extends SoulAuth { github?: GitHubClient }
+/** 登录（OIDC 身份服务）与灵魂仓库（GitHub App；管理员创建 App 之后凭据会换）经这个可变的持有者取用（server.ts 负责更新）。 */
+export interface Auth extends SoulAuth { login?: LoginClient }
 
 export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
   const { db, cfg, hub, auth } = deps;
@@ -94,10 +94,10 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
   });
 
   // ---------- 给身体的接口
-  app.get("/v1/health", (c) => c.json({ ok: true, service: "quetzal-sync", version: VERSION, protocol: PROTOCOL, login: !!auth.github, turn: !!cfg.turn, online: hub.count() }));
+  app.get("/v1/health", (c) => c.json({ ok: true, service: "quetzal-sync", version: VERSION, protocol: PROTOCOL, login: !!auth.login, turn: !!cfg.turn, online: hub.count() }));
 
   app.post("/v1/device/code", async (c) => {
-    if (!auth.github) return c.json({ error: "login_disabled" }, 503);
+    if (!auth.login) return c.json({ error: "login_disabled" }, 503);
     if (!limits.code.take(clientIp(c))) return c.json({ error: "slow_down" }, 429);
     const r = DeviceRequest.safeParse(await c.req.json().catch(() => null));
     if (!r.success) return c.json({ error: "invalid_request", issues: r.error.issues.map((i) => i.path.join(".")) }, 400);
@@ -123,7 +123,7 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
   /** 控制台登录：已绑定的运行基座代它的控制台（App）申请一对码，人在网页上批准后，身体用设备码轮询（/v1/device/token）拿到账户会话令牌。
    *  灵魂桥是只读成员，没有控制台，不能申请（403）。 */
   app.post("/v1/console/code", (c) => {
-    if (!auth.github) return c.json({ error: "login_disabled" }, 503);
+    if (!auth.login) return c.json({ error: "login_disabled" }, 503);
     const b = bearer(c);
     if (!b) return c.json({ error: "unauthorized" }, 401);
     if (b.kind !== "runtime") return c.json({ error: "runtime_only" }, 403);
@@ -147,26 +147,32 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
     return page(c, s.title, html`
       <h1>${s.title}</h1><p>${s.tagline}</p><p>${s.intro}</p>
       ${user ? html`<p><a class="btn primary" href="/account?lang=${lang(c)}">${s.account}</a></p>`
-        : auth.github ? html`<p><a class="btn primary" href="/login?lang=${lang(c)}">${s.login}</a></p>`
+        : auth.login ? html`<p><a class="btn primary" href="/login?lang=${lang(c)}">${s.login}</a></p>`
         : html`<p class="note err">${s.loginDisabled}</p>`}
       <h2>${s.storesTitle}</h2><ul>${s.stores.map((x) => html`<li>${x}</li>`)}</ul>
       <h2>${s.notStoresTitle}</h2><ul>${s.notStores.map((x) => html`<li>${x}</li>`)}</ul>`);
   });
 
-  app.get("/login", (c) => {
-    if (!auth.github) return c.redirect("/");
+  app.get("/login", async (c) => {
+    if (!auth.login) return c.redirect("/");
     if (!limits.login.take(clientIp(c))) return c.text("Too many requests", 429);
-    return c.redirect(beginLogin(c, cfg, auth.github, c.req.query("return_to") ?? (cfg.webUrl ? `${cfg.webUrl}/account` : `/account?lang=${lang(c)}`)).toString());
+    try {
+      return c.redirect((await beginLogin(c, cfg, auth.login, c.req.query("return_to") ?? (cfg.webUrl ? `${cfg.webUrl}/account` : `/account?lang=${lang(c)}`))).toString());
+    } catch (e) {
+      log("auth", (e as Error).message);
+      return cfg.webUrl ? c.redirect(`${cfg.webUrl}/account?login=failed`) : page(c, t(lang(c)).login, html`<p class="note err">${(e as Error).message}</p><p><a href="/">${t(lang(c)).back}</a></p>`, 502);
+    }
   });
 
-  app.get("/auth/github/callback", async (c) => {
-    if (!auth.github) return c.redirect("/");
-    const { state, verifier, returnTo } = finishLogin(c, cfg);
+  app.get("/auth/oidc/callback", async (c) => {
+    if (!auth.login) return c.redirect("/");
+    const { state, nonce, verifier, returnTo } = finishLogin(c, cfg);
     const code = c.req.query("code"), got = c.req.query("state");
-    if (!state || !verifier || !code || code.length > 100 || !got || got !== state) return c.redirect(cfg.webUrl ? `${cfg.webUrl}/account?login=failed` : "/?lang=" + lang(c)); // state 不符：可能是伪造的回调，什么都不做
+    if (!state || !nonce || !verifier || !code || code.length > 512 || !got || got !== state) return c.redirect(cfg.webUrl ? `${cfg.webUrl}/account?login=failed` : "/?lang=" + lang(c)); // state 不符：可能是伪造的回调，什么都不做
     try {
-      const u = await auth.github.user(code, verifier);
-      const user = db.upsertUser(u.id, u.login, u.name);
+      // 换令牌时的 redirect_uri 取自这个地址：用公开地址（反向代理后面 c.req.url 是内网的）
+      const u = await auth.login.user(new URL(`/auth/oidc/callback?${new URL(c.req.url).searchParams}`, cfg.publicUrl), { state, nonce, codeVerifier: verifier });
+      const user = db.upsertUser(u);
       sessions.create(c, user.id);
       return c.redirect(returnTo);
     } catch (e) {
@@ -245,7 +251,7 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
     return page(c, s.account, html`
       <div class="row"><h1>${user.name || user.login}</h1>
         <form method="post" action="/logout?lang=${L}" class="inline"><button class="btn small" type="submit">${s.logout}</button></form></div>
-      <p class="meta">GitHub · ${user.login}</p>
+      <p class="meta">${user.email || user.login}</p>
       <h2>${s.agents}</h2>
       ${agents.length ? "" : html`<p>${s.noAgents}</p>`}
       ${agents.map((a) => html`<section class="card">

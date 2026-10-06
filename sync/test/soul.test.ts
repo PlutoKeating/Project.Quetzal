@@ -13,8 +13,11 @@ import { sshFingerprint, pickSoulRepo, type SoulGitHub } from "../src/github-app
 const PUBLIC = "https://sync.example";
 const WEB = "https://www.example";
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-sync-soul-"));
-const cfg = loadConfig({ SYNC_PUBLIC_URL: PUBLIC, SYNC_WEB_URL: WEB, SYNC_DATA_DIR: dataDir, GITHUB_CLIENT_ID: "x", GITHUB_CLIENT_SECRET: "y", SYNC_TRUST_PROXY: "1", SYNC_ADMINS: "Admin7" });
-const github = { authorizationUrl: (state: string) => new URL(`https://github.example/authorize?state=${state}`), user: async (code: string) => ({ id: Number(code), login: `user${code}`, name: "" }) };
+const cfg = loadConfig({ SYNC_PUBLIC_URL: PUBLIC, SYNC_WEB_URL: WEB, SYNC_DATA_DIR: dataDir, OIDC_ISSUER: "https://id.example", OIDC_CLIENT_ID: "x", OIDC_CLIENT_SECRET: "y", SYNC_TRUST_PROXY: "1", SYNC_ADMINS: "Admin7" });
+const idp = {
+  authorizationUrl: async ({ state }: { state: string }) => new URL(`https://id.example/authorize?state=${state}`),
+  user: async (cb: URL) => { const code = cb.searchParams.get("code")!; return { sub: `sub-${code}`, login: `user${code}`, name: "", email: `user${code}@example.com` }; },
+};
 
 // 假的 GitHub：授权码换令牌（fetcher）与仓库操作（SoulGitHub）
 const calls: string[] = [];
@@ -34,7 +37,7 @@ const soul: SoulGitHub = {
   addDeployKey: async (_t, repo, title, key) => { calls.push(`key ${repo} ${title} ${key.split(" ")[0]}`); return fake.keyResult; },
   revoke: async (t) => { calls.push(`revoke ${t}`); },
 };
-const s = createSyncServer(cfg, { github, soul, fetcher });
+const s = createSyncServer(cfg, { login: idp, soul, fetcher });
 after(async () => { await s.close(); });
 
 class Browser {
@@ -56,7 +59,7 @@ class Browser {
   async login(id: number) {
     const r = await this.req(`/login?return_to=${encodeURIComponent(WEB + "/account")}`);
     const state = new URL(r.headers.get("location")!).searchParams.get("state")!;
-    await this.req(`/auth/github/callback?code=${id}&state=${state}`);
+    await this.req(`/auth/oidc/callback?code=${id}&state=${state}`);
   }
 }
 const ip = () => `10.4.${crypto.randomInt(255)}.${crypto.randomInt(255)}`;
@@ -138,7 +141,7 @@ test("账户里已有 agent：必须选一个；没装 App 时先去安装页，
   assert.equal(p.json.soul.repo, "user7/kaoru.soul");
 });
 
-test("GitHub 账户与批准者不一致：不加密钥，身体拿到失败原因", async () => {
+test("GitHub 账户不是这个账号第一次链接时用的那个：不加密钥，身体拿到失败原因", async () => {
   const b = new Browser(); await b.login(7);
   const start = await request("hermes-c", sshKey());
   const L = await (await b.web("/v1/web/device/lookup", { code: start.user_code })).json() as any;
@@ -153,7 +156,18 @@ test("GitHub 账户与批准者不一致：不加密钥，身体拿到失败原�
   assert.ok(calls.includes("revoke ghu_test"), "失败也要吊销");
   const p = await poll(start.device_code);
   assert.equal(p.status, 200);
-  assert.match(p.json.soul.error, /不一致/);
+  assert.match(p.json.soul.error, /之前链接灵魂仓库用的那个/);
+});
+
+test("同一个 GitHub 账户不能被两个账号拿去链接", async () => {
+  const b = new Browser(); await b.login(9);
+  const start = await request("hermes-d", sshKey());
+  const dec = await (await b.web("/v1/web/device/decide", { code: start.user_code, approve: true, agent: "new" })).json() as any;
+  calls.length = 0;
+  const gh = new URL((await b.req(dec.next)).headers.get("location")!);
+  const to = new URL((await b.req(`/soul/callback?code=x&state=${gh.searchParams.get("state")}`)).headers.get("location")!);
+  assert.equal(to.searchParams.get("soul"), "failed", "GitHub 账户 7 已经属于 sub-7");
+  assert.ok(!calls.some((x) => x.startsWith("key")));
 });
 
 test("伪造的回调（state 不符、没有票据）什么都不做", async () => {
@@ -174,7 +188,7 @@ test("挑灵魂仓库：已记下的 → <短名>.soul → 唯一的 .soul；分
 
 test("管理员一键创建 GitHub App：非管理员 403；清单页放宽 form-action；回来后保存凭据（0600）", async () => {
   const s2dir = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-sync-app-"));
-  const s2 = createSyncServer(loadConfig({ SYNC_PUBLIC_URL: PUBLIC, SYNC_DATA_DIR: s2dir, GITHUB_CLIENT_ID: "x", GITHUB_CLIENT_SECRET: "y", SYNC_ADMINS: "admin7" }), { github, fetcher });
+  const s2 = createSyncServer(loadConfig({ SYNC_PUBLIC_URL: PUBLIC, SYNC_DATA_DIR: s2dir, OIDC_ISSUER: "https://id.example", OIDC_CLIENT_ID: "x", OIDC_CLIENT_SECRET: "y", SYNC_ADMINS: "Admin7@example.com" }), { login: idp, fetcher });
   try {
     const jar = new Map<string, string>();
     const req = async (p: string) => {
@@ -182,21 +196,21 @@ test("管理员一键创建 GitHub App：非管理员 403；清单页放宽 form
       for (const c of r.headers.getSetCookie()) { const kv = c.split(";")[0]; const i = kv.indexOf("="); const v = kv.slice(i + 1); if (v) jar.set(kv.slice(0, i), v); else jar.delete(kv.slice(0, i)); }
       return r;
     };
-    const login = async (id: number) => { const r = await req("/login"); const st = new URL(r.headers.get("location")!).searchParams.get("state"); await req(`/auth/github/callback?code=${id}&state=${st}`); };
+    const login = async (id: number) => { const r = await req("/login"); const st = new URL(r.headers.get("location")!).searchParams.get("state"); await req(`/auth/oidc/callback?code=${id}&state=${st}`); };
     await login(8);
     assert.equal((await req("/setup/github-app")).status, 403);
-    await login(7); // user7 ≠ admin7
+    await login(7); // user7@example.com 不是管理员
     assert.equal((await req("/setup/github-app")).status, 403);
     jar.clear();
-    const gh2 = { ...github, user: async () => ({ id: 70, login: "Admin7", name: "" }) };
-    const s3 = createSyncServer(loadConfig({ SYNC_PUBLIC_URL: PUBLIC, SYNC_DATA_DIR: s2dir, GITHUB_CLIENT_ID: "x", GITHUB_CLIENT_SECRET: "y", SYNC_ADMINS: "admin7" }), { github: gh2, fetcher });
+    const gh2 = { ...idp, user: async () => ({ sub: "sub-70", login: "admin", name: "", email: "admin7@example.com" }) };
+    const s3 = createSyncServer(loadConfig({ SYNC_PUBLIC_URL: PUBLIC, SYNC_DATA_DIR: s2dir, OIDC_ISSUER: "https://id.example", OIDC_CLIENT_ID: "x", OIDC_CLIENT_SECRET: "y", SYNC_ADMINS: "Admin7@example.com" }), { login: gh2, fetcher });
     try {
       const req3 = async (p: string) => {
         const r = await s3.app.request(PUBLIC + p, { headers: { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; "), "x-forwarded-for": "10.9.9.8" }, redirect: "manual" });
         for (const c of r.headers.getSetCookie()) { const kv = c.split(";")[0]; const i = kv.indexOf("="); const v = kv.slice(i + 1); if (v) jar.set(kv.slice(0, i), v); else jar.delete(kv.slice(0, i)); }
         return r;
       };
-      const r = await req3("/login"); await req3(`/auth/github/callback?code=1&state=${new URL(r.headers.get("location")!).searchParams.get("state")}`);
+      const r = await req3("/login"); await req3(`/auth/oidc/callback?code=1&state=${new URL(r.headers.get("location")!).searchParams.get("state")}`);
       const page = await req3("/setup/github-app");
       assert.equal(page.status, 200);
       assert.match(page.headers.get("content-security-policy")!, /form-action https:\/\/github\.com/);

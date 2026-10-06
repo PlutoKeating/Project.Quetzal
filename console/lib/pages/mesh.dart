@@ -102,7 +102,7 @@ class _MeshPageState extends State<MeshPage> {
             if (binding == null) ...[
               Text('你所有的设备上都是同一个 ta', style: muted),
               const SizedBox(height: 12),
-              if ('${m['server'] ?? ''}'.isNotEmpty) FilledButton(onPressed: () => signInDevice(context), child: const Text('用 GitHub 登录')),
+              if ('${m['server'] ?? ''}'.isNotEmpty) FilledButton(onPressed: () => signInDevice(context), child: const Text('登录')),
             ],
             if (binding != null) DeviceCodeView(pending: binding, onCancel: () => act(context, () => api.call('mesh.cancelBind'))),
             if ('${m['error'] ?? ''}'.isNotEmpty) Text('${m['error']}', style: TextStyle(color: cs.error)),

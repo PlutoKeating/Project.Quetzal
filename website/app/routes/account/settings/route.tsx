@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { Route } from "./+types/route";
 import { DEFAULT_LANG, isLang, useMessages } from "~/i18n/core";
-import { Button, Card, Heading } from "~/design-system/components";
-import { sync, SyncError } from "~/lib/sync";
+import { Button, ButtonAnchor, Card, Heading } from "~/design-system/components";
+import { ACCOUNT_URL, sync, SyncError } from "~/lib/sync";
 import { AccountShell, errorText } from "../shell";
 import { accountMessages } from "../i18n";
 import { messages } from "./i18n";
@@ -16,7 +16,7 @@ export default function AccountSettings() {
   const t = useMessages(messages);
   const [done, setDone] = useState<string | null>(null);
   if (done) return <AccountShell heading={t.heading}>{() => <Card><p className="text-fg">{done}</p></Card>}</AccountShell>;
-  return <AccountShell heading={t.heading}>{(session) => <Settings login={session.user.login} onDone={setDone} />}</AccountShell>;
+  return <AccountShell heading={t.heading}>{(session) => <Settings login={session.user.email || session.user.login} onDone={setDone} />}</AccountShell>;
 }
 
 function Settings({ login, onDone }: { login: string; onDone: (msg: string) => void }) {
@@ -37,6 +37,7 @@ function Settings({ login, onDone }: { login: string; onDone: (msg: string) => v
         <Heading as="h2" size="sm">{t.profileHeading}</Heading>
         <p className="font-mono text-sm text-fg">{login}</p>
         <p className="text-sm text-fg-muted">{t.profile}</p>
+        <ButtonAnchor variant="secondary" href={ACCOUNT_URL} target="_blank" rel="noopener" className="self-start">{t.manage}</ButtonAnchor>
       </Card>
       <Card className="flex flex-col items-start gap-3">
         <Heading as="h2" size="sm">{t.logoutHeading}</Heading>

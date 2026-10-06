@@ -3,8 +3,9 @@ import { defineMessages } from "~/i18n/core";
 export const messages = defineMessages({
   zh: {
     heading: "设置",
-    profileHeading: "GitHub 账户",
-    profile: "只保存你的 GitHub 编号、用户名与显示名。",
+    profileHeading: "PlutoKeating 账号",
+    profile: "密码、通行密钥、关联 GitHub 都在账号里管理。",
+    manage: "管理账号",
     logoutHeading: "退出登录",
     logout: "在这个浏览器上退出",
     logoutDone: "已退出。",
@@ -20,8 +21,9 @@ export const messages = defineMessages({
   },
   en: {
     heading: "Settings",
-    profileHeading: "GitHub account",
-    profile: "Only your GitHub id, username and display name are kept.",
+    profileHeading: "PlutoKeating account",
+    profile: "Password, passkeys and linked GitHub are managed in your account.",
+    manage: "Manage account",
     logoutHeading: "Sign out",
     logout: "Sign out of this browser",
     logoutDone: "Signed out.",

@@ -23,7 +23,7 @@ async function post(url: string, body: unknown, signal?: AbortSignal) {
 /** 绑定第一步：申请设备码。 */
 export async function startBinding(server: string, req: { agent: { id?: string; name: string }; body: string; kind: "runtime" | "bridge"; nodeKey: string; version: string; soulKey?: string }): Promise<BindStart> {
   const r = await post(`${serverOrigin(server)}/v1/device/code`, req);
-  if (r.status !== 200) throw new Error(r.json.error === "login_disabled" ? "这个同步服务还没有配置 GitHub 登录，暂时不能绑定" : r.json.error === "slow_down" ? "申请太频繁，请稍后再试" : `同步服务拒绝了绑定请求（${r.json.error ?? r.status}）`);
+  if (r.status !== 200) throw new Error(r.json.error === "login_disabled" ? "这个同步服务还没有配置登录，暂时不能绑定" : r.json.error === "slow_down" ? "申请太频繁，请稍后再试" : `同步服务拒绝了绑定请求（${r.json.error ?? r.status}）`);
   return r.json as BindStart;
 }
 

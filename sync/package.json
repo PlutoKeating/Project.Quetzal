@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
-  "description": "Quetzal 同步服务：账户（GitHub 登录）、身体绑定（设备码）、信令与在场、TURN 凭据签发",
+  "description": "Quetzal 同步服务：账户（OIDC 登录）、身体绑定（设备码）、信令与在场、TURN 凭据签发",
   "engines": {
     "node": ">=22.18"
   },
@@ -16,8 +16,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.3",
-    "arctic": "^3.7.0",
     "hono": "^4.13.13",
+    "openid-client": "6.8.8",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
   },

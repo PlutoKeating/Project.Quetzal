@@ -234,7 +234,7 @@ async function mesh(c: BridgeConfig) {
     if (!server) throw new Error("用 --server 指定同步服务地址（https://…），向人要");
     if (!(await installModules(say))) { process.exitCode = 1; return; }
     const { start, done } = await bindMesh(c, server, VERSION);
-    say(JSON.stringify({ needHuman: true, reason: "绑定到同步服务需要人批准", ask: `请在浏览器打开 ${start.verification_uri_complete}（或打开 ${start.verification_uri} 输入绑定码 ${start.user_code}），用 GitHub 登录，核对网页上的公钥指纹是 ${fingerprint(nodeKey(c.agent).nodeKey)}，然后点「批准」。要和其他身体绑定在同一个 GitHub 账户下。`, code: start.user_code, uri: start.verification_uri_complete, expiresInSeconds: start.expires_in }, null, 2));
+    say(JSON.stringify({ needHuman: true, reason: "绑定到同步服务需要人批准", ask: `请在浏览器打开 ${start.verification_uri_complete}（或打开 ${start.verification_uri} 输入绑定码 ${start.user_code}），登录，核对网页上的公钥指纹是 ${fingerprint(nodeKey(c.agent).nodeKey)}，然后点「批准」。要和其他身体绑定在同一个账号下。`, code: start.user_code, uri: start.verification_uri_complete, expiresInSeconds: start.expires_in }, null, 2));
     const b = await done;
     await syncOnce(c); // 把节点公钥写进灵魂仓库的身体登记：其他身体以它为准核对这具身体
     say(`已绑定（账户 ${b.account}）。守护进程半分钟内连上其他身体；之后 ${nowPath(c.agent)} 里是它们此刻的近况。`);

@@ -10,7 +10,7 @@
 import crypto from "node:crypto";
 import type { Context, Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { generateCodeVerifier, generateState } from "arctic";
+import { randomPKCECodeVerifier as generateCodeVerifier, randomState as generateState } from "openid-client";
 import type { Db } from "./db.ts";
 import type { Config } from "./config.ts";
 import type { Sessions } from "./auth.ts";
@@ -31,13 +31,13 @@ export function installSoulRoutes(app: Hono, deps: { db: Db; cfg: Config; sessio
   const names = cookieNames(cfg);
   const opts = { httpOnly: true, secure: cfg.secure, sameSite: "Lax" as const, path: "/", maxAge: 600 };
   const back = (q: Record<string, string>) => `${web}/device?${new URLSearchParams(q)}`;
-  const isAdmin = (login?: string) => !!login && cfg.admins.includes(login.toLowerCase());
+  const isAdmin = (email?: string) => !!email && cfg.admins.includes(email.toLowerCase());
 
   // ---------- 管理员：一键创建 GitHub App（已经有了就只显示它）
   app.get("/setup/github-app", (c) => {
     const u = sessions.user(c);
     if (!u) return c.redirect(`/login?return_to=${encodeURIComponent(`${cfg.publicUrl}/setup/github-app`)}`);
-    if (!isAdmin(u.login)) return c.text("只有同步服务的管理员（SYNC_ADMINS）能创建 GitHub App", 403);
+    if (!isAdmin(u.email)) return c.text("只有同步服务的管理员（SYNC_ADMINS）能创建 GitHub App", 403);
     if (auth.soul) return c.html(`<!doctype html><meta charset="utf-8"><title>Quetzal GitHub App</title><p>GitHub App 已经配置：<a href="${auth.soul.app.htmlUrl}">${auth.soul.app.slug}</a></p>`);
     const state = generateState();
     setCookie(c, names.setup, state, opts);
@@ -54,7 +54,7 @@ export function installSoulRoutes(app: Hono, deps: { db: Db; cfg: Config; sessio
     const state = getCookie(c, names.setup);
     deleteCookie(c, names.setup, { path: "/", secure: cfg.secure });
     const code = c.req.query("code") ?? "";
-    if (!u || !isAdmin(u.login) || !state || c.req.query("state") !== state || !/^[\w-]{1,100}$/.test(code)) return c.text("请求无效（只有管理员、并且要从 /setup/github-app 发起）", 400);
+    if (!u || !isAdmin(u.email) || !state || c.req.query("state") !== state || !/^[\w-]{1,100}$/.test(code)) return c.text("请求无效（只有管理员、并且要从 /setup/github-app 发起）", 400);
     try {
       const a = await convertManifest(code, auth.fetcher);
       auth.onApp(a);
@@ -110,7 +110,8 @@ export function installSoulRoutes(app: Hono, deps: { db: Db; cfg: Config; sessio
     try {
       token = await exchangeCode({ id: soul.app.clientId, secret: soul.app.clientSecret, code: ghCode, redirectUri: `${cfg.publicUrl}/soul/callback`, verifier, relay: cfg.githubRelay }, auth.fetcher);
       const gh = await soul.user(token);
-      if (gh.id !== l.u.github_id) return c.redirect(fail(l.code.id, l.code.user_code, "GitHub 账户与登录 Quetzal 的账户不一致"));
+      // 账户第一次链接时记下用的 GitHub 账户，之后都要是它（防止拿到票据的别人用自己的 GitHub 账户接管）
+      if (l.u.github_id == null ? !db.setGitHub(l.u.id, gh.id) : gh.id !== l.u.github_id) return c.redirect(fail(l.code.id, l.code.user_code, "这个 GitHub 账户不是这个账号之前链接灵魂仓库用的那个"));
       const inst = await soul.installation(token, gh.login);
       if (!inst) { // 还没安装：去安装页（安装时选灵魂仓库；装完 GitHub 带着新的授权码回到 /soul/callback）
         const next = generateState(), v2 = generateCodeVerifier();

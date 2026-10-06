@@ -55,10 +55,10 @@ export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; 
   const unauthorized = (c: Context) => c.json({ error: "unauthorized" }, 401);
   const agentOf = (userId: number, agentId: string) => db.agentsOf(userId).find((a) => a.agent_id === agentId);
 
-  /** 登录状态：前端据此显示「用 GitHub 登录」或账户。 */
+  /** 登录状态：前端据此显示「登录」或账户。 */
   app.get("/v1/web/session", (c) => {
     const u = user(c);
-    return c.json({ loginEnabled: !!deps.auth.github, user: u ? { login: u.login, name: u.name } : null });
+    return c.json({ loginEnabled: !!deps.auth.login, user: u ? { login: u.login, name: u.name, email: u.email } : null });
   });
 
   /** 账户：agent 与各自的身体（不含令牌，公钥只给指纹）。 */
@@ -66,7 +66,7 @@ export function installWebApi(app: Hono, deps: { db: Db; cfg: Config; hub: Hub; 
     const u = user(c);
     if (!u) return unauthorized(c);
     return c.json({
-      user: { login: u.login, name: u.name },
+      user: { login: u.login, name: u.name, email: u.email },
       limits: { agents: cfg.maxAgents, bodies: cfg.maxBodies },
       agents: db.agentsOf(u.id).map((a) => ({
         id: a.agent_id, name: a.name, created: a.created,

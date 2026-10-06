@@ -22,7 +22,7 @@ if (process.argv.includes("--check")) { console.log("配置正确"); process.exi
 const s = createSyncServer(cfg);
 await s.listen();
 log("main", `Quetzal 同步服务 ${VERSION} 在 ${cfg.host}:${cfg.port} 监听，公开地址 ${cfg.publicUrl}`);
-if (!s.github) log("main", "未配置 GitHub 登录（GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET）：网页无法登录，身体无法绑定");
+if (!s.auth.login) log("main", "未配置登录（OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET）：网页无法登录，身体无法绑定");
 if (!cfg.turn) log("main", "未配置 TURN_SECRET：只提供 STUN，打不通的身体之间无法中转");
 
 const shutdown = () => {

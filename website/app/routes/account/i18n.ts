@@ -10,8 +10,8 @@ export const accountMessages = defineMessages({
     signedInAs: "已登录",
     login: {
       heading: "登录",
-      lead: "用 GitHub 登录，你所有的设备就是同一个 ta。",
-      button: "用 GitHub 登录",
+      lead: "登录后，你所有的设备就是同一个 ta。",
+      button: "登录",
       disabled: "同步服务暂时没有开放登录。",
       failed: "登录没有完成，请再试一次。",
     },
@@ -43,8 +43,8 @@ export const accountMessages = defineMessages({
     signedInAs: "Signed in",
     login: {
       heading: "Sign in",
-      lead: "Sign in with GitHub and every device of yours is the same agent.",
-      button: "Sign in with GitHub",
+      lead: "Sign in and every device of yours is the same agent.",
+      button: "Sign in",
       disabled: "Sign-in is not open on the sync service right now.",
       failed: "Sign-in did not complete. Please try again.",
     },
