@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { powershell } from "./windows/ps.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,12 +13,6 @@ import { viVersion, setupName, consoleRoot, RUNTIME_FILES } from "../windows/bui
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const win = path.join(here, "..", "windows");
-
-/** 能跑 PowerShell 测试的解释器：Windows 上是 powershell.exe（5.1），其他系统是 PATH 上的 pwsh；都没有返回空。 */
-export function powershell(): string | undefined {
-  const cands = process.platform === "win32" ? ["powershell.exe", "pwsh.exe"] : ["pwsh"];
-  return cands.find((c) => spawnSync(c, ["-NoProfile", "-Command", "exit 0"], { stdio: "ignore" }).status === 0);
-}
 
 test("版本号与资产名", () => {
   assert.equal(viVersion("1.4.0"), "1.4.0.0");

@@ -16,6 +16,7 @@ if (existsSync(notFound)) copyFileSync(notFound, join(client, "404.html"));
 const installer = fileURLToPath(new URL("../../cli/install.sh", import.meta.url));
 if (!existsSync(installer)) throw new Error(`postbuild：找不到 ${installer}（一键安装脚本的源码）`);
 copyFileSync(installer, join(client, "install"));
+copyFileSync(fileURLToPath(new URL("../../cli/install.ps1", import.meta.url)), join(client, "install.ps1")); // Windows：irm …/install.ps1 | iex（纯 ASCII，由 cli/windows/install.src.ps1 生成）
 
 // 安全响应头（Workers 静态资源的 _headers；/dl/* 与 /api/* 由 Worker 响应，不经过这里）。
 // 内联脚本（主题、语言跳转、/device 转发、React Router 的上下文与水合入口）每页不同，而 _headers 规则最多 100 条、每行最多 2000 字符，
@@ -48,7 +49,8 @@ const security = [
 // /install：没有扩展名的文件默认按二进制流返回，这里声明为纯文本；缓存 5 分钟，发新版很快生效
 writeFileSync(join(client, "_headers"), [
   "/*", ...security.map((h) => `  ${h}`),
-  "/install", "  Content-Type: text/plain; charset=utf-8", "  Cache-Control: public, max-age=300", "",
+  "/install", "  Content-Type: text/plain; charset=utf-8", "  Cache-Control: public, max-age=300",
+  "/install.ps1", "  Content-Type: text/plain; charset=utf-8", "  Cache-Control: public, max-age=300", "",
 ].join("\n"));
 
 const INLINE = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
