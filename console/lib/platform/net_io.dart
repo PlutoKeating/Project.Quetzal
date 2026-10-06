@@ -1,4 +1,4 @@
-// dart:io 实现（安卓、Linux 桌面）。HttpClient 都经过 pin_io.dart 的 HttpOverrides：钉住的网关只认它的证书指纹。
+// dart:io 实现（安卓、Linux / Windows 桌面）。HttpClient 都经过 pin_io.dart 的 HttpOverrides：钉住的网关只认它的证书指纹。
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';

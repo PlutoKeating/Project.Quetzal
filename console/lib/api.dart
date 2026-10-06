@@ -2,6 +2,7 @@
 //   令牌不放进网址（网址会进日志与历史）：HTTP 用请求头 X-Quetzal-Token，WebSocket 连上后第一条消息发 {"auth": 令牌}；
 //   旧版运行基座只认 ?token=，握手被拒时退回旧方式并记住这个网关。图片预览（Image.network）仍把令牌放在网址里，见 fileUrl。
 //   网页版由运行基座的网关托管：页面的来源就是网关地址，第一次打开向 /auth/local 要令牌（同一台机器免配对码）；别处的 agent 仍走配对码。
+//   原生桌面版（Linux / Windows）连本机网关：先直接读家目录里的 secrets/gateway.token（同一个系统用户），读不到再问 /auth/local。
 //   别的机器上的运行基座只能走 HTTPS / WSS（默认 7789，自签名证书）：连接档案记着配对时钉住的证书指纹（Profile.fp），见 pins.dart；
 //   明文只用于本机回环（同一台设备上的运行基座）。旧的 http:// 局域网档案连不上时提示重新配对。
 import 'dart:async';
@@ -13,6 +14,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'igniter.dart';
 import 'pins.dart';
 import 'platform/caps.dart';
+import 'platform/desktop.dart' as desktop;
 import 'platform/location.dart' as loc;
 import 'platform/net.dart' as net;
 
@@ -82,12 +84,13 @@ class Api extends ChangeNotifier {
     final origin = loc.pageOrigin;
     if (origin != null && !profiles.any((x) => x.base == origin)) { current = Profile(id: _newId(), label: '', base: origin); profiles.insert(0, current!); }
     await _persist();
-    if (current!.token.isEmpty && canLocalLogin(current!)) await localLogin();
+    // 本机免配对：网页版没有令牌时问网关；桌面版每次启动都核对家目录里的令牌（运行基座重装或换了令牌时跟上）
+    if (canLocalLogin(current!) && (current!.token.isEmpty || isDesktop)) await localLogin();
     // 旧版控制台留下的 http:// 局域网档案：照常先试（运行基座可能还没升级），连不上再回配对页，见 _lost
     connect();
   }
 
-  /// 这个连接能不能免配对码：网页版连托管自己的网关；桌面版连本机（回环地址）的网关。网关只对回环连接放行（GET /auth/local）。
+  /// 这个连接能不能免配对码：网页版连托管自己的网关；桌面版连本机（回环地址）的网关（读家目录里的令牌，或 GET /auth/local）。
   static bool canLocalLogin(Profile p) {
     if (loc.pageOrigin != null) return p.base == loc.pageOrigin;
     if (!isDesktop) return false;
@@ -95,10 +98,19 @@ class Api extends ChangeNotifier {
     return h == '127.0.0.1' || h == 'localhost' || h == '::1';
   }
 
-  /// 同一台机器上的控制台直接向网关要令牌（GET /auth/local）。成功返回 true；别的机器会被拒绝，退回配对码。
+  /// 同一台机器上的控制台免配对码拿到令牌。成功返回 true；别的机器会被拒绝，退回配对码。
+  ///   原生桌面版：控制台与运行基座是同一个系统用户、控制台不在沙箱里，先直接读 QUETZAL_HOME/secrets/gateway.token
+  ///   （Linux 缺省 ~/.quetzal，Windows 缺省 %LOCALAPPDATA%\Quetzal\home），经一次带令牌的 status 核对才用（家目录可能属于另一份安装）；
+  ///   和已保存的一样就不再核对。读不到、核对不过，且还没有令牌时，再向网关要（GET /auth/local；Windows 的网关不对原生客户端放行，只靠读文件）。
   Future<bool> localLogin() async {
     final c = current;
     if (c == null || !canLocalLogin(c)) return false;
+    if (isDesktop) {
+      final t = await desktop.readLocalGatewayToken();
+      if (t != null && t == c.token) return true;
+      if (t != null && await desktop.verifyLocalToken(Uri.tryParse(c.base)?.port ?? 7788, t)) { c.token = t; await _persist(); return true; }
+      if (c.token.isNotEmpty) return false; // 已有令牌：照常用它连（连不上会提示），不必再问网关
+    }
     try {
       final j = await _http('GET', '/auth/local');
       if (j['token'] is String) { c.token = j['token'] as String; await _persist(); return true; }

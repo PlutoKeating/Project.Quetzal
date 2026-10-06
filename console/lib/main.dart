@@ -1,5 +1,6 @@
 // Quetzal 控制台：观察、交流、调节与管理任意 agent。只是前端，不托管运行基座；可保存多个 agent 连接并一键切换。
-//   同一份代码出两种形态：安卓 App（手机外壳：底部 Tab + 逐页推入；也是安装器与耳朵）与网页版（由运行基座的网关托管，在电脑浏览器里打开）。
+//   同一份代码出三种形态：安卓 App（手机外壳：底部 Tab + 逐页推入；也是安装器、身体与耳朵）、网页版（由运行基座的网关托管，在电脑浏览器里打开）
+//   与桌面版（Linux / Windows 原生窗口：托盘、耳朵与播放器；Windows 上还看护身体助手）。
 //   外壳按宽度选：窄屏是手机外壳，宽屏（≥ desktopBreakpoint）是桌面外壳（shell/desktop.dart）；平板横屏也用桌面外壳。
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,9 +36,9 @@ void main(List<String> args) async {
   installPinning(); // 原生平台：网关的 https 连接只认配对时钉住的证书指纹（pins.dart）；网页版由浏览器处理
   api.init();
   wakes.start(); // 跟踪她正在进行的醒来（首页与心流页的只读入口）
-  hearing.start(); // 耳朵：安卓上跟随基座的听觉开关启停本机的麦克风前台服务；网页版只跟着状态显示
+  hearing.start(); // 耳朵：跟随基座的听觉开关启停本机的耳朵（安卓是麦克风前台服务，桌面版在控制台进程里）；网页版只跟着状态显示
   runApp(const ConsoleApp());
-  initTray(background: args.contains('--background')); // 桌面版：右上角状态栏的托盘图标（运行基座在跑就在；关窗只是隐藏）；网页版与安卓什么都不做
+  initTray(background: args.contains('--background')); // 桌面版：托盘图标（运行基座在跑就在；关窗只是隐藏；Windows 上同时看护身体助手）；网页版与安卓什么都不做
 }
 
 class ConsoleApp extends StatelessWidget {

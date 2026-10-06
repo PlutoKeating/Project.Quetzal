@@ -8,7 +8,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 监听 | 地址 | 协议 | 用途 |
 |---|---|---|---|
-| 本机 | `127.0.0.1:<gateway.port>`（默认 7788），另加 `[::1]` 同一端口（有 IPv6 时） | 明文 HTTP / WebSocket | 同一台机器上的控制台（App 内置的运行基座与同一个 App、本机的网页控制台、命令行）。永远只在回环地址上，不出这台机器 |
+| 本机 | `127.0.0.1:<gateway.port>`（默认 7788），另加 `[::1]` 同一端口（有 IPv6 时） | 明文 HTTP / WebSocket | 同一台机器上的控制台（App 内置的运行基座与同一个 App、本机的网页控制台与桌面版控制台、命令行）。永远只在回环地址上，不出这台机器 |
 | 局域网 | `<gateway.host>:<gateway.lanPort>`（默认 7789；`host` 是回环地址时为 `0.0.0.0`） | HTTPS / WSS（TLS 1.2 起） | 别的设备。只在对局域网开放时启动：`gateway.lan` 为真，或 `gateway.host` 不是回环地址（兼容旧配置：`host` 为 `0.0.0.0` 即开放；`npx @plutokeating/quetzal --lan` 两项都写） |
 
 局域网上不再有明文 HTTP：旧配置 `host: 0.0.0.0` 升级后明文只留在 `127.0.0.1`，局域网改走 `lanPort` 的 HTTPS。
@@ -26,12 +26,12 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | `{ok, version, safeMode, mode}`，无需令牌，供点火器探活 |
-| GET | `/auth/local` | `{ok, token}`：只给**同一台机器上的控制台**，打开即登录（只在本机明文监听上，HTTPS 监听上一律 403）。两种客户端：**浏览器**（网关托管的网页控制台）与**原生桌面控制台**（Linux，dart:io，请求里没有 Origin）。共同条件：不是安卓（安卓上别的应用也能连 127.0.0.1）；连接来自回环地址、Host 是本机名；发起连接的进程不是运行基座的子孙。原生客户端（没有 `Origin`）：只在 Linux 上，发起连接的 socket 必须属于运行基座同一个系统用户（读 `/proc/net/tcp` 的 uid 列；没有 `Origin` 的请求不可能来自别的网页——跨源 fetch 浏览器一定带 `Origin`，no-cors 请求读不到响应）。浏览器：网关托管着网页控制台（`web/` 存在），`Origin` 必须正好是网关自己的源（`http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>`；开发时别的源只能由环境变量 `QUETZAL_DEV_ORIGINS`（逗号分隔）明确列出），CORS 只对这个 Origin 放行；发起连接的进程不是运行基座的子孙（agent 的命令、后台任务、自造工具都是，Linux 上读 `/proc` 判断）。其他情况 403。注意：本机进程并不都读得到 `secrets/gateway.token`——agent 的命令在沙箱里读不到它（ARCHITECTURE §8.1），安卓上别的应用也读不到；`Origin` 头命令行程序能伪造，所以挡 agent 的是子孙进程检查与沙箱。ssh 隧道转发来的连接也算本机 |
+| GET | `/auth/local` | `{ok, token}`：只给**同一台机器上的控制台**，打开即登录（只在本机明文监听上，HTTPS 监听上一律 403）。两种客户端：**浏览器**（网关托管的网页控制台）与**原生桌面控制台**（Linux，dart:io，请求里没有 Origin；原生桌面控制台——Linux 与 Windows——先直接读 `QUETZAL_HOME/secrets/gateway.token`，经一次带令牌的 `status` 核对才用，读不到才问这里，Windows 只靠读文件）。共同条件：不是安卓（安卓上别的应用也能连 127.0.0.1）；连接来自回环地址、Host 是本机名；发起连接的进程不是运行基座的子孙。原生客户端（没有 `Origin`）：只在 Linux 上，发起连接的 socket 必须属于运行基座同一个系统用户（读 `/proc/net/tcp` 的 uid 列；没有 `Origin` 的请求不可能来自别的网页——跨源 fetch 浏览器一定带 `Origin`，no-cors 请求读不到响应）。浏览器：网关托管着网页控制台（`web/` 存在），`Origin` 必须正好是网关自己的源（`http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>`；开发时别的源只能由环境变量 `QUETZAL_DEV_ORIGINS`（逗号分隔）明确列出），CORS 只对这个 Origin 放行；发起连接的进程不是运行基座的子孙（agent 的命令、后台任务、自造工具都是，Linux 上读 `/proc` 判断）。其他情况 403。注意：本机进程并不都读得到 `secrets/gateway.token`——agent 的命令在沙箱里读不到它（ARCHITECTURE §8.1），安卓上别的应用也读不到；`Origin` 头命令行程序能伪造，所以挡 agent 的是子孙进程检查与沙箱。ssh 隧道转发来的连接也算本机 |
 | GET | `/<静态文件>` | 网页控制台（`web/` 目录存在时）：`/` → `index.html`，没有扩展名的未知路径也回退到 `index.html`（单页应用），带 ETag |
 | GET | `/pair/info` | `{ok, fingerprint, short, body, version, tls: true}`，无需令牌：网关证书的指纹（完整与短格式）、身体名、版本。控制台配对的第一步：原生控制台以「捕获」方式握手，记下自己看到的指纹并显示给人核对；网页版用这里报告的指纹。两个监听上都有（回环上报告的也是 TLS 证书的指纹）。Host 检查同配对接口 |
 | POST | `/pair/start` | 生成 8 位配对码（字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`，密码学随机，通知里显示为 `控制台配对码 ABCD-EFGH · 证书指纹 1a2b 3c4d 5e6f 7a8b（5 分钟内有效）`；5 分钟有效），通过适配器的系统通知与飞书下发 → `{ok, expires}`。码还有效时再请求不换新码、不清零尝试次数（30 秒后可以再提醒一次）。Linux 适配器有桌面通知时服务日志里只记「控制台配对」，没有桌面的机器才把配对码写进日志 |
 | POST | `/pair/finish` | `{proof}` 或 `{code}` → `{ok, token, fingerprint}`。**配对证明** `proof` = hex(PBKDF2-HMAC-SHA256(密码 = 规范化的配对码, 盐 = `"quetzal-pair-v2\|" + 指纹`, 迭代 100000, 32 字节))，小写十六进制 64 位（服务端比较时不区分大小写）；配对码规范化：转大写、去掉空白与连字符；指纹为客户端在 TLS 握手中看到的证书指纹（小写十六进制）、字符串按 UTF-8 编码。服务端用自己的证书指纹与当前有效的配对码算出同样的值（生成配对码时算好），定长比较。**HTTPS 监听上只收 `proof`**（带 `code` 或缺 `proof` 回 400，不计入尝试次数）：配对码不上网络，中间人看到的是自己的证书，转给运行基座的证明对不上。**回环明文监听上收 `{code}`**（同一台机器、旧控制台）也收 `proof`（指纹为 TLS 证书的）。成功时回报 `fingerprint`，客户端核对它等于自己握手时看到的。已知向量：配对码 `ABCDEFGH`、指纹 64 个 `0` → `23473714b2a61fbc2a61de0a7636402e197af0b3fe1ee19be90503518e30e4df`。错误码 403（不正确）、410（失效，或这个码已试过 5 次）、429（累计失败超过 5 次后全局锁定，按 30 秒 × 2^(n−6) 退避，最长 1 小时，`retryAfter` 为秒数；成功一次清零）、413（请求体超过 16 KB）。配对接口（`/pair/info`、`/pair/start`、`/pair/finish`）都检查 Host（防 DNS 重绑定）：回环连接只认本机名；局域网连接认 IP 字面量、`gateway.host` 与环境变量 `QUETZAL_GATEWAY_HOSTS`（逗号分隔，如 `mybox.local`）列出的名字 |
-| GET | `/media/<文件名>`（令牌见上） | 她的声音：控制台 App 取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |
+| GET | `/media/<文件名>`（令牌见上） | 她的声音：控制台（安卓 App 或桌面版）取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |
 | POST | `/hear?started=<毫秒时刻>[&stream=1&id=<标识>&bargein=1]`（令牌见上） | 听觉。`bargein=1`：这句话打断了她的播放（App 本地已停播），以「打断」并入。`stream=1`：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输），基座用官方 SDK 流式识别，中间结果经 `hearing` 事件推送；否则请求体为一整句 WAV（最多 4 MiB）一次识别。→ `{ok, id, text, conv?, dropped?}`；`started` 为这句话开始的时刻，用于判断是不是她自己在说话（丢弃）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
 | POST | `/upload?name=<文件名>`（令牌见上） | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `QUETZAL_HOME/data/uploads/<日期>/` |
 | GET | `/uploads/<rel>`（令牌见上） | 下载附件（控制台预览图片）；只能访问 uploads 目录内的文件：路径本身是符号链接的、跟随链接后出了 uploads 的都是 404 |
@@ -53,9 +53,9 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, body, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），`body` 为这一轮在哪具身体上（多具身体时，其他身体上进行的轮次也经同一事件推送），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（太短、没听清、她自己在说话、没在听；多具身体时另一只耳朵也听到了同一句话、由那边交给她）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
-| `speaking` | `{until}`：她在说话（`voice_speak`、试听）到 `until`（毫秒时刻，按码率估计）为止；App 回报播完或被插嘴时 `until` 提前到现在再推一次。只给界面用 |
+| `speaking` | `{until}`：她在说话（`voice_speak`、试听）到 `until`（毫秒时刻，按码率估计）为止；App 回报播完或被插嘴时 `until` 提前到现在再推一次。界面用它显示「她在说话」；桌面版的耳朵没有回声消除，这段时间不送音频 |
 | `session.switch` | `{from, to, title, done?}`：她用 `session_new` 把对话切到了新会话；控制台把打开的会话页切过去；`done` 为真表示她这一轮的回复已放进新会话 |
-| `speak` | `{id, url, text, ms}`：让控制台 App 播放一段合成语音（`url` 为 `/media/<文件名>`，走通话音频路径，耳朵的回声消除以它为参考）；App 播完或被插嘴后调用 `player.done` |
+| `speak` | `{id, url, text, ms}`：让登记为播放器的控制台播放一段合成语音（`url` 为 `/media/<文件名>`；安卓 App 走通话音频路径，耳朵的回声消除以它为参考；桌面版下载到临时文件后用系统播放器放）；播完或被插嘴后调用 `player.done` |
 | `mesh` | 网状层状态（同 `mesh` 方法的返回），绑定进展、同步服务连接、各身体的连接与路径变化时推送 |
 | `account` | 账户的控制台登录状态（同 `account` 方法的返回）：申请码、批准、退出、令牌失效时推送 |
 | `replica` | `{table: messages｜sessions｜message.mode, from, convs}`：从其他身体复制来的对话或会话已写入本机（`convs` 为涉及的会话），控制台据此刷新会话列表与打开的对话。时间线条目照常经 `timeline` 推送（带 `body`） |
@@ -123,13 +123,19 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `speechVoices` | `{locale?}` | 可选音色（含支持的风格） |
 | `speechTest` | `{text?}` | 用当前配置合成并播放一句 |
 
-**听觉（耳朵在控制台 App，识别在基座）**
+**听觉（耳朵在控制台——安卓 App 或桌面版，识别在基座）**
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
-| `player.set` / `player.done` | `{enabled}` / `{id, interrupted?, utterance?}` | 控制台 App 的耳朵开着时登记为她的播放器（之后 `voice_speak` 的声音由 App 经通话路径播放，没有播放器时交给身体适配器）；播完或被插嘴后回报，`utterance` 为打断播放的那句话的标识（耳朵送 `/hear` 时带的 `id`），那句话以「打断」并入 |
+| `player.set` / `player.done` | `{enabled}` / `{id, interrupted?, utterance?}` | 控制台的耳朵开着时登记为她的播放器（之后 `voice_speak` 的声音由控制台播放：安卓 App 经通话路径，桌面版用系统播放器；没有播放器时交给身体适配器）；播完或被插嘴后回报（桌面版不能插嘴，`interrupted` 恒为假），`utterance` 为打断播放的那句话的标识（耳朵送 `/hear` 时带的 `id`），那句话以「打断」并入 |
 | `hearing` / `setHearing` | — / `{enabled?, windowMin?, sensitivity?, language?, minChars?}` | 查看 / 修改：`{…配置, listening, reasons[], speaking, last}`。`listening` 为 App 该不该开麦克风（开关、未急停、Azure 语音已配置、电量与温度在预算限制内），`reasons` 为没在听的原因，`speaking` 为她此刻在说话，`last` 为最近一次识别 |
-| `status` 的 `hearing` 字段 | — | 同 `hearing`，随 `state` 推送；App 据此启停本机的麦克风前台服务 |
+| `status` 的 `hearing` 字段 | — | 同 `hearing`，随 `state` 推送；控制台据此启停本机的耳朵（安卓是麦克风前台服务，桌面版在控制台进程里） |
+
+**图表（控制台桌面版的兜底）**
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `mermaid.render` | `{code, dark}` | 把一段 Mermaid 源码画成 SVG → `{svg}`。只在桌面版控制台没有网页引擎（Linux 没装 WebKitGTK、Windows 没有 WebView2 运行时）时调用，其余情况控制台自己用内置的 mermaid.js 画。`svg` 由 flutter_svg 显示，须是自包含的静态 SVG：颜色写成具体值（不用 CSS 变量与 `color-mix`）、不含 `<style>` / `@import` / `<foreignObject>` / `<marker>`（箭头直接画成路径）、文字用 `<text>`；`dark` 为真时按深色背景配色、背景透明。画不出来时返回错误（控制台显示源码）。运行基座还没提供这个方法时控制台同样显示源码 |
 
 **自造工具（她用 `tool_write` 造的，这里只看、启停与删除）**
 

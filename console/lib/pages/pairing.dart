@@ -2,6 +2,7 @@
 // 这台手机上还没有运行基座、App 又内置了它时，直接进安装向导（装完自动连接，不需要配对码），不让人先选。
 // 别的机器上的运行基座只走加密连接（https://地址:7789）：先取 /pair/info，原生平台记下握手时看到的证书指纹并钉住、显示给人核对，
 // 配对码与这个指纹一起算出配对证明再提交（pins.dart）。网页版的证书由浏览器处理：人在浏览器的警告页上核对指纹。
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api.dart';
@@ -29,8 +30,12 @@ class _PairingPageState extends State<PairingPage> {
 
   bool get secure => Uri.tryParse(api.base)?.scheme == 'https';
 
+  Timer? _again; // 本机的运行基座还没起来（刚登录桌面、刚装好）：隔几秒再找，找到就免配对码登录
+
   @override
   void initState() { super.initState(); _probe(); }
+  @override
+  void dispose() { _again?.cancel(); super.dispose(); }
 
   Future<void> _probe() async {
     var ok = false;
@@ -50,7 +55,10 @@ class _PairingPageState extends State<PairingPage> {
       if (mounted) _probe();
       return;
     }
-    if (ok && isWeb && !secure && await api.localLogin()) api.connect(); // 网页版：同一台机器直接登录
+    final local = (isWeb || isDesktop) && !secure && api.current != null && Api.canLocalLogin(api.current!);
+    if (ok && local && await api.localLogin()) api.connect(); // 网页版与桌面版：同一台机器直接登录
+    _again?.cancel();
+    if (!ok && local && mounted) _again = Timer(const Duration(seconds: 3), () { if (mounted && !requested) _probe(); });
   }
 
   Future<void> _saveBase() async {

@@ -79,6 +79,9 @@ include(flutter/generated_plugins.cmake)
 if(TARGET tray_manager_plugin)
   target_compile_options(tray_manager_plugin PRIVATE -Wno-error=deprecated-declarations)
 endif()
+# 桌面版耳朵的断句：libfvad（WebRTC VAD，BSD-3），装进 bundle/lib/libfvad.so，Dart 经 dart:ffi 调用；见 ../native/fvad/CMakeLists.txt
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native/fvad" "${CMAKE_BINARY_DIR}/fvad")
+add_dependencies(${BINARY_NAME} fvad)
 
 
 # === Installation ===
@@ -104,6 +107,9 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
+install(TARGETS fvad LIBRARY DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
