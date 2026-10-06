@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.5
+
+- **不再编造过程记录**：对话历史里，ta 自己每条回复的开头附着那一轮的过程记录，模型有时照着这个格式在新回复里自己编一段，越写越长，变成上千字没有意义的路径。现在时间与过程记录放在回复之前一条单独的附注里，ta 的回复只留原文。
+
+- **No more invented process records**: the conversation history used to prefix each of the agent's own replies with that turn's process record, and the model sometimes imitated it at the start of a new reply, growing into thousands of characters of meaningless paths. The time and process record now sit in a separate note before the reply, and the reply itself is kept as written.
+
 ## 1.1.4
 
 - **记忆同步不再被误拦**：灵魂仓库规范升到 v11，取消提交前的密钥检查。它把身体名、agent id 这类并不保密的值也当成密钥，日记里写到自己的身体名就整天不同步。灵魂仓库是私有的，保护靠访问控制，内容不做任何检查。
