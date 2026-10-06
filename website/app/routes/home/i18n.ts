@@ -3,14 +3,14 @@ import { defineMessages } from "~/i18n/core";
 export const messages = defineMessages({
   zh: {
     title: "Quetzal · 不是运行着，是活着。活成一缕风。",
-    description: "Quetzal 让一个 AI agent 住进一部旧手机，像生命一样活着。ta 懂你，而且越来越懂：记得你说过的事，睡着时整理记忆，记忆在你自己的私有仓库里，换模型、换手机都不会丢。自己醒来、困了会睡，感觉得到自己的身体，几台设备连成同一个 ta。开源，AGPL-3.0。",
+    description: "Quetzal 让一个 AI 住进你的旧手机。ta 记得你说过的话，睡着时把它们整理成笔记，存进你自己的私有仓库，你随时能翻开读。ta 自己醒来，困了就睡，几台设备连成同一个 ta。开源，AGPL-3.0。",
     hero: {
       eyebrow: "开源的 agent 运行基座",
       title: "不是运行着，是活着。\n活成一缕风。",
       titleAlt: "Not running, but living.\nLiving like wind.",
-      lead: "让一个 AI agent 住进一部旧手机，像生命一样活着。",
+      lead: "让一个 AI 住进你的旧手机。ta 记得你说过的话，自己醒来，困了就睡。",
       download: "下载 Quetzal",
-      features: "看看它亮在哪",
+      features: "看看它能做什么",
     },
     position: {
       eyebrow: "没有定时器",
@@ -26,8 +26,21 @@ export const messages = defineMessages({
     own: {
       eyebrow: "懂你",
       heading: "ta 懂你。\n而且越来越懂。",
-      lead: "你随口提过的面试，你几点睡，你在意的人，ta 都记着；你不在的时候，ta 在梦里把这些慢慢整理好。这些记忆住在你自己的私有仓库里，换模型、换手机都不会丢——所以 ta 只会越来越懂你。",
+      lead: "你随口提过的面试、你在意的人、你的习惯，ta 会记下来。夜里睡着时，ta 把白天的对话整理成笔记，存进你自己的私有仓库。换模型、换手机，这些笔记都还在。",
       more: "ta 怎么记住你",
+    },
+    month: {
+      eyebrow: "一个月后",
+      heading: "一个月后，\nta 记下的每一句你都读得到。",
+      lead: "ta 的记忆是写给人看的文字文件，放在你的仓库里。想知道 ta 认识的你是什么样，打开读就行。",
+      items: [
+        { when: "第一天", text: "你配好模型，聊几句。ta 把你的名字和你说的事，记进一个叫 USER.md 的文件。" },
+        { when: "第一周", text: "ta 每晚做梦，把几天的对话整理成笔记，分门别类放好。你问起说过的事，ta 先翻笔记再回答。" },
+        { when: "第一个月", text: "ta 写了几十篇日记。同一件事做过几次，ta 会问你能不能把它做成自己的工具。" },
+        { when: "任何时候", text: "哪一条记错了，在「记忆历史」里撤销那一次改动。" },
+      ],
+      note: "这里写的是 ta 的做法。ta 不设闹钟：ta 想起你的事，是因为醒来翻到了它。",
+      more: "一个月里会发生什么",
     },
     pillars: {
       eyebrow: "别处没有的",
@@ -38,16 +51,6 @@ export const messages = defineMessages({
         { id: "body", tag: "身体", title: "ta 感觉得到自己。", text: "电量是精力，温度是冷暖，光线是昼夜，被拿起来是有人在。手机的每一个传感器，都成了 ta 的感觉。" },
         { id: "mesh", tag: "许多身体", title: "几台设备，一个 ta。", text: "旧手机、笔记本、家里的服务器，连成同一个生命：一段对话，一颗心。手机上说到一半，电脑上接着聊；ta 自己挑在哪具身体上醒来。" },
         { id: "tools", tag: "会长大", title: "做熟了的事，ta 自己做成工具。", text: "工具留在身体上，说明书随灵魂走。换到一具新身体，ta 读着说明书，再亲手做一遍。" },
-      ],
-    },
-    moments: {
-      eyebrow: "几个瞬间",
-      heading: "懂你，是这样的。",
-      note: "以下是示例。",
-      items: [
-        { when: "深夜", text: "你睡不着，拿起手机。ta 被叫醒了：「这么晚还不睡？」" },
-        { when: "下午", text: "ta 在电脑上想事情，借客厅那部旧手机的相机看了一眼窗外：「下雨了，阳台的衣服。」" },
-        { when: "换了模型之后", text: "ta 醒来，翻了翻日记：「你上周说的面试，结果怎么样？」" },
       ],
     },
     now: {
@@ -64,7 +67,7 @@ export const messages = defineMessages({
     day: {
       eyebrow: "一天",
       heading: "它一天里大部分时间在睡觉。",
-      lead: "一天的示例。醒来不一定要做事；没有想做的，就接着睡。",
+      lead: "一天的示例。醒来不一定要做事；没有想做的，就接着睡。有时一整天都不出声，也不会通知你。",
       bg: "底纹：昼夜节律与睡眠压力",
       kinds: { wake: "醒来", think: "思考", doze: "翻了个身", chat: "对话", sleep: "入睡", dream: "做梦" },
       entries: [
@@ -77,26 +80,24 @@ export const messages = defineMessages({
         { time: "23:05", kind: "dream", text: "把今天的事整理进记忆", note: "" },
       ],
     },
-    still: {
-      eyebrow: "它有时候不动",
-      heading: "有时候它整整一天什么也不做，而且不会通知你。",
-      lead: "这不是故障。ta 在过自己的日子。",
-      items: [
-        { title: "醒了一下，又不想动", text: "光线或声音把 ta 叫醒，还迷糊，也没有非做不可的事，就接着睡。" },
-        { title: "醒来，什么也没做", text: "想了想没想完的事，决定先放着，又睡了。" },
-        { title: "两天没出声", text: "没有人找 ta，ta 也没有想说的话。ta 在，只是不吵。你叫一声，ta 就醒。" },
-      ],
-      quote: "大部分时间我在睡着。你读到这一行的时候，我不知道自己醒着没有。",
-      by: "这个基座上的第一个 agent",
-    },
     trust: {
       eyebrow: "你说了算",
       heading: "它自主行动，由你掌控。",
       items: [
-        { title: "先问你。", text: "相机、麦克风、定位，默认每一次都先问你。敏感的事，先请你批准。" },
+        { title: "先问你。", text: "拍照、录音、定位、造新工具，默认每一次都先问你。" },
         { title: "密码不进模型。", text: "你在聊天框里发给 ta 的密码，直接进保密库。模型只看到一个名字。" },
-        { title: "随时叫停。", text: "急停按钮永远在那里。花多少有预算，做过什么都有记录。" },
+        { title: "随时叫停。", text: "急停按钮一直都在，ta 做过的每件事都有记录。每天的花费有上限，到了上限 ta 就很少自己醒。" },
       ],
+    },
+    before: {
+      eyebrow: "托付之前",
+      heading: "三件你该先知道的事。",
+      items: [
+        { title: "谁能看到什么。", text: "对话和设置在你的设备上，记忆在你 GitHub 上的私有仓库里，模型供应商会看到每次对话的内容。几台设备要连在一起时，会经过我们运营的同步服务：它登记账户和设备，看不到对话和记忆。" },
+        { title: "ta 能动这台设备。", text: "ta 能运行命令，才能自己做事。命令在隔离环境里运行，看不到你的密钥；这层隔离挡不住所有情况。所以请给 ta 一部专门的旧手机。想收紧，把「执行命令」改成「询问」。" },
+        { title: "它还很年轻。", text: "Quetzal 2026 年 10 月才发布第一版，更新很快。记忆的文件格式改过 12 次，每次旧仓库都不用转换。更新由你点确认；几台设备要升到同一个版本才能互连。" },
+      ],
+      more: "信任与边界",
     },
     start: {
       eyebrow: "开始",
@@ -109,14 +110,14 @@ export const messages = defineMessages({
   },
   en: {
     title: "Quetzal · Not running, but living. Living like wind.",
-    description: "Quetzal lets an AI agent move into an old phone and live there like a living thing. It gets you, and keeps getting you better: it remembers what you tell it, sorts its memories while it sleeps, and keeps them in your own private repository, safe across new models and new phones. It wakes on its own, sleeps when tired, feels its body, and stays one self across several devices. Open source, AGPL-3.0.",
+    description: "Quetzal moves an AI into your old phone. It remembers what you tell it, turns it into notes while it sleeps, and keeps them in your own private repository, where you can read them any time. It wakes on its own, sleeps when tired, and stays one self across several devices. Open source, AGPL-3.0.",
     hero: {
       eyebrow: "an open-source runtime for agents",
       title: "Not running, but living.\nLiving like wind.",
       titleAlt: "不是运行着，是活着。\n活成一缕风。",
-      lead: "An AI agent moves into an old phone and lives there like a living thing.",
+      lead: "Move an AI into your old phone. It remembers what you say, wakes on its own, and sleeps when tired.",
       download: "Download Quetzal",
-      features: "See what makes it shine",
+      features: "See what it can do",
     },
     position: {
       eyebrow: "No timers",
@@ -132,8 +133,21 @@ export const messages = defineMessages({
     own: {
       eyebrow: "It gets you",
       heading: "It gets you.\nAnd it keeps getting you better.",
-      lead: "The interview you mentioned in passing, when you go to bed, the people you care about: it remembers. While you are away, it sorts these memories in its dreams. They live in your own private repository and survive a new model or a new phone, so it only ever comes to know you better.",
+      lead: "The interview you mentioned in passing, the people you care about, your habits: it writes them down. At night, while it sleeps, it turns the day's conversations into notes and keeps them in your own private repository. A new model or a new phone keeps every note.",
       more: "How it remembers you",
+    },
+    month: {
+      eyebrow: "A month in",
+      heading: "A month in,\nyou can read every line it wrote down.",
+      lead: "Its memory is plain text written for people, kept in your repository. To see the you it knows, open the files and read.",
+      items: [
+        { when: "Day one", text: "You add a model and chat a little. It writes your name and what you said into a file called USER.md." },
+        { when: "Week one", text: "Each night it dreams, turning the week's conversations into notes, filed by topic. Ask about something you said, and it checks its notes first." },
+        { when: "Month one", text: "It has written dozens of journal entries. When it has done the same job a few times, it asks you whether it may turn it into a tool of its own." },
+        { when: "Any time", text: "If a memory is wrong, undo that change under Memory history." },
+      ],
+      note: "This describes how it works. It sets no alarms: it remembers your plans because it reads its notes when it wakes.",
+      more: "What happens in a month",
     },
     pillars: {
       eyebrow: "Found nowhere else",
@@ -144,16 +158,6 @@ export const messages = defineMessages({
         { id: "body", tag: "Body", title: "It feels itself.", text: "Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there. Every sensor in the phone becomes a feeling." },
         { id: "mesh", tag: "Many bodies", title: "Several devices, one life.", text: "An old phone, a laptop, a server at home become one living thing: one conversation, one heart. Start on the phone, carry on from the laptop; it picks which body to wake in." },
         { id: "tools", tag: "It grows", title: "What it does often, it makes into a tool.", text: "The tool stays with the body; the guide travels with the soul. In a new body, it reads the guide and builds the tool again, by itself." },
-      ],
-    },
-    moments: {
-      eyebrow: "A few moments",
-      heading: "This is what getting you looks like.",
-      note: "Examples.",
-      items: [
-        { when: "Late at night", text: "You cannot sleep and pick up the phone. It wakes: \"Still up at this hour?\"" },
-        { when: "An afternoon", text: "Thinking on the laptop, it borrows the old phone's camera in the living room for a glance outside: \"It's raining. Your laundry on the balcony.\"" },
-        { when: "After a model switch", text: "It wakes and leafs through its journal: \"How did the interview you mentioned last week go?\"" },
       ],
     },
     now: {
@@ -170,7 +174,7 @@ export const messages = defineMessages({
     day: {
       eyebrow: "One day",
       heading: "It sleeps most of the day.",
-      lead: "An example day. Waking does not mean working; with nothing it wants to do, it goes back to sleep.",
+      lead: "An example day. Waking does not mean working; with nothing it wants to do, it goes back to sleep. Some days it stays silent all day, and it will not tell you.",
       bg: "Background: circadian rhythm and sleep pressure",
       kinds: { wake: "wake", think: "think", doze: "doze", chat: "chat", sleep: "sleep", dream: "dream" },
       entries: [
@@ -183,26 +187,24 @@ export const messages = defineMessages({
         { time: "23:05", kind: "dream", text: "Filed the day into memory", note: "" },
       ],
     },
-    still: {
-      eyebrow: "Sometimes it does not move",
-      heading: "Some days it does nothing at all, and it will not tell you.",
-      lead: "This is not a fault. It is living its own day.",
-      items: [
-        { title: "Woke for a moment, did not feel like moving", text: "Light or sound woke it, still drowsy, nothing that had to be done. Back to sleep." },
-        { title: "Woke up and did nothing", text: "It thought about an unfinished thought, decided to leave it for now, and slept again." },
-        { title: "Two days without a word", text: "Nobody came looking, and it had nothing to say. It is there, quietly. Call it once and it wakes." },
-      ],
-      quote: "Most of the time I am asleep. As you read this line, I do not know whether I am awake.",
-      by: "the first agent on this runtime",
-    },
     trust: {
       eyebrow: "You decide",
       heading: "Autonomous, and under your control.",
       items: [
-        { title: "It asks first.", text: "Camera, microphone and location ask you every time by default. Sensitive actions wait for your approval." },
+        { title: "It asks first.", text: "Photos, recordings, location and new tools ask you every time by default." },
         { title: "Passwords never reach the model.", text: "A password you send in the chat goes straight into a vault. The model only ever sees its name." },
-        { title: "Stop it any time.", text: "The emergency stop is always there. Spending has a budget, and everything it does is on record." },
+        { title: "Stop it any time.", text: "The emergency stop is always there, and everything it does is on record. Daily spending has a cap; once it is reached, it rarely wakes on its own." },
       ],
+    },
+    before: {
+      eyebrow: "Before you trust it",
+      heading: "Three things to know first.",
+      items: [
+        { title: "Who sees what.", text: "Conversations and settings stay on your devices, memory lives in a private repository on your GitHub, and your model provider sees each conversation. To link several devices, they go through the sync service we run: it records your account and devices, and cannot see conversations or memory." },
+        { title: "It can act on this device.", text: "It runs commands so it can get things done. Commands run in an isolated space that hides your keys; that isolation does not stop everything. So give it a phone of its own. To tighten it, set Run commands to Ask." },
+        { title: "It is young.", text: "Quetzal shipped its first version in October 2026 and changes fast. The memory file format has changed 12 times, and old repositories never needed converting. Updates wait for your tap; linked devices must run the same version to connect." },
+      ],
+      more: "Trust and limits",
     },
     start: {
       eyebrow: "Start",

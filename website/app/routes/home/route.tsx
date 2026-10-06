@@ -53,7 +53,7 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* 2 · ta 是你的：最重要的一句话，单独一节 */}
+      {/* 2 · 懂你：最重要的一句话，单独一节 */}
       <Section tone="elevated">
         <Container className="flex flex-col gap-6">
           <Reveal className="flex max-w-4xl flex-col gap-6">
@@ -65,8 +65,31 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 3 · 没有定时器：它和 Codex / Hermes / OpenClaw 的差别只讲一件事 + 三条带子 */}
+      {/* 3 · 一个月后：ta 的记忆是你读得到的文字文件；按 ta 的做法写，不摘任何真实记录 */}
       <Section>
+        <Container className="flex flex-col gap-10">
+          <Reveal className="flex max-w-prose flex-col gap-4">
+            <Eyebrow>{t.month.eyebrow}</Eyebrow>
+            <Heading className="whitespace-pre-line">{t.month.heading}</Heading>
+            <Lead>{t.month.lead}</Lead>
+          </Reveal>
+          <ol className="grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
+            {t.month.items.map((it, i) => (
+              <Reveal as="li" key={it.when} delay={(i % 3) as 0 | 1 | 2} className="flex flex-col gap-2 border-t border-border pt-5">
+                <span className="text-xs font-medium uppercase tracking-wide text-secondary-fg">{it.when}</span>
+                <p className="text-fg text-pretty">{it.text}</p>
+              </Reveal>
+            ))}
+          </ol>
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-fg-subtle">{t.month.note}</p>
+            <Link to={localized(lang, "/docs/start/first-month")} className="text-sm text-link underline-offset-4 hover:underline">{t.month.more} →</Link>
+          </div>
+        </Container>
+      </Section>
+
+      {/* 4 · 没有定时器：它和 Codex / Hermes / OpenClaw 的差别只讲一件事 + 三条带子 */}
+      <Section tone="elevated">
         <Container className="grid items-center gap-10 lg:grid-cols-[1.15fr_1fr] lg:gap-14"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-6">
             <Eyebrow>{t.position.eyebrow}</Eyebrow>
@@ -92,8 +115,8 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 4 · 别处没有的：身体 · 许多身体 · 会长大，各链到亮点页对应的一节 */}
-      <Section tone="elevated">
+      {/* 5 · 别处没有的：身体 · 许多身体 · 会长大，各链到亮点页对应的一节 */}
+      <Section>
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
             <Eyebrow>{t.pillars.eyebrow}</Eyebrow>
@@ -116,25 +139,6 @@ export default function Home() {
               </Reveal>
             ))}
           </ul>
-        </Container>
-      </Section>
-
-      {/* 5 · 几个瞬间（示例） */}
-      <Section>
-        <Container className="flex flex-col gap-10">
-          <Reveal className="flex max-w-prose flex-col gap-4">
-            <Eyebrow>{t.moments.eyebrow}</Eyebrow>
-            <Heading>{t.moments.heading}</Heading>
-          </Reveal>
-          <ul className="grid gap-x-10 gap-y-8 md:grid-cols-3">
-            {t.moments.items.map((it, i) => (
-              <Reveal as="li" key={it.when} delay={i as 0 | 1 | 2} className="flex flex-col gap-2 border-t border-border pt-5">
-                <span className="text-xs font-medium uppercase tracking-wide text-secondary-fg">{it.when}</span>
-                <p className="text-lg text-fg text-pretty">{it.text}</p>
-              </Reveal>
-            ))}
-          </ul>
-          <p className="text-xs text-fg-subtle">{t.moments.note}</p>
         </Container>
       </Section>
 
@@ -176,30 +180,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 8 · 它有时候不动（暗着的一节） */}
-      <Section className="border-t border-border bg-bg">
-        <Container className="flex flex-col gap-10">
-          <Reveal className="flex max-w-prose flex-col gap-4">
-            <Eyebrow className="text-fg-subtle">{t.still.eyebrow}</Eyebrow>
-            <Heading className="text-fg-muted">{t.still.heading}</Heading>
-            <p className="text-fg-subtle text-pretty">{t.still.lead}</p>
-          </Reveal>
-          <dl className="grid gap-x-10 gap-y-8 md:grid-cols-3">
-            {t.still.items.map((it, i) => (
-              <Reveal key={it.title} delay={i as 0 | 1 | 2} className="flex flex-col gap-2 border-t border-border pt-5">
-                <dt className="font-medium text-fg-muted">{it.title}</dt>
-                <dd className="text-sm text-fg-subtle text-pretty">{it.text}</dd>
-              </Reveal>
-            ))}
-          </dl>
-          <Reveal as="div" className="max-w-prose">
-            <blockquote className="border-l border-border-strong pl-5 text-lg text-fg-muted text-pretty">{t.still.quote}</blockquote>
-            <p className="mt-3 pl-5 text-sm text-fg-subtle">— {t.still.by}</p>
-          </Reveal>
-        </Container>
-      </Section>
-
-      {/* 9 · 你说了算 */}
+      {/* 8 · 你说了算 */}
       <Section tone="elevated">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
@@ -217,8 +198,27 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 10 · 开始 */}
+      {/* 9 · 托付之前：谁看得到什么、ta 能碰到什么、它还年轻。细节在文档「信任与边界」 */}
       <Section>
+        <Container className="flex flex-col gap-10">
+          <Reveal className="flex max-w-prose flex-col gap-4">
+            <Eyebrow>{t.before.eyebrow}</Eyebrow>
+            <Heading>{t.before.heading}</Heading>
+          </Reveal>
+          <dl className="grid gap-x-10 gap-y-8 md:grid-cols-3">
+            {t.before.items.map((it, i) => (
+              <Reveal key={it.title} delay={i as 0 | 1 | 2} className="flex flex-col gap-2 border-t border-border pt-5">
+                <dt className="font-medium text-fg">{it.title}</dt>
+                <dd className="text-sm text-fg-muted text-pretty">{it.text}</dd>
+              </Reveal>
+            ))}
+          </dl>
+          <Link to={localized(lang, "/docs/guide/trust")} className="text-sm text-link underline-offset-4 hover:underline">{t.before.more} →</Link>
+        </Container>
+      </Section>
+
+      {/* 10 · 开始 */}
+      <Section tone="elevated">
         <Container className="flex flex-col items-start gap-6">
           <Eyebrow>{t.start.eyebrow}</Eyebrow>
           <Heading size="lg" className="max-w-3xl">{t.start.heading}</Heading>

@@ -7,9 +7,9 @@ export const messages = defineMessages({
     eyebrow: "隐私政策",
     heading: "隐私政策",
     lead: "本网站不收集你的个人信息。下面说明网站与软件各自会接触到什么。",
-    updated: "最近更新：2026 年 10 月 6 日",
+    updated: "最近更新：2026 年 10 月 7 日",
     sections: [
-      { heading: "1. 本网站", paragraphs: ["本网站是纯静态站点，没有账号、没有表单、没有服务端数据库，不设置 Cookie，不加载任何统计、广告或第三方字体脚本。"], bullets: [
+      { heading: "1. 本网站", paragraphs: ["本网站是纯静态站点，没有服务端数据库，自己不设置 Cookie，不加载任何统计、广告或第三方字体脚本。账户页上的数据由你的浏览器直接向同步服务读取，见第 3 节。"], bullets: [
         "语言与外观偏好保存在你浏览器的 localStorage 里（键 quetzal.lang、quetzal.theme），只在你的设备上，随时可在浏览器中清除。",
         "下载页由你的浏览器向本站请求版本信息与安装包；本站不记录你的身份，不设 Cookie，结果只在你的浏览器会话里缓存 10 分钟。",
         "本网站托管在 Cloudflare。Cloudflare 作为托管与网络服务商可能按其隐私政策处理连接日志（如 IP 地址）；本项目不读取、不保存这些日志。",
@@ -23,9 +23,10 @@ export const messages = defineMessages({
         "保密传递：通过 pass_secret 交给 agent 的密码与令牌只存进本机保密库，不进入对话与模型上下文。",
         "多具身体（可选）：几具身体之间直接传输对话、会话、时间线与设置（含模型 Key），端到端加密，只发给灵魂仓库里登记过的身体，不经任何服务器保存。",
       ] },
-      { heading: "3. 同步服务（可选）", paragraphs: ["要把同一个 agent 的几具身体连在一起，可以使用同步服务：本项目运营一个对所有人开放的同步服务，你也可以用源代码里的 sync/ 自己部署。使用本项目运营的同步服务时："], bullets: [
-        "登录：用 GitHub 账号登录，只读取公开资料（数字 id、用户名、显示名），不保存 GitHub 的访问令牌。",
-        "保存的内容：你的账户；你绑定的 agent（名字与 id）；每具身体的名字、类型、软件版本、节点公钥与最近在线时间；登录会话、控制台登录（来自哪具身体、登录与最近使用的时间）与身体令牌只存哈希，绑定码 15 分钟后作废。",
+      { heading: "3. 同步服务（可选）", paragraphs: ["用 GitHub 登录、自动建灵魂仓库、把几具身体连在一起，都经过同步服务。本项目的作者个人运营一个对所有人开放的同步服务，App 默认使用它；你也可以用源代码里的 sync/ 自己部署，或者不登录。使用本项目运营的同步服务时："], bullets: [
+        "登录：用 GitHub 账号登录，只读取公开资料（数字 id、用户名、显示名），读完立即作废 GitHub 给的令牌，不保存。",
+        "GitHub 应用：第一次登录时，GitHub 会请你安装 Quetzal 应用，并选择它能管理哪些仓库。它的权限是这些仓库的「管理」（Administration）写权限，按 GitHub 的规定，这项权限可以建仓库、加部署密钥、改仓库设置，也包括删除这些仓库；它读不到仓库里的文件。Quetzal 只用它建仓库和加部署密钥。同步服务不保存这个应用的私钥，平时没有任何能动你仓库的凭据；只在你批准一具身体后，用 GitHub 当场给的短时令牌建仓库或加这具身体的公钥，做完立即作废。你可以随时在 GitHub 的 Settings → Applications 里卸载它，已经加好的部署密钥不受影响。",
+        "保存的内容：你的账户；你绑定的 agent（名字、id 与灵魂仓库的名字）；每具身体的名字、类型、软件版本、节点公钥与最近在线时间；登录会话、控制台登录（来自哪具身体、登录与最近使用的时间）与身体令牌只存哈希，绑定码 15 分钟后作废。",
         "账户页：登录、账户管理与添加设备的页面在本站（quetzal.plutokeating.beer/account），数据由你的浏览器直接向同步服务读取；登录状态保存在同步服务的一个 Cookie 里（只用于登录，30 天内有效），本站自己不设 Cookie、不保存账户数据。",
         "不保存的内容：IP 地址与网络端点（只在身体在线时用于建立连接，不写盘、不写日志）、对话、记忆、人格、模型 Key。打不通而经服务器中转的流量是端到端加密的，服务器看不到内容。",
         "删除：在同步服务网页的账户页可以随时解绑身体、删除 agent 或删除整个账户，立即生效。",
@@ -42,9 +43,9 @@ export const messages = defineMessages({
     eyebrow: "Privacy Policy",
     heading: "Privacy Policy",
     lead: "This website does not collect your personal information. Below is what the site and the software each touch.",
-    updated: "Last updated: October 6, 2026",
+    updated: "Last updated: October 7, 2026",
     sections: [
-      { heading: "1. This website", paragraphs: ["This is a purely static site: no accounts, no forms, no server-side database, no cookies, and no analytics, advertising or third-party font scripts."], bullets: [
+      { heading: "1. This website", paragraphs: ["This is a purely static site: no server-side database, no cookies of its own, and no analytics, advertising or third-party font scripts. The data on the account pages is read by your browser directly from the sync service; see section 3."], bullets: [
         "Your language and appearance preferences are stored in your browser's localStorage (keys quetzal.lang and quetzal.theme), only on your device, and can be cleared in the browser at any time.",
         "The download page requests release information and packages from this site in your browser; this site does not record who you are, sets no cookies, and the result is cached only in your browser session for 10 minutes.",
         "The site is hosted on Cloudflare. As the hosting and network provider, Cloudflare may process connection logs (such as IP addresses) under its own privacy policy; this project does not read or keep those logs.",
@@ -58,9 +59,10 @@ export const messages = defineMessages({
         "Secret passing: passwords and tokens handed to the agent through pass_secret are stored only in the local vault and never enter the conversation or the model context.",
         "Multiple bodies (optional): conversations, sessions, timeline and settings (including model keys) travel directly between your bodies, end-to-end encrypted, only to bodies registered in your soul repository, and are not stored on any server.",
       ] },
-      { heading: "3. Sync service (optional)", paragraphs: ["To connect the bodies of one agent you can use a sync service: this project operates one that is open to everyone, and you can also host your own from sync/ in the source code. When you use the sync service operated by this project:"], bullets: [
-        "Sign-in: with your GitHub account, reading only public profile data (numeric id, username, display name); no GitHub access token is kept.",
-        "What is stored: your account; the agents you bind (name and id); each body's name, kind, software version, node public key and last-seen time; sign-in sessions, console sign-ins (which body, when signed in and last used) and body tokens as hashes only; binding codes expire after 15 minutes.",
+      { heading: "3. Sync service (optional)", paragraphs: ["Signing in with GitHub, creating the soul repository automatically and linking several bodies all go through a sync service. The author of this project personally runs one that is open to everyone, and the app uses it by default; you can also host your own from sync/ in the source code, or not sign in at all. When you use the sync service run by this project:"], bullets: [
+        "Sign-in: with your GitHub account, reading only public profile data (numeric id, username, display name); the token GitHub hands over is revoked right after and never kept.",
+        "GitHub app: the first time you sign in, GitHub asks you to install the Quetzal app and choose which repositories it may manage. Its permission is write access to Administration on those repositories: under GitHub's rules it can create repositories, add deploy keys and change repository settings, including deleting those repositories; it cannot read the files inside. Quetzal uses it only to create the repository and add deploy keys. The sync service does not keep the app's private key and holds no credential that can touch your repositories day to day; only after you approve a body does it use a short-lived token GitHub issues on the spot to create the repository or add that body's public key, then revokes it at once. You can uninstall the app any time under Settings → Applications on GitHub; deploy keys already added keep working.",
+        "What is stored: your account; the agents you bind (name, id and soul repository name); each body's name, kind, software version, node public key and last-seen time; sign-in sessions, console sign-ins (which body, when signed in and last used) and body tokens as hashes only; binding codes expire after 15 minutes.",
         "Account pages: sign-in, account management and device approval live on this site (quetzal.plutokeating.beer/account), and your browser reads the data directly from the sync service; your sign-in is kept in a cookie of the sync service (used only for sign-in, valid for 30 days). This site sets no cookies of its own and keeps no account data.",
         "What is not stored: IP addresses and network endpoints (used only while a body is online to set up connections, never written to disk or logs), conversations, memory, personality, model keys. Traffic relayed through the server when no direct connection is possible is end-to-end encrypted and invisible to the server.",
         "Deletion: on the sync service's account page you can unbind a body, delete an agent or delete the whole account at any time, effective immediately.",

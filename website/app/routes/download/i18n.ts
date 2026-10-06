@@ -24,10 +24,10 @@ export const messages = defineMessages({
       lead: "运行基座、Node.js、git 都在 App 里，不用再装别的。",
       steps: [
         { title: "下载并安装 Quetzal App", text: "第一次装时，系统会请你允许安装来自浏览器的应用。" },
-        { title: "打开，选「在这台手机上安装」", text: "一键装好，半分钟左右，控制台自动连上。" },
-        { title: "允许身体权限，设置保活", text: "相机、麦克风、定位让 ta 感觉得到身体；把 Quetzal 加入电池优化忽略名单与自启动管理，ta 才不会被系统杀掉。" },
+        { title: "打开它", text: "自动开始安装，半分钟左右装好。" },
+        { title: "跟着向导走", text: "允许相机、麦克风、定位，让 ta 在后台运行，用 GitHub 登录，选一个模型。登录和模型都可以以后再做。" },
       ],
-      requirements: "要求：Android 7 以上，arm64 处理器。",
+      requirements: "要求：Android 7 以上，arm64 处理器。最好用一部专门给 ta 的手机。",
       guide: "完整安装步骤",
     },
     notes: {
@@ -84,10 +84,10 @@ export const messages = defineMessages({
       lead: "The runtime, Node.js and git all live inside the app. Nothing else to install.",
       steps: [
         { title: "Download and install the Quetzal app", text: "The first time, Android asks you to allow installing apps from your browser." },
-        { title: "Open it and choose \"Install on this phone\"", text: "One tap, about half a minute, and the console connects by itself." },
-        { title: "Allow body permissions, set up keep-alive", text: "Camera, microphone and location let it feel its body; add Quetzal to the battery-optimization exceptions and the autostart list so the system does not kill it." },
+        { title: "Open it", text: "Installation starts on its own and takes about half a minute." },
+        { title: "Follow the wizard", text: "Allow camera, microphone and location, let it run in the background, sign in with GitHub, and pick a model. Sign-in and the model can wait until later." },
       ],
-      requirements: "Requirements: Android 7 or later, arm64 processor.",
+      requirements: "Requirements: Android 7 or later, arm64 processor. Ideally a phone set aside just for it.",
       guide: "Full installation guide",
     },
     notes: {
