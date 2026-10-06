@@ -220,6 +220,13 @@ async function ensureSoulKey(): Promise<string> {
   return fs.readFileSync(`${key}.pub`, "utf8").trim();
 }
 
+/** 一个链接接入：绑定时带上部署公钥；批准时同步服务经 GitHub 链接好灵魂仓库后，这里采用它（与人在「灵魂同步」页里接入相同）。
+ *  由 main.ts 在启动时登记（ops 与 mesh 互相引用，模块求值时登记会碰到未初始化的变量）。 */
+export const soulLink = {
+  key: () => ensureSoulKey(),
+  adopt: async (remote: string) => { await ops.setSoulConfig({ remote, sshMode: "deploy" }, "mesh"); },
+};
+
 export type OpName = keyof typeof ops;
 export async function invoke(name: string, args: any, actor: string) {
   const f = (ops as any)[name];

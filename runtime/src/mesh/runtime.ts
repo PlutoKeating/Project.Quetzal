@@ -54,7 +54,7 @@ function soulBody(body: string): Record<string, unknown> | undefined {
 
 export let mesh: Mesh | undefined;
 let uninstall: (() => void) | undefined;
-let binding: { code: string; uri: string; expires: number; abort: AbortController } | undefined;
+let binding: { code: string; uri: string; expires: number; abort: AbortController; check: string } | undefined;
 let lastError = "";
 
 const changed = () => bus.emit("mesh", meshStatus());
@@ -97,7 +97,7 @@ export function meshStatus() {
     fingerprint: fingerprint(nodeKey().nodeKey), available: !ndcError,
     state: live?.state ?? "off", error: ndcError || lastError || live?.error || "", clockSkewMs: live?.clockSkewMs ?? 0,
     peers: live?.peers ?? [], coordinator: coordinator(),
-    binding: binding ? { code: binding.code, uri: binding.uri, expires: binding.expires } : null,
+    binding: binding ? { code: binding.code, uri: binding.uri, expires: binding.expires, check: binding.check } : null,
   };
 }
 
@@ -112,20 +112,32 @@ export async function setServer(server: string) {
   return meshStatus();
 }
 
-/** 开始绑定：向同步服务申请设备码，返回给人看的短码与链接；后台轮询，批准后保存令牌并连上。进展经 mesh 事件推送。 */
+/** 一个链接接入（同步服务协议 §2.1）：ops 层登记「这具身体的部署公钥」与「采用批准时链接好的灵魂仓库」（mesh 不直接依赖 ops，避免循环）。 */
+let soulLink: { key(): Promise<string>; adopt(remote: string): Promise<void> } | undefined;
+export function registerSoulLink(l: NonNullable<typeof soulLink>) { soulLink = l; }
+
+/** 开始绑定：向同步服务申请设备码，返回给人看的短码、核对词与链接；后台轮询，批准后保存令牌并连上。进展经 mesh 事件推送。
+ *  同时带上部署公钥：批准时同步服务经 GitHub 把它加到灵魂仓库。身份还是种子（新装的身体）时不报 agent id，由批准的人选——
+ *  老用户的新设备就这样接进已有的 agent，不会多出一个新 agent。 */
 export async function bind() {
   if (!config.mesh.server) throw new Error("先填写同步服务的地址");
   binding?.abort.abort();
   const id = identity();
-  const start = await startBinding(config.mesh.server, { agent: { id: id.id, name: id.displayName }, body: config.body, kind: "runtime", nodeKey: nodeKey().nodeKey, version: VERSION });
+  const fresh = !!(id as { seed?: boolean }).seed && !config.soul.remote;
+  const soulKey = config.soul.sshMode === "deploy" ? await soulLink?.key().catch(() => undefined) : undefined;
+  const start = await startBinding(config.mesh.server, { agent: { ...(fresh ? {} : { id: id.id }), name: id.displayName }, body: config.body, kind: "runtime", nodeKey: nodeKey().nodeKey, version: VERSION, ...(soulKey ? { soulKey } : {}) });
   const abort = new AbortController();
-  binding = { code: start.user_code, uri: start.verification_uri_complete, expires: Date.now() + start.expires_in * 1000, abort };
+  binding = { code: start.user_code, uri: start.verification_uri_complete, expires: Date.now() + start.expires_in * 1000, abort, check: start.check ?? "" };
   lastError = "";
   changed();
   pollBinding(config.mesh.server, start, abort.signal).then(async (b) => {
-    fs.writeFileSync(BINDING(), JSON.stringify(b, null, 2), { mode: 0o600 });
+    const { soul, ...saved } = b;
+    fs.writeFileSync(BINDING(), JSON.stringify(saved, null, 2), { mode: 0o600 });
     binding = undefined;
     addTimeline("mesh", `这具身体绑定到了同步服务（账户 ${b.account}）`, { server: b.server });
+    if (soul && "remote" in soul && soulLink) {
+      if (!config.soul.remote) await soulLink.adopt(soul.remote).then(() => addTimeline("soul", `接入了灵魂仓库 ${soul.repo}`, { repo: soul.repo }), (e: Error) => addTimeline("soul", `接入灵魂仓库失败：${e.message}`, {}));
+    } else if (soul && "error" in soul) addTimeline("soul", `没能自动链接灵魂仓库：${soul.error}`, {});
     await startMesh();
   }, (e: Error) => { if (binding?.abort === abort) { binding = undefined; lastError = e.message; changed(); } });
   return meshStatus();

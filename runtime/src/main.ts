@@ -15,7 +15,8 @@ import { bus } from "./bus.ts";
 import { log } from "./log.ts";
 import { VERSION } from "./version.ts";
 import { restore as restoreAgents } from "./mind/agents.ts";
-import { startMesh, wireMesh } from "./mesh/runtime.ts";
+import { startMesh, wireMesh, registerSoulLink } from "./mesh/runtime.ts";
+import { soulLink } from "./ops.ts";
 
 /** 熔断：10 分钟内启动超过 5 次（说明在反复崩溃）则进入安全模式——只开网关与飞书，不醒来、不调用模型。 */
 function crashGuard(): boolean {
@@ -56,6 +57,7 @@ async function main() {
   }
   await ensureSoul().catch((e) => log("soul", `灵魂目录初始化失败：${e.message}`));
   wireMesh();
+  registerSoulLink(soulLink); // 一个链接接入：绑定时带部署公钥，批准后采用链接好的灵魂仓库
   await startMesh().catch((e) => log("mesh", `网状层启动失败：${e.message}`)); // 没有绑定或缺组件时只是不启动，身体之间仍用 git 同步
   await sample().catch(() => {});
   addTimeline("boot", "苏醒：进程启动", { version: VERSION, body: config.body });
