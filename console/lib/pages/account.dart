@@ -120,7 +120,6 @@ class _OverviewState extends State<_Overview> {
           Padding(padding: const EdgeInsets.all(4), child: Text('${agents.length} / ${limits['agents'] ?? '-'} 个 agent · 每个最多 ${limits['bodies'] ?? '-'} 台设备', style: Theme.of(context).textTheme.bodySmall)),
           if (agents.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('还没有 agent', textAlign: TextAlign.center)),
           for (final a in agents) Section('${a['name']}', [
-            SelectableText('${a['id']}', style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
             for (final b in ((a['bodies'] as List?) ?? []).cast<Map>()) ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.circle, size: 12, color: b['online'] == true ? Colors.orange : Colors.grey),
