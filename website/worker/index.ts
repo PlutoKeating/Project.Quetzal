@@ -18,7 +18,7 @@ const ASSET = /^(?:quetzal-[A-Za-z0-9.+-]+\.(?:apk|tar\.gz)|SHA256SUMS(?:\.sig|-
 // RELEASE_TTL：按 tag 取的发布 JSON（只用来核对 /dl/ 资产的 digest）；SMALL_MAX：不超过它的资产整个读进来核对，不符直接 502
 const API_TTL = 300, DL_TTL = 7 * 86400, STALE_TTL = 7 * 86400, RELEASE_TTL = 300, SMALL_MAX = 1 << 20;
 
-interface Env { ASSETS: { fetch(req: Request): Promise<Response> }; GITHUB_TOKEN?: string; OAUTH_CLIENT_IDS?: string; OAUTH_APP_CLIENT_IDS?: string }
+interface Env { ASSETS: { fetch(req: Request): Promise<Response> }; GITHUB_TOKEN?: string; OAUTH_CLIENT_IDS?: string }
 interface Ctx { waitUntil(p: Promise<unknown>): void }
 const cacheOf = () => (caches as unknown as { default: Cache }).default;
 const cors = (h: Headers) => { h.set("Access-Control-Allow-Origin", "*"); h.set("Access-Control-Expose-Headers", "x-ratelimit-remaining, x-ratelimit-reset, Content-Length"); return h; };
@@ -216,8 +216,7 @@ async function oauthToken(request: Request, env: Env): Promise<Response> {
   const body = await request.text();
   if (body.length > 4096) return json(413, { error: "too_large" });
   const form = new URLSearchParams(body);
-  // OAUTH_CLIENT_IDS：控制台里设的变量；OAUTH_APP_CLIENT_IDS：同步服务的 GitHub App 创建后由 wrangler secret put 加上（不动前者）
-  const allowed = new Set(`${env.OAUTH_CLIENT_IDS ?? ""},${env.OAUTH_APP_CLIENT_IDS ?? ""}`.split(",").map((x) => x.trim()).filter(Boolean));
+  const allowed = new Set((env.OAUTH_CLIENT_IDS ?? "").split(",").map((x) => x.trim()).filter(Boolean));
   if (!allowed.size) return json(503, { error: "relay_not_configured" });
   if (!allowed.has(form.get("client_id") ?? "")) return json(403, { error: "client_not_allowed" });
   try {
