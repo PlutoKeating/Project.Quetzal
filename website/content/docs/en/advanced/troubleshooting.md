@@ -9,27 +9,27 @@ description: Stuck installs, she never wakes, killed by the system, offline afte
 |---|---|
 | "A runtime is already running on this phone" | Most likely the old version installed in Termux is still running on the same port. Migrate as in [Coming from the Termux version](/docs/start/install#coming-from-the-termux-version): make sure the soul is pushed, uninstall the Termux version (or `sv down quetzal` in Termux), then come back and install |
 | "The runtime did not respond within 180 seconds" | The built-in runtime failed to start. The log is `files/home/quetzal/data/runtime.log` in the app's data directory (readable from a computer with `adb shell run-as xyz.quetzal.console`, debug builds only); open an issue on GitHub with it. Try **Retry** first |
-| "Could not read the gateway token" / "checking the gateway failed" | The runtime is up but the token does not match, most likely because the data directory was edited by hand. Restart under **Control → Service** and try again |
+| "Could not read the gateway token" / "checking the gateway failed" | The runtime is up but the token does not match, most likely because the data directory was edited by hand. Restart under **Control → Advanced → Runtime** and try again |
 
 ## She never wakes
 
 Check in order:
 
 - [ ] **Control → Models**: at least one provider, one key and one enabled model, and the test passes. With no model the wake rate is zero.
-- [ ] **Control → Autonomy**: autonomy is not paused; activity is not 0.
+- [ ] **Control → Rhythm**: not paused; activity is not 0.
 - [ ] No emergency stop in the top bar.
-- [ ] **Control → Budget**: today's budget is not spent; battery above the minimum or charging; temperature normal.
+- [ ] **Control → Advanced → Budget**: today's budget is not spent; battery above the minimum or charging; temperature normal.
 - [ ] In the first hour or two after installation her drives are still building up; quiet is normal. Try **Poke**.
 
 ## Offline / killed by the system
 
-- When the **Now** page shows the offline banner, tap **Ignite**: the app starts its own foreground service again (the permanent "lives on this phone" notification).
+- When the **Now** page shows the offline banner, tap **Start**: the app starts its own foreground service again (the permanent "lives on this phone" notification).
 - Killed repeatedly: make sure Quetzal is on the **battery optimization ignore list** and **allowed** in the vendor's autostart / background manager. Some vendor systems ship a separate "power genie" style component that ignores the whitelist and must be turned off or disabled in system settings ([Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) records how on one old phone).
 - **Offline after a reboot or an app update**: phones with a lock screen password must be unlocked once; if the vendor system has not allowed autostart, the boot and update broadcasts are blocked, so open the app once; after allowing autostart this no longer happens.
 
 ## Safe mode
 
-She tells you she "entered safe mode": more than five starts in ten minutes. Only the gateway and Feishu are up; no waking, no model calls. Usually a corrupted configuration or a provider-layer fault. Read the log (phone: `files/home/quetzal/data/runtime.log` in the app's data directory; Linux: `quetzal logs`), fix the cause, then restart from **Control → Service**.
+She tells you she "entered safe mode": more than five starts in ten minutes. Only the gateway and Feishu are up; no waking, no model calls. Usually a corrupted configuration or a provider-layer fault. Read the log (phone: `files/home/quetzal/data/runtime.log` in the app's data directory; Linux: `quetzal logs`), fix the cause, then restart from **Control → Advanced → Runtime**.
 
 ## Models
 
@@ -53,7 +53,7 @@ She tells you she "entered safe mode": more than five starts in ten minutes. Onl
 | Connect fails with "address must be SSH" | Use `git@github.com:you/repo.git`, not https |
 | Push rejected | The deploy key lacks **Allow write access**, or the public key was added to a different repository |
 | "Different identity, refusing to merge" | Another agent lives in that repository. Create a new one for this agent |
-| The two sides look out of sync | Sync is event-driven: wait for her next wake-up / conversation, or tap "Sync now" on the Soul sync page |
+| The two sides look out of sync | Sync is event-driven: wait for her next wake-up / conversation, or tap "Sync now" under **Control → Advanced → Sync** |
 
 ## The web console (Linux)
 
@@ -67,4 +67,4 @@ She tells you she "entered safe mode": more than five starts in ten minutes. Onl
 
 ## Still stuck
 
-Open an issue at [GitHub Issues](https://github.com/PlutoKeating/Project.Quetzal/issues) describing the symptom, with the version shown under **Control → Service** and the relevant log (strip personal information from the log first).
+Open an issue at [GitHub Issues](https://github.com/PlutoKeating/Project.Quetzal/issues) describing the symptom, with the version shown under **Control → Advanced → Runtime** and the relevant log (strip personal information from the log first).

@@ -14,7 +14,7 @@ With Feishu connected she has a second place to talk to you. Everything in Feish
 
 ## One-tap setup
 
-**Control → Feishu → Start**:
+**Control → Feishu → Connect Feishu**:
 
 ```mermaid
 sequenceDiagram
@@ -22,7 +22,7 @@ sequenceDiagram
   participant A as Console
   participant R as Runtime
   participant F as Feishu
-  U->>A: Tap "Start"
+  U->>A: Tap "Connect Feishu"
   A->>R: feishu.register
   R->>F: Request bot creation
   F-->>R: Confirmation link
@@ -37,7 +37,7 @@ sequenceDiagram
 The bot is named after the agent's display name and the person who performed the setup is bound as its owner. It uses a **long connection**, so the phone needs no public address.
 
 > [!NOTE]
-> You can also enter an existing app's App ID and App Secret by hand (**Control → Feishu**). The secret is stored in the local `secrets/` directory and never enters the soul repository.
+> You can also enter an existing app's App ID and App Secret by hand (**Control → Feishu → Enter manually**). The secret is stored in the local `secrets/` directory and never enters the soul repository.
 
 ## Chatting in Feishu
 

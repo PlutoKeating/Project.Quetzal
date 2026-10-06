@@ -14,7 +14,7 @@ description: 一键创建机器人、绑定你本人，然后在飞书单聊里�
 
 ## 一键接入
 
-**控制 → 飞书 → 开始**：
+**控制 → 飞书 → 连接飞书**：
 
 ```mermaid
 sequenceDiagram
@@ -22,7 +22,7 @@ sequenceDiagram
   participant A as 控制台
   participant R as 运行基座
   participant F as 飞书
-  U->>A: 点「开始」
+  U->>A: 点「连接飞书」
   A->>R: feishu.register
   R->>F: 发起创建机器人
   F-->>R: 扫码 / 确认链接
@@ -37,7 +37,7 @@ sequenceDiagram
 机器人以 agent 的显示名命名，并自动绑定操作的你本人为所有者。接入用的是**长连接**，手机不需要公网地址。
 
 > [!NOTE]
-> 也可以手动填入已有应用的 App ID 与 App Secret（**控制 → 飞书**）。Secret 保存在本机 `secrets/` 目录，不进灵魂仓库。
+> 也可以手动填入已有应用的 App ID 与 App Secret（**控制 → 飞书 → 手动填写**）。Secret 保存在本机 `secrets/` 目录，不进灵魂仓库。
 
 ## 在飞书里对话
 

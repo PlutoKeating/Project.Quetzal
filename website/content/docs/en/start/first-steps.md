@@ -13,7 +13,7 @@ description: The first ten minutes after installing: configure a model, name her
 
 ## 1. Configure a model
 
-**Control → Models**:
+**Control → Models** (the setup wizard's last step **Choose a model**, and the **Choose a model** card on **Now** while there is no model, lead here too):
 
 1. **Add a provider**: pick one from the catalog (sourced from models.dev, with context lengths and prices) or enter a custom API URL and protocol (OpenAI-compatible, OpenAI Responses, Anthropic Messages, Google Gemini).
 2. **Add a key**: keys are encrypted on the phone; the UI shows only the last four characters.
@@ -28,11 +28,11 @@ Details in [Models and providers](/docs/guide/models).
 
 ## 2. Identity
 
-**Control → Identity**: a display name, a theme color, a one-line description. The app's wording and colors follow. Identity is written to her soul directory, and once a soul repository is connected it syncs to every body. See [Identity](/docs/guide/identity).
+On **Control**, tap her name at the top → **Identity**: a display name, a theme color, a one-line description. The app's wording and colors follow. Identity is written to her soul directory, and once a soul repository is connected it syncs to every body. See [Identity](/docs/guide/identity).
 
 ## 3. Permissions
 
-**Control → Permissions**: camera, microphone, location and screen control default to "ask every time". When she wants to use one she sends you an approval and acts only after you approve. Switch to "allow" once you are comfortable. See [Permissions and safety](/docs/guide/permissions).
+**Control → Permissions**: camera, microphone, location and screen control default to "ask". When she wants to use one she sends you a request, shown at the top of this page, and acts only after you approve. Switch to "allow" once you are comfortable. See [Permissions and safety](/docs/guide/permissions).
 
 ## 4. Poke her, chat a little
 

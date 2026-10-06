@@ -34,7 +34,7 @@ In the app, a banner sits above the input during secret input and the field is m
 
 ## The vault
 
-Stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Control → Vault** shows name, hint, source channel and time, and lets you delete; it **never shows contents**.
+Stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Control → Advanced → Secrets** shows name, hint, source channel and time, and lets you delete; it **never shows contents**.
 
 The vault belongs to this body only: it is **not synced to other bodies** and never enters the soul repository.
 

@@ -23,8 +23,8 @@ One agent can live in several "bodies" at once: a runtime on a phone, a computer
 ## Connecting in the console
 
 1. Create a **private** repository on GitHub (recommended name `<agent>.soul`); it can be empty.
-2. **Control → Soul sync → Show public key**, then add that key under the repository's **Settings → Deploy keys** with **Allow write access** ticked. (Under "which key opens the repository" you can instead pick **a specified private key** or **the system ssh configuration**: the latter hands over to `~/.ssh/config` and ssh-agent on the machine running the runtime, and the address may use a Host alias from that config; since the runtime runs as a background service it usually cannot reach your login session's ssh-agent, so set an IdentityFile for that Host.)
-3. Enter the repository's **SSH address** (`git@github.com:you/<agent>.soul.git`) → **Connect**.
+2. **Control → Advanced → Sync**, tap **Show public key** under **Soul repository**, then add that key under the repository's **Settings → Deploy keys** with **Allow write access** ticked. (Instead of **Deploy key** you can pick **a specified private key** or **system ssh**: the latter hands over to `~/.ssh/config` and ssh-agent on the machine running the runtime, and the address may use a Host alias from that config; since the runtime runs as a background service it usually cannot reach your login session's ssh-agent, so set an IdentityFile for that Host.)
+3. Enter the repository's **SSH address** (`git@github.com:you/<agent>.soul.git`) → **Save**.
 
 From then on sync is automatic. Each body has its own deploy key; to unplug a body, delete its deploy key.
 
@@ -71,7 +71,7 @@ When changes from other bodies are pulled, the timeline records "soul sync: n ch
 
 ## History and revert
 
-**Identity → Memory history** lists every commit (which body, when, what changed) with diffs. **Revert** creates a reverse commit (history is kept), syncs to all bodies, and she learns from her journal that "someone reverted a memory change".
+**Control → Advanced → Memory history** lists every commit (which body, when, what changed) with diffs. **Revert** creates a reverse commit (history is kept), syncs to all bodies, and she learns from her journal that "someone reverted a memory change".
 
 ## Related
 

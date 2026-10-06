@@ -26,7 +26,7 @@ flowchart LR
 
 ## Installing: let it install itself
 
-Step 3 of **Control → Soul sync** has a ready-made message. Copy it and send it to the Hermes or OpenClaw agent on that machine. Following the skill, it will:
+The **Hermes / OpenClaw** section of **Control → Advanced → Sync** has a ready-made message. Copy it and send it to the Hermes or OpenClaw agent on that machine. Following the skill, it will:
 
 1. check for and install Node.js (22.18+) in the user directory, fetch the program and keep the skill in its own skills directory;
 2. determine the soul repository: the address you gave → its own memory → an existing `*.soul` private repository on GitHub → create one;

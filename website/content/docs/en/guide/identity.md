@@ -19,7 +19,7 @@ Quetzal is not bound to any particular agent. An agent's identity is one file, `
 
 ## Changing it in the console
 
-**Control → Identity**: display name, identifier, pronouns, description, theme color, preferred language. Saving writes to her soul directory; with a soul repository connected it becomes a commit synced to every body.
+On **Control**, tap her name at the top → **Identity**: display name, pronouns, description, theme color, preferred language (the identifier is not edited here). Saving writes to her soul directory; with a soul repository connected it becomes a commit synced to every body.
 
 > [!TIP]
 > The name in the top bar, how she is addressed everywhere, and the theme color all come from here. With several agents connected, the UI changes as you switch.

@@ -66,7 +66,7 @@ description: 灵魂仓库（v12）的目录树、文件格式、合并规则、�
 
 - 远端地址**必须**是 SSH 形式（`git@host:owner/repo.git` 或 `ssh://git@host/owner/repo.git`，`~/.ssh/config` 的 Host 别名也可以），不得用 HTTPS、个人令牌或密码。
 - **默认：每具身体一把专属 ed25519 密钥**，在本机生成，私钥 `0600`，不得提交、不得在身体之间复制；公钥以 **Deploy key（Allow write access）** 加到该仓库；访问远端时 `ssh -i <私钥> -o IdentitiesOnly=yes`，不回退到 ssh-agent；私钥不存在时拒绝访问并提示。吊销某具身体：删除它的 Deploy key。
-- **部署者可显式改用自己的钥匙**：指定私钥（仍只用它），或系统 ssh 配置（不传 `-i`，交给 `~/.ssh/config` 与 ssh-agent）。控制台「灵魂同步」页可选。
+- **部署者可显式改用自己的钥匙**：指定私钥（仍只用它），或系统 ssh 配置（不传 `-i`，交给 `~/.ssh/config` 与 ssh-agent）。在控制台 **控制 → 高级 → 同步** 的「灵魂仓库」里选。
 
 ## 只同步灵魂仓库自己的历史（v9）
 

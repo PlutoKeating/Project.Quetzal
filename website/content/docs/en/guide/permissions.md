@@ -1,6 +1,6 @@
 ---
 title: Permissions and safety
-description: The guard's three permission levels, approvals, budget, emergency stop, the audit log, and autonomy controls.
+description: The guard's three permission levels, approvals, budget, emergency stop, the activity log, and rhythm controls.
 ---
 
 ## Where the guard sits
@@ -29,27 +29,29 @@ flowchart TB
 | Microphone | **ask** | Record audio |
 | Location | **ask** | Get position |
 | Proactive messages | allow | Messaging you when she wakes on her own |
-| Adjust own parameters | allow | Bounded changes to her personality parameters |
+| Adjust own parameters | allow | Bounded changes to her personality parameters and her voice and hearing settings |
 | Rewrite memory | allow | Edit personality and resident memory |
 | Screen and apps | **ask** | Reserved (hands) |
 | Request secrets | allow | `pass_secret`, see [Passing secrets](/docs/guide/secrets) |
 
-Each category has three levels: **allow / ask every time / deny**.
+Each category has three levels: **allow / ask / deny**, set one by one under **Control → Permissions**.
 
 ## Approvals
 
-For "ask" categories she creates an approval when she wants to act. It is pushed to the app (badge on Control) and to Feishu (a card with buttons). Approve or deny, optionally with a note. **No answer within 30 minutes counts as denial.**
+For "ask" categories she creates an approval when she wants to act. It is pushed to the app (at the top of **Control → Permissions**, with a badge) and to Feishu (a card with buttons). Approve or deny, optionally with a note. **No answer within 30 minutes counts as denial.**
 
-## Autonomy
+## Rhythm
 
-**Control → Autonomy**:
+**Control → Rhythm**:
 
-- **Activity** (0–4): a knob multiplied into the wake rate.
-- **Pause autonomy**: she stays online and answers you, but does not wake on her own.
+- **Activity** (quiet ↔ active, 0–4): a knob multiplied into the wake rate.
+- **Pause**: she stays online and answers you, but does not wake on her own; she wakes only when you reach out.
+
+Her personality parameters (the time constants of curiosity, urge to share and missing you, sleepiness, sleep recovery, the hour she is most alert) are not in the UI: she tunes them herself within bounds (`adjust_self`, under "Adjust own parameters"). If you want her to change, just tell her, e.g. "you've been too chatty lately".
 
 ## Budget and body limits
 
-**Control → Budget**: daily token cap, daily cost cap, minimum battery, maximum temperature. Defaults: 2,000,000 tokens / 5 USD / 15% / 45 °C.
+**Control → Advanced → Budget**: daily token cap, daily cost cap, minimum battery, maximum temperature. Defaults: 2,000,000 tokens / 5 USD / 15% / 45 °C.
 
 Exceeding them **lowers her wake rate**: budget spent ×0.05, overheating ×0.1, low battery and not charging ×0.2, offline ×0.5. She goes very quiet but still answers when you talk to her.
 
@@ -57,9 +59,9 @@ Exceeding them **lowers her wake rate**: budget spent ×0.05, overheating ×0.1,
 
 The stop button in the top bar is **always visible**. Pressing it immediately denies every tool call and sets the wake rate to zero; releasing it needs a second confirmation. Under the hood it is a `STOP` file in the home directory: if it exists, everything freezes.
 
-## Audit log
+## Activity log
 
-**Control → Audit log**: every tool call (parameter summary and the start of the result), configuration change, memory edit and approval decision is recorded. She can query it herself (`recent_actions`) to verify whether she really did something.
+**Control → Advanced → Activity log**: every tool call (parameter summary and the start of the result), configuration change, memory edit and approval decision is recorded. She can query it herself (`recent_actions`) to verify whether she really did something.
 
 ## Idle walls
 

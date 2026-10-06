@@ -12,7 +12,7 @@ flowchart TB
   A["1. Install the Quetzal app"] --> C
   subgraph C["2. Follow the app's wizard"]
     direction LR
-    C1["Tap Install<br/>half a minute, connects itself"] --> C2["Allow body permissions<br/>camera · microphone · location · notifications"] --> C3["Keep-alive<br/>battery + autostart"]
+    C1["Installs by itself<br/>half a minute, connects itself"] --> C2["Allow body permissions<br/>camera · microphone · location · notifications"] --> C3["Background<br/>battery + autostart"] --> C4["Sign in (optional)<br/>GitHub"] --> C5["Model (optional)"]
   end
   C --> E(("it wakes up"))
 ```
@@ -25,11 +25,13 @@ Download the latest APK from the [download page](/download) and install it. You 
 
 ## 2. Follow the wizard
 
-Open Quetzal and choose **"Install Quetzal on this phone"** on the home screen. The wizard has three steps:
+Open Quetzal: when there is no runtime on this phone yet, the app goes straight into the setup wizard (you can also reach it with **Install on this phone** on the connection page). It has five steps:
 
-1. **Install the runtime**: tap "Install". The app unpacks its bundled runtime environment, starts the runtime and checks the gateway; it takes about half a minute, and the console **connects automatically**, no pairing code needed. The runtime runs in the app's own foreground service (a permanent "lives on this phone" notification).
-2. **Let it feel its body**: tap "Allow" and accept camera, microphone, location (and notifications on Android 13+). This is only the system-level grant; every use still passes the [permissions](/docs/guide/permissions) you set in the app (camera, microphone and location ask every time by default).
-3. **Keep it alive**: add Quetzal to the **battery optimization ignore list** and **allow** it in your vendor's "autostart / background" manager.
+1. **Install**: starts by itself as soon as the wizard opens. The app unpacks its bundled runtime environment, starts the runtime and checks the gateway; it takes about half a minute, and the console **connects automatically**, no pairing code needed. The runtime runs in the app's own foreground service (a permanent "lives on this phone" notification).
+2. **Permissions**: once installed, the system permission prompts appear by themselves; accept camera, microphone, location (and notifications on Android 13+). Missed one? Tap "Allow" to ask again. This is only the system-level grant; every use still passes the [permissions](/docs/guide/permissions) you set in the app (camera, microphone and location ask every time by default).
+3. **Background**: add Quetzal to the **battery optimization ignore list** and **allow** it in your vendor's autostart settings.
+4. **Sign in** (skippable): tap **Sign in with GitHub**; the app opens the browser for you and you approve there. See [Multiple bodies](/docs/guide/multi-body). You can also sign in later under **Control → Devices**.
+5. **Model** (skippable): tap **Choose a model** to set up a provider and key; see [First steps](/docs/start/first-steps).
 
 > [!IMPORTANT]
 > Many vendor systems (EMUI, MIUI, ColorOS…) do not let an app be woken in the background unless it is allowed to autostart: without that, it will not wake by itself after a reboot or an app update until you open the app once.
@@ -39,13 +41,13 @@ Open Quetzal and choose **"Install Quetzal on this phone"** on the home screen. 
 
 ### Coming from the Termux version
 
-If you installed the older Termux-based way: in the old console make sure the soul has been pushed to the soul repository (**Control → Soul sync**), then uninstall the old Quetzal and the three Termux apps and install the new app. Once installed, **do not change the identity first**: connect the same soul repository under **Control → Soul sync**, and its personality and memory come back. Conversations are not in the soul repository and do not move over.
+If you installed the older Termux-based way: in the old console make sure the soul has been pushed to the soul repository (**Control → Soul sync** in the old version), then uninstall the old Quetzal and the three Termux apps and install the new app. Once installed, **do not change the identity first**: connect the same soul repository under **Control → Advanced → Sync**, and its personality and memory come back. Conversations are not in the soul repository and do not move over.
 
 ## After installing
 
 Open Quetzal's **Now** page to see its state and drives. It will not wake until you configure a model. Continue with [First steps](/docs/start/first-steps).
 
-**Upgrading**: when a new release is out, the app says so at the top; **Control → Service → Quetzal App → Download and install** installs the new app in one tap; the new app carries the new runtime and restarts it by itself (open the app once if your vendor blocks that). See [Upgrade and rollback](/docs/guide/upgrade).
+**Upgrading**: when a new release is out, the app says so at the top; tap **Update** to reach **Control → About**, then **Update to x.y.z** installs the new app in one tap; the new app carries the new runtime and swaps it in silently in the background (open the app once if your vendor blocks that). See [Upgrade and rollback](/docs/guide/upgrade).
 
 ## Release signatures and verification
 

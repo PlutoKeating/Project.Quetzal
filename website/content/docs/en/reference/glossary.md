@@ -51,7 +51,7 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | certificate fingerprint | 证书指纹 | The SHA-256 fingerprint of the gateway's self-signed certificate, short form like `1a2b 3c4d 5e6f 7a8b`; compared in the app and the pairing notification when pairing, after which the app accepts only that certificate |
 | pairing code | 配对码 | Eight letters and digits (like ABCD-EFGH), valid five minutes, locked for a while after repeated wrong guesses, for a console on another device to connect to the gateway; a browser on the same machine needs none (the gateway lets it in directly) |
 | web console | 网页控制台 | The console as a web page, served by the runtime's gateway (`http://127.0.0.1:7788/`) and laid out for a wide screen; installed on Linux machines by the npm package |
-| ignite | 点火 | The app starting its own foreground service again (the runtime built into the app) when the runtime is offline |
+| start (ignite) | 启动 | The app starting its own foreground service again (the runtime built into the app) when the runtime is offline; the **Start** button on the offline banner |
 | safe mode | 安全模式 | Protective state after more than five starts in ten minutes: gateway and Feishu only |
 | Now | 此刻 | The app's home page: state, drives, the thought she wants to share |
 | Flow | 心流 | The app's timeline page: wake-ups, dreams, conversations |

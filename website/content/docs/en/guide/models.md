@@ -62,4 +62,4 @@ A few providers have extra conventions handled by separate compatibility modules
 
 ## Usage and budget
 
-Tokens and estimated cost per call are recorded locally and shown in **Now** and **Control → Budget**. When the budget is spent her wake rate drops sharply (see [Permissions and safety](/docs/guide/permissions)).
+Tokens and estimated cost per call are recorded locally and shown in **Now** and **Control → Advanced → Budget**. When the budget is spent her wake rate drops sharply (see [Permissions and safety](/docs/guide/permissions)).

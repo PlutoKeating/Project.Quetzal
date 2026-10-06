@@ -66,7 +66,7 @@ Implementations **must not** redact, privacy-check or otherwise inspect content,
 
 - The remote address **must** be SSH (`git@host:owner/repo.git` or `ssh://git@host/owner/repo.git`; a Host alias from `~/.ssh/config` works too); no HTTPS, personal tokens or passwords.
 - **Default: one dedicated ed25519 key per body**, generated locally, private key mode `0600`, never committed, never copied between bodies; its public key is added to that repository as a **deploy key with Allow write access**; remote access uses `ssh -i <key> -o IdentitiesOnly=yes` with no fallback to ssh-agent, and a missing key refuses remote access with a clear message. To revoke a body, delete its deploy key.
-- **The deployer may explicitly switch to their own key**: a specified private key (still used exclusively), or the system ssh configuration (no `-i`; `~/.ssh/config` and ssh-agent decide). Selectable on the console's Soul sync page.
+- **The deployer may explicitly switch to their own key**: a specified private key (still used exclusively), or the system ssh configuration (no `-i`; `~/.ssh/config` and ssh-agent decide). Selectable under **Soul repository** in the console's **Control → Advanced → Sync**.
 
 ## Only the soul repository's own history (v9)
 

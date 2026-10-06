@@ -63,7 +63,7 @@ The commands she runs (shell, custom tools) run in a sandbox and cannot see the 
 3. **Still not possible** (the kernel forbids it, or inside a container): the kernel's own **Landlock** is used instead, through the landrun launcher downloaded and verified against the release signature; no administrator rights needed.
 4. **Otherwise**: proot on Debian / Ubuntu (best-effort isolation).
 
-When none is available the runtime **refuses to run her commands**, so they cannot read the secrets; the console's Service page explains why. Add a sandbox and rerun the install command. If you really need to, you can explicitly allow unsandboxed commands there (unsafe).
+When none is available the runtime **refuses to run her commands**, so they cannot read the secrets; the console's **Control → Advanced → Runtime** page explains why. Add a sandbox and rerun the install command. If you really need to, you can explicitly turn on running without isolation there (unsafe).
 
 ### 1.1 Just the npm package: `npx @plutokeating/quetzal`
 
@@ -107,7 +107,7 @@ Open `http://127.0.0.1:7788/`. This is the Quetzal app as a web page, the same c
 
 ## 3. Connect the phone app to a Linux machine (optional)
 
-- Installed with `--lan`: in the app, **Connect a new agent** → enter just this machine's address (e.g. `192.168.1.8`; the app uses the encrypted `https://192.168.1.8:7789` automatically) → the app shows this machine's **certificate fingerprint**; check that it matches what `npx @plutokeating/quetzal status` prints → **Request pairing code**.
+- Installed with `--lan`: in the app, top-bar name → **Connect another** (or expand **Connect another device** on the connection page) → enter just this machine's address (e.g. `192.168.1.8`; the app uses the encrypted `https://192.168.1.8:7789` automatically) → the app shows this machine's **certificate fingerprint**; check that it matches what `npx @plutokeating/quetzal status` prints → **Get pairing code**.
 - Without it: the gateway listens on `127.0.0.1` only, so forward the port first (`adb reverse tcp:7788 tcp:7788` with the phone attached over USB, or an ssh tunnel) and enter `127.0.0.1:7788` in the app. You can switch to open at any time with `npx @plutokeating/quetzal --lan`.
 
 The pairing code, together with the certificate's short fingerprint (e.g. `配对码 ABCD-EFGH · 证书指纹 1a2b 3c4d 5e6f 7a8b`), appears as a desktop notification on that machine and is written to the service log; on a headless server read it from `quetzal logs`.
