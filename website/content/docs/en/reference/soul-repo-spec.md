@@ -1,11 +1,11 @@
 ---
 title: Soul repository spec
-description: A summary of the soul repository specification (v11): directory tree, file formats, merge rules, commit conventions and authentication.
+description: A summary of the soul repository specification (v12): directory tree, file formats, merge rules, commit conventions and authentication.
 ---
 
 ## Scope
 
-This page summarizes the [Soul Repository Specification v11](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
+This page summarizes the [Soul Repository Specification v12](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
 
 ## Repository
 
@@ -78,4 +78,4 @@ The soul directory may have been touched by the agent, so implementations treat 
 
 ## Version history
 
-v11 drops the pre-commit secret check, so content is not inspected at all; v10 adds "safe git execution" (no code from the repository is run, addresses come only from configuration, no symlinks); v9 states that the soul repository is created by the deployer and unrelated to any code repository, and adds the five "own history only" implementation requirements; v8 adds conflict copies, the body registry's `meshKey`, and no longer requires `lastSeen` on every push; v7 adds the deployer-selectable "specified key" and "system ssh configuration" modes to authentication; v4 removes all content checks and allows extra top-level entries; v3 clarified what counts as an IP address; v2 removed the resident-memory limit and made notes a tree; v1 was the first release. Older repositories need no migration.
+v12 accepts a history that a body created locally when it joined, as long as it contains only soul repository content, and no longer pushes such a local history; v11 drops the pre-commit secret check, so content is not inspected at all; v10 adds "safe git execution" (no code from the repository is run, addresses come only from configuration, no symlinks); v9 states that the soul repository is created by the deployer and unrelated to any code repository, and adds the five "own history only" implementation requirements; v8 adds conflict copies, the body registry's `meshKey`, and no longer requires `lastSeen` on every push; v7 adds the deployer-selectable "specified key" and "system ssh configuration" modes to authentication; v4 removes all content checks and allows extra top-level entries; v3 clarified what counts as an IP address; v2 removed the resident-memory limit and made notes a tree; v1 was the first release. Older repositories need no migration.

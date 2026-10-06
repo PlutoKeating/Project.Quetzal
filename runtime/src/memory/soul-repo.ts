@@ -42,7 +42,7 @@ const CONFIG_KEEP = /^(core\.(repositoryformatversion|filemode|bare|logallrefupd
 const LEASE_MS = 30 * 60_000;
 /** 灵魂仓库里允许出现的顶层条目（规范 §2 的固定与必需条目，加上新建仓库常见的 README、LICENSE）。远端没有 agent.json 时据此判断它是不是灵魂仓库。 */
 const SOUL_TOP = new Set([".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "README", "LICENSE", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "skills", "locks", ".gitkeep"]);
-export const SPEC = { spec: "soul-repo", version: 11 };
+export const SPEC = { spec: "soul-repo", version: 12 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",
@@ -357,7 +357,29 @@ export class SoulRepo {
     const roots = [...new Set((await Promise.all(revs.map((r) => this.rootsOf(r)))).flat())];
     const foreign = roots.filter((r) => !known.includes(r));
     if (!foreign.length) return undefined;
+    // 一具身体接入时没克隆成（例如网络拦了 SSH）、先在本地建了仓库，之后它那段独立的历史被并进了远端（1.1.8 之前会这样）：
+    // 那段历史里只有灵魂仓库的内容，是同一个 agent 的，接受并记下它的根；混进来的别的仓库（代码等）照样拦下
+    if (await this.soulShaped(revs, known)) {
+      await this.recordRoots(revs);
+      this.o.log?.(`灵魂仓库里有一段身体接入时在本地建立的历史（根提交 ${foreign.map((f) => f.slice(0, 7)).join("、")}），内容都是灵魂仓库的，已接受`);
+      return undefined;
+    }
     return `灵魂仓库的历史里混进了别的仓库（陌生的根提交 ${foreign.map((f) => f.slice(0, 7)).join("、")}），已停止同步：不合并、不推送。可能有人在灵魂目录里手动操作了 git，或远端被推入了别的历史；需要人检查（干净的做法是重新克隆灵魂仓库）`;
+  }
+
+  /** 不经过已知根提交的那些提交（陌生历史本身）是不是都只含灵魂仓库的顶层条目（规范 §1）。太多或没有时不认。 */
+  private async soulShaped(revs: string[], known: string[]): Promise<boolean> {
+    const list = async (...a: string[]) => (await this.git("rev-list", ...a)).out.split("\n").filter(Boolean);
+    const all = await list(...revs);
+    const linked = new Set(known);
+    for (const k of known) for (const rev of revs) for (const c of await list("--ancestry-path", `${k}..${rev}`)) linked.add(c);
+    const only = all.filter((c) => !linked.has(c));
+    if (!only.length || only.length > 200) return false;
+    for (const c of only) {
+      const top = (await this.git("ls-tree", "--name-only", c)).out.split("\n").filter(Boolean);
+      if (top.some((n) => !SOUL_TOP.has(n))) return false;
+    }
+    return true;
   }
 
   /** 拉取并合并远端，冲突全自动解决。 */
@@ -382,7 +404,10 @@ export class SoulRepo {
     const links = (await this.git("ls-tree", "-r", "-z", this.ref())).out.split("\0").filter((l) => l.startsWith("120000 ")).map((l) => l.slice(l.indexOf("\t") + 1));
     if (links.length) { this.status.lastError = `远端的灵魂仓库里有符号链接（${links.slice(0, 3).join("、")}），已拒绝合并：灵魂仓库只放普通文件（规范 §5.2）`; this.o.log?.(this.status.lastError); return none; }
     if (!(await this.guardIdentity())) return none;
-    if (!this.known()) await this.recordRoots(["HEAD", this.ref()]); // 身份与「是不是灵魂仓库」都检查过了：记下这两段历史的根
+    // 本地与远端没有共同的历史：这具身体接入时没克隆成，先在本地建了仓库。合并后只保留远端的历史（见下面的 flatten），
+    // 本地那段独立的历史不带上去——否则它的根提交会让其他身体的「只同步自己的历史」检查停下同步
+    const unrelated = (await this.git("merge-base", "HEAD", this.ref())).code !== 0;
+    if (!this.known()) await this.recordRoots(unrelated ? [this.ref()] : ["HEAD", this.ref()]); // 身份与「是不是灵魂仓库」都检查过了：记下历史的根
     const incoming = (await this.git("log", "--pretty=format:%an%x1f%s", `HEAD..${this.ref()}`)).out.split("\n").filter(Boolean)
       .map((l) => { const [a, s] = l.split("\x1f"); return { body: a.match(/\(([^)]+)\)\s*$/)?.[1] ?? a, subject: s }; });
     const resolved: PullResult["resolved"] = [];
@@ -415,7 +440,16 @@ export class SoulRepo {
       await this.commit("合并来自其他身体的记忆");
     }
     this.status.lastPull = Date.now(); this.status.lastError = "";
+    if (unrelated) await this.flatten();
     return { merged: true, incoming, resolved };
+  }
+
+  /** 把刚做的合并换成只有远端一个父提交的普通提交（内容不变）：本地接入前那段独立的历史不进灵魂仓库。 */
+  private async flatten() {
+    const tree = (await this.git("rev-parse", "HEAD^{tree}")).out.trim();
+    const c = await this.git("commit-tree", tree, "-p", this.ref(), "-m", `接入灵魂仓库：并入本机接入前的内容（${this.o.body}）`);
+    if (c.code === 0 && c.out.trim()) await this.git("reset", "-q", "--soft", c.out.trim());
+    else this.o.log?.(`没能整理接入前的本地历史：${c.err.slice(0, 200)}`);
   }
 
   /** 提交剩余的变更并推送。被拒（远端有新提交）时拉取合并后再推一次。没有配置远端时只在本地提交，算成功。 */

@@ -21,7 +21,7 @@ test("接入时补齐固定目录树与固定内容", async () => {
   for (const f of [".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "agent.json", "SOUL.md", "memories/MEMORY.md", "memories/USER.md", "journal/.gitkeep", "notes/.gitkeep", "bodies/.gitkeep"])
     assert.ok(fs.existsSync(path.join(d, f)), f);
   for (const [f, text] of Object.entries(FIXED_FILES)) assert.equal(fs.readFileSync(path.join(d, f), "utf8"), text);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, ".soul-spec.json"), "utf8")), { spec: "soul-repo", version: 11 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, ".soul-spec.json"), "utf8")), { spec: "soul-repo", version: 12 });
   assert.match(execFileSync("git", ["-C", d, "log", "--oneline"]).toString(), /补齐灵魂仓库规范结构/);
 });
 
