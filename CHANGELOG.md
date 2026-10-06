@@ -2,6 +2,24 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.2.0
+
+- **装、登录、用，三步**：第一次打开 App 直接开始安装，装好自动请求权限，然后是后台运行、登录、选模型，一次只做一步，能跳过的都能跳过。电脑上第一次打开也有这个向导（登录、模型两步）。
+- **一次登录**：用 GitHub 登录一台设备并批准后，这台设备上的 App 就能管理账户，不用再批准第二次。
+- **模型只要一个 Key**：点一个供应商、粘贴 Key、「接上」。自动挑最新的模型、试通、排好；Key 不对时什么都不改。完整管理在「编辑」里。
+- **语音只要一个密钥**：区域自动找出。
+- **「控制」重新整理**：首屏只有模型、权限、节律、声音、飞书、设备；其余收进「高级」。性格参数、语速音调等交给 ta 自己调，你只要对 ta 说。
+- **文字少了很多**：各页的说明段落都删了，只留必要的一句。
+- App 更新后，运行基座在后台自动换成新版本，不再弹出向导。
+
+- **Install, sign in, use: three steps**: the first time you open the app it starts installing right away, then asks for permissions on its own, followed by background running, sign-in and choosing a model, one step at a time, and anything optional can be skipped. The desktop app gets the same wizard the first time (sign-in and model).
+- **One sign-in**: once you sign a device in with GitHub and approve it, the app on that device can manage your account, with no second approval.
+- **One key for models**: tap a provider, paste the key, tap Connect. The newest models are picked, tested and ordered for you; a wrong key changes nothing. Full management is under Edit.
+- **One key for voice**: the Azure region is found automatically.
+- **Control, reorganised**: the first screen has only Models, Permissions, Rhythm, Sound, Feishu and Devices; the rest lives under Advanced. Personality parameters, speech rate and pitch and the like are left to her; just tell her.
+- **Much less text**: explanatory paragraphs are gone; each page keeps at most one necessary line.
+- After an app update, the runtime switches to the new version in the background instead of opening the wizard.
+
 ## 1.1.13
 
 - **托盘图标代表后台的 Quetzal**：只要运行基座在跑，右上角就有 Quetzal 的图标，和控制台窗口开没开无关；登录桌面时自动出现，基座停了就收起。菜单：
