@@ -2,6 +2,14 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.8
+
+- **拦 SSH 的网络里也能同步记忆**：连 GitHub 的 22 端口被断开或超时时，自动改走 GitHub 官方的 443 端口 SSH（同一把钥匙），之后先走它。很多网络、VPN 和代理只拦 22 端口。
+- **报错说对原因**：连接被网络断开时，不再误报成「远端拒绝了本机的部署公钥」，而是直接说是网络（或 VPN）拦了 SSH。
+
+- **Memory syncs on networks that block SSH**: when GitHub's port 22 is cut off or times out, the runtime automatically switches to GitHub's official SSH over port 443 (same key) and prefers it from then on. Many networks, VPNs and proxies block only port 22.
+- **Errors name the real cause**: a connection cut off by the network is no longer reported as "the remote rejected this body's deploy key"; it now says the network (or VPN) is blocking SSH.
+
 ## 1.1.7
 
 - **安卓 App 升级后多具身体照常可用**：升级时清理旧版本运行基座目录，会顺着里面的链接把网状层组件 node-datachannel 一并删掉，多具身体页显示「缺少网状层的原生组件」。现在删目录不再跟随链接；已经被删掉的，升级到这个版本时自动补回。
