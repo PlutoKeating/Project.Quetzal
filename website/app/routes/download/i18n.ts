@@ -25,7 +25,7 @@ export const messages = defineMessages({
       steps: [
         { title: "下载并安装 Quetzal App", text: "第一次装时，系统会请你允许安装来自浏览器的应用。" },
         { title: "打开它", text: "自动开始安装，半分钟左右装好。" },
-        { title: "跟着向导走", text: "允许相机、麦克风、定位，让 ta 在后台运行，用 GitHub 登录，选一个模型。登录和模型都可以以后再做。" },
+        { title: "跟着向导走", text: "允许相机、麦克风、定位，让 ta 在后台运行，登录，选一个模型。登录和模型都可以以后再做。" },
       ],
       requirements: "要求：Android 7 以上，arm64 处理器。最好用一部专门给 ta 的手机。",
       guide: "完整安装步骤",
@@ -85,7 +85,7 @@ export const messages = defineMessages({
       steps: [
         { title: "Download and install the Quetzal app", text: "The first time, Android asks you to allow installing apps from your browser." },
         { title: "Open it", text: "Installation starts on its own and takes about half a minute." },
-        { title: "Follow the wizard", text: "Allow camera, microphone and location, let it run in the background, sign in with GitHub, and pick a model. Sign-in and the model can wait until later." },
+        { title: "Follow the wizard", text: "Allow camera, microphone and location, let it run in the background, sign in, and pick a model. Sign-in and the model can wait until later." },
       ],
       requirements: "Requirements: Android 7 or later, arm64 processor. Ideally a phone set aside just for it.",
       guide: "Full installation guide",

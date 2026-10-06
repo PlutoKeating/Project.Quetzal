@@ -11,9 +11,10 @@ const schema = z.object({
   SYNC_PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   SYNC_DATA_DIR: z.string().default("/data"),
   SYNC_TRUST_PROXY: bool, // 前面有反向代理（compose 里的 Caddy，或隧道模式的 cloudflared）时为真：客户端地址取 CF-Connecting-IP，没有时取 X-Forwarded-For 最右一项
-  GITHUB_CLIENT_ID: z.string().default(""),
-  GITHUB_CLIENT_SECRET: z.string().default(""),
-  GITHUB_OAUTH_RELAY: z.union([z.literal(""), z.url({ protocol: /^https$/ })]).default(""), // 直连 github.com 不通时，换令牌经这里中转（例如官网 Worker 的 /api/oauth/github/token）
+  OIDC_ISSUER: z.union([z.literal(""), z.url({ protocol: /^https?$/ })]).default(""), // 账号由这个 OpenID Connect 身份服务提供（发现文档在 <issuer>/.well-known/openid-configuration）
+  OIDC_CLIENT_ID: z.string().default(""),
+  OIDC_CLIENT_SECRET: z.string().default(""), // 机密客户端；回调地址是 <SYNC_PUBLIC_URL>/auth/oidc/callback
+  GITHUB_OAUTH_RELAY: z.union([z.literal(""), z.url({ protocol: /^https$/ })]).default(""), // 链接灵魂仓库时直连 github.com 不通，换令牌经这里中转（例如官网 Worker 的 /api/oauth/github/token）
   TURN_SECRET: z.string().default(""), // 与 coturn 的 static-auth-secret 相同；空则不签发 TURN 凭据
   TURN_HOST: z.string().regex(/^[A-Za-z0-9.:-]*$/).default(""), // STUN / TURN 用的主机名或地址，缺省与公开地址相同（公开地址经 CDN / 隧道代理时必须单独指定一个直连的）
   TURN_URLS: list, // 缺省 turn:<TURN_HOST>:3478（UDP 与 TCP）
@@ -22,7 +23,7 @@ const schema = z.object({
   SYNC_SESSION_DAYS: z.coerce.number().int().min(1).max(90).default(30), // 滑动续期；无论怎么续，会话自创建起最长 90 天
   SYNC_MAX_AGENTS_PER_USER: z.coerce.number().int().min(1).default(20),
   SYNC_MAX_BODIES_PER_AGENT: z.coerce.number().int().min(1).default(16),
-  SYNC_ADMINS: list, // 管理员的 GitHub 用户名（逗号分隔）：只有他们能在 /setup/github-app 一键创建 GitHub App
+  SYNC_ADMINS: list, // 管理员的账号邮箱（逗号分隔，身份服务确认过的邮箱）：只有他们能在 /setup/github-app 一键创建 GitHub App
 });
 
 export type Config = ReturnType<typeof loadConfig>;
@@ -43,7 +44,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     port: c.SYNC_PORT,
     dataDir: c.SYNC_DATA_DIR,
     trustProxy: c.SYNC_TRUST_PROXY,
-    github: c.GITHUB_CLIENT_ID && c.GITHUB_CLIENT_SECRET ? { id: c.GITHUB_CLIENT_ID, secret: c.GITHUB_CLIENT_SECRET } : undefined,
+    oidc: c.OIDC_ISSUER && c.OIDC_CLIENT_ID ? { issuer: c.OIDC_ISSUER, clientId: c.OIDC_CLIENT_ID, clientSecret: c.OIDC_CLIENT_SECRET } : undefined,
     githubRelay: c.GITHUB_OAUTH_RELAY || undefined,
     turn: c.TURN_SECRET ? {
       secret: c.TURN_SECRET,

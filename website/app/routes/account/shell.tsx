@@ -69,7 +69,7 @@ export function AccountShell({ heading, lead, children }: { heading: string; lea
           <div className="flex flex-wrap items-end justify-between gap-3">
             <Heading as="h1" size="lg">{heading}</Heading>
             {session.status === "ready" && session.data.user && (
-              <p className="text-sm text-fg-muted">{t.signedInAs} · <span className="text-fg">{session.data.user.name || session.data.user.login}</span> <span className="text-fg-subtle">(GitHub {session.data.user.login})</span></p>
+              <p className="text-sm text-fg-muted">{t.signedInAs} · <span className="text-fg">{session.data.user.name || session.data.user.login}</span> <span className="text-fg-subtle">({session.data.user.email || session.data.user.login})</span></p>
             )}
           </div>
           {lead && <Lead className="max-w-prose">{lead}</Lead>}

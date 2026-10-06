@@ -1,7 +1,9 @@
-// 登录：GitHub OAuth（授权码 + PKCE S256）+ 服务端会话（做法按 Lucia 的会话指南：随机令牌放 Cookie，库里只存它的 SHA-256，滑动续期）。
-// 不保存 GitHub 的访问令牌：只用它读一次公开资料（不申请任何 scope），读完立即向 GitHub 吊销（尽力而为，不阻塞登录）。
+// 登录：OpenID Connect（授权码 + PKCE S256 + nonce，openid-client 实现：发现、换令牌、ID 令牌校验）+ 服务端会话
+// （做法按 Lucia 的会话指南：随机令牌放 Cookie，库里只存它的 SHA-256，滑动续期）。
+// 账号由外部的身份服务提供（OIDC_ISSUER），用户以它的 sub 区分；不保存它发的任何令牌，只取一次 ID 令牌里的资料。
+// 这里另外保留 GitHub 的换令牌（exchangeCode）：只给链接灵魂仓库用（GitHub App 的用户授权），与登录无关。
 import crypto from "node:crypto";
-import { generateCodeVerifier, generateState } from "arctic";
+import * as oidc from "openid-client";
 import type { Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { MAX_SESSION_DAYS, type Db, type User } from "./db.ts";
@@ -9,51 +11,47 @@ import type { Config } from "./config.ts";
 import { CONSOLE_SESSION_DAYS } from "./device.ts";
 import { now, randomToken, sha256 } from "./util.ts";
 
-export interface GitHubUser { id: number; login: string; name: string }
-/** 可替换的 GitHub 客户端（测试里注入假的）。codeChallenge / codeVerifier 是 PKCE（RFC 7636，S256）。 */
-export interface GitHubClient { authorizationUrl(state: string, codeChallenge: string): URL; user(code: string, codeVerifier: string): Promise<GitHubUser> }
+/** 身份服务给的资料：sub 在这个身份服务里唯一且不变；email 只在身份服务确认过（email_verified）时才有。 */
+export interface LoginUser { sub: string; login: string; name: string; email: string }
+/** 可替换的登录客户端（测试里注入假的）。callback 是身份服务带回来的完整回调地址（含 code、state）。 */
+export interface LoginClient {
+  authorizationUrl(o: { state: string; nonce: string; codeChallenge: string }): Promise<URL>;
+  user(callback: URL, o: { state: string; nonce: string; codeVerifier: string }): Promise<LoginUser>;
+}
 
 const UA = "quetzal-sync";
 
-/** arctic 的 GitHub 提供方不支持 PKCE，授权地址在这里自己拼（GitHub 的 OAuth App 支持 code_challenge_method=S256）。fetcher 供测试注入。 */
-export function githubClient(cfg: Config, fetcher: typeof fetch = fetch): GitHubClient | undefined {
-  if (!cfg.github) return undefined;
-  const redirectUri = `${cfg.publicUrl}/auth/github/callback`;
-  const { id, secret } = cfg.github;
-  return {
-    authorizationUrl(state, codeChallenge) {
-      const u = new URL("https://github.com/login/oauth/authorize");
-      for (const [k, v] of Object.entries({ response_type: "code", client_id: id, redirect_uri: redirectUri, state, code_challenge: codeChallenge, code_challenge_method: "S256" })) u.searchParams.set(k, v);
-      return u;
+/** OIDC 客户端：第一次用到时才去取发现文档（失败下次再取，不影响同步服务启动）。fetcher 供测试注入。 */
+export function oidcClient(cfg: Config, fetcher: typeof fetch = fetch): LoginClient | undefined {
+  const o = cfg.oidc;
+  if (!o) return undefined;
+  const redirectUri = `${cfg.publicUrl}/auth/oidc/callback`;
+  let found: Promise<oidc.Configuration> | undefined;
+  const config = () => (found ??= oidc.discovery(new URL(o.issuer), o.clientId, o.clientSecret, undefined, {
+    [oidc.customFetch]: (url, init) => {
+      const headers = new Headers(init.headers); headers.set("user-agent", UA);
+      return fetcher(url, { ...init, body: init.body as BodyInit, headers, signal: AbortSignal.timeout(10_000) });
     },
-    async user(code, codeVerifier) {
-      const accessToken = await exchangeCode({ id, secret, code, redirectUri, verifier: codeVerifier, relay: cfg.githubRelay }, fetcher);
-      try {
-        const r = await retry(() => fetcher("https://api.github.com/user", {
-          headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/vnd.github+json", "User-Agent": UA },
-          signal: AbortSignal.timeout(10_000),
-        }));
-        if (!r.ok) throw new Error(`读取 GitHub 资料失败：HTTP ${r.status}`);
-        const u = await r.json() as { id: number; login: string; name?: string | null };
-        if (!Number.isInteger(u.id) || typeof u.login !== "string") throw new Error("GitHub 返回的资料不完整");
-        return { id: u.id, login: u.login, name: u.name ?? "" };
-      } finally {
-        void revokeToken({ id, secret, accessToken }, fetcher);
-      }
+    ...(new URL(o.issuer).protocol === "http:" ? { execute: [oidc.allowInsecureRequests] } : {}),
+  }).catch((e) => { found = undefined; throw new Error(`连不上身份服务（${(e as Error).message}）`); }));
+  return {
+    async authorizationUrl({ state, nonce, codeChallenge }) {
+      return oidc.buildAuthorizationUrl(await config(), { redirect_uri: redirectUri, scope: "openid profile email", state, nonce, code_challenge: codeChallenge, code_challenge_method: "S256" });
+    },
+    async user(callback, { state, nonce, codeVerifier }) {
+      const tokens = await oidc.authorizationCodeGrant(await config(), callback, { pkceCodeVerifier: codeVerifier, expectedState: state, expectedNonce: nonce, idTokenExpected: true });
+      return profile(tokens.claims()!);
     },
   };
 }
 
-/** 读完资料就吊销 GitHub 访问令牌（DELETE /applications/{client_id}/token，Basic 认证）。尽力而为：5 秒超时，失败只是令牌按 GitHub 的规则自然闲置，不影响登录。 */
-export function revokeToken(o: { id: string; secret: string; accessToken: string }, fetcher: typeof fetch = fetch): Promise<boolean> {
-  try {
-    return fetcher(`https://api.github.com/applications/${encodeURIComponent(o.id)}/token`, {
-      method: "DELETE",
-      headers: { Authorization: `Basic ${Buffer.from(`${o.id}:${o.secret}`).toString("base64")}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": UA, "X-GitHub-Api-Version": "2022-11-28" },
-      body: JSON.stringify({ access_token: o.accessToken }),
-      signal: AbortSignal.timeout(5_000),
-    }).then((r) => r.status === 204, () => false);
-  } catch { return Promise.resolve(false); }
+/** 从 ID 令牌的声明里取资料。显示名：name，没有时拼 given_name / family_name，再没有用 preferred_username。 */
+export function profile(c: oidc.IDToken): LoginUser {
+  const str = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 200) : "");
+  const email = c.email_verified === true ? str(c.email).toLowerCase() : "";
+  const login = str(c.preferred_username) || email || c.sub.slice(0, 12);
+  const name = str(c.name) || [str(c.given_name), str(c.family_name)].filter(Boolean).join(" ");
+  return { sub: c.sub, login, name, email };
 }
 
 /** 网络错误时再试一次（连 GitHub 时通时断的机房里常见）；GitHub 明确的回应不重试。 */
@@ -138,27 +136,29 @@ export class Sessions {
   }
 }
 
-/** OAuth 的临时 Cookie（10 分钟）：state、PKCE 的 code_verifier、登录后要回到的页面。HTTPS 下用 __Host- 前缀（子域与明文连接都种不了、改不了）。 */
+/** 登录的临时 Cookie（10 分钟）：state、nonce、PKCE 的 code_verifier、登录后要回到的页面。HTTPS 下用 __Host- 前缀（子域与明文连接都种不了、改不了）。 */
 const oauthCookies = (cfg: Config) => {
   const p = cfg.secure ? "__Host-" : "";
-  return { state: `${p}quetzal_oauth_state`, verifier: `${p}quetzal_oauth_verifier`, returnTo: `${p}quetzal_return_to` };
+  return { state: `${p}quetzal_oauth_state`, nonce: `${p}quetzal_oauth_nonce`, verifier: `${p}quetzal_oauth_verifier`, returnTo: `${p}quetzal_return_to` };
 };
-export function beginLogin(c: Context, cfg: Config, gh: GitHubClient, returnTo: string) {
-  const state = generateState(), verifier = generateCodeVerifier();
+export async function beginLogin(c: Context, cfg: Config, client: LoginClient, returnTo: string) {
+  const state = oidc.randomState(), nonce = oidc.randomNonce(), verifier = oidc.randomPKCECodeVerifier();
   const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  const url = await client.authorizationUrl({ state, nonce, codeChallenge: challenge }); // 先取到地址（身份服务连不上时不种 Cookie）
   const names = oauthCookies(cfg);
   const opts = { httpOnly: true, secure: cfg.secure, sameSite: "Lax" as const, path: "/", maxAge: 600 };
   setCookie(c, names.state, state, opts);
+  setCookie(c, names.nonce, nonce, opts);
   setCookie(c, names.verifier, verifier, opts);
   setCookie(c, names.returnTo, safeReturnTo(returnTo, cfg.webUrl), opts);
-  return gh.authorizationUrl(state, challenge);
+  return url;
 }
-export function finishLogin(c: Context, cfg: Config): { state?: string; verifier?: string; returnTo: string } {
+export function finishLogin(c: Context, cfg: Config): { state?: string; nonce?: string; verifier?: string; returnTo: string } {
   const names = oauthCookies(cfg);
-  const state = getCookie(c, names.state), verifier = getCookie(c, names.verifier);
+  const state = getCookie(c, names.state), nonce = getCookie(c, names.nonce), verifier = getCookie(c, names.verifier);
   const returnTo = safeReturnTo(getCookie(c, names.returnTo) ?? "", cfg.webUrl);
   for (const n of Object.values(names)) deleteCookie(c, n, { path: "/", secure: cfg.secure });
-  return { state, verifier, returnTo };
+  return { state, nonce, verifier, returnTo };
 }
 /** 只允许回到本站的绝对路径，或网页前端（SYNC_WEB_URL）同源下的地址（防开放重定向：拒绝 //host、/\host、其他协议与主机）。 */
 export function safeReturnTo(p: string, webUrl?: string) {

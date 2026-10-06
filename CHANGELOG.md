@@ -2,6 +2,16 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.4.0
+
+- **登录改用 PlutoKeating 账号**：可以用邮箱、通行密钥注册登录，也可以用 GitHub 登录。不再必须有 GitHub；GitHub 只在第一次建灵魂仓库时出现一次。已有的账户、agent 和设备都不变。
+- 官网账户的设置页可以直接打开账号设置，改名字和邮箱、加通行密钥、关联 GitHub。
+- 自己部署同步服务的人：登录改为接一个 OpenID Connect 身份服务（`OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET`），旧的 GitHub OAuth App 不再使用，见 sync/docs/QUICK_START.md 的升级说明。
+
+- **Sign in with a PlutoKeating account**: register and sign in with email or a passkey, or with GitHub. GitHub is no longer required; it shows up only once, the first time a soul repository is created. Existing accounts, agents and devices stay as they are.
+- The settings page of the website account opens your account settings directly, to change your name and email, add passkeys or link GitHub.
+- If you host your own sync service: sign-in now uses an OpenID Connect provider (`OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET`); the old GitHub OAuth App is no longer used. See the upgrade notes in sync/docs/QUICK_START.md.
+
 ## 1.3.1
 
 - 几台设备里有一台还没升级时，提醒也会照常响（以前可能一条都不响）。全部升级后，同一条提醒只由一台设备发出。

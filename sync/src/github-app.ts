@@ -40,9 +40,9 @@ export function manifest(cfg: Config) {
   return {
     name: "Quetzal",
     url: web,
-    description: "Sign in to Quetzal, and let each new body of your agent reach its private soul repository with its own deploy key.",
+    description: "Let each new body of your agent reach its private soul repository with its own deploy key.",
     redirect_url: `${cfg.publicUrl}/setup/github-app/done`,
-    callback_urls: [`${cfg.publicUrl}/auth/github/callback`, `${cfg.publicUrl}/soul/callback`],
+    callback_urls: [`${cfg.publicUrl}/soul/callback`],
     setup_url: `${cfg.publicUrl}/soul/callback`,
     setup_on_update: false,
     request_oauth_on_install: true,

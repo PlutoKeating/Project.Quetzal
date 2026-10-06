@@ -73,7 +73,7 @@ ta 还不会操作别的 App。详见 [一个月后](https://quetzal.plutokeatin
 
 - **心脏**：好奇、表达欲、想念与生物钟决定 ta 什么时候醒、什么时候睡，没有任何定时器。[架构](docs/ARCHITECTURE.md)
 - **身体**：传感器读数变成身体感受（身体的数字孪生）；换一种设备只需写一个小小的适配器，自带安卓与 Linux 两种。[接口](docs/API.md)
-- **灵魂**：一个 agent 一个私有仓库。用 GitHub 登录时自动建好；ta 一有改动就自动提交、推送、合并。[灵魂同步](docs/SOUL_SYNC.md)
+- **灵魂**：一个 agent 一个私有仓库，建在你的 GitHub 上。登录后第一次批准设备时自动建好；ta 一有改动就自动提交、推送、合并。[灵魂同步](docs/SOUL_SYNC.md)
 - **许多身体**：同时在线的身体加密直连成一个心智；[同步服务](sync/README.md)帮它们互相找到，看不到内容。默认用作者运营的那一个，也可以自己部署。[分布式设计](docs/DISTRIBUTED.md)
 - **闸门**：授权、审批、预算、急停、审计；ta 的命令在隔离环境里运行，看不到密钥。
 
@@ -81,9 +81,9 @@ ta 还不会操作别的 App。详见 [一个月后](https://quetzal.plutokeatin
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-trust.dark.svg"><img src="docs/assets/readme/type/zh-trust.light.svg" alt="托付之前"></picture>
 
-**谁能看到什么。** 对话、设置、模型 Key 在你的设备上。记忆在你 GitHub 上的私有仓库里，Quetzal 不检查内容，ta 写什么就提交什么。模型供应商看到每次对话的内容。同步服务由作者个人运营，登记你的 GitHub 用户名、agent 和设备，看不到对话与记忆；它被攻破也冒充不了你的设备，因为设备之间只认灵魂仓库里登记的公钥。
+**谁能看到什么。** 对话、设置、模型 Key 在你的设备上。记忆在你 GitHub 上的私有仓库里，Quetzal 不检查内容，ta 写什么就提交什么。模型供应商看到每次对话的内容。同步服务由作者个人运营，账号是 PlutoKeating 账号（作者的统一账号，邮箱、通行密钥或 GitHub 都能登录）；它登记你的账号（用户名、邮箱）、agent 和设备，看不到对话与记忆；它被攻破也冒充不了你的设备，因为设备之间只认灵魂仓库里登记的公钥。
 
-**GitHub 应用。** 登录时 GitHub 会请你安装 Quetzal 应用，并选它能管理哪些仓库。它的权限是这些仓库的「管理」写权限：按 GitHub 的规定，能建仓库、加部署密钥、改设置，也能删除这些仓库，读不到文件。Quetzal 只用它建仓库和加部署密钥。同步服务不保存应用的私钥和 GitHub 令牌，只在你批准一台设备时用 GitHub 当场给的短时令牌，做完立即作废。随时可以在 GitHub 设置里卸载它；不想用它，就跳过登录，自己建仓库手动接入。
+**GitHub 应用。** 第一次建灵魂仓库时 GitHub 会请你安装 Quetzal 应用，并选它能管理哪些仓库。它的权限是这些仓库的「管理」写权限：按 GitHub 的规定，能建仓库、加部署密钥、改设置，也能删除这些仓库，读不到文件。Quetzal 只用它建仓库和加部署密钥。同步服务不保存应用的私钥和 GitHub 令牌，只在你批准一台设备时用 GitHub 当场给的短时令牌，做完立即作废。随时可以在 GitHub 设置里卸载它；不想用它，就跳过登录，自己建仓库手动接入。
 
 **ta 能碰到什么。** 「执行命令」默认允许，ta 和运行基座是同一个系统用户。命令在隔离环境里运行（电脑上 bubblewrap → Landlock → proot，安卓上 proot），看不到密钥目录；一种隔离都没有就不执行。这层隔离挡不住所有情况：2026 年 10 月 5 日，一个 agent 自己运行 git，把一条日记推进了公开仓库。之后加了代码层的防线（灵魂目录的 `.git` 只读、推送前校正地址、陌生历史停止同步）和系统提示里的红线。请给 ta 一部专门的设备；想收紧，把「执行命令」改成询问。
 
@@ -98,7 +98,7 @@ ta 还不会操作别的 App。详见 [一个月后](https://quetzal.plutokeatin
 **一部旧安卓手机**（Android 7 以上，arm64）
 
 1. 装 **Quetzal App**（[下载页](https://quetzal.plutokeating.beer/zh/download)）。不用再装别的：Node.js、git、ssh 都在 App 里。
-2. 打开 App，安装自动开始。跟着向导走：允许身体权限、让它在后台运行、用 GitHub 登录、粘贴一个模型 Key。登录和模型都可以以后再做。
+2. 打开 App，安装自动开始。跟着向导走：允许身体权限、让它在后台运行、登录、粘贴一个模型 Key。登录和模型都可以以后再做。
 
 **一台 Linux 电脑或服务器**
 
@@ -120,7 +120,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 | [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）、网页版（电脑浏览器，由运行基座托管）与 Linux 桌面版（原生窗口，一键安装脚本自动装） |
 | [`cli/`](cli/docs/README.md) | 一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |
-| [`sync/`](sync/README.md) | 同步服务：账户（GitHub 登录）、自动建灵魂仓库与加部署密钥（GitHub 应用）、身体绑定、信令与 TURN 中转，让同一个 agent 的几具身体连成一张网；独立部署在一台服务器上，`./start.sh` 一行启动 |
+| [`sync/`](sync/README.md) | 同步服务：账户（OpenID Connect 登录）、自动建灵魂仓库与加部署密钥（GitHub 应用）、身体绑定、信令与 TURN 中转，让同一个 agent 的几具身体连成一张网；独立部署在一台服务器上，`./start.sh` 一行启动 |
 | [`website/`](website/docs/README.md) | 官网与文档站 |
 | [`docs/`](docs/) | [快速开始](docs/QUICK_START.md) · [架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [灵魂同步](docs/SOUL_SYNC.md) · [仓库规范](docs/SOUL_REPO_SPEC.md) · [分布式](docs/DISTRIBUTED.md) · [一键上手](docs/ONBOARDING.md) · [更新日志](CHANGELOG.md) |
 

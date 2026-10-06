@@ -192,18 +192,24 @@ configure() {
     elif [[ -n $ip && $resolved != "$ip" ]]; then warn "$(t "$domain 解析到的地址与本机的公网地址不同（如果用了 CDN，请对这个域名关闭代理：TURN 与 WebSocket 需要直连）。" "$domain resolves to a different address than this server's public IP (if it is behind a CDN proxy, disable proxying for it: TURN and WebSockets need a direct connection).")"; fi
   fi
 
-  if [[ -z $(envget GITHUB_CLIENT_ID) || -z $(envget GITHUB_CLIENT_SECRET) ]]; then
+  # 1.4 起登录走 OIDC：旧的 GitHub OAuth App 配置不再使用，从 .env 里删掉
+  if grep -qE '^GITHUB_CLIENT_(ID|SECRET)=' .env; then
+    local tmp; tmp=$(mktemp .env.XXXXXX); TMPFILES+=("$tmp")
+    grep -vE '^GITHUB_CLIENT_(ID|SECRET)=' .env >"$tmp"; chmod 600 "$tmp"; mv -f "$tmp" .env
+    warn "$(t '登录已改为 OIDC：删掉了 .env 里旧的 GITHUB_CLIENT_ID / SECRET（GitHub 上那个 OAuth App 也可以删了）。' 'Sign-in now uses OIDC: removed the old GITHUB_CLIENT_ID / SECRET from .env (you can delete that GitHub OAuth App too).')"
+  fi
+  if [[ -z $(envget OIDC_ISSUER) || -z $(envget OIDC_CLIENT_ID) ]]; then
     say ""
-    say "  $(t 'GitHub 登录：在 https://github.com/settings/applications/new 创建一个 OAuth App，填写：' 'GitHub sign-in: create an OAuth App at https://github.com/settings/applications/new with:')"
-    say "    Homepage URL                ${B}https://$domain${R}"
-    say "    Authorization callback URL  ${B}https://$domain/auth/github/callback${R}"
-    local id secret
-    id=$(ask "Client ID $(t '（直接回车跳过，之后可以再运行一次填写）' '(Enter to skip; rerun later to fill in)')" "")
-    if [[ -n $id ]]; then
+    say "  $(t '登录：账号由一个 OpenID Connect 身份服务提供（例如自建的 Rauthy、Keycloak、Authelia）。在那里建一个机密客户端，回调地址填：' 'Sign-in: accounts come from an OpenID Connect provider (for example a self-hosted Rauthy, Keycloak or Authelia). Create a confidential client there with the redirect URI:')"
+    say "    ${B}https://$domain/auth/oidc/callback${R}"
+    local issuer id secret
+    issuer=$(ask "Issuer $(t '（直接回车跳过，之后可以再运行一次填写）' '(Enter to skip; rerun later to fill in)')" "")
+    if [[ -n $issuer ]]; then
+      id=$(ask "Client ID" "")
       secret=$(ask_secret "Client secret $(t '（输入时不显示）' '(input hidden)')")
-      [[ -n $secret ]] && { envset GITHUB_CLIENT_ID "$id"; envset GITHUB_CLIENT_SECRET "$secret"; ok "$(t '已保存 GitHub 登录配置' 'Saved GitHub sign-in settings')"; }
+      [[ -n $id && -n $secret ]] && { envset OIDC_ISSUER "$issuer"; envset OIDC_CLIENT_ID "$id"; envset OIDC_CLIENT_SECRET "$secret"; ok "$(t '已保存登录配置' 'Saved sign-in settings')"; }
     fi
-    [[ -n $(envget GITHUB_CLIENT_ID) ]] || warn "$(t '没有配置 GitHub 登录：网页无法登录，身体无法绑定。' 'GitHub sign-in is not configured: nobody can sign in or bind bodies.')"
+    [[ -n $(envget OIDC_ISSUER) ]] || warn "$(t '没有配置登录：网页无法登录，身体无法绑定。' 'Sign-in is not configured: nobody can sign in or bind bodies.')"
   fi
 }
 

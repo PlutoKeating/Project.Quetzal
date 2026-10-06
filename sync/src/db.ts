@@ -4,7 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { now, sha256 } from "./util.ts";
 
-export interface User { id: number; github_id: number; login: string; name: string; created: number; last_login: number }
+/** 账户：sub 是身份服务（OIDC）给的不变编号；github_id 是第一次链接灵魂仓库时用的 GitHub 账户（之后链接都要是它），没链接过为 null。
+ *  email 只在身份服务确认过时才有。1.4 以前用 GitHub 登录建的账户，sub 为 "github:<id>"，由运维改成身份服务里对应账号的 sub。 */
+export interface User { id: number; sub: string; github_id: number | null; login: string; name: string; email: string; created: number; last_login: number }
 /** agent 登记按账户隔离：(账户, agent id) 唯一。agent id 不是秘密，若全局唯一，别人知道了就能抢先占住。id 是内部行号。 */
 export interface Agent { id: number; user_id: number; agent_id: string; name: string; created: number; soul_repo: string }
 export interface Body { agent: number; body: string; kind: string; node_key: string; version: string; created: number; last_seen: number }
@@ -29,8 +31,8 @@ const SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY, github_id INTEGER NOT NULL UNIQUE, login TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
-  created INTEGER NOT NULL, last_login INTEGER NOT NULL);
+  id INTEGER PRIMARY KEY, sub TEXT NOT NULL UNIQUE, github_id INTEGER UNIQUE, login TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, last_login INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS agents (
@@ -53,6 +55,17 @@ export function openDb(dataDir: string) {
   const file = dataDir === ":memory:" ? ":memory:" : path.join(dataDir, "sync.db");
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  // 1.4：登录从 GitHub 换成 OIDC。按 SQLite 的做法重建 users（关掉外键，其他表对 users 的引用原样保留）；旧账户的 sub 记为 "github:<id>"
+  const userCols = new Set((db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name));
+  if (!userCols.has("sub")) db.exec(`PRAGMA foreign_keys = OFF;
+    BEGIN;
+    CREATE TABLE users_new (id INTEGER PRIMARY KEY, sub TEXT NOT NULL UNIQUE, github_id INTEGER UNIQUE, login TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, last_login INTEGER NOT NULL);
+    INSERT INTO users_new (id, sub, github_id, login, name, created, last_login) SELECT id, 'github:' || github_id, github_id, login, name, created, last_login FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_new RENAME TO users;
+    COMMIT;
+    PRAGMA foreign_keys = ON;`);
   // 1.0.1：会话区分网页与控制台（账户页列出控制台登录、可吊销）
   const cols = new Set((db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map((c) => c.name));
   if (!cols.has("kind")) db.exec(`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'web';
@@ -74,8 +87,9 @@ export function openDb(dataDir: string) {
   const q = <T>(sql: string) => { const s = db.prepare(sql); return { get: (...a: any[]) => s.get(...a) as T | undefined, all: (...a: any[]) => s.all(...a) as T[], run: (...a: any[]) => s.run(...a) }; };
 
   const s = {
-    upsertUser: q<User>(`INSERT INTO users (github_id, login, name, created, last_login) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(github_id) DO UPDATE SET login = excluded.login, name = excluded.name, last_login = excluded.last_login RETURNING *`),
+    upsertUser: q<User>(`INSERT INTO users (sub, login, name, email, created, last_login) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(sub) DO UPDATE SET login = excluded.login, name = excluded.name, email = excluded.email, last_login = excluded.last_login RETURNING *`),
+    setGitHub: q("UPDATE users SET github_id = ? WHERE id = ? AND github_id IS NULL"),
     user: q<User>("SELECT * FROM users WHERE id = ?"),
     deleteUser: q("DELETE FROM users WHERE id = ?"),
     insertSession: q("INSERT INTO sessions (id, user_id, expires, kind, label, agent, created, last_used) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
@@ -136,7 +150,9 @@ export function openDb(dataDir: string) {
   return {
     raw: db,
     close: () => db.close(),
-    upsertUser: (githubId: number, login: string, name: string) => s.upsertUser.get(githubId, login, name, now(), now())!,
+    upsertUser: (u: { sub: string; login: string; name: string; email: string }) => s.upsertUser.get(u.sub, u.login, u.name, u.email, now(), now())!,
+    /** 第一次链接灵魂仓库时记下用的 GitHub 账户（已经记过就不改；这个 GitHub 账户已属于别的账户时失败，返回 false）。 */
+    setGitHub: (userId: number, githubId: number) => { try { s.setGitHub.run(githubId, userId); return true; } catch { return false; } },
     user: (id: number) => s.user.get(id),
     deleteUser: (id: number) => s.deleteUser.run(id),
 

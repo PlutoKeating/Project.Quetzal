@@ -1,4 +1,4 @@
-// 同步服务的端到端测试：GitHub 登录（假客户端）、设备码绑定、CSRF、开放重定向、账户隔离、WebSocket 信令与在场、TURN 凭据、安全响应头。
+// 同步服务的端到端测试：OIDC 登录（假客户端）、设备码绑定、CSRF、开放重定向、账户隔离、WebSocket 信令与在场、TURN 凭据、安全响应头。
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -19,15 +19,15 @@ import { DatabaseSync } from "node:sqlite";
 const PUBLIC = "http://sync.test";
 const cfg = loadConfig({
   SYNC_PUBLIC_URL: PUBLIC, SYNC_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-sync-")),
-  GITHUB_CLIENT_ID: "x", GITHUB_CLIENT_SECRET: "y", TURN_SECRET: "s".repeat(40),
+  OIDC_ISSUER: "https://id.example", OIDC_CLIENT_ID: "x", OIDC_CLIENT_SECRET: "y", TURN_SECRET: "s".repeat(40),
   SYNC_TRUST_PROXY: "1", // 测试用 X-Forwarded-For 模拟不同的客户端地址（限流按地址计）
 });
-// 假 GitHub：授权码就是 GitHub 用户 id
-const github = {
-  authorizationUrl: (state: string) => new URL(`https://github.example/authorize?state=${state}`),
-  user: async (code: string) => ({ id: Number(code), login: `user${code}`, name: `User ${code}` }),
+// 假身份服务：授权码就是用户编号
+const login = {
+  authorizationUrl: async ({ state }: { state: string }) => new URL(`https://id.example/authorize?state=${state}`),
+  user: async (cb: URL) => { const code = cb.searchParams.get("code")!; return { sub: `sub-${code}`, login: `user${code}`, name: `User ${code}`, email: `user${code}@example.com` }; },
 };
-const s = createSyncServer(cfg, { github });
+const s = createSyncServer(cfg, { login });
 let port = 0;
 before(async () => { port = await s.listen(0, "127.0.0.1"); });
 after(async () => { await s.close(); });
@@ -49,10 +49,10 @@ class Browser {
     }
     return r;
   }
-  async login(githubId: number) {
+  async login(id: number) {
     const r = await this.req("/login?return_to=/account");
     const state = new URL(r.headers.get("location")!).searchParams.get("state")!;
-    const cb = await this.req(`/auth/github/callback?code=${githubId}&state=${state}`);
+    const cb = await this.req(`/auth/oidc/callback?code=${id}&state=${state}`);
     assert.equal(cb.status, 302);
     assert.equal(cb.headers.get("location"), "/account");
   }
@@ -136,7 +136,7 @@ test("安全响应头：CSP 带 nonce、禁止被嵌入", async () => {
 test("OAuth：state 不符的回调不会登录", async () => {
   const b = new Browser();
   await b.req("/login");
-  const r = await b.req("/auth/github/callback?code=1&state=forged");
+  const r = await b.req("/auth/oidc/callback?code=1&state=forged");
   assert.equal(r.status, 302);
   assert.equal((await b.req("/account")).status, 302, "仍未登录，被送去登录");
 });
@@ -402,7 +402,7 @@ test("限流器：有硬上限，满了淘汰最早的条目；over 只看不计
   assert.equal(bytes.take("x", 60), false);
 });
 
-test("数据库迁移：1.0.1 的会话表补上 agent 列，没有创建时间的旧行从升级时起算", () => {
+test("数据库迁移：1.0.1 的会话表补上 agent 列，没有创建时间的旧行从升级时起算；1.4 的账户换成 sub", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-sync-mig-"));
   const old = new DatabaseSync(path.join(dir, "sync.db"));
   old.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, github_id INTEGER NOT NULL UNIQUE, login TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, last_login INTEGER NOT NULL);
@@ -415,6 +415,12 @@ test("数据库迁移：1.0.1 的会话表补上 agent 列，没有创建时间�
   const row = db.raw.prepare("SELECT * FROM sessions WHERE id = 'h'").get() as any;
   assert.equal(row.agent, null);
   assert.ok(row.created > Date.now() - 60_000);
+  // 1.4：users 换成 OIDC 的 sub，重建表时不连带删掉会话（外键引用照旧）
+  assert.deepEqual({ ...db.user(1) }, { id: 1, sub: "github:1", github_id: 1, login: "u", name: "", email: "", created: 0, last_login: 0 });
+  assert.deepEqual(db.raw.prepare("PRAGMA foreign_key_check").all(), []);
+  assert.equal((db.raw.prepare("PRAGMA foreign_keys").get() as any).foreign_keys, 1);
+  db.raw.exec("DELETE FROM users WHERE id = 1");
+  assert.equal(db.raw.prepare("SELECT * FROM sessions WHERE id = 'h'").get(), undefined, "外键仍然级联");
   db.close();
 });
 

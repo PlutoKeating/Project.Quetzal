@@ -14,15 +14,19 @@ const PUBLIC = "https://sync.example";
 const WEB = "https://www.example";
 const cfg = loadConfig({
   SYNC_PUBLIC_URL: PUBLIC, SYNC_WEB_URL: WEB + "/zh", SYNC_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-sync-web-")),
-  GITHUB_CLIENT_ID: "x", GITHUB_CLIENT_SECRET: "y", TURN_SECRET: "s".repeat(40), SYNC_TRUST_PROXY: "1", SYNC_SESSION_DAYS: "7",
+  OIDC_ISSUER: "https://id.example", OIDC_CLIENT_ID: "x", OIDC_CLIENT_SECRET: "y", TURN_SECRET: "s".repeat(40), SYNC_TRUST_PROXY: "1", SYNC_SESSION_DAYS: "7",
 });
-// 假 GitHub：记下 PKCE 的 code_challenge 与回调时收到的 code_verifier
-const pkce = { challenge: "", verifier: "" };
-const github = {
-  authorizationUrl: (state: string, challenge: string) => { pkce.challenge = challenge; return new URL(`https://github.example/authorize?state=${state}`); },
-  user: async (code: string, verifier: string) => { pkce.verifier = verifier; return { id: Number(code), login: `user${code}`, name: `User ${code}` }; },
+// 假身份服务：记下 PKCE 的 code_challenge 与回调时收到的 code_verifier、回调地址
+const pkce = { challenge: "", verifier: "", callback: "" };
+const login = {
+  authorizationUrl: async ({ state, codeChallenge }: { state: string; codeChallenge: string }) => { pkce.challenge = codeChallenge; return new URL(`https://id.example/authorize?state=${state}`); },
+  user: async (cb: URL, o: { codeVerifier: string }) => {
+    pkce.verifier = o.codeVerifier; pkce.callback = cb.toString();
+    const code = cb.searchParams.get("code")!;
+    return { sub: `sub-${code}`, login: `user${code}`, name: `User ${code}`, email: `user${code}@example.com` };
+  },
 };
-const s = createSyncServer(cfg, { github });
+const s = createSyncServer(cfg, { login });
 after(async () => { await s.close(); });
 
 class Browser {
@@ -48,7 +52,7 @@ class Browser {
   async login(id: number, returnTo = `${WEB}/zh/account`) {
     const r = await this.req(`/login?return_to=${encodeURIComponent(returnTo)}`);
     const state = new URL(r.headers.get("location")!).searchParams.get("state")!;
-    return (await this.req(`/auth/github/callback?code=${id}&state=${state}`)).headers.get("location");
+    return (await this.req(`/auth/oidc/callback?code=${id}&state=${state}`)).headers.get("location");
   }
 }
 const ip = () => `10.1.${crypto.randomInt(255)}.${crypto.randomInt(255)}`;
@@ -170,7 +174,7 @@ test("一次登录：批准运行基座时同时发控制台令牌，能管理�
 
 test("换令牌：直连 github.com 不通时经中转；GitHub 明确拒绝时不换路；中转没配置时如实报错", async () => {
   const { exchangeCode } = await import("../src/auth.ts");
-  const o = { id: "cid", secret: "sec", code: "c", redirectUri: `${PUBLIC}/auth/github/callback`, relay: "https://relay.example/token" };
+  const o = { id: "cid", secret: "sec", code: "c", redirectUri: `${PUBLIC}/soul/callback`, relay: "https://relay.example/token" };
   const calls: string[] = [];
   const ok = (j: unknown, status = 200) => new Response(JSON.stringify(j), { status, headers: { "content-type": "application/json" } });
   const down = (async (url: string) => { calls.push(new URL(url).host); if (url.includes("github.com")) throw new Error("connect timeout"); return ok({ access_token: "gho_x" }); }) as typeof fetch;
@@ -184,7 +188,7 @@ test("换令牌：直连 github.com 不通时经中转；GitHub 明确拒绝时�
   await assert.rejects(exchangeCode(o, relayOff), /无法连接 GitHub（relay\.example 返回 503 relay_not_configured）/);
   let body = "";
   await exchangeCode({ ...o, relay: undefined }, (async (_u: string, init: RequestInit) => { body = String(init.body); return ok({ access_token: "t" }); }) as typeof fetch);
-  assert.deepEqual(Object.fromEntries(new URLSearchParams(body)), { client_id: "cid", client_secret: "sec", code: "c", redirect_uri: `${PUBLIC}/auth/github/callback` });
+  assert.deepEqual(Object.fromEntries(new URLSearchParams(body)), { client_id: "cid", client_secret: "sec", code: "c", redirect_uri: `${PUBLIC}/soul/callback` });
 });
 
 /** 身体代控制台申请登录、主人批准、身体拿到 qsc_ 令牌。 */
@@ -344,35 +348,49 @@ test("配置了 SYNC_WEB_URL 时自带网页的表单 POST 一律跳到网页前
 test("OAuth：临时 Cookie 用 __Host- 前缀；PKCE 的 verifier 与 challenge 对得上；缺 verifier 的回调不登录", async () => {
   const b = new Browser();
   const r = await b.req(`/login?return_to=${encodeURIComponent(WEB + "/zh/account")}`);
-  assert.deepEqual([...b.jar.keys()].sort(), ["__Host-quetzal_oauth_state", "__Host-quetzal_oauth_verifier", "__Host-quetzal_return_to"]);
+  assert.deepEqual([...b.jar.keys()].sort(), ["__Host-quetzal_oauth_nonce", "__Host-quetzal_oauth_state", "__Host-quetzal_oauth_verifier", "__Host-quetzal_return_to"]);
   const verifier = b.jar.get("__Host-quetzal_oauth_verifier")!;
   assert.equal(pkce.challenge, crypto.createHash("sha256").update(verifier).digest("base64url"));
   const state = new URL(r.headers.get("location")!).searchParams.get("state")!;
   b.jar.delete("__Host-quetzal_oauth_verifier");
-  const cb = await b.req(`/auth/github/callback?code=55&state=${state}`);
+  const cb = await b.req(`/auth/oidc/callback?code=55&state=${state}`);
   assert.match(cb.headers.get("location")!, /login=failed/);
   const c = new Browser(); await c.login(56);
   assert.equal(pkce.verifier.length >= 43, true, "回调把 verifier 交给换令牌");
+  assert.match(pkce.callback, /^https:\/\/sync\.example\/auth\/oidc\/callback\?code=56&state=/, "换令牌用公开地址做 redirect_uri");
 });
 
-test("GitHub 客户端：授权地址带 PKCE S256；换令牌带 code_verifier；读完资料吊销令牌，吊销失败不影响登录", async () => {
-  const { githubClient } = await import("../src/auth.ts");
+test("OIDC 客户端：发现文档、授权地址（PKCE S256 + nonce）、换令牌、校验 ID 令牌；邮箱没确认过不用", async () => {
+  const { oidcClient } = await import("../src/auth.ts");
+  const jose = await import("jose");
+  const ISS = "https://id.example/auth/v1/";
+  const { privateKey } = await jose.generateKeyPair("EdDSA", { crv: "Ed25519" });
   const calls: { url: string; init: RequestInit }[] = [];
-  const json = (j: unknown, status = 200) => new Response(JSON.stringify(j), { status, headers: { "content-type": "application/json" } });
+  let claims: Record<string, unknown> = {};
+  const json = (j: unknown) => new Response(JSON.stringify(j), { headers: { "content-type": "application/json" } });
   const fetcher = (async (url: string, init: RequestInit = {}) => {
-    calls.push({ url, init });
-    if (url === "https://github.com/login/oauth/access_token") return json({ access_token: "gho_tok" });
-    if (url === "https://api.github.com/user") return json({ id: 9, login: "octo", name: null });
-    throw new Error("revoke unreachable");
+    calls.push({ url: String(url), init });
+    if (String(url) === `${ISS}.well-known/openid-configuration`) return json({ issuer: ISS, authorization_endpoint: `${ISS}oidc/authorize`, token_endpoint: `${ISS}oidc/token`, jwks_uri: `${ISS}oidc/certs`, id_token_signing_alg_values_supported: ["EdDSA"] });
+    if (String(url) === `${ISS}oidc/token`) {
+      const id_token = await new jose.SignJWT(claims).setProtectedHeader({ alg: "EdDSA" }).setIssuer(ISS).setAudience("quetzal-sync").setSubject("u-1").setIssuedAt().setExpirationTime("5m").sign(privateKey);
+      return json({ access_token: "at", token_type: "Bearer", id_token, expires_in: 300 });
+    }
+    throw new Error(`unexpected ${url}`);
   }) as typeof fetch;
-  const gh = githubClient(loadConfig({ SYNC_PUBLIC_URL: PUBLIC, GITHUB_CLIENT_ID: "cid", GITHUB_CLIENT_SECRET: "sec" }), fetcher)!;
-  const u = gh.authorizationUrl("st", "ch");
-  assert.equal(u.origin + u.pathname, "https://github.com/login/oauth/authorize");
-  assert.deepEqual(Object.fromEntries(u.searchParams), { response_type: "code", client_id: "cid", redirect_uri: `${PUBLIC}/auth/github/callback`, state: "st", code_challenge: "ch", code_challenge_method: "S256" });
-  assert.deepEqual(await gh.user("code1", "ver1"), { id: 9, login: "octo", name: "" });
-  assert.equal(new URLSearchParams(String(calls[0].init.body)).get("code_verifier"), "ver1");
-  const revoke = calls.find((c) => c.init.method === "DELETE")!;
-  assert.equal(revoke.url, "https://api.github.com/applications/cid/token");
-  assert.equal(new Headers(revoke.init.headers).get("authorization"), `Basic ${Buffer.from("cid:sec").toString("base64")}`);
-  assert.deepEqual(JSON.parse(String(revoke.init.body)), { access_token: "gho_tok" });
+  const c = oidcClient(loadConfig({ SYNC_PUBLIC_URL: PUBLIC, OIDC_ISSUER: ISS, OIDC_CLIENT_ID: "quetzal-sync", OIDC_CLIENT_SECRET: "sec" }), fetcher)!;
+  const u = await c.authorizationUrl({ state: "st", nonce: "no", codeChallenge: "ch" });
+  assert.equal(u.origin + u.pathname, "https://id.example/auth/v1/oidc/authorize");
+  assert.deepEqual(Object.fromEntries(u.searchParams), { client_id: "quetzal-sync", response_type: "code", redirect_uri: `${PUBLIC}/auth/oidc/callback`, scope: "openid profile email", state: "st", nonce: "no", code_challenge: "ch", code_challenge_method: "S256" });
+  assert.equal(new Headers(calls[0].init.headers).get("user-agent"), "quetzal-sync");
+  const cb = new URL(`${PUBLIC}/auth/oidc/callback?code=c1&state=st`);
+  claims = { nonce: "no", preferred_username: "Kaoru@Example.com", email: "Kaoru@Example.com", email_verified: true, given_name: "Kaoru", family_name: "Kamiya" };
+  assert.deepEqual(await c.user(cb, { state: "st", nonce: "no", codeVerifier: "v".repeat(43) }), { sub: "u-1", login: "Kaoru@Example.com", name: "Kaoru Kamiya", email: "kaoru@example.com" });
+  const form = new URLSearchParams(String(calls.at(-1)!.init.body));
+  assert.equal(form.get("code_verifier"), "v".repeat(43));
+  assert.equal(form.get("redirect_uri"), `${PUBLIC}/auth/oidc/callback`);
+  claims = { nonce: "no", email: "x@example.com", email_verified: false };
+  assert.equal((await c.user(cb, { state: "st", nonce: "no", codeVerifier: "v".repeat(43) })).email, "", "没确认过的邮箱不当真（管理员靠它判断）");
+  claims = { nonce: "other" };
+  await assert.rejects(c.user(cb, { state: "st", nonce: "no", codeVerifier: "v".repeat(43) }), "nonce 不符");
+  await assert.rejects(c.user(new URL(`${PUBLIC}/auth/oidc/callback?code=c1&state=forged`), { state: "st", nonce: "no", codeVerifier: "v".repeat(43) }), "state 不符");
 });

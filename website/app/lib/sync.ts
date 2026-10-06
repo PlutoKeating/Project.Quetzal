@@ -2,13 +2,15 @@
 // 官网是唯一给人看的前端：登录、账户、批准身体、控制台登录都在这里；同步服务只提供接口。
 // 会话 Cookie 属于同步服务（与官网同站不同源），所以请求一律 credentials: "include"；改动类请求是 JSON（跨源时浏览器先预检）。
 export const SYNC_ORIGIN = "https://sync.quetzal.plutokeating.beer";
+/** 账号本身（名字、邮箱、通行密钥、关联 GitHub）在统一账号服务的设置页里管理；改完点「返回」回到 back。 */
+export const accountUrl = (back: string) => `https://id.plutokeating.beer/self-service/settings/browser?return_to=${encodeURIComponent(back)}`;
 
-export interface SessionInfo { loginEnabled: boolean; user: { login: string; name: string } | null }
+export interface SessionInfo { loginEnabled: boolean; user: { login: string; name: string; email?: string } | null }
 export interface AccountBody { body: string; kind: "runtime" | "bridge" | string; version: string; created: number; lastSeen: number; online: boolean; fingerprint: string }
 export interface AccountAgent { id: string; name: string; created: number; bodies: AccountBody[] }
 export interface ConsoleSignIn { id: string; body: string; created: number; lastUsed: number; current: boolean }
 export interface Account {
-  user: { login: string; name: string };
+  user: { login: string; name: string; email?: string };
   limits: { agents: number; bodies: number };
   agents: AccountAgent[];
   consoles: ConsoleSignIn[];
@@ -62,7 +64,7 @@ export const sync = {
   deleteAccount: () => call<{ ok: true }>("/v1/web/account/delete", { confirm: true }),
 };
 
-/** GitHub 登录：经同步服务跳到 GitHub，登录后回到 returnTo（必须是官网上的地址，同步服务会核对）。 */
+/** 登录：经同步服务跳到账号服务，登录后回到 returnTo（必须是官网上的地址，同步服务会核对）。 */
 export const loginUrl = (returnTo: string) => `${SYNC_ORIGIN}/login?return_to=${encodeURIComponent(returnTo)}`;
 
 /** 绑定码规范化：去掉空白与连字符，转大写，8 位时显示为 XXXX-XXXX。 */

@@ -25,8 +25,8 @@ flowchart LR
 | STUN / TURN | coturn 4.18 | 事实标准的 TURN 实现；用有时效的 HMAC 凭据（`use-auth-secret`），服务端不存密码；不记日志 |
 | Web 框架 | Hono | 自带 `secureHeaders`（CSP nonce、HSTS 等）、`csrf`（Origin + Sec-Fetch-Site）、`bodyLimit` |
 | WebSocket | ws | Node 生态的标准实现；`maxPayload` 限制、关闭压缩 |
-| GitHub App（登录与灵魂仓库共用一个） | 管理员用「从配置清单创建」一键生成（`src/github-app.ts`），凭据存数据目录 `github-app.json`（0600）；登录只读一次 `/user`；批准带部署公钥的身体后，经一次用户授权给灵魂仓库加那一把公钥，令牌立即吊销（`src/soul-link.ts`，协议 §2.1） |
-| GitHub 登录 | arctic（随机数）+ 自己拼授权地址 | 用 arctic 生成 `state` 与 PKCE 的 `code_verifier`；它的 GitHub 提供方不支持 PKCE，授权地址（带 `code_challenge`，S256）与换令牌（`src/auth.ts` 的 `exchangeCode`，可经中转）在本服务里实现 |
+| 登录 | OpenID Connect（openid-client 6.8.8，锁版本） | 账号交给外部的身份服务（`OIDC_ISSUER`），本服务不存密码；发现、授权码 + PKCE（S256）+ nonce、换令牌、校验 ID 令牌都用成熟实现，不自己写；scope `openid profile email` |
+| GitHub App（只用于灵魂仓库） | 管理员用「从配置清单创建」一键生成（`src/github-app.ts`） | 凭据存数据目录 `github-app.json`（0600）；批准带部署公钥的身体后，经一次 GitHub 用户授权给灵魂仓库加那一把公钥，令牌立即吊销（`src/soul-link.ts`，协议 §2.1）；换令牌（`src/auth.ts` 的 `exchangeCode`）直连不通时可经中转 |
 | 输入校验 | zod | 所有外部输入（接口请求体、WebSocket 消息、环境变量）都按 schema 校验 |
 | 存储 | `node:sqlite` | Node 内置，没有原生依赖；预编译语句，没有拼接 SQL |
 | 身体之间 | WebRTC（ICE / DTLS / SCTP） | 打洞、加密、可靠传输都是成熟标准；同步服务只转发信令 |
@@ -49,7 +49,7 @@ sync/
     ├── db.ts           表结构与预编译语句
     ├── app.ts          路由：/v1/*（身体）、登录、自带网页（人；配置了 SYNC_WEB_URL 时跳到网页前端）
     ├── web.ts          账户接口 /v1/web/*：网页前端（Cookie + CORS）与控制台登录（Bearer qsc_）共用
-    ├── auth.ts         GitHub 登录（arctic）与会话
+    ├── auth.ts         OIDC 登录（openid-client）与会话；链接灵魂仓库时换 GitHub 令牌（可经中转）
     ├── device.ts       设备码绑定（RFC 8628 的语义）与控制台登录；部署公钥、核对词、批准时选 agent
     ├── github-app.ts   GitHub App：配置清单、凭据保存、用户令牌的仓库操作（找 / 建灵魂仓库、加部署密钥、吊销）
     ├── soul-link.ts    /setup/github-app（管理员一键创建 App）与 /soul/link、/soul/callback（批准后链接灵魂仓库）
@@ -63,13 +63,13 @@ sync/
 
 | 表 | 内容 | 保留 |
 |---|---|---|
-| `users` | GitHub 数字 id、用户名、显示名、时间 | 直到删除账户 |
+| `users` | 身份服务的 `sub`（唯一）、用户名、显示名、邮箱（身份服务确认过才存）、第一次链接灵魂仓库用的 GitHub 数字 id（之后链接都要是它；一个 GitHub 账户只属于一个账户）、时间 | 直到删除账户 |
 | `sessions` | 会话令牌的 SHA-256、到期时间、类型（`web` 网页 / `console` 控制台登录）、控制台登录来自的身体名与它所属 agent 的内部编号、创建与最近使用时间 | 网页 `SYNC_SESSION_DAYS`（默认 30）天、控制台 30 天，滑动续期；自创建起最长 90 天；发起控制台登录的身体被解绑即删除；过期每小时清理 |
 | `agents` | (账户, agent id) → 显示名、灵魂仓库（`owner/name`，链接后记下） | 直到删除 |
 | `bodies` | 身体名、类型、版本、节点公钥、令牌的 SHA-256、最近在线 | 直到解绑 |
 | `device_codes` | 设备码的 SHA-256、短码、待绑定的身体信息（含部署公钥）、状态、链接灵魂仓库的进展与一次性票据的 SHA-256 | 15 分钟（批准后链接中延到批准后 15 分钟） |
 
-**不保存**：IP 地址、端点、ICE 候选、信令内容、GitHub 访问令牌（读完资料、加完部署密钥立即向 GitHub 吊销）、GitHub App 的私钥（创建时 GitHub 给的私钥不落盘，同步服务从不以 App 身份调用）、任何记忆或对话。限流用的客户端地址只在内存里。Caddy 不开访问日志，同步服务的日志不记 IP 和令牌，coturn 不记日志（配置里 `no-stdout-log`、`log-file=/dev/null`，compose 里日志驱动为 `none`）。
+**不保存**：IP 地址、端点、ICE 候选、信令内容、身份服务发的任何令牌（只从 ID 令牌读一次资料）、GitHub 访问令牌（加完部署密钥立即向 GitHub 吊销）、GitHub App 的私钥（创建时 GitHub 给的私钥不落盘，同步服务从不以 App 身份调用）、任何记忆或对话。限流用的客户端地址只在内存里。Caddy 不开访问日志，同步服务的日志不记 IP 和令牌，coturn 不记日志（配置里 `no-stdout-log`、`log-file=/dev/null`，compose 里日志驱动为 `none`）。
 
 ## 4. 安全设计
 
@@ -80,13 +80,13 @@ sync/
 | 令牌或会话从数据库泄露 | 会话、设备码、身体令牌都是 256 位随机数，库里只存 SHA-256 |
 | 抢占别人的 agent | agent 登记按账户隔离：(账户, agent id) 唯一，不同账户互不可见、互不影响 |
 | 骗人批准陌生身体 | 确认页显示核对词（3 个表情，身体在给人的消息里一起给出，钓鱼链接对不上）、agent、身体名、类型、节点公钥与部署公钥的指纹；批准只把身体加进你自己的账户 |
-| 同步服务被攻破后往用户的仓库加密钥 | 平时不持有任何仓库权限：只有批准者本人随后完成一次 GitHub 用户授权时才拿到短时令牌，只加码里登记的那一把公钥，立即吊销；令牌必须属于批准者的 GitHub 账户；链接靠一次性票据（256 位、只存哈希、只对这个码、用过即失效） |
+| 同步服务被攻破后往用户的仓库加密钥 | 平时不持有任何仓库权限：只有批准者本人随后完成一次 GitHub 用户授权时才拿到短时令牌，只加码里登记的那一把公钥，立即吊销；令牌必须属于这个账户第一次链接时记下的 GitHub 账户；链接靠一次性票据（256 位、只存哈希、只对这个码、用过即失效） |
 | 暴力猜短码 | 短码 8 位、约 34 位熵、15 分钟有效；查询与批准（接口与自带表单）都计数：每个账户 10 分钟内最多输错 10 次、每个地址最多 30 次，用完后连对的码也返回 429；过期与不存在返回同一个错误 |
 | CSRF | 会话 Cookie 为 `SameSite=Lax`、`HttpOnly`、`Secure`，HTTPS 下用 `__Host-` 前缀；自带网页的 POST 校验 Origin 与 Sec-Fetch-Site（配置了网页前端时这些表单整体关闭，只跳转）；给身体的 `/v1/*` 不用 Cookie；账户接口 `/v1/web/*` 只对网页前端放行 CORS（响应都带 `Vary: Origin`），用 Cookie 的改动请求必须带对的 Origin 且是 JSON（跨源必先预检） |
 | 骗人批准控制台登录 | 只有已绑定的运行基座能申请（灵魂桥 403），只有那具身体所在账户的主人能批准；确认页给出发起它的那具身体的真实公钥指纹与绑定时间，写明批准后能管理整个账户；那具身体解绑或重新绑定后，旧码不能再批准；可随时吊销 |
 | 控制台账户令牌泄露 | 256 位随机数、库里只存哈希、30 天滑动有效期且自创建起最长 90 天，只能用于账户接口；发起它的身体被解绑（网页解绑、身体自己解绑、同名重新绑定、删除 agent）时一并作废；运行基座把它放在密钥目录（0600），agent 的命令执行工具拦下对密钥目录的读取 |
 | 网页会话被盗 | 滑动有效期且自创建起最长 90 天；`POST /v1/web/sessions/revoke-all` 一次作废这个账户的全部网页会话 |
-| OAuth 回调伪造、授权码被截获 | `state` 放在 10 分钟的 HttpOnly Cookie 里比对；PKCE（S256），`code_verifier` 同样放在 Cookie 里；HTTPS 下这些临时 Cookie 都用 `__Host-` 前缀；不申请任何 scope，访问令牌只用来读一次资料，随即吊销 |
+| 登录回调伪造、授权码被截获 | `state` 放在 10 分钟的 HttpOnly Cookie 里比对；PKCE（S256）与 nonce，`code_verifier` 与 nonce 同样放在 Cookie 里；HTTPS 下这些临时 Cookie 都用 `__Host-` 前缀；ID 令牌由 openid-client 校验签名、签发者、受众与 nonce；只认身份服务确认过（`email_verified`）的邮箱，管理员（`SYNC_ADMINS`）按它认定 |
 | 开放重定向 | 登录后的回跳只接受本站的绝对路径（拒绝 `//`、`/\`、协议地址），或网页前端同源下的地址 |
 | XSS / 点击劫持 | 页面没有脚本；模板自动转义；CSP `default-src 'none'`，样式用 nonce；`frame-ancestors 'none'` |
 | 滥用 TURN 打进服务器内网或本机（SSRF） | coturn 禁止中转到私有、回环、链路本地、保留与组播地址（IPv4 与 IPv6），也禁止中转到本机自己的中转地址与公网地址（同一台服务器上的其他服务）；关闭 TCP 中转 |

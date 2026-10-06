@@ -47,14 +47,14 @@ No. The app is a complete console on its own. Feishu is an optional second entry
 
 ## Do I need a soul repository?
 
-No. Signing in with GitHub creates a private soul repository under your account automatically; if you skip sign-in, identity, personality and memory stay on the device. When you want it to change devices, live on several, or have a memory history you can inspect and revert, sign in, or connect a repository you created yourself under **Control → Advanced → Sync**.
+No. Signing in and approving a device creates a private soul repository under your GitHub account automatically; if you skip sign-in, identity, personality and memory stay on the device. When you want it to change devices, live on several, or have a memory history you can inspect and revert, sign in, or connect a repository you created yourself under **Control → Advanced → Sync**.
 
 ## Where is my data?
 
 - **Your devices**: configuration, encrypted keys, the database (timeline, conversations, activity log, usage), the soul directory and the vault.
 - **Your private soul repository on GitHub**: personality, memory, journal, notes, tool guides.
 - **The model provider you chose**: the content of every conversation and of every wake-up where it thinks.
-- **The sync service**: run by the author personally, and used by default for sign-in and for connecting your devices. It registers your GitHub username, agents and devices, and cannot see conversations or memory. The GitHub app you install at sign-in can manage the repositories you chose; the sync service uses it only at the moment you approve a device.
+- **The sync service**: run by the author personally, and used by default for sign-in and for connecting your devices. You sign in with a PlutoKeating account (the author's single account). It registers your account (username, email), agents and devices, and cannot see conversations or memory. The GitHub app you install when the first soul repository is created can manage the repositories you chose; the sync service uses it only at the moment you approve a device.
 
 For what each of them can do and how to take it back, see [Trust and limits](/docs/guide/trust).
 

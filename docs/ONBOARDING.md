@@ -4,6 +4,7 @@
 >
 > 与本稿不同的地方：
 > - 没有设备上的 GitHub 设备授权，也没有 `POST /v1/auth/github` 与运行基座的 `onboard/` 模块。实际流程是：身体申请绑定码时带上部署公钥 → 人在网页（官网账户页或 App 打开的浏览器）批准 → 同一个标签页经 GitHub 用户授权跳一次（没装 App 先去安装页）→ 同步服务找到或新建 `<短名>.soul` 私有仓库、加这一把部署密钥、立即吊销令牌 → 身体轮询拿到令牌、灵魂仓库地址与控制台登录。
+> - 1.4 起账号登录不再用 GitHub，改为 OpenID Connect（`sync/src/auth.ts`），§4 里「网页登录也换成同一个 GitHub App」与 §8 的回调地址不再成立：GitHub App 只用于链接灵魂仓库，账户第一次链接时记下所用的 GitHub 账户，之后必须是同一个。
 > - GitHub App 的权限只有 Administration 写与默认的 Metadata 读（建仓库也由 Administration 写覆盖），见 `sync/src/github-app.ts`。同步服务不保存 App 私钥，从不以 App 身份调用。
 > - 模型不按 Key 前缀识别供应商：用户点一个供应商、粘贴 Key，运行基座自动挑模型、试通、排好（`providers.quick`）。
 > - 「跳过，先本地用」照旧可选。

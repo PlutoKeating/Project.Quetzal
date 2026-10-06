@@ -69,7 +69,7 @@ flowchart LR
 | `/:lang/docs/*` | 文档教程：侧栏、正文（统一 Markdown 组件）、页内目录 | `content/docs/<lang>/**/*.md`（构建时读取） |
 
 **图表与图片的可读性**（`components/markdown/Mermaid.tsx`、`Lightbox.tsx`）：mermaid 以原始尺寸渲染（`useMaxWidth: false`，字号 16px）；容器窄于 640px 时横向流程图（LR / RL，含子图 direction）自动改为纵向；图比容器宽时，若缩放不低于 0.72 则整体缩放，否则原尺寸横向滚动并提示；每张图与文档里的图片都可点按进入全屏查看（缩放按钮、双向滚动、Esc 关闭）。时序图开启自动换行。架构参考页的总图改用与 README 相同的手绘 SVG（`public/img/architecture.{zh,en}.svg`，由 `scripts/gen-architecture-svg.py` 生成）。
-| `/:lang/account` `account/device` `account/consoles` `account/settings` | 账户（像控制台的一组子页面）：概览（agent 与身体、解绑、删除 agent）· 批准设备（输入码、核对指纹与码的生成时间，控制台登录还核对发起方身体的指纹与绑定时间，批准或拒绝）· 控制台登录（吊销）· 账户设置（退出、退出所有网页登录、删除账户）；没登录时显示「用 GitHub 登录」 | 浏览器调用同步服务的账户接口 `https://sync.quetzal.plutokeating.beer/v1/web/*`（`lib/sync.ts`，见 §5） |
+| `/:lang/account` `account/device` `account/consoles` `account/settings` | 账户（像控制台的一组子页面）：概览（agent 与身体、解绑、删除 agent）· 批准设备（输入码、核对指纹与码的生成时间，控制台登录还核对发起方身体的指纹与绑定时间，批准或拒绝）· 控制台登录（吊销）· 账户设置（「管理账号」跳到 PlutoKeating 账号的设置页，改完点「返回」回来、退出、退出所有网页登录、删除账户）；没登录时显示「登录」 | 浏览器调用同步服务的账户接口 `https://sync.quetzal.plutokeating.beer/v1/web/*`（`lib/sync.ts`，见 §5） |
 | `/device` `/account` | 不带语言的入口（身体与 App 给出的链接、同步服务跳来的地址）：内联脚本按访客语言转到 `/:lang/account/device` 或 `/:lang/account`，保留查询参数 | `i18n/core.ts` 的 `FORWARD_SCRIPT` |
 | `/:lang/download` | 最新版本、资产下载、安装三步（只装一个 App）、发布说明、历史版本、Linux 一行安装命令 | 浏览器请求官网的发布接口镜像 `/api/releases`（不另存，刷新即最新；不通时退回直连 GitHub，才用 sessionStorage 缓存），不硬编码版本 |
 | `/:lang/about` `terms` `privacy` | 关于 / 条款 / 隐私（共用 `components/Article.tsx` 长文版式） | 各自 `i18n.ts`（分节 + 段落 + 要点） |
@@ -79,11 +79,11 @@ flowchart LR
 
 同步服务（`sync/`）只提供接口，官方部署配置了 `SYNC_WEB_URL=https://quetzal.plutokeating.beer`：它自带的页面一律跳到这里，身体与 App 给出的绑定链接也指向这里的 `/device`。
 
-- **登录**：「用 GitHub 登录」跳到 `https://sync.quetzal.plutokeating.beer/login?return_to=<当前地址>`，经 GitHub 回到原页面。会话是同步服务的 `__Host-` Cookie（HttpOnly、SameSite=Lax）；官网与同步服务同站不同源，`lib/sync.ts` 用 `fetch(…, {credentials: "include"})` 调用 `/v1/web/*`，同步服务只对官网放行 CORS，改动请求是 JSON（必先预检）。官网自己不设 Cookie、不存任何账户数据。
+- **登录**：「登录」跳到 `https://sync.quetzal.plutokeating.beer/login?return_to=<当前地址>`，经 PlutoKeating 账号（作者的统一账号 `https://id.plutokeating.beer`，同步服务以 OpenID Connect 对接；邮箱、通行密钥或 GitHub 都能登录）回到原页面。账号本身（名字、邮箱、通行密钥、关联 GitHub；没有密码）在账号服务的设置页里管理，地址由 `lib/sync.ts` 的 `accountUrl(返回地址)` 生成。会话是同步服务的 `__Host-` Cookie（HttpOnly、SameSite=Lax）；官网与同步服务同站不同源，`lib/sync.ts` 用 `fetch(…, {credentials: "include"})` 调用 `/v1/web/*`，同步服务只对官网放行 CORS，改动请求是 JSON（必先预检）。官网自己不设 Cookie、不存任何账户数据。
 - **退出所有网页登录**：账户设置里的按钮调用 `POST /v1/web/sessions/revoke-all`（body `{}`），吊销这个账户在所有浏览器上的会话（含当前的），不影响身体绑定与控制台登录。
 - **批准设备**：`/v1/web/device/lookup` 返回的 `createdAt`（码的生成时间）对所有类型显示；控制台登录另外显示 `bodyFingerprint`（发起方身体的公钥指纹）与 `bodyBoundAt`（它绑定的时间）。旧版同步服务没有这些字段时不显示。
 - **预渲染**：账户页预渲染时只有外壳（标题、子导航），水合后才读取登录状态与数据（`routes/account/shell.tsx` 的 `AccountShell` 与 `useLoad`）；`robots: noindex`。
 - **子导航高亮**按去掉尾斜杠的路径比较（托管时目录页会补上尾斜杠，`NavLink` 的精确匹配会失效）。
 - App 的「控制 → 账户」与这里用同一套接口（经运行基座，控制台登录），见 `sync/docs/PROTOCOL.md` §5。
-- **换令牌的中转**：官方同步服务所在的机房连 `github.com` 时通时断，它直连失败时经官网 Worker 的 `POST /api/oauth/github/token` 转发授权码换令牌的请求（`worker/index.ts`）。只放行 Worker 变量 `OAUTH_CLIENT_IDS`（在 Cloudflare 控制台设置，不入库；没设置就不转发）里的 client_id，只转发到 `github.com/login/oauth/access_token`，不缓存、不记录请求体，不开 CORS。
+- **换令牌的中转**：官方同步服务所在的机房连 `github.com` 时通时断，它链接灵魂仓库时直连失败就经官网 Worker 的 `POST /api/oauth/github/token` 转发授权码换令牌的请求（`worker/index.ts`）。只放行 Worker 变量 `OAUTH_CLIENT_IDS`（在 Cloudflare 控制台设置，不入库；没设置就不转发）里的 client_id，只转发到 `github.com/login/oauth/access_token`，不缓存、不记录请求体，不开 CORS。
 

@@ -12,7 +12,7 @@ flowchart TB
   A["1. Install the Quetzal app"] --> C
   subgraph C["2. Follow the app's wizard"]
     direction LR
-    C1["Installs by itself<br/>half a minute, connects itself"] --> C2["Allow body permissions<br/>camera · microphone · location · notifications"] --> C3["Background<br/>battery + autostart"] --> C4["Sign in (optional)<br/>GitHub"] --> C5["Model (optional)"]
+    C1["Installs by itself<br/>half a minute, connects itself"] --> C2["Allow body permissions<br/>camera · microphone · location · notifications"] --> C3["Background<br/>battery + autostart"] --> C4["Sign in (optional)"] --> C5["Model (optional)"]
   end
   C --> E(("it wakes up"))
 ```
@@ -30,7 +30,7 @@ Open Quetzal: when there is no runtime on this phone yet, the app goes straight 
 1. **Install**: starts by itself as soon as the wizard opens. The app unpacks its bundled runtime environment, starts the runtime and checks the gateway; it takes about half a minute, and the console **connects automatically**, no pairing code needed. The runtime runs in the app's own foreground service (a permanent "lives on this phone" notification).
 2. **Permissions**: once installed, the system permission prompts appear by themselves; accept camera, microphone, location (and notifications on Android 13+). Missed one? Tap "Allow" to ask again. This is only the system-level grant; every use still passes the [permissions](/docs/guide/permissions) you set in the app (camera, microphone and location ask every time by default).
 3. **Background**: add Quetzal to the **battery optimization ignore list** and **allow** it in your vendor's autostart settings.
-4. **Sign in** (skippable): tap **Sign in with GitHub**; the app opens the browser for you and you approve there. See [Multiple bodies](/docs/guide/multi-body). You can also sign in later under **Control → Devices**.
+4. **Sign in** (skippable): tap **Sign in**; the app opens the browser for you, and you sign in and approve there (the first time, it goes through GitHub once to create your private soul repository). See [Multiple bodies](/docs/guide/multi-body). You can also sign in later under **Control → Devices**.
 5. **Model** (skippable): tap **Choose a model** to set up a provider and key; see [First steps](/docs/start/first-steps).
 
 > [!IMPORTANT]

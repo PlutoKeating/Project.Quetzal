@@ -117,7 +117,7 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
               Text('你所有的设备上都是同一个 ta', style: muted),
               const SizedBox(height: 8),
               Wrap(spacing: 8, children: [
-                FilledButton(onPressed: '${m['server'] ?? ''}'.isEmpty ? null : () => signInDevice(context), child: const Text('用 GitHub 登录')),
+                FilledButton(onPressed: '${m['server'] ?? ''}'.isEmpty ? null : () => signInDevice(context), child: const Text('登录')),
                 TextButton(onPressed: () => setState(() => skipLogin = true), child: const Text('跳过')),
               ]),
             ],
