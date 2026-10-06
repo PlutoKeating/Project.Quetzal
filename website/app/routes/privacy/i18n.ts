@@ -3,23 +3,23 @@ import { defineMessages } from "~/i18n/core";
 export const messages = defineMessages({
   zh: {
     title: "隐私政策 · Quetzal",
-    description: "Quetzal 官网不设账号、不用 Cookie、不加载统计脚本；Quetzal 软件的数据只留在你的设备与你选择的服务上。",
+    description: "Quetzal 官网自己不设 Cookie，只用 Cloudflare 不设 Cookie 的访问统计；Quetzal 软件的数据只留在你的设备与你选择的服务上。",
     eyebrow: "隐私政策",
     heading: "隐私政策",
-    lead: "本网站不收集你的个人信息。下面说明网站与软件各自会接触到什么。",
+    lead: "本网站不收集你的个人信息。下面分别说明网站与软件会接触到什么。",
     updated: "最近更新：2026 年 10 月 7 日",
     sections: [
-      { heading: "1. 本网站", paragraphs: ["本网站是纯静态站点，没有服务端数据库，自己不设置 Cookie，不加载任何统计、广告或第三方字体脚本。账户页上的数据由你的浏览器直接向同步服务读取，见第 3 节。"], bullets: [
+      { heading: "1. 本网站", paragraphs: ["本网站是纯静态站点，没有服务端数据库，自己不设置 Cookie，不加载广告或第三方字体。托管方 Cloudflare 的网页分析会在页面里加一段统计脚本，统计访问量与页面加载速度，不设 Cookie。账户页上的数据由你的浏览器直接向同步服务读取，见第 3 节。"], bullets: [
         "语言与外观偏好保存在你浏览器的 localStorage 里（键 quetzal.lang、quetzal.theme），只在你的设备上，随时可在浏览器中清除。",
-        "下载页由你的浏览器向本站请求版本信息与安装包；本站不记录你的身份，不设 Cookie，结果只在你的浏览器会话里缓存 10 分钟。",
+        "下载页由你的浏览器向本站请求版本信息与安装包，本站不记录你的身份，不设 Cookie。本站的版本接口不通时，浏览器改为直接向 GitHub 的公开接口（api.github.com）读取，结果在浏览器会话里缓存 10 分钟。首页的星标数与最新版本号也由你的浏览器直接向 GitHub 的公开接口读取，同样缓存 10 分钟；GitHub 会因此看到你的 IP 地址。",
         "本网站托管在 Cloudflare。Cloudflare 作为托管与网络服务商可能按其隐私政策处理连接日志（如 IP 地址）；本项目不读取、不保存这些日志。",
         "字体（Inter）由本站自托管，不向第三方请求。",
       ] },
-      { heading: "2. Quetzal 软件", paragraphs: ["Quetzal 的运行数据全部保存在你的设备上（QUETZAL_HOME 目录）：配置、对话、时间线、审计、保密库与本地灵魂目录。除了你选择接入的同步服务（见第 3 节，它也收不到这些内容）外，作者没有任何服务器接收这些数据。"], bullets: [
+      { heading: "2. Quetzal 软件", paragraphs: ["Quetzal 的运行数据全部保存在你的设备上（QUETZAL_HOME 目录，Windows 上是 %LOCALAPPDATA%\\Quetzal\\home）：配置、对话、时间线、审计、保密库与本地灵魂目录。除了你选择接入的同步服务（见第 3 节，它也收不到这些内容）外，作者没有任何服务器接收这些数据。"], bullets: [
         "模型供应商：你配置了哪个供应商，对话与内省的内容就会发送给哪个供应商，受其隐私政策约束。API Key 在本机加密存储。",
         "灵魂仓库（可选）：人格与记忆同步到你自己选择的 git 私有仓库，由你的 git 托管商保管。",
         "飞书（可选）：接入后消息经飞书平台传递，受飞书的隐私政策约束。",
-        "设备能力：相机、麦克风、定位、操作屏幕默认每次询问；采集到的内容只在设备上使用，并按你的授权设置执行。",
+        "设备能力：相机、麦克风、定位、操作屏幕默认每次都先问你；采集到的内容只在设备上使用，按你的授权设置执行。",
         "保密传递：通过 pass_secret 交给 agent 的密码与令牌只存进本机保密库，不进入对话与模型上下文。",
         "多具身体（可选）：几具身体之间直接传输对话、会话、时间线与设置（含模型 Key），端到端加密，只发给灵魂仓库里登记过的身体，不经任何服务器保存。",
       ] },
@@ -29,7 +29,7 @@ export const messages = defineMessages({
         "保存的内容：你的账户；你绑定的 agent（名字、id 与灵魂仓库的名字）；每具身体的名字、类型、软件版本、节点公钥与最近在线时间；登录会话、控制台登录（来自哪具身体、登录与最近使用的时间）与身体令牌只存哈希，绑定码 15 分钟后作废。",
         "账户页：登录、账户管理与添加设备的页面在本站（quetzal.plutokeating.beer/account），数据由你的浏览器直接向同步服务读取；登录状态保存在同步服务的一个 Cookie 里（只用于登录，30 天内有效），本站自己不设 Cookie、不保存账户数据。",
         "不保存的内容：IP 地址与网络端点（只在身体在线时用于建立连接，不写盘、不写日志）、对话、记忆、人格、模型 Key。打不通而经服务器中转的流量是端到端加密的，服务器看不到内容。",
-        "删除：在同步服务网页的账户页可以随时解绑身体、删除 agent 或删除整个账户，立即生效。",
+        "删除：在本站的账户页（quetzal.plutokeating.beer/account）可以随时解绑身体、删除 agent 或删除整个账户，立即生效。",
         "同步服务所在的服务器与网络服务商可能按其政策处理连接日志；本项目不读取、不保存这些日志。",
       ] },
       { heading: "4. 未成年人", paragraphs: ["本网站与软件不面向 16 岁以下的未成年人，也不会有意收集其信息。"], bullets: [] },
@@ -39,19 +39,19 @@ export const messages = defineMessages({
   },
   en: {
     title: "Privacy Policy · Quetzal",
-    description: "The Quetzal website has no accounts, no cookies and no analytics; the Quetzal software keeps its data on your device and the services you choose.",
+    description: "The Quetzal website sets no cookies of its own and uses only Cloudflare's cookieless visit counts; the Quetzal software keeps its data on your device and the services you choose.",
     eyebrow: "Privacy Policy",
     heading: "Privacy Policy",
-    lead: "This website does not collect your personal information. Below is what the site and the software each touch.",
+    lead: "This website does not collect your personal information. Below is what the site and the software each come into contact with.",
     updated: "Last updated: October 7, 2026",
     sections: [
-      { heading: "1. This website", paragraphs: ["This is a purely static site: no server-side database, no cookies of its own, and no analytics, advertising or third-party font scripts. The data on the account pages is read by your browser directly from the sync service; see section 3."], bullets: [
+      { heading: "1. This website", paragraphs: ["This is a purely static site: no server-side database, no cookies of its own, and no advertising or third-party fonts. Cloudflare, which hosts the site, adds its Web Analytics script to each page to count visits and page load times; it sets no cookies. The data on the account pages is read by your browser directly from the sync service; see section 3."], bullets: [
         "Your language and appearance preferences are stored in your browser's localStorage (keys quetzal.lang and quetzal.theme), only on your device, and can be cleared in the browser at any time.",
-        "The download page requests release information and packages from this site in your browser; this site does not record who you are, sets no cookies, and the result is cached only in your browser session for 10 minutes.",
+        "The download page requests release information and packages from this site in your browser; this site does not record who you are and sets no cookies. When this site's release endpoint is unreachable, your browser reads GitHub's public API (api.github.com) directly instead and caches the result in the browser session for 10 minutes. The star count and latest version on the home page also come straight from GitHub's public API in your browser, cached the same way; GitHub sees your IP address when this happens.",
         "The site is hosted on Cloudflare. As the hosting and network provider, Cloudflare may process connection logs (such as IP addresses) under its own privacy policy; this project does not read or keep those logs.",
         "The typeface (Inter) is self-hosted; nothing is requested from third parties.",
       ] },
-      { heading: "2. The Quetzal software", paragraphs: ["All of Quetzal's runtime data stays on your device (the QUETZAL_HOME directory): configuration, conversations, timeline, audit log, vault and the local soul directory. Apart from a sync service you choose to use (see section 3, which does not receive any of this either), the author runs no server that receives any of it."], bullets: [
+      { heading: "2. The Quetzal software", paragraphs: ["All of Quetzal's runtime data stays on your device (the QUETZAL_HOME directory; on Windows, %LOCALAPPDATA%\\Quetzal\\home): configuration, conversations, timeline, audit log, vault and the local soul directory. Apart from a sync service you choose to use (see section 3, which does not receive any of this either), the author runs no server that receives any of it."], bullets: [
         "Model providers: whichever provider you configure receives the content of conversations and introspection, under that provider's privacy policy. API keys are encrypted on the device.",
         "Soul repository (optional): personality and memory sync to a private git repository you choose, held by your git host.",
         "Feishu (optional): once connected, messages pass through the Feishu platform under Feishu's privacy policy.",
@@ -65,7 +65,7 @@ export const messages = defineMessages({
         "What is stored: your account; the agents you bind (name, id and soul repository name); each body's name, kind, software version, node public key and last-seen time; sign-in sessions, console sign-ins (which body, when signed in and last used) and body tokens as hashes only; binding codes expire after 15 minutes.",
         "Account pages: sign-in, account management and device approval live on this site (quetzal.plutokeating.beer/account), and your browser reads the data directly from the sync service; your sign-in is kept in a cookie of the sync service (used only for sign-in, valid for 30 days). This site sets no cookies of its own and keeps no account data.",
         "What is not stored: IP addresses and network endpoints (used only while a body is online to set up connections, never written to disk or logs), conversations, memory, personality, model keys. Traffic relayed through the server when no direct connection is possible is end-to-end encrypted and invisible to the server.",
-        "Deletion: on the sync service's account page you can unbind a body, delete an agent or delete the whole account at any time, effective immediately.",
+        "Deletion: on this site's account page (quetzal.plutokeating.beer/account) you can unbind a body, delete an agent or delete the whole account at any time, effective immediately.",
         "The server and network providers hosting the sync service may process connection logs under their own policies; this project does not read or keep those logs.",
       ] },
       { heading: "4. Minors", paragraphs: ["This website and software are not directed at children under 16, and we do not knowingly collect their information."], bullets: [] },
