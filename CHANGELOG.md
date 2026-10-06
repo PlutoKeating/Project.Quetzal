@@ -2,6 +2,22 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.2.1
+
+- **电脑上更新后自动换上新控制台**：以前更新完要点「重新打开」，关掉窗口再打开仍是旧界面，关于页还误写「已是最新」。现在更新完成就自动换上；托盘里的旧控制台也会自己发现并换新。
+- 手机上第一次打开、还没选模型时，首页会出现「选择模型」。
+- 刚打开 App 时显示「正在启动」，不再误报「连不上」。
+- 手机上没有浏览器时，登录链接会自动复制，可以换一台设备打开或扫码。
+- 登录时核对的表情在旧手机上也显示得全。
+- 向导里的说法更自然。
+
+- **The desktop console switches to the new version on its own after an update**: before, you had to click "Reopen"; closing the window and opening it again still showed the old interface, and About wrongly said "Up to date". Now the new console takes over as soon as the update finishes, and an old console sitting in the tray notices and switches too.
+- On a phone opened for the first time with no model yet, the home screen shows "Choose a model".
+- Right after opening the app it says "Starting…" instead of wrongly reporting it can't connect.
+- On a phone with no browser, the sign-in link is copied so you can open it on another device or scan it.
+- The check emoji shown when signing in display fully on older phones.
+- Smoother wording in the setup wizard.
+
 ## 1.2.0
 
 - **装、登录、用，三步**：第一次打开 App 直接开始安装，装好自动请求权限，然后是后台运行、登录、选模型，一次只做一步，能跳过的都能跳过。电脑上第一次打开也有这个向导（登录、模型两步）。
