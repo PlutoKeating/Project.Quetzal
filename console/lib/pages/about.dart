@@ -1,5 +1,5 @@
-// 关于：简介、版本（控制台 / 运行基座 / 最新发布）、检查更新、升级。三种形态共用同一页：
-//   安卓 App：App 自身的更新走 updater.dart（AppUpdateSection：下载 APK、核对、交给系统安装器），运行基座的升级走安装向导（新 App 内置的版本）；
+// 关于：简介，与一张「版本」卡片（当前版本 + 一个动作：已是最新 / 升级 / 进度）。三种形态共用同一页：
+//   安卓 App：App 自身的更新走 updater.dart（下载 APK、核对、交给系统安装器），运行基座的升级走安装向导（新 App 内置的版本）；
 //   Linux 桌面版与网页版：让运行基座在它所在的机器上后台重跑一键安装脚本（网关方法 selfUpdate，Linux 适配器实现），运行基座、网页控制台与原生控制台一起更新，
 //     服务重启一次后版本号会变；桌面版装完还要重新打开控制台才用上新版的界面。
 import 'dart:convert';
@@ -10,9 +10,8 @@ import '../api.dart';
 import '../installer.dart';
 import '../platform/caps.dart';
 import '../platform/net.dart' as net;
-import '../updater.dart' show AppRelease, compareVersions, latestReleaseApi, siteLatestApi, githubRepo;
+import '../updater.dart' show AppRelease, UpdateState, appUpdater, compareVersions, downloadPage, latestReleaseApi, siteLatestApi, githubRepo;
 import '../widgets.dart';
-import 'control.dart' show AppUpdateSection;
 import 'setup.dart';
 import '../links.dart';
 
@@ -35,9 +34,13 @@ class _AboutPageState extends State<AboutPage> {
   void initState() {
     super.initState();
     PackageInfo.fromPlatform().then((p) { if (mounted) setState(() => appVersion = p.version); }).catchError((_) {});
-    if (hasBody) Installer.bundledVersion().then((v) { if (mounted) setState(() => bundled = v); });
     api.addListener(_onApi);
-    _check();
+    if (hasBody) {
+      Installer.bundledVersion().then((v) { if (mounted) setState(() => bundled = v); });
+      if (appUpdater.state == UpdateState.idle) appUpdater.check();
+    } else {
+      _check();
+    }
   }
   @override
   void dispose() { api.removeListener(_onApi); super.dispose(); }
@@ -46,7 +49,7 @@ class _AboutPageState extends State<AboutPage> {
   void _onApi() {
     if (!upgrading || !mounted) return;
     final v = '${api.status['version'] ?? ''}';
-    if (v.isNotEmpty && v != upgradeFrom) setState(() { upgrading = false; upgradeMessage = '运行基座已升级到 $v。'; });
+    if (v.isNotEmpty && v != upgradeFrom) setState(() { upgrading = false; upgradeMessage = v; });
   }
 
   /// 问 GitHub 最新的正式版（所有形态都能问：安卓与桌面版用 dart:io，网页版用浏览器请求，GitHub 的接口允许跨域）。
@@ -67,80 +70,85 @@ class _AboutPageState extends State<AboutPage> {
   /// Linux 桌面版 / 网页版：让运行基座在它那台机器上后台重跑安装脚本。
   Future<void> _selfUpdate() async {
     final to = latest?.version ?? '最新版';
-    if (!await confirm(context, '升级到 $to', '运行基座会在它所在的机器上下载最新版本并重启一次（约一分钟），这期间控制台会短暂断开。ta 的记忆与配置不受影响。')) return;
+    if (!await confirm(context, '升级到 $to', '约一分钟，期间控制台会短暂断开。ta 的记忆与配置不受影响。')) return;
     if (!mounted) return;
     final r = await act(context, () => api.call<Map>('selfUpdate'));
     if (r == null || !mounted) return;
-    setState(() { upgrading = true; upgradeFrom = '${api.status['version'] ?? ''}'; upgradeMessage = '${r['message'] ?? '已开始升级'}'; });
+    setState(() { upgrading = true; upgradeFrom = '${api.status['version'] ?? ''}'; upgradeMessage = null; });
   }
 
-  /// Linux 桌面版：升级后重新打开控制台（新版本的可执行文件在 console/current 下）。
-  void _relaunch() {
-    final self = Platform.resolvedExecutable; // …/console/<版本>/quetzal-console
+  /// Linux 桌面版：升级后重新打开控制台（新版本的可执行文件在 console/current 下；旧版本目录此时已被安装脚本删掉）。
+  /// 必须等新进程真正启动后再退出：Process.start 是异步的，不等就 exit，新进程根本来不及起来。
+  Future<void> _relaunch() async {
+    final self = Platform.resolvedExecutable; // …/console/<版本>/quetzal-console（目录已删时末尾带「 (deleted)」，取上两级不受影响）
     final next = '${Directory(self).parent.parent.path}/current/quetzal-console';
-    try { Process.start(next, [], mode: ProcessStartMode.detached); exit(0); } catch (e) { toast(context, '没能重新打开：$e'); }
+    try {
+      await Process.start(next, [], mode: ProcessStartMode.detached);
+      exit(0);
+    } catch (e) { if (mounted) toast(context, '没能重新打开：$e'); }
+  }
+
+  /// 版本卡片：当前版本一行，下面只放此刻需要的那一个状态或动作。
+  Widget _version(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final muted = TextStyle(color: cs.onSurfaceVariant);
+    final rt = '${api.status['version'] ?? ''}';
+    final mine = hasBody ? (appUpdater.current ?? appVersion) : appVersion;
+    // 控制台与运行基座同版本时只写一个号；不同时两个都写
+    final line = mine == null || rt.isEmpty || mine == rt ? 'Quetzal ${mine ?? (rt.isEmpty ? '…' : rt)}' : '控制台 $mine · 运行基座 $rt';
+    Widget notes(AppRelease r) => TextButton(onPressed: () => openExternal(context, r.url), child: const Text('新功能'));
+    Widget row(List<Widget> c) => Padding(padding: const EdgeInsets.only(top: 8), child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: c));
+    Widget spin(String text) => row([const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)), Text(text, style: muted)]);
+    final List<Widget> body;
+    if (hasBody) {
+      final u = appUpdater, r = u.latest;
+      final bundledNewer = bundled != null && rt.isNotEmpty && compareVersions(bundled!, rt) > 0;
+      body = [
+        if (bundledNewer) row([FilledButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: Text('把运行基座升级到 $bundled'))]),
+        switch (u.state) {
+          UpdateState.checking => spin('正在检查…'),
+          UpdateState.available when r != null => row([FilledButton(onPressed: u.downloadAndInstall, child: Text('更新到 ${r.version}')), notes(r)]),
+          UpdateState.downloading => Padding(padding: const EdgeInsets.only(top: 10), child: LinearProgressIndicator(value: u.progress < 0 ? null : u.progress)),
+          UpdateState.verifying => spin('正在核对安装包…'),
+          UpdateState.needPermission => row([Text('请允许 Quetzal 安装应用', style: muted), FilledButton(onPressed: u.install, child: const Text('安装'))]),
+          UpdateState.handedOff => row([Text('装好后重新打开 Quetzal', style: muted), TextButton(onPressed: u.install, child: const Text('重新安装'))]),
+          UpdateState.failed => row([Text(u.error ?? '更新失败', style: TextStyle(color: cs.error)), if (u.hasUpdate) TextButton(onPressed: u.downloadAndInstall, child: const Text('重试')), TextButton(onPressed: () => openExternal(context, downloadPage), child: const Text('去下载页'))]),
+          UpdateState.upToDate => row([Text('已是最新', style: muted), TextButton(onPressed: u.check, child: const Text('检查更新'))]),
+          _ => row([TextButton(onPressed: u.check, child: const Text('检查更新'))]),
+        },
+      ];
+    } else {
+      final l = latest;
+      final outdated = l != null && ((rt.isNotEmpty && compareVersions(l.version, rt) > 0) || (appVersion != null && compareVersions(l.version, appVersion!) > 0));
+      body = [
+        if (upgrading) spin('正在升级，约一分钟…')
+        else if (upgradeMessage != null) row([
+          Text(isDesktop ? '已升级到 $upgradeMessage' : '已升级到 $upgradeMessage，刷新页面即可', style: TextStyle(color: cs.primary)),
+          if (isDesktop) FilledButton(onPressed: _relaunch, child: const Text('重新打开')),
+        ])
+        else if (checking) spin('正在检查…')
+        else if (checkError != null) row([Text('检查失败', style: TextStyle(color: cs.error)), TextButton(onPressed: _check, child: const Text('重试'))])
+        else if (outdated) row([FilledButton(onPressed: api.conn == Conn.online ? _selfUpdate : null, child: Text('升级到 ${l.version}')), notes(l)])
+        else row([Text('已是最新', style: muted), TextButton(onPressed: _check, child: const Text('检查更新'))]),
+      ];
+    }
+    return Section('版本', [Text(line, style: Theme.of(context).textTheme.titleSmall), ...body]);
   }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme, cs = Theme.of(context).colorScheme;
-    final rt = '${api.status['version'] ?? ''}';
-    final form = hasBody ? '安卓 App' : isDesktop ? 'Linux 桌面版' : '网页版';
-    final rtOutdated = latest != null && rt.isNotEmpty && compareVersions(latest!.version, rt) > 0;
-    final appOutdated = latest != null && appVersion != null && compareVersions(latest!.version, appVersion!) > 0;
-    final bundledNewer = bundled != null && rt.isNotEmpty && compareVersions(bundled!, rt) > 0;
     Widget link(String label, String url) => TextButton(onPressed: () => openExternal(context, url), child: Text(label));
     return PageFrame(
       title: '关于',
-      body: ListenableBuilder(listenable: api, builder: (context, _) => ListView(padding: const EdgeInsets.all(12), children: [
+      body: ListenableBuilder(listenable: Listenable.merge([api, appUpdater]), builder: (context, _) => ListView(padding: const EdgeInsets.all(12), children: [
         Section('Quetzal', [
           Row(children: [const Orb(mode: 'awake', alertness: 1, size: 44), const SizedBox(width: 14), Expanded(child: Text('开源的 agent 运行基座。\n让一个 AI agent 住进一部旧手机，像生命一样活着。', style: t.bodyLarge))]),
           const SizedBox(height: 8),
           Text('ta 什么时候醒来由内驱力与昼夜节律决定；身体是这部手机或这台电脑；人格、记忆、日记在你自己的私有 git 仓库里，换身体整个带走。相机、麦克风、定位默认每次询问，审批、预算、急停、审计齐全。', style: t.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
           Wrap(children: [link('官网', _site), link('文档', '$_site/zh/docs'), link('GitHub', 'https://github.com/$githubRepo'), link('AGPL-3.0', 'https://github.com/$githubRepo/blob/main/LICENSE')]),
         ]),
-        Section('版本', [
-          Text('控制台（$form）：${appVersion ?? '…'}'),
-          Text('运行基座：${rt.isEmpty ? '（未连接）' : rt}${api.status['body'] != null ? ' · 身体 ${api.status['body']}（${api.status['adapter']}）' : ''}'),
-          if (hasBody) Text('App 内置的运行基座：${bundled ?? '（无）'}'),
-          Text('最新发布：${checking ? '正在检查…' : latest?.version ?? (checkError != null ? '检查失败' : '—')}'),
-          if (checkError != null) Text(checkError!, style: TextStyle(color: cs.error, fontSize: 12)),
-          const SizedBox(height: 6),
-          Wrap(spacing: 8, children: [
-            OutlinedButton.icon(onPressed: checking ? null : _check, icon: const Icon(Icons.refresh, size: 18), label: const Text('检查更新')),
-            if (latest != null) TextButton(onPressed: () => openExternal(context, latest!.url), child: const Text('发布说明')),
-          ]),
-        ]),
-        if (hasBody) ...[
-          const AppUpdateSection(),
-          if (bundledNewer) Section('运行基座', [
-            Text('App 内置的运行基座 $bundled 比正在运行的 $rt 新。'),
-            FilledButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('升级运行基座')),
-          ]),
-        ] else Section('升级', [
-          if (upgrading) ...[
-            Row(children: [const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)), const SizedBox(width: 10), Expanded(child: Text('正在升级：$upgradeMessage'))]),
-          ] else if (upgradeMessage != null) ...[
-            Text(upgradeMessage!, style: TextStyle(color: cs.primary)),
-            if (isDesktop) ...[
-              const SizedBox(height: 4),
-              const Text('这个桌面版控制台也已更新到磁盘上，重新打开后生效。', style: TextStyle(fontSize: 12)),
-              FilledButton.tonal(onPressed: _relaunch, child: const Text('重新打开控制台')),
-            ],
-          ] else if (latest == null) const Text('先检查更新。')
-          else if (!rtOutdated && !appOutdated) Text('已是最新（${latest!.version}）。', style: TextStyle(color: cs.primary))
-          else ...[
-            Text('${rtOutdated ? '运行基座 $rt' : ''}${rtOutdated && appOutdated ? '、' : ''}${appOutdated ? '控制台 $appVersion' : ''} 可以升级到 ${latest!.version}。'),
-            const SizedBox(height: 4),
-            Text(isDesktop
-                ? '点下面的按钮，运行基座会在这台机器上后台重跑安装脚本：运行基座、网页控制台与这个桌面版控制台一起更新，服务重启一次。'
-                : '点下面的按钮，运行基座会在它所在的机器上后台重跑安装脚本并重启一次；网页版本身由运行基座托管，刷新页面即是新版。', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
-            const SizedBox(height: 8),
-            FilledButton.icon(onPressed: api.conn == Conn.online ? _selfUpdate : null, icon: const Icon(Icons.system_update_alt, size: 18), label: Text('升级到 ${latest!.version}')),
-          ],
-          const SizedBox(height: 6),
-          const Text('手动方式：在装运行基座的机器上再跑一次  curl -fsSL https://quetzal.plutokeating.beer/install | bash', style: TextStyle(fontSize: 12)),
-        ]),
+        _version(context),
       ])),
     );
   }
