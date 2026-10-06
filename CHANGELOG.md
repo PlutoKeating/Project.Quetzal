@@ -2,6 +2,22 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.5.0
+
+- **装到 Windows 电脑上**：Windows 10（1809 起）或 Windows 11，x64 与 arm64。在 PowerShell 里运行一行 `irm https://quetzal.plutokeating.beer/install.ps1 | iex`，或在下载页下载安装包。安装时请求一次管理员权限；电脑重启后不用登录，ta 也在后台运行，登录后托盘里有 Quetzal。
+- Windows 上 ta 的命令以一个单独的低权限用户运行，只能读写 `%USERPROFILE%\Quetzal`，读不到你主目录里别的文件，也连不到这台电脑自己的端口。
+- Windows 安装包还没有代码签名：浏览器下载的会被 SmartScreen 提示；开着「智能应用控制」的电脑要先关掉它，一行命令会带你去设置页。
+- 电脑上的桌面控制台（Linux 与 Windows）把对话里的 Mermaid 图画成图，不再只显示源码。
+- 电脑上的桌面控制台也能当耳朵：打开听觉后直接对着电脑说话。电脑上没有回声消除，ta 说话时不收音、不能插嘴。
+- 灵魂仓库规范升到 v13：笔记、技能的名字避开 Windows 不允许的写法；别的设备写进来的、Windows 上放不下的文件，Windows 电脑照常同步，只是不写到磁盘上，并提醒 ta 改名。旧仓库不用转换。
+
+- **Install on a Windows PC**: Windows 10 (1809 or later) or Windows 11, x64 and arm64. Run one line in PowerShell, `irm https://quetzal.plutokeating.beer/install.ps1 | iex`, or download the installer from the download page. Installation asks for administrator rights once; after the PC restarts, the agent runs in the background without anyone signing in, and Quetzal appears in the tray once you sign in.
+- On Windows the agent's commands run as a separate low-privilege user that can read and write only `%USERPROFILE%\Quetzal`; they cannot read other files in your user folder or connect to the PC's own ports.
+- The Windows installer is not code-signed yet: a copy downloaded in a browser gets a SmartScreen warning, and a PC with Smart App Control on has to turn it off first; the one-line command takes you to that setting.
+- The desktop console on computers (Linux and Windows) draws Mermaid diagrams in conversations instead of showing their source.
+- The desktop console can be the ears too: turn on hearing and talk to the computer. There is no echo cancellation on computers, so it does not listen while the agent speaks, and you cannot interrupt by talking.
+- Soul repository specification v13: note and skill names avoid spellings Windows does not allow; files written by other devices that do not fit on Windows still sync on a Windows PC, just without being written to disk, and the agent is told to rename them. Existing repositories need no conversion.
+
 ## 1.4.0
 
 - **登录改用 PlutoKeating 账号**：可以用邮箱、通行密钥注册登录，也可以用 GitHub 登录。不再必须有 GitHub；GitHub 只在第一次建灵魂仓库时出现一次。已有的账户、agent 和设备都不变。

@@ -1,0 +1,63 @@
+# 生产环境的一行安装：在干净的 Windows runner（x64、arm64）上照用户的做法运行
+#   irm https://quetzal.plutokeating.beer/install.ps1 | iex
+# 走的是官网、镜像源与 Release 上的真实资产。装完核对：运行基座健康且版本对、适配器是 windows、命令沙箱就绪、计划任务注册了、命令行可用；再卸载。
+# 发版之后手动触发（Release 由 GITHUB_TOKEN 创建，触发不了别的工作流）。
+name: install-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "期望装上的版本（例如 1.5.0；留空则不核对版本，装最新发布）"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  irm:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      # 用户的做法：Windows PowerShell 5.1 里的一行命令。QUETZAL_YES：无人值守时同意关闭正在运行的 Quetzal（这里本来没有）
+      - name: irm https://quetzal.plutokeating.beer/install.ps1 | iex
+        shell: powershell
+        env:
+          QUETZAL_YES: "1"
+          QUETZAL_VERSION: ${{ inputs.version }}
+        run: irm https://quetzal.plutokeating.beer/install.ps1 | iex
+      - name: 核对：健康、版本、适配器、沙箱、计划任务、命令行
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
+          "current: $(Get-Content (Join-Path $root 'runtime\current.txt'))"
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) { try { $h = Invoke-RestMethod -UseBasicParsing http://127.0.0.1:7788/health; "health: $($h | ConvertTo-Json -Compress)"; $ok = $true; break } catch { Start-Sleep 2 } }
+          if (-not $ok) { throw '运行基座 2 分钟内没有响应' }
+          Get-ScheduledTask -TaskPath '\Quetzal\' | Format-Table TaskName, State -AutoSize | Out-String
+          if (-not (Get-ScheduledTask -TaskPath '\Quetzal\' -ErrorAction SilentlyContinue)) { throw '没有注册计划任务' }
+          $node = (Get-Content (Join-Path $root 'node.txt')).Trim()
+          & $node .github/scripts/windows-status.mjs "${{ inputs.version }}"
+          if ($LASTEXITCODE -ne 0) { throw '状态核对没通过' }
+          & (Join-Path $root 'bin\quetzal.cmd') status
+      - name: 日志
+        if: always()
+        shell: powershell
+        run: |
+          $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
+          foreach ($f in @('install.log', 'home\logs\runtime.log')) { $p = Join-Path $root $f; if (Test-Path $p) { "===== $f"; Get-Content $p -Tail 200 } }
+      - name: 卸载
+        if: always()
+        shell: powershell
+        run: |
+          $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
+          $u = Join-Path $root 'uninstall.exe'
+          if (Test-Path $u) { Start-Process -FilePath $u -ArgumentList '/S' -Wait }

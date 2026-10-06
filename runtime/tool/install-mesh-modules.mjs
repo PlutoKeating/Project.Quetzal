@@ -102,6 +102,7 @@ function untar(tgz, dir) {
 }
 
 const nm = path.join(dest, "node_modules");
+fs.mkdirSync(dest, { recursive: true }); // 目标目录还不存在时先建好（发版流水线装到临时目录）
 const stage = fs.mkdtempSync(path.join(dest, ".mesh-modules-"));
 try {
   for (const [name, spec] of Object.entries(pkgs)) {
