@@ -82,7 +82,7 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
     } catch (e) {
       if (!(e instanceof Interrupted) || s.signal.aborted) throw e;
       s.flush(); // 被打断：保留已经说出的部分，下一步带着对方的新消息继续
-      const partial = s.stepText.trim();
+      const partial = stripStamp(s.stepText).trim();
       if (partial) messages.push({ role: "assistant", content: `${partial}\n（输出被对方打断）` });
       s.emit({ kind: "text", step: i + 1, text: partial ? `${partial}（被打断）` : "（被打断）", final: false });
       continue;
@@ -248,11 +248,11 @@ const leave = () => { if (--chatting === 0 && ownsBusy) { ownsBusy = false; mark
 const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n) + "…" : x; };
 
 /**
- * 模型偶尔会照着历史里的格式，在回复开头自己写一段「[10/05 05:22｜这一轮的过程记录：…]」——那是基座附在她历史回复前的附注（见 history），
+ * 模型偶尔会照着历史里的格式，在回复开头自己写一段「[10/05 05:22｜…]」或「[基座附注…]」——那是基座加在历史里的附注（见 history），
  * 不是她的话；过程本身控制台已经渲染成工具卡片。系统提示里说了不要写，弱一些的模型仍会写，所以这里兜底剥掉（附注是单行的，到行尾最后一个 ] 为止）。
  */
 export function stripStamp(text: string): string {
-  return text.replace(/^\s*\[\d{1,2}\/\d{1,2} \d{1,2}:\d{2}(?:[｜|][^\n]*)?\]\s*/u, "");
+  return text.replace(/^\s*\[(?:\d{1,2}\/\d{1,2} \d{1,2}:\d{2}(?:[｜|][^\n]*)?|基座附注[^\n]*)\]\s*/u, "");
 }
 const stamp = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -284,6 +284,9 @@ export function describeProcess(items: unknown[] | null | undefined, full: boole
  * 会话自己的历史，作为真正的多轮上下文（从新到旧，在预算内）。不含这句话本身，也不含之后还在排队的话。
  * 每条都带时间；她自己的回复前附上那一轮的过程记录（最近 FULL_PROCESS 轮给出每一步，更早的只给工具计数），
  * 否则下一轮她只看得到回复的文字，不知道自己做过什么、看过什么。
+ * 时间与过程记录放在回复之前一条单独的「基座附注」里（user 一侧），她自己的回复只留原文：附注若写在她的回复里，
+ * 模型会照着格式在新回复开头自己编一段过程记录，越写越长（2026-10-06 出现过上千字的假记录）。
+ * 不是她说的话（对方的话、摘要、交接、子 agent 报告、环境声音）都在 user 一侧。
  */
 const FULL_PROCESS = 3;
 export function history(conv: string, self: number, budget = 16000): Msg[] {
@@ -307,11 +310,15 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
       text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}] ${m.text}${files}`;
     } else {
       const proc = describeProcess(m.process, replies++ < FULL_PROCESS);
-      text = `[${stamp(m.ts)}${proc ? `｜这一轮的过程记录：${proc}` : ""}]\n${m.text}`;
+      const note = `[基座附注，不是对方的话｜${stamp(m.ts)} 你回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
+      if (used + note.length + m.text.length > budget) break;
+      used += note.length + m.text.length;
+      out.unshift({ role: "user", content: note }, { role: "assistant", content: m.text });
+      continue;
     }
     if (used + text.length > budget) break;
     used += text.length;
-    out.unshift(m.role === "user" ? { role: "user", content: text } : { role: "assistant", content: text });
+    out.unshift({ role: "user", content: text });
   }
   return out;
 }
@@ -332,7 +339,7 @@ export async function summarizeConv(conv: string): Promise<string> {
   const r = await chat({
     messages: [
       { role: "system", content: "你在替一个 agent 压缩她自己的一段对话上下文。用第二人称「你」指代她，「对方」指代和她说话的人。" },
-      { role: "user", content: `把下面的对话压成一段摘要（中文，不超过 800 字）：保留对方的要求与偏好、已经做完的事与结论、还没做完的事、重要的事实与数字、双方的约定。不要寒暄，不要逐句复述。\n\n${msgs.map((m) => `${m.role === "user" ? "对方" : "你"}：${typeof m.content === "string" ? m.content : ""}`).join("\n\n")}` },
+      { role: "user", content: `把下面的对话压成一段摘要（中文，不超过 800 字）：保留对方的要求与偏好、已经做完的事与结论、还没做完的事、重要的事实与数字、双方的约定。不要寒暄，不要逐句复述。\n\n${msgs.filter((m) => !(typeof m.content === "string" && m.content.startsWith("[基座附注"))).map((m) => `${m.role === "user" ? "对方" : "你"}：${typeof m.content === "string" ? m.content : ""}`).join("\n\n")}` },
     ], maxTokens: 1200,
   }, { quick: true });
   return r.text.trim();

@@ -44,13 +44,15 @@ test("对话历史：每条带时间，回复前附过程记录，插话有标�
   for (let i = 0; i < 4; i++) store.addMessage("agent", "飞书", `第${i}次回复`, { session: "h", process: [{ type: "tool", call: `t${i}`, name: "shell", summary: "ls", status: "ok", ms: 1, result: "ok" }] });
   const self = store.addMessage("user", "飞书", "现在这句", { session: "h" });
   const h = history("h", self);
-  assert.equal(h.length, 7);
+  assert.equal(h.length, 12); // 每条回复前多一条基座附注
   assert.match(h[0].content, /^\[\d\d\/\d\d \d\d:\d\d\] 看这张图\n\[\d\d\/\d\d \d\d:\d\d 随这条消息发来的附件：shot\.png（.*shot\.png）；图片当时已附在消息里，现在只剩路径，想再看用 view_image\]$/);
-  assert.equal(h[1].role, "assistant");
-  assert.match(h[1].content, /^\[\d\d\/\d\d \d\d:\d\d｜这一轮的过程记录：这一轮用了 1 个工具：view_image×1（细节用 recent_actions 查）\]\n看到了$/); // 较早的一轮：只有计数
-  assert.match(h[2].content, /^\[\d\d\/\d\d \d\d:\d\d，插话\] 等等$/);
-  assert.match(h[3].content, /过程记录：这一轮用了 1 个工具：shell×1/); // 倒数第 4 轮回复：计数
-  for (const m of h.slice(4)) assert.match(m.content, /过程记录：shell\(ls\) ✓ → ok\]\n第\d次回复$/); // 最近 3 轮回复：每一步
+  assert.equal(h[1].role, "user");
+  assert.match(h[1].content, /^\[基座附注，不是对方的话｜\d\d\/\d\d \d\d:\d\d 你回复了下一条；这一轮的过程记录：这一轮用了 1 个工具：view_image×1（细节用 recent_actions 查）\]$/); // 较早的一轮：只有计数
+  assert.deepEqual([h[2].role, h[2].content], ["assistant", "看到了"]); // 她的回复只留原文：不带时间与过程记录，免得模型照着格式自己编
+  assert.match(h[3].content, /^\[\d\d\/\d\d \d\d:\d\d，插话\] 等等$/);
+  assert.match(h[4].content, /过程记录：这一轮用了 1 个工具：shell×1/); // 倒数第 4 轮回复：计数
+  for (let i = 6; i < 12; i += 2) { assert.match(h[i].content, /过程记录：shell\(ls\) ✓ → ok\]$/); assert.match(h[i + 1].content, /^第\d次回复$/); } // 最近 3 轮回复：每一步
+  assert.ok(h.filter((m) => m.role === "assistant").every((m) => !m.content.startsWith("[")));
   assert.ok(!h.some((m) => m.content.includes("现在这句")));
 });
 
@@ -105,8 +107,10 @@ test("对话里：上一轮的工具过程进入下一轮的上下文", async ()
   assert.equal(await converse("你", "帮我装 CLI", "控制台", { conv: "cv" }), "好了");
   assert.deepEqual(store.sessionMessages("cv").at(-1)!.process!.map((x: any) => [x.type, x.name ?? x.text]), [["text", "我先记一下"], ["tool", "open_loop"]]);
   await converse("你", "你刚才做了什么", "控制台", { conv: "cv" });
-  const prev = seen.at(-1).messages.find((m: any) => m.role === "assistant");
-  assert.match(prev.content, /^\[\d\d\/\d\d \d\d:\d\d｜这一轮的过程记录：说：「我先记一下」；open_loop\(装 CLI\) ✓ → 已记下，现在有 \d+ 件\]\n好了$/);
+  const msgs = seen.at(-1).messages, i = msgs.findIndex((m: any) => m.role === "assistant");
+  assert.equal(msgs[i].content, "好了"); // 她的回复只留原文
+  assert.equal(msgs[i - 1].role, "user");
+  assert.match(msgs[i - 1].content, /^\[基座附注，不是对方的话｜\d\d\/\d\d \d\d:\d\d 你回复了下一条；这一轮的过程记录：说：「我先记一下」；open_loop\(装 CLI\) ✓ → 已记下，现在有 \d+ 件\]$/);
   assert.match(seen.at(-1).messages[0].content, /关于「我做过什么」/);
   server.close();
 });
@@ -115,6 +119,7 @@ test("回复开头被模型仿写出来的「[时间｜这一轮的过程记录�
   const r = stripStamp('[10/05 05:53｜这一轮的过程记录：voice_config(action=get)✓ → {"a":[1,2]}；voice_speak(你好)✓ → 说出来了]\n说了！你那边听到了吗？');
   assert.equal(r, "说了！你那边听到了吗？");
   assert.equal(stripStamp("[10/05 05:22]\n好的"), "好的");
+  assert.equal(stripStamp("[基座附注，不是对方的话｜10/06 20:10 你回复了下一条；这一轮的过程记录：shell(ls) ✓]\n好的"), "好的");
   assert.equal(stripStamp("好的 [1] 和 [2]"), "好的 [1] 和 [2]");
   assert.equal(stripStamp("[参考] 这是正文"), "[参考] 这是正文");
 });

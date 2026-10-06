@@ -90,7 +90,7 @@ test("多个会话并行，且每个会话都能看到其他会话", async () =>
   seen.length = 0;
   await converse("你", "接着说", "控制台", { conv: "a" });
   const ctx = seen[0].messages.map((m: any) => m.role);
-  assert.deepEqual(ctx.slice(1), ["user", "assistant", "user"]);
+  assert.deepEqual(ctx.slice(1), ["user", "user", "assistant", "user"]); // 她的回复前有一条基座附注（user 一侧）
 });
 
 test("同一会话内按顺序处理", async () => {
