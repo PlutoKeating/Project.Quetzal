@@ -31,6 +31,9 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
+# webview_windows 0.4.0（桌面 Mermaid 用的 WebView2）还在用 <experimental/coroutine>；Visual Studio 2026（MSVC 14.51）起不定义这个宏就编译失败（STL1011）。
+# 上游改用 C++20 的 <coroutine> 后去掉这一行
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 
 # Compilation settings that should be applied to most targets.
 #

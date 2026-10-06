@@ -5,12 +5,15 @@
 ```
 src/
 ├── main.ts               装配各模块；熔断（安全模式）；没人接住的同步异常记下后以非零退出（由守护者拉起）
-├── config.ts             家目录布局、配置读写、密钥文件
+├── config.ts             家目录布局（Windows 为 %LOCALAPPDATA%\Quetzal\home）、配置读写、密钥文件（改名遇到占用时重试）；密钥目录与保密库：POSIX 0700，Windows 用 ACL 只留本用户与 SYSTEM
+├── platform.ts           平台差异：命令查找（Windows 按 PATHEXT）、结束整棵进程树（POSIX 进程组 / Windows taskkill /T）、只给本用户的目录权限（chmod / icacls）、遇到占用时重试的改名
+├── ssh-key.ts            OpenSSH 格式的 ed25519 部署密钥（Node 内置 crypto 生成，不依赖 ssh-keygen）
+├── mermaid.ts            Mermaid 的兜底渲染（网关 mermaid.render，单独打包为 mermaid.mjs）：beautiful-mermaid 画 SVG，整理成 flutter_svg 能显示的静态 SVG
 ├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event）
 ├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式、来源身体；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote：编号段与作者、实时只收对方自己的行、字段类型与长度、时间范围；段尾 2^24 不收，本机的下一个编号不会越段）；用量只收对方自己的行；1.0 前编号的一次性迁移
 ├── log.ts                日志（stdout，写出前脱敏）
-├── sh.ts                 外部命令执行（超时、输出上限）；agent 的命令与后台任务经沙箱执行、工作目录为用户主目录（后台任务可随时停止整个进程组）
-├── sandbox.ts            agent 命令的沙箱：Linux 用 bwrap（密钥目录为空 tmpfs、QUETZAL_HOME 只读、浏览器配置与用户启动文件保护、独立 pid 命名空间），安卓用 proot（遮住密钥、配置、版本目录、runit 与开机脚本，以及 `QUETZAL_HIDE_PATHS` 指定的目录），都没有时 kind=none 并提醒一次；读文件工具的真实路径检查（protectedPath）
+├── sh.ts                 外部命令执行（超时、输出上限，子进程不弹窗口）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树
+├── sandbox.ts            agent 命令的沙箱：Linux 用 bwrap（密钥目录为空 tmpfs、QUETZAL_HOME 只读、浏览器配置与用户启动文件保护、独立 pid 命名空间）或 Landlock，安卓用 proot（遮住密钥、配置、版本目录、runit 与开机脚本，以及 `QUETZAL_HIDE_PATHS` 指定的目录），Windows 用 sandbox-runtime 的 srt-win（沙箱用户 srt-sandbox、按会话授权的 ACL、WFP 拦直连、代理拒绝连回本机；库单独打包为 srt.mjs），都没有时 kind=none 并提醒一次；包装接口 wrapScript / wrapArgv（异步）；读文件工具的真实路径检查（protectedPath：Windows 上取系统的真实路径、不分大小写，不收 UNC、设备路径与流名）
 ├── secret-values.ts      基座自己的密钥值（secrets/ 下的令牌、私钥、JSON 里的令牌，模型供应商的 Key），按修改时间缓存：给脱敏与灵魂仓库提交前的检查用
 ├── voice/
 │   ├── azure.ts          语音：Azure 文本转语音（SSML、合成、音色列表、配置与密钥）与语音识别（官方 SDK 推流的连续流式识别 recognizeStream，各段拼成一段话；短语音 REST 的 recognize 兜底，长音频分段）
@@ -21,7 +24,7 @@ src/
 ├── version.ts            版本号
 ├── ops.ts                统一操作层：网关与飞书共用，修改类操作全部审计
 ├── gateway.ts            网关：明文 HTTP 只监听本机回环（127.0.0.1 与 ::1），对局域网开放时另开 HTTPS / WSS（lanPort，同一套处理）；/health、/pair/info（证书指纹）、配对（8 位码、冷却、失败锁定与退避、Host 检查、请求体 16 KB 上限；HTTPS 上只收与证书指纹绑定的配对证明）、本机登录、令牌（Bearer / X-Quetzal-Token / WebSocket 第一条消息 / 旧的 ?token=）、gateway.rotateToken、WebSocket RPC 与推送、静态文件
-├── web.ts                网页控制台：托管 current/web/（QUETZAL_WEB_DIR 可覆盖，单页回退、ETag）；判定「同一台机器上打开着网页控制台的浏览器」（回环地址 + 本机 Host + Origin 正好是网关自己的源 / QUETZAL_DEV_ORIGINS）与「发起连接的是不是运行基座的子孙进程」（/proc）给 GET /auth/local；配对接口的 Host 检查
+├── web.ts                网页控制台：托管 current/web/（QUETZAL_WEB_DIR 可覆盖，单页回退、ETag）；判定「同一台机器上打开着网页控制台的浏览器」（回环地址 + 本机 Host + Origin 正好是网关自己的源 / QUETZAL_DEV_ORIGINS）与「发起连接的是不是运行基座的子孙进程」（Linux 读 /proc，Windows 用 netstat 与 Win32_Process 的父进程表，查不出按拒绝）给 GET /auth/local；配对接口的 Host 检查
 ├── body/
 │   ├── adapter.ts        身体适配器接口（与设备仓库的唯一边界）+ 通用适配器
 │   └── twin.ts           身体数字孪生：采样、身体感受、sense 事件、感官循环；「身体」段落含她自己的进程 pid
@@ -47,6 +50,7 @@ src/
 ├── memory/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头
 │   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块
+│   ├── portable-path.ts  灵魂仓库里的路径在每一种身体上都放得下（规范 v13 §3.13）：Windows 的保留名、结尾的点与空格、非法字符、只差大小写的路径
 │   ├── soul-repo.ts      灵魂仓库协议（与桥接共用）：克隆 / 补齐、提交、拉取合并（条目级三方合并、字段合并、冲突副本）、推送结果与失败分类、身份守卫、git 的执行安全（规范 v10 §5.2：不执行钩子、地址只来自配置、清理 .git/config、不收符号链接、提交前查密钥）、整理租约、历史与撤销
 │   └── soul-sync.ts      运行基座一侧的同步：触碰即同步（工具调用后 git status → 立即提交，3 秒去抖推送）、网络类静默重试、推送失败、冲突副本与「改动里有密钥」的提醒（soul.alert 事件）、待裁决的副本
 ├── mesh/                 网状层：同一个 agent 的在线身体两两直连（设计见 docs/ARCHITECTURE.md §6.2、docs/DISTRIBUTED.md）

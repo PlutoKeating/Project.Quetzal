@@ -31,7 +31,7 @@ export interface Events {
   "session.switch": [e: { from: string; to: string; title: string; done?: boolean }]; // 她用 session_new 把对话切到新会话：控制台跟着切；done 为真表示回复已放进新会话 // 让控制台 App 播放一段合成语音（走通话路径，耳朵有回声消除）；App 播完或被插嘴后回报 player.done
 }
 /**
- * 听觉事件（见 voice/hearing.ts）。partial：识别中的文字；final：这句话识别完成并进入会话（conv）；dropped：没进会话（太短、没听清、她自己在说话……）；
+ * 听觉事件（见 voice/hearing.ts）。partial：识别中的文字；final：这句话识别完成并进入会话（conv）；dropped：没进会话（太短、没听清、没在听……）；
  * kept：她判断是对她说的（回应了）；ignored：她判断不是对她说的（这句话在记录里标为 ignored，控制台隐藏）。
  */
 export interface HearingEvent { id: string; status: "partial" | "final" | "dropped" | "kept" | "ignored"; text: string; conv?: string; reason?: string }
