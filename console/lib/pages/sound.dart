@@ -95,7 +95,7 @@ class _SoundPageState extends State<SoundPage> {
     final reasons = (s['reasons'] as List?)?.cast<String>() ?? [];
     final last = hearing.lastHeard ?? (s['last'] as Map?);
     final on = s['enabled'] == true;
-    final status = !configured ? '先填好上面的密钥' : !on ? '' : reasons.isNotEmpty ? reasons.join('、') : !hasBody ? '在手机 App 上听' : hearing.running ? (hearing.speaking ? '有人在说话…' : '在听') : '准备中';
+    final status = !configured ? '先填好上面的密钥' : !on ? '' : reasons.isNotEmpty ? reasons.join('、') : !HearingController.canHear ? '在 App 上听' : hearing.running ? (hearing.speaking ? '有人在说话…' : '在听') : '准备中';
     return Section('听你说话', trailing: Switch(value: on, onChanged: configured ? (v) => _setEar({'enabled': v}) : null), [
       if (status.isNotEmpty) Row(children: [
         Icon(Icons.hearing, size: 16, color: hearing.speaking ? cs.primary : cs.outline), const SizedBox(width: 6),
@@ -108,7 +108,7 @@ class _SoundPageState extends State<SoundPage> {
         leading: Icon(Icons.mic_off, color: cs.error), title: const Text('允许使用麦克风'),
         onTap: () async { await Hearing.requestPermission(); await Future.delayed(const Duration(seconds: 2)); await hearing.refreshPermission(); hearing.sync(); },
       ),
-      if (hasBody && !HearingController.local(api.base)) Text('只能听这台手机上的 agent', style: t.bodySmall),
+      if (HearingController.canHear && !HearingController.local(api.base)) Text('只能听这台设备上的 agent', style: t.bodySmall),
       if (hearing.error != null) Text(hearing.error!, style: TextStyle(color: cs.error)),
       if (on) ...[
         const SizedBox(height: 12),

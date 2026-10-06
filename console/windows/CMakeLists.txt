@@ -57,6 +57,10 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# 桌面版耳朵的断句：libfvad（WebRTC VAD，BSD-3），fvad.dll 放在 exe 旁边，Dart 经 dart:ffi 调用；见 ../native/fvad/CMakeLists.txt
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native/fvad" "${CMAKE_BINARY_DIR}/fvad")
+add_dependencies(${BINARY_NAME} fvad)
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
@@ -79,6 +83,9 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
+install(TARGETS fvad RUNTIME DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 if(PLUGIN_BUNDLED_LIBRARIES)

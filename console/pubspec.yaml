@@ -53,6 +53,9 @@ dependencies:
   window_manager: 0.5.2   # 桌面版：关窗时收进托盘、从托盘显示 / 隐藏窗口
   webview_windows: 0.4.0   # Windows 桌面版的 Mermaid 图：嵌入 WebView2 跑内置的 mermaid.js（BSD-3；构建时 nuget 下载 WebView2 SDK，核对 SHA-256）
   flutter_svg: 2.3.0   # Mermaid 图的兜底：运行基座画好的 SVG（mermaid.render）；本来就经 flutter_math_fork 间接依赖
+  record_platform_interface: 2.1.0   # 桌面版耳朵（Windows）：record 的平台接口，只用它与下面的 Windows 实现，不引入安卓 / iOS / 网页的实现
+  record_windows: 2.3.0   # Windows 麦克风的 16 kHz 单声道 PCM 流（Media Foundation，BSD-3）；Linux 用系统自带的 parec / pw-record / arecord
+  ffi: 2.2.0   # dart:ffi 的内存分配与 UTF-16：调 libfvad（断句）与 Windows 的 winmm（播放她的声音）；本来就是间接依赖
 
 dev_dependencies:
   flutter_test:
