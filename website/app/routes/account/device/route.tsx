@@ -26,7 +26,9 @@ type Step =
   | { s: "enter"; error?: SyncError }
   | { s: "checking" }
   | { s: "confirm"; p: PendingCode; error?: SyncError; busy?: boolean }
-  | { s: "done"; p: PendingCode; approved: boolean };
+  | { s: "done"; p: PendingCode; approved: boolean }
+  | { s: "redirecting" }
+  | { s: "soul"; result: string; repo?: string; reason?: string };
 
 function Flow() {
   const t = useMessages(messages);
@@ -34,7 +36,10 @@ function Flow() {
   const lang = useLang();
   const [params] = useSearchParams();
   const [code, setCode] = useState(formatCode(params.get("code") ?? ""));
-  const [step, setStep] = useState<Step>({ s: "enter" });
+  // 从 GitHub 回来（同步服务把人送回 /device?soul=…）：直接显示结果
+  const soul = params.get("soul");
+  const [step, setStep] = useState<Step>(soul ? { s: "soul", result: soul, repo: params.get("repo") ?? undefined, reason: params.get("reason") ?? undefined } : { s: "enter" });
+  const [agent, setAgent] = useState<string>("");
 
   const lookup = async (c: string) => {
     setStep({ s: "checking" });
@@ -42,14 +47,24 @@ function Flow() {
     catch (e) { setStep({ s: "enter", error: e instanceof SyncError ? e : new SyncError("network") }); }
   };
   // 从身体给的链接进来（带 code）：直接核对
-  useEffect(() => { if (code.length === 9) void lookup(code); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (code.length === 9 && !soul) void lookup(code); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const decide = async (p: PendingCode, approve: boolean) => {
     setStep({ s: "confirm", p, busy: true });
-    try { await sync.decide(p.code, approve); setStep({ s: "done", p, approved: approve }); }
+    const pick = p.choose ? (p.choose.length ? agent || p.choose[0].id : "new") : undefined;
+    try {
+      const r = await sync.decide(p.code, approve, pick);
+      if (r.next) { setStep({ s: "redirecting" }); window.location.assign(r.next); return; } // 同一个标签页经 GitHub 跳一次，加完部署密钥回到这里
+      setStep({ s: "done", p, approved: approve });
+    }
     catch (e) { setStep({ s: "confirm", p, error: e instanceof SyncError ? e : new SyncError("network") }); }
   };
 
+  if (step.s === "redirecting") return <Card className="max-w-prose"><p className="text-fg-muted">{t.redirecting}</p></Card>;
+  if (step.s === "soul") {
+    const text = step.result === "linked" ? t.linked.replace("{repo}", step.repo ?? "") : step.result === "failed" ? t.linkFailed.replace("{reason}", step.reason ?? "") : step.result === "unavailable" ? t.linkUnavailable : t.linkExpired;
+    return <Card className="max-w-prose"><p className={step.result === "linked" ? "text-fg" : "text-danger"}>{text}</p></Card>;
+  }
   if (step.s === "enter" || step.s === "checking") {
     return (
       <Card className="max-w-prose">
@@ -81,18 +96,38 @@ function Flow() {
   return (
     <Card className="flex max-w-prose flex-col gap-5">
       <Heading as="h2" size="sm">{t.confirmHeading}</Heading>
+      {p.check && (
+        <div className="flex flex-col gap-1">
+          <span className="text-sm text-fg-muted">{t.check}</span>
+          <span className="text-4xl tracking-widest" aria-label={t.check}>{p.check}</span>
+          <span className="text-sm text-fg-muted">{t.checkHint}</span>
+        </div>
+      )}
       <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-6 gap-y-2"> {/* ds-allow：两列布局，不是视觉参数 */}
-        {row(t.agent, <>{p.agent.name} <span className="font-mono text-xs text-fg-subtle">{p.agent.id.slice(0, 8)}</span></>)}
+        {!p.choose && row(t.agent, <>{p.agent.name} <span className="font-mono text-xs text-fg-subtle">{p.agent.id.slice(0, 8)}</span></>)}
         {row(t.body, p.body)}
         {row(t.kind, <Badge tone={p.kind === "console" ? "warning" : p.kind === "bridge" ? "secondary" : "neutral"}>{a.kind[p.kind] ?? p.kind}</Badge>)}
         {p.version && row(t.version, p.version)}
         {p.kind !== "console" && row(t.key, <span className="font-mono text-lg tracking-wide">{p.fingerprint}</span>)}
         {p.kind === "console" && p.bodyFingerprint && row(t.bodyKey, <span className="font-mono text-lg tracking-wide">{p.bodyFingerprint}</span>)}
         {p.kind === "console" && typeof p.bodyBoundAt === "number" && row(t.bodyBound, when(p.bodyBoundAt))}
+        {p.soulKey && row(t.soulKey, <span className="break-all font-mono text-sm">{p.soulKey}</span>)}
         {typeof p.createdAt === "number" && row(t.created, when(p.createdAt))}
       </dl>
+      {p.choose && p.choose.length > 0 && (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-sm text-fg-muted">{t.chooseLabel}</legend>
+          {[...p.choose.map((x) => ({ id: x.id, label: x.repo ? `${x.name} · ${x.repo}` : x.name })), { id: "new", label: `${t.chooseNew}（${p.agent.name}）` }].map((x) => (
+            <label key={x.id} className="flex items-center gap-2 text-fg">
+              <input type="radio" name="agent" value={x.id} checked={(agent || p.choose![0].id) === x.id} onChange={() => setAgent(x.id)} />
+              {x.label}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {p.soulKey && p.soulLink && <p className="text-sm text-fg-muted">{t.soulHint}</p>}
       {p.kind === "console" && p.bodyFingerprint && <p className="text-sm text-fg-muted">{t.bodyKeyHint}</p>}
-      {p.kind !== "console" && <p className="text-sm text-fg-muted">{t.keyHint}</p>}
+      {p.kind !== "console" && !p.check && <p className="text-sm text-fg-muted">{t.keyHint}</p>}
       {p.kind === "console" && <p className="rounded-md border border-border p-3 text-sm text-warning">{t.consoleWarn.replace("{body}", p.body)}</p>}
       {p.newAgent && <p className="text-sm text-fg-muted">{t.newAgent}</p>}
       {p.replaces && <p className="text-sm text-warning">{t.replaces}</p>}

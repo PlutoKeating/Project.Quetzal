@@ -20,6 +20,12 @@ export interface PendingCode {
   createdAt?: number;
   /** 只有 console：发起登录的那台 App 所连运行基座（身体）的公钥指纹与它绑定到账户的时间（旧版同步服务没有）。 */
   bodyFingerprint?: string; bodyBoundAt?: number;
+  /** 核对词（3 个表情）：与身体在消息里给出的一致（旧版同步服务没有）。 */
+  check?: string;
+  /** 身体带了部署公钥：它的指纹；soulLink 为真时批准后经 GitHub 加到灵魂仓库。 */
+  soulKey?: string; soulLink?: boolean;
+  /** 身体没说属于哪个 agent：账户里可选的 agent（空数组表示新建）。 */
+  choose?: { id: string; name: string; repo: string }[];
 }
 
 /** 接口错误：code 为同步服务返回的 error（unauthorized / bad_code / expired / not_yours …），网络不通时为 network。 */
@@ -45,7 +51,8 @@ export const sync = {
   session: () => call<SessionInfo>("/v1/web/session"),
   account: () => call<Account>("/v1/web/account"),
   lookup: (code: string) => call<PendingCode>("/v1/web/device/lookup", { code }),
-  decide: (code: string, approve: boolean) => call<{ ok: true; approved: boolean }>("/v1/web/device/decide", { code, approve }),
+  /** agent：身体没给 agent 时选定的 agent id 或 "new"。返回 next 时把人带过去（同一个标签页经 GitHub 跳一次，把部署密钥加到灵魂仓库）。 */
+  decide: (code: string, approve: boolean, agent?: string) => call<{ ok: true; approved: boolean; next?: string }>("/v1/web/device/decide", { code, approve, ...(agent ? { agent } : {}) }),
   removeBody: (agent: string, body: string) => call<{ ok: true }>("/v1/web/bodies/remove", { agent, body }),
   removeAgent: (agent: string) => call<{ ok: true }>("/v1/web/agents/remove", { agent }),
   revokeConsole: (id: string) => call<{ ok: true }>("/v1/web/consoles/revoke", { id }),
