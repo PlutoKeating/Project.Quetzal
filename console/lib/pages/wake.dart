@@ -232,7 +232,7 @@ class _WakeViewState extends State<WakeView> {
             child: Row(children: [
               Icon(Icons.visibility_outlined, size: 16, color: cs.outline),
               const SizedBox(width: 8),
-              Expanded(child: Text(kind == 'chat' ? '这是一次对话的记录，只读。要继续说话，去这个会话里。' : '这是她自己的时间：只能看，不能插话。想说话，去「对话」。', style: tt.bodySmall?.copyWith(color: cs.outline))),
+              Expanded(child: Text(kind == 'chat' ? '只读，继续说话去这个会话' : '她自己的时间，只能看', style: tt.bodySmall?.copyWith(color: cs.outline))),
             ]),
           ),
         ),

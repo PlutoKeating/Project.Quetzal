@@ -116,7 +116,6 @@ class _MeshPageState extends State<MeshPage> {
           if (bound) Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () async {
             if (await confirm(context, '退出登录', '这台设备将不再与其他设备直连，记忆仍会同步。') && context.mounted) await act(context, () => api.call('mesh.unbind'), ok: '已退出');
           }, child: Text('这台设备退出登录', style: TextStyle(color: cs.error)))),
-          if (!bound || peers.isEmpty) Padding(padding: const EdgeInsets.all(8), child: Text('公钥指纹 ${m['fingerprint'] ?? ''}', style: muted?.copyWith(fontFamily: 'monospace'))),
         ]);
       }),
     );

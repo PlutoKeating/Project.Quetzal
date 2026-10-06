@@ -2,6 +2,7 @@
 //   同一份代码出两种形态：安卓 App（手机外壳：底部 Tab + 逐页推入；也是安装器与耳朵）与网页版（由运行基座的网关托管，在电脑浏览器里打开）。
 //   外壳按宽度选：窄屏是手机外壳，宽屏（≥ desktopBreakpoint）是桌面外壳（shell/desktop.dart）；平板横屏也用桌面外壳。
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'markdown.dart';
 import 'widgets.dart';
@@ -92,6 +93,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   int tab = 0;
   String? bundled; // App 内置的运行基座版本：与运行中的不同时自动更新（本机部署才有意义）
   ShellMode? _mode;
+  bool _setupChecked = false; // 电脑上第一次连上、还没有模型：打开一次向导（登录、模型），每个连接只打开一次
   Installer? _runtimeUpdate; // 正在后台把运行基座换成 App 内置的版本（每次打开 App 最多自动一次，失败了留给人点「重试」）
 
   /// 运行中的运行基座比 App 内置的旧（多半是刚更新了 App）：不进向导、不问，直接在后台重启成新版本，记忆与配置不受影响。
@@ -145,6 +147,17 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       builder: (context, _) {
         if (api.conn == Conn.unpaired) return const PairingPage();
         final runtimeOutdated = bundled != null && api.conn == Conn.online && api.status['version'] != null && api.status['version'] != bundled && api.base.contains('127.0.0.1');
+        if (!hasBody && !_setupChecked && api.conn == Conn.online && api.status.containsKey('models')) {
+          _setupChecked = true;
+          if (((api.status['models'] as List?) ?? []).isEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              final p = await SharedPreferences.getInstance(), k = 'setup.shown.${api.current?.id}';
+              if (p.getBool(k) == true || !mounted) return;
+              await p.setBool(k, true);
+              if (mounted) Navigator.push(this.context, MaterialPageRoute(builder: (_) => const SetupPage()));
+            });
+          }
+        }
         if (runtimeOutdated && _runtimeUpdate == null) WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted && _runtimeUpdate == null) _updateRuntime(); });
         final ru = _runtimeUpdate;
         if (ShellScope.isDesktop(context)) return const DesktopShell();

@@ -70,7 +70,6 @@ class InnerSection extends StatelessWidget {
       DriveBar('好奇', _n(d['curiosity'])), DriveBar('表达', _n(d['expression'])), DriveBar('想念', _n(d['social'])), DriveBar('牵挂', _n(d['openLoops'])),
       const Divider(),
       DriveBar('清醒', _n(h['alertness'])), DriveBar('困意', _n(h['S'])),
-      Text('每小时约醒来 ${_n(h['ratePerHour']).toStringAsFixed(1)} 次', style: Theme.of(context).textTheme.bodySmall),
     ];
     return compact ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows) : Section('内在', rows);
   }
@@ -88,7 +87,6 @@ class BodySection extends StatelessWidget {
       if (bat?['tempC'] != null) Chip(avatar: const Icon(Icons.thermostat, size: 18), label: Text('${bat!['tempC']}°C ${feel['warmth'] ?? ''}')),
       Chip(avatar: const Icon(Icons.light_mode, size: 18), label: Text('${feel['light'] ?? '未知'}${raw['lux'] != null ? ' ${raw['lux']}lx' : ''}')),
       Chip(avatar: const Icon(Icons.vibration, size: 18), label: Text('${feel['stillness'] ?? '未知'}')),
-      Chip(avatar: const Icon(Icons.memory, size: 18), label: Text('负载 ${(p['system'] as Map?)?['load1'] ?? '-'}')),
     ]);
     return compact ? chips : Section('身体', [chips]);
   }

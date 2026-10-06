@@ -161,7 +161,7 @@ class _Rail extends StatelessWidget {
     return ListenableBuilder(listenable: Listenable.merge([nav, api]), builder: (context, _) => Column(children: [
       const SizedBox(height: 14),
       Tooltip(
-        message: '${api.name} · 切换 agent',
+        message: '切换',
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: () => showAgentSheet(context),

@@ -198,7 +198,7 @@ class _AboutPageState extends State<AboutPage> {
       body: ListenableBuilder(listenable: Listenable.merge([api, appUpdater]), builder: (context, _) => ListView(padding: const EdgeInsets.all(12), children: [
         Section('Quetzal', [
           Row(children: [const Orb(mode: 'awake', alertness: 1, size: 44), const SizedBox(width: 14), Expanded(child: Text('Not running, but living.', style: t.bodyLarge?.copyWith(color: cs.onSurfaceVariant)))]),
-          Wrap(children: [link('官网', _site), link('文档', '$_site/zh/docs'), link('GitHub', 'https://github.com/$githubRepo'), link('AGPL-3.0', 'https://github.com/$githubRepo/blob/main/LICENSE')]),
+          Wrap(children: [link('官网', _site), link('文档', '$_site/zh/docs'), link('源代码', 'https://github.com/$githubRepo')]),
         ]),
         _version(context),
       ])),

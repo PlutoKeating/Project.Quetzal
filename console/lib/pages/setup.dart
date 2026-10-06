@@ -1,10 +1,12 @@
 // 安装向导：启动 App 内置的运行基座（只装一个 App，不需要 Termux），之后的升级、修复也从这里进。
 //   一次只做一件事，能自动的都自动：打开就开始安装 → 装好自动弹出权限请求 → 后台运行 → 登录（新用户自动建 agent，老用户接回已有的）→ 接上模型。
 //   每一步完成就收起成一行；登录与模型可以跳过，随时点「开始」进去。升级 / 重装（upgrade）只有第一步，完成后自动返回。
+//   电脑上（Linux 桌面版、网页版）没有安装、权限与后台运行这几步，只有登录与模型：第一次连上、还没有模型时由外壳打开一次。
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../igniter.dart';
 import '../installer.dart';
+import '../platform/caps.dart';
 import '../widgets.dart';
 import 'mesh.dart';
 import 'providers.dart';
@@ -50,6 +52,7 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
   }
 
   Future<void> _check({bool start = false}) async {
+    if (!hasBody) { if (mounted) setState(() {}); return; } // 电脑上没有安装与身体权限
     bundled = await Installer.bundledVersion();
     available = await Igniter.available();
     perms = await Igniter.bodyPermissions();
@@ -71,14 +74,12 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
     final permitted = perms.isNotEmpty && !perms.values.contains(false);
     final m = (api.status['mesh'] as Map?) ?? {};
     final binding = m['binding'] as Map?;
-    // 第一个没完成的步骤是当前步骤，只有它展开
-    final done = [installed, permitted, battery || skipBattery, _bound || skipLogin, _models];
-    final current = widget.upgrade ? 0 : done.indexOf(false);
-    Widget step(int i, String title, List<Widget> children) => _Step(title: title, done: done[i], active: current == i, children: children);
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.upgrade ? '更新' : '欢迎')),
-      body: ListView(padding: const EdgeInsets.all(12), children: [
-        step(0, widget.upgrade ? '更新到 ${bundled ?? ''}' : '安装', [
+    // 这台设备上要走的步骤（电脑上只有登录与模型）；第一个没完成的是当前步骤，只有它展开
+    final steps = <(String, bool, List<Widget>)>[];
+    final body = hasBody;
+    final ready = !body || installed;
+    if (body) {
+      steps.add((widget.upgrade ? '更新到 ${bundled ?? ''}' : '安装', installed, [
           if (available == false) Text('这个版本没有内置运行环境', style: muted),
           if (installer.running) ...[
             Text(installSteps[installer.reached.isEmpty ? 'start' : installer.reached.last] ?? '', style: muted),
@@ -88,9 +89,11 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
             Text(installer.error!, style: t.bodyMedium?.copyWith(color: cs.error)),
             Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: installer.install, child: const Text('重试'))),
           ],
-        ]),
-        if (!widget.upgrade) ...[
-          step(1, '权限', [
+        ]));
+    }
+    if (!widget.upgrade) {
+      if (body) {
+        steps.add(('权限', permitted, [
             Wrap(spacing: 8, runSpacing: 4, children: [
               for (final e in names.entries) Chip(avatar: Icon(perms[e.key] == true ? Icons.check_circle : Icons.circle_outlined, size: 16, color: perms[e.key] == true ? Colors.green : null), label: Text(e.value)),
             ]),
@@ -98,8 +101,8 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
             Text('每次使用前仍会问你', style: muted),
             const SizedBox(height: 8),
             Row(children: [FilledButton(onPressed: Igniter.requestBodyPermissions, child: const Text('允许'))]),
-          ]),
-          step(2, '后台运行', [
+        ]));
+        steps.add(('后台运行', battery || skipBattery, [
             Text('不让系统把${api.name}关掉', style: muted),
             const SizedBox(height: 8),
             Wrap(spacing: 8, children: [
@@ -107,8 +110,9 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
               TextButton(onPressed: () => Igniter.openAutostart().catchError((_) {}), child: const Text('自启动设置')),
               TextButton(onPressed: () => setState(() => skipBattery = true), child: const Text('跳过')),
             ]),
-          ]),
-          step(3, '登录', [
+        ]));
+      }
+      steps.add(('登录', _bound || skipLogin, [
             if (binding == null) ...[
               Text('在你所有的设备上都是同一个${api.name}', style: muted),
               const SizedBox(height: 8),
@@ -119,17 +123,22 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
             ],
             if (binding != null) DeviceCodeView(pending: binding, onCancel: () => act(context, () => api.call('mesh.cancelBind'))),
             if ('${m['error'] ?? ''}'.isNotEmpty) Text('${m['error']}', style: TextStyle(color: cs.error)),
-          ]),
-          step(4, '模型', [
+      ]));
+      steps.add(('模型', _models, [
             Text('${api.name}用它思考', style: muted),
             const SizedBox(height: 8),
-            Row(children: [FilledButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProvidersPage())), child: const Text('选择模型'))]),
-          ]),
-          if (installed) Padding(padding: const EdgeInsets.all(12), child: FilledButton(
+            Row(children: [FilledButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => ShellScope.isDesktop(c) ? const Scaffold(body: ProvidersPage()) : const ProvidersPage())), child: const Text('选择模型'))]),
+      ]));
+    }
+    final current = steps.indexWhere((x) => !x.$2);
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.upgrade ? '更新' : '欢迎')),
+      body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 560), child: ListView(padding: const EdgeInsets.all(12), children: [
+        for (var i = 0; i < steps.length; i++) _Step(title: steps[i].$1, done: steps[i].$2, active: current == i, children: steps[i].$3),
+        if (!widget.upgrade && ready) Padding(padding: const EdgeInsets.all(12), child: FilledButton(
             onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
             child: const Text('开始'))),
-        ],
-      ]),
+      ]))),
     );
   }
 }

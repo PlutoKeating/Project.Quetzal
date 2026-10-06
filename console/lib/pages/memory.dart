@@ -168,7 +168,7 @@ class _SearchState extends State<MemorySearch> {
   Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(12), children: [
         TextField(
           autofocus: ShellScope.isDesktop(context),
-          decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '在笔记和日记中搜索（包括其他身体的日记）', border: OutlineInputBorder()),
+          decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '搜索记忆', border: OutlineInputBorder()),
           onSubmitted: (q) async { final r = await act(context, () => api.call<String>('search', {'query': q})); if (mounted) setState(() => result = r ?? ''); },
         ),
         const SizedBox(height: 12),

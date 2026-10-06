@@ -170,7 +170,7 @@ void showToolDetail(BuildContext context, Map x, Map? step) {
         const SizedBox(height: 12),
         Text(step != null ? '结果' : '结果（开头）', style: t.labelLarge),
         if ('${result ?? ''}'.isEmpty) Text('（无）', style: t.bodySmall) else RawOrMarkdown('$result'),
-        if (step == null && x['status'] != 'running') Padding(padding: const EdgeInsets.only(top: 8), child: Text('这里只有结果的第一行；完整参数与结果在心流里这一轮的记录中。', style: t.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline))),
+        if (step == null && x['status'] != 'running') Padding(padding: const EdgeInsets.only(top: 8), child: Text('完整内容在心流里', style: t.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline))),
         const SizedBox(height: 24),
       ]));
 }

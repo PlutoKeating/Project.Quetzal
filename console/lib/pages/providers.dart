@@ -1,5 +1,6 @@
-// 模型：供应商、Key、模型选择与全局调用顺序。
-// 交互参考 GoGoGo 管理后台：所有修改先进入本地草稿，底部保存栏统一「保存 / 放弃」；保存时带版本号，防止覆盖别处的修改。
+// 模型：默认只有「选一个供应商、粘贴 Key、接上」（运行基座 providers.quick 自动挑模型、试通、排好），已接上的一行一个。
+// 完整管理（ProvidersEditor：多个 Key、手选模型、自定义供应商、全局顺序、内省模型）从右上角「编辑」进。
+// 编辑器的交互参考 GoGoGo 管理后台：所有修改先进入本地草稿，底部保存栏统一「保存 / 放弃」；保存时带版本号，防止覆盖别处的修改。
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -21,13 +22,101 @@ String _uuid() {
   return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
 }
 
+/// 常用的供应商（公共目录里的 id → 显示的名字）；其余从「更多」里搜。
+const _popular = {'deepseek': 'DeepSeek', 'moonshotai-cn': 'Kimi', 'zhipuai': '智谱', 'alibaba-cn': '阿里云百炼', 'siliconflow-cn': '硅基流动', 'volcengine': '火山方舟', 'openrouter': 'OpenRouter', 'openai': 'OpenAI', 'anthropic': 'Anthropic', 'google': 'Gemini'};
+
 class ProvidersPage extends StatefulWidget {
   const ProvidersPage({super.key});
   @override
-  State<ProvidersPage> createState() => _ProvidersPageState();
+  State<ProvidersPage> createState() => _QuickPageState();
 }
 
-class _ProvidersPageState extends State<ProvidersPage> {
+class _QuickPageState extends State<ProvidersPage> {
+  List<Map> providers = [];
+  bool loaded = false, busy = false, show = false;
+  String pick = 'deepseek';
+  String? pickName, error;
+  List? catalog;
+  final key = TextEditingController();
+
+  @override
+  void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    final r = await act(context, () => api.call<Map>('providers'));
+    if (!mounted || r == null) return;
+    setState(() { providers = ((r['config'] as Map)['providers'] as List).cast<Map>(); loaded = true; });
+  }
+  Future<List> _catalog({bool refresh = false}) async => catalog ??= (await api.call<Map>('catalog'))['providers'] as List;
+
+  Future<void> _more() async {
+    final p = await showSheet<Map>(context, (_, scroll) => _ProviderPicker(load: _catalog, scroll: scroll), initial: 0.85);
+    if (p == null || !mounted) return;
+    if (p.isEmpty) return _edit(); // 自定义供应商：在编辑器里填
+    setState(() { pick = '${p['id']}'; pickName = '${p['name']}'; });
+  }
+  Future<void> _edit() async { await Navigator.push(context, MaterialPageRoute(builder: (_) => const Material(child: ProvidersEditor()))); _load(); } // Material：从向导（根导航）进来时桌面版也有底色
+
+  Future<void> _connect() async {
+    final why = _ProviderCardState.keyProblem(key.text);
+    if (why != null) { setState(() => error = why); return; }
+    setState(() { busy = true; error = null; });
+    try {
+      final r = await api.call<Map>('providers.quick', {'catalogId': pick, 'key': key.text.trim()});
+      if (!mounted) return;
+      if (r['ok'] == true) { key.clear(); toast(context, '已接上 ${(r['models'] as List).join('、')}'); await api.refresh(); _load(); }
+      else { setState(() => error = '${r['message']}'); }
+    } catch (e) { if (mounted) setState(() => error = '$e'); }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme, cs = Theme.of(context).colorScheme;
+    final names = {..._popular, if (pickName != null && !_popular.containsKey(pick)) pick: pickName!};
+    return PageFrame(
+      title: '模型',
+      actions: [if (providers.isNotEmpty) TextButton(onPressed: _edit, child: const Text('编辑'))],
+      body: !loaded ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
+        if (providers.isNotEmpty) Card(child: Column(children: [
+          for (final p in providers) ListTile(
+            leading: Icon(Icons.circle, size: 10, color: p['enabled'] == true && (p['models'] as List).isNotEmpty ? Colors.green : cs.outline),
+            title: Text('${p['name']}'),
+            subtitle: (p['models'] as List).isEmpty ? null : Text((p['models'] as List).map((m) => m['name']).join('、'), maxLines: 1, overflow: TextOverflow.ellipsis),
+            onTap: _edit,
+          ),
+        ])),
+        Section(providers.isEmpty ? '接上一个模型' : '再接一个', [
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final e in names.entries) ChoiceChip(label: Text(e.value), selected: pick == e.key, onSelected: busy ? null : (_) => setState(() => pick = e.key)),
+            ActionChip(label: const Text('更多'), onPressed: busy ? null : _more),
+          ]),
+          const SizedBox(height: 12),
+          TextField(
+            controller: key, obscureText: !show, autocorrect: false, enableSuggestions: false, enabled: !busy,
+            onSubmitted: (_) => _connect(),
+            decoration: InputDecoration(labelText: 'API Key', border: const OutlineInputBorder(),
+                suffixIcon: IconButton(tooltip: show ? '隐藏' : '显示', icon: Icon(show ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => show = !show))),
+          ),
+          if (error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(error!, style: TextStyle(color: cs.error))),
+          const SizedBox(height: 12),
+          Row(children: [
+            FilledButton(onPressed: busy ? null : _connect, child: const Text('接上')),
+            if (busy) ...[const SizedBox(width: 12), const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)), const SizedBox(width: 8), Text('正在试…', style: t.bodySmall)],
+          ]),
+        ]),
+      ]),
+    );
+  }
+}
+
+/// 完整的供应商管理：多个 Key、手选模型、自定义供应商、全局顺序与内省模型。
+class ProvidersEditor extends StatefulWidget {
+  const ProvidersEditor({super.key});
+  @override
+  State<ProvidersEditor> createState() => _ProvidersPageState();
+}
+
+class _ProvidersPageState extends State<ProvidersEditor> {
   Map? saved; // 服务器上的配置
   Map draft = {'providers': []};
   String version = '';
@@ -82,29 +171,21 @@ class _ProvidersPageState extends State<ProvidersPage> {
   Widget build(BuildContext context) {
     final filtered = providers.where((p) => query.isEmpty || '${p['name']} ${p['baseUrl']}'.toLowerCase().contains(query.toLowerCase())).toList();
     final ordered = _orderedModels;
-    final keyCount = providers.fold<int>(0, (a, p) => a + (p['keys'] as List).length);
     return PopScope(
       canPop: !dirty,
       onPopInvokedWithResult: (didPop, _) async { if (!didPop && await confirm(context, '有未保存的修改', '离开将丢弃这些修改。') && context.mounted) { setState(() => draft = jsonDecode(jsonEncode(saved))); Navigator.pop(context); } },
       child: PageFrame(
-        title: '模型', actions: [IconButton(tooltip: '添加供应商', icon: const Icon(Icons.add), onPressed: _addProvider)],
+        title: '编辑模型', actions: [IconButton(tooltip: '添加供应商', icon: const Icon(Icons.add), onPressed: _addProvider)],
         body: saved == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.only(bottom: 100), children: [
-          Padding(
+          if (providers.length > 5) Padding(
             padding: const EdgeInsets.all(12),
-            child: Row(children: [
-              _Stat('${providers.length}', '供应商'), _Stat('$keyCount', '加密 Key'), _Stat('${ordered.length}', '已配置模型'),
-            ]),
+            child: TextField(decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '搜索', border: OutlineInputBorder(), isDense: true), onChanged: (v) => setState(() => query = v)),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: TextField(decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '按名称或 API 地址搜索已添加的供应商', border: OutlineInputBorder(), isDense: true), onChanged: (v) => setState(() => query = v)),
-          ),
-          if (providers.isEmpty) Padding(padding: const EdgeInsets.all(24), child: FilledButton.icon(onPressed: _addProvider, icon: const Icon(Icons.add), label: const Text('添加第一个供应商'))),
+          if (providers.isEmpty) Padding(padding: const EdgeInsets.all(24), child: FilledButton.icon(onPressed: _addProvider, icon: const Icon(Icons.add), label: const Text('添加供应商'))),
           for (final p in filtered) _ProviderCard(p: p, dirty: dirty, catalog: _catalog, onChanged: () => setState(() {}), nextOrder: () => _nextOrder,
               onRemove: () async { if (await confirm(context, '删除供应商', '删除「${p['name']}」及其所有 Key 与模型？（保存后生效）')) setState(() => providers.remove(p)); }),
-          Section('全局模型顺序 · ${ordered.length}', [
-            const Text('越靠上优先级越高，失败时依次尝试下一个。停用的供应商或没有启用 Key 的模型会被跳过。拖动右侧手柄排序。', style: TextStyle(fontSize: 12)),
-            if (ordered.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('还没有选择任何模型')),
+          if (ordered.isNotEmpty) Section('顺序', [
+            const Text('先用上面的，失败了换下一个', style: TextStyle(fontSize: 12)),
             ReorderableListView(
               shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), buildDefaultDragHandles: false,
               onReorderItem: (a, b) => setState(() {
@@ -118,9 +199,9 @@ class _ProvidersPageState extends State<ProvidersPage> {
                     key: ValueKey(ordered[i]['id']), dense: true,
                     leading: Text((i + 1).toString().padLeft(2, '0')),
                     title: Text('${ordered[i]['_p']['name']}/${ordered[i]['name']}', style: TextStyle(color: ordered[i]['enabled'] == true && ordered[i]['_p']['enabled'] == true ? null : Colors.grey)),
-                    subtitle: draft['quickModelId'] == ordered[i]['id'] ? const Text('内省用（便宜快速）') : null,
+                    subtitle: draft['quickModelId'] == ordered[i]['id'] ? const Text('轻量任务用') : null,
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      IconButton(tooltip: '设为内省模型', icon: Icon(draft['quickModelId'] == ordered[i]['id'] ? Icons.bolt : Icons.bolt_outlined), onPressed: () => setState(() => draft['quickModelId'] = draft['quickModelId'] == ordered[i]['id'] ? null : ordered[i]['id'])),
+                      IconButton(tooltip: '轻量任务用它', icon: Icon(draft['quickModelId'] == ordered[i]['id'] ? Icons.bolt : Icons.bolt_outlined), onPressed: () => setState(() => draft['quickModelId'] = draft['quickModelId'] == ordered[i]['id'] ? null : ordered[i]['id'])),
                       ReorderableDragStartListener(index: i, child: const Icon(Icons.drag_handle)),
                     ]),
                   ),
@@ -134,7 +215,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
           child: SafeArea(child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: Row(children: [
-              Expanded(child: Text(dirty ? '有未保存的修改' : '配置已与运行基座同步', style: const TextStyle(fontWeight: FontWeight.bold))),
+              Expanded(child: Text(dirty ? '有未保存的修改' : '已保存', style: const TextStyle(fontWeight: FontWeight.bold))),
               TextButton(onPressed: !dirty || busy ? null : () async { if (await confirm(context, '放弃修改', '丢弃所有未保存的修改？')) setState(() => draft = jsonDecode(jsonEncode(saved))); }, child: const Text('放弃')),
               FilledButton(onPressed: !dirty || busy ? null : _save, child: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('保存')),
             ]),
@@ -145,15 +226,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
   }
 
   Map _modelRef(Map view) => ((view['_p'] as Map)['models'] as List).cast<Map>().firstWhere((m) => m['id'] == view['id']);
-}
-
-class _Stat extends StatelessWidget {
-  final String n, label;
-  const _Stat(this.n, this.label);
-  @override
-  Widget build(BuildContext context) => Expanded(child: Card(margin: const EdgeInsets.all(4), child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(n, style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: Theme.of(context).colorScheme.primary)), Text(label),
-      ]))));
 }
 
 class _ProviderCard extends StatefulWidget {
@@ -233,8 +305,6 @@ class _ProviderCardState extends State<_ProviderCard> {
           decoration: InputDecoration(labelText: 'API Key', errorText: problem, errorMaxLines: 3,
               suffixIcon: IconButton(tooltip: show ? '隐藏' : '显示', icon: Icon(show ? Icons.visibility_off : Icons.visibility), onPressed: () => setDialog(() => show = !show))),
         ),
-        const SizedBox(height: 8),
-        const Text('保存后只显示末四位；密钥在设备上加密保存。', style: TextStyle(fontSize: 12)),
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('添加'))],
     )));
@@ -316,8 +386,8 @@ class _ProviderCardState extends State<_ProviderCard> {
               icon: const Icon(Icons.more_horiz),
               onSelected: (v) { if (v == 'refresh') _loadCandidates(refresh: true); if (v == 'remote') _fetchRemote(); if (v == 'custom') _customModel(); },
               itemBuilder: (_) => const [
-                PopupMenuItem(value: 'refresh', child: Text('刷新公共模型目录')),
-                PopupMenuItem(value: 'remote', child: Text('从供应商接口获取模型（需已保存 Key）')),
+                PopupMenuItem(value: 'refresh', child: Text('刷新目录')),
+                PopupMenuItem(value: 'remote', child: Text('从供应商获取')),
                 PopupMenuItem(value: 'custom', child: Text('自定义模型')),
               ],
             ),
@@ -342,7 +412,7 @@ class _ProviderCardState extends State<_ProviderCard> {
                       child: Text(widget.dirty ? '先保存' : '测试'))
                   : null,
             ),
-          if (shown.isEmpty) const Text('没有可选模型：可刷新目录、从供应商接口获取，或添加自定义模型。', style: TextStyle(fontSize: 12)),
+          if (shown.isEmpty) const Text('没有可选模型', style: TextStyle(fontSize: 12)),
           const Divider(),
           TextButton(onPressed: widget.onRemove, child: const Text('删除供应商', style: TextStyle(color: Colors.red))),
         ],
@@ -371,13 +441,13 @@ class _ProviderPickerState extends State<_ProviderPicker> {
     return SizedBox(
       height: MediaQuery.sizeOf(context).height * 0.85,
       child: Column(children: [
-        Padding(padding: const EdgeInsets.all(12), child: TextField(autofocus: true, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '搜索供应商（DeepSeek、OpenRouter、Anthropic…）', border: OutlineInputBorder()), onChanged: (v) => setState(() => q = v))),
-        ListTile(leading: const Icon(Icons.edit), title: const Text('自定义供应商'), subtitle: const Text('任意 OpenAI 兼容 / Anthropic / Gemini 接口'), onTap: () => Navigator.pop(context, <String, dynamic>{})),
+        Padding(padding: const EdgeInsets.all(12), child: TextField(autofocus: true, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '搜索', border: OutlineInputBorder()), onChanged: (v) => setState(() => q = v))),
+        ListTile(leading: const Icon(Icons.edit), title: const Text('自定义'), onTap: () => Navigator.pop(context, <String, dynamic>{})),
         const Divider(height: 1),
         Expanded(child: list == null
             ? Center(child: error != null ? Text(error!) : const CircularProgressIndicator())
             : ListView(controller: widget.scroll, children: [
-                for (final p in shown) ListTile(title: Text('${p['name']}'), subtitle: Text('${p['api']}\n${(p['models'] as List).length} 个模型 · ${protocols[p['protocol']] ?? p['protocol']}', maxLines: 2), onTap: () => Navigator.pop(context, p)),
+                for (final p in shown) ListTile(title: Text('${p['name']}'), subtitle: Text('${(p['models'] as List).length} 个模型'), onTap: () => Navigator.pop(context, p)),
               ])),
       ]),
     );

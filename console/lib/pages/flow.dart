@@ -216,7 +216,7 @@ class FlowDistribution extends StatelessWidget {
     for (var i = 1; i < ts.length; i++) { gaps.add((ts[i] - ts[i - 1]) / 60000); }
     final mean = gaps.isEmpty ? 0 : gaps.reduce((a, b) => a + b) / gaps.length;
     return ListView(padding: const EdgeInsets.all(12), children: [
-      Section('按小时的醒来次数（最近 ${items.length} 条经历）', [
+      Section('每小时醒来次数', [
         SizedBox(
           height: 160,
           child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -232,7 +232,6 @@ class FlowDistribution extends StatelessWidget {
       ]),
       Section('思考之间的间隔', [
         Text(gaps.isEmpty ? '数据还不够' : '平均 ${mean.toStringAsFixed(0)} 分钟 · 最短 ${gaps.reduce((a, b) => a < b ? a : b).toStringAsFixed(0)} · 最长 ${gaps.reduce((a, b) => a > b ? a : b).toStringAsFixed(0)} 分钟'),
-        const Text('间隔没有固定周期是正常的：她什么时候醒，取决于她当时的内在状态。', style: TextStyle(fontSize: 12)),
       ]),
     ]);
   }

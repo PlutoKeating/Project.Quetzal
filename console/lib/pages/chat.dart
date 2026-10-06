@@ -382,7 +382,7 @@ class _ChatViewState extends State<ChatView> {
                               if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.enter && !HardwareKeyboard.instance.isShiftPressed) { _send(); }
                             },
                             child: TextField(controller: input, focusNode: focus, minLines: 1, maxLines: 8, textInputAction: TextInputAction.newline,
-                                decoration: const InputDecoration(hintText: '说点什么（Enter 发送，Shift+Enter 换行）', border: OutlineInputBorder()),
+                                decoration: const InputDecoration(hintText: '说点什么', border: OutlineInputBorder()),
                                 onChanged: (v) { if (v.endsWith('\n') && !HardwareKeyboard.instance.isShiftPressed) input.text = v.substring(0, v.length - 1); }))
                         : TextField(controller: input, focusNode: focus, minLines: 1, maxLines: 4, decoration: const InputDecoration(hintText: '说点什么', border: OutlineInputBorder()), onSubmitted: (_) => _send()))
                     // 保密输入：默认遮挡（单行）；多行的值先点眼睛显示再粘贴
@@ -425,7 +425,7 @@ class _ChatViewState extends State<ChatView> {
         padding: const EdgeInsets.fromLTRB(14, 10, 8, 4),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [Icon(Icons.lock, size: 18, color: cs.onTertiaryContainer), const SizedBox(width: 6), Expanded(child: Text('保密输入${'${s['purpose']}'.isEmpty ? '' : ' · ${s['purpose']}'}', style: t.titleSmall?.copyWith(color: cs.onTertiaryContainer)))]),
-          Text('现在发的每一条消息都是一项的值：不进入对话，直接存进保密库，${api.name} 看不到明文。', style: t.bodySmall?.copyWith(color: cs.onTertiaryContainer)),
+          Text('这几条不进对话，${api.name}看不到原文', style: t.bodySmall?.copyWith(color: cs.onTertiaryContainer)),
           const SizedBox(height: 4),
           for (final (i, it) in items.indexed)
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
