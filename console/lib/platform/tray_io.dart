@@ -1,8 +1,10 @@
 // 桌面版（Linux）的托盘图标：右上角状态栏里一个 Quetzal 图标（tray_manager，底层 libayatana-appindicator3）。
 //   菜单：ta 的名字与此刻的状态（醒着 / 睡着 / 急停中 / 离线）、显示或隐藏窗口、急停（已急停时是「解除急停…」，打开窗口去确认）、退出控制台。
 //   有托盘时，点窗口的关闭按钮只是收进托盘（运行基座本来就在后台跑，控制台随时再打开）；托盘起不来（桌面不支持状态栏图标）时照常关闭。
-//   Linux 的状态栏图标单击就是弹出菜单，所以「显示 / 隐藏窗口」放在菜单里。
+//   Linux 的状态栏图标（AppIndicator）单击就是弹出菜单、没有单击 / 双击事件，所以「显示 / 隐藏窗口」放在菜单里。
+//   tray_manager 在 Linux 上只实现了 setIcon / setContextMenu / setTitle / destroy：不调 setToolTip（会抛异常），状态写在菜单第一行。
 import 'dart:io' show Platform, exit;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 import '../api.dart';
@@ -17,15 +19,16 @@ Future<bool> initTray() async {
   try {
     await windowManager.ensureInitialized();
     await trayManager.setIcon('assets/tray/icon.png');
-    await trayManager.setToolTip('Quetzal');
+    _ready = true;
+    await _refresh(force: true); // 先把菜单设上：没有菜单的状态栏图标点了没反应
     trayManager.addListener(_TrayEvents());
     windowManager.addListener(_WindowEvents());
-    await windowManager.setPreventClose(true);
-    _ready = true;
+    await windowManager.setPreventClose(true); // 有托盘了，关窗才改成收进托盘
     api.addListener(_refresh);
-    await _refresh(force: true);
-  } catch (_) {
+  } catch (e) {
+    debugPrint('托盘起不来：$e');
     _ready = false;
+    try { await trayManager.destroy(); } catch (_) {}
     try { await windowManager.setPreventClose(false); } catch (_) {}
   }
   return _ready;
@@ -39,12 +42,12 @@ String _state() {
 /// 菜单只在内容变了时重建（api 每次心跳都会通知）。
 Future<void> _refresh({bool force = false}) async {
   if (!_ready) return;
-  final visible = await windowManager.isVisible();
+  bool visible = true;
+  try { visible = await windowManager.isVisible(); } catch (_) {}
   final status = '${api.name} · ${_state()}';
   final key = '$status|$visible|${api.stopped}|${api.conn}';
   if (!force && key == _last) return;
   _last = key;
-  await trayManager.setToolTip(status);
   await trayManager.setContextMenu(Menu(items: [
     MenuItem(key: 'status', label: status, disabled: true),
     MenuItem.separator(),
@@ -59,8 +62,9 @@ Future<void> _show() async { await windowManager.show(); await windowManager.foc
 Future<void> _hide() async { await windowManager.hide(); await _refresh(); }
 
 class _TrayEvents with TrayListener {
+  // Linux 的 AppIndicator 单击直接弹菜单，不会走到这里；其他桌面（macOS / Windows）单击弹出菜单
   @override
-  void onTrayIconMouseDown() => trayManager.popUpContextMenu();
+  void onTrayIconMouseDown() { if (!Platform.isLinux) trayManager.popUpContextMenu(); }
   @override
   void onTrayMenuItemClick(MenuItem item) async {
     switch (item.key) {
