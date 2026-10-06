@@ -53,6 +53,7 @@ async function download(e, to) {
   for (let hop = 0; hop < 8; hop++) {
     const r = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(600_000), headers: { "User-Agent": "quetzal-build" } });
     if (r.status >= 300 && r.status < 400 && r.headers.get("location")) {
+      await r.body?.cancel().catch(() => {}); // 跳转的响应体不读完就丢下，undici 会在连接结束时断言失败、整个进程退出（SourceForge 的多次跳转碰上过）
       const next = new URL(r.headers.get("location"), url);
       if (next.protocol !== "https:") throw new Error(`${e.key}：跳转到了非 https 地址 ${next}`);
       url = next.toString(); continue;
