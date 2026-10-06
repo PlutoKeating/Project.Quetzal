@@ -5,6 +5,9 @@
 //     开发时的其他源只能由环境变量 QUETZAL_DEV_ORIGINS 明确列出），并且发起连接的进程不是运行基座的子孙（agent 的命令都是）。
 //     注意：本机的其他进程并不都「本来就读得到」secrets/gateway.token——agent 的命令在沙箱里读不到它，安卓上别的应用也读不到；
 //     Origin 头是浏览器加的，命令行程序可以伪造，所以真正挡住 agent 的是子孙进程检查（/proc）与沙箱（浏览器配置目录在沙箱里是空的）。
+//     原生的桌面控制台（Linux，dart:io）不是浏览器，请求里没有 Origin：这时改为要求发起连接的 socket 属于运行基座同一个系统用户
+//     （读 /proc/net/tcp 的 uid 列），同样不能是运行基座的子孙。没有 Origin 的请求不可能来自别的网页（跨源 fetch 浏览器一定带 Origin，
+//     不带 Origin 的 no-cors 请求读不到响应），而别的系统用户的进程连 uid 这一关也过不去。
 //     安卓（Termux）上不提供：别的应用能连 127.0.0.1，而控制台 App 由安装器直接拿到令牌。
 import http from "node:http";
 import fs from "node:fs";
@@ -43,6 +46,16 @@ export function isLocalBrowser(req: Req, port: number): boolean {
   return !!origin && allowedOrigins(port).has(origin);
 }
 
+/** 请求是否来自同一台机器上、同一个系统用户的原生客户端（桌面控制台）：回环、Host 是本机名、没有 Origin、连接属于运行基座的用户。只在 Linux 上成立。 */
+export function isLocalNative(req: Req, serverPort: number, uid = process.getuid?.()): boolean {
+  if (process.platform !== "linux" || uid === undefined) return false;
+  if (!LOOPBACK.has(req.socket.remoteAddress ?? "")) return false;
+  if (!LOCAL_HOSTS.has(hostOf(req.headers.host))) return false;
+  if (req.headers.origin !== undefined) return false; // 带 Origin 的是浏览器：只按 isLocalBrowser 判断
+  const port = req.socket.remotePort;
+  return !!port && socketUid(port, serverPort) === uid;
+}
+
 /**
  * Host 头检查（防 DNS 重绑定：恶意网页把自己的域名解析到 127.0.0.1 后就能向网关发请求，但 Host 仍是它的域名）。
  * 回环连接：Host 必须是本机名。局域网连接（gateway.host 为 0.0.0.0 等）：Host 是 IP 字面量、本机名、配置的监听地址，
@@ -58,15 +71,26 @@ export function hostAllowed(req: Req, listen: string): boolean {
   return h === listen.toLowerCase() || extra.includes(h);
 }
 
-/** 读 /proc/net/tcp(6)：客户端一侧端口为 port、对端端口为 serverPort 的那条连接的 socket inode。 */
+/** 客户端一侧端口为 port、对端端口为 serverPort 的那条连接的所属用户（/proc/net/tcp 的 uid 列）。 */
+function socketUid(port: number, serverPort: number): number | undefined {
+  const row = socketRow(port, serverPort);
+  return row ? Number(row[7]) : undefined;
+}
+
+/** 客户端一侧端口为 port、对端端口为 serverPort 的那条连接的 socket inode。 */
 function socketInode(port: number, serverPort: number): string | undefined {
+  return socketRow(port, serverPort)?.[9];
+}
+
+/** 读 /proc/net/tcp(6) 里那条连接的一行（按空白切开的各列）。 */
+function socketRow(port: number, serverPort: number): string[] | undefined {
   const hex = (n: number) => n.toString(16).toUpperCase().padStart(4, "0");
   for (const f of ["/proc/net/tcp", "/proc/net/tcp6"]) {
     let text = "";
     try { text = fs.readFileSync(f, "utf8"); } catch { continue; }
     for (const line of text.split("\n").slice(1)) {
       const c = line.trim().split(/\s+/);
-      if (c.length > 9 && c[1].endsWith(`:${hex(port)}`) && c[2].endsWith(`:${hex(serverPort)}`)) return c[9];
+      if (c.length > 9 && c[1].endsWith(`:${hex(port)}`) && c[2].endsWith(`:${hex(serverPort)}`)) return c;
     }
   }
   return undefined;

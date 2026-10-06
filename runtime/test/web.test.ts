@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import net from "node:net";
-import { serveWeb, isLocalBrowser, hostAllowed, fromDescendant, webDir } from "../src/web.ts";
+import { serveWeb, isLocalBrowser, isLocalNative, hostAllowed, fromDescendant, webDir } from "../src/web.ts";
 import { spawn } from "node:child_process";
 
 function site() {
@@ -98,4 +98,25 @@ test("没有 index.html 就没有网页版", () => {
   process.env.QUETZAL_WEB_DIR = site();
   assert.ok(webDir());
   delete process.env.QUETZAL_WEB_DIR;
+});
+
+
+test("原生桌面控制台（没有 Origin）：同一个系统用户的本机连接放行；带 Origin、Host 不对、别的用户都不行", { skip: process.platform !== "linux" }, async () => {
+  const seen: http.IncomingMessage[] = [];
+  const srv = http.createServer((req, res) => { seen.push(req); res.end("ok"); });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+  const port = (srv.address() as { port: number }).port;
+  const get = (headers: Record<string, string> = {}) => new Promise<void>((r) => { http.get({ host: "127.0.0.1", port, path: "/", headers, agent: false }, (res) => { res.resume(); res.on("end", () => r()); }); });
+  // 判断要在连接还开着时做（/proc/net/tcp 里要有这条连接）：在请求处理里调用
+  const verdicts: boolean[] = [];
+  srv.removeAllListeners("request");
+  srv.on("request", (req, res) => { verdicts.push(isLocalNative(req, port)); res.end("ok"); });
+  await get();
+  await get({ origin: `http://127.0.0.1:${port}` });
+  await get({ host: "evil.example" });
+  srv.removeAllListeners("request");
+  srv.on("request", (req, res) => { verdicts.push(isLocalNative(req, port, 424242)); res.end("ok"); });
+  await get();
+  srv.close();
+  assert.deepEqual(verdicts, [true, false, false, false]);
 });

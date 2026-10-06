@@ -26,7 +26,7 @@ import { log } from "./log.ts";
 import { adapter } from "./body/twin.ts";
 import { hear, hearStream } from "./voice/hearing.ts";
 import { mediaFile } from "./voice/player.ts";
-import { webDir, isLocalBrowser, hostAllowed, fromDescendant, serveWeb } from "./web.ts";
+import { webDir, isLocalBrowser, isLocalNative, hostAllowed, fromDescendant, serveWeb } from "./web.ts";
 import { gatewayTls, PAIR_SALT, PAIR_ITER, PAIR_LEN as PROOF_LEN } from "./tls.ts";
 
 export function gatewayToken(): string {
@@ -110,7 +110,7 @@ export function startGateway(safeMode: boolean): GatewayHandle {
     bus.emit("notice", text);
   };
   // 本机登录只在：托管着网页控制台、不是安卓（别的应用也能连 127.0.0.1）时提供
-  const localLogin = () => !!web && !isAndroid && adapter.name !== "termux" && adapter.name !== "android";
+  const localLogin = () => !isAndroid && adapter.name !== "termux" && adapter.name !== "android";
 
   const web = webDir();
   if (web) log("gateway", `网页控制台：${web}`);
@@ -118,8 +118,10 @@ export function startGateway(safeMode: boolean): GatewayHandle {
     const secure = !!(req.socket as { encrypted?: boolean }).encrypted; // 来自 HTTPS 监听（局域网）
     // 同一台机器上的浏览器直接拿令牌（网页控制台打开即登录）；跨源时允许本机其他端口的页面读取（开发时 flutter run）。只在明文回环监听上
     if (req.method === "GET" && req.url === "/auth/local") {
-      if (secure || !localLogin() || !isLocalBrowser(req, port()) || fromDescendant(req, port())) return json(res, 403, { ok: false, message: "只有这台机器上打开的网页控制台可以直接登录；别的设备请用配对码" });
-      return json(res, 200, { ok: true, token }, { "access-control-allow-origin": String(req.headers.origin), vary: "Origin" }); // Origin 已核对在允许的集合里
+      // 浏览器（网关托管的网页控制台，带 Origin）或同一个系统用户的原生桌面控制台（没有 Origin，见 web.ts 的 isLocalNative）
+      const local = (!!web && isLocalBrowser(req, port())) || isLocalNative(req, port());
+      if (secure || !localLogin() || !local || fromDescendant(req, port())) return json(res, 403, { ok: false, message: "只有这台机器上的控制台可以直接登录；别的设备请用配对码" });
+      return json(res, 200, { ok: true, token }, req.headers.origin ? { "access-control-allow-origin": String(req.headers.origin), vary: "Origin" } : {}); // Origin 已核对在允许的集合里；原生客户端没有 Origin
     }
     // 配对前的信息：证书指纹（控制台显示给人核对，网页版据此计算配对证明）、身体名、版本
     if (req.method === "GET" && req.url === "/pair/info") {
