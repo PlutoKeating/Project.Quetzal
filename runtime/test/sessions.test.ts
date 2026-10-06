@@ -18,6 +18,7 @@ const { converse } = await import("../src/mind/brain.ts");
 
 // 模拟供应商：记录每次请求；回复慢一点，让两个会话真正重叠
 const seen: any[] = [];
+let script: ((j: any) => any) | undefined; // 设置时由它决定回复（choices[0]），否则回声
 const server = http.createServer((req, res) => {
   let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
     const j = JSON.parse(body); seen.push(j);
@@ -25,8 +26,9 @@ const server = http.createServer((req, res) => {
     const text = typeof user.content === "string" ? user.content : user.content.find((c: any) => c.type === "text").text;
     setTimeout(() => {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ choices: [{ message: { content: `收到：${text.match(/对你说：\n(.*)/)?.[1] ?? "?"}` } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
-    }, 300);
+      const choice = script?.(j) ?? { message: { content: `收到：${text.match(/对你说：\n(.*)/)?.[1] ?? "?"}` } };
+      res.end(JSON.stringify({ choices: [choice], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+    }, script ? 0 : 300);
   });
 });
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -172,6 +174,26 @@ test("图片只发给能看图的模型；没有时去掉图片并说明", async
   assert.equal(typeof seen[0].messages[0].content, "string");
   assert.match(seen[0].messages[0].content, /都不支持看图/);
   assert.equal(router.canSee({ provider: { catalogId: "x" } as any, model: { name: "gpt-4o-mini" } as any }), true);
+});
+
+test("模型某一步什么也没输出：提醒她再来，不留空回复", async () => {
+  provider([{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }]);
+  const tool = { finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "clock", arguments: "{}" } }] } };
+  const blank = { finish_reason: "length", message: { content: "" } };
+  // 先调一次工具，再空一步（输出长度用完），被提醒后回复
+  let n = 0;
+  script = (j) => { n++; return n === 1 ? tool : n === 2 ? blank : { finish_reason: "stop", message: { content: `总结好了：${j.messages.at(-1).content.includes("长度上限") ? "看到提醒" : "没看到"}` } }; };
+  seen.length = 0;
+  assert.equal(await converse("测试者", "空白测试一", "控制台", { conv: "blank-1" }), "总结好了：看到提醒");
+  assert.ok(!seen.at(-1).messages.some((m: any) => m.role === "assistant" && !m.content && !m.tool_calls), "空的一步不进上下文");
+  // 一直是空的：提醒两次后结束，回复说明没能把结果说出来
+  n = 0;
+  script = () => (++n === 1 ? tool : blank);
+  const r = await converse("测试者", "空白测试二", "控制台", { conv: "blank-2" });
+  assert.equal(n, 4);
+  assert.match(r, /做了 1 步，但最后没能把结果说出来/);
+  assert.equal(store.sessionMessages("blank-2").at(-1)!.text, r);
+  script = undefined;
   server.close();
 });
 

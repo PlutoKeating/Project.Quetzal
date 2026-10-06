@@ -42,7 +42,7 @@ src/
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，识别验证码页，按关键词覆盖率判断相关性并换引擎
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
 │   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（QUETZAL_HOME/vault）、工具输出与参数里的保密值替换（连同基座自己的密钥，见 secret-values.ts）
-│   └── brain.ts          醒来（内省 → 多具身体时选在哪里做 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess），session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
+│   └── brain.ts          醒来（内省 → 多具身体时选在哪里做 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess），session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；对话中模型空回的一步不算结束（提醒后重试最多两次，仍空则说明没能回复）；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
 ├── memory/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头
 │   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块

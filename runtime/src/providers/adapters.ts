@@ -92,7 +92,7 @@ async function openaiCompletions(t: Target, r: ChatRequest): Promise<ChatResult>
     : m.role === "tool" ? { role: "tool", tool_call_id: m.toolCallId, content: m.content }
     : m.role === "user" && m.images?.length ? { role: "user", content: [{ type: "text", text: m.content }, ...m.images.map((i) => ({ type: "image_url", image_url: { url: `data:${i.mime};base64,${i.data}` } }))] }
     : { role: m.role, content: m.content });
-  let text = ""; const usage = { input: 0, output: 0 };
+  let text = "", finish = ""; const usage = { input: 0, output: 0 };
   const calls: { id: string; name: string; args: string }[] = [];
   const j = await sse(`${base(t.baseUrl)}/chat/completions`, { authorization: `Bearer ${t.apiKey}`, ...t.headers }, {
     model: t.model, messages, max_tokens: r.maxTokens ?? t.maxTokens, temperature: r.temperature,
@@ -101,6 +101,7 @@ async function openaiCompletions(t: Target, r: ChatRequest): Promise<ChatResult>
   }, r, (c) => {
     if (c.error) throw streamError(c.error);
     if (c.usage) { usage.input = c.usage.prompt_tokens ?? 0; usage.output = c.usage.completion_tokens ?? 0; }
+    if (c.choices?.[0]?.finish_reason) finish = c.choices[0].finish_reason;
     const d = c.choices?.[0]?.delta;
     if (!d) return;
     if (d.content) { text += d.content; r.onText?.(d.content); }
@@ -116,10 +117,10 @@ async function openaiCompletions(t: Target, r: ChatRequest): Promise<ChatResult>
     return {
       text: msg.content ?? "", model: t.model,
       toolCalls: (msg.tool_calls ?? []).map((c: any) => ({ id: c.id || newId(), name: c.function.name, args: parseArgs(c.function.arguments) })),
-      usage: { input: j.usage?.prompt_tokens ?? 0, output: j.usage?.completion_tokens ?? 0 },
+      usage: { input: j.usage?.prompt_tokens ?? 0, output: j.usage?.completion_tokens ?? 0 }, truncated: j.choices?.[0]?.finish_reason === "length",
     };
   }
-  return { text, model: t.model, usage, toolCalls: calls.filter((c) => c?.name).map((c) => ({ id: c.id || newId(), name: c.name, args: parseArgs(c.args) })) };
+  return { text, model: t.model, usage, truncated: finish === "length", toolCalls: calls.filter((c) => c?.name).map((c) => ({ id: c.id || newId(), name: c.name, args: parseArgs(c.args) })) };
 }
 
 // ---------- OpenAI Responses
@@ -129,7 +130,7 @@ function parseResponses(j: any, t: Target): ChatResult {
     if (o.type === "message") for (const c of o.content ?? []) if (c.type === "output_text") text += c.text;
     if (o.type === "function_call") toolCalls.push({ id: o.call_id, name: o.name, args: parseArgs(o.arguments) });
   }
-  return { text, toolCalls, model: t.model, usage: { input: j.usage?.input_tokens ?? 0, output: j.usage?.output_tokens ?? 0 } };
+  return { text, toolCalls, model: t.model, usage: { input: j.usage?.input_tokens ?? 0, output: j.usage?.output_tokens ?? 0 }, truncated: j.status === "incomplete" };
 }
 async function openaiResponses(t: Target, r: ChatRequest): Promise<ChatResult> {
   const input: unknown[] = [];
@@ -178,7 +179,7 @@ async function anthropicMessages(t: Target, r: ChatRequest): Promise<ChatResult>
       if (m.role === "user") for (const i of m.images ?? []) push("user", { type: "image", source: { type: "base64", media_type: i.mime, data: i.data } });
     }
   }
-  const blocks: any[] = []; const usage = { input: 0, output: 0 };
+  const blocks: any[] = []; const usage = { input: 0, output: 0 }; let stop = "";
   const j = await sse(`${base(t.baseUrl)}/messages`, { "x-api-key": t.apiKey, "anthropic-version": "2023-06-01", ...t.headers }, {
     model: t.model, system: system || undefined, messages, max_tokens: r.maxTokens ?? t.maxTokens, temperature: r.temperature, stream: true,
     ...(r.tools?.length ? { tools: r.tools.map((f) => ({ name: f.name, description: f.description, input_schema: f.parameters })) } : {}),
@@ -190,7 +191,7 @@ async function anthropicMessages(t: Target, r: ChatRequest): Promise<ChatResult>
       const b = (blocks[c.index] ??= { type: c.delta?.type === "input_json_delta" ? "tool_use" : "text", text: "", json: "" });
       if (c.delta?.type === "text_delta") { b.text = (b.text ?? "") + c.delta.text; r.onText?.(c.delta.text); }
       else if (c.delta?.type === "input_json_delta") b.json += c.delta.partial_json ?? "";
-    } else if (type === "message_delta") usage.output = c.usage?.output_tokens ?? usage.output;
+    } else if (type === "message_delta") { usage.output = c.usage?.output_tokens ?? usage.output; stop = c.delta?.stop_reason ?? stop; }
     else if (type === "error") throw streamError(c.error ?? c);
   });
   const content = j ? j.content ?? [] : blocks.filter(Boolean).map((b) => b.type === "tool_use" ? { ...b, input: b.json ? parseArgs(b.json) : b.input ?? {} } : b);
@@ -199,7 +200,7 @@ async function anthropicMessages(t: Target, r: ChatRequest): Promise<ChatResult>
     if (b.type === "text") text += b.text ?? "";
     if (b.type === "tool_use") toolCalls.push({ id: b.id, name: b.name, args: b.input ?? {} });
   }
-  return { text, toolCalls, model: t.model, usage: j ? { input: j.usage?.input_tokens ?? 0, output: j.usage?.output_tokens ?? 0 } : usage };
+  return { text, toolCalls, model: t.model, usage: j ? { input: j.usage?.input_tokens ?? 0, output: j.usage?.output_tokens ?? 0 } : usage, truncated: (j ? j.stop_reason : stop) === "max_tokens" };
 }
 
 // ---------- Google Generative AI（Gemini）
@@ -227,13 +228,14 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
       if (m.role === "user") for (const i of m.images ?? []) push("user", { inlineData: { mimeType: i.mime, data: i.data } });
     }
   }
-  let text = ""; const toolCalls: ToolCall[] = []; const usage = { input: 0, output: 0 };
+  let text = "", finish = ""; const toolCalls: ToolCall[] = []; const usage = { input: 0, output: 0 };
   const onChunk = (c: any, live: boolean) => {
     if (c.error) throw streamError(c.error);
     for (const p of c.candidates?.[0]?.content?.parts ?? []) {
       if (p.text && !p.thought) { text += p.text; if (live) r.onText?.(p.text); }
       if (p.functionCall) toolCalls.push({ id: newId(), name: p.functionCall.name, args: p.functionCall.args ?? {} });
     }
+    if (c.candidates?.[0]?.finishReason) finish = c.candidates[0].finishReason;
     if (c.usageMetadata) { usage.input = c.usageMetadata.promptTokenCount ?? 0; usage.output = c.usageMetadata.candidatesTokenCount ?? 0; }
   };
   const j = await sse(`${base(t.baseUrl)}/models/${t.model}:streamGenerateContent?alt=sse`, { "x-goog-api-key": t.apiKey, ...t.headers }, {
@@ -242,7 +244,7 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
     ...(r.tools?.length ? { tools: [{ functionDeclarations: r.tools.map((f) => ({ ...f, parameters: geminiSchema(f.parameters) })) }] } : {}),
   }, r, (c) => onChunk(c, true));
   if (j) for (const c of Array.isArray(j) ? j : [j]) onChunk(c, false);
-  return { text, toolCalls, model: t.model, usage };
+  return { text, toolCalls, model: t.model, usage, truncated: finish === "MAX_TOKENS" };
 }
 
 export const adapters: Record<Protocol, (t: Target, r: ChatRequest) => Promise<ChatResult>> = {

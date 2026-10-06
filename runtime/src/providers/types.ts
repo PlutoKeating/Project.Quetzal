@@ -29,7 +29,7 @@ export interface ChatRequest {
   onChunk?: () => void; // 收到任何流数据块（用于重置会话时间墙）
   onText?: (text: string) => void; // 流式文字片段
 }
-export interface ChatResult { text: string; toolCalls: ToolCall[]; usage: { input: number; output: number }; model: string }
+export interface ChatResult { text: string; toolCalls: ToolCall[]; usage: { input: number; output: number }; model: string; truncated?: boolean } // truncated：输出到了长度上限（max_tokens）被截断
 
 export class ProviderError extends Error {
   status: number; immediate: boolean;

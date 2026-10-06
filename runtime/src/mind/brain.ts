@@ -60,10 +60,14 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
  * 基座不限制步数；防止失控的是「无进展」会话时间墙与急停（每一步开始前检查）。返回最终文本、finish 参数、步骤与 token 消耗。
  * 对方在她工作时发来的消息：每次调用模型前并入；「打断」会中止正在进行的模型输出（保留已输出的部分），但不会打断正在执行的工具。
  */
+/** 模型某一步什么也没输出时的提醒（基座的话，不是对方说的）。 */
+const BLANK = "（基座提醒，不是对方说的话：你上一步什么也没有输出——没有调用工具，也没有文字。还要做事就接着调用工具；做完了就用文字回复对方：做了什么、发现了什么、结论或下一步。）";
+const BLANK_TRUNCATED = "（基座提醒，不是对方说的话：你上一步的输出到了长度上限，没有留下任何给对方的文字。不要再长篇思考，直接用文字回复对方：做了什么、发现了什么、结论或下一步。）";
+
 async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>) {
   const tools: ToolDef[] = [...allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
   const steps: Step[] = [];
-  let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "";
+  let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "", blanks = 0;
   for (let i = 0; !finish; i++) {
     s.check(); s.touch();
     if (stopped()) throw new Error("急停中，已停下");
@@ -85,8 +89,16 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
     } finally { s.endLLM(); }
     s.flush();
     r.text = stripStamp(r.text);
-    s.emit({ kind: "text", step: i + 1, text: r.text, final: !r.toolCalls.length });
     tokens += r.usage.input + r.usage.output; model = r.model;
+    // 一步什么也没给（没有工具调用、也没有文字）：多半是输出长度用完在思考上，或供应商回了空。对话里这不能算结束——
+    // 不把空的一步放进上下文，提醒她一句再来，最多两次；仍然是空的才结束（converse 会说明这一轮没有回复）
+    if (!withFinish && !r.toolCalls.length && !r.text.trim() && !s.inbox.length && blanks < 2) {
+      blanks++;
+      log("brain", `第 ${i + 1} 步模型没有输出${r.truncated ? "（到了输出长度上限）" : ""}，提醒后重试（${blanks}/2）`);
+      messages.push({ role: "user", content: r.truncated ? BLANK_TRUNCATED : BLANK });
+      continue;
+    }
+    s.emit({ kind: "text", step: i + 1, text: r.text, final: !r.toolCalls.length });
     text = r.text || text;
     messages.push({ role: "assistant", content: r.text, toolCalls: r.toolCalls });
     if (!r.toolCalls.length) {
@@ -412,7 +424,8 @@ export function converse(from: string, text: string, channel: string, o: Convers
         addExperience(1);
         return "";
       }
-      const reply = r.text.trim() || "……";
+      // 提醒过仍没有一句话：说明这一轮没有回复，而不是留一个看不懂的空回复
+      const reply = r.text.trim() || (r.steps.length ? `（我做了 ${r.steps.length} 步，但最后没能把结果说出来。你可以问我一句「结果呢」。）` : "（模型连着几次什么也没输出，我没能回复。你可以再说一次。）");
       const home = s.switchTo ?? conv; // session_new：回复放进新会话
       addMessage("agent", channel, reply, { session: home, process });
       s.emit({ kind: "done", reply });
