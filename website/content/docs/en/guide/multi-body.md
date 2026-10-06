@@ -29,7 +29,7 @@ Every console shows which body is talking with you right now; what you say to th
 
 1. The sync service defaults to the one operated by this project, `https://sync.quetzal.plutokeating.beer`; nothing to enter. If you host your own, enter its address under **Sync service** in **Control → Advanced → Sync** and save (clear it to go back to the official one).
 2. Tap **Sign in with GitHub**; the app opens the browser for you (the page also shows an 8-character code and a link, so you can scan it on another device). The Android setup wizard has this step too.
-3. In the browser (the site's [Account → Approve a device](/account/device)), sign in with GitHub, enter or confirm the code, **check that the key fingerprint on the web page matches the one in the console**, and approve.
+3. In the browser (the site's [Account → Add a device](/account/device)), sign in with GitHub, enter or confirm the code, **check that the key fingerprint on the web page matches the one in the console**, and approve.
 4. Within seconds the body connects to the sync service; other bound bodies that are online connect to it directly (LAN, IPv6, NAT traversal, or relayed through the server when nothing else works — relayed traffic is end-to-end encrypted too).
 
 All bodies of one agent must be signed in to **the same GitHub account** to see each other. To disconnect this body, tap **Sign out this device**.
@@ -58,16 +58,16 @@ If the bodies cannot reach each other (offline, sync service down), each keeps r
 
 ## Account
 
-Everything about the account lives on the site's [Account](/account) page (a set of console-like sub-pages); sign in with GitHub:
+Everything about the account lives on the site's [Account](/account) page; sign in with GitHub. In the app, the account row at the top of **Control → Devices** opens the same **Account** page:
 
 | Sub-page | What it does |
 |---|---|
-| Overview | Every agent in the account and each of its bodies: online or not, kind, version, key fingerprint; unbind a body, delete an agent |
-| Approve a device | Enter the code a body shows while binding, check it and approve or deny |
-| Console sign-ins | Which apps can manage this account; revoke unused ones at any time |
-| Settings | Sign out (of this browser, or "Sign out everywhere" for every browser at once), delete the account |
+| Overview | Every agent in the account and each of its devices: online or not, kind, version; remove a device, delete an agent |
+| Add a device | Enter the code a new device shows, check it and approve or deny |
+| Signed in | Which apps can manage this account; sign out unused ones at any time |
+| Settings | Sign out (of this browser, or of every browser at once), delete the account |
 
-In the app (Android and Linux desktop), tap the account row at the top of **Control → Devices** to open the **Account** page, with the same four pages under shorter names: **Overview** (remove a body, delete an agent), **Add device** (= Approve a device), **Signed in** (= Console sign-ins; tap **Sign out** on ones you no longer use) and **Settings**. Once this body is signed in, tap **Sign in** on the Account page; the app shows a code, which you approve under Approve a device on the site (the page says this is a console sign-in: once approved the app can manage the whole account; it also lists the requesting body's key fingerprint, when that body signed in and when the code was created. Approve only if the fingerprint matches the one the app on that device shows under Devices and the code is the one you just created). Only bodies already bound to your account can start a console sign-in, so tricking you into approving does not hand anyone your account.
+**One sign-in**: once you sign a device in with GitHub and approve it, the app on that device can manage the account too, with no second approval (that sign-in goes away when the device is removed, and you can sign it out under Signed in). Only with an older sync service does the Account page ask you to tap **Sign in** once more.
 
 ## Security
 

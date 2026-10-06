@@ -1,4 +1,4 @@
-// 账户区的共用外壳：像控制台一样的子页面集合（概览 · 批准设备 · 控制台登录 · 账户设置）。
+// 账户区的共用外壳：像控制台一样的子页面集合（概览 · 添加设备 · 已登录 · 设置）。
 // 页面预渲染时只有外壳；水合后向同步服务读取登录状态，没登录就显示登录卡片（登录后回到当前地址）。
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
