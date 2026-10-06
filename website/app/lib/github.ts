@@ -86,11 +86,12 @@ interface RawRelease {
   assets: RawAsset[];
 }
 
-/** 把 API 原始数据整理为页面模型：过滤草稿，按发布时间倒序。纯函数。 */
+/** 把 API 原始数据整理为页面模型：过滤草稿与非版本标签的发布，按发布时间倒序。纯函数。 */
 export function normalizeReleases(raw: unknown): Release[] {
   if (!Array.isArray(raw)) return [];
   return (raw as RawRelease[])
-    .filter((r) => r && !r.draft && typeof r.tag_name === "string")
+    // 只要正式的版本标签 v<版本>：android-runtime-<配方哈希> 之类的预发布只供发版流程取用，不给人下载
+    .filter((r) => r && !r.draft && typeof r.tag_name === "string" && /^v\d/.test(r.tag_name))
     .map((r) => ({
       tag: r.tag_name,
       version: versionOf(r.tag_name),

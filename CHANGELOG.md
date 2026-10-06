@@ -11,14 +11,7 @@
 - **登录与灵魂仓库共用一个 GitHub App**：只对你选中的灵魂仓库有管理权限。
 - 灵魂桥的自检新增「访问方式」：发现借用了本机个人 SSH 密钥的主机别名时提醒重新 `connect`，换成专属的部署密钥。
 
-**One link to join: no more hunting through GitHub.**
-
-- **One link to join**: Hermes, OpenClaw (soul-bridge `connect`) and newly installed phones and computers give you a single link plus a 3-emoji check when they join. Open it, compare, tap Approve; the tab hops through GitHub and comes back while the sync service adds this body's own deploy key to the soul repository (only this key, only that repository, and the GitHub token is revoked right after), then the body clones, syncs and is ready. No tokens, no copying keys, no GitHub settings pages.
-- **Pick the agent for a new device**: when a freshly installed body does not know whom it belongs to, the approval page lets you choose (or create) one; a returning user's new device no longer creates an extra agent.
-- **Sign-in and the soul repository share one GitHub App**, with admin rights only on the soul repositories you select.
-- soul-bridge's doctor gains an "access method" check: if the repository is reached through a personal SSH host alias, it asks you to `connect` again and switch to its own deploy key.
-
-## 1.1.0
+（1.1.0 的发版构建卡在 CI 上、没有发布，它的内容都在这个版本里：）
 
 **只装一个 App；更懂你的官网。**
 
@@ -37,6 +30,15 @@
 - **命令沙箱**：Linux 上依次用 bubblewrap → Landlock（landrun）→ proot。Ubuntu 23.10 起 AppArmor 默认限制非特权用户命名空间，安装脚本会给 Quetzal 装一份专用的 bubblewrap 与只属于它的 AppArmor 配置（沙箱里启动的程序拿不到任何能力），不改系统的 bubblewrap、不关这项保护。每种沙箱第一次使用前都用探针文件验证密钥确实看不到。
 - **没有沙箱就不执行**：一种沙箱都没有时，ta 的命令缺省一律不执行（以前是不隔离照常执行）；确实需要时可以在控制台「服务」页明确允许不隔离运行。
 - 新增发布资产 `quetzal-<版本>-landrun-linux-<x64|arm64>.tar.gz`（第三方 landrun，MIT，附许可证），纳入签名的 `SHA256SUMS`。
+
+**One link to join: no more hunting through GitHub.**
+
+- **One link to join**: Hermes, OpenClaw (soul-bridge `connect`) and newly installed phones and computers give you a single link plus a 3-emoji check when they join. Open it, compare, tap Approve; the tab hops through GitHub and comes back while the sync service adds this body's own deploy key to the soul repository (only this key, only that repository, and the GitHub token is revoked right after), then the body clones, syncs and is ready. No tokens, no copying keys, no GitHub settings pages.
+- **Pick the agent for a new device**: when a freshly installed body does not know whom it belongs to, the approval page lets you choose (or create) one; a returning user's new device no longer creates an extra agent.
+- **Sign-in and the soul repository share one GitHub App**, with admin rights only on the soul repositories you select.
+- soul-bridge's doctor gains an "access method" check: if the repository is reached through a personal SSH host alias, it asks you to `connect` again and switch to its own deploy key.
+
+(The 1.1.0 release build stalled in CI and was never published; everything in it is part of this version:)
 
 **Just one app; a website about being understood.**
 
