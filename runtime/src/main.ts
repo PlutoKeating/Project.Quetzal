@@ -53,9 +53,9 @@ async function main() {
   bus.on("say", (text) => { ensureSession("inbox", "主动消息", "主动"); addMessage("agent", "主动", text, { session: "inbox" }); void adapter.notify?.(displayName(), text).catch(() => {}); });
   // 提醒：答应了对方的事必须准点——不经模型，到点直接把她写好的话发出去（主动消息：控制台、飞书、系统通知），再轻轻告诉她。
   //   安全模式下也照常（不需要模型）；多具身体时只有持心跳的那具身体触发。
-  startReminders(async (r, late) => {
-    const tail = late > 120_000 ? `（原定 ${when(r.at, r.tz)}，晚了 ${Math.round(late / 60_000)} 分钟）` : "";
-    bus.emit("say", `${r.text}${tail}`);
+  startReminders(async (r, late, why) => {
+    const tail = late > 120_000 ? `（原定 ${when(r.at + (r.span ?? 0), r.tz)}，晚了 ${Math.round(late / 60_000)} 分钟）` : why ? `（${why}）` : "";
+    bus.emit("say", `${r.text}${r.step ? `——先做：${r.step}` : ""}${tail}`);
     addTimeline("reminder", `到点提醒了对方：${r.text}`, { id: r.id, late });
     nudge(`到点提醒了对方：${r.text}`, { social: 0.05 });
   }, () => !isFollower(), 30_000);

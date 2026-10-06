@@ -123,12 +123,15 @@ const core: Tool[] = [
     name: "reminder", permission: "message",
     description: "提醒与日程：对方让你「到时候提醒我」时用它。到点由基座准时把 text 发给对方（系统通知、飞书、控制台的主动消息），不管你那时醒着还是睡着，也会告诉你。" +
       "action=add：text 是到时直接发给对方的话，用你自己的口吻写好（如「该吃药啦，饭后那片」）；时间三选一或组合——at 当地时刻（如 2026-10-08T08:00，先按系统提示里的日历把「明早」「下周三」换算成日期）、in 多久之后（30m、2h、1d、1h30m）、cron 重复规则（5 段：分 时 日 月 星期，如每周一 9:00「0 9 * * 1」、每个工作日 7:30「30 7 * * 1-5」、每月 1 号 10:00「0 10 1 * *」），重复的可加 until 截止。返回规范化的时间与接下来几次，请核对后告诉对方。" +
-      "action=list：列出所有提醒。action=cancel：按 id 取消。action=update：按 id 改 text / at / in / cron / until（cron 给空字符串改成一次性）。",
+      "不急、不必卡点的事（「这两天找个时间提醒我还书」）用软提醒：再给 window（时间窗长度，如 2d、6h），窗口从 at / in 开始；窗里等对方在身边的时刻（拿起手机、亮屏、接上电源、刚找过你）再提醒，并说明为什么是现在，夜里不打扰，到窗口最后一刻还没遇到就照常发出。" +
+      "可选 step：一句很小、半分钟就能做的下一步（「先把书放到门口」），会附在提醒后面。" +
+      "action=list：列出所有提醒。action=cancel：按 id 取消。action=snooze：对方说「晚点」时按 id 推迟（in 或 at）。action=update：按 id 改 text / at / in / cron / until / window / step（cron 给空字符串改成一次性，window 给空字符串改成准点）。",
     parameters: obj({
-      action: { type: "string", enum: ["add", "list", "cancel", "update"] },
+      action: { type: "string", enum: ["add", "list", "cancel", "snooze", "update"] },
       id: str("cancel / update 用：提醒的编号"), text: str("到时发给对方的话"),
       at: str("当地时刻，如 2026-10-08T08:00"), in: str("多久之后，如 30m、2h、1d"),
       cron: str("重复规则（5 段 cron）"), until: str("重复到何时为止（当地日期或时刻）"),
+      window: str("软提醒的时间窗长度，如 2d、6h（不给就是准点提醒）"), step: str("一句很小的下一步（可选）"),
     }, ["action"]),
     handler: async (a, ctx) => reminderTool(a, ctx.session?.conv),
   },
@@ -574,7 +577,7 @@ function timeRange(from: unknown, to: unknown): { from?: number; to?: number; la
 
 function reminderTool(a: Record<string, any>, conv?: string): string {
   const tz = config.timezone, now = Date.now();
-  const line = (r: reminders.Reminder) => `[${r.id}] ${reminders.describe(r)}：${r.text}`;
+  const line = (r: reminders.Reminder) => `[${r.id}] ${reminders.describe(r)}：${r.text}${r.step ? `（先做：${r.step}）` : ""}`;
   const timeOf = (): number | string | undefined => {
     if (typeof a.at === "string" && a.at.trim()) { const v = parseLocal(a.at, tz); return v ?? `at 的写法不对：「${a.at}」。用当地时刻，如 2026-10-08T08:00`; }
     if (typeof a.in === "string" && a.in.trim()) { const d = parseDuration(a.in); return d !== undefined ? now + d : `in 的写法不对：「${a.in}」。用 30m、2h、1d、1h30m 这样的写法`; }
@@ -593,17 +596,26 @@ function reminderTool(a: Record<string, any>, conv?: string): string {
     const at = timeOf(), until = untilOf();
     if (typeof at === "string") return at;
     if (typeof until === "string") return until;
+    const span = typeof a.window === "string" && a.window.trim() ? parseDuration(a.window) : undefined;
+    if (typeof a.window === "string" && a.window.trim() && span === undefined) return `window 的写法不对：「${a.window}」。用 2d、6h 这样的写法`;
+    if (a.action === "snooze") {
+      if (at === undefined) return "推迟到什么时候：给 in（如 2h）或 at（当地时刻）";
+      const r = reminders.snooze(String(a.id ?? ""), at);
+      return `已推迟 ${line(r)}`;
+    }
     if (a.action === "update") {
       const r = reminders.update(String(a.id ?? ""), {
         text: typeof a.text === "string" ? a.text : undefined, at,
         cron: typeof a.cron === "string" ? (a.cron.trim() ? a.cron : null) : undefined, until,
+        span: typeof a.window === "string" ? (a.window.trim() ? span : null) : undefined,
+        step: typeof a.step === "string" ? a.step : undefined,
       });
       return `已改好 ${line(r)}`;
     }
-    if (a.action !== "add") return "action 只能是 add / list / cancel / update";
+    if (a.action !== "add") return "action 只能是 add / list / cancel / snooze / update";
     const cron = typeof a.cron === "string" && a.cron.trim() ? a.cron : undefined;
-    if (at === undefined && !cron) return "没有给时间：用 at（当地时刻）、in（多久之后）或 cron（重复规则）";
-    const r = reminders.add({ text: String(a.text ?? ""), at, cron, until, conv, by: "agent" }, now);
+    if (at === undefined && !cron && !span) return "没有给时间：用 at（当地时刻）、in（多久之后）、cron（重复规则），不急的事可以只给 window";
+    const r = reminders.add({ text: String(a.text ?? ""), at: at ?? (span ? now : undefined), cron, until, span, step: typeof a.step === "string" ? a.step : undefined, conv, by: "agent" }, now);
     const next = reminders.upcoming(r, 3).map((t) => reminders.when(t, tz));
     return `已设好 [${r.id}] ${reminders.describe(r)}：${r.text}${r.cron ? `\n接下来：${next.join("、")}` : ""}\n（请核对时间是否就是对方说的，不对就用 update 改）`;
   } catch (e) { return `没有设好：${(e as Error).message}`; }

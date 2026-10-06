@@ -6,6 +6,9 @@
 //   触发：只有此刻持有心跳的那具身体负责（其他身体是跟随者，不触发），到点交给 onDue（main 里：不经模型，直接把提醒发给对方，再告诉她）。
 //         设备关机、休眠错过的：12 小时内的照常提醒（说明晚了多久）；重复的只补最近错过的一次；更早的记为错过。
 //         网络分区时两边各有一个持心跳的身体，同一条可能各响一次（至少一次，不保证恰好一次）。
+//   软提醒（soft）：不急的事给一个时间窗 [at, at + span)。窗里不定时，等「对方此刻在身边」的时刻——这具身体亮屏、被拿起、接上电源，
+//         或对方刚发来消息——再提醒，并说明为什么是现在；夜里（22:00–08:00）不因这些信号打扰。到窗口的最后一刻还没遇到，就照常准点发出。
+//         思路来自独立项目「等合适时机提醒」的做法：有信号才说为什么是现在，没有信号不编理由；下一步要小（step）。
 import crypto from "node:crypto";
 import { config } from "../config.ts";
 import { kv } from "../store.ts";
@@ -18,7 +21,15 @@ export interface Reminder {
   id: string; text: string; at: number; cron?: string; until?: number; tz: string; // at：下一次的时刻；cron：重复规则（没有就是一次性）；until：重复到何时为止
   created: number; updated: number; deleted?: boolean; done?: boolean; fired?: number;
   conv?: string; by: string; // 在哪个会话里答应的；谁设的（agent / 控制台）
+  span?: number; // 软提醒的时间窗长度（毫秒）：窗口是 [at, at + span)
+  step?: string; // 一句很小的下一步（「先把药盒放到桌上」），发出时附在后面
 }
+
+/** 软提醒的窗口最后一刻（准点提醒就是 at）。 */
+export const deadline = (r: Pick<Reminder, "at" | "span">) => r.at + (r.span ?? 0);
+/** 夜里不因为「在身边」的信号打扰（只对软提醒；窗口最后一刻照常）。 */
+const QUIET = { from: 22, to: 8 };
+export const quiet = (ts: number, tz: string) => { const h = parts(ts, tz).h; return h >= QUIET.from || h < QUIET.to; };
 
 const KEY = "reminders";
 const LATE_MS = 12 * 3_600_000; // 错过多久以内照常提醒
@@ -59,9 +70,11 @@ export function upcoming(r: Pick<Reminder, "at" | "cron" | "until" | "tz">, n = 
   return out;
 }
 
-/** 新建一条。at：一次性的时刻（毫秒）；cron：重复规则（这时 at 是从何时起算，省略为现在）；until：重复到何时为止。 */
-export function add(o: { text: string; at?: number; cron?: string; until?: number; conv?: string; by: string; tz?: string }, now = Date.now()): Reminder {
+/** 新建一条。at：一次性的时刻（毫秒；软提醒是窗口开始）；cron：重复规则（这时 at 是从何时起算，省略为现在）；until：重复到何时为止；span：软提醒的窗口长度。 */
+export function add(o: { text: string; at?: number; cron?: string; until?: number; span?: number; step?: string; conv?: string; by: string; tz?: string }, now = Date.now()): Reminder {
   const text = String(o.text ?? "").trim().slice(0, 500);
+  const span = typeof o.span === "number" && Number.isFinite(o.span) && o.span > 0 ? Math.min(o.span, 90 * 86_400_000) : undefined;
+  const step = typeof o.step === "string" && o.step.trim() ? o.step.trim().slice(0, 200) : undefined;
   if (!text) throw new Error("提醒的内容是空的");
   const tz = o.tz && validZone(o.tz) ? o.tz : config.timezone;
   const cron = o.cron ? String(o.cron).trim().replace(/\s+/g, " ") : undefined;
@@ -74,9 +87,9 @@ export function add(o: { text: string; at?: number; cron?: string; until?: numbe
     at = first;
   } else at = Number(o.at);
   if (!Number.isFinite(at)) throw new Error("没有给出提醒的时间");
-  if (!cron && at <= now - 60_000) throw new Error("这个时间已经过去了");
+  if (!cron && at + (span ?? 0) <= now - 60_000) throw new Error("这个时间已经过去了");
   if (active().length >= MAX) throw new Error(`提醒太多了（最多 ${MAX} 条），先删掉一些`);
-  const r: Reminder = { id: crypto.randomBytes(4).toString("hex"), text, at, ...(cron ? { cron } : {}), ...(until !== undefined ? { until } : {}), tz, created: now, updated: now, conv: o.conv, by: o.by };
+  const r: Reminder = { id: crypto.randomBytes(4).toString("hex"), text, at, ...(cron ? { cron } : {}), ...(until !== undefined ? { until } : {}), ...(span ? { span } : {}), ...(step ? { step } : {}), tz, created: now, updated: now, conv: o.conv, by: o.by };
   save([...all(), r]);
   log("reminders", `新提醒 ${r.id}：${describe(r)}`);
   return r;
@@ -93,18 +106,20 @@ export function cancel(id: string, now = Date.now()): Reminder {
 }
 
 /** 改时间、内容或重复规则（cron 为 null 时改成一次性）。 */
-export function update(id: string, patch: { text?: string; at?: number; cron?: string | null; until?: number | null }, now = Date.now()): Reminder {
+export function update(id: string, patch: { text?: string; at?: number; cron?: string | null; until?: number | null; span?: number | null; step?: string | null }, now = Date.now()): Reminder {
   const list = all();
   const hits = list.filter((x) => !x.deleted && !x.done && x.id.startsWith(String(id ?? "").trim()));
   if (!id || hits.length !== 1) throw new Error(hits.length ? "有好几条对得上，给完整的编号" : "没有这条提醒");
   const r = hits[0];
   if (typeof patch.text === "string" && patch.text.trim()) r.text = patch.text.trim().slice(0, 500);
+  if (patch.span === null) delete r.span; else if (typeof patch.span === "number" && patch.span > 0) r.span = Math.min(patch.span, 90 * 86_400_000);
+  if (patch.step === null || patch.step === "") delete r.step; else if (typeof patch.step === "string") r.step = patch.step.trim().slice(0, 200);
   if (patch.until === null) delete r.until; else if (typeof patch.until === "number" && Number.isFinite(patch.until)) r.until = patch.until;
   if (patch.cron === null) delete r.cron;
   else if (typeof patch.cron === "string") { cronOf(patch.cron, r.tz); r.cron = patch.cron.trim().replace(/\s+/g, " "); }
   if (typeof patch.at === "number" && Number.isFinite(patch.at)) r.at = r.cron ? (nextOf(r, patch.at - 1) ?? patch.at) : patch.at;
   else if (typeof patch.cron === "string" || typeof patch.until === "number") { const t = nextOf(r, now); if (t === undefined) throw new Error("按这个规则，截止之前不会再响了"); r.at = t; }
-  if (!r.cron && r.at <= now - 60_000) throw new Error("这个时间已经过去了");
+  if (!r.cron && deadline(r) <= now - 60_000) throw new Error("这个时间已经过去了");
   r.updated = now;
   save(list);
   return r;
@@ -133,13 +148,14 @@ export function cronText(expr: string): string {
 }
 
 /** 给人看的一句话：「10月8日（周四）08:00」或「每周一 09:00（下一次 10月12日（周一）09:00）」。 */
-export function describe(r: Pick<Reminder, "at" | "cron" | "until" | "tz">): string {
-  if (!r.cron) return when(r.at, r.tz);
-  return `${cronText(r.cron)}（下一次 ${when(r.at, r.tz)}${r.until !== undefined ? `，到 ${when(r.until, r.tz)} 为止` : ""}）`;
+export function describe(r: Pick<Reminder, "at" | "cron" | "until" | "tz" | "span">): string {
+  const win = r.span ? `${when(r.at, r.tz)} 至 ${when(r.at + r.span, r.tz)} 之间挑你在身边的时候` : when(r.at, r.tz);
+  if (!r.cron) return win;
+  return `${cronText(r.cron)}（下一次 ${win}${r.until !== undefined ? `，到 ${when(r.until, r.tz)} 为止` : ""}）`;
 }
 
 // ---------- 触发
-export type DueHandler = (r: Reminder, lateMs: number) => Promise<void>;
+export type DueHandler = (r: Reminder, lateMs: number, why?: string) => Promise<void>; // why：软提醒为什么是现在（没有信号就不写）
 let onDue: DueHandler | undefined;
 let timer: NodeJS.Timeout | undefined;
 let canFire: () => boolean = () => true;
@@ -149,6 +165,14 @@ let canFire: () => boolean = () => true;
 export function startReminders(h: DueHandler, may: () => boolean, delayMs = 0) {
   canFire = may;
   bus.on("state", () => arm()); // 换了协调者、急停解除……都重新看一眼
+  // 软提醒的时机：这具身体被拿起、亮屏、接上电源；对方发来消息（一分钟后，免得打断正在进行的对话）
+  const SENSE: Record<string, string> = { moved: "你这会儿在身边", screen_on: "你这会儿在身边", plugged: "你这会儿在身边" };
+  bus.on("sense", (kind) => { if (SENSE[kind]) void onSignal(SENSE[kind]); });
+  const talked = (e: { table: string; rows: any[] }) => {
+    if (e.table === "messages" && e.rows.some((m) => m?.role === "user")) setTimeout(() => void onSignal("趁你刚找过我"), 60_000).unref?.();
+  };
+  bus.on("replica", talked); // 在这具身体上说的
+  bus.on("replica.applied", talked); // 在别的身体上说的（持心跳的这具身体负责提醒）
   const go = () => { onDue = h; arm(); };
   if (delayMs > 0) setTimeout(go, delayMs).unref?.(); else go();
 }
@@ -157,9 +181,10 @@ export function startReminders(h: DueHandler, may: () => boolean, delayMs = 0) {
 function arm() {
   clearTimeout(timer);
   if (!onDue) return;
-  const next = active()[0];
-  if (!next) return;
-  const wait = Math.max(0, Math.min(next.at - Date.now(), 3_600_000));
+  const list = active();
+  if (!list.length) return;
+  const due = Math.min(...list.map(deadline)); // 软提醒在窗口里等信号，定时器只管窗口的最后一刻
+  const wait = Math.max(0, Math.min(due - Date.now(), 3_600_000));
   timer = setTimeout(tick, wait);
   timer.unref?.();
 }
@@ -170,8 +195,8 @@ async function tick(now = Date.now()) {
   ticking = true;
   try {
     if (!canFire()) return;
-    for (const r of active().filter((x) => x.at <= now)) {
-      const late = now - r.at;
+    for (const r of active().filter((x) => deadline(x) <= now)) {
+      const late = now - deadline(r);
       const list = all(), cur = list.find((x) => x.id === r.id)!;
       // 先改状态再提醒：提醒过程中出错也不会重复
       cur.fired = now; cur.updated = now;
@@ -183,9 +208,33 @@ async function tick(now = Date.now()) {
         bus.emit("reminders.missed", { id: r.id, text: r.text, at: r.at }, late);
         continue;
       }
-      try { await onDue!(r, late); } catch (e) { log("reminders", `提醒 ${r.id} 出错：${(e as Error).message}`); }
+      try { await onDue!(r, late, r.span ? "说好的最晚就是现在" : undefined); } catch (e) { log("reminders", `提醒 ${r.id} 出错：${(e as Error).message}`); }
     }
   } finally { ticking = false; arm(); }
+}
+
+/** 「对方此刻在身边」的信号：窗口已开、不在夜里的软提醒，现在就提醒（说明为什么）。 */
+export async function onSignal(why: string, now = Date.now()) {
+  if (!onDue || ticking || !canFire()) return;
+  const due = active().filter((r) => r.span && r.at <= now && now < deadline(r) && !quiet(now, r.tz));
+  if (!due.length) return;
+  ticking = true;
+  try {
+    for (const r of due) {
+      const list = all(), cur = list.find((x) => x.id === r.id)!;
+      cur.fired = now; cur.updated = now;
+      const next = cur.cron ? nextOf(cur, now) : undefined;
+      if (next !== undefined) cur.at = next; else cur.done = true;
+      save(list);
+      try { await onDue(r, 0, why); } catch (e) { log("reminders", `提醒 ${r.id} 出错：${(e as Error).message}`); }
+    }
+  } finally { ticking = false; arm(); }
+}
+
+/** 推迟（对方说「晚点」）：准点的挪到 by；软提醒的窗口从 by 开始、长度不变。 */
+export function snooze(id: string, by: number, now = Date.now()): Reminder {
+  if (!(by > now)) throw new Error("推迟到的时间要在现在之后");
+  return update(id, { at: by }, now);
 }
 export const _tick = tick; // 测试用
 
@@ -222,6 +271,8 @@ function sanitize(x: any): Reminder | undefined {
     id: x.id, text, at, ...(cron ? { cron } : {}), ...(until !== undefined ? { until } : {}), tz,
     created, updated, ...(x.deleted === true ? { deleted: true } : {}), ...(x.done === true ? { done: true } : {}),
     ...(num(x.fired) !== undefined ? { fired: num(x.fired) } : {}),
+    ...(num(x.span) ? { span: Math.min(num(x.span)!, 90 * 86_400_000) } : {}),
+    ...(typeof x.step === "string" && x.step.trim() ? { step: x.step.replace(/[\p{Cc}\p{Cf}]+/gu, " ").trim().slice(0, 200) } : {}),
     ...(typeof x.conv === "string" && x.conv.length <= 80 ? { conv: x.conv } : {}), by: typeof x.by === "string" ? x.by.slice(0, 40) : "agent",
   };
 }

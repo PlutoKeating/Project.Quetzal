@@ -44,7 +44,7 @@ export const status = () => ({
 });
 
 /** 控制台看到的提醒：下一次的说法、是否重复、内容。 */
-const reminderView = () => reminders.active().slice(0, 20).map((r) => ({ id: r.id, text: r.text, at: r.at, when: reminders.when(r.at, r.tz), repeat: r.cron ? reminders.cronText(r.cron) : "" }));
+const reminderView = () => reminders.active().slice(0, 20).map((r) => ({ id: r.id, text: r.text, at: r.at, when: r.span ? reminders.describe({ ...r, cron: undefined }) : reminders.when(r.at, r.tz), repeat: r.cron ? reminders.cronText(r.cron) : "" }));
 
 export const ops = {
   // 提醒：控制台只看与取消；设提醒是对她说（reminder 工具）

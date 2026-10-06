@@ -90,3 +90,33 @@ test("多具身体：按条目合并，较新的修改为准，墓碑也同步�
   assert.equal(R.merge([{ ...theirs, deleted: true, updated: now + 1000 }]), true);
   assert.ok(!R.active().some((r) => r.text === "别处的"), "别处删了，这里也删");
 });
+
+test("软提醒：窗口里等「在身边」的信号再提醒并说明为什么；窗口没开、夜里不因信号打扰；到最后一刻照常发出", async () => {
+  for (const r of R.active()) R.cancel(r.id);
+  const day = at(2026, 10, 8, 0, 0); // 当地 10 月 8 日 0 点
+  const fired: [string, string | undefined][] = [];
+  R.startReminders(async (r, _late, why) => { fired.push([r.text, why]); }, () => true);
+  const soft = R.add({ text: "还书", at: day + 10 * 3_600_000, span: 6 * 3_600_000, step: "先把书放到门口", by: "agent" }, day); // 10:00–16:00
+  assert.equal(R.describe(soft), "10月8日（周四）10:00 至 10月8日（周四）16:00 之间挑你在身边的时候");
+  await R.onSignal("你这会儿在身边", day + 9 * 3_600_000);
+  assert.deepEqual(fired, [], "窗口还没开");
+  await R.onSignal("你这会儿在身边", day + 11 * 3_600_000);
+  assert.deepEqual(fired, [["还书", "你这会儿在身边"]]);
+  assert.equal(R.all().find((r) => r.id === soft.id)!.done, true);
+
+  const night = R.add({ text: "晚上的软提醒", at: day + 21 * 3_600_000, span: 4 * 3_600_000, by: "agent" }, day); // 21:00–01:00
+  await R.onSignal("你这会儿在身边", day + 23 * 3_600_000);
+  assert.equal(fired.length, 1, "夜里不因信号打扰");
+  await R._tick(day + 25 * 3_600_000 + 1000);
+  assert.deepEqual(fired[1], ["晚上的软提醒", "说好的最晚就是现在"]);
+  assert.equal(R.all().find((r) => r.id === night.id)!.done, true);
+});
+
+test("推迟：准点的挪到新时刻；推到过去不行", () => {
+  for (const r of R.active()) R.cancel(r.id);
+  const now = Date.now();
+  const r = R.add({ text: "回电话", at: now + 60_000, by: "agent" }, now);
+  const s = R.snooze(r.id, now + 7_200_000, now);
+  assert.equal(s.at, now + 7_200_000);
+  assert.throws(() => R.snooze(r.id, now - 1, now), /之后/);
+});
