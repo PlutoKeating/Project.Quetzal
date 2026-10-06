@@ -351,7 +351,7 @@ class Api extends ChangeNotifier {
 
   /// 点火：让 Termux 启动运行基座服务，然后等待网关恢复。只有安卓 App 能做。
   Future<String?> ignite() async {
-    if (!hasBody) return '这个控制台不能点火：在装运行基座的那台机器上 quetzal start，或在手机的 Quetzal App 里点火';
+    if (!hasBody) return '在那台设备上启动 Quetzal';
     conn = Conn.igniting; notifyListeners();
     final err = await Igniter.ignite();
     if (err != null) { conn = Conn.offline; lastError = err; notifyListeners(); return err; }
@@ -359,7 +359,7 @@ class Api extends ChangeNotifier {
       await Future.delayed(const Duration(seconds: 1));
       if (await health()) { conn = Conn.connecting; connect(); return null; }
     }
-    conn = Conn.offline; lastError = '点火后 20 秒内没有响应';
+    conn = Conn.offline; lastError = '启动后 20 秒内没有响应';
     notifyListeners();
     return lastError;
   }

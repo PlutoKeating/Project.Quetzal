@@ -12,9 +12,9 @@ import 'igniter.dart';
 const runtimePort = 7788;
 
 const installSteps = <String, String>{
-  'start': '解开内置的运行环境，启动运行基座',
-  'health': '等待运行基座响应（第一次要多等一会儿）',
-  'connect': '连接控制台',
+  'start': '正在准备…',
+  'health': '正在启动…第一次会久一点',
+  'connect': '正在连接…',
 };
 
 class Installer extends ChangeNotifier {

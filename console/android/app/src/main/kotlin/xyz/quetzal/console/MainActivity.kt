@@ -125,6 +125,7 @@ class MainActivity : FlutterActivity() {
                         startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
                     result.success(pm.isIgnoringBatteryOptimizations(packageName))
                 }
+                "ignoringBattery" -> result.success((getSystemService(POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName))
                 "openAutostart" -> { openAutostart(); result.success(null) }
                 else -> result.notImplemented()
             }

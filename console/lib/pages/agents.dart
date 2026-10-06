@@ -47,7 +47,7 @@ class _AgentSheetState extends State<_AgentSheet> {
   @override
   Widget build(BuildContext context) => SafeArea(
         child: ListView(shrinkWrap: true, controller: widget.scroll, children: [
-          const ListTile(title: Text('切换 agent'), subtitle: Text('每个 agent 有自己的运行基座、身份与灵魂')),
+          const ListTile(title: Text('切换')),
           for (final p in api.profiles)
             ListTile(
               leading: Icon(Icons.circle, size: 14, color: alive[p.id] == null ? Colors.grey : alive[p.id]! ? Colors.green : Colors.red),
@@ -57,24 +57,24 @@ class _AgentSheetState extends State<_AgentSheet> {
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline),
                 onPressed: () async {
-                  if (await confirm(context, '移除连接', '只移除控制台里的这个连接，不会影响运行基座与它的记忆。')) { await api.removeProfile(p); if (context.mounted) Navigator.pop(context); }
+                  if (await confirm(context, '移除', '只从这里移除，ta 本身不受影响。')) { await api.removeProfile(p); if (context.mounted) Navigator.pop(context); }
                 },
               ),
               onTap: () { api.switchTo(p); Navigator.pop(context); },
             ),
           ListTile(
             leading: const Icon(Icons.add),
-            title: const Text('连接新的 agent'),
+            title: const Text('连接另一个'),
             onTap: () async {
               final c = TextEditingController();
               final ok = await showDialog<bool>(context: context, builder: (x) => AlertDialog(
-                title: const Text('网关地址'),
-                content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(helperMaxLines: 3, helperText: '另一台机器只填它的地址（如 192.168.1.8），走加密连接 https://…:7789；同一设备上的另一个 agent 填 127.0.0.1:<端口>')),
+                title: const Text('地址'),
+                content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(hintText: '192.168.1.8')),
                 actions: [TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('下一步'))],
               ));
               if (ok != true) return;
               final b = normalizeBase(c.text);
-              if (b == null) { if (context.mounted) toast(context, '地址的写法不对：填 IP 或名字（可带端口），如 192.168.1.8'); return; }
+              if (b == null) { if (context.mounted) toast(context, '地址不对，例如 192.168.1.8'); return; }
               await api.addProfile(b);
               if (context.mounted) Navigator.pop(context);
             },
@@ -85,7 +85,8 @@ class _AgentSheetState extends State<_AgentSheet> {
 
 const _palette = ['#F0A35E', '#E0607E', '#27AE60', '#2D9CDB', '#56CCF2', '#BB6BD9', '#EB5757', '#6FCF97', '#F2C94C', '#7C6CF2']; // 首项为官网设计系统的琥珀，即默认色
 
-/// 身份资料：名字、代词、简介、主题色。保存后写入灵魂仓库的 agent.json，所有身体同步。
+/// 身份资料：名字、代词、简介、语言、主题色。保存后写入灵魂仓库的 agent.json，所有身体同步。
+/// 标识符（name）用于仓库命名与提交署名，一般不改，不放在这里（她可以用 edit_identity 改）。
 class IdentityPage extends StatefulWidget {
   const IdentityPage({super.key});
   @override
@@ -104,7 +105,7 @@ class _IdentityPageState extends State<IdentityPage> {
     if (!mounted || r == null) return;
     setState(() {
       a = r; color = '${r['color']}';
-      for (final k in ['displayName', 'name', 'pronouns', 'description', 'language']) { f[k] = TextEditingController(text: '${r[k] ?? ''}'); }
+      for (final k in ['displayName', 'pronouns', 'description', 'language']) { f[k] = TextEditingController(text: '${r[k] ?? ''}'); }
     });
   }
 
@@ -114,10 +115,10 @@ class _IdentityPageState extends State<IdentityPage> {
     return PageFrame(
       title: '身份',
       body: a == null ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.all(12), children: [
-        if (a['seed'] == true) const Banner0(text: '这是自动生成的初始身份。给她 / 他 / 它起个名字吧。', color: Colors.amber),
-        for (final e in {'displayName': '显示名', 'name': '标识符（小写字母、数字、连字符）', 'pronouns': '代词（可空）', 'description': '一句话简介', 'language': '偏好语言（如 zh-CN）'}.entries)
+        if (a['seed'] == true) const Padding(padding: EdgeInsets.fromLTRB(4, 4, 4, 8), child: Text('给 ta 起个名字吧')),
+        for (final e in {'displayName': '名字', 'pronouns': '代词', 'description': '简介', 'language': '语言'}.entries)
           Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: TextField(controller: f[e.key], decoration: InputDecoration(labelText: e.value, border: const OutlineInputBorder()))),
-        const Text('主题色'),
+        const SizedBox(height: 8),
         Wrap(spacing: 8, children: [
           for (final c in [..._palette, if (!_palette.contains(color.toUpperCase()) && !_palette.contains(color)) color]) // 她自己选的颜色（edit_identity）也显示出来
             ChoiceChip(
@@ -127,12 +128,11 @@ class _IdentityPageState extends State<IdentityPage> {
             ),
         ]),
         const SizedBox(height: 12),
-        Text('ID：${a['id']}', style: Theme.of(context).textTheme.bodySmall),
-        Text('诞生：${a['createdAt']}', style: Theme.of(context).textTheme.bodySmall),
+        Text('诞生于 ${'${a['createdAt'] ?? ''}'.split('T').first}', style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 12),
         FilledButton(
           onPressed: () async {
-            await act(context, () => api.call('setAgent', {for (final k in f.keys) k: f[k]!.text.trim(), 'color': color}), ok: '已保存，所有身体都会同步');
+            await act(context, () => api.call('setAgent', {for (final k in f.keys) k: f[k]!.text.trim(), 'color': color}), ok: '已保存');
             await api.refresh();
             if (mounted) _load();
           },
@@ -167,9 +167,8 @@ class _HistoryPageState extends State<HistoryPage> {
         body: RefreshIndicator(
           onRefresh: _load,
           child: ListView(children: [
-            Section('身体', [
-              for (final b in bodies) ListTile(dense: true, leading: const Icon(Icons.devices), title: Text('${b['body']}'), subtitle: Text('最近同步：${b['lastSeen'] ?? '-'}　运行基座 ${b['runtime'] ?? b['bridge'] ?? '-'}')),
-              if (bodies.isEmpty) const Text('还没有身体登记'),
+            if (bodies.isNotEmpty) Section('设备', [
+              for (final b in bodies) ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: const Icon(Icons.devices), title: Text('${b['body']}'), subtitle: Text('${b['lastSeen'] ?? '-'} · ${b['runtime'] ?? b['bridge'] ?? '-'}')),
             ]),
             for (final c in items)
               ListTile(
@@ -192,7 +191,7 @@ class _Commit extends StatelessWidget {
         title: '${c['short']}', actions: [
           TextButton(
             onPressed: () async {
-              if (!await confirm(context, '撤销这次变更', '会生成一个反向提交（历史仍然保留），所有身体都会同步。她会知道有人撤销了这段变更。')) return;
+              if (!await confirm(context, '撤销这次变更', '历史仍会保留，她会知道。')) return;
               if (!context.mounted) return;
               final ok = await act(context, () => api.call('soulRevert', {'hash': c['hash']}), ok: '已撤销');
               if (ok != null && context.mounted) { onReverted(); Navigator.pop(context); }

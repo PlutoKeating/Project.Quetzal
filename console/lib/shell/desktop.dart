@@ -81,7 +81,7 @@ class _DesktopShellState extends State<DesktopShell> {
       builder: (context, _) => Scaffold(
         body: Column(children: [
           if (api.conn != Conn.online) const OfflineBanner(),
-          if (api.safeMode) const Banner0(text: '基座处于安全模式（反复崩溃后）：只能查看与管理，不会醒来。', color: Colors.orange),
+          if (api.safeMode) Banner0(text: '${api.name}反复出错，暂停了醒来', color: Colors.orange),
           Expanded(
             child: LayoutBuilder(builder: (context, box) {
               // 分配宽度：主区至少 _mainMin。不够时先把「她此刻」压到最小，再压列表栏，仍不够就收起「她此刻」
@@ -325,8 +325,7 @@ class _MainAreaState extends State<_MainArea> {
   }
 
   Widget _control() {
-    final id = nav.id ?? 'identity';
-    final item = controlItems().where((it) => it.id == id).firstOrNull ?? controlItems().first;
+    final item = controlItem(nav.id);
     return Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 820), child: item.page()));
   }
 }
@@ -373,7 +372,8 @@ class _PresencePane extends StatelessWidget {
           const SizedBox(height: 28),
           const PresenceHead(size: 132),
           const ThoughtLine(),
-          if (inhibitors.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(20, 6, 20, 0), child: Text('抑制：${inhibitors.join('、')}', textAlign: TextAlign.center, style: t.bodySmall?.copyWith(color: Colors.orange))),
+          const ModelNudge(),
+          if (inhibitors.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(20, 6, 20, 0), child: Text(inhibitors.join('、'), textAlign: TextAlign.center, style: t.bodySmall?.copyWith(color: Colors.orange))),
           const SizedBox(height: 14),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: FilledButton.tonalIcon(icon: const Icon(Icons.touch_app, size: 18), label: const Text('戳一下'), onPressed: () => poke(context))),
           if (wakes.list.isNotEmpty) ...[

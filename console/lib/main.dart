@@ -90,9 +90,19 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> with WidgetsBindingObserver {
   int tab = 0;
-  String? bundled; // App 内置的运行基座版本：与运行中的不同时提示升级（本机部署才有意义）
+  String? bundled; // App 内置的运行基座版本：与运行中的不同时自动更新（本机部署才有意义）
   ShellMode? _mode;
-  bool _runtimeAfterAppUpdate = false; // 刚更新了 App 自身：内置的运行基座比运行中的新时自动进向导，少点一下
+  Installer? _runtimeUpdate; // 正在后台把运行基座换成 App 内置的版本（每次打开 App 最多自动一次，失败了留给人点「重试」）
+
+  /// 运行中的运行基座比 App 内置的旧（多半是刚更新了 App）：不进向导、不问，直接在后台重启成新版本，记忆与配置不受影响。
+  void _updateRuntime() {
+    final i = _runtimeUpdate = Installer();
+    i.addListener(() async {
+      if (i.done && i.token != null) await api.saveSettings(base: 'http://127.0.0.1:$runtimePort', token: i.token);
+      if (mounted) setState(() {});
+    });
+    i.install();
+  }
 
   void _onUpdater() { if (mounted) setState(() {}); }
   @override
@@ -119,12 +129,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       appUpdater.addListener(_onUpdater);
       WidgetsBinding.instance.addObserver(this); // 从后台回来时再检查一次 / 接着装
       appUpdater.autoCheck(); // App 自身有没有新版：每次打开界面都问一次 GitHub（正在检查时不重复）
-      appUpdater.justUpdated().then((yes) { if (yes && mounted) setState(() => _runtimeAfterAppUpdate = true); }); // 刚装完新 App：等连上就直接进向导升级运行基座
+      appUpdater.justUpdated(); // 清掉「正在安装」的记号；运行基座落后时下面自动更新，不用它判断
     }
     api.events.listen((e) {
       if (!mounted || ShellScope.isDesktop(context)) return; // 桌面外壳自己处理
       if (e.name == 'say') toast(context, '${api.name}：${plainPreview('${e.data}')}');
-      if (e.name == 'approval' && (e.data as Map)['status'] == 'pending') toast(context, '她请求批准：${(e.data as Map)['action']}');
+      if (e.name == 'approval' && (e.data as Map)['status'] == 'pending') toast(context, '${api.name}请求：${(e.data as Map)['action']}');
     });
   }
 
@@ -135,10 +145,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       builder: (context, _) {
         if (api.conn == Conn.unpaired) return const PairingPage();
         final runtimeOutdated = bundled != null && api.conn == Conn.online && api.status['version'] != null && api.status['version'] != bundled && api.base.contains('127.0.0.1');
-        if (_runtimeAfterAppUpdate && runtimeOutdated) {
-          _runtimeAfterAppUpdate = false;
-          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))); });
-        }
+        if (runtimeOutdated && _runtimeUpdate == null) WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted && _runtimeUpdate == null) _updateRuntime(); });
+        final ru = _runtimeUpdate;
         if (ShellScope.isDesktop(context)) return const DesktopShell();
         final pages = [const HomePage(), const FlowPage(), const MemoryPage(), const ControlPage()];
         return Scaffold(
@@ -148,12 +156,14 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           ),
           body: Column(children: [
             if (api.conn != Conn.online) const OfflineBanner(),
-            if (api.safeMode) const Banner0(text: '基座处于安全模式（反复崩溃后）：只能查看与管理，不会醒来。', color: Colors.orange),
-            if (runtimeOutdated)
-              Banner0(text: 'App 内置的运行基座是 $bundled，正在运行的是 ${api.status['version']}。', color: Colors.blueGrey,
-                  action: FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('升级')))
+            if (api.safeMode) Banner0(text: '${api.name}反复出错，暂停了醒来', color: Colors.orange),
+            if (ru != null && ru.running)
+              Banner0(text: '正在更新到 $bundled…', color: Colors.blueGrey, action: const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))
+            else if (ru != null && ru.error != null)
+              Banner0(text: '更新没完成', color: Colors.orange,
+                  action: FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: const Text('重试')))
             else if (appUpdater.hasUpdate && !appUpdater.dismissed && appUpdater.state != UpdateState.handedOff)
-              Banner0(text: 'Quetzal App 有新版本 ${appUpdater.latest!.version}（现在是 ${appUpdater.current}）。', color: Colors.blueGrey,
+              Banner0(text: '新版本 ${appUpdater.latest!.version}', color: Colors.blueGrey,
                   action: Row(mainAxisSize: MainAxisSize.min, children: [
                     FilledButton.tonal(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutPage())), child: const Text('更新')),
                     IconButton(onPressed: () => setState(() => appUpdater.dismissed = true), icon: const Icon(Icons.close, size: 18), tooltip: '这次先不'),

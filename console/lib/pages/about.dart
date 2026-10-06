@@ -121,7 +121,7 @@ class _AboutPageState extends State<AboutPage> {
   /// Linux 桌面版 / 网页版：让运行基座在它那台机器上后台重跑安装脚本。
   Future<void> _selfUpdate() async {
     final to = latest?.version ?? '最新版';
-    if (!await confirm(context, '升级到 $to', '约一分钟，期间控制台会短暂断开。ta 的记忆与配置不受影响。')) return;
+    if (!await confirm(context, '更新到 $to', '约一分钟，期间会短暂断开。')) return;
     if (!mounted) return;
     final r = await act(context, () => api.call<Map>('selfUpdate', {if (latest != null) 'version': latest!.version}));
     if (r == null || !mounted) return;
@@ -157,13 +157,13 @@ class _AboutPageState extends State<AboutPage> {
       final u = appUpdater, r = u.latest;
       final bundledNewer = bundled != null && rt.isNotEmpty && compareVersions(bundled!, rt) > 0;
       body = [
-        if (bundledNewer) row([FilledButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: Text('把运行基座升级到 $bundled'))]),
+        if (bundledNewer) row([FilledButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SetupPage(upgrade: true))), child: Text('更新到 $bundled'))]),
         switch (u.state) {
           UpdateState.checking => spin('正在检查…'),
           UpdateState.available when r != null => row([FilledButton(onPressed: u.downloadAndInstall, child: Text('更新到 ${r.version}')), notes(r)]),
           UpdateState.downloading => Padding(padding: const EdgeInsets.only(top: 10), child: LinearProgressIndicator(value: u.progress < 0 ? null : u.progress)),
-          UpdateState.verifying => spin('正在核对安装包…'),
-          UpdateState.needPermission => row([Text('请允许 Quetzal 安装应用', style: muted), FilledButton(onPressed: u.install, child: const Text('安装'))]),
+          UpdateState.verifying => spin('正在核对…'),
+          UpdateState.needPermission => row([Text('需要允许安装应用', style: muted), FilledButton(onPressed: u.install, child: const Text('安装'))]),
           UpdateState.handedOff => row([Text('装好后重新打开 Quetzal', style: muted), TextButton(onPressed: u.install, child: const Text('重新安装'))]),
           UpdateState.failed => row([Text(u.error ?? '更新失败', style: TextStyle(color: cs.error)), if (u.hasUpdate) TextButton(onPressed: u.downloadAndInstall, child: const Text('重试')), TextButton(onPressed: () => openExternal(context, downloadPage), child: const Text('去下载页'))]),
           UpdateState.upToDate => row([Text('已是最新', style: muted), TextButton(onPressed: u.check, child: const Text('检查更新'))]),
@@ -174,15 +174,15 @@ class _AboutPageState extends State<AboutPage> {
       final l = latest;
       final outdated = l != null && ((rt.isNotEmpty && compareVersions(l.version, rt) > 0) || (appVersion != null && compareVersions(l.version, appVersion!) > 0));
       body = [
-        if (upgrading) spin(upgradeStep == null || upgradeStep!.isEmpty ? '正在升级，约一分钟…' : '正在升级：$upgradeStep')
+        if (upgrading) spin(upgradeStep == null || upgradeStep!.isEmpty ? '正在更新…' : '正在更新：$upgradeStep')
         else if (upgradeError != null) row([Text(upgradeError!, style: TextStyle(color: cs.error)), if (l != null) TextButton(onPressed: api.conn == Conn.online ? _selfUpdate : null, child: const Text('重试'))])
         else if (upgradeMessage != null) row([
-          Text(isDesktop ? '已升级到 $upgradeMessage' : '已升级到 $upgradeMessage，刷新页面即可', style: TextStyle(color: cs.primary)),
+          Text(isDesktop ? '已更新到 $upgradeMessage' : '已更新到 $upgradeMessage，刷新页面即可', style: TextStyle(color: cs.primary)),
           if (isDesktop) FilledButton(onPressed: _relaunch, child: const Text('重新打开')),
         ])
         else if (checking) spin('正在检查…')
         else if (checkError != null) row([Text('检查失败', style: TextStyle(color: cs.error)), TextButton(onPressed: _check, child: const Text('重试'))])
-        else if (outdated) row([FilledButton(onPressed: api.conn == Conn.online ? _selfUpdate : null, child: Text('升级到 ${l.version}')), notes(l)])
+        else if (outdated) row([FilledButton(onPressed: api.conn == Conn.online ? _selfUpdate : null, child: Text('更新到 ${l.version}')), notes(l)])
         else row([Text('已是最新', style: muted), TextButton(onPressed: _check, child: const Text('检查更新'))]),
       ];
     }
@@ -197,9 +197,7 @@ class _AboutPageState extends State<AboutPage> {
       title: '关于',
       body: ListenableBuilder(listenable: Listenable.merge([api, appUpdater]), builder: (context, _) => ListView(padding: const EdgeInsets.all(12), children: [
         Section('Quetzal', [
-          Row(children: [const Orb(mode: 'awake', alertness: 1, size: 44), const SizedBox(width: 14), Expanded(child: Text('开源的 agent 运行基座。\n让一个 AI agent 住进一部旧手机，像生命一样活着。', style: t.bodyLarge))]),
-          const SizedBox(height: 8),
-          Text('ta 什么时候醒来由内驱力与昼夜节律决定；身体是这部手机或这台电脑；人格、记忆、日记在你自己的私有 git 仓库里，换身体整个带走。相机、麦克风、定位默认每次询问，审批、预算、急停、审计齐全。', style: t.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
+          Row(children: [const Orb(mode: 'awake', alertness: 1, size: 44), const SizedBox(width: 14), Expanded(child: Text('Not running, but living.', style: t.bodyLarge?.copyWith(color: cs.onSurfaceVariant)))]),
           Wrap(children: [link('官网', _site), link('文档', '$_site/zh/docs'), link('GitHub', 'https://github.com/$githubRepo'), link('AGPL-3.0', 'https://github.com/$githubRepo/blob/main/LICENSE')]),
         ]),
         _version(context),

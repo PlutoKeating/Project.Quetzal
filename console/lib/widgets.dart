@@ -2,6 +2,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'platform/caps.dart';
 
 /// 外壳模式：窄屏（手机）是底部 Tab + 逐页推入；宽屏（电脑浏览器、平板横屏）是导航栏 + 列表栏 + 主区 + 「她此刻」。
 enum ShellMode { phone, desktop }
@@ -262,14 +263,16 @@ class OfflineBanner extends ApiWidget {
   const OfflineBanner({super.key});
   @override
   Widget view(BuildContext context) => Banner0(
-        text: api.conn == Conn.igniting ? '正在点火…' : '连不上 ${api.name}${api.lastError.isNotEmpty ? '（${api.lastError.length > 40 ? api.lastError.substring(0, 40) : api.lastError}）' : ''}',
+        text: switch (api.conn) { Conn.igniting => '正在启动…', Conn.connecting => '正在连接…', _ => '连不上${api.name}' },
         color: Colors.red,
-        action: api.conn == Conn.igniting
+        action: api.conn == Conn.igniting || api.conn == Conn.connecting
             ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-            : FilledButton.tonal(
-                onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); },
-                child: const Text('点火'),
-              ),
+            : hasBody && api.base.contains('127.0.0.1') // 本机的运行基座才能从这里启动；别处的会自己重连
+                ? FilledButton.tonal(
+                    onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); },
+                    child: const Text('启动'),
+                  )
+                : null,
       );
 }
 

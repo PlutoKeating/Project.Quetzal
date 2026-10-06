@@ -7,6 +7,8 @@ import '../widgets.dart';
 import '../hearing.dart';
 import 'sessions.dart';
 import 'wake.dart';
+import 'providers.dart';
+import '../shell/nav.dart';
 
 double _n(dynamic v) => (v is num) ? v.toDouble() : 0;
 
@@ -68,7 +70,7 @@ class InnerSection extends StatelessWidget {
       DriveBar('好奇', _n(d['curiosity'])), DriveBar('表达', _n(d['expression'])), DriveBar('想念', _n(d['social'])), DriveBar('牵挂', _n(d['openLoops'])),
       const Divider(),
       DriveBar('清醒', _n(h['alertness'])), DriveBar('困意', _n(h['S'])),
-      Text('醒来率 ${_n(h['ratePerHour']).toStringAsFixed(2)} 次/小时 · 待整理的经历 ${h['unconsolidated'] ?? 0}', style: Theme.of(context).textTheme.bodySmall),
+      Text('每小时约醒来 ${_n(h['ratePerHour']).toStringAsFixed(1)} 次', style: Theme.of(context).textTheme.bodySmall),
     ];
     return compact ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows) : Section('内在', rows);
   }
@@ -100,7 +102,23 @@ Future<void> poke(BuildContext context) async {
     content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(hintText: '想对她说点什么（可不填）')),
     actions: [TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('戳'))],
   ));
-  if (ok == true && context.mounted) await act(context, () => api.call('poke', {'note': c.text}), ok: '她感觉到了。要不要回应，由她自己决定。');
+  if (ok == true && context.mounted) await act(context, () => api.call('poke', {'note': c.text}), ok: '她感觉到了');
+}
+
+/// 还没有模型时的唯一提示：她要靠它思考。手机推入模型页，桌面在主区打开。有了模型就不占位。
+class ModelNudge extends StatelessWidget {
+  const ModelNudge({super.key});
+  @override
+  Widget build(BuildContext context) {
+    if (api.conn != Conn.online || ((api.status['models'] as List?) ?? []).isNotEmpty) return const SizedBox.shrink();
+    return Card(margin: const EdgeInsets.fromLTRB(12, 12, 12, 0), child: ListTile(
+      leading: const Icon(Icons.hub_outlined),
+      title: const Text('选择模型'),
+      subtitle: Text('${api.name}要靠它思考'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => ShellScope.isDesktop(context) ? nav.go('control', id: 'providers') : Navigator.push(context, MaterialPageRoute(builder: (_) => const ProvidersPage())),
+    ));
+  }
 }
 
 /// 手机首页。
@@ -119,7 +137,8 @@ class HomePage extends StatelessWidget {
         const PresenceHead(),
         const ThoughtLine(),
         for (final t in wakes.list) LiveWakeTile(t), // 她正在思考 / 做梦：只读地看她在做什么
-        if (inhibitors.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text('抑制：${inhibitors.join('、')}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.orange))),
+        const ModelNudge(),
+        if (inhibitors.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(inhibitors.join('、'), textAlign: TextAlign.center, style: const TextStyle(color: Colors.orange))),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 4), // 首屏可达：放在「内在」卡片上方
           child: Row(children: [

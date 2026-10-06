@@ -18,8 +18,8 @@ class Igniter {
 
   /// 点火：启动前台服务（已在运行则无事）。返回 null 表示已启动；否则返回原因。
   static Future<String?> ignite() async {
-    if (!await available()) return '这个 App 没有内置运行基座（开发版）';
-    try { await _ch.invokeMethod('start'); return null; } on PlatformException catch (e) { return '点火失败：${e.message}'; }
+    if (!await available()) return '这个版本没有内置运行环境';
+    try { await _ch.invokeMethod('start'); return null; } on PlatformException catch (e) { return '启动失败：${e.message}'; }
   }
 
   /// 身体权限：{camera, microphone, location, notifications} → 是否已授权。
@@ -31,6 +31,8 @@ class Igniter {
 
   /// 系统的「忽略电池优化」列表。
   static Future<void> openBatterySettings() => _ch.invokeMethod('openBatterySettings');
+  /// 是否已在忽略电池优化的名单里（不会被系统清理后台）。
+  static Future<bool> ignoringBattery() async { try { return await _ch.invokeMethod<bool>('ignoringBattery') ?? false; } catch (_) { return false; } }
   /// 请求把本应用加入忽略电池优化（系统弹窗）。
   static Future<void> requestIgnoreBattery() => _ch.invokeMethod('requestIgnoreBattery');
   /// 各厂商的「自启动 / 后台运行」管理页；找不到时打开本应用的详情页。

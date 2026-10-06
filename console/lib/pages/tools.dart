@@ -31,8 +31,7 @@ class _ToolsPageState extends State<ToolsPage> {
     return PageFrame(
       title: '工具',
       body: loading ? const Center(child: CircularProgressIndicator()) : RefreshIndicator(onRefresh: _load, child: ListView(children: [
-        Padding(padding: const EdgeInsets.all(16), child: Text('${api.name} 把做熟了的流程写成工具，之后像内置工具一样直接调用。实现只在这具身体上；意图文档（技能，SKILL.md）随记忆同步，别的身体可以按文档自己实现。这里只能看、停用与删除，改代码由她自己来。')),
-        if (tools.isEmpty && skills.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Text('她还没有造过工具', textAlign: TextAlign.center)),
+        if (tools.isEmpty && skills.isEmpty) Padding(padding: const EdgeInsets.all(32), child: Text('${api.name}还没有造过工具', textAlign: TextAlign.center)),
         for (final t in tools)
           Card(child: ListTile(
             leading: Icon(Icons.handyman, color: t['enabled'] == true && (t['missing'] as List).isEmpty ? cs.primary : cs.outline),
@@ -42,7 +41,7 @@ class _ToolsPageState extends State<ToolsPage> {
             trailing: Switch(value: t['enabled'] == true, onChanged: (v) async { await act(context, () => api.call('tools.toggle', {'name': t['name'], 'enabled': v})); _load(); }),
             onTap: () async { await Navigator.push(context, MaterialPageRoute(builder: (_) => ToolDetailPage(name: '${t['name']}'))); _load(); },
           )),
-        if (skills.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4), child: Text('有技能文档、本机没有实现', style: Theme.of(context).textTheme.labelLarge)),
+        if (skills.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4), child: Text('只有技能文档', style: Theme.of(context).textTheme.labelLarge)),
         for (final s in skills)
           Card(child: ListTile(
             leading: Icon(Icons.description_outlined, color: cs.outline),
@@ -85,8 +84,8 @@ class _ToolDetailPageState extends State<ToolDetailPage> {
         if (impl) IconButton(tooltip: '删除', icon: const Icon(Icons.delete_outline), onPressed: () async {
           final also = await showDialog<bool>(context: context, builder: (x) => AlertDialog(
             title: Text('删除工具 ${widget.name}？'),
-            content: const Text('实现会从这具身体上删除。技能文档可以保留在灵魂仓库里（别的身体仍能按它实现），也可以一并删除（记忆历史里仍可找回）。'),
-            actions: [TextButton(onPressed: () => Navigator.pop(x), child: const Text('取消')), TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('只删实现')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('连技能文档一起删'))],
+            content: const Text('保留技能文档，别的设备仍能照着实现。'),
+            actions: [TextButton(onPressed: () => Navigator.pop(x), child: const Text('取消')), TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('保留文档')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('全部删除'))],
           ));
           if (also == null || !context.mounted) return;
           final r = await act(context, () => api.call<String>('tools.delete', {'name': widget.name, 'skill': also}));
