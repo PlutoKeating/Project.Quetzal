@@ -867,7 +867,9 @@ StartupNotify=true
 StartupWMClass=xyz.quetzal.console
 EOF
   have update-desktop-database && update-desktop-database "$apps" >>"$LOG" 2>&1 || true
-  have gtk-update-icon-cache && gtk-update-icon-cache -f -t "$icons" >>"$LOG" 2>&1 || true
+  # 不在用户的图标目录生成缓存：那里没有 index.theme，gtk-update-icon-cache -t 生成的是空缓存，GTK 与 GNOME Shell 见到缓存就只信它，
+  # 用户目录里所有应用的图标（包括 Quetzal 的）都找不到。以前的版本生成过，里面没有 Quetzal 的图标就删掉（缓存只是加速，没有它照样找得到）
+  if [[ -f $icons/icon-theme.cache ]] && ! grep -q "$icon_name" "$icons/icon-theme.cache" 2>/dev/null; then rm -f "$icons/icon-theme.cache"; fi
   if [[ -n $NATIVE ]]; then ok "$(t '应用列表里有「Quetzal」了：点开就是原生控制台' 'Quetzal is in the app list: it opens the native console')"
   else ok "$(t '应用列表里有「Quetzal」了：点开在浏览器里打开控制台' 'Quetzal is in the app list: it opens the console in the browser')"; fi
 }
