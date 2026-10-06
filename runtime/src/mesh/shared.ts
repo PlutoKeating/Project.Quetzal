@@ -7,6 +7,7 @@
 //   - 来自别处的设置先校验：修改时刻不能晚于「现在 + 5 分钟」（一个远在未来的时刻会让这个分区再也改不动）；
 //     每个分区只留认得的键、类型与缺省值一致的值。急停是「停优先」：别处停了随时跟着停；解除只解除对方明确解除的那几次急停（见 stopState）。
 import fs from "node:fs";
+import path from "node:path";
 import crypto from "node:crypto";
 import { textOf, type Mesh, type PeerStatus } from "./mesh.ts";
 import { bus, type Approval } from "../bus.ts";
@@ -146,7 +147,30 @@ function rememberRemote(a: Approval) {
   else remote.delete(k);
 }
 
+/**
+ * 补修订号：有同步功能之前（或升级前）配好的设置没有修改时刻（修订号 0）。两具身体都是 0 时谁也不比谁新、谁也不拉谁，
+ * 早就配好的模型、Key 永远传不到新身体上。所以启动时给本机**确实有内容**的分区补一个修订号，取那份数据文件的修改时刻
+ * （如实反映它是什么时候配的，不用「现在」，免得一具身体重启就压过别处后来的修改）；空的、与缺省相同的不补，好让它从别处拉。
+ * 返回补了的分区。
+ */
+export function backfillRevs(): string[] {
+  const mtime = (f: string) => { try { return Math.min(Math.floor(fs.statSync(f).mtimeMs), Date.now()); } catch { return 0; } };
+  const stamp: Record<string, number> = {};
+  for (const s of SECTIONS) {
+    if (s === "stop" || (config.sharedRev[s] ?? 0) > 0) continue;
+    let t = 0;
+    if (s === "providers") { if (exportProviders().providers.length) t = mtime(path.join(paths.config, "providers.json")); }
+    else if (s === "speechKey") { if (speechKey()) t = mtime(path.join(paths.secrets, "azure_speech_key")); }
+    else if (JSON.stringify((config as any)[s]) !== JSON.stringify((defaults as any)[s])) t = mtime(path.join(paths.config, "quetzal.json"));
+    if (t > 0) stamp[s] = t;
+  }
+  const names = Object.keys(stamp);
+  if (names.length) { saveConfig({ sharedRev: stamp }, { remote: true }); log("mesh", `补了修订号（之前配好、还没同步过的设置）：${names.join("、")}`); }
+  return names;
+}
+
 export function installShared(mesh: Mesh): () => void {
+  backfillRevs();
   mesh.handle("settings.revs", () => Object.fromEntries(SECTIONS.map((s) => [s, config.sharedRev[s] ?? 0])));
   mesh.handle("settings.get", (p: { sections: unknown }) => pack(Array.isArray(p?.sections) ? p.sections.filter((x): x is string => typeof x === "string").slice(0, 20) : []));
   mesh.handle("approval.decide", (p: { id: string; approve: boolean; note?: string }, from: string) => decideLocal(typeof p?.id === "string" ? p.id : "", p?.approve === true, `${from} 上的控制台`, clipText(p?.note, 500)));
