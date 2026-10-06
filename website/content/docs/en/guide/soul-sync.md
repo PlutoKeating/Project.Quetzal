@@ -20,12 +20,14 @@ One agent can live in several "bodies" at once: a runtime on a phone, a computer
 
 **Sync and versioning are fully automatic.** It neither needs to nor can operate it; it only perceives that "soul sync happened".
 
-## Set up automatically when you sign in with GitHub
+## Set up automatically when you sign in
 
-In the setup wizard or under **Control → Devices**, tap **Sign in with GitHub** and approve this device on the website. The first time you sign in, GitHub asks you to install the Quetzal app and choose which repositories it can manage. After that:
+In the setup wizard or under **Control → Devices**, tap **Sign in**, then sign in and approve this device on the website. The first time a soul repository is created, the same tab goes through GitHub once: you install the Quetzal app and choose which repositories it can manage. After that:
 
-- **A new user**: a private repository is created under your account, this device gets a deploy key of its own, and its initial soul is pushed.
+- **A new user**: a private repository is created under your GitHub account, this device gets a deploy key of its own, and its initial soul is pushed.
 - **A new device for an existing user**: this device gets a deploy key and pulls down its existing personality and memory.
+
+One account goes with one GitHub account: whichever you use the first time, use it from then on.
 
 For what this app can do and how to take it back, see [Trust and limits](/docs/guide/trust#what-the-github-app-can-do).
 

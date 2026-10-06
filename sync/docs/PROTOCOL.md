@@ -20,7 +20,7 @@ sequenceDiagram
   B->>S: POST /v1/device/code {agent, body, kind, nodeKey, version}
   S-->>B: {device_code, user_code, verification_uri, verification_uri_complete, expires_in: 900, interval: 5}
   B->>U: 显示 user_code、链接与本机公钥指纹
-  U->>S: GitHub 登录 → 网页前端的「添加设备」输入 user_code → 核对 agent、身体、指纹 → 批准（§5）
+  U->>S: 登录（OIDC）→ 网页前端的「添加设备」输入 user_code → 核对 agent、身体、指纹 → 批准（§5）
   loop 每 interval 秒
     B->>S: POST /v1/device/token {device_code}
     S-->>B: 400 {error: authorization_pending | slow_down}
@@ -49,7 +49,7 @@ sequenceDiagram
 
 ### 2.1 一个链接接入：批准时顺带把部署密钥加到灵魂仓库
 
-登录与灵魂仓库共用**一个 GitHub App**（管理员在 `/setup/github-app` 用 GitHub 的「从配置清单创建」一键生成，权限只有 Administration 写与默认的 Metadata 读，凭据存在数据目录的 `github-app.json`，0600）。同步服务平时**不持有**任何能改用户仓库的权限。
+灵魂仓库用**一个 GitHub App**（只用于这一步，与登录无关；管理员在 `/setup/github-app` 用 GitHub 的「从配置清单创建」一键生成，权限只有 Administration 写与默认的 Metadata 读，凭据存在数据目录的 `github-app.json`，0600）。同步服务平时**不持有**任何能改用户仓库的权限。
 
 ```mermaid
 sequenceDiagram
@@ -65,7 +65,7 @@ sequenceDiagram
   U->>S: 打开 next（同一个标签页；App 里打开外部浏览器）
   S->>G: 用户授权（授权码 + PKCE）；没安装 App 时先去安装页，装完带新的授权码回来
   G-->>S: /soul/callback → 短时用户令牌
-  S->>G: 核对是批准者的 GitHub 账户 → 在安装范围里找（或建）<agent>.soul → 加这一把部署密钥（可写）
+  S->>G: 核对是这个账号链接过的 GitHub 账户（第一次则记下）→ 在安装范围里找（或建）<agent>.soul → 加这一把部署密钥（可写）
   S->>G: 吊销令牌
   S-->>U: 回到前端 /device?soul=linked
   B->>S: 轮询 /v1/device/token
@@ -76,15 +76,15 @@ sequenceDiagram
 
 - 批准后、链接完成之前，轮询照常返回 `authorization_pending`；码的有效期延到批准后 15 分钟。链接失败时身体仍拿到令牌，`soul` 为 `{error}`。
 - **一次性票据**（`qsl_` 开头，256 位，库里只存哈希）只在批准的响应里发给批准者，只对这一个码、只在「待链接」时有效，用过即失效；它让网页与 App 都能走这一步，不依赖浏览器里的登录会话。
-- 用户令牌只在那一次回调的内存里：核对 GitHub 数字 id 与批准者相同，只给挑出的那个仓库加码里登记的那一把公钥（批准页显示过它的 `SHA256:` 指纹），不论成败立即吊销（`DELETE /applications/{client_id}/token`）。
+- 用户令牌只在那一次回调的内存里：账号第一次链接时记下这个 GitHub 数字 id（一个 GitHub 账户只能属于一个账号），之后必须是同一个；只给挑出的那个仓库加码里登记的那一把公钥（批准页显示过它的 `SHA256:` 指纹），不论成败立即吊销（`DELETE /applications/{client_id}/token`）。
 - 挑仓库：agent 记下的仓库 → 安装范围里名为 `<agent 短名>.soul` 的私有仓库 → 唯一的 `*.soul` 私有仓库；有几个分不清时不猜，报错；一个都没有时以用户身份新建 `<短名>.soul`（私有）。
-- state、PKCE 的 code_verifier 与票据都放在 10 分钟的 HttpOnly Cookie 里；从安装页回来时 GitHub 不一定带 state，此时仍要求 Cookie 里的 PKCE 与票据，且令牌必须属于批准者。
+- state、PKCE 的 code_verifier 与票据都放在 10 分钟的 HttpOnly Cookie 里；从安装页回来时 GitHub 不一定带 state，此时仍要求 Cookie 里的 PKCE 与票据，且令牌必须属于这个账号链接过的 GitHub 账户。
 
 其他接口：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/v1/health` | `{ok, service, version, protocol, login, turn, online}` |
+| GET | `/v1/health` | `{ok, service, version, protocol, login, turn, online}`：`login` 为配置了 OIDC 登录 |
 | GET | `/v1/me` | 请求头 `Authorization: Bearer <令牌>` → `{agent, body, kind, account}`；令牌无效为 401 |
 | DELETE | `/v1/me` | 身体自己解绑：删除登记、令牌作废 |
 | POST | `/v1/console/code` | 控制台登录（§5.2）：`Authorization: Bearer <身体令牌>`，可带 `X-Quetzal-Version`；返回与 `/v1/device/code` 相同的结构。只有运行基座（`kind` 为 `runtime`）能申请，灵魂桥为 403 `runtime_only` |
@@ -142,7 +142,7 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
 
 ### 5.1 登录与身份
 
-- **网页前端**：`GET /login?return_to=<前端上的地址>` 经 GitHub 登录（授权码 + PKCE S256；`state`、`code_verifier` 与回跳地址放在 10 分钟的 `__Host-` 临时 Cookie 里），回到 `return_to`（只接受前端同源的地址，否则回到 `<前端>/account`；失败回到 `<前端>/account?login=failed`）。会话是同步服务自己的 Cookie（`__Host-quetzal_session`，HttpOnly、Secure、SameSite=Lax）；前端与同步服务必须同站（同一个可注册域名），用 `fetch(…, {credentials: "include"})` 调用。
+- **网页前端**：`GET /login?return_to=<前端上的地址>` 经 OIDC 身份服务登录（授权码 + PKCE S256 + nonce，回调 `/auth/oidc/callback`；`state`、`nonce`、`code_verifier` 与回跳地址放在 10 分钟的 `__Host-` 临时 Cookie 里），回到 `return_to`（只接受前端同源的地址，否则回到 `<前端>/account`；失败回到 `<前端>/account?login=failed`）。会话是同步服务自己的 Cookie（`__Host-quetzal_session`，HttpOnly、Secure、SameSite=Lax）；前端与同步服务必须同站（同一个可注册域名），用 `fetch(…, {credentials: "include"})` 调用。
 - **会话寿命**：网页会话 `SYNC_SESSION_DAYS`（默认 30）天、控制台登录 30 天，剩余不到一半时随使用续期；无论怎么续，自创建起最长 90 天，到时须重新登录。
 - **控制台**：`Authorization: Bearer qsc_…`（§5.2），只认控制台登录的会话；身体令牌与网页会话的 Cookie 都不能当它用，它也不能当身体令牌或 Cookie 用。
 - **CORS**：只对 `SYNC_WEB_URL` 与同步服务自己的源放行带凭据的请求（`GET`、`POST`，头 `Content-Type`）。所有响应都带 `Vary: Origin`。
@@ -150,8 +150,8 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
 
 | 方法 | 路径 | 请求体 | 返回 |
 |---|---|---|---|
-| GET | `/v1/web/session` | — | `{loginEnabled, user: {login, name} \| null}` |
-| GET | `/v1/web/account` | — | `{user, limits: {agents, bodies}, agents: [{id, name, created, bodies: [{body, kind, version, created, lastSeen, online, fingerprint}]}], consoles: [{id, body, created, lastUsed, current}]}`；没登录 401 |
+| GET | `/v1/web/session` | — | `{loginEnabled, user: {login, name, email} \| null}`（`email` 只在身份服务确认过时非空） |
+| GET | `/v1/web/account` | — | `{user: {login, name, email}, limits: {agents, bodies}, agents: [{id, name, created, bodies: [{body, kind, version, created, lastSeen, online, fingerprint}]}], consoles: [{id, body, created, lastUsed, current}]}`；没登录 401 |
 | POST | `/v1/web/device/lookup` | `{code}` | 待批准的码，见下；错误 `bad_code`（404：不存在或已过期，二者不区分；计入输错次数）、`too_many`（429：输错次数用完，命中也返回它）、`decided` / `too_many_agents` / `too_many_bodies` / `not_yours`（409） |
 | POST | `/v1/web/device/decide` | `{code, approve, agent?}` | `{ok, approved, next?}`：`agent` 为身体没给 agent 时人选的 agent id 或 `"new"`（账户里已有 agent 时必须给，否则 400 `bad_agent`）；带部署公钥且配置了 GitHub App 时返回 `next`（§2.1，前端把人带过去）；错误同上（同样计入输错次数）；请求体不对为 400 `bad_request` |
 | POST | `/v1/web/bodies/remove` | `{agent, body}` | 解绑一具身体（立即断开）；不是你的或不存在为 404 |

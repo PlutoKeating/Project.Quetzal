@@ -21,7 +21,7 @@ Every console shows which body is talking with you right now; what you say to th
 
 1. **A sync service** that lets bodies find each other and relays when no direct path exists. It stores no conversations or memory — only accounts, agents and body registrations. By default the official one run personally by this project's author is used; you can also host it yourself (`sync/` in the repository, one Linux server with a public address, one command), see [sync/README](https://github.com/PlutoKeating/Project.Quetzal/blob/main/sync/README.md).
 2. **A soul repository** connected on every body (see [Soul sync](/docs/guide/soul-sync)). The public keys the bodies use to verify each other are registered there — it is the root of trust, so even a compromised sync service cannot impersonate your bodies.
-3. **A GitHub account** to sign in and approve bodies on the sync service's website. The GitHub app you install at sign-in can manage the repositories you chose; see [Trust and limits](/docs/guide/trust#what-the-github-app-can-do).
+3. **An account** to sign in and approve bodies on the sync service's website. The official sync service uses a PlutoKeating account (the author's single account; email, a passkey or GitHub all work); one you host yourself uses the identity provider you configured. The GitHub app you install when the first soul repository is created can manage the repositories you chose; see [Trust and limits](/docs/guide/trust#what-the-github-app-can-do).
 4. **The same version** on every body. 1.0.3 changed the protocol bodies use to connect, so bodies on different versions cannot connect, and the timeline says "Upgrade both sides to the same version to connect".
 
 ## Signing in a body
@@ -29,11 +29,11 @@ Every console shows which body is talking with you right now; what you say to th
 **Control → Devices**:
 
 1. The sync service defaults to the one operated by this project, `https://sync.quetzal.plutokeating.beer`; nothing to enter. If you host your own, enter its address under **Sync service** in **Control → Advanced → Sync** and save (clear it to go back to the official one).
-2. Tap **Sign in with GitHub**; the app opens the browser for you (the page also shows an 8-character code and a link, so you can scan it on another device). The Android setup wizard has this step too.
-3. In the browser (the site's [Account → Add a device](/account/device)), sign in with GitHub, enter or confirm the code, **check that the key fingerprint on the web page matches the one in the console**, and approve.
+2. Tap **Sign in**; the app opens the browser for you (the page also shows an 8-character code and a link, so you can scan it on another device). The Android setup wizard has this step too.
+3. In the browser (the site's [Account → Add a device](/account/device)), sign in, enter or confirm the code, **check that the key fingerprint on the web page matches the one in the console**, and approve.
 4. Within seconds the body connects to the sync service; other bound bodies that are online connect to it directly (LAN, IPv6, NAT traversal, or relayed through the server when nothing else works — relayed traffic is end-to-end encrypted too).
 
-All bodies of one agent must be signed in to **the same GitHub account** to see each other. To disconnect this body, tap **Sign out this device**.
+All bodies of one agent must be signed in to **the same account** to see each other. To disconnect this body, tap **Sign out this device**.
 
 ```mermaid
 flowchart LR
@@ -59,20 +59,20 @@ If the bodies cannot reach each other (offline, sync service down), each keeps r
 
 ## Account
 
-Everything about the account lives on the site's [Account](/account) page; sign in with GitHub. In the app, the account row at the top of **Control → Devices** opens the same **Account** page:
+Everything about the account lives on the site's [Account](/account) page. In the app, the account row at the top of **Control → Devices** opens the same **Account** page:
 
 | Sub-page | What it does |
 |---|---|
 | Overview | Every agent in the account and each of its devices: online or not, kind, version; remove a device, delete an agent |
 | Add a device | Enter the code a new device shows, check it and approve or deny |
 | Signed in | Which apps can manage this account; sign out unused ones at any time |
-| Settings | Sign out (of this browser, or of every browser at once), delete the account |
+| Settings | Manage your account (email, password, passkeys, linked GitHub), sign out (of this browser, or of every browser at once), delete the account |
 
-**One sign-in**: once you sign a device in with GitHub and approve it, the app on that device can manage the account too, with no second approval (that sign-in goes away when the device is removed, and you can sign it out under Signed in). Only with an older sync service does the Account page ask you to tap **Sign in** once more.
+**One sign-in**: once you sign a device in and approve it, the app on that device can manage the account too, with no second approval (that sign-in goes away when the device is removed, and you can sign it out under Signed in). Only with an older sync service does the Account page ask you to tap **Sign in** once more.
 
 ## Security
 
 - Bodies connect over WebRTC (DTLS encryption); signaling is signed with each body's node key, and receivers only trust the public keys registered in the **soul repository**.
 - Model keys travel between bodies only over that encrypted channel and are re-encrypted with the receiver's own master key.
-- The sync service stores only: GitHub username and display name, agent name and id, body name / kind / version / public key / last seen; tokens are stored as hashes. It keeps no IP or network addresses and cannot see conversations or memory.
+- The sync service stores only: the account's id, username, display name and email, the id of the GitHub account used to link the soul repository, agent name and id, body name / kind / version / public key / last seen; tokens are stored as hashes. It keeps no IP or network addresses and cannot see conversations or memory.
 - On the Account page of the site or the app you can remove a body, delete an agent or the whole account, or sign a console out at any time.

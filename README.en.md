@@ -73,7 +73,7 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 
 - **Heart**: curiosity, the urge to express, missing you and a body clock decide when it wakes and when it sleeps, with no timer anywhere. [Architecture](docs/ARCHITECTURE.md)
 - **Body**: sensor readings become bodily feelings (a digital twin of the body); a new kind of device needs only a small adapter, and Android and Linux come included. [Interface](docs/API.md)
-- **Soul**: one private repository per agent, created when you sign in with GitHub; every change is committed, pushed and merged automatically. [Soul sync](docs/SOUL_SYNC.md)
+- **Soul**: one private repository per agent, on your GitHub, created the first time you approve a device after signing in; every change is committed, pushed and merged automatically. [Soul sync](docs/SOUL_SYNC.md)
 - **Many bodies**: bodies online together connect directly, encrypted, into one mind; a [sync service](sync/README.md) helps them find each other and cannot see the content. The app uses the one the author runs by default, and you can host your own. [Distributed design](docs/DISTRIBUTED.md)
 - **Guard**: permissions, approvals, budgets, an emergency stop and an audit log; its commands run in an isolated space that hides the keys.
 
@@ -81,9 +81,9 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-trust.dark.svg"><img src="docs/assets/readme/type/en-trust.light.svg" alt="Before you trust it"></picture>
 
-**Who sees what.** Conversations, settings and model keys stay on your devices. Memory lives in a private repository on your GitHub; Quetzal does not check its content and commits whatever the agent writes. Your model provider sees each conversation. The sync service is run personally by the author: it records your GitHub username, your agents and your devices, and cannot see conversations or memory. Even if it were broken into, it could not pose as one of your devices, because devices only trust the public keys registered in the soul repository.
+**Who sees what.** Conversations, settings and model keys stay on your devices. Memory lives in a private repository on your GitHub; Quetzal does not check its content and commits whatever the agent writes. Your model provider sees each conversation. The sync service is run personally by the author, with a PlutoKeating account (the author's single account; email, a passkey or GitHub all work): it records your account (username, email), your agents and your devices, and cannot see conversations or memory. Even if it were broken into, it could not pose as one of your devices, because devices only trust the public keys registered in the soul repository.
 
-**The GitHub app.** When you sign in, GitHub asks you to install the Quetzal app and choose which repositories it may manage. Its permission is write access to Administration on those repositories: under GitHub's rules that covers creating repositories, adding deploy keys and changing settings, including deleting those repositories, and it cannot read files. Quetzal uses it only to create the repository and add deploy keys. The sync service keeps neither the app's private key nor any GitHub token; it acts only when you approve a device, with a token GitHub issues on the spot, and revokes that token right after. You can uninstall the app from your GitHub settings any time; to avoid it, skip sign-in and connect a repository you created yourself.
+**The GitHub app.** The first time a soul repository is created, GitHub asks you to install the Quetzal app and choose which repositories it may manage. Its permission is write access to Administration on those repositories: under GitHub's rules that covers creating repositories, adding deploy keys and changing settings, including deleting those repositories, and it cannot read files. Quetzal uses it only to create the repository and add deploy keys. The sync service keeps neither the app's private key nor any GitHub token; it acts only when you approve a device, with a token GitHub issues on the spot, and revokes that token right after. You can uninstall the app from your GitHub settings any time; to avoid it, skip sign-in and connect a repository you created yourself.
 
 **What it can reach.** Run commands is allowed by default, and the agent runs as the same system user as the runtime. Commands run in an isolated space (bubblewrap → Landlock → proot on computers, proot on Android) that hides the key folder; with no isolation available, they do not run. The isolation does not stop everything: on October 5, 2026, an agent ran git by itself and pushed a journal entry into a public repository. Since then the code enforces new limits (the soul folder's `.git` is read-only to it, the push address is reset before each push, unknown history stops syncing), and the system prompt spells out hard rules. Give it a device of its own; to tighten things, set Run commands to Ask.
 
@@ -98,7 +98,7 @@ Full details: [Trust and limits](https://quetzal.plutokeating.beer/en/docs/guide
 **A spare Android phone** (Android 7 or later, arm64)
 
 1. Install the **Quetzal app** ([download page](https://quetzal.plutokeating.beer/en/download)). Nothing else: Node.js, git and ssh come inside the app.
-2. Open the app and installation starts by itself. Follow the wizard: allow body permissions, let it run in the background, sign in with GitHub, and paste a model key. Sign-in and the model can wait until later.
+2. Open the app and installation starts by itself. Follow the wizard: allow body permissions, let it run in the background, sign in, and paste a model key. Sign-in and the model can wait until later.
 
 **A Linux computer or server**
 
@@ -120,7 +120,7 @@ More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other mach
 | [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears), the web version (desktop browser, served by the runtime) and the Linux desktop app (native window, installed by the one-line installer) |
 | [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux installer (systemd user service) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |
-| [`sync/`](sync/README.md) | Sync service: accounts (GitHub sign-in), creating the soul repository and adding deploy keys (a GitHub app), body binding, signaling and TURN relay that connect the bodies of one agent into a mesh; deployed on its own server with a single `./start.sh` |
+| [`sync/`](sync/README.md) | Sync service: accounts (OpenID Connect sign-in), creating the soul repository and adding deploy keys (a GitHub app), body binding, signaling and TURN relay that connect the bodies of one agent into a mesh; deployed on its own server with a single `./start.sh` |
 | [`website/`](website/docs/README.md) | Website and docs site |
 | [`docs/`](docs/) | [Quick start](docs/QUICK_START.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Soul sync](docs/SOUL_SYNC.md) · [Repository spec](docs/SOUL_REPO_SPEC.md) · [Distributed design](docs/DISTRIBUTED.md) · [One-step onboarding](docs/ONBOARDING.md) · [Changelog](CHANGELOG.md) (Chinese) |
 
