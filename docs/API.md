@@ -119,7 +119,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
-| `speech` / `setSpeech` | — / `{region?, endpoint?, key?, voice?, style?, rate?, pitch?, volume?, format?}` | 查看 / 修改配置；密钥只返回末四位，留空不改。`endpoint` 只接受 Azure 语音服务的 HTTPS 地址（`*.microsoft.com`、`*.azure.com`、`*.cognitiveservices.azure.com`），否则报错；配置文件里或其他身体同步来的不合规端点会被清空。她的 `voice_config` 不能改端点 |
+| `speech` / `setSpeech` | — / `{region?, endpoint?, key?, voice?, style?, rate?, pitch?, volume?, format?}` | 查看 / 修改配置；密钥只返回末四位，留空不改。给了 `key`、没给 `region`、也没有自定义端点时，自动找出密钥所属的区域（向各区域官方的 `*.api.cognitive.microsoft.com/sts/v1.0/issueToken` 各申请一次令牌，认它的就是，几个都认时保留原区域）；都不认就不保存并报错。`endpoint` 只接受 Azure 语音服务的 HTTPS 地址（`*.microsoft.com`、`*.azure.com`、`*.cognitiveservices.azure.com`），否则报错；配置文件里或其他身体同步来的不合规端点会被清空。她的 `voice_config` 不能改端点 |
 | `speechVoices` | `{locale?}` | 可选音色（含支持的风格） |
 | `speechTest` | `{text?}` | 用当前配置合成并播放一句 |
 
@@ -209,6 +209,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `providers` | — | `{config, version}`，Key 只含末四位 |
 | `saveProviders` | `{config, expected}` | 整份保存；`expected` 为加载时的版本号，不符返回 `STALE_CONFIG` |
 | `catalog` / `refreshCatalog` | — | 公共模型目录（models.dev） |
+| `providers.quick` | `{catalogId, key}` | 快速接入：按公共目录建（或沿用同一个）供应商并换上这把 Key → 问供应商有哪些模型 → 在目录里挑能调用工具的（稳定版优先、发布日期新的优先），逐个试通，留两个接在全局顺序最后，比主力便宜的那个设为内省模型。返回 `{ok, provider, models, message}`；一个都不通时一切恢复原样（原来的 Key 与模型照常可用），`message` 为原因 |
 | `remoteModels` | `{providerId}` | 从供应商接口拉取模型 ID 列表 |
 | `testModel` | `{providerId, model}` | `{ok, latencyMs, message}` |
 | `moveModel` / `toggleModel` | `{modelId, delta}` / `{modelId}` | 快捷调整全局顺序与启停 |

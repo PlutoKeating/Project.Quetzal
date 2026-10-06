@@ -9,7 +9,7 @@ flowchart LR
     SYNC --- DB[("data/sync/sync.db<br/>node:sqlite")]
     TURN["coturn<br/>:3478 + 中转端口段<br/>STUN · TURN"]
   end
-  W["网页前端（官网）<br/>登录 · 账户 · 批准设备"] -- "/v1/web/*（CORS，同站 Cookie）" --> CADDY
+  W["网页前端（官网）<br/>登录 · 账户 · 添加设备"] -- "/v1/web/*（CORS，同站 Cookie）" --> CADDY
   U["浏览器"] --> W
   APP["App（控制台）"] -- 网关 --> A
   A["身体 A"] -- "wss /v1/ws 信令" --> CADDY
@@ -30,7 +30,7 @@ flowchart LR
 | 输入校验 | zod | 所有外部输入（接口请求体、WebSocket 消息、环境变量）都按 schema 校验 |
 | 存储 | `node:sqlite` | Node 内置，没有原生依赖；预编译语句，没有拼接 SQL |
 | 身体之间 | WebRTC（ICE / DTLS / SCTP） | 打洞、加密、可靠传输都是成熟标准；同步服务只转发信令 |
-| 给人看的页面 | 网页前端（`SYNC_WEB_URL`） | 官方部署由官网 quetzal.plutokeating.beer 提供登录、账户与批准设备（`website/app/routes/account/`）；同步服务只提供接口。自建且不配前端时退回自带的简单页面 |
+| 给人看的页面 | 网页前端（`SYNC_WEB_URL`） | 官方部署由官网 quetzal.plutokeating.beer 提供登录、账户与添加设备（`website/app/routes/account/`）；同步服务只提供接口。自建且不配前端时退回自带的简单页面 |
 
 ## 2. 代码
 

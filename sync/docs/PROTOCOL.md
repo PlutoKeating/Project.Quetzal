@@ -20,7 +20,7 @@ sequenceDiagram
   B->>S: POST /v1/device/code {agent, body, kind, nodeKey, version}
   S-->>B: {device_code, user_code, verification_uri, verification_uri_complete, expires_in: 900, interval: 5}
   B->>U: 显示 user_code、链接与本机公钥指纹
-  U->>S: GitHub 登录 → 网页前端的「批准设备」输入 user_code → 核对 agent、身体、指纹 → 批准（§5）
+  U->>S: GitHub 登录 → 网页前端的「添加设备」输入 user_code → 核对 agent、身体、指纹 → 批准（§5）
   loop 每 interval 秒
     B->>S: POST /v1/device/token {device_code}
     S-->>B: 400 {error: authorization_pending | slow_down}
@@ -138,7 +138,7 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
 
 ## 5. 账户接口：`/v1/web/*`
 
-给人看的页面（登录、账户、批准设备）都在网页前端（`SYNC_WEB_URL`，官方部署为 https://quetzal.plutokeating.beer），同步服务只提供接口；App（控制台）经运行基座用同一套接口。没有配置 `SYNC_WEB_URL` 时，同步服务退回自带的简单页面（`/`、`/account`、`/device`）；配置了时这些地址一律跳到前端。
+给人看的页面（登录、账户、添加设备）都在网页前端（`SYNC_WEB_URL`，官方部署为 https://quetzal.plutokeating.beer），同步服务只提供接口；App（控制台）经运行基座用同一套接口。没有配置 `SYNC_WEB_URL` 时，同步服务退回自带的简单页面（`/`、`/account`、`/device`）；配置了时这些地址一律跳到前端。
 
 ### 5.1 登录与身份
 
@@ -203,7 +203,7 @@ sequenceDiagram
   B->>S: POST /v1/console/code（Bearer 身体令牌）
   S-->>B: {device_code, user_code, verification_uri_complete, …}
   B-->>A: 码与链接
-  U->>S: 批准设备：输入码 → 页面写明「这是控制台登录，批准后能管理整个账户」→ 批准
+  U->>S: 添加设备：输入码 → 页面写明「这是控制台登录，批准后能管理整个账户」→ 批准
   B->>S: POST /v1/device/token {device_code}
   S-->>B: 200 {access_token: "qsc_…", kind: "console", account, expires_in}
   A->>B: account.get / account.removeBody …

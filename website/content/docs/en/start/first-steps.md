@@ -15,11 +15,12 @@ description: The first ten minutes after installing: configure a model, name her
 
 **Control → Models** (the setup wizard's last step **Choose a model**, and the **Choose a model** card on **Now** while there is no model, lead here too):
 
-1. **Add a provider**: pick one from the catalog (sourced from models.dev, with context lengths and prices) or enter a custom API URL and protocol (OpenAI-compatible, OpenAI Responses, Anthropic Messages, Google Gemini).
-2. **Add a key**: keys are encrypted on the phone; the UI shows only the last four characters.
-3. **Tick models** → **Save** → **Test**.
-4. Drag to reorder the **global model order**. The first one is used first; on failure the next one takes over.
-5. Optional: set a cheap, fast model as the **introspection (quick) model** for the lightweight "do I feel like doing anything?" check when she wakes.
+1. Tap a provider (DeepSeek, Kimi, Zhipu, Alibaba Cloud Bailian, SiliconFlow, Volcano Ark, OpenRouter, OpenAI, Anthropic, Gemini; search the rest under **More**).
+2. Paste the API key and tap **Connect**.
+
+Everything else is automatic: the key is encrypted on the device; the runtime asks the provider which models it offers, picks the newest tool-capable ones from the public catalog (models.dev), tests them one by one and keeps two (the first is the main model, the other takes over when it fails; whichever is cheaper than the main one handles the lightweight introspection check). A wrong key changes nothing and the reason is shown.
+
+To add several keys, pick models by hand, reorder or use a custom API URL, tap **Edit** in the top right.
 
 Details in [Models and providers](/docs/guide/models).
 

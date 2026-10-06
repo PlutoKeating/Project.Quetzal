@@ -14,7 +14,9 @@ description: Four protocols, several providers and keys, a global call order wit
 
 ## Configuring in the console (phone app or web version, the same interface)
 
-**Control → Models**. The configuration is edited as a draft and saved as a whole:
+**Control → Models**: tap a provider, paste the key and tap **Connect**; the runtime picks, tests and orders the models for you (see [First steps](/docs/start/first-steps)).
+
+For fine-tuning, tap **Edit** in the top right. The editor works on a draft that is saved as a whole:
 
 1. **Add a provider**: from the catalog or custom (name, API URL including the version path such as `/v1`, protocol).
 2. **Add keys**: several keys per provider are fine; they rotate.
