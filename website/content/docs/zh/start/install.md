@@ -5,7 +5,7 @@ description: 在一台闲置的安卓手机上只装一个 Quetzal App，跟着�
 
 ## 总览
 
-只装一个 App。运行基座、Node.js、git、ssh 都在 Quetzal App 里，不需要 Termux，也不需要命令行。（装到 Linux 电脑或服务器上是另一条路：一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`，见 [Linux 与其他机器](/docs/advanced/other-machines)。）
+只装一个 App。运行基座、Node.js、git、ssh 都在 Quetzal App 里，不需要 Termux，也不需要命令行。（装到 Linux 电脑或服务器上是另一条路：一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`，见 [Linux 与其他机器](/docs/advanced/other-machines)；Windows 电脑在 PowerShell 里运行 `irm https://quetzal.plutokeating.beer/install.ps1 | iex`，见 [Windows](/docs/advanced/windows)。）
 
 ```mermaid
 flowchart TB
@@ -53,7 +53,7 @@ flowchart TB
 
 每个版本的发布页除了安装包，还有两个文件：
 
-- **`SHA256SUMS`**：这个版本每个安装包（安卓 APK、Linux 原生控制台包）的 SHA-256，外加一行 `commit <提交哈希> v<版本>`，写明它是从仓库的哪个提交构建的。
+- **`SHA256SUMS`**：这个版本每个安装包（安卓 APK、Linux 原生控制台包、Windows 安装包）的 SHA-256，外加一行 `commit <提交哈希> v<版本>`，写明它是从仓库的哪个提交构建的。
 - **`SHA256SUMS.sig`**：项目发布密钥对 `SHA256SUMS` 的 Ed25519 签名（base64）。私钥只在发布流水线里。
 
 发布公钥（原始 32 字节，base64url）：

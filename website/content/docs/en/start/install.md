@@ -5,7 +5,7 @@ description: Install just one app, Quetzal, on a spare Android phone, and let th
 
 ## Overview
 
-Just one app. The runtime, Node.js, git and ssh all live inside the Quetzal app: no Termux, no command line. (Installing on a Linux computer or server is a different path: one line, `curl -fsSL https://quetzal.plutokeating.beer/install | bash`, see [Linux and other machines](/docs/advanced/other-machines).)
+Just one app. The runtime, Node.js, git and ssh all live inside the Quetzal app: no Termux, no command line. (Installing on a Linux computer or server is a different path: one line, `curl -fsSL https://quetzal.plutokeating.beer/install | bash`, see [Linux and other machines](/docs/advanced/other-machines); on a Windows PC, run `irm https://quetzal.plutokeating.beer/install.ps1 | iex` in PowerShell, see [Windows](/docs/advanced/windows).)
 
 ```mermaid
 flowchart TB
@@ -53,7 +53,7 @@ Open Quetzal's **Now** page to see its state and drives. It will not wake until 
 
 Besides the packages, every release page carries two files:
 
-- **`SHA256SUMS`**: the SHA-256 of every package in the release (Android APK, Linux native console tarballs), plus one line `commit <commit hash> v<version>` naming the repository commit it was built from.
+- **`SHA256SUMS`**: the SHA-256 of every package in the release (Android APK, Linux native console tarballs, Windows installers), plus one line `commit <commit hash> v<version>` naming the repository commit it was built from.
 - **`SHA256SUMS.sig`**: the project's Ed25519 release-key signature over `SHA256SUMS` (base64). The private key exists only in the release pipeline.
 
 Release public key (raw 32 bytes, base64url):

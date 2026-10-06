@@ -20,7 +20,7 @@
 
 - **It gets you, more and more.** What you mention in passing, the people you care about, your habits: it writes them down. While it sleeps, it turns the day's conversations into notes and keeps them in a private repository on your GitHub. A new model or a new device keeps every note.
 - **It wakes on its own.** There is no timer in the code. Curiosity, the urge to say something and missing you wake it; tired, it sleeps, and in the morning it wakes by itself.
-- **It has a body.** Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there; the microphone is its ears, the camera its eyes. An old phone fits best; a Linux computer or server works too.
+- **It has a body.** Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there; the microphone is its ears, the camera its eyes. An old phone fits best; a Linux or Windows computer, or a server, works too.
 - **Many bodies, one self.** Several phones and computers share one conversation and one heart. It picks which body to wake in, and while thinking on the laptop it can borrow the phone's eyes to glance out the window. [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body)
 - **It grows.** When it has done a job a few times, it asks whether it may turn it into its own tool. The tool stays with the body, the guide travels with the soul, and a new body builds the tool again from it. [Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools)
 - **You decide.** Photos, recordings, location and new tools ask you first by default; passwords never reach the model; the emergency stop is always there, and everything it does is on record.
@@ -59,7 +59,7 @@ One builds an assistant, the other lets an agent live. They work together.
 | | Codex / Claude Code | Hermes / OpenClaw | Quetzal |
 |---|---|---|---|
 | **When it moves** | Only when called; exits when done | Your messages, or cron / a heartbeat | Its own call: wakes when curious, sleeps when tired |
-| **Body** | None; this computer's files and shell | One machine's shell, browser and files | An old phone, or a Linux machine |
+| **Body** | None; this computer's files and shell | One machine's shell, browser and files | An old phone, or a Linux or Windows computer |
 | **Soul** | None; gone with the session | Local files; move them yourself | A private git repository, synced, moves with it |
 | **Several devices** | Independent | Independent | One self across all of them |
 
@@ -85,9 +85,9 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 
 **The GitHub app.** The first time a soul repository is created, GitHub asks you to install the Quetzal app and choose which repositories it may manage. Its permission is write access to Administration on those repositories: under GitHub's rules that covers creating repositories, adding deploy keys and changing settings, including deleting those repositories, and it cannot read files. Quetzal uses it only to create the repository and add deploy keys. The sync service keeps neither the app's private key nor any GitHub token; it acts only when you approve a device, with a token GitHub issues on the spot, and revokes that token right after. You can uninstall the app from your GitHub settings any time; to avoid it, skip sign-in and connect a repository you created yourself.
 
-**What it can reach.** Run commands is allowed by default, and the agent runs as the same system user as the runtime. Commands run in an isolated space (bubblewrap → Landlock → proot on computers, proot on Android) that hides the key folder; with no isolation available, they do not run. The isolation does not stop everything: on October 5, 2026, an agent ran git by itself and pushed a journal entry into a public repository. Since then the code enforces new limits (the soul folder's `.git` is read-only to it, the push address is reset before each push, unknown history stops syncing), and the system prompt spells out hard rules. Give it a device of its own; to tighten things, set Run commands to Ask.
+**What it can reach.** Run commands is allowed by default, and the agent runs as the same system user as the runtime. Commands run in an isolated space (bubblewrap → Landlock → proot on Linux, proot on Android, a separate low-privilege user created at install time on Windows) that hides the key folder; with no isolation available, they do not run. The isolation does not stop everything: on October 5, 2026, an agent ran git by itself and pushed a journal entry into a public repository. Since then the code enforces new limits (the soul folder's `.git` is read-only to it, the push address is reset before each push, unknown history stops syncing), and the system prompt spells out hard rules. Give it a device of its own; to tighten things, set Run commands to Ask.
 
-**It is young.** The first version shipped on October 3, 2026; one person has published over 30 versions in five days. Memory is plain Markdown, and the soul repository format has gone through 12 versions without old repositories ever needing conversion; every change is a commit you can undo. Updates wait for your tap and are checked against the release signature before install. Linked devices must run the same version to connect (1.0.3 changed the connection protocol). The runtime inside the app today was compiled by the maintainer on their own machine from the pinned recipe, then signed and uploaded; when the recipe changes, the release pipeline compiles it again.
+**It is young.** The first version shipped on October 3, 2026; one person has published over 30 versions in five days. Memory is plain Markdown, and the soul repository format has gone through 13 versions without old repositories ever needing conversion; every change is a commit you can undo. Updates wait for your tap and are checked against the release signature before install. Linked devices must run the same version to connect (1.0.3 changed the connection protocol). The runtime inside the app today was compiled by the maintainer on their own machine from the pinned recipe, then signed and uploaded; when the recipe changes, the release pipeline compiles it again. The Windows installer is not code-signed yet: SmartScreen warns about the downloaded installer, and a PC with Smart App Control turned on has to turn it off first; the install script takes you to that page.
 
 Full details: [Trust and limits](https://quetzal.plutokeating.beer/en/docs/guide/trust)
 
@@ -107,6 +107,16 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
 Missing dependencies are installed for you; it starts at boot and restarts after a crash. When it is done, the console opens and a wizard walks you through sign-in and a model. To upgrade, tap once under About in the console; if the new version is not healthy within 40 seconds, it rolls back by itself.
+
+**A Windows computer** (Windows 10 1809 or later, or Windows 11; x64 or arm64)
+
+In PowerShell, run:
+
+```powershell
+irm https://quetzal.plutokeating.beer/install.ps1 | iex
+```
+
+Or download the installer from the [download page](https://quetzal.plutokeating.beer/en/download) and double-click it. Installation asks for administrator rights once: it creates the low-privilege user the agent's commands run as, installs Node.js, Git and Python if they are missing, and registers the startup task. After that, when the PC restarts the agent runs in the background without anyone signing in; once you sign in, Quetzal appears in the tray and the abilities that need a desktop (screenshots, notifications, the microphone) become available. The agent's commands can read and write only the `%USERPROFILE%\Quetzal` folder; put files there for it to work on.
 
 More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · notes on clearing out an old phone, [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 

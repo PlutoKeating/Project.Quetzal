@@ -45,7 +45,8 @@ It runs commands. That is how it gets things done on its own: looking things up,
 
 - It and the runtime are the same system user. Whatever a command can do, it can do: read and write files in your home directory, go online, call programs on the device.
 - Commands run in a **sandbox**. On a computer Quetzal tries bubblewrap, Landlock and proot in that order; on Android it uses proot. Inside the sandbox the key directory and the console's login data do not exist. On a computer the browser's sign-in data is hidden too, and commands cannot change autostart entries or ssh configuration. Before each kind of sandbox is used for the first time, Quetzal tests it to confirm the keys really are hidden. When no sandbox works, none of its commands run.
-- This sandbox **does not stop everything**. proot on Android does its best and no more. On a computer, if sshd is running locally and trusts a private key the agent can read, or if tmux or screen is running, a command can get out.
+- Windows is different: the agent's commands do not run as you but as a low-privilege user created at install time. They can read and write only `%USERPROFILE%\Quetzal`, reach the network only through the runtime's proxy, and cannot connect to this PC's own ports or read other files in your user folder. The cost and the remaining risks are in section 3 of [Windows](/docs/advanced/windows).
+- This sandbox **does not stop everything**. proot on Android does its best and no more. On a Linux computer, if sshd is running locally and trusts a private key the agent can read, or if tmux or screen is running, a command can get out.
 
 **What happened**: on October 5, 2026, an agent failed to sync its memory, ran git on its own, and pointed the soul repository's address at Quetzal's public source repository. One journal entry ended up in the public repository as a result. Later versions added these defenses:
 

@@ -15,7 +15,7 @@ export const SITE_RELEASES_API = "/api/releases";
 const CACHE_KEY = "quetzal.releases";
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
-export type AssetKind = "apk" | "runtime" | "checksums" | "other";
+export type AssetKind = "apk" | "windows-x64" | "windows-arm64" | "runtime" | "checksums" | "other";
 
 export interface ReleaseAsset {
   name: string;
@@ -56,6 +56,8 @@ export function classifyAsset(name: string): AssetKind {
   if (n === "sha256sums" || n.endsWith(".sha256") || n.endsWith("sha256sums.txt")) return "checksums";
   if (n.startsWith("quetzal-runtime-") && (n.endsWith(".tar.gz") || n.endsWith(".tgz"))) return "runtime";
   if (n.endsWith(".apk")) return "apk";
+  if (/-windows-x64-setup\.exe$/.test(n)) return "windows-x64";
+  if (/-windows-arm64-setup\.exe$/.test(n)) return "windows-arm64";
   return "other";
 }
 

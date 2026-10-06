@@ -144,6 +144,33 @@ export default function Download() {
         </Section>
       )}
 
+      {/* Windows：一行命令或安装包（安装包按架构，读最新发布） */}
+      <Section tone="elevated">
+        <Container className="grid gap-6 lg:grid-cols-[1fr_1.4fr] lg:gap-12"> {/* ds-allow：栅格比例 */}
+          <div className="flex min-w-0 flex-col gap-2">
+            <Eyebrow>{t.windows.eyebrow}</Eyebrow>
+            <Heading size="md">{t.windows.heading}</Heading>
+            <p className="text-sm text-fg-muted">{t.windows.requirements}</p>
+          </div>
+          <div className="flex min-w-0 flex-col gap-4">
+            <CommandLine command={t.windows.command} copy={t.other.copy} copied={t.other.copied} prompt="PS> " />
+            <p className="text-fg-muted text-pretty">{t.windows.body}</p>
+            {state.status === "ready" && (() => {
+              const latest = pickLatest(state.releases);
+              const x64 = latest && findAsset(latest, "windows-x64"), arm = latest && findAsset(latest, "windows-arm64");
+              if (!x64 && !arm) return null;
+              return (
+                <div className="flex flex-col gap-2">
+                  {x64 && <AssetButton asset={x64} label={t.windows.x64} variant="secondary" lang={lang} kind="EXE" />}
+                  {arm && <ExternalLink href={arm.url} className="self-start text-sm">{t.windows.arm64} ↓</ExternalLink>}
+                </div>
+              );
+            })()}
+            <p className="text-sm text-fg-subtle text-pretty">{t.windows.unsigned}</p>
+          </div>
+        </Container>
+      </Section>
+
       {/* 其他机器：命令本身是视觉锚点 */}
       <Section>
         <Container className="grid gap-6 lg:grid-cols-[1fr_1.4fr] lg:gap-12"> {/* ds-allow：栅格比例 */}
@@ -163,7 +190,7 @@ export default function Download() {
 }
 
 /** 一行命令 + 复制按钮：安装命令是这一节的视觉锚点，复制后按钮短暂变成「已复制」。 */
-function CommandLine({ command, copy, copied }: { command: string; copy: string; copied: string }) {
+function CommandLine({ command, copy, copied, prompt = "$ " }: { command: string; copy: string; copied: string; prompt?: string }) {
   const [done, setDone] = useState(false);
   const onCopy = async () => {
     try { await navigator.clipboard.writeText(command); setDone(true); setTimeout(() => setDone(false), 1500); } catch { /* 剪贴板不可用 */ }
@@ -171,7 +198,7 @@ function CommandLine({ command, copy, copied }: { command: string; copy: string;
   return (
     <div className="flex items-stretch overflow-hidden rounded-lg border border-border bg-surface">
       {/* 命令可以折行：窄处换行，不出横向滚动条 */}
-      <pre className="min-w-0 flex-1 whitespace-pre-wrap break-all px-4 py-3 font-mono text-sm leading-relaxed text-fg"><code><span aria-hidden className="select-none text-fg-subtle">$ </span>{command}</code></pre>
+      <pre className="min-w-0 flex-1 whitespace-pre-wrap break-all px-4 py-3 font-mono text-sm leading-relaxed text-fg"><code><span aria-hidden className="select-none text-fg-subtle">{prompt}</span>{command}</code></pre>
       <button type="button" onClick={onCopy} aria-live="polite" className="shrink-0 border-l border-border px-4 text-sm text-fg-muted transition-colors duration-(--ds-duration-fast) hover:bg-surface-hover hover:text-fg">
         {done ? copied : copy}
       </button>
@@ -185,14 +212,14 @@ function notesForLang(body: string, lang: "zh" | "en"): string {
   return body.split("\n").filter((line) => !/^\s*[-*]\s/.test(line) || cjk.test(line) === (lang === "zh")).join("\n");
 }
 
-function AssetButton({ asset, label, variant, lang, onClick }: { asset: ReleaseAsset; label: string; variant: "accent" | "secondary"; lang: "zh" | "en"; onClick?: () => void }) {
+function AssetButton({ asset, label, variant, lang, onClick, kind = "APK" }: { asset: ReleaseAsset; label: string; variant: "accent" | "secondary"; lang: "zh" | "en"; onClick?: () => void; kind?: string }) {
   return (
     <ButtonAnchor href={asset.url} onClick={onClick} variant={variant} size="lg" className="h-auto w-full min-w-0 max-w-full flex-col items-start gap-1 px-5 py-4 text-left">
       {/* 按钮基类是 nowrap，换行只能写在子元素上，否则同属性类的先后顺序决定谁生效 */}
       <span className="whitespace-normal text-lg">{label}</span>
       {/* 手机上只写类型与大小，完整文件名留给宽屏 */}
       <span className={cx("block w-full whitespace-normal font-mono text-xs font-normal", variant === "accent" ? "opacity-(--ds-opacity-muted)" : "text-fg-muted")}>
-        <span className="sm:hidden">APK · {formatBytes(asset.size, lang)}</span>
+        <span className="sm:hidden">{kind} · {formatBytes(asset.size, lang)}</span>
         <span className="hidden break-all sm:inline">{asset.name} · {formatBytes(asset.size, lang)}</span>
       </span>
     </ButtonAnchor>

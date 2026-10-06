@@ -41,6 +41,16 @@ export const messages = defineMessages({
       showLess: "收起",
       count: "个版本",
     },
+    windows: {
+      eyebrow: "Windows",
+      heading: "装到一台 Windows 电脑上",
+      body: "在 PowerShell 里运行这一行，或者下载安装包。安装时会请求一次管理员权限。电脑重启后不用登录，ta 也在后台运行。",
+      command: "irm https://quetzal.plutokeating.beer/install.ps1 | iex",
+      x64: "下载 Windows 安装包（x64）",
+      arm64: "ARM 版（arm64）",
+      unsigned: "安装包还没有代码签名：浏览器下载的会被 SmartScreen 提示；开着「智能应用控制」的电脑要先关掉它，用上面那行命令装时会带你去设置页。",
+      requirements: "要求：Windows 10 1809 以上或 Windows 11。",
+    },
     other: {
       eyebrow: "Linux 与其他机器",
       heading: "装到一台 Linux 电脑或服务器上",
@@ -100,6 +110,16 @@ export const messages = defineMessages({
       showAll: "Show all",
       showLess: "Show less",
       count: "releases",
+    },
+    windows: {
+      eyebrow: "Windows",
+      heading: "Install on a Windows computer",
+      body: "Run this line in PowerShell, or download the installer. Installation asks for administrator rights once. When the PC restarts, the agent runs in the background without anyone signing in.",
+      command: "irm https://quetzal.plutokeating.beer/install.ps1 | iex",
+      x64: "Download the Windows installer (x64)",
+      arm64: "ARM version (arm64)",
+      unsigned: "The installer is not code-signed yet: a copy downloaded in a browser gets a SmartScreen warning, and a PC with Smart App Control on has to turn it off first; the command above takes you to that setting.",
+      requirements: "Requirements: Windows 10 1809 or later, or Windows 11.",
     },
     other: {
       eyebrow: "Linux and other machines",
