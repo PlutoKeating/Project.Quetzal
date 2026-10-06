@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.3.1
+
+- 几台设备里有一台还没升级时，提醒也会照常响（以前可能一条都不响）。全部升级后，同一条提醒只由一台设备发出。
+
+- Reminders now go off even while one of your devices has not been updated yet (before, they might not go off at all). Once every device is updated, each reminder is sent by only one device.
+
 ## 1.3.0
 
 - **让 ta 提醒你**：说「明早 8 点提醒我吃药」「每周一 9 点提醒我开会」，到点准时提醒，ta 醒着睡着都一样。此刻页能看到接下来的提醒，点叉取消。

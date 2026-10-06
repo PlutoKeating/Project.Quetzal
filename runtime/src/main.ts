@@ -17,8 +17,19 @@ import { bus } from "./bus.ts";
 import { log } from "./log.ts";
 import { VERSION } from "./version.ts";
 import { restore as restoreAgents } from "./mind/agents.ts";
-import { startMesh, wireMesh, registerSoulLink } from "./mesh/runtime.ts";
+import { startMesh, wireMesh, registerSoulLink, meshStatus } from "./mesh/runtime.ts";
 import { soulLink } from "./ops.ts";
+
+/** 持心跳的身体还是 1.3.0 以前的版本（不认识提醒）：跟随者自己负责触发，免得一条也不响（几具新版本的跟随者可能各响一次；都升级后恢复只由持心跳的那具触发）。 */
+function coordinatorLacksReminders(): boolean {
+  try {
+    const m = meshStatus() as { coordinator?: string; peers?: { body: string; version?: string }[] };
+    const v = m.peers?.find((p) => p.body === m.coordinator)?.version;
+    if (!v) return false;
+    const [a, b] = v.split(".").map(Number);
+    return a < 1 || (a === 1 && b < 3);
+  } catch { return false; }
+}
 
 /** 熔断：10 分钟内启动超过 5 次（说明在反复崩溃）则进入安全模式——只开网关与飞书，不醒来、不调用模型。 */
 function crashGuard(): boolean {
@@ -58,7 +69,7 @@ async function main() {
     bus.emit("say", `${r.text}${r.step ? `——先做：${r.step}` : ""}${tail}`);
     addTimeline("reminder", `到点提醒了对方：${r.text}`, { id: r.id, late });
     nudge(`到点提醒了对方：${r.text}`, { social: 0.05 });
-  }, () => !isFollower(), 30_000);
+  }, () => !isFollower() || coordinatorLacksReminders(), 30_000);
   bus.on("reminders.missed", (r, late) => {
     bus.emit("say", `抱歉，错过了一个提醒：${r.text}（原定 ${when(r.at, config.timezone)}，那时我这边没在运行）`);
     addTimeline("reminder", `错过了提醒：${r.text}（晚了 ${Math.round(late / 3_600_000)} 小时）`, { id: r.id, late, missed: true });
