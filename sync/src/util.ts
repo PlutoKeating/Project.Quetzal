@@ -23,9 +23,9 @@ export function normalizeUserCode(input: string) {
   return `${s.slice(0, 4)}-${s.slice(4)}`;
 }
 
-/** 核对词：从设备码的哈希取 3 个表情（64 选 3，约 18 位）。身体在发给人的消息里给出，批准页显示同样的 3 个，人一眼比对：
+/** 核对词：从设备码的哈希取 3 个表情（64 选 3，约 18 位）。表情只用 Emoji 5.0（2017）以前、默认按彩色显示的：Android 8 的手机也要显示得出来，否则人没法核对。身体在发给人的消息里给出，批准页显示同样的 3 个，人一眼比对：
  *  别人发来的钓鱼链接对不上自己的 agent 刚说的那 3 个。不是秘密，也不参与认证。 */
-const CHECK_EMOJI = [..."🦊🐳🦉🐢🦋🐝🐙🦔🐧🦄🐌🦀🐬🦜🐞🦩🌙⭐🌈🔥🌊🍀🌵🌻🍄🌸🍎🍋🍇🍑🥝🍵☕🎈🎵🎲🧩🔑🔔📚🎨🧭⏰🚲⛵🚀🏔🌋🏝🎪🧸🪁🕯💎🧲🔭🪐🌍🍯🥐🧀🍩🍉🌰"];
+export const CHECK_EMOJI = [..."🦊🐳🦉🐢🦋🐝🐙🦔🐧🦄🐌🦀🐬🐰🐞🐨🌙⭐🌈🔥🌊🍀🌵🌻🍄🌸🍎🍋🍇🍑🥝🍵☕🎈🎵🎲🐼🔑🔔📚🎨🌟⏰🚲⛵🚀🌴🌋🎁🎪🐸🎯🍰💎🍒🔭🍓🌍🍯🥐🧀🍩🍉🌰"];
 export function checkWords(idHex: string): string {
   const b = Buffer.from(idHex.slice(0, 6), "hex");
   return [b[0] % 64, b[1] % 64, b[2] % 64].map((i) => CHECK_EMOJI[i]).join("");

@@ -100,7 +100,7 @@ class _MeshPageState extends State<MeshPage> {
           )),
           if (!bound) Section('登录', [
             if (binding == null) ...[
-              Text('登录后，${api.name}在你所有的设备上都是同一个。', style: muted),
+              Text('你所有的设备上都是同一个 ta', style: muted),
               const SizedBox(height: 12),
               if ('${m['server'] ?? ''}'.isNotEmpty) FilledButton(onPressed: () => signInDevice(context), child: const Text('用 GitHub 登录')),
             ],

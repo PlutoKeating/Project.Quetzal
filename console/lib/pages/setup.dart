@@ -103,7 +103,7 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
             Row(children: [FilledButton(onPressed: Igniter.requestBodyPermissions, child: const Text('允许'))]),
         ]));
         steps.add(('后台运行', battery || skipBattery, [
-            Text('不让系统把${api.name}关掉', style: muted),
+            Text('不让系统把 ta 关掉', style: muted),
             const SizedBox(height: 8),
             Wrap(spacing: 8, children: [
               FilledButton(onPressed: () => Igniter.requestIgnoreBattery().catchError((_) {}), child: const Text('允许')),
@@ -114,7 +114,7 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
       }
       steps.add(('登录', _bound || skipLogin, [
             if (binding == null) ...[
-              Text('在你所有的设备上都是同一个${api.name}', style: muted),
+              Text('你所有的设备上都是同一个 ta', style: muted),
               const SizedBox(height: 8),
               Wrap(spacing: 8, children: [
                 FilledButton(onPressed: '${m['server'] ?? ''}'.isEmpty ? null : () => signInDevice(context), child: const Text('用 GitHub 登录')),
@@ -125,7 +125,7 @@ class _SetupPageState extends State<SetupPage> with WidgetsBindingObserver {
             if ('${m['error'] ?? ''}'.isNotEmpty) Text('${m['error']}', style: TextStyle(color: cs.error)),
       ]));
       steps.add(('模型', _models, [
-            Text('${api.name}用它思考', style: muted),
+            Text('ta 靠它思考', style: muted),
             const SizedBox(height: 8),
             Row(children: [FilledButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => ShellScope.isDesktop(c) ? const Scaffold(body: ProvidersPage()) : const ProvidersPage())), child: const Text('选择模型'))]),
       ]));

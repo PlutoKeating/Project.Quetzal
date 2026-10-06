@@ -259,21 +259,28 @@ class Banner0 extends StatelessWidget {
       );
 }
 
+final _opened = DateTime.now();
+
 class OfflineBanner extends ApiWidget {
   const OfflineBanner({super.key});
   @override
-  Widget view(BuildContext context) => Banner0(
-        text: switch (api.conn) { Conn.igniting => '正在启动…', Conn.connecting => '正在连接…', _ => '连不上${api.name}' },
-        color: Colors.red,
-        action: api.conn == Conn.igniting || api.conn == Conn.connecting
+  Widget view(BuildContext context) {
+    final local = hasBody && api.base.contains('127.0.0.1');
+    // 安卓刚打开 App（或刚更新完）：本机的运行基座正由前台服务拉起，头 30 秒算「正在启动」，不报连不上
+    final starting = api.conn == Conn.igniting || (local && DateTime.now().difference(_opened).inSeconds < 30);
+    return Banner0(
+        text: starting ? '正在启动…' : api.conn == Conn.connecting ? '正在连接…' : '连不上${api.name}',
+        color: starting ? Colors.blueGrey : Colors.red,
+        action: starting || api.conn == Conn.connecting
             ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-            : hasBody && api.base.contains('127.0.0.1') // 本机的运行基座才能从这里启动；别处的会自己重连
+            : local // 本机的运行基座才能从这里启动；别处的会自己重连
                 ? FilledButton.tonal(
                     onPressed: () async { final e = await api.ignite(); if (e != null && context.mounted) toast(context, e); },
                     child: const Text('启动'),
                   )
                 : null,
       );
+  }
 }
 
 class Section extends StatelessWidget {

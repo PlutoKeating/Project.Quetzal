@@ -417,3 +417,16 @@ test("数据库迁移：1.0.1 的会话表补上 agent 列，没有创建时间�
   assert.ok(row.created > Date.now() - 60_000);
   db.close();
 });
+
+test("核对表情：64 个各不相同，都是 Emoji 5.0 以前、默认彩色显示的（Android 8 的手机也显示得出来）", async () => {
+  const { CHECK_EMOJI, checkWords } = await import("../src/util.ts");
+  assert.equal(new Set(CHECK_EMOJI).size, 64);
+  const newer = (cp: number) => (cp >= 0x1f96c && cp <= 0x1f97f) || (cp >= 0x1f997 && cp <= 0x1f9bf) || cp >= 0x1f9e7;
+  const textDefault = new Set([..."🕯🏔🏝🏖🏕🗺🌡🕰"].map((c) => c.codePointAt(0)));
+  for (const e of CHECK_EMOJI) {
+    const cp = e.codePointAt(0)!;
+    assert.equal([...e].length, 1, `${e} 是单个字符`);
+    assert.ok(!newer(cp) && !textDefault.has(cp), `${e}（U+${cp.toString(16)}）在旧手机上显示不出来`);
+  }
+  assert.equal([...checkWords("a1b2c3")].length, 3);
+});

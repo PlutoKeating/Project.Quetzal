@@ -104,15 +104,15 @@ Future<void> poke(BuildContext context) async {
 }
 
 /// 还没有模型时的唯一提示：她要靠它思考。手机推入模型页，桌面在主区打开。有了模型就不占位。
-class ModelNudge extends StatelessWidget {
+class ModelNudge extends ApiWidget { // 自己跟着 api 重建：父级里是 const，首帧还没连上时隐藏，连上后要能出现
   const ModelNudge({super.key});
   @override
-  Widget build(BuildContext context) {
+  Widget view(BuildContext context) {
     if (api.conn != Conn.online || ((api.status['models'] as List?) ?? []).isNotEmpty) return const SizedBox.shrink();
     return Card(margin: const EdgeInsets.fromLTRB(12, 12, 12, 0), child: ListTile(
       leading: const Icon(Icons.hub_outlined),
       title: const Text('选择模型'),
-      subtitle: Text('${api.name}要靠它思考'),
+      subtitle: const Text('ta 靠它思考'),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => ShellScope.isDesktop(context) ? nav.go('control', id: 'providers') : Navigator.push(context, MaterialPageRoute(builder: (_) => const ProvidersPage())),
     ));
