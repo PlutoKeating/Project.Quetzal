@@ -313,7 +313,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           flutter precache --windows
           ./console/tool/build-windows.ps1
-          $zip = Get-ChildItem -Path console/build -Filter "quetzal-$env:V-windows-$env:ARCH-console.zip" | Select-Object -First 1
+          $zip = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE 'console/build') -Filter "quetzal-$env:V-windows-$env:ARCH-console.zip" | Select-Object -First 1
           if (-not $zip) { throw "没有找到 console/build/quetzal-$env:V-windows-$env:ARCH-console.zip" }
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath (Join-Path $env:RUNNER_TEMP 'console')
       - name: 运行基座（npm ci + build）与网状层原生组件（win32-<架构>，核对 sha512）

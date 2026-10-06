@@ -7,7 +7,7 @@
 # 本脚本的字符串只用 ASCII：Windows PowerShell 5.1 按系统代码页读没有 BOM 的脚本。
 param([string]$Flutter = $(if ($env:FLUTTER) { $env:FLUTTER } else { 'flutter' }))
 $ErrorActionPreference = 'Stop'
-Set-Location (Join-Path $PSScriptRoot '..')
+Push-Location (Join-Path $PSScriptRoot '..') # restored at the end: callers (CI) keep their own working directory
 
 $m = Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9][0-9.]*)' | Select-Object -First 1
 if (-not $m) { throw 'version not found in pubspec.yaml' }
@@ -69,3 +69,4 @@ try {
     Rename-Item assets/runtime.apk-only runtime
   }
 }
+Pop-Location
