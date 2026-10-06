@@ -40,7 +40,7 @@ after(() => server.close());
 
 test("没绑定：不能登录账户", async () => {
   assert.equal(acct.accountStatus().bound, false);
-  await assert.rejects(acct.signIn(), /先在「多具身体」里绑定/);
+  await assert.rejects(acct.signIn(), /先在「设备」里登录/);
 });
 
 test("控制台登录 → 账户接口 → 令牌被吊销后回到未登录", async () => {

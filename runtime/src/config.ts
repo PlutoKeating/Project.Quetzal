@@ -70,7 +70,7 @@ function systemTimezone(): string {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"; } catch { return "Asia/Shanghai"; }
 }
 
-/** 官方同步服务：默认就用它，用户不用填；自己部署的同步服务在控制台「多具身体」里改，清空即恢复官方。 */
+/** 官方同步服务：默认就用它，用户不用填；自己部署的同步服务在控制台「高级 · 同步」里改，清空即恢复官方。 */
 export const OFFICIAL_SYNC = "https://sync.quetzal.plutokeating.beer";
 
 export const defaults: Config = {

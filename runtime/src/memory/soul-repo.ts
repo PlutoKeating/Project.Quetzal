@@ -188,7 +188,7 @@ export class SoulRepo {
     if (!this.o.remote) return false;
     const bad = checkRemote(this.o.remote);
     if (bad) { this.status.lastError = bad; return false; }
-    if (!isLocal(this.o.remote) && this.o.sshKey && !fs.existsSync(this.o.sshKey)) { this.status.lastError = `私钥 ${this.o.sshKey} 不存在，拒绝访问远端（在「灵魂同步」页生成部署密钥、改用别的私钥，或改用系统 ssh 配置）`; return false; }
+    if (!isLocal(this.o.remote) && this.o.sshKey && !fs.existsSync(this.o.sshKey)) { this.status.lastError = `私钥 ${this.o.sshKey} 不存在，拒绝访问远端（在「高级 · 同步」页生成部署密钥、改用别的私钥，或改用系统 ssh 配置）`; return false; }
     return true;
   }
 

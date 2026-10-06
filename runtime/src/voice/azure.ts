@@ -43,7 +43,7 @@ export function ssml(text: string, c: SpeechConfig) {
 
 function need(c: SpeechConfig) {
   const key = readSecret(KEY);
-  if (!key) throw new Error("还没有配置 Azure 语音密钥（控制台 → 控制 → 语音，或用 voice_config 设置）");
+  if (!key) throw new Error("还没有配置 Azure 语音密钥（控制台 → 控制 → 声音，或用 voice_config 设置）");
   // 密钥随请求发往端点：只发给 Azure 的域名（配置加载与保存时已经校验，这里再挡一次）
   if (!speechEndpointOk(c.endpoint) || !speechRegionOk(c.region)) throw new Error("语音端点不是 Azure 的地址，拒绝发送密钥");
   if (!base(c)) throw new Error("还没有配置 Azure 语音的区域（region，如 eastasia）或端点");

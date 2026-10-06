@@ -242,7 +242,7 @@ const core: Tool[] = [
       }
       if (a.action === "set") {
         // 端点只能由对方在控制台改：密钥随每次请求发往端点，指到别处就是把密钥交出去
-        if (a.endpoint !== undefined && String(a.endpoint).trim() !== config.speech.endpoint) return "没有修改：语音端点只能由对方在控制台的「语音」页修改。你可以改区域、音色、风格、语速、音调、音量与格式。";
+        if (a.endpoint !== undefined && String(a.endpoint).trim() !== config.speech.endpoint) return "没有修改：语音端点只能由对方在控制台的「声音」页修改。你可以改区域、音色、风格、语速、音调、音量与格式。";
         const { action, locale, endpoint, ...patch } = a;
         return JSON.stringify(voice.setSpeech(patch));
       }
@@ -278,7 +278,7 @@ const core: Tool[] = [
   },
   {
     name: "adjust_self", permission: "self_modify",
-    description: "调整自己的性格参数（会改变你醒来的节律与偏好）。可用键：tau.curiosity / tau.expression / tau.social（驱动力饱和时间，小时），weight.curiosity / weight.expression / weight.social / weight.openLoops（各驱动力对醒来的影响权重），gamma，sleepRiseH，sleepFallH，circadianPeakHour。",
+    description: "调整自己的性格参数（会改变你醒来的节律与偏好）。控制台不再让对方调这些：对方说你太吵、太安静或作息不合适时，由你用它调。可用键：tau.curiosity / tau.expression / tau.social（驱动力饱和时间，小时），weight.curiosity / weight.expression / weight.social / weight.openLoops（各驱动力对醒来的影响权重），gamma，sleepRiseH，sleepFallH，circadianPeakHour。",
     parameters: obj({ changes: { type: "object", description: "键值对，如 {\"tau.curiosity\": 2}" } }, ["changes"]),
     handler: async (a) => adjustPersonality(a.changes ?? {}),
   },

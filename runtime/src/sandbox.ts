@@ -15,7 +15,7 @@
 //   - Termux（安卓）：有 proot 就用它，把 secrets/、config/、releases/、runit 服务目录与开机脚本目录绑定成空目录（proot 不能只读绑定）。
 //       proot 基于 ptrace，是尽力而为：它挡得住普通的读文件，挡不住经 Android 的 intent（RUN_COMMAND）让 Termux 在沙箱外执行命令。
 //   - 都没有：默认拒绝执行她的命令（fail-closed，参考 DeepSeek Harness），status.sandbox.kind 为 "none"，时间线与日志各提醒一次；
-//       部署者可以在控制台「服务」页明确选择「允许不隔离运行」（config.sandbox.allowUnsandboxed，不安全）。安装器负责装上可用的沙箱。
+//       部署者可以在控制台「高级 · 运行」页明确选择「不隔离也运行」（config.sandbox.allowUnsandboxed，不安全）。安装器负责装上可用的沙箱。
 //   每种沙箱在第一次使用前都实际验证一次：密钥目录在里面确实看不到（有内容时），否则不用它。
 //   保密库（vault/）在沙箱里仍然可读：pass_secret 的用法就是在命令里引用 "$(cat vault/名字)"。
 //   环境变量 QUETZAL_SANDBOX=none 强制不用沙箱（只给部署者排查问题用）。
@@ -40,7 +40,7 @@ const allowUnsandboxed = () => config.sandbox?.allowUnsandboxed === true;
 
 /** 没有可用沙箱、又没有允许不隔离运行时，wrap 抛出它：工具把说明交给她，命令不执行。 */
 export class SandboxUnavailable extends Error {
-  constructor() { super("没有执行：这台机器上没有可用的命令沙箱（Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot），为了不让命令读到基座的密钥，基座拒绝执行。请告诉对方：重新运行一次安装命令即可补上；或者在控制台「服务」页明确选择允许不隔离运行（不安全）。"); this.name = "SandboxUnavailable"; }
+  constructor() { super("没有执行：这台机器上没有可用的命令沙箱（Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot），为了不让命令读到基座的密钥，基座拒绝执行。请告诉对方：重新运行一次安装命令即可补上；或者在控制台「高级 · 运行」页明确选择允许不隔离运行（不安全）。"); this.name = "SandboxUnavailable"; }
 }
 
 interface Probe { kind: SandboxKind; bin: string; pidns: boolean }

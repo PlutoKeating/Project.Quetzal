@@ -1,4 +1,4 @@
-// 账户：App（控制台）的「账户」页经运行基座管理同步服务上的账户（与官网的账户页是同一套接口，见 sync/docs/PROTOCOL.md §5）。
+// 账户：App（控制台）「设备」页里进入的「账户」页经运行基座管理同步服务上的账户（与官网的账户页是同一套接口，见 sync/docs/PROTOCOL.md §5）。
 // 运行基座手里的身体令牌只代表这具身体；要管理账户，先做一次「控制台登录」：这具身体（已绑定）向同步服务申请一对码，
 // 人在官网的「批准设备」页批准后，拿到一个账户会话令牌（qsc_，存 secrets/sync-account.json，0600）。之后控制台的账户操作都由这里带上它转发。
 // 令牌失效（被吊销、过期、账户删除）时删除本地文件，控制台回到「登录」。agent 的工具不提供这些操作，只有持网关令牌的控制台能用。
@@ -43,10 +43,10 @@ async function post(url: string, body: unknown, headers: Record<string, string> 
 /** 开始控制台登录：返回状态（signing 里是码与链接）；后台轮询，批准后保存令牌。 */
 export async function signIn() {
   const b = readBinding();
-  if (!b) throw new Error("这具身体还没有绑定同步服务：先在「多具身体」里绑定");
+  if (!b) throw new Error("这台设备还没有登录：先在「设备」里登录");
   signing?.abort.abort();
   const r = await post(`${serverOrigin(b.server)}/v1/console/code`, {}, { authorization: `Bearer ${b.token}`, "x-quetzal-version": VERSION });
-  if (r.status !== 200) throw new Error(r.json.error === "unauthorized" ? "这具身体的绑定已失效：先在「多具身体」里重新绑定" : r.json.error === "slow_down" ? "申请太频繁，请稍后再试" : `同步服务拒绝了登录请求（${r.json.error ?? r.status}）`);
+  if (r.status !== 200) throw new Error(r.json.error === "unauthorized" ? "这台设备的登录已失效：先在「设备」里重新登录" : r.json.error === "slow_down" ? "申请太频繁，请稍后再试" : `同步服务拒绝了登录请求（${r.json.error ?? r.status}）`);
   const start = r.json as { device_code: string; user_code: string; verification_uri_complete: string; expires_in: number; interval: number };
   const abort = new AbortController();
   signing = { code: start.user_code, uri: start.verification_uri_complete, expires: Date.now() + start.expires_in * 1000, abort };

@@ -92,7 +92,7 @@ function read(section: Section): unknown {
   return (config as any)[section];
 }
 
-// ---------- 与每具身体对齐设置的结果（控制台「多具身体」页显示：哪些设置采用了对方的、失败的原因）
+// ---------- 与每具身体对齐设置的结果（控制台「设备」页显示：哪些设置采用了对方的、失败的原因）
 const LABEL: Record<string, string> = { providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
 export interface AlignStatus { at: number; took: string[]; error?: string }
 const aligned = new Map<string, AlignStatus>();
