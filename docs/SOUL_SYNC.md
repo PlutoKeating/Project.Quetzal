@@ -91,9 +91,9 @@ sequenceDiagram
 - 提醒过的改动不会重复提醒；它们仍在本地提交里，下一次推送自动带上。
 - 控制台触发的操作（改身份、撤销、立即同步）推送失败时不插话，失败原因显示在「灵魂同步」页。
 - **只推到配置的地址**：推送与拉取直接使用配置里的灵魂仓库地址（`git push <地址> HEAD:refs/heads/<分支>`、`git fetch <地址> …`），不经 `origin`；`origin` 仍按配置校正（有人改了就改回并记日志），但它被改了也不影响推到哪里。系统提示也告诉 agent 不要自己在灵魂目录里运行 git。
-- **不执行灵魂目录里的东西**（规范 v10 §5.2）：每次执行 git 都带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.symlinks=false -c protocol.ext.allow=never -c protocol.file.allow=never`，环境 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=/dev/null`；每次提交、拉取、推送前删掉 `.git/config` 白名单以外的键（`url.*.insteadOf` / `pushInsteadOf`、`core.sshCommand`、`filter.*`、`include.*` 等）。私钥路径必须是绝对路径，在 `GIT_SSH_COMMAND` 里加单引号。
+- **不执行灵魂目录里的东西**（规范 §5.2）：每次执行 git 都带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.symlinks=false -c protocol.ext.allow=never -c protocol.file.allow=never`，环境 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=/dev/null`；每次提交、拉取、推送前删掉 `.git/config` 白名单以外的键（`url.*.insteadOf` / `pushInsteadOf`、`core.sshCommand`、`filter.*`、`include.*` 等）。私钥路径必须是绝对路径，在 `GIT_SSH_COMMAND` 里加单引号。
 - **不收符号链接**：暂存区里的符号链接不提交（记日志）；远端分支里有符号链接时拒绝合并，`lastError` 写明，交给人处理。
-- **密钥不进提交**：提交前取这具身体的密钥值（`secrets/` 下的令牌、主密钥、部署与节点私钥、同步服务与账户令牌、飞书与语音密钥、模型供应商的 Key，以及保密库里的值；12 个字符以上），暂存的改动里出现任何一个就拒绝整个提交、清空暂存区，时间线记一条 `soul`，并以同步提醒（`soul.alert`）告诉碰过这些文件的那一轮：把密钥删掉，删掉之前灵魂目录的改动都不同步（同一组文件只提醒一次）。本地有因此没提交的改动时，这次拉取不合并。灵魂桥复用 `soul-repo.ts`，前几条同样生效；密钥检查需要调用方传入密钥值（`secrets` 选项），桥没有传。
+- **内容不做检查**（规范 v11 §6）：提交前不检查改动里有没有密钥或其他敏感值，她写什么就提交什么（v10 的密钥检查把身体名之类并不保密的值也当成密钥、挡住同步，已取消）。灵魂桥复用 `soul-repo.ts`，前几条同样生效。
 - **只同步灵魂仓库自己的历史**（规范 §5.1）：每个克隆在第一次同步（身份与「是不是灵魂仓库」的检查都通过后）记下灵魂仓库的根提交，存在 `.git/quetzal-soul-roots.json`（连同远端地址；部署者换了灵魂仓库地址时重新记录）。之后本地或远端出现陌生的根提交——例如有人在灵魂目录里 `reset` 到了一个代码仓库——基座停止同步（不合并、不推送），在时间线与控制台提醒一次，交给人处理（干净的做法是备份后重新克隆灵魂仓库）。
 - **agent 的 shell 碰不到灵魂仓库的 git**：边界是沙箱——agent 的命令在 `sandbox.ts` 的沙箱里运行，灵魂目录的工作区可写、`.git` 只读（Linux bwrap；Termux 的 proot 做不到只读，靠上面几条兜底）。另外 `shell` 工具拦下针对灵魂目录的 git 命令（只是提示，换个写法就绕得过去）（`cd soul`、`git -C …/soul`、含灵魂目录路径的命令），返回说明而不执行；主 agent 与子 agent 的系统提示都有「红线」一节：不在灵魂目录里运行 git、灵魂仓库与任何代码仓库（包括 Quetzal 源代码）无关、同步出错不要自己修、不可逆或对外的操作先问人。
 - **不会退到别的仓库**：基座执行 git 时设置 `GIT_CEILING_DIRECTORIES` 为灵魂目录的上一级，灵魂目录的 `.git` 丢失时 git 报错，而不是把改动提交进上层目录里的别的仓库。

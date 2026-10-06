@@ -7,9 +7,9 @@
 //     每次合入的内容与冲突处理结果都会返回给调用方，作为 agent 的知觉。
 //   - 身体登记：bodies/<身体>.json
 //   - 整理租约：locks/consolidation.json，git push 成功即取得（比较并交换）
-//   - git 的安全边界（规范 v10 §5.2）：灵魂目录里的东西可能被 agent 改过，所以每次调用 git 都不执行钩子、不用 fsmonitor、不读系统与全局配置、
+//   - git 的安全边界（规范 §5.2）：灵魂目录里的东西可能被 agent 改过，所以每次调用 git 都不执行钩子、不用 fsmonitor、不读系统与全局配置、
 //     不跟 file:// 协议；.git/config 里白名单以外的键（url.*.insteadOf、core.sshCommand、filter.* 等）在操作前删掉；推送与拉取直接用配置里的地址，
-//     不经 origin；不检出、不提交、不合并符号链接；提交前检查暂存的改动里有没有这具身体的密钥（secrets 选项），有就拒绝提交并提醒。
+//     不经 origin；不检出、不提交、不合并符号链接。内容不做任何检查（规范 v11 §6）。
 import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -25,8 +25,6 @@ export interface SoulRepoOptions {
   isSeedSoul?: (text: string) => boolean; // 判断 SOUL.md 是否仍是种子人格
   bodyInfo?: () => Record<string, unknown>; // 写入 bodies/<身体>.json 的额外信息
   log?: (msg: string) => void;
-  secrets?: () => string[]; // 这具身体的密钥值（令牌、私钥、Key……）：暂存的改动里出现任何一个就拒绝提交（规范 v10 §5.2）
-  onSecret?: (files: string[]) => void; // 因为密钥拒绝提交时通知调用方（提醒 agent）
 }
 
 /** 私钥路径必须是绝对路径、不含控制字符（它会进入 GIT_SSH_COMMAND）。返回错误说明或 undefined。 */
@@ -44,7 +42,7 @@ const CONFIG_KEEP = /^(core\.(repositoryformatversion|filemode|bare|logallrefupd
 const LEASE_MS = 30 * 60_000;
 /** 灵魂仓库里允许出现的顶层条目（规范 §2 的固定与必需条目，加上新建仓库常见的 README、LICENSE）。远端没有 agent.json 时据此判断它是不是灵魂仓库。 */
 const SOUL_TOP = new Set([".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "README", "LICENSE", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "skills", "locks", ".gitkeep"]);
-export const SPEC = { spec: "soul-repo", version: 10 };
+export const SPEC = { spec: "soul-repo", version: 11 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",
@@ -267,7 +265,7 @@ export class SoulRepo {
     return bad;
   }
 
-  /** 暂存区里的符号链接（mode 120000）：从暂存区拿掉，不提交（规范 v10 §5.2）。返回拿掉的路径。 */
+  /** 暂存区里的符号链接（mode 120000）：从暂存区拿掉，不提交（规范 §5.2）。返回拿掉的路径。 */
   private async dropSymlinks(): Promise<string[]> {
     const r = await this.git("ls-files", "-s", "-z");
     const links = r.out.split("\0").filter((l) => l.startsWith("120000 ")).map((l) => l.slice(l.indexOf("\t") + 1));
@@ -275,38 +273,11 @@ export class SoulRepo {
     return links;
   }
 
-  /** 暂存的改动（新增的行）里出现的密钥：返回涉及的文件。 */
-  async stagedSecrets(): Promise<string[]> {
-    const values = (this.o.secrets?.() ?? []).filter((v) => v.length >= 12);
-    if (!values.length) return [];
-    const r = await this.git("diff", "--cached", "--text", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames");
-    const hits = new Set<string>();
-    let file = "";
-    for (const line of r.out.split("\n")) {
-      if (line.startsWith("+++ ")) { file = line.slice(4).replace(/^b\//, ""); continue; }
-      if (line.startsWith("+") && values.some((v) => line.includes(v))) hits.add(file);
-    }
-    return [...hits];
-  }
-
-  /**
-   * 提交全部变更。灵魂仓库是私有的，内容不做检查（规范 §6），只有一个例外：这具身体自己的密钥（令牌、私钥、Key）出现在暂存的改动里就拒绝整个提交，
-   * 留在工作区等她删掉（规范 v10 §5.2）。scan=false 只用于合并提交（内容来自远端，本地改动在合并前已经单独提交并检查过）。
-   */
-  async commit(msg: string, o: { scan?: boolean } = {}) {
+  /** 提交全部变更。灵魂仓库是私有的，内容不做任何检查（规范 v11 §6）：她写什么就提交什么。 */
+  async commit(msg: string) {
     await this.sanitizeConfig();
     await this.git("add", "-A");
     await this.dropSymlinks();
-    if (o.scan !== false) {
-      const leaked = await this.stagedSecrets();
-      if (leaked.length) {
-        if ((await this.git("reset", "-q")).code !== 0) await this.git("rm", "-r", "--cached", "-q", "--ignore-unmatch", "."); // 还没有任何提交时 reset 不了
-        this.status.lastError = `没有提交：${leaked.slice(0, 3).join("、")} 里有这具身体的密钥（令牌、私钥或 Key），删掉后才会同步`;
-        this.o.log?.(this.status.lastError);
-        this.o.onSecret?.(leaked);
-        return false;
-      }
-    }
     for (const w of await this.lint()) this.o.log?.(w);
     return (await this.git("commit", "-m", `${msg}（${this.o.body}）`)).code === 0;
   }
@@ -379,9 +350,9 @@ export class SoulRepo {
       if (!this.known()) await this.recordRoots(["HEAD", this.ref()]);
       this.status.lastPull = Date.now(); this.status.lastError = ""; return none;
     }
-    if (!(await this.commit("拉取前保存")) && /有这具身体的密钥/.test(this.status.lastError)) return none; // 本地有没提交的密钥：先不合并，免得混进合并提交
+    await this.commit("拉取前保存");
     const links = (await this.git("ls-tree", "-r", "-z", this.ref())).out.split("\0").filter((l) => l.startsWith("120000 ")).map((l) => l.slice(l.indexOf("\t") + 1));
-    if (links.length) { this.status.lastError = `远端的灵魂仓库里有符号链接（${links.slice(0, 3).join("、")}），已拒绝合并：灵魂仓库只放普通文件（规范 v10 §5.2）`; this.o.log?.(this.status.lastError); return none; }
+    if (links.length) { this.status.lastError = `远端的灵魂仓库里有符号链接（${links.slice(0, 3).join("、")}），已拒绝合并：灵魂仓库只放普通文件（规范 §5.2）`; this.o.log?.(this.status.lastError); return none; }
     if (!(await this.guardIdentity())) return none;
     if (!this.known()) await this.recordRoots(["HEAD", this.ref()]); // 身份与「是不是灵魂仓库」都检查过了：记下这两段历史的根
     const incoming = (await this.git("log", "--pretty=format:%an%x1f%s", `HEAD..${this.ref()}`)).out.split("\n").filter(Boolean)
@@ -413,7 +384,7 @@ export class SoulRepo {
           resolved.push({ file, kept: remoteNewer ? "remote" : "local", how: copy ? "暂时采用较新的版本，另一版另存为副本待裁决" : "采用较新的版本，另一版本保留在历史中", ...(copy ? { incoming: copy } : {}) });
         }
       }
-      await this.commit("合并来自其他身体的记忆", { scan: false });
+      await this.commit("合并来自其他身体的记忆");
     }
     this.status.lastPull = Date.now(); this.status.lastError = "";
     return { merged: true, incoming, resolved };

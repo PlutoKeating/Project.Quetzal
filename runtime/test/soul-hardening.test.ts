@@ -1,4 +1,4 @@
-// 灵魂仓库的 git 安全边界（规范 v10 §5.2）：.git/config 的改写不生效、钩子不执行、密钥不进提交、不收符号链接、私钥路径加引号。
+// 灵魂仓库的 git 安全边界（规范 §5.2）：.git/config 的改写不生效、钩子不执行、不收符号链接、私钥路径加引号；内容不做检查（v11 §6）。
 import { test } from "node:test";
 process.env.SOUL_ALLOW_LOCAL_REMOTE = "1"; // 测试使用本地裸仓库作为远端
 import assert from "node:assert/strict";
@@ -13,11 +13,9 @@ const g = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, stdio: 
 const bare = (name: string) => { const r = path.join(tmp, name); execFileSync("git", ["init", "--bare", "-b", "main", r]); return r; };
 const remote = bare("soul.git"), evil = bare("evil.git");
 const SECRET = "tok_0123456789abcdefABCDEF";
-const leaks: string[][] = [];
 const repo = new SoulRepo({
   dir: path.join(tmp, "soul"), remote, branch: "main", body: "test",
   author: () => ({ name: "t", email: "t@x" }), seedIdentity: () => ({ id: "a1", name: "t", displayName: "T" }),
-  secrets: () => [SECRET], onSecret: (f) => leaks.push(f),
 });
 
 test("推送直接用配置里的地址：.git/config 里的 url.insteadOf 与改过的 origin 都不生效，且会被删掉", async () => {
@@ -45,18 +43,11 @@ test("钩子不执行（core.hooksPath=/dev/null）", async () => {
   assert.ok(!fs.existsSync(marker));
 });
 
-test("改动里有这具身体的密钥：拒绝整个提交并通知，删掉后照常提交", async () => {
+test("内容不做检查：写进了像令牌的值也照常提交（v11 §6）", async () => {
   fs.mkdirSync(path.join(repo.o.dir, "notes"), { recursive: true });
   fs.writeFileSync(path.join(repo.o.dir, "notes", "x.md"), `令牌是 ${SECRET}\n`);
-  fs.writeFileSync(path.join(repo.o.dir, "notes", "y.md"), "无害\n");
-  const head = g(repo.o.dir, "rev-parse", "HEAD");
-  assert.equal(await repo.commit("泄露"), false);
-  assert.equal(g(repo.o.dir, "rev-parse", "HEAD"), head, "没有新提交");
-  assert.deepEqual(leaks.at(-1), ["notes/x.md"]);
-  assert.match(repo.status.lastError, /密钥/);
-  assert.equal(g(repo.o.dir, "diff", "--cached", "--name-only").trim(), "", "暂存区已清空");
-  fs.writeFileSync(path.join(repo.o.dir, "notes", "x.md"), "令牌是 ‹github_token›\n");
-  assert.ok(await repo.commit("改好了"));
+  assert.ok(await repo.commit("照常"));
+  assert.match(g(repo.o.dir, "show", "HEAD:notes/x.md"), new RegExp(SECRET));
 });
 
 test("不提交符号链接；远端有符号链接时拒绝合并", async () => {

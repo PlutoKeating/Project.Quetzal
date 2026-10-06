@@ -1,11 +1,11 @@
 ---
 title: Soul repository spec
-description: A summary of the soul repository specification (v10): directory tree, file formats, merge rules, commit conventions and authentication.
+description: A summary of the soul repository specification (v11): directory tree, file formats, merge rules, commit conventions and authentication.
 ---
 
 ## Scope
 
-This page summarizes the [Soul Repository Specification v10](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
+This page summarizes the [Soul Repository Specification v11](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
 
 ## Repository
 
@@ -60,7 +60,7 @@ Author `<displayName> (<body>)`, email `<name>@<body>.local`; message `<descript
 
 ## Content: not inspected (v4)
 
-Implementations **must not** redact, privacy-check or otherwise inspect content, and must not refuse a commit because of content. Protection comes from access control, not inspection. The single exception (v10): this body's **own secrets** (the implementation's tokens, private keys, model keys, vault values) appearing in a change make the commit refused; see "Safe git execution" below. Implementation-side configuration (keys, tokens, Feishu credentials, deploy private keys) lives in the implementation's own secrets directory, separate from the soul repository.
+Implementations **must not** redact, privacy-check or otherwise inspect content, and must not refuse a commit because of content. Protection comes from access control, not inspection; there are no exceptions. Implementation-side configuration (keys, tokens, Feishu credentials, deploy private keys) lives in the implementation's own secrets directory, separate from the soul repository.
 
 ## Authentication: SSH only; a deploy key per body by default, your own key if you choose (v7)
 
@@ -74,8 +74,8 @@ Implementations must: reset `origin` to the configured address before every push
 
 ## Safe git execution (v10)
 
-The soul directory may have been touched by the agent, so implementations treat everything in it as untrusted: git runs with hooks and fsmonitor disabled, without system or global config, and without the `file://` / `ext::` protocols; push and fetch use the configured address directly (not `origin`, so `url.*.insteadOf` has no effect), and keys outside an allowlist are removed from `.git/config` before each operation; symlinks are never committed, checked out as links or merged; before each commit the staged changes are checked for this body's own secrets, and the commit is refused (with an alert to the agent) if any appears. Private key paths must be absolute and are shell-quoted in `GIT_SSH_COMMAND`.
+The soul directory may have been touched by the agent, so implementations treat everything in it as untrusted: git runs with hooks and fsmonitor disabled, without system or global config, and without the `file://` / `ext::` protocols; push and fetch use the configured address directly (not `origin`, so `url.*.insteadOf` has no effect), and keys outside an allowlist are removed from `.git/config` before each operation; symlinks are never committed, checked out as links or merged. Private key paths must be absolute and are shell-quoted in `GIT_SSH_COMMAND`.
 
 ## Version history
 
-v10 adds "safe git execution" (no code from the repository is run, addresses come only from configuration, no symlinks, no secrets in commits); v9 states that the soul repository is created by the deployer and unrelated to any code repository, and adds the five "own history only" implementation requirements; v8 adds conflict copies, the body registry's `meshKey`, and no longer requires `lastSeen` on every push; v7 adds the deployer-selectable "specified key" and "system ssh configuration" modes to authentication; v4 removes all content checks and allows extra top-level entries; v3 clarified what counts as an IP address; v2 removed the resident-memory limit and made notes a tree; v1 was the first release. Older repositories need no migration.
+v11 drops the pre-commit secret check, so content is not inspected at all; v10 adds "safe git execution" (no code from the repository is run, addresses come only from configuration, no symlinks); v9 states that the soul repository is created by the deployer and unrelated to any code repository, and adds the five "own history only" implementation requirements; v8 adds conflict copies, the body registry's `meshKey`, and no longer requires `lastSeen` on every push; v7 adds the deployer-selectable "specified key" and "system ssh configuration" modes to authentication; v4 removes all content checks and allows extra top-level entries; v3 clarified what counts as an IP address; v2 removed the resident-memory limit and made notes a tree; v1 was the first release. Older repositories need no migration.
