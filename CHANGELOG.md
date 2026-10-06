@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.7
+
+- **安卓 App 升级后多具身体照常可用**：升级时清理旧版本运行基座目录，会顺着里面的链接把网状层组件 node-datachannel 一并删掉，多具身体页显示「缺少网状层的原生组件」。现在删目录不再跟随链接；已经被删掉的，升级到这个版本时自动补回。
+
+- **Multiple bodies keep working after an Android app upgrade**: cleaning up the previous runtime directory during an upgrade followed a link inside it and deleted the mesh component node-datachannel too, so the Multiple bodies page reported it missing. Deletion no longer follows links, and installs already affected are repaired automatically when upgrading to this version.
+
 ## 1.1.6
 
 - **复读会被截停**：模型偶尔陷入复读，同一段文字反复出现、越写越长。现在一出现就截停：那段输出丢掉，基座提醒 ta 换个思路接着做；连续三次仍复读就停下来如实告诉你。正常的长回复、代码、表格和文件列表不受影响。
