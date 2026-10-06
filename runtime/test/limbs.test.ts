@@ -42,7 +42,7 @@ test("body_call：在手机上调用电脑的 shell，在电脑上执行、电�
   await until(async () => (await phone.call<string[]>("connected")).includes("pc") && (await pc.call<string[]>("connected")).includes("phone"));
   await new Promise((r) => setTimeout(r, 300)); // 等双方取回彼此的工具清单
 
-  await phone.call("llmScript", { messages: [toolCall("body_call", { body: "pc", tool: "shell", args: { command: "echo 在这里：$QUETZAL_HOME" } }), { content: "电脑那边执行完了" }] });
+  await phone.call("llmScript", { messages: [toolCall("body_call", { body: "pc", tool: "shell", args: { command: process.platform === "win32" ? "\"在这里：$env:QUETZAL_HOME\"" : "echo 在这里：$QUETZAL_HOME" } }), { content: "电脑那边执行完了" }] });
   assert.equal(await phone.call("converse", { text: "在电脑上看看家目录", conv: "x" }), "电脑那边执行完了");
   const reply = (await phone.call<any[]>("messages", { session: "x" })).find((m) => m.role === "agent");
   assert.equal(reply.process.find((i: any) => i.type === "tool" && i.name === "body_call").status, "ok");

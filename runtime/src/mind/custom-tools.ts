@@ -208,8 +208,9 @@ export function setToolEnabled(name: string, enabled: boolean): boolean {
 const NODE_RUNNER = `
 const marker = process.env.QUETZAL_TOOL_MARKER;
 console.log = console.info = console.error;
-let input = ""; process.stdin.setEncoding("utf8");
-for await (const c of process.stdin) input += c;
+let input = "";
+if (process.env.QUETZAL_TOOL_ARGS_FILE) input = (await import("node:fs")).readFileSync(process.env.QUETZAL_TOOL_ARGS_FILE, "utf8"); // Windows 的沙箱里标准输入不通：参数在文件里
+else { process.stdin.setEncoding("utf8"); for await (const c of process.stdin) input += c; }
 const mod = await import(process.env.QUETZAL_TOOL_FILE);
 const f = mod.default ?? mod.handler;
 if (typeof f !== "function") { console.error("tool.mjs 必须默认导出一个函数 async (args) => string"); process.exit(2); }
@@ -238,13 +239,19 @@ export async function runTool(m: ToolManifest, args: Record<string, any>): Promi
   const env: Record<string, string> = {};
   const marker = `--quetzal-tool-result-${crypto.randomBytes(8).toString("hex")}--`;
   let w: Awaited<ReturnType<typeof wrapArgv>>;
+  // Windows 的沙箱（srt-win）里，子进程的标准输入被沙箱自己用掉了：参数另写成一个文件（在 data\ 里，沙箱用户能读），用完删掉
+  const argsFile = isWindows ? path.join(paths.data, "tool-args", `${crypto.randomBytes(8).toString("hex")}.json`) : undefined;
+  if (argsFile) { fs.mkdirSync(path.dirname(argsFile), { recursive: true }); fs.writeFileSync(argsFile, JSON.stringify(args ?? {})); }
   if (m.runtime === "node") {
     Object.assign(env, { QUETZAL_TOOL_MARKER: marker, QUETZAL_TOOL_FILE: pathToFileURL(sourceFile(m.name, "node")).href, QUETZAL_TOOL_DIR: dir, QUETZAL_TOOL_HOME: paths.home });
     // Windows：启动器写成文件（沙箱里的 PowerShell 把带引号的长参数传给 node 会被拆坏）；其他平台直接 -e
-    w = isWindows ? await wrapArgv(process.execPath, [runnerFile()], dir, env) : await wrapArgv(process.execPath, ["--input-type=module", "-e", NODE_RUNNER], dir, env);
+    // Windows：--preserve-symlinks 让 node 不去解析每一级上级目录的真实路径（沙箱用户读不了用户目录的上级，会 EPERM）
+    w = isWindows ? await wrapArgv(process.execPath, ["--preserve-symlinks", "--preserve-symlinks-main", runnerFile()], dir, { ...env, QUETZAL_TOOL_ARGS_FILE: argsFile! }) : await wrapArgv(process.execPath, ["--input-type=module", "-e", NODE_RUNNER], dir, env);
   } else {
     for (const [k, v] of Object.entries(args ?? {})) if (/^[A-Za-z_]\w*$/.test(k)) env[`ARG_${k}`] = typeof v === "string" ? v : JSON.stringify(v);
-    if (m.runtime === "ps1") w = isWindows ? await wrapScript(`& ${psq(sourceFile(m.name, "ps1"))}; exit $LASTEXITCODE`, dir, env) : await wrapArgv("pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", sourceFile(m.name, "ps1")], dir, env);
+    // ps1：参数 JSON 在 $env:ARGS_JSON（Windows 上从参数文件读进来），也展开为 $env:ARG_<名>
+    if (m.runtime === "ps1") w = isWindows ? await wrapScript(`$env:ARGS_JSON = [IO.File]::ReadAllText(${psq(argsFile!)}); & ${psq(sourceFile(m.name, "ps1"))}; exit $LASTEXITCODE`, dir, env)
+      : await wrapArgv("pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", sourceFile(m.name, "ps1")], dir, { ...env, ARGS_JSON: JSON.stringify(args ?? {}) });
     else w = await wrapArgv("sh", [sourceFile(m.name, "sh")], dir, env);
   } // 没有可用沙箱时抛出 SandboxUnavailable，由调用方把说明交给她
   return new Promise((resolve, reject) => {
@@ -254,9 +261,10 @@ export async function runTool(m: ToolManifest, args: Record<string, any>): Promi
     p.stdout.on("data", (b) => (out = cap(out, b))); p.stderr.on("data", (b) => (err = cap(err, b)));
     const kill = () => killTree(p.pid, "SIGKILL");
     const t = setTimeout(() => { kill(); reject(new Error(`超过 ${m.timeout} 秒没有${m.runtime === "node" ? "返回" : "结束"}，已终止`)); }, m.timeout * 1000);
-    p.on("error", (e) => { clearTimeout(t); reject(e); });
+    p.on("error", (e) => { clearTimeout(t); if (argsFile) fs.rmSync(argsFile, { force: true }); reject(e); });
     p.on("close", (code) => {
       clearTimeout(t);
+      if (argsFile) fs.rmSync(argsFile, { force: true });
       if (m.runtime === "node") {
         const i = out.lastIndexOf(`\n${marker}\n`);
         if (code === 0 && i >= 0) { try { return resolve(JSON.parse(out.slice(i + marker.length + 2))); } catch { /* 落到下面报错 */ } }

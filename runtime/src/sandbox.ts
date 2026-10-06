@@ -333,7 +333,7 @@ export async function wrapScript(script: string, cwd = workDir(), env: Record<st
   if (isWindows) {
     if (srtState === "idle" || srtState === "preparing") await prepareSandbox();
     try { fs.mkdirSync(cwd, { recursive: true }); } catch { /* 下面启动时报错 */ }
-    const assign = Object.entries(env).map(([k, v]) => `$env:${k}=${psq(v)};`).join("");
+    const assign = Object.entries({ QUETZAL_HOME: paths.home, ...env }).map(([k, v]) => `$env:${k}=${psq(v)};`).join(""); // 沙箱用户拿到的是全新的环境：把家目录的位置带进去
     if (current().kind === "srt") return srtWrap(assign + script, cwd);
     if (!allowUnsandboxed()) throw new SandboxUnavailable();
     return { cmd: powershellPath(), args: [...PS_FLAGS, PS_PREAMBLE + assign + script], cwd, env: { ...process.env, ...env } };

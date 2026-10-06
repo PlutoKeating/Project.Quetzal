@@ -140,10 +140,10 @@ test("闸门：自造工具至少和 shell 一样严；造工具缺省每次询�
   assert.equal(config.permissions.tool_write, "ask");
   saveConfig({ permissions: { shell: "deny", network: "allow" } });
   assert.equal(strictest(["network", "shell"]), "shell");
-  await ct.writeTool({ name: "net_thing", description: "x", runtime: "sh", permission: "network", skill: "x", source: "echo ran" }, new Set());
+  await ct.writeTool({ name: "net_thing", description: "x", runtime: process.platform === "win32" ? "ps1" : "sh", permission: "network", skill: "x", source: "'ran'" }, new Set());
   assert.equal((await callTool("net_thing", {}, "测试")).status, "denied", "声明 network 也放不过 shell=deny");
   saveConfig({ permissions: { shell: "allow", tool_write: "deny" } });
-  assert.equal((await callTool("tool_write", { name: "zz", description: "x", runtime: "sh", source: "echo", skill: "x" }, "测试")).status, "denied");
+  assert.equal((await callTool("tool_write", { name: "zz", description: "x", runtime: process.platform === "win32" ? "ps1" : "sh", source: "'x'", skill: "x" }, "测试")).status, "denied");
   saveConfig({ permissions: { tool_write: "ask" } });
 });
 

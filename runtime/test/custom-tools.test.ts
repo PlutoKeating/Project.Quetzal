@@ -20,7 +20,7 @@ const names = () => allTools().map((t) => t.name);
 const WIN = process.platform === "win32";
 const RT = WIN ? "ps1" : "sh";
 const SRC = WIN ? {
-  echo: "'hi'", bad: "if ( {", greet: '$json = [Console]::In.ReadToEnd().Trim()\n"hi $env:ARG_who x$env:ARG_n json=$json"', fail: '[Console]::Error.WriteLine("oops"); exit 3',
+  echo: "'hi'", bad: "if ( {", greet: '"hi $env:ARG_who x$env:ARG_n json=$($env:ARGS_JSON)"', fail: '[Console]::Error.WriteLine("oops"); exit 3',
 } : { echo: "echo hi", bad: "if then fi (", greet: 'read json\necho "hi $ARG_who x$ARG_n json=$json"', fail: "echo oops >&2; exit 3" };
 
 test("写入校验：名字、保留名、schema、语法、新工具必须带技能文档", async () => {
