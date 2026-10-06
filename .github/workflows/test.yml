@@ -1,0 +1,54 @@
+# 测试：每次推送到 main 或 feature/* 分支、以及拉取请求时，在 Linux 与 Windows（x64、arm64）上跑运行基座的测试。
+# Windows 上先用 sandbox-runtime 的 windows-install 建好沙箱用户与 WFP 规则（runner 是管理员、UAC 已关），沙箱的真机测试才有意义。
+name: test
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, node: 22 }
+          - { os: windows-latest, node: 24 }
+          - { os: windows-11-arm, node: 24 }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: runtime
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      # Linux：没有沙箱时基座拒绝执行命令；ubuntu-24.04 的 AppArmor 默认禁止非特权用户命名空间，只在这台用完即弃的运行器上放开
+      - name: 测试用的命令沙箱（bubblewrap）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -q bubblewrap >/dev/null
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm ci
+      - name: Windows：建好命令沙箱（srt-sandbox 用户与 WFP 规则）
+        if: runner.os == 'Windows'
+        run: node node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js windows-install
+      - name: 测试
+        env:
+          QUETZAL_TEST_SRT: ${{ runner.os == 'Windows' && '1' || '' }}
+        run: npm test
+      - name: 构建
+        run: npm run build
