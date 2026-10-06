@@ -89,7 +89,7 @@ sequenceDiagram
 - 每次提交的说明来自改动的路径（常驻记忆、关于对方的记忆、人格、身份、笔记 <路径>、技能 <名>、日记），所以 git 历史仍然读得懂。
 - 提醒送给**碰过这些文件的那一轮**：还在进行就作为插话并入（醒来与子 agent 直接放进收件箱；对话经插话机制，控制台与飞书里看得到）；已经结束就在原会话里以环境输入开新的一轮；醒来或子 agent 的那一轮已结束时，放进「主动消息」会话。提醒的口吻是「基座提醒」，不是对方说的话；她可以回复「沉默」。
 - 提醒过的改动不会重复提醒；它们仍在本地提交里，下一次推送自动带上。
-- 控制台触发的操作（改身份、撤销、立即同步）推送失败时不插话，失败原因显示在「灵魂同步」页。
+- 控制台触发的操作（改身份、撤销、立即同步）推送失败时不插话，失败原因显示在「高级 · 同步」页。
 - **只推到配置的地址**：推送与拉取直接使用配置里的灵魂仓库地址（`git push <地址> HEAD:refs/heads/<分支>`、`git fetch <地址> …`），不经 `origin`；`origin` 仍按配置校正（有人改了就改回并记日志），但它被改了也不影响推到哪里。系统提示也告诉 agent 不要自己在灵魂目录里运行 git。
 - **不执行灵魂目录里的东西**（规范 §5.2）：每次执行 git 都带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.symlinks=false -c protocol.ext.allow=never -c protocol.file.allow=never`，环境 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=/dev/null`；每次提交、拉取、推送前删掉 `.git/config` 白名单以外的键（`url.*.insteadOf` / `pushInsteadOf`、`core.sshCommand`、`filter.*`、`include.*` 等）。私钥路径必须是绝对路径，在 `GIT_SSH_COMMAND` 里加单引号。
 - **GitHub 的 22 端口不通时改走 443**：远端是 `git@github.com:…` / `ssh://git@github.com/…` 时，clone、fetch、push、ls-remote 遇到连接层面的失败（连接被断开、超时、连不上；ssh 连接超时 20 秒），自动用 `-o HostName=ssh.github.com -o Port=443 -o HostKeyAlias=github.com` 再试一次（GitHub 官方的 443 端口 SSH，同一把钥匙，按 github.com 的主机密钥核对）；走通的那条路在这个进程里记下来，之后先走它。不少网络（以及 VPN、代理）只拦 22 端口。`~/.ssh/config` 里的 Host 别名不改。报错里「连接被断开」不再误报成部署公钥被拒（git 末尾通用的 `Could not read from remote repository` 不作为判据）。
@@ -112,7 +112,7 @@ sequenceDiagram
 
 **知觉**：每次拉取到其他身体的变更，运行基座会写入时间线（「灵魂同步：来自 xx 的 n 次变更，自动处理冲突 m 处」），触发一个 `soul_synced` 感官事件（轻微提升好奇与想念），并在系统提示里加入「灵魂同步（知觉）」段落（含还在本机等待推送的改动数、待裁决的冲突副本）。日常的同步她不需要做任何事；只有推送失败、或两边都改过同一个文件时，基座会直接提醒她。
 
-**历史与撤销**：控制台「记忆历史」页列出每次提交（哪具身体、何时、改了什么），可查看差异；撤销会生成反向提交（历史保留），所有身体同步，并在日记里写下「有人撤销了一段记忆变更」。
+**历史与撤销**：控制台「高级 · 记忆历史」页列出每次提交（哪具身体、何时、改了什么），可查看差异；撤销会生成反向提交（历史保留），所有身体同步，并在日记里写下「有人撤销了一段记忆变更」。
 
 ## 4. 桥接模块（soul-bridge）
 
@@ -142,7 +142,7 @@ sequenceDiagram
 ## 5. 使用 GitHub 私有仓库
 
 1. 为每个 agent 创建一个**私有**仓库（如 `<用户>/<agent>.soul`），可以是空仓库。
-2. 默认每具身体一把 **Deploy key**（勾选 Allow write access）：运行基座在控制台「灵魂同步」页显示公钥；桥接在 `init` 时输出公钥。拔掉某具身体时，删掉它的 Deploy key 即可吊销。部署者也可以在同一页改为**指定私钥**或**系统 ssh 配置**（`~/.ssh/config` + ssh-agent，地址可用 Host 别名），见规范 §7（v7）。同步状态（上次拉取 / 推送 / 最近错误）落在 `state/soul-status.json`，重启不归零；git 的报错会翻译成提示（例如公钥未加到 Deploy keys）。
+2. 默认每具身体一把 **Deploy key**（勾选 Allow write access）：运行基座在控制台「高级 · 同步」页显示公钥；桥接在 `init` 时输出公钥。拔掉某具身体时，删掉它的 Deploy key 即可吊销。部署者也可以在同一页改为**指定私钥**或**系统 ssh 配置**（`~/.ssh/config` + ssh-agent，地址可用 Host 别名），见规范 §7（v7）。同步状态（上次拉取 / 推送 / 最近错误）落在 `state/soul-status.json`，重启不归零；git 的报错会翻译成提示（例如公钥未加到 Deploy keys）。
 3. 第一具接入的身体把现有人格与记忆导入仓库；之后的身体接入时，若本地只有种子身份与种子人格，会直接采用仓库里的。
 4. 仓库里只有人格与记忆；API Key、飞书凭据、令牌等一律不进入灵魂仓库。
 

@@ -247,7 +247,7 @@ sequenceDiagram
 - **实现只在这具身体上**：`QUETZAL_HOME/tools/<名>/tool.json`（名字、描述、参数 JSON Schema、能力类别、超时、依赖的命令、启用）+ `tool.sh`（参数以 JSON 从 stdin 传入，并展开为环境变量 `ARG_<名>`，stdout 即结果）或 `tool.mjs`（ES 模块，默认导出 `async (args, {dir, home}) => string`）。写入时校验名字、保留名、schema、语法（`sh -n` / `node --check`）、大小（1 MiB）；每次组装工具表时热加载，不用重启；声明的 `requires` 里有命令不存在时不挂载，只在系统提示里说明。
 - **意图随灵魂同步**：灵魂仓库 `skills/<名>/SKILL.md`，采用 [Agent Skills](https://agentskills.io/specification) 开放标准（规范 §3.12），Hermes / OpenClaw 直接能读。其他身体读到技能文档却没有本地实现时，系统提示会列出来，她可以按文档用 `tool_write` 在那具身体上实现。新工具必须同时写技能文档，改写可以不写。
 - **闸门**：新建、改写归 `self_modify` 与 `tool_write`（造工具：写的是之后会被执行的代码，缺省「每次询问」）中较严的一个，删除归 `self_modify`；调用按工具自己声明的类别与 `shell` 中较严的一个（声明的类别不能放宽闸门：工具执行的就是代码）。
-- **执行**：sh 与 node 都在子进程里、经沙箱运行（node 工具不在运行基座的进程里 `import`），超时整组杀掉。控制台「控制 → 工具」只看、停用 / 启用与删除（可选连技能文档一起删），不在手机上编辑代码。
+- **执行**：sh 与 node 都在子进程里、经沙箱运行（node 工具不在运行基座的进程里 `import`），超时整组杀掉。控制台「控制 → 高级 → 工具」只看、停用 / 启用与删除（可选连技能文档一起删），不在手机上编辑代码。
 - 任何参数（描述、schema、类别、超时、依赖）她都可以在认为需要时改。
 
 ### 5.3 听觉：耳朵在控制台 App，判断在她
@@ -390,7 +390,7 @@ flowchart LR
 | Linux，有 bubblewrap（优先 `/usr/local/lib/quetzal/bwrap`） | `bwrap --dev-bind / /`（文件系统按主机原样，网络照常）+ 独立 pid 命名空间与新的 `/proc` | `secrets/` 是空的 tmpfs；`QUETZAL_HOME` 只读，只有 `data/` 与灵魂目录的工作区可写（灵魂目录的 `.git` 只读）；shell 启动文件、`~/.config/systemd`、自启动项、`~/.local/bin`、`~/.ssh` 只读；浏览器配置目录（网页控制台的令牌、各网站的 Cookie）是空的；会话 D-Bus 与 systemd 用户实例的套接字不可用（否则 `systemd-run` 能在沙箱外起进程）；看不到沙箱外的进程；基座退出时一起结束。Ubuntu 23.10 起 AppArmor 默认限制非特权用户命名空间：安装器把 bwrap 复制到 root 所有的 `/usr/local/lib/quetzal/bwrap`，只给这一份装 AppArmor 配置 `/etc/apparmor.d/quetzal-bwrap`（与 Ubuntu 自己的 `bwrap-userns-restrict` 同一写法：bwrap 本身能建命名空间，它启动的程序在任何命名空间里都拿不到能力；较老的 AppArmor 装不上时退回只允许 userns 的简单版），不改系统的 bwrap，也不关全局限制 |
 | Linux，bubblewrap 用不了，内核有 Landlock | `landrun`（Landlock 启动器，第三方 MIT，随发布资产分发并签名核对，安装器放在 `QUETZAL_HOME/bin/landrun`），`--best-effort` 按内核实际的 ABI 降级、`--ignore-missing` | Landlock 只能授权、不能排除：从根目录往下，含有特殊路径的那几层目录逐项授权子项，其余整块授权；`secrets/`、浏览器配置、会话 D-Bus 不授权（不可见），只读与可写同上。代价：被展开的目录本身（`/`、`/home`、主目录、`QUETZAL_HOME`、`~/.config` 等）不能列出、不能直接在里面新建文件。网络不限制，IPC 按 Landlock 的作用域限制 |
 | 安卓（Quetzal App 内置的 proot；旧的 Termux 安装用 Termux 的 proot），有 proot（Linux 上作最后兜底） | `proot -b <空目录>:<目录>` | `secrets/`、`config/`、`releases/`、runit 服务目录、`~/.termux/boot` 以及 `QUETZAL_HIDE_PATHS` 列出的目录（App 内置时是 App 的 `shared_prefs`、`app_flutter`、`databases`、`cache`、`code_cache`：控制台的网关令牌在这里）换成空目录。proot 基于 ptrace，是尽力而为：旧的 Termux 安装挡不住经 Android intent（`RUN_COMMAND`）让 Termux 在沙箱外执行命令 |
-| 都没有 | **不执行**（fail-closed，参考 DeepSeek Harness） | 她的命令得到「没有可用的沙箱」的说明；`status.sandbox.kind` 为 `none`，时间线与日志各提醒一次。部署者可以在控制台「服务」页明确选择允许不隔离运行（`config.sandbox.allowUnsandboxed`，不安全）。安装器负责装上可用的沙箱 |
+| 都没有 | **不执行**（fail-closed，参考 DeepSeek Harness） | 她的命令得到「没有可用的沙箱」的说明；`status.sandbox.kind` 为 `none`，时间线与日志各提醒一次。部署者可以在控制台「高级 · 运行」页明确选择不隔离也运行（`config.sandbox.allowUnsandboxed`，不安全）。安装器负责装上可用的沙箱 |
 
 每种沙箱第一次使用前都实际验证一次：在 `secrets/` 里放一个无害的探针文件，沙箱里读得到或列得出 `secrets/` 的内容就不用它（防止 `--best-effort` 在不支持 Landlock 的内核上不加限制、或别的原因导致「看似成功其实没隔离」）。
 

@@ -83,7 +83,7 @@ App 设置：Repository creation（写）、Administration（写）、Metadata�
 
 - 设备端要访问 `github.com/login/device/code`、`github.com/login/oauth/access_token` 与 `api.github.com` 的少数几个接口。大陆网络不稳时经官网 Worker 中转（按路径与 client_id 白名单，不记录请求体；现有的 `/api/oauth/github/token` 中转扩展而来）。浏览器里打开的 GitHub 登录页与安装页**不中转**（代理 GitHub 登录页形同钓鱼），打不开时提示换网络。
 - 码过期 → 重新开始；安装等待最长 15 分钟；部署密钥 422（公钥已被别处使用）→ 重新生成密钥；交给同步服务失败 → 灵魂照常可用，多具身体稍后在控制台补绑。
-- 「跳过」：本地灵魂（现有行为），以后在「控制 → 灵魂同步」里一键用 GitHub 接上（同一套流程从 §3 开始）。
+- 「跳过」：本地灵魂（现有行为），以后在「控制 → 设备」里一键用 GitHub 接上（同一套流程从 §3 开始）。
 
 ## 7. 实施顺序
 

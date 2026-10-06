@@ -49,4 +49,4 @@ GitHub Release（`.github/workflows/release.yml`，推送 `v<版本>` 标签触�
 - **外部链接**：一律经 `lib/links.dart` 的 `openExternal`：只放行 https（http 只限 localhost / 127.0.0.1 / ::1），不允许带用户名密码；网关、同步服务与 Markdown 里的链接都走这里，不合规的提示而不打开。
 - **命令沙箱**：服务页显示运行基座报告的 `status.sandbox`（bwrap / proot / none；旧版运行基座没有这一项就不显示），none 时用醒目颜色提醒。
 
-设计与用例见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+设计与用例见 [ARCHITECTURE.md](ARCHITECTURE.md)；从安装到开始对话的完整用户旅程、「控制」的信息架构与文案原则见 [USER_JOURNEY.md](USER_JOURNEY.md)。
