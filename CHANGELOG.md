@@ -2,6 +2,16 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.4
+
+- **记忆同步不再被误拦**：灵魂仓库规范升到 v11，取消提交前的密钥检查。它把身体名、agent id 这类并不保密的值也当成密钥，日记里写到自己的身体名就整天不同步。灵魂仓库是私有的，保护靠访问控制，内容不做任何检查。
+- **版本卡片**：控制台「关于」页的「版本」与「升级」合成一张卡片，只写当前版本和此刻需要的一个动作。
+- **桌面版升级后「重新打开」真的会重新打开**：以前只关掉旧窗口，新的没有起来。
+
+- **Memory sync is no longer blocked by mistake**: soul repository specification v11 drops the pre-commit secret check. It treated non-secret values such as the body name and agent id as secrets, so a journal that mentioned the body's own name stopped syncing for the whole day. The soul repository is private; protection comes from access control, and content is not inspected at all.
+- **Version card**: on the console's About page, Version and Upgrade are now one card showing the current version and the one action that matters right now.
+- **"Reopen" after a desktop upgrade really reopens**: it used to close the old window without starting the new one.
+
 ## 1.1.3
 
 - **不再出现空白回复「……」**：长时间连续做事（几十上百步工具调用）后，模型最后一步有时什么也不输出（多半是输出长度用完在思考上），以前这一轮就以「……」结束。现在这一步不算结束：基座提醒 ta 直接把结果告诉你，最多两次；仍然没有文字时，回复会写明做了几步、没能把结果说出来。
