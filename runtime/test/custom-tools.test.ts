@@ -61,7 +61,7 @@ test("sh / ps1 工具：参数经 stdin JSON 与环境变量传入，热加载�
 
 test("node 工具：默认导出 async (args) => string，改写后重新加载，超时会终止", async () => {
   const reserved = new Set(builtinNames());
-  await ct.writeTool({ name: "add_up", description: "求和", runtime: "node", source: "export default async ({ a, b }) => String(a + b);", skill: "求两数之和", timeout: 2 }, reserved);
+  await ct.writeTool({ name: "add_up", description: "求和", runtime: "node", source: "export default async ({ a, b }) => String(a + b);", skill: "求两数之和", timeout: WIN ? 30 : 2 }, reserved);
   assert.equal((await callTool("add_up", { a: 1, b: 2 }, "测试")).text, "3");
   const r = await ct.writeTool({ name: "add_up", runtime: "node", source: "export default async ({ a, b }) => ({ sum: a * b });" } as any, reserved); // 改写：没给的字段沿用
   assert.match(r, /已更新工具 add_up/);

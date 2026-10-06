@@ -28,7 +28,7 @@ test("打开：网址与文档可以，程序与脚本不行", () => {
 test("Windows：常驻 PowerShell 来回传中文与多行输出，出错时拒绝", { skip: !WIN && "只在 Windows 上跑" }, async () => {
   const { PsHost } = await import("../adapters/windows/ps.ts");
   const h = new PsHost();
-  assert.equal(await h.run("'你好' + \"`n\" + 'world'"), "你好\nworld");
+  assert.equal(await h.run("'你好' + \"`n\" + 'world'", 90_000), "你好\nworld"); // 第一次要等 PowerShell 起来（arm64 的 runner 上较慢）
   await assert.rejects(() => h.run("throw '坏了'"), /坏了/);
   assert.equal(await h.run("1 + 1"), "2", "出错之后还能接着用");
   h.stop();
