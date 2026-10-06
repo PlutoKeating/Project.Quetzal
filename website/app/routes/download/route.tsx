@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import type { Route } from "./+types/route";
 import { DEFAULT_LANG, isLang, localized, useLang, useMessages } from "~/i18n/core";
-import { Badge, ButtonAnchor, ButtonLink, Card, Container, Eyebrow, ExternalLink, Heading, Lead, Reveal, Section, TextLink, cx } from "~/design-system/components";
+import { Badge, Breath, ButtonAnchor, Card, Container, Eyebrow, ExternalLink, Heading, Lead, OrbMark, Section, TextLink, cx } from "~/design-system/components";
 import { GITHUB_RELEASES } from "~/components/i18n";
 import { Markdown } from "~/components/markdown/Markdown";
 import { ReleasesError, fetchReleases, findAsset, formatBytes, pickLatest, type FetchError, type Release, type ReleaseAsset } from "~/lib/github";
@@ -13,6 +13,7 @@ export const meta: Route.MetaFunction = ({ params }) => {
   return [{ title: m.title }, { name: "description", content: m.description }];
 };
 
+type T = typeof messages.zh;
 type State =
   | { status: "loading" }
   | { status: "error"; error: FetchError }
@@ -30,106 +31,111 @@ function useReleases(): [State, () => void] {
   return [state, () => load(true)];
 }
 
+const PLATFORMS = ["android", "windows", "linux"] as const;
+type Platform = (typeof PLATFORMS)[number];
+const isPlatform = (s: string): s is Platform => (PLATFORMS as readonly string[]).includes(s);
+
+/** 地址里的 #windows 这类锚点优先（文档可以直接链到某个平台），否则按访客的系统挑；认不出的（苹果设备等）给安卓。 */
+function detectPlatform(): Platform {
+  const hash = location.hash.slice(1);
+  if (isPlatform(hash)) return hash;
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) return "android";
+  if (/Windows/i.test(ua)) return "windows";
+  if (/Linux|X11|CrOS/i.test(ua)) return "linux";
+  return "android";
+}
+
+// 每个平台的完整步骤
+const GUIDE: Record<Platform, string> = { android: "/docs/start/install", windows: "/docs/advanced/windows", linux: "/docs/advanced/other-machines" };
+
 export default function Download() {
   const t = useMessages(messages);
   const lang = useLang();
   const [state, retry] = useReleases();
-  const navigate = useNavigate();
-  // 点了下载之后带用户去完整安装步骤：浏览器已经开始下载，页面本身留在原地
-  const afterDownload = () => { setTimeout(() => navigate(localized(lang, "/docs/start/install")), 800); };
+  // 预渲染的 HTML 里是安卓：跑不动页面脚本的旧手机也能拿到 APK 链接；水合后换成访客的系统
+  const [platform, setPlatform] = useState<Platform>("android");
+  useEffect(() => setPlatform(detectPlatform()), []);
+  const choose = (p: Platform) => { setPlatform(p); history.replaceState(null, "", `#${p}`); };
   const fmtDate = (iso: string) => new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en", { dateStyle: "long" }).format(new Date(iso));
   const fmtNum = (n: number) => new Intl.NumberFormat(lang === "zh" ? "zh-CN" : "en").format(n);
+  const latest = (state.status === "ready" && pickLatest(state.releases)) || undefined;
+  const navigate = useNavigate();
+  // 点了下载 APK 之后带用户去完整安装步骤：浏览器已经开始下载，页面本身留在原地
+  const afterDownload = () => { setTimeout(() => navigate(localized(lang, GUIDE.android)), 800); };
 
   return (
     <>
-      {/* 标题与最新版本放在同一节：手机上不留大段空白 */}
-      <Section tight>
-        <Container className="flex flex-col gap-3">
-          <Eyebrow>{t.eyebrow}</Eyebrow>
-          <Heading as="h1" size="lg">{t.heading}</Heading>
+      {/* 首屏：名字、一句话、平台切换、这个平台的安装方式、最新版本 */}
+      <section className="relative overflow-hidden border-b border-border">
+        <Breath className="-right-40 -top-32 sm:-right-16 sm:-top-16" />
+        <Container width="prose" className="relative flex flex-col items-center gap-6 py-16 text-center sm:py-24 short:py-10">
+          <OrbMark size={28} />
+          <h1 className="text-4xl font-semibold tracking-tight sm:text-6xl">{t.heading}</h1>
           <Lead className="max-w-prose">{t.lead}</Lead>
-          <Eyebrow className="mt-6 mb-1">{t.latest.eyebrow}</Eyebrow>
-          {state.status === "loading" && <LatestSkeleton label={t.state.loading} download={t.latest.downloadApk} />}
-          {state.status === "error" && <ErrorBlock error={state.error} t={t.state} download={t.latest.downloadApk} onRetry={retry} fmtTime={(d) => new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en", { timeStyle: "short" }).format(d)} />}
-          {state.status === "ready" && (() => {
-            const latest = pickLatest(state.releases);
-            if (!latest) return <EmptyBlock label={t.state.empty} go={t.state.goToReleases} />;
-            const apk = findAsset(latest, "apk");
-            const totalDownloads = latest.assets.reduce((s, a) => s + a.downloadCount, 0);
-            return (
-              <Card className="grid gap-5 p-5 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center lg:gap-12"> {/* ds-allow：栅格比例 */}
-                <div className="flex min-w-0 flex-col gap-2">
-                  <div className="flex flex-wrap items-baseline gap-3">
-                    <span className="font-mono text-3xl font-semibold tracking-tight text-fg sm:text-5xl">{latest.version}</span>
-                    <Badge tone={latest.prerelease ? "warning" : "secondary"}>{latest.prerelease ? t.latest.prerelease : t.latest.stable}</Badge>
-                  </div>
-                  <p className="text-sm text-fg-muted">
-                    {t.latest.publishedOn} <time dateTime={latest.publishedAt}>{fmtDate(latest.publishedAt)}</time>
-                    {totalDownloads > 0 && <span className="text-fg-subtle"> · {fmtNum(totalDownloads)} {t.latest.downloads}</span>}
-                  </p>
-                </div>
-                <div className="flex w-full min-w-0 flex-col items-stretch gap-3 lg:w-auto lg:min-w-[22rem] lg:items-end"> {/* ds-allow：宽度不是视觉参数 */}
-                  {apk ? (
-                    <AssetButton asset={apk} label={t.latest.downloadApk} variant="accent" lang={lang} onClick={afterDownload} />
-                  ) : (
-                    <p className="text-sm text-fg-muted">{t.latest.noApk}</p>
-                  )}
-                  <ExternalLink href={latest.url} className="text-sm lg:self-end">{t.latest.viewOnGithub} ↗</ExternalLink>
-                </div>
-              </Card>
-            );
-          })()}
-        </Container>
-      </Section>
 
-      {/* 安装：只装这一个 App */}
-      <Section tone="elevated">
-        <Container className="flex flex-col gap-6">
-          <div className="flex flex-col gap-3">
-            <Eyebrow>{t.prereq.eyebrow}</Eyebrow>
-            <Heading size="md">{t.prereq.heading}</Heading>
-            <Lead className="max-w-prose text-base">{t.prereq.lead}</Lead>
-          </div>
-          {/* 三步：下载 → 在这台手机上安装 → 身体权限与保活 */}
-          <ol className="grid gap-4 sm:grid-cols-3">
-            {t.prereq.steps.map((st, i) => (
-              <Reveal as="li" key={st.title} delay={i as 0 | 1 | 2} className="min-w-0">
-                <Card className="flex h-full min-w-0 flex-col gap-2">
-                  <span className="font-mono text-xs text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>
-                  <span className="font-medium text-fg">{st.title}</span>
-                  <span className="text-sm text-fg-muted text-pretty">{st.text}</span>
-                </Card>
-              </Reveal>
+          <div role="tablist" aria-label={t.tabsLabel} className="mt-2 inline-flex rounded-full border border-border bg-surface p-1">
+            {PLATFORMS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                role="tab"
+                id={`tab-${p}`}
+                aria-selected={platform === p}
+                aria-controls="platform-panel"
+                onClick={() => choose(p)}
+                className={cx(
+                  "rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-(--ds-duration-fast) sm:px-6",
+                  platform === p ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
+                )}
+              >
+                {t.platforms[p].tab}
+              </button>
             ))}
-          </ol>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-fg-muted">{t.prereq.requirements}</p>
-            <ButtonLink to={localized(lang, "/docs/start/install")} variant="primary" size="lg" className="w-full sm:w-auto">{t.prereq.guide} →</ButtonLink>
+          </div>
+
+          <div id="platform-panel" role="tabpanel" aria-labelledby={`tab-${platform}`} className="flex w-full flex-col gap-4 text-left">
+            {platform === "android" && <AndroidPanel t={t} state={state} latest={latest} lang={lang} onDownload={afterDownload} />}
+            {platform === "windows" && <WindowsPanel t={t} latest={latest} lang={lang} />}
+            {platform === "linux" && <LinuxPanel t={t} />}
+            <TextLink to={localized(lang, GUIDE[platform])} className="self-start text-sm">{t.guide} →</TextLink>
+          </div>
+
+          <div className="flex w-full flex-col items-center gap-2">
+            {state.status === "loading" && <p className="text-sm text-fg-subtle" aria-live="polite">{t.state.loading}</p>}
+            {state.status === "error" && <ErrorBlock error={state.error} t={t.state} onRetry={retry} fmtTime={(d) => new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en", { timeStyle: "short" }).format(d)} />}
+            {state.status === "ready" && !latest && <EmptyBlock label={t.state.empty} go={t.state.goToReleases} />}
+            {latest && (
+              <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-fg-muted">
+                <span>{t.latest.eyebrow}</span>
+                <span className="font-mono text-fg">{latest.version}</span>
+                {latest.prerelease && <Badge tone="warning">{t.latest.prerelease}</Badge>}
+                <span className="text-fg-subtle">· {t.latest.publishedOn} <time dateTime={latest.publishedAt}>{fmtDate(latest.publishedAt)}</time></span>
+                {(() => { const n = latest.assets.reduce((s, a) => s + a.downloadCount, 0); return n > 0 && <span className="text-fg-subtle">· {fmtNum(n)} {t.latest.downloads}</span>; })()}
+                <span className="text-fg-subtle">·</span>
+                <ExternalLink href={latest.url}>{t.latest.viewOnGithub} ↗</ExternalLink>
+              </p>
+            )}
           </div>
         </Container>
-      </Section>
+      </section>
 
-      {/* 发布说明：默认折叠的抽屉，只显示当前语言的条目（CHANGELOG 中英各写一条） */}
-      {state.status === "ready" && (() => {
-        const latest = pickLatest(state.releases);
-        if (!latest) return null;
-        const notes = notesForLang(latest.body, lang);
-        return (
-          <Section tight>
-            <Container width="prose">
-              <details className="group rounded-xl border border-border bg-surface">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
-                  <span className="text-sm font-medium text-fg">{t.notes.eyebrow} <span className="font-mono text-fg-subtle">· {latest.version}</span></span>
-                  <span aria-hidden className="text-fg-subtle transition-transform duration-(--ds-duration-fast) group-open:rotate-180">⌄</span>
-                </summary>
-                <div className="border-t border-border px-5 py-4">
-                  {notes.trim() ? <Markdown source={notes} /> : <p className="text-fg-muted">{t.notes.empty}</p>}
-                </div>
-              </details>
-            </Container>
-          </Section>
-        );
-      })()}
+      {/* 发布说明：默认折叠，只显示当前语言的条目（CHANGELOG 中英各写一条） */}
+      {latest && (
+        <Section tight>
+          <Container width="prose">
+            <details className="group rounded-xl border border-border bg-surface">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
+                <span className="text-sm font-medium text-fg">{t.notes.eyebrow} <span className="font-mono text-fg-subtle">· {latest.version}</span></span>
+                <span aria-hidden className="text-fg-subtle transition-transform duration-(--ds-duration-fast) group-open:rotate-180">⌄</span>
+              </summary>
+              <div className="border-t border-border px-5 py-4">
+                {notesForLang(latest.body, lang).trim() ? <Markdown source={notesForLang(latest.body, lang)} /> : <p className="text-fg-muted">{t.notes.empty}</p>}
+              </div>
+            </details>
+          </Container>
+        </Section>
+      )}
 
       {/* 历史版本 */}
       {state.status === "ready" && state.releases.length > 0 && (
@@ -143,53 +149,59 @@ export default function Download() {
           </Container>
         </Section>
       )}
-
-      {/* Windows：一行命令或安装包（安装包按架构，读最新发布） */}
-      <Section tone="elevated">
-        <Container className="grid gap-6 lg:grid-cols-[1fr_1.4fr] lg:gap-12"> {/* ds-allow：栅格比例 */}
-          <div className="flex min-w-0 flex-col gap-2">
-            <Eyebrow>{t.windows.eyebrow}</Eyebrow>
-            <Heading size="md">{t.windows.heading}</Heading>
-            <p className="text-sm text-fg-muted">{t.windows.requirements}</p>
-          </div>
-          <div className="flex min-w-0 flex-col gap-4">
-            <CommandLine command={t.windows.command} copy={t.other.copy} copied={t.other.copied} prompt="PS> " />
-            <p className="text-fg-muted text-pretty">{t.windows.body}</p>
-            {state.status === "ready" && (() => {
-              const latest = pickLatest(state.releases);
-              const x64 = latest && findAsset(latest, "windows-x64"), arm = latest && findAsset(latest, "windows-arm64");
-              if (!x64 && !arm) return null;
-              return (
-                <div className="flex flex-col gap-2">
-                  {x64 && <AssetButton asset={x64} label={t.windows.x64} variant="secondary" lang={lang} kind="EXE" />}
-                  {arm && <ExternalLink href={arm.url} className="self-start text-sm">{t.windows.arm64} ↓</ExternalLink>}
-                </div>
-              );
-            })()}
-            <p className="text-sm text-fg-subtle text-pretty">{t.windows.unsigned}</p>
-          </div>
-        </Container>
-      </Section>
-
-      {/* 其他机器：命令本身是视觉锚点 */}
-      <Section>
-        <Container className="grid gap-6 lg:grid-cols-[1fr_1.4fr] lg:gap-12"> {/* ds-allow：栅格比例 */}
-          <div className="flex min-w-0 flex-col gap-2">
-            <Eyebrow>{t.other.eyebrow}</Eyebrow>
-            <Heading size="md">{t.other.heading}</Heading>
-          </div>
-          <div className="flex min-w-0 flex-col gap-4">
-            <CommandLine command={t.other.command} copy={t.other.copy} copied={t.other.copied} />
-            <p className="text-fg-muted text-pretty">{t.other.body}</p>
-            <TextLink to={localized(lang, "/docs/advanced/other-machines")} className="self-start text-sm">{t.other.link} →</TextLink>
-          </div>
-        </Container>
-      </Section>
     </>
   );
 }
 
-/** 一行命令 + 复制按钮：安装命令是这一节的视觉锚点，复制后按钮短暂变成「已复制」。 */
+function AndroidPanel({ t, state, latest, lang, onDownload }: { t: T; state: State; latest: Release | undefined; lang: "zh" | "en"; onDownload: () => void }) {
+  const p = t.platforms.android;
+  const apk = latest && findAsset(latest, "apk");
+  return (
+    <>
+      {apk ? (
+        <AssetButton asset={apk} label={p.download} variant="accent" lang={lang} onClick={onDownload} />
+      ) : state.status === "ready" && latest ? (
+        <p className="text-sm text-fg-muted">{t.latest.noAsset}</p>
+      ) : (
+        <ButtonAnchor href={LATEST_APK} onClick={onDownload} variant="accent" size="lg" className="w-full">{p.download}</ButtonAnchor>
+      )}
+      <p className="text-fg-muted text-pretty">{p.body}</p>
+      <p className="text-sm text-fg-subtle">{p.requirements}</p>
+    </>
+  );
+}
+
+function WindowsPanel({ t, latest, lang }: { t: T; latest: Release | undefined; lang: "zh" | "en" }) {
+  const p = t.platforms.windows;
+  const x64 = latest && findAsset(latest, "windows-x64"), arm = latest && findAsset(latest, "windows-arm64");
+  return (
+    <>
+      <CommandLine command={p.command} copy={t.copy} copied={t.copied} prompt="PS> " />
+      {(x64 || arm) && (
+        <div className="flex flex-col gap-2">
+          {x64 && <AssetButton asset={x64} label={p.x64} variant="secondary" lang={lang} kind="EXE" />}
+          {arm && <ExternalLink href={arm.url} className="self-start text-sm">{p.arm64} ↓</ExternalLink>}
+        </div>
+      )}
+      <p className="text-fg-muted text-pretty">{p.body}</p>
+      <p className="text-sm text-fg-subtle">{p.requirements}</p>
+      <p className="text-sm text-fg-subtle text-pretty">{p.unsigned}</p>
+    </>
+  );
+}
+
+function LinuxPanel({ t }: { t: T }) {
+  const p = t.platforms.linux;
+  return (
+    <>
+      <CommandLine command={p.command} copy={t.copy} copied={t.copied} />
+      <p className="text-fg-muted text-pretty">{p.body}</p>
+      <p className="text-sm text-fg-subtle">{p.requirements}</p>
+    </>
+  );
+}
+
+/** 一行命令 + 复制按钮，复制后按钮短暂变成「已复制」。 */
 function CommandLine({ command, copy, copied, prompt = "$ " }: { command: string; copy: string; copied: string; prompt?: string }) {
   const [done, setDone] = useState(false);
   const onCopy = async () => {
@@ -208,7 +220,7 @@ function CommandLine({ command, copy, copied, prompt = "$ " }: { command: string
 
 /** 发布说明里中英文各写一条（CHANGELOG 的约定）：按当前语言只留一种。含汉字的条目算中文。 */
 function notesForLang(body: string, lang: "zh" | "en"): string {
-  const cjk = /[\u3400-\u9fff]/;
+  const cjk = /[㐀-鿿]/;
   return body.split("\n").filter((line) => !/^\s*[-*]\s/.test(line) || cjk.test(line) === (lang === "zh")).join("\n");
 }
 
@@ -226,7 +238,10 @@ function AssetButton({ asset, label, variant, lang, onClick, kind = "APK" }: { a
   );
 }
 
-function History({ releases, t, fmtDate, lang }: { releases: Release[]; t: ReturnType<typeof useMessages<typeof messages.zh>>; fmtDate: (iso: string) => string; lang: "zh" | "en" }) {
+// 历史版本里列出的安装包：APK 与两种 Windows 安装包
+const LISTED = new Set(["apk", "windows-x64", "windows-arm64"]);
+
+function History({ releases, t, fmtDate, lang }: { releases: Release[]; t: T; fmtDate: (iso: string) => string; lang: "zh" | "en" }) {
   const [all, setAll] = useState(false);
   const shown = all ? releases : releases.slice(0, 5);
   return (
@@ -241,9 +256,9 @@ function History({ releases, t, fmtDate, lang }: { releases: Release[]; t: Retur
               </div>
               <time dateTime={r.publishedAt} className="text-xs text-fg-subtle">{fmtDate(r.publishedAt)}</time>
             </div>
-            <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm sm:justify-end">
-              {r.assets.filter((a) => a.kind === "apk").map((a) => (
-                <li key={a.name}><ExternalLink href={a.url} className="no-underline hover:underline">{a.name}</ExternalLink> <span className="text-fg-subtle">{formatBytes(a.size, lang)}</span></li>
+            <ul className="flex min-w-0 flex-col gap-1 text-sm sm:items-end">
+              {r.assets.filter((a) => LISTED.has(a.kind)).map((a) => (
+                <li key={a.name} className="min-w-0 break-words"><ExternalLink href={a.url} className="break-all no-underline hover:underline">{a.name}</ExternalLink> <span className="whitespace-nowrap text-fg-subtle">{formatBytes(a.size, lang)}</span></li>
               ))}
             </ul>
           </li>
@@ -258,35 +273,18 @@ function History({ releases, t, fmtDate, lang }: { releases: Release[]; t: Retur
   );
 }
 
-// 预渲染的 HTML 里就是加载态：这个链接不依赖脚本（旧手机的浏览器跑不动页面脚本也能下载），由 Worker 302 到最新正式发布的 APK
+// 预渲染的 HTML 里就有这个链接，不依赖脚本（旧手机的浏览器跑不动页面脚本也能下载），由 Worker 302 到最新正式发布的 APK
 const LATEST_APK = "/dl/latest/android.apk";
 
-function LatestSkeleton({ label, download }: { label: string; download: string }) {
-  return (
-    <Card className="flex flex-col gap-6 lg:flex-row lg:justify-between" aria-busy="true" aria-live="polite">
-      <div className="flex flex-col gap-3">
-        <div className="h-10 w-40 rounded-md bg-surface-hover" />
-        <div className="h-4 w-56 rounded-sm bg-surface-hover" />
-        <p className="text-sm text-fg-subtle">{label}</p>
-      </div>
-      <div className="flex w-full flex-col gap-3 lg:w-80">
-        <ButtonAnchor href={LATEST_APK} variant="accent" size="lg" className="w-full">{download}</ButtonAnchor>
-        <div className="h-14 rounded-md bg-surface-hover" />
-      </div>
-    </Card>
-  );
-}
-
-function ErrorBlock({ error, t, download, onRetry, fmtTime }: { error: FetchError; t: typeof messages.zh.state; download: string; onRetry: () => void; fmtTime: (d: Date) => string }) {
+function ErrorBlock({ error, t, onRetry, fmtTime }: { error: FetchError; t: T["state"]; onRetry: () => void; fmtTime: (d: Date) => string }) {
   const text = error.kind === "rate-limit" ? t.rateLimit : error.kind === "network" ? t.network : `${t.http} (${error.status})`;
   return (
-    <Card role="alert" className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <Card role="alert" className="flex w-full flex-col gap-3 p-4 text-left sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-col gap-1">
-        <p className="text-fg">{text}</p>
+        <p className="text-sm text-fg">{text}</p>
         {error.kind === "rate-limit" && error.resetAt && <p className="text-sm text-fg-subtle">{t.rateLimitReset} {fmtTime(error.resetAt)}</p>}
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <ButtonAnchor href={LATEST_APK} variant="accent" size="sm">{download}</ButtonAnchor>
+      <div className="flex flex-wrap items-center gap-3">
         <ButtonAnchor href={GITHUB_RELEASES} target="_blank" rel="noreferrer noopener" variant="secondary" size="sm">{t.goToReleases} ↗</ButtonAnchor>
         <button type="button" onClick={onRetry} className="text-sm text-link underline-offset-4 hover:underline">{t.retry}</button>
       </div>
@@ -296,8 +294,8 @@ function ErrorBlock({ error, t, download, onRetry, fmtTime }: { error: FetchErro
 
 function EmptyBlock({ label, go }: { label: string; go: string }) {
   return (
-    <Card className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-fg-muted">{label}</p>
+    <Card className="flex w-full flex-col gap-3 p-4 text-left sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-fg-muted">{label}</p>
       <ButtonAnchor href={GITHUB_RELEASES} target="_blank" rel="noreferrer noopener" variant="secondary" size="sm">{go} ↗</ButtonAnchor>
     </Card>
   );

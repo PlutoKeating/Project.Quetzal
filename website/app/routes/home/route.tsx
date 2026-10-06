@@ -50,6 +50,7 @@ export default function Home() {
             <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
             <ButtonLink variant="ghost" size="lg" to={localized(lang, "/features")}>{t.hero.features} →</ButtonLink>
           </div>
+          <p className="text-sm text-fg-subtle">{t.hero.platforms}</p>
         </Container>
       </section>
 
@@ -142,8 +143,33 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 6 · 它此刻（示例身体） */}
+      {/* 5.1 · 装在哪：安卓、Windows、Linux 各一张卡，链到下载页对应的平台 */}
       <Section tone="elevated">
+        <Container className="flex flex-col gap-10">
+          <Reveal className="flex max-w-prose flex-col gap-4">
+            <Eyebrow>{t.devices.eyebrow}</Eyebrow>
+            <Heading size="lg" className="whitespace-pre-line">{t.devices.heading}</Heading>
+            <Lead>{t.devices.lead}</Lead>
+          </Reveal>
+          <ul className="grid gap-4 md:grid-cols-3">
+            {t.devices.items.map((it, i) => (
+              <Reveal as="li" key={it.id} delay={i as 0 | 1 | 2} className="flex">
+                <Link to={`${localized(lang, "/download")}#${it.id}`} className="group flex w-full">
+                  <Card interactive className="flex w-full flex-col gap-3 p-7 sm:p-8">
+                    <Heading as="h3" size="md">{it.title}</Heading>
+                    <p className="text-fg-muted text-pretty">{it.text}</p>
+                    <p className="text-xs text-fg-subtle">{it.req}</p>
+                    <span className="mt-auto pt-2 text-sm text-link underline-offset-4 group-hover:underline">{t.devices.download} →</span>
+                  </Card>
+                </Link>
+              </Reveal>
+            ))}
+          </ul>
+        </Container>
+      </Section>
+
+      {/* 6 · 它此刻（示例身体） */}
+      <Section>
         <Container className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-center"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-4">
             <Eyebrow>{t.now.eyebrow}</Eyebrow>
@@ -155,7 +181,7 @@ export default function Home() {
       </Section>
 
       {/* 7 · 一天 */}
-      <Section>
+      <Section tone="elevated">
         <Container className="grid gap-10 lg:grid-cols-[1fr_1.4fr]"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-4">
             <Eyebrow>{t.day.eyebrow}</Eyebrow>
@@ -181,7 +207,7 @@ export default function Home() {
       </Section>
 
       {/* 8 · 你说了算 */}
-      <Section tone="elevated">
+      <Section>
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
             <Eyebrow>{t.trust.eyebrow}</Eyebrow>
@@ -199,7 +225,7 @@ export default function Home() {
       </Section>
 
       {/* 9 · 托付之前：谁看得到什么、ta 能碰到什么、它还年轻。细节在文档「信任与边界」 */}
-      <Section>
+      <Section tone="elevated">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
             <Eyebrow>{t.before.eyebrow}</Eyebrow>
@@ -218,7 +244,7 @@ export default function Home() {
       </Section>
 
       {/* 10 · 开始 */}
-      <Section tone="elevated">
+      <Section>
         <Container className="flex flex-col items-start gap-6">
           <Eyebrow>{t.start.eyebrow}</Eyebrow>
           <Heading size="lg" className="max-w-3xl">{t.start.heading}</Heading>

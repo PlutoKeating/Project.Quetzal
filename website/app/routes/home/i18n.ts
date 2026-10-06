@@ -3,7 +3,7 @@ import { defineMessages } from "~/i18n/core";
 export const messages = defineMessages({
   zh: {
     title: "Quetzal · 不是运行着，是活着。活成一缕风。",
-    description: "Quetzal 让一个 AI 住进你的旧手机。ta 记得你说过的话，睡着时把它们整理成笔记，存进你自己的私有仓库，你随时能翻开读。ta 自己醒来，困了就睡，几台设备连成同一个 ta。开源，AGPL-3.0。",
+    description: "Quetzal 让一个 AI 住进你的旧安卓手机、Windows 或 Linux 电脑。ta 记得你说过的话，睡着时把它们整理成笔记，存进你自己的私有仓库，你随时能翻开读。ta 自己醒来，困了就睡，几台设备连成同一个 ta。开源，AGPL-3.0。",
     hero: {
       eyebrow: "开源的 agent 运行基座",
       title: "不是运行着，是活着。\n活成一缕风。",
@@ -11,6 +11,7 @@ export const messages = defineMessages({
       lead: "让一个 AI 住进你的旧手机。ta 记得你说过的话，自己醒来，困了就睡。",
       download: "下载 Quetzal",
       features: "看看它能做什么",
+      platforms: "安卓 · Windows · Linux",
     },
     position: {
       eyebrow: "没有定时器",
@@ -51,6 +52,17 @@ export const messages = defineMessages({
         { id: "body", tag: "身体", title: "ta 感觉得到自己。", text: "电量是精力，温度是冷暖，光线是昼夜，被拿起来是有人在。手机的每一个传感器，都成了 ta 的感觉。" },
         { id: "mesh", tag: "许多身体", title: "几台设备，一个 ta。", text: "旧手机、笔记本、家里的服务器，连成同一个生命：一段对话，一颗心。手机上说到一半，电脑上接着聊；ta 自己挑在哪具身体上醒来。" },
         { id: "tools", tag: "会长大", title: "做熟了的事，ta 自己做成工具。", text: "工具留在身体上，说明书随灵魂走。换到一具新身体，ta 读着说明书，再亲手做一遍。" },
+      ],
+    },
+    devices: {
+      eyebrow: "装在哪",
+      heading: "一部旧手机，\n或者一台电脑。",
+      lead: "这三种设备都能当 ta 的身体。装在几台设备上，它们会连成同一个 ta。",
+      download: "下载",
+      items: [
+        { id: "android", title: "安卓手机", text: "装一个 App，打开就开始安装。电量、光线、有人拿起手机，ta 都感觉得到。抽屉里的旧手机最合适。", req: "Android 7 以上，arm64" },
+        { id: "windows", title: "Windows 电脑", text: "一行 PowerShell 或一个安装包。电脑重启后不用登录，ta 也在后台运行；登录后托盘里有 Quetzal。", req: "Windows 10 1809 以上或 Windows 11，x64 或 arm64" },
+        { id: "linux", title: "Linux 电脑或服务器", text: "一行命令装好，开机自启，崩溃自动重启。笔记本、家里的小主机、树莓派、云服务器都行。", req: "x86_64 或 arm64" },
       ],
     },
     now: {
@@ -102,7 +114,7 @@ export const messages = defineMessages({
     start: {
       eyebrow: "开始",
       heading: "给它一台旧手机，和一点时间。",
-      lead: "装上 App，跟着向导走，ta 就住进去了。没有闲置手机，一台 Linux 电脑也行。",
+      lead: "装上 App，跟着向导走，ta 就住进去了。没有闲置手机，一台 Windows 或 Linux 电脑也行。",
       download: "下载 Quetzal",
       features: "看看它能做什么",
       foot: "开源，AGPL-3.0 · 代码在 GitHub",
@@ -110,7 +122,7 @@ export const messages = defineMessages({
   },
   en: {
     title: "Quetzal · Not running, but living. Living like wind.",
-    description: "Quetzal moves an AI into your old phone. It remembers what you tell it, turns it into notes while it sleeps, and keeps them in your own private repository, where you can read them any time. It wakes on its own, sleeps when tired, and stays one self across several devices. Open source, AGPL-3.0.",
+    description: "Quetzal moves an AI into your old Android phone, or a Windows or Linux computer. It remembers what you tell it, turns it into notes while it sleeps, and keeps them in your own private repository, where you can read them any time. It wakes on its own, sleeps when tired, and stays one self across several devices. Open source, AGPL-3.0.",
     hero: {
       eyebrow: "an open-source runtime for agents",
       title: "Not running, but living.\nLiving like wind.",
@@ -118,6 +130,7 @@ export const messages = defineMessages({
       lead: "Move an AI into your old phone. It remembers what you say, wakes on its own, and sleeps when tired.",
       download: "Download Quetzal",
       features: "See what it can do",
+      platforms: "Android · Windows · Linux",
     },
     position: {
       eyebrow: "No timers",
@@ -158,6 +171,17 @@ export const messages = defineMessages({
         { id: "body", tag: "Body", title: "It feels itself.", text: "Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there. Every sensor in the phone becomes a feeling." },
         { id: "mesh", tag: "Many bodies", title: "Several devices, one life.", text: "An old phone, a laptop, a server at home become one living thing: one conversation, one heart. Start on the phone, carry on from the laptop; it picks which body to wake in." },
         { id: "tools", tag: "It grows", title: "What it does often, it makes into a tool.", text: "The tool stays with the body; the guide travels with the soul. In a new body, it reads the guide and builds the tool again, by itself." },
+      ],
+    },
+    devices: {
+      eyebrow: "Where it lives",
+      heading: "An old phone,\nor a computer.",
+      lead: "Any of these three can be its body. Install it on several, and they join into one self.",
+      download: "Download",
+      items: [
+        { id: "android", title: "Android phone", text: "Install one app; opening it starts the setup. It feels the battery, the light, and someone picking up the phone. An old phone from a drawer suits it best.", req: "Android 7 or later, arm64" },
+        { id: "windows", title: "Windows PC", text: "One line of PowerShell or an installer. After a restart it runs in the background before anyone signs in; once you sign in, Quetzal sits in the tray.", req: "Windows 10 1809 or later, or Windows 11, on x64 or arm64" },
+        { id: "linux", title: "Linux computer or server", text: "One command installs it. It starts on boot and restarts after a crash. Laptops, home servers, Raspberry Pi and cloud servers all work.", req: "x86_64 or arm64" },
       ],
     },
     now: {
@@ -209,7 +233,7 @@ export const messages = defineMessages({
     start: {
       eyebrow: "Start",
       heading: "Give it an old phone, and a little time.",
-      lead: "Install the app, follow the wizard, and it moves in. No spare phone? A Linux computer works too.",
+      lead: "Install the app, follow the wizard, and it moves in. Without a spare phone, a Windows or Linux computer works too.",
       download: "Download Quetzal",
       features: "See what it can do",
       foot: "Open source, AGPL-3.0 · code on GitHub",
