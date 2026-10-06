@@ -53,6 +53,7 @@ Settings → **Domains & Routes**（自定义域和路由）→ **Add** → Cust
     - 核对通过的才在 Cloudflare 边缘缓存 7 天（响应头 `X-Digest: sha256:<hex>`）；发布 JSON 取不到（限流、连不上）时照常转发但 `Cache-Control: no-store`、`X-Digest: unavailable`，不进边缘缓存。
     - 这一步只防镜像缓存被污染；真正的信任根是发布签名（`SHA256SUMS.sig`，见文档「发布签名与校验」），App、安装脚本、灵魂桥都在本地核对。App 的更新器、一键安装脚本、下载页都先走它，失败再直连 GitHub。流量经 Cloudflare（Workers 免费额度每天 10 万次请求，流量不计费）。
   - `/api/releases`、`/api/releases/latest`：GitHub 发布接口的镜像，边缘缓存 5 分钟，返回的 JSON 把 `browser_download_url` 改写为 `/dl/` 地址、原地址放在 `github_download_url`。匿名调用的 60 次 / 小时按 Cloudflare 出口 IP 计算，被所有访客共享；设置 Worker Secret **`GITHUB_TOKEN`**（`npx wrangler secret put GITHUB_TOKEN`，只读的细粒度令牌即可）可提高到 5000 次 / 小时。令牌只在 Cloudflare 里，不在仓库里。
+  - `/dl/latest/android.apk`：经 `/api/releases/latest`（同一份缓存与陈旧副本）找到最新正式发布的 APK，302 到 `/dl/<tag>/<名字>`。下载页预渲染的加载态与出错态里就带这个链接，旧手机的浏览器（如 Chromium 79 内核）跑不动页面脚本时照样能下载。
 - 没有 KV / D1。下载页的数据由访客浏览器请求同源的 `/api/releases`（开发服务器没有 Worker，退回 GitHub 公开 API），结果在 sessionStorage 缓存 10 分钟。
 
 ## 5. 本地验证与手动部署
@@ -85,3 +86,4 @@ npm run preview          # wrangler dev，按 wrangler.jsonc 本地托管 build/
 - 2026-10-05：新增 `/install`（Linux 一键安装脚本，构建时从 `cli/install.sh` 复制）与 `_headers`；Build watch paths 需加上 `cli/install.sh`。
 - 2026-10-05：加入 Worker 脚本 `worker/index.ts`，作为 GitHub Release 下载（`/dl/*`）与发布接口（`/api/*`）的镜像源；可选 Secret `GITHUB_TOKEN`。前端与 App 的文案不描述下载来源。
 - 2026-10-06：`_headers` 加全站安全响应头，每页写入按内联脚本哈希计算的 CSP `<meta>`；Worker 的 `/dl/*` 在边缘缓存前与 GitHub 记录的 `digest` 核对 sha256，并放行 `SHA256SUMS.sig`（发布改为一份合并的签名校验清单）。
+- 2026-10-06：Worker 加 `/dl/latest/android.apk`（302 到最新 APK），下载页不靠脚本也有下载按钮。

@@ -26,7 +26,7 @@ website/
 ├── content/docs/                manifest.json（分区与页面顺序，中英共用）+ {zh,en}/<section>/<slug>.md
 ├── public/                      原样复制的静态文件：favicon.svg（光团，色值与设计系统的 orb-* 一致，手动同步）、og.png（分享图）、robots.txt、fonts/（自托管 Inter 与许可证）
 ├── scripts/                     gen-tokens（生成主题变量）、lint-tokens（禁止硬编码）、postbuild（404.html、sitemap、把 ../cli/install.sh 复制为 /install、给每个页面写入按页计算的脚本 CSP `<meta>`、写 _headers：全站安全响应头与 /install 的纯文本声明）；品牌图：gen-brand-images.py（分享图 og.png 与仓库 README 横幅，标志为光团；需 Pillow + numpy，Inter 静态字体可用 fontTools 从 public/fonts/InterVariable.woff2 实例化）、gen-architecture-svg.py 与 gen-bodyclock-svg.ts（README 的架构图与生物钟图，输出到 ../docs/assets/readme/）
-├── worker/index.ts              Worker：只接管 /dl/*（GitHub Release 资产的镜像源；先与发布 JSON 里 GitHub 记下的 sha256 核对，通过才边缘缓存 7 天）、/api/releases[/latest]（发布接口的镜像，缓存 5 分钟，资产地址改写为 /dl/）与 POST /api/oauth/github/token（同步服务换 GitHub 令牌的中转，只放行 Worker 变量 OAUTH_CLIENT_IDS 里的 App，不缓存不记录）；其余路径不经过它
+├── worker/index.ts              Worker：只接管 /dl/*（GitHub Release 资产的镜像源；先与发布 JSON 里 GitHub 记下的 sha256 核对，通过才边缘缓存 7 天；/dl/latest/android.apk 302 到最新 APK，给跑不动页面脚本的旧浏览器）、/api/releases[/latest]（发布接口的镜像，缓存 5 分钟，资产地址改写为 /dl/）与 POST /api/oauth/github/token（同步服务换 GitHub 令牌的中转，只放行 Worker 变量 OAUTH_CLIENT_IDS 里的 App，不缓存不记录）；其余路径不经过它
 ├── react-router.config.ts       ssr:false + 预渲染清单（app/lib/prerender.ts）
 ├── wrangler.jsonc               Cloudflare Workers 静态资源配置
 └── docs/                        本目录：README / ARCHITECTURE / DEVOPS

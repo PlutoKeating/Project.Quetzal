@@ -2,6 +2,8 @@
 //   /dl/<tag>/<资产名>         GitHub Release 资产的镜像源（APK、Linux 控制台包、校验值）：GitHub 在不少网络里连不上，官网走 Cloudflare 能到。
 //                               只镜像本仓库、符合命名的资产，不转发其他地址；先与发布 JSON 里 GitHub 记下的 sha256（digest）核对，
 //                               核对通过才在 Cloudflare 边缘缓存 7 天（按 tag 不可变）；不符或没有 digest 时不缓存（见 download）。
+//   /dl/latest/android.apk     302 到最新正式发布的 APK（/dl/<tag>/<名字>）：下载页在脚本跑起来之前就有这个链接，
+//                               旧手机的浏览器跑不动页面脚本时照样能下载。
 //   /api/releases[/latest]      GitHub 发布接口的镜像（匿名 60 次 / 小时 / IP 是对 Cloudflare 出口算的，所以边缘缓存 5 分钟；
 //                               设置 Secret GITHUB_TOKEN 可提高到 5000 次 / 小时）。返回的 JSON 把每个资产的 browser_download_url
 //                               改写为上面的 /dl/ 地址，原地址放在 github_download_url，客户端先走官网、失败再退回 GitHub。
@@ -31,6 +33,7 @@ export default {
     if (url.pathname.startsWith("/dl/") || url.pathname.startsWith("/api/")) {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(new Headers({ "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS", "Access-Control-Allow-Headers": "Accept" })) });
       if (request.method !== "GET" && request.method !== "HEAD") return text(405, "只支持 GET");
+      if (url.pathname === "/dl/latest/android.apk") return latestApk(url, env, ctx);
       if (url.pathname.startsWith("/dl/")) return download(url, request, env, ctx);
       if (url.pathname === "/api/releases" || url.pathname === "/api/releases/latest") return releases(url, request, env, ctx);
       return text(404, "没有这个接口");
@@ -161,6 +164,17 @@ async function releaseByTag(url: URL, tag: string, env: Env, ctx: Ctx): Promise<
     ctx.waitUntil(cache.put(key, new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${RELEASE_TTL}` } })));
   }
   return out;
+}
+
+/** /dl/latest/android.apk：经 /api/releases/latest（同一份边缘缓存与陈旧副本）找到最新正式发布的 APK，302 过去。 */
+async function latestApk(url: URL, env: Env, ctx: Ctx): Promise<Response> {
+  const res = await releases(new URL("/api/releases/latest", url.origin), new Request(url.origin, { method: "GET" }), env, ctx);
+  if (!res.ok) return text(502, "暂时读不到最新发布，请稍后再试");
+  const r = await res.json() as { tag_name?: string; assets?: { name?: string }[] };
+  const tag = String(r.tag_name ?? "");
+  const apk = (r.assets ?? []).map((a) => String(a.name ?? "")).find((n) => n.endsWith(".apk") && ASSET.test(n));
+  if (!TAG.test(tag) || !apk) return text(404, "最新发布里没有 APK");
+  return new Response(null, { status: 302, headers: cors(new Headers({ Location: `${url.origin}/dl/${tag}/${apk}`, "Cache-Control": "public, max-age=60" })) });
 }
 
 /** /api/releases 与 /api/releases/latest：镜像 api.github.com，改写资产地址，边缘缓存 5 分钟。 */

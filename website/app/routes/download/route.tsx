@@ -49,8 +49,8 @@ export default function Download() {
           <Heading as="h1" size="lg">{t.heading}</Heading>
           <Lead className="max-w-prose">{t.lead}</Lead>
           <Eyebrow className="mt-6 mb-1">{t.latest.eyebrow}</Eyebrow>
-          {state.status === "loading" && <LatestSkeleton label={t.state.loading} />}
-          {state.status === "error" && <ErrorBlock error={state.error} t={t.state} onRetry={retry} fmtTime={(d) => new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en", { timeStyle: "short" }).format(d)} />}
+          {state.status === "loading" && <LatestSkeleton label={t.state.loading} download={t.latest.downloadApk} />}
+          {state.status === "error" && <ErrorBlock error={state.error} t={t.state} download={t.latest.downloadApk} onRetry={retry} fmtTime={(d) => new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en", { timeStyle: "short" }).format(d)} />}
           {state.status === "ready" && (() => {
             const latest = pickLatest(state.releases);
             if (!latest) return <EmptyBlock label={t.state.empty} go={t.state.goToReleases} />;
@@ -231,7 +231,10 @@ function History({ releases, t, fmtDate, lang }: { releases: Release[]; t: Retur
   );
 }
 
-function LatestSkeleton({ label }: { label: string }) {
+// 预渲染的 HTML 里就是加载态：这个链接不依赖脚本（旧手机的浏览器跑不动页面脚本也能下载），由 Worker 302 到最新正式发布的 APK
+const LATEST_APK = "/dl/latest/android.apk";
+
+function LatestSkeleton({ label, download }: { label: string; download: string }) {
   return (
     <Card className="flex flex-col gap-6 lg:flex-row lg:justify-between" aria-busy="true" aria-live="polite">
       <div className="flex flex-col gap-3">
@@ -240,14 +243,14 @@ function LatestSkeleton({ label }: { label: string }) {
         <p className="text-sm text-fg-subtle">{label}</p>
       </div>
       <div className="flex w-full flex-col gap-3 lg:w-80">
-        <div className="h-14 rounded-md bg-surface-hover" />
+        <ButtonAnchor href={LATEST_APK} variant="accent" size="lg" className="w-full">{download}</ButtonAnchor>
         <div className="h-14 rounded-md bg-surface-hover" />
       </div>
     </Card>
   );
 }
 
-function ErrorBlock({ error, t, onRetry, fmtTime }: { error: FetchError; t: typeof messages.zh.state; onRetry: () => void; fmtTime: (d: Date) => string }) {
+function ErrorBlock({ error, t, download, onRetry, fmtTime }: { error: FetchError; t: typeof messages.zh.state; download: string; onRetry: () => void; fmtTime: (d: Date) => string }) {
   const text = error.kind === "rate-limit" ? t.rateLimit : error.kind === "network" ? t.network : `${t.http} (${error.status})`;
   return (
     <Card role="alert" className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -256,7 +259,8 @@ function ErrorBlock({ error, t, onRetry, fmtTime }: { error: FetchError; t: type
         {error.kind === "rate-limit" && error.resetAt && <p className="text-sm text-fg-subtle">{t.rateLimitReset} {fmtTime(error.resetAt)}</p>}
       </div>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <ButtonAnchor href={GITHUB_RELEASES} target="_blank" rel="noreferrer noopener" variant="primary" size="sm">{t.goToReleases} ↗</ButtonAnchor>
+        <ButtonAnchor href={LATEST_APK} variant="accent" size="sm">{download}</ButtonAnchor>
+        <ButtonAnchor href={GITHUB_RELEASES} target="_blank" rel="noreferrer noopener" variant="secondary" size="sm">{t.goToReleases} ↗</ButtonAnchor>
         <button type="button" onClick={onRetry} className="text-sm text-link underline-offset-4 hover:underline">{t.retry}</button>
       </div>
     </Card>
