@@ -50,7 +50,7 @@ android/app/src/main/kotlin/xyz/quetzal/console/
 ├── MainActivity.kt    Flutter 桥：运行基座（quetzal/runtime）、听觉（quetzal/hearing）、App 自身更新（quetzal/updater）
 ├── RuntimeService.kt  运行基座的前台服务（解开运行环境、复制运行基座、写设备配置、启动 node、退避重启、唤醒锁）与 BootReceiver（开机、App 升级后自启）
 ├── BodyServer.kt      身体接口：127.0.0.1 随机端口 + 256 位令牌（写进 QUETZAL_HOME/secrets/body.json），电池、传感器、通知、拍照、录音、定位、振动、手电、剪贴板、播放
-├── Rootfs.kt          解开 rootfs.tar（GNU tar；路径限定在目标目录内）、在前缀里建指向 nativeLibraryDir/lib*.so 的链接、$PREFIX/bin/sh → /system/bin/sh
+├── Rootfs.kt          解开 rootfs.tar（GNU tar；路径限定在目标目录内）、在前缀里建指向 nativeLibraryDir/lib*.so 的链接、$PREFIX/bin/sh → /system/bin/sh；删目录一律用不跟随符号链接的 deleteTree（旧版本运行基座目录里的 node_modules 链接指向网状层组件，跟随链接删会把它们删光）；发现 node_modules 被删空就重新解压
 └── HearingService.kt  耳朵：麦克风前台服务
 linux/                 Linux 桌面版的运行壳（flutter create 生成，只改了：BINARY_NAME quetzal-console、APPLICATION_ID xyz.quetzal.console（GTK 以它作 Wayland app_id 与 X11 WM_CLASS，桌面项按它配图标）、窗口标题 Quetzal、1280×800、背景 #202020、图标名 xyz.quetzal.console）
 ```

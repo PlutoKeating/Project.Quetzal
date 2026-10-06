@@ -2,6 +2,7 @@ package xyz.quetzal.console
 
 import android.content.Context
 import android.system.Os
+import android.system.OsConstants
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.File
@@ -24,6 +25,16 @@ object Rootfs {
     fun home(ctx: Context) = File(ctx.filesDir, "home")
     fun quetzalHome(ctx: Context) = File(home(ctx), "quetzal")
 
+    /**
+     * 删除目录树，**不跟随符号链接**：链接只删链接本身。Kotlin 的 deleteRecursively 会钻进指向目录的链接、删掉链接目标里的东西——
+     * 旧版本运行基座目录里的 node_modules 链接指向运行环境里的网状层组件，升级时删旧目录曾把它们一并删光（node-datachannel 找不到）。
+     */
+    fun deleteTree(f: File) {
+        val st = try { Os.lstat(f.path) } catch (_: Exception) { return } // 不存在
+        if (OsConstants.S_ISDIR(st.st_mode)) f.listFiles()?.forEach { deleteTree(it) }
+        f.delete()
+    }
+
     /** 这个 App 里有没有内置运行环境（开发版可能没有）。 */
     fun bundled(ctx: Context): Boolean = try { ctx.assets.open("$ASSET_DIR/manifest.json").close(); true } catch (_: Exception) { false }
 
@@ -38,11 +49,14 @@ object Rootfs {
         val usr = prefix(ctx)
         val stamp = File(usr, ".quetzal-rootfs")
         val want = "$version\n$lib\n"
-        if (stamp.isFile && stamp.readText() == want) return version
+        // 旧版本升级时删旧运行基座目录曾顺着链接删空了网状层组件（留下空的 node_modules）：发现这种情况就重新解压修好
+        val modules = File(usr, "lib/quetzal/node_modules")
+        val emptied = modules.isDirectory && modules.list().isNullOrEmpty()
+        if (stamp.isFile && stamp.readText() == want && !emptied) return version
 
         log("解压运行环境 $version")
         val staging = File(ctx.filesDir, "usr.staging")
-        staging.deleteRecursively()
+        deleteTree(staging)
         staging.mkdirs()
         ctx.assets.open("$ASSET_DIR/rootfs.tar").use { untar(BufferedInputStream(it, 1 shl 16), staging) }
         // 可执行文件：链接到 nativeLibraryDir 里的 lib<名>.so
@@ -61,11 +75,11 @@ object Rootfs {
         File(staging, "usr/.quetzal-rootfs").writeText(want)
         // 原子地换掉旧的前缀
         val old = File(ctx.filesDir, "usr.old")
-        old.deleteRecursively()
+        deleteTree(old)
         if (usr.exists() && !usr.renameTo(old)) throw IllegalStateException("无法替换旧的运行环境")
         if (!File(staging, "usr").renameTo(usr)) throw IllegalStateException("无法放入新的运行环境")
-        staging.deleteRecursively()
-        old.deleteRecursively()
+        deleteTree(staging)
+        deleteTree(old)
         log("运行环境已就绪")
         return version
     }

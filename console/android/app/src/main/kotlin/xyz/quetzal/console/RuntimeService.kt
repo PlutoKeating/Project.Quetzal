@@ -107,10 +107,10 @@ class RuntimeService : Service() {
         val dir = File(filesDir, "runtime/$v")
         val stamp = File(dir, ".complete")
         if (!stamp.isFile) {
-            dir.deleteRecursively(); dir.mkdirs()
+            Rootfs.deleteTree(dir); dir.mkdirs()
             for (name in listOf("main.cjs", "android.mjs")) assets.open("$fa/$name").use { i -> File(dir, name).outputStream().use { i.copyTo(it) } }
             stamp.writeText(v)
-            File(filesDir, "runtime").listFiles()?.filter { it.name != v }?.forEach { it.deleteRecursively() } // 只留当前版本
+            File(filesDir, "runtime").listFiles()?.filter { it.name != v }?.forEach { Rootfs.deleteTree(it) } // 只留当前版本（不跟随里面的 node_modules 链接）
         }
         version = v
         return dir
