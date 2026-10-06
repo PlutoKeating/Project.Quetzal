@@ -6,11 +6,12 @@
   "license": "AGPL-3.0-only",
   "description": "通用的 Agentic 生命运行基座：心脏、大脑、记忆、身体、闸门、网关",
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --external:node-datachannel --outfile=dist/main.cjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs && esbuild adapters/linux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/linux.mjs && esbuild adapters/android/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/android.mjs",
+    "build": "tsc --noEmit && esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --sourcemap --external:node-datachannel --external:@anthropic-ai/sandbox-runtime --outfile=dist/main.cjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs && esbuild adapters/linux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/linux.mjs && esbuild adapters/android/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/android.mjs && node tool/build-srt.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "dev": "QUETZAL_HOME=./.dev node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.78",
     "@larksuiteoapi/node-sdk": "^1.74.0",
     "@peculiar/asn1-schema": "2.10.0",
     "@peculiar/asn1-x509": "2.10.0",

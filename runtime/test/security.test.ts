@@ -41,7 +41,7 @@ test("沙箱：有 bwrap 时密钥目录在命令里不存在，QUETZAL_HOME 只
   assert.match((await shell(`touch ${path.join(paths.data, "ok")} && echo ok`)).out, /ok/, "data/ 可写");
   assert.equal((await shell("echo hello; pwd")).out, `hello\n${os.homedir()}\n`, "工作目录是用户主目录");
   // 后台任务同样在沙箱里
-  const j = startJob(`cat ${path.join(paths.secrets, "gateway.token")} || echo hidden`);
+  const j = await startJob(`cat ${path.join(paths.secrets, "gateway.token")} || echo hidden`);
   for (let i = 0; i < 50 && !getJob(j.id)!.ended; i++) await new Promise((r) => setTimeout(r, 100));
   assert.match(getJob(j.id)!.out, /hidden/);
   assert.doesNotMatch(getJob(j.id)!.out, /gw_x/);
@@ -69,7 +69,7 @@ test("没有可用沙箱时默认拒绝执行（fail-closed）；部署者明确
     assert.equal(r.code, 126);
     assert.equal(r.out, "");
     assert.match(r.err, /没有执行：.*沙箱/);
-    assert.throws(() => startJob("echo hi"), /没有执行/);
+    await assert.rejects(() => startJob("echo hi"), /没有执行/);
     saveConfig({ sandbox: { allowUnsandboxed: true } } as never);
     assert.equal((await shell("echo hi")).out, "hi\n");
   } finally { saveConfig({ sandbox: { allowUnsandboxed: false } } as never); delete process.env.QUETZAL_SANDBOX; sandbox.resetSandbox(); }

@@ -18,8 +18,9 @@ import * as voice from "../voice/azure.ts";
 import { config, paths } from "../config.ts";
 import { requestSecrets, redactSecrets, redactArgs, MAX_ITEMS } from "./secrets.ts";
 import { protectedPath, workDir } from "../sandbox.ts";
+import { isWindows } from "../platform.ts";
 import { guardedFetch } from "./fetch-guard.ts";
-import { listManifests, listCustomTools, readTool, readSkill, writeTool, deleteTool, runTool, missingRequires, SKILL_SPEC_URL } from "./custom-tools.ts";
+import { listManifests, listCustomTools, readTool, readSkill, writeTool, deleteTool, runTool, missingRequires, SKILL_SPEC_URL, runtimesHere, sourceFile } from "./custom-tools.ts";
 import { PERMISSION_LABELS } from "../guard/guard.ts";
 import { identity, setIdentity } from "../memory/identity.ts";
 import * as soul from "../memory/soul-sync.ts";
@@ -51,8 +52,8 @@ const str = (description: string) => ({ type: "string", description });
  */
 export function soulGitBlock(command: string): string | undefined {
   if (!/(^|[^\w-])git([^\w-]|$)/.test(command)) return undefined;
-  const soul = paths.soul.replace(/\/+$/, "");
-  const touches = command.includes(soul) || /quetzal\/soul\b|QUETZAL_HOME\}?\/soul\b|(^|[\s;&|(])cd\s+soul\b|-C\s+soul\b/.test(command);
+  const soul = paths.soul.replace(/[\\/]+$/, "");
+  const touches = command.includes(soul) || (isWindows && command.toLowerCase().includes(soul.toLowerCase())) || /quetzal[\\/]+(home[\\/]+)?soul\b|QUETZAL_HOME\}?[\\/]soul\b|(^|[\s;&|(])cd\s+soul\b|-C\s+soul\b/i.test(command);
   if (!touches) return undefined;
   return "没有执行：灵魂目录（你的人格与记忆所在的仓库）由基座全自动同步，不能在里面运行 git——改远端、reset、push、把它的内容提交到别的仓库，都可能把记忆推到错的地方、或把别的历史混进来。你改动灵魂目录里的文件，基座会立即提交并推送；同步出了问题会提醒你，需要人处理的事告诉对方。";
 }
@@ -62,8 +63,8 @@ export function soulGitBlock(command: string): string | undefined {
  * 这只是提示，不是边界：边界是沙箱（sandbox.ts，密钥目录在 agent 的命令里不存在）与读文件工具的真实路径检查（protectedPath）。
  */
 export function secretsBlock(text: string): string | undefined {
-  const dir = paths.secrets.replace(/\/+$/, "");
-  const touches = text.includes(dir) || /quetzal\/secrets\b|QUETZAL_HOME\}?\/secrets\b|(^|[\s;&|(])cd\s+secrets\b|sync-account\.json|(^|[\s/])sync\.json\b|master\.key|gateway\.token|mesh_ed25519|soul_ed25519|feishu_secret|azure_speech_key/.test(text);
+  const dir = paths.secrets.replace(/[\\/]+$/, "");
+  const touches = text.includes(dir) || (isWindows && text.toLowerCase().includes(dir.toLowerCase())) || /quetzal[\\/]+(home[\\/]+)?secrets\b|QUETZAL_HOME\}?[\\/]secrets\b|(^|[\s;&|(])cd\s+secrets\b|sync-account\.json|(^|[\s/])sync\.json\b|master\.key|gateway\.token|mesh_ed25519|soul_ed25519|feishu_secret|azure_speech_key/.test(text);
   return touches ? "没有执行：基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥）不能读取、复制或使用。需要这些能力的事由基座或对方在控制台里做。" : undefined;
 }
 
@@ -209,12 +210,14 @@ const core: Tool[] = [
   },
   {
     name: "shell", permission: "shell",
-    description: "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
+    description: (isWindows
+      ? `在这具身体（Windows）上执行一条 PowerShell 命令（不是 bash：变量写 $env:NAME，路径用 C:\\…，Windows PowerShell 5.1 不支持 &&，用 ; 或 if ($?) { }）。命令在沙箱里以低权限的沙箱用户运行：工作目录是 ${workDir()}（对方也能在这里放文件、取结果），只能写工作区、data 与灵魂目录，读不到对方主目录里别的文件和基座的密钥；联网经代理，连不到这台机器自己的端口。被超时或停止结束的命令退出码是 1，不是命令本身出错。`
+      : "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。") + "默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
     parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
     handler: async (a) => {
       const blocked = soulGitBlock(String(a.command ?? "")) ?? secretsBlock(String(a.command ?? ""));
       if (blocked) return blocked;
-      if (a.background) { const j = startJob(a.command); return `已在后台运行，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
+      if (a.background) { let j; try { j = await startJob(a.command); } catch (e) { return (e as Error).message; } return `已在后台运行，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
       const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000);
       const out = (r.out + r.err).slice(0, 8000);
       // 输出为空而命令丢弃了 stderr：报错可能被吞了，看起来像"没有结果"，不能据此下结论（非零退出时 run 会补一句 Command failed，不算输出）
@@ -225,7 +228,7 @@ const core: Tool[] = [
   },
   {
     name: "processes", permission: "shell",
-    description: "列出这具身体上你能看到的进程（直接读 /proc，不依赖 ps）：pid、父进程、状态、已运行时长、命令行，并标出你自己（运行基座）、你的父进程和你启动的后台任务。想知道某个程序有没有在跑，用它而不是 ps。",
+    description: "列出这具身体上你能看到的进程（Linux 直接读 /proc、Windows 读系统的进程表，不依赖 ps）：pid、父进程、状态、已运行时长、命令行，并标出你自己（运行基座）、你的父进程和你启动的后台任务。想知道某个程序有没有在跑，用它而不是 ps。",
     parameters: obj({ filter: str("可选：按命令行子串或 pid 过滤，如 node、dnsproxy") }),
     handler: async (a) => describeProcesses(a.filter ? String(a.filter) : ""),
   },
@@ -339,13 +342,13 @@ const core: Tool[] = [
   },
   {
     name: "tool_write", permission: "self_modify", also: ["tool_write"], // 写的是之后会被执行的代码：缺省每次询问
-    description: `新建或改写一个你自己的工具。把做过多次、步骤稳定、以后还会用的流程写成工具，之后就能像内置工具一样直接调用（出现在工具表里，经闸门按 permission 检查）。实现只在这具身体上（QUETZAL_HOME/tools/<name>/）；意图文档 skill 随灵魂同步到其他身体，它们可以按文档自己实现，所以新工具必须写 skill。runtime=sh：source 是 shell 脚本，调用时参数以 JSON 从 stdin 传入，同时展开为环境变量 ARG_<参数名>（非字符串为 JSON），stdout 就是结果；runtime=node：source 是 ES 模块，默认导出 async (args, {dir, home}) => string，可以 import Node 内置模块。改写时只传要改的字段（name 必传）。所有参数以后都可以按需再改。`,
+    description: `新建或改写一个你自己的工具。把做过多次、步骤稳定、以后还会用的流程写成工具，之后就能像内置工具一样直接调用（出现在工具表里，经闸门按 permission 检查）。实现只在这具身体上（QUETZAL_HOME/tools/<name>/）；意图文档 skill 随灵魂同步到其他身体，它们可以按文档自己实现，所以新工具必须写 skill。runtime=sh：source 是 shell 脚本，调用时参数以 JSON 从 stdin 传入，同时展开为环境变量 ARG_<参数名>（非字符串为 JSON），stdout 就是结果；runtime=ps1：source 是 PowerShell 脚本（Windows 身体用它，不能用 sh），参数同样在 stdin（[Console]::In.ReadToEnd()）与 $env:ARG_<参数名>；runtime=node：source 是 ES 模块，默认导出 async (args, {dir, home}) => string，可以 import Node 内置模块。改写时只传要改的字段（name 必传）。所有参数以后都可以按需再改。`,
     parameters: obj({
       name: str("工具名：小写字母开头，可含数字、下划线、连字符，最长 40"),
       description: str("给模型看的说明：做什么、什么时候用"),
       parameters: { type: "object", description: "参数的 JSON Schema（type=object）" },
       permission: str(`能力类别，缺省 shell。可选：${Object.keys(PERMISSION_LABELS).join("、")}`),
-      runtime: { type: "string", enum: ["sh", "node"] },
+      runtime: { type: "string", enum: runtimesHere(), description: `这具身体能用的：${runtimesHere().join(" / ")}` },
       source: str("实现源码"),
       timeout: { type: "number", description: "超时秒数，缺省 60，最多 600" },
       requires: { type: "array", items: { type: "string" }, description: "依赖的命令名，如 ffmpeg；本机缺少时工具不挂载并说明" },
@@ -365,7 +368,7 @@ const core: Tool[] = [
     parameters: obj({ name: str("工具名") }, ["name"]),
     handler: async (a) => {
       const t = readTool(String(a.name));
-      if (t) return `## tool.json\n${JSON.stringify(t.manifest, null, 2)}\n\n## ${t.manifest.runtime === "sh" ? "tool.sh" : "tool.mjs"}\n${t.source}\n\n## SKILL.md\n${t.skill || "（没有技能文档）"}`;
+      if (t) return `## tool.json\n${JSON.stringify(t.manifest, null, 2)}\n\n## ${path.basename(sourceFile(t.manifest.name, t.manifest.runtime))}\n${t.source}\n\n## SKILL.md\n${t.skill || "（没有技能文档）"}`;
       const sk = readSkill(String(a.name));
       return sk ? `本机没有「${a.name}」的实现，灵魂仓库里的技能文档：\n\n${sk}` : `没有这个工具，也没有这个技能`;
     },

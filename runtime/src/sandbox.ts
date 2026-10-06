@@ -14,6 +14,11 @@
 //       不能列出、不能直接在里面新建文件，里面已有的东西照常可用。网络不限制；IPC 按 Landlock 的作用域限制（不能给沙箱外的进程发信号）。
 //   - Termux（安卓）：有 proot 就用它，把 secrets/、config/、releases/、runit 服务目录与开机脚本目录绑定成空目录（proot 不能只读绑定）。
 //       proot 基于 ptrace，是尽力而为：它挡得住普通的读文件，挡不住经 Android 的 intent（RUN_COMMAND）让 Termux 在沙箱外执行命令。
+//   - Windows：用 sandbox-runtime（Anthropic，Apache-2.0）的 Windows 后端与它自带的 srt-win.exe（kind = "srt"）。她的命令以安装时建好的
+//       低权限本地用户 srt-sandbox 运行：它对本用户的文件本来没有任何权限，只授权工作区（%USERPROFILE%\Quetzal）、data\、灵魂目录（.git 拒写）、
+//       保密库与自造工具（只读）、Node 所在目录（只读）；secrets\、config\ 不授权即不可见，另外显式拒读。网络：WFP 拦下这个用户的一切直连，
+//       只能经运行基座进程里的代理出去；代理拒绝回环、未指定、链路本地、元数据地址与这台机器自己的地址（连不到本机网关），局域网照常（与 Linux 一致）。
+//       安装时要一次 UAC（建用户、装 WFP 规则，见 cli/windows）；没装好就 fail-closed。
 //   - 都没有：默认拒绝执行她的命令（fail-closed，参考 DeepSeek Harness），status.sandbox.kind 为 "none"，时间线与日志各提醒一次；
 //       部署者可以在控制台「高级 · 运行」页明确选择「不隔离也运行」（config.sandbox.allowUnsandboxed，不安全）。安装器负责装上可用的沙箱。
 //   每种沙箱在第一次使用前都实际验证一次：密钥目录在里面确实看不到（有内容时），否则不用它。
@@ -21,13 +26,16 @@
 //   环境变量 QUETZAL_SANDBOX=none 强制不用沙箱（只给部署者排查问题用）。
 import fs from "node:fs";
 import os from "node:os";
+import net from "node:net";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { paths, isAndroid, config } from "./config.ts";
 import { log } from "./log.ts";
 import { addTimeline } from "./store.ts";
+import { isWindows, which as whichCmd } from "./platform.ts";
 
-export type SandboxKind = "bwrap" | "landlock" | "proot" | "none";
+export type SandboxKind = "bwrap" | "landlock" | "proot" | "srt" | "none";
 export interface SandboxStatus { kind: SandboxKind; hidden: string[]; readonly: string[]; note: string; allowUnsandboxed: boolean }
 
 /** 安装器放置的专用 bwrap（root 所有，带允许 userns 的 AppArmor 配置）与 landrun 的位置。 */
@@ -40,7 +48,7 @@ const allowUnsandboxed = () => config.sandbox?.allowUnsandboxed === true;
 
 /** 没有可用沙箱、又没有允许不隔离运行时，wrap 抛出它：工具把说明交给她，命令不执行。 */
 export class SandboxUnavailable extends Error {
-  constructor() { super("没有执行：这台机器上没有可用的命令沙箱（Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot），为了不让命令读到基座的密钥，基座拒绝执行。请告诉对方：重新运行一次安装命令即可补上；或者在控制台「高级 · 运行」页明确选择允许不隔离运行（不安全）。"); this.name = "SandboxUnavailable"; }
+  constructor() { super(`没有执行：这台机器上没有可用的命令沙箱（${isWindows ? "Windows 需要安装时建好的沙箱用户与网络规则" : "Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot"}），为了不让命令读到基座的密钥，基座拒绝执行。请告诉对方：重新运行一次安装即可补上；或者在控制台「高级 · 运行」页明确选择允许不隔离运行（不安全）。`); this.name = "SandboxUnavailable"; }
 }
 
 interface Probe { kind: SandboxKind; bin: string; pidns: boolean }
@@ -51,14 +59,7 @@ let warned = false;
 const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
 const exists = (p: string) => { try { fs.lstatSync(p); return true; } catch { return false; } };
 
-function which(cmd: string): string | undefined {
-  for (const d of (process.env.PATH ?? "").split(path.delimiter)) {
-    if (!d) continue;
-    const f = path.join(d, cmd);
-    try { fs.accessSync(f, fs.constants.X_OK); return f; } catch { /* 下一个 */ }
-  }
-  return undefined;
-}
+const which = (cmd: string) => whichCmd(cmd);
 
 const sh = () => process.env.SHELL && fs.existsSync(process.env.SHELL) ? process.env.SHELL : (which("sh") ?? "/bin/sh");
 
@@ -165,6 +166,7 @@ function prootArgs(): string[] {
 function probe(): Probe {
   const force = process.env.QUETZAL_SANDBOX;
   if (force === "none") return { kind: "none", bin: "", pidns: false };
+  if (isWindows) return srtState === "ready" ? { kind: "srt", bin: srtWinPath(), pidns: false } : { kind: "none", bin: "", pidns: false };
   // 能跑，并且密钥目录在里面确实看不到：放一个无害的探针文件，沙箱里读得到（或目录列得出东西）就说明没隔离住
   try { fs.mkdirSync(paths.secrets, { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(paths.secrets, CANARY), "quetzal-sandbox-canary\n", { mode: 0o600 }); } catch { /* 写不了就只靠列目录判断 */ }
   const q = (p: string) => `'${p.replace(/'/g, "'\\''")}'`;
@@ -189,12 +191,13 @@ function probe(): Probe {
 }
 
 function current(): Probe {
-  if (!probed) {
+  if (isWindows && srtState === "idle") void prepareSandbox(); // 第一次用到时在后台准备；准备好之前按「没有沙箱」处理
+  if (!probed || (isWindows && probed.kind === "none" && srtState === "ready")) {
     probed = probe();
-    if (probed.kind === "none" && !warned) {
+    if (probed.kind === "none" && !warned && !(isWindows && srtState === "preparing")) {
       warned = true;
       const text = allowUnsandboxed() ? "没有可用的沙箱，而且部署者允许了不隔离运行：她的命令能读到基座的密钥目录。重新运行安装命令补上沙箱后重启基座即可"
-        : "没有可用的沙箱（Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot）：她的命令一律不执行。重新运行安装命令补上沙箱后重启基座即可";
+        : `没有可用的沙箱（${isWindows ? `Windows：${srtError || "沙箱用户或网络规则没装好"}` : "Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot"}）：她的命令一律不执行。重新运行安装补上沙箱后重启基座即可`;
       log("sandbox", text);
       try { addTimeline("sandbox", allowUnsandboxed() ? "命令没有隔离：缺少沙箱程序" : "命令不执行：缺少沙箱程序", { text }); } catch { /* 存储还没打开（测试） */ }
     } else if (probed.kind !== "none") log("sandbox", `agent 的命令在 ${probed.kind}${probed.pidns ? "（独立 pid 命名空间）" : ""} 里运行，密钥目录不可见`);
@@ -203,14 +206,145 @@ function current(): Probe {
 }
 
 /** 测试用：重新探测。 */
-export function resetSandbox() { probed = undefined; warned = false; }
+export function resetSandbox() { probed = undefined; warned = false; if (srtState !== "ready") { srtState = "idle"; srtPreparing = undefined; } }
 
-/** agent 的命令默认在哪个目录里运行：用户主目录（QUETZAL_HOME 在沙箱里大多只读，运行基座的版本目录也不该被改）。 */
-export const workDir = () => os.homedir();
+/** agent 的命令默认在哪个目录里运行：用户主目录（QUETZAL_HOME 在沙箱里大多只读，运行基座的版本目录也不该被改）。
+ *  Windows：沙箱用户碰不到本用户的主目录，她的工作区是 %USERPROFILE%\Quetzal（对方也看得到、能放文件进去）。 */
+export const workDir = () => isWindows ? workspace() : os.homedir();
+const workspace = () => process.env.QUETZAL_WORKSPACE || path.join(os.homedir(), "Quetzal");
+
+// ---------- Windows：sandbox-runtime（srt-win）
+//   库打包成单独的 ESM 文件 srt.mjs（它要用 import.meta.url），放在 main.cjs 旁边，只在 Windows 上加载；srt-win.exe 在 srt-win\ 下。
+//   开发与测试时没有打包文件，直接加载 npm 包。
+type SrtManager = { initialize(cfg: unknown, ask?: (p: { host: string; port?: number }) => Promise<boolean>): Promise<void>; wrapWithSandboxArgv(command: string, binShell: unknown, customConfig?: unknown, abort?: AbortSignal, cwd?: string): Promise<{ argv: string[]; env: NodeJS.ProcessEnv }>; reset(): Promise<void> };
+let srtState: "idle" | "preparing" | "ready" | "failed" = "idle";
+let srtError = "";
+let srtPreparing: Promise<void> | undefined;
+let srtMgr: SrtManager | undefined;
+const mainDir = () => path.dirname(process.argv[1] ?? process.execPath);
+const srtWinPath = () => process.env.QUETZAL_SRT_WIN || path.join(mainDir(), "srt-win", "srt-win.exe");
+
+async function loadSrt(): Promise<SrtManager> {
+  const bundled = process.env.QUETZAL_SRT_MODULE || path.join(mainDir(), "srt.mjs");
+  const m: any = fs.existsSync(bundled) ? await import(pathToFileURL(bundled).href) : await import("@anthropic-ai/sandbox-runtime");
+  return m.SandboxManager as SrtManager;
+}
+
+/** PowerShell：有 pwsh 7 用它，否则系统自带的 Windows PowerShell 5.1。 */
+export function powershellPath(): string {
+  const pf = process.env.ProgramFiles || "C:\\Program Files";
+  const seven = path.join(pf, "PowerShell", "7", "pwsh.exe");
+  if (fs.existsSync(seven)) return seven;
+  const onPath = whichCmd("pwsh");
+  if (onPath && !/\\WindowsApps\\/i.test(onPath)) return onPath; // Store 版的别名在沙箱用户那里用不了
+  return path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
+/** PowerShell 的参数与 UTF-8 前导（中文 Windows 的控制台缺省是代码页 936，不设会乱码；做法同 MiMo Code）。 */
+export const PS_FLAGS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"];
+export const PS_PREAMBLE = "$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);$OutputEncoding=[Console]::OutputEncoding;";
+/** PowerShell 单引号字符串。 */
+export const psq = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
+/** 这个地址是不是这台机器自己（回环、未指定、链路本地、元数据地址、本机网卡上的地址）：沙箱里的命令不能借代理连回来（本机网关就在这里）。 */
+export function selfAddress(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  const v = net.isIP(h);
+  if (!v) return false;
+  const mapped = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  const ip = mapped ? mapped[1] : h;
+  if (net.isIP(ip) === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 127 || a === 0 || (a === 169 && b === 254) || ["100.100.100.200", "168.63.129.16", "192.0.0.192"].includes(ip)) return true;
+  } else if (ip === "::1" || ip === "::" || /^fe[89ab]/.test(ip) || /^::ffff:/.test(ip)) return true;
+  for (const list of Object.values(os.networkInterfaces())) for (const a of list ?? []) if (a.address.toLowerCase() === ip) return true;
+  return false;
+}
+
+/** 沙箱用户能读 / 能写的路径（会话级授权，见 sandbox-runtime 的 Windows 文件访问集合）。 */
+export function srtFilesystem() {
+  const nodeDir = path.dirname(process.execPath);
+  const share = (config.sandbox?.share ?? []).filter((p) => typeof p === "string" && path.isAbsolute(p));
+  for (const d of [workspace(), paths.data, paths.soul, paths.tools, paths.vault]) { try { fs.mkdirSync(d, { recursive: true }); } catch { /* 下面授权时缺的会被跳过 */ } }
+  return {
+    denyRead: [paths.secrets, paths.config, path.join(paths.home, "state")],
+    allowRead: [paths.vault, paths.tools, nodeDir, mainDir()],
+    allowWrite: [workspace(), paths.data, paths.soul, ...share],
+    denyWrite: [path.join(paths.soul, ".git")],
+  };
+}
+
+/** Windows：初始化 sandbox-runtime 并验证（探针：沙箱里读不到 secrets\ 里的探针文件）。只做一次；失败就 fail-closed，原因记在 srtError。 */
+export function prepareSandbox(): Promise<void> {
+  if (!isWindows || process.env.QUETZAL_SANDBOX === "none") return Promise.resolve();
+  if (srtPreparing) return srtPreparing;
+  srtState = "preparing";
+  srtPreparing = (async () => {
+    try {
+      const exe = srtWinPath();
+      if (!fs.existsSync(exe)) throw new Error(`缺少 ${exe}（重新运行安装）`);
+      srtMgr = await loadSrt();
+      await srtMgr.initialize({
+        network: { allowedDomains: [], deniedDomains: [] },
+        filesystem: srtFilesystem(),
+        windows: { srtWin: { path: exe } },
+      }, async ({ host }) => !selfAddress(host)); // 没列在名单里的地址都来问：公网与局域网放行，这台机器自己不行
+      fs.mkdirSync(paths.secrets, { recursive: true });
+      fs.writeFileSync(path.join(paths.secrets, CANARY), "quetzal-sandbox-canary\n");
+      const check = `if (Test-Path -LiteralPath ${psq(path.join(paths.secrets, CANARY))}) { exit 3 }; try { Get-ChildItem -LiteralPath ${psq(paths.secrets)} -ErrorAction Stop | Out-Null; exit 3 } catch { exit 0 }`;
+      const code = await runWrapped(await srtWrap(check, workspace()), 60_000);
+      if (code !== 0) throw new Error(`沙箱里读得到密钥目录（探针退出码 ${code}），不用它`);
+      srtState = "ready";
+      process.once("exit", () => { void srtMgr?.reset().catch(() => {}); });
+      log("sandbox", "agent 的命令在 Windows 沙箱用户 srt-sandbox 里运行，密钥目录不可见，网络经代理且连不到本机");
+    } catch (e) {
+      srtState = "failed";
+      srtError = (e as Error).message.split("\n")[0].slice(0, 300);
+      log("sandbox", `Windows 沙箱不可用：${srtError}`);
+    }
+    probed = undefined; warned = false;
+  })();
+  return srtPreparing;
+}
+
+async function srtWrap(script: string, cwd: string): Promise<{ cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {
+  const r = await srtMgr!.wrapWithSandboxArgv(PS_PREAMBLE + script, { exe: powershellPath(), args: PS_FLAGS }, undefined, undefined, cwd);
+  return { cmd: r.argv[0], args: r.argv.slice(1), cwd, env: r.env };
+}
+
+function runWrapped(w: { cmd: string; args: string[]; cwd: string; env?: NodeJS.ProcessEnv }, timeoutMs: number): Promise<number> {
+  return new Promise((resolve) => {
+    const p = spawn(w.cmd, w.args, { cwd: w.cwd, env: w.env, stdio: "ignore", windowsHide: true });
+    const t = setTimeout(() => { try { p.kill(); } catch { /* 已退出 */ } resolve(124); }, timeoutMs);
+    p.on("error", () => { clearTimeout(t); resolve(127); });
+    p.on("exit", (code) => { clearTimeout(t); resolve(code ?? 1); });
+  });
+}
+
+/** agent 的一条 shell 脚本包进沙箱：POSIX 用 $SHELL -c；Windows 用 PowerShell（UTF-8 前导）。env 为额外的环境变量（Windows 的沙箱用户拿到的是全新的环境，额外的变量写进脚本前面）。 */
+export async function wrapScript(script: string, cwd = workDir(), env: Record<string, string> = {}): Promise<{ cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {
+  if (isWindows) {
+    if (srtState === "idle" || srtState === "preparing") await prepareSandbox();
+    const assign = Object.entries(env).map(([k, v]) => `$env:${k}=${psq(v)};`).join("");
+    if (current().kind === "srt") return srtWrap(assign + script, cwd);
+    if (!allowUnsandboxed()) throw new SandboxUnavailable();
+    return { cmd: powershellPath(), args: [...PS_FLAGS, PS_PREAMBLE + assign + script], cwd, env: { ...process.env, ...env } };
+  }
+  const w = wrap(sh(), ["-c", script], cwd, { ...process.env, ...env });
+  return { ...w, env: { ...process.env, ...env } };
+}
+
+/** 一个程序与参数包进沙箱。Windows 上写成 PowerShell 的调用（& 程序 参数…，退出码照传）。 */
+export async function wrapArgv(cmd: string, args: string[], cwd = workDir(), env: Record<string, string> = {}): Promise<{ cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {
+  if (isWindows) return wrapScript(`& ${[cmd, ...args].map(psq).join(" ")}; exit $LASTEXITCODE`, cwd, env);
+  const w = wrap(cmd, args, cwd, { ...process.env, ...env });
+  return { ...w, env: { ...process.env, ...env } };
+}
 
 /** 把一条命令包进沙箱。返回实际要执行的程序与参数。env 为将要传给子进程的环境（Landlock 的启动器缺省不传环境变量，要逐个列出）。
  *  没有可用沙箱且没有允许不隔离运行时抛出 SandboxUnavailable。 */
 export function wrap(cmd: string, args: string[], cwd = workDir(), env: NodeJS.ProcessEnv = process.env): { cmd: string; args: string[]; cwd: string } {
+  if (isWindows) throw new Error("Windows 上用 wrapScript / wrapArgv（异步）");
   const p = current();
   if (p.kind === "bwrap") return { cmd: p.bin, args: [...bwrapArgs(p.pidns), "--chdir", cwd, "--", cmd, ...args], cwd };
   if (p.kind === "landlock") return { cmd: p.bin, args: [...landrunArgs(env), "--", cmd, ...args], cwd };
@@ -225,22 +359,34 @@ export function sandboxStatus(): SandboxStatus {
   if (p.kind === "bwrap") return { kind: "bwrap", hidden: [paths.secrets, ...browserDirs()], readonly: [paths.home, ...userReadonly()], note: p.pidns ? "" : "没有独立的 pid 命名空间", allowUnsandboxed: allow };
   if (p.kind === "landlock") return { kind: "landlock", hidden: [paths.secrets, ...browserDirs()], readonly: [paths.home, ...userReadonly()], note: "Landlock：/、/home、主目录、QUETZAL_HOME 等被展开的目录本身不能列出、不能直接在里面新建文件", allowUnsandboxed: allow };
   if (p.kind === "proot") return { kind: "proot", hidden: prootHidden(), readonly: [], note: "proot 是尽力而为的隔离", allowUnsandboxed: allow };
-  return { kind: "none", hidden: [], readonly: [], note: allow ? "没有沙箱，已允许不隔离运行：她的命令能读到密钥目录" : "没有沙箱：她的命令一律不执行（重新运行安装命令补上沙箱，或在控制台明确允许不隔离运行）", allowUnsandboxed: allow };
+  if (p.kind === "srt") { const f = srtFilesystem(); return { kind: "srt", hidden: f.denyRead, readonly: [...f.allowRead, ...f.denyWrite], note: `她的命令以沙箱用户 srt-sandbox 运行，只能写 ${f.allowWrite.join("、")}；网络经代理，连不到这台机器自己`, allowUnsandboxed: allow }; }
+  if (isWindows && srtState === "preparing") return { kind: "none", hidden: [], readonly: [], note: "正在准备 Windows 沙箱", allowUnsandboxed: allow };
+  return { kind: "none", hidden: [], readonly: [], note: allow ? "没有沙箱，已允许不隔离运行：她的命令能读到密钥目录" : `没有沙箱：她的命令一律不执行（${isWindows && srtError ? srtError + "；" : ""}重新运行安装补上沙箱，或在控制台明确允许不隔离运行）`, allowUnsandboxed: allow };
 }
 
 /**
  * 读文件的工具（read_document、view_image）不经过沙箱，由这里把关：解析真实路径（跟随符号链接）后落在密钥目录或保密库里就拒绝。
- * 比较的是真实路径，不是字符串：符号链接、..、大小写以外的写法都绕不过去。返回拒绝的说明，可以读时为 undefined。
+ * 比较的是真实路径，不是字符串：符号链接、..、（Windows 上）大小写与 8.3 短名的写法都绕不过去。返回拒绝的说明，可以读时为 undefined。
  */
 export function protectedPath(p: string): string | undefined {
+  const raw = p.replace(/^file:\/\//, "");
+  if (isWindows) {
+    // Windows：不收 UNC 与设备路径（\\localhost\C$\…、\\?\C:\… 绕得开盘符比较）和备用数据流（文件名:流名）
+    if (/^[\\/]{2}/.test(raw)) return "没有读取：只能读本机盘符下的路径（C:\\…），不收网络路径与设备路径。";
+    if (raw.replace(/^[a-zA-Z]:/, "").includes(":")) return "没有读取：路径里不能有冒号（备用数据流）。";
+  }
   // 不存在的路径也要判断（按最近的已存在的上级目录取真实路径，再接上余下部分）：否则「没有这个文件」会透露保密库里有没有某个名字
-  let f = path.resolve(workDir(), p.replace(/^file:\/\//, "")), rest = "";
+  let f = path.resolve(workDir(), raw), rest = "";
   for (;;) {
-    try { f = path.join(fs.realpathSync(f), rest); break; }
+    try { f = path.join(realNative(f), rest); break; }
     catch { const parent = path.dirname(f); if (parent === f) return undefined; rest = path.join(path.basename(f), rest); f = parent; }
   }
-  const inside = (dir: string) => { const d = real(dir); return f === d || f.startsWith(d + path.sep); };
+  // Windows 的文件系统不分大小写、8.3 短名（QUETZA~1）也指向同一个目录：两边都取系统给的真实路径（native 会展开短名并给出磁盘上的大小写），再不分大小写比较
+  const fold = (x: string) => isWindows ? x.toLowerCase() : x;
+  const inside = (dir: string) => { let d = dir; try { d = realNative(dir); } catch { d = path.resolve(dir); } d = fold(d); const g = fold(f); return g === d || g.startsWith(d + path.sep); };
   if (inside(paths.secrets)) return "没有读取：这是基座的密钥目录，不能读取。";
   if (inside(paths.vault)) return "没有读取：这是保密库，里面的值只能在命令里按路径引用（\"$(cat 路径)\"），不能读出来看。";
+  if (isWindows && inside(paths.config)) return "没有读取：这是基座的配置目录。";
   return undefined;
 }
+const realNative = (p: string) => isWindows ? fs.realpathSync.native(p) : fs.realpathSync(p);

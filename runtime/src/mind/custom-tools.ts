@@ -1,5 +1,6 @@
 // 她自己造的工具：把做过多次、步骤稳定的流程沉淀为可直接调用的工具。
-//   实现只在这具身体上：QUETZAL_HOME/tools/<名>/tool.json（名字、描述、参数 JSON Schema、能力类别、超时、依赖）+ tool.sh 或 tool.mjs。
+//   实现只在这具身体上：QUETZAL_HOME/tools/<名>/tool.json（名字、描述、参数 JSON Schema、能力类别、超时、依赖）+ tool.sh、tool.ps1（Windows 的 PowerShell）或 tool.mjs。
+//   Windows 身体上不能写 tool.sh：其他身体用 sh 写的技能，在这里按技能文档用 ps1 或 node 重写一份（意图随灵魂、实现在身体）。
 //   意图随灵魂同步：灵魂仓库 skills/<名>/SKILL.md，采用 Agent Skills 开放标准（YAML 头 name / description，正文自由）。
 //   其他身体（运行基座、Hermes、OpenClaw……）读到技能文档后，可以按文档在自己那里实现；本机有文档没实现时，系统提示会提醒她。
 //   执行：一律在子进程里、经沙箱运行（node 工具也不在运行基座的进程里 import）。调用时闸门按声明的类别与「执行命令」中较严的一个检查。
@@ -9,26 +10,31 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { wrap } from "../sandbox.ts";
+import { wrapArgv, wrapScript, powershellPath, psq } from "../sandbox.ts";
+import { isWindows, which as whichCmd, killTree } from "../platform.ts";
 import { paths } from "../config.ts";
 import { PERMISSION_LABELS } from "../guard/guard.ts";
 import { run } from "../sh.ts";
 
 export interface ToolManifest {
   name: string; description: string; parameters: Record<string, unknown>;
-  permission: string; runtime: "sh" | "node"; timeout: number; requires: string[]; enabled: boolean; updatedAt: string;
+  permission: string; runtime: Runtime; timeout: number; requires: string[]; enabled: boolean; updatedAt: string;
 }
 export interface CustomToolInfo extends ToolManifest { missing: string[]; hasSkill: boolean; skillSummary: string }
 export interface SkillInfo { name: string; description: string; implemented: boolean }
 
 export const NAME_RE = /^[a-z][a-z0-9_-]{0,39}$/;
+export type Runtime = "sh" | "node" | "ps1";
+const EXT: Record<Runtime, string> = { sh: "tool.sh", node: "tool.mjs", ps1: "tool.ps1" };
+/** 这具身体能运行的工具类型：Windows 是 ps1 与 node；其他是 sh 与 node（装了 pwsh 也可以 ps1）。 */
+export function runtimesHere(): Runtime[] { return isWindows ? ["ps1", "node"] : whichCmd("pwsh") ? ["sh", "node", "ps1"] : ["sh", "node"]; }
 const MAX_FILE = 1 << 20;
 const MAX_TIMEOUT = 600;
 export const SKILL_SPEC_URL = "https://agentskills.io/specification";
 
 const toolDir = (name: string) => path.join(paths.tools, name);
 const manifestFile = (name: string) => path.join(toolDir(name), "tool.json");
-const sourceFile = (name: string, runtime: "sh" | "node") => path.join(toolDir(name), runtime === "sh" ? "tool.sh" : "tool.mjs");
+export const sourceFile = (name: string, runtime: Runtime) => path.join(toolDir(name), EXT[runtime]);
 /** 技能目录名：规范只允许小写字母、数字与连字符，工具名里的下划线换成连字符。 */
 export const skillName = (name: string) => name.replace(/_/g, "-");
 const skillFile = (name: string) => path.join(paths.soul, "skills", skillName(name), "SKILL.md");
@@ -56,7 +62,7 @@ export function missingRequires(req: string[]): string[] {
   for (const r of req) {
     const c = which.get(r);
     if (c && Date.now() - c.at < 300_000) { if (!c.ok) out.push(r); continue; }
-    const ok = (process.env.PATH ?? "").split(path.delimiter).some((d) => { try { fs.accessSync(path.join(d, r), fs.constants.X_OK); return true; } catch { return false; } });
+    const ok = !!whichCmd(r); // Windows 上按 PATHEXT 找（ffmpeg → ffmpeg.exe）
     which.set(r, { ok, at: Date.now() });
     if (!ok) out.push(r);
   }
@@ -106,7 +112,7 @@ export function readTool(name: string): { manifest: ToolManifest; source: string
 
 export interface ToolSpec {
   name: string; description: string; parameters?: Record<string, unknown>; permission?: string;
-  runtime: "sh" | "node"; source: string; timeout?: number; requires?: string[]; skill?: string; enabled?: boolean;
+  runtime: Runtime; source: string; timeout?: number; requires?: string[]; skill?: string; enabled?: boolean;
 }
 
 function checkSchema(p: unknown): Record<string, unknown> {
@@ -118,8 +124,11 @@ function checkSchema(p: unknown): Record<string, unknown> {
   return { ...o, type: "object", properties: o.properties ?? {} };
 }
 
-async function checkSyntax(runtime: "sh" | "node", file: string) {
-  const r = runtime === "sh" ? await run("sh", ["-n", file], 10_000) : await run(process.execPath, ["--check", file], 15_000);
+async function checkSyntax(runtime: Runtime, file: string) {
+  const r = runtime === "sh" ? await run("sh", ["-n", file], 10_000)
+    : runtime === "ps1" ? await run(isWindows ? powershellPath() : "pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+      `$e=$null;[void][System.Management.Automation.Language.Parser]::ParseFile(${psq(file)},[ref]$null,[ref]$e);if($e){$e|ForEach-Object{[Console]::Error.WriteLine($_.Message)};exit 1}`], 20_000)
+    : await run(process.execPath, ["--check", file], 15_000);
   if (r.code !== 0) throw new Error(`语法检查没通过：${(r.err || r.out).trim().slice(0, 400)}`);
 }
 
@@ -130,7 +139,7 @@ export async function writeTool(spec: ToolSpec, reserved: Set<string>): Promise<
   if (reserved.has(name)) throw new Error(`「${name}」是内置工具的名字，换一个`);
   const prev = readManifest(name);
   const runtime = spec.runtime ?? prev?.runtime;
-  if (runtime !== "sh" && runtime !== "node") throw new Error("runtime 必须是 sh 或 node");
+  if (!runtimesHere().includes(runtime as Runtime)) throw new Error(`runtime 在这具身体上只能是 ${runtimesHere().join(" / ")}${isWindows && runtime === "sh" ? "（这具身体是 Windows：用 ps1（PowerShell）或 node 实现同样的意图）" : ""}`);
   const source = spec.source ?? (prev ? (readTool(name)?.source ?? "") : "");
   if (!source.trim()) throw new Error("source 不能为空");
   if (Buffer.byteLength(source) > MAX_FILE) throw new Error("source 不能超过 1 MiB");
@@ -208,30 +217,40 @@ process.stdout.write("\\n" + marker + "\\n" + JSON.stringify(out == null ? "" : 
 process.exit(0);
 `;
 
+/** Windows 上 node 工具的启动器文件（在自造工具目录里：沙箱用户能读）。内容变了才重写。 */
+function runnerFile(): string {
+  const f = path.join(paths.tools, ".runner.mjs");
+  try { if (fs.readFileSync(f, "utf8") === NODE_RUNNER) return f; } catch { /* 还没有 */ }
+  fs.mkdirSync(paths.tools, { recursive: true });
+  fs.writeFileSync(f, NODE_RUNNER);
+  return f;
+}
+
 /**
  * 运行一个工具：一律在子进程里、经沙箱（sandbox.ts）运行，超时整组杀掉。
- * sh：参数以 JSON 写入 stdin，并展开为环境变量 ARG_<名>（非字符串值为 JSON），stdout 即结果；
+ * sh / ps1：参数以 JSON 写入 stdin，并展开为环境变量 ARG_<名>（非字符串值为 JSON），stdout 即结果；
  * node：子进程里加载 tool.mjs，默认导出 async (args, {dir, home}) => string，返回值即结果（不在运行基座的进程里 import，碰不到基座的内存）。
  */
 export async function runTool(m: ToolManifest, args: Record<string, any>): Promise<string> {
   const dir = toolDir(m.name);
-  const env: Record<string, string> = { ...process.env as Record<string, string> };
+  const env: Record<string, string> = {};
   const marker = `--quetzal-tool-result-${crypto.randomBytes(8).toString("hex")}--`;
-  let cmd: string, argv: string[];
+  let w: Awaited<ReturnType<typeof wrapArgv>>;
   if (m.runtime === "node") {
     Object.assign(env, { QUETZAL_TOOL_MARKER: marker, QUETZAL_TOOL_FILE: pathToFileURL(sourceFile(m.name, "node")).href, QUETZAL_TOOL_DIR: dir, QUETZAL_TOOL_HOME: paths.home });
-    cmd = process.execPath; argv = ["--input-type=module", "-e", NODE_RUNNER];
+    // Windows：启动器写成文件（沙箱里的 PowerShell 把带引号的长参数传给 node 会被拆坏）；其他平台直接 -e
+    w = isWindows ? await wrapArgv(process.execPath, [runnerFile()], dir, env) : await wrapArgv(process.execPath, ["--input-type=module", "-e", NODE_RUNNER], dir, env);
   } else {
     for (const [k, v] of Object.entries(args ?? {})) if (/^[A-Za-z_]\w*$/.test(k)) env[`ARG_${k}`] = typeof v === "string" ? v : JSON.stringify(v);
-    cmd = "sh"; argv = [sourceFile(m.name, "sh")];
-  }
-  const w = wrap(cmd, argv, dir, env); // 没有可用沙箱时抛出 SandboxUnavailable，由调用方把说明交给她
+    if (m.runtime === "ps1") w = isWindows ? await wrapScript(`& ${psq(sourceFile(m.name, "ps1"))}; exit $LASTEXITCODE`, dir, env) : await wrapArgv("pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", sourceFile(m.name, "ps1")], dir, env);
+    else w = await wrapArgv("sh", [sourceFile(m.name, "sh")], dir, env);
+  } // 没有可用沙箱时抛出 SandboxUnavailable，由调用方把说明交给她
   return new Promise((resolve, reject) => {
-    const p = spawn(w.cmd, w.args, { cwd: w.cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
+    const p = spawn(w.cmd, w.args, { cwd: w.cwd, env: w.env, stdio: ["pipe", "pipe", "pipe"], detached: !isWindows, windowsHide: true });
     let out = "", err = "";
     const cap = (s: string, b: Buffer) => (s + b.toString()).slice(-(4 << 20));
     p.stdout.on("data", (b) => (out = cap(out, b))); p.stderr.on("data", (b) => (err = cap(err, b)));
-    const kill = () => { try { process.kill(-p.pid!, "SIGKILL"); } catch { try { p.kill("SIGKILL"); } catch { /* 已退出 */ } } };
+    const kill = () => killTree(p.pid, "SIGKILL");
     const t = setTimeout(() => { kill(); reject(new Error(`超过 ${m.timeout} 秒没有${m.runtime === "node" ? "返回" : "结束"}，已终止`)); }, m.timeout * 1000);
     p.on("error", (e) => { clearTimeout(t); reject(e); });
     p.on("close", (code) => {

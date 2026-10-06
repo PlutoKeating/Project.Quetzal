@@ -147,7 +147,7 @@ test("工作中发消息：排队则作为下一轮", async () => {
 
 test("后台命令可以随时停止", async () => {
   const sh = await import("../src/sh.ts");
-  const j = sh.startJob("echo 开始; sleep 30; echo 不该出现");
+  const j = await sh.startJob("echo 开始; sleep 30; echo 不该出现");
   await sleep(200);
   assert.equal(sh.getJob(j.id)!.ended, undefined);
   assert.match(sh.getJob(j.id)!.out, /开始/);
