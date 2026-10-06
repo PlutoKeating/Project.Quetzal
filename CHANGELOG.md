@@ -2,6 +2,14 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.11
+
+- **电脑右上角的托盘图标**：桌面版控制台在状态栏里有了 Quetzal 图标。菜单里能看到 ta 的状态（醒着、睡着、急停中、离线），可以显示或隐藏窗口、急停、退出控制台。关窗只是收进托盘，ta 照常在后台。缺托盘用的系统库时，安装脚本能免密就自动补上。
+- **Dock 与 Alt-Tab 里的图标**：以前安装脚本会在用户图标目录生成一个空的图标缓存，导致 Quetzal（以及同目录里其他应用）的图标显示不出来。现在不再生成，已有的空缓存会删掉。
+
+- **Tray icon on the desktop**: the desktop console now has a Quetzal icon in the status bar. Its menu shows the agent's state (awake, asleep, stopped, offline) and can show or hide the window, trigger the emergency stop, or quit the console. Closing the window just tucks it into the tray; the agent keeps running in the background. If the system library the tray needs is missing, the installer adds it when it can do so without a password.
+- **Icons in the Dock and Alt-Tab**: the installer used to create an empty icon cache in the user's icon folder, which hid the icons of Quetzal (and other apps in that folder). It no longer does, and an existing empty cache is removed.
+
 ## 1.1.10
 
 - **电脑上从控制台升级不再一直转圈**：
