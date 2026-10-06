@@ -70,9 +70,10 @@ class _MeshPageState extends State<MeshPage> {
               FilledButton(onPressed: () => act(context, () => api.call('mesh.bind')), child: const Text('绑定到同步服务')),
             if (binding != null) ...[
               const SizedBox(height: 8),
-              const Text('在浏览器里打开下面的链接（用 GitHub 登录），输入绑定码，并核对网页上的公钥指纹与这里一致，再点「批准」。'),
+              const Text('打开下面的链接（或在另一台设备上扫码），核对页面上的 3 个表情与这里一致，点「批准」。'),
               const SizedBox(height: 8),
-              SelectableText('${binding['code']}', style: t.headlineMedium?.copyWith(letterSpacing: 4, fontFamily: 'monospace')),
+              if ('${binding['check'] ?? ''}'.isNotEmpty) Text('${binding['check']}', style: const TextStyle(fontSize: 40, letterSpacing: 8)),
+              SelectableText('${binding['code']}', style: t.titleMedium?.copyWith(letterSpacing: 4, fontFamily: 'monospace')),
               Wrap(spacing: 8, children: [
                 FilledButton.icon(icon: const Icon(Icons.open_in_new), label: const Text('打开链接'), onPressed: () => openExternal(context, '${binding['uri']}')),
                 TextButton.icon(icon: const Icon(Icons.copy), label: const Text('复制链接'), onPressed: () { Clipboard.setData(ClipboardData(text: '${binding['uri']}')); toast(context, '已复制'); }),

@@ -56,7 +56,7 @@ export const ops = {
   "account.signOut": async (_: unknown, actor: string) => { const r = await acct.account.signOut(); audit(actor, "account.signOut", "", {}, "ok"); return r; },
   "account.get": () => acct.account.get(),
   "account.lookup": (a: { code: string }) => acct.account.lookup(a.code),
-  "account.decide": async (a: { code: string; approve: boolean }, actor: string) => { const r = await acct.account.decide(a.code, a.approve); audit(actor, "account.decide", "", { approve: !!a.approve }, "ok"); return r; },
+  "account.decide": async (a: { code: string; approve: boolean; agent?: string }, actor: string) => { const r = await acct.account.decide(a.code, a.approve, a.agent); audit(actor, "account.decide", "", { approve: !!a.approve }, "ok"); return r; },
   "account.removeBody": async (a: { agent: string; body: string }, actor: string) => { const r = await acct.account.removeBody(a.agent, a.body); audit(actor, "account.removeBody", "", { body: a.body }, "ok"); return r; },
   "account.removeAgent": async (a: { agent: string }, actor: string) => { const r = await acct.account.removeAgent(a.agent); audit(actor, "account.removeAgent", "", { agent: a.agent }, "ok"); return r; },
   "account.revokeConsole": async (a: { id: string }, actor: string) => { const r = await acct.account.revokeConsole(a.id); audit(actor, "account.revokeConsole", "", {}, "ok"); return r; },

@@ -95,7 +95,8 @@ async function web<T>(p: string, body?: unknown): Promise<T> {
 export const account = {
   get: () => web("/v1/web/account"),
   lookup: (code: string) => web("/v1/web/device/lookup", { code: String(code ?? "") }),
-  decide: (code: string, approve: boolean) => web("/v1/web/device/decide", { code: String(code ?? ""), approve: !!approve }),
+  /** agent：身体没给 agent 时人选的 agent id 或 "new"。返回 next 时由控制台在浏览器里打开（经 GitHub 把部署密钥加到灵魂仓库，同步服务协议 §2.1）。 */
+  decide: (code: string, approve: boolean, agent?: string) => web("/v1/web/device/decide", { code: String(code ?? ""), approve: !!approve, ...(typeof agent === "string" && agent.length <= 64 ? { agent } : {}) }),
   removeBody: (agent: string, body: string) => web("/v1/web/bodies/remove", { agent: String(agent ?? ""), body: String(body ?? "") }),
   removeAgent: (agent: string) => web("/v1/web/agents/remove", { agent: String(agent ?? "") }),
   revokeConsole: (id: string) => web("/v1/web/consoles/revoke", { id: String(id ?? "") }),

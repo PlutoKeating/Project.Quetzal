@@ -179,20 +179,25 @@ class _Approve extends StatefulWidget {
 class _ApproveState extends State<_Approve> {
   final code = TextEditingController();
   Map? pending;
-  String? done, error;
+  String? done, error, agent;
   bool busy = false;
 
   Future<void> _lookup() async {
     setState(() { busy = true; error = null; });
-    try { final p = await api.call<Map>('account.lookup', {'code': code.text.trim()}); setState(() => pending = p); }
+    try { final p = await api.call<Map>('account.lookup', {'code': code.text.trim()}); setState(() { pending = p; agent = null; }); }
     catch (e) { setState(() => error = _err(e)); }
     finally { if (mounted) setState(() => busy = false); }
   }
   Future<void> _decide(bool approve) async {
     setState(() { busy = true; error = null; });
     try {
-      await api.call('account.decide', {'code': pending!['code'], 'approve': approve});
-      setState(() { done = approve ? '已批准。${pending!['body']} 几秒内就会完成。' : '已拒绝，这个码作废了。'; pending = null; code.clear(); });
+      final choose = (pending!['choose'] as List?)?.cast<Map>();
+      final pick = choose == null ? null : (choose.isEmpty ? 'new' : agent ?? '${choose.first['id']}');
+      final r = await api.call<Map>('account.decide', {'code': pending!['code'], 'approve': approve, 'agent': ?pick});
+      final next = r['next'];
+      // 还要把部署密钥加到灵魂仓库：在浏览器里经 GitHub 跳一次就回来（第一次要在 GitHub 上授权并选中灵魂仓库）
+      if (approve && next is String && next.startsWith('https://') && mounted) await openExternal(context, next);
+      setState(() { done = approve ? (next is String ? '已批准。浏览器里经 GitHub 确认一下，${pending!['body']} 就会接好灵魂仓库。' : '已批准。${pending!['body']} 几秒内就会完成。') : '已拒绝，这个码作废了。'; pending = null; code.clear(); });
     } catch (e) { setState(() => error = _err(e)); }
     finally { if (mounted) setState(() => busy = false); }
   }
@@ -210,13 +215,34 @@ class _ApproveState extends State<_Approve> {
         if (done != null) Text(done!),
       ]),
       if (p != null) Section('核对后再批准', [
-        Text('agent：${(p['agent'] as Map?)?['name']}'),
+        if ('${p['check'] ?? ''}'.isNotEmpty) ...[
+          const Text('核对词'),
+          Text('${p['check']}', style: const TextStyle(fontSize: 36, letterSpacing: 6)),
+          const Text('与 ta 刚才在对话里发给你的 3 个表情一致，才批准。对不上就拒绝。', style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 8),
+        ],
+        if (p['choose'] == null) Text('agent：${(p['agent'] as Map?)?['name']}'),
+        if (p['choose'] is List && (p['choose'] as List).isNotEmpty) ...[
+          const Text('接进哪个 agent：'),
+          RadioGroup<String>(
+            groupValue: agent ?? '${((p['choose'] as List).first as Map)['id']}',
+            onChanged: (v) => setState(() => agent = v),
+            child: Column(children: [
+              for (final x in [...((p['choose'] as List).cast<Map>().map((m) => MapEntry('${m['id']}', '${m['name']}${'${m['repo'] ?? ''}'.isNotEmpty ? ' · ${m['repo']}' : ''}'))), MapEntry('new', '新建一个（${(p['agent'] as Map?)?['name']}）')])
+                RadioListTile<String>(dense: true, contentPadding: EdgeInsets.zero, value: x.key, title: Text(x.value)),
+            ]),
+          ),
+        ],
         Text('身体：${p['body']}'),
         Text('类型：${_kind['${p['kind']}'] ?? p['kind']}'),
         if ('${p['version'] ?? ''}'.isNotEmpty) Text('版本：${p['version']}'),
         if (p['kind'] != 'console') ...[
           Row(children: [const Text('公钥指纹：'), SelectableText('${p['fingerprint']}', style: const TextStyle(fontFamily: 'monospace', fontSize: 18))]),
-          const Text('必须与那具身体的「多具身体」页上显示的指纹一致。不一致就拒绝。', style: TextStyle(fontSize: 12)),
+          if ('${p['check'] ?? ''}'.isEmpty) const Text('必须与那具身体的「多具身体」页上显示的指纹一致。不一致就拒绝。', style: TextStyle(fontSize: 12)),
+        ],
+        if ('${p['soulKey'] ?? ''}'.isNotEmpty) ...[
+          Text('部署密钥：${p['soulKey']}', style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          if (p['soulLink'] == true) const Text('批准后会在浏览器里经 GitHub 跳一下，把这把密钥加到灵魂仓库（只加这一把，只对这一个仓库）。', style: TextStyle(fontSize: 12)),
         ],
         if (p['kind'] == 'console') Text('这是「控制台登录」：批准后，${p['body']} 上的 App 能管理你的整个账户。只批准你自己刚刚在那台设备上发起的请求。', style: const TextStyle(color: Colors.orange)),
         if (p['newAgent'] == true) const Text('这是你账户下的一个新 agent：批准后会新建它。'),
