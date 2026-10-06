@@ -3,6 +3,7 @@
 #   quetzal-<版本>-android-arm64.apk          Quetzal App（只装一个 App：内置运行基座、安卓身体适配器与运行环境 Node.js / git / openssh / proot）
 #   quetzal-<版本>-linux-x64-console.tar.gz   Linux 桌面版控制台（原生窗口；一键安装脚本在有桌面的机器上自动下载，见 cli/install.sh）
 #   quetzal-<版本>-linux-arm64-console.tar.gz（同上，arm64）
+#   quetzal-android-runtime-<配方哈希>.tar.gz   App 内置运行环境的 jniLibs 与 rootfs（以后的发版按配方哈希核对签名后直接取用，不再重编）
 #   quetzal-<版本>-landrun-linux-<x64|arm64>.tar.gz   Landlock 沙箱启动器 landrun（第三方，MIT，附许可证）：bubblewrap 用不了的 Linux 机器上用
 #   SHA256SUMS       上面每个资产一行 `<sha256>  <文件名>`，外加一行 `commit <提交> <标签>`（这个版本对应的源码提交）
 #   SHA256SUMS.sig   SHA256SUMS 的 Ed25519 签名（base64）。公钥写死在 App（console/lib/updater.dart）、一键安装脚本（cli/install.sh）
@@ -19,7 +20,8 @@
 # - 构建产物经 upload-artifact / download-artifact 在 job 之间传递：签名与发布的 job 不运行任何构建脚本，只核对、签名、上传。
 # - 安卓正式签名的 keystore 只出现在 build-apk job 里，flutter build apk 一结束就删除；标签发版缺签名 Secrets 直接失败（不再退回 debug 签名），
 #   并用 apksigner 确认 APK 不是 debug 证书签的。需要的 Secrets：ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD。
-# - 不用 actions 缓存（标签发版不读取别的分支写入的缓存）。
+# - 不用 actions 缓存（标签发版不读取别的分支写入的缓存）。App 内置运行环境的复用只认签名核对过的 Release 资产，
+#   或本仓库发版工作流（v* 标签触发）以往运行里同一配方编好的产物（console/tool/android-runtime/reuse.sh）。
 name: release
 
 on:
@@ -94,33 +96,59 @@ jobs:
           if-no-files-found: error
 
   # App 内置的运行环境：termux-packages 以 App 的前缀从源码重编 Node.js、git、openssh、proot（console/tool/android-runtime/，锁定提交），
-  # 拆成 jniLibs 与 rootfs 交给 build-apk。每次发版都重编（不用缓存）；标准运行器的磁盘不够构建镜像与 Node.js 的编译，先腾空间。
+  # 拆成 jniLibs 与 rootfs 交给 build-apk。配方（版本锁定与脚本）没变时取用以往编好的同一份（reuse.sh：Release 上签名核对过的资产，
+  # 或以往发版运行里同一配方的产物），只有配方变了才从源码编译（几个小时）；无论哪种，打成 quetzal-android-runtime-<配方哈希>.tar.gz
+  # 随本次 Release 发布、纳入签名的 SHA256SUMS，供以后的发版取用。
   android-runtime:
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 340
+    permissions:
+      contents: read
+      actions: read   # 取用以往发版运行的产物
     steps:
-      - name: 腾出磁盘空间（删掉用不到的预装工具链）
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift /usr/local/share/powershell /usr/local/lib/heroku "$AGENT_TOOLSDIRECTORY/CodeQL"
-          sudo docker image prune -af >/dev/null
-          df -h /
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      - name: 取用以往编好的同一份运行环境
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUT: ${{ runner.temp }}/android-runtime-out
+        run: |
+          if console/tool/android-runtime/reuse.sh; then echo "hit=1" >> "$GITHUB_OUTPUT"; else echo "hit=0" >> "$GITHUB_OUTPUT"; fi
+      - name: 腾出磁盘空间（删掉用不到的预装工具链）
+        if: steps.reuse.outputs.hit != '1'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift /usr/local/share/powershell /usr/local/lib/heroku "$AGENT_TOOLSDIRECTORY/CodeQL"
+          sudo docker image prune -af >/dev/null
+          df -h /
       - name: 编译运行环境（termux-packages，App 的前缀）
+        if: steps.reuse.outputs.hit != '1'
         run: console/tool/android-runtime/build-packages.sh
-      - name: 拆成 jniLibs 与 rootfs
-        run: console/tool/android-runtime/pack.sh
+      - name: 拆成 jniLibs 与 rootfs，打成发布资产
+        if: steps.reuse.outputs.hit != '1'
+        env:
+          OUT: ${{ runner.temp }}/android-runtime-out
+          KEY: ${{ steps.reuse.outputs.key }}
+        run: |
+          console/tool/android-runtime/pack.sh
+          mkdir -p "$OUT"
+          tar -czf "$OUT/quetzal-android-runtime-$KEY.tar.gz" -C console/android/app/src/main jniLibs assets/runtime-env
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-runtime
           path: |
             console/android/app/src/main/jniLibs/
             console/android/app/src/main/assets/runtime-env/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-android-runtime
+          path: ${{ runner.temp }}/android-runtime-out/quetzal-android-runtime-*.tar.gz
           if-no-files-found: error
 
   build-apk:

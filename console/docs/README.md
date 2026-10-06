@@ -12,6 +12,7 @@ Flutter（Material 3，深色为主），一份代码三种形态：**安卓 App
 
 ```bash
 tool/android-runtime/build-packages.sh  # 用 Docker 跑 termux-packages（锁定提交见 versions.env），以 App 的前缀从源码编 Node.js、git、openssh、proot 及依赖 → build/android-runtime/
+tool/android-runtime/reuse.sh           # 只在 CI：配方（versions.env、两个脚本、网状层锁定文件）没变时取用以往编好的同一份运行环境（Release 上签名核对过的 quetzal-android-runtime-<配方哈希>.tar.gz，或以往发版运行的产物），不再重编
 tool/android-runtime/pack.sh            # 依赖闭包 → jniLibs/arm64-v8a/lib*.so（白名单里的可执行文件）+ android/app/src/main/assets/runtime-env/{rootfs.tar,manifest.json}；网状层原生组件按锁定的 sha512 下载、剥掉调试信息后放进 rootfs（都不入库；需要 dpkg-deb 与 NDK 的 llvm-strip）
 tool/bundle-runtime.sh        # 构建 ../runtime，把 main.cjs、android.mjs 与版本号放进 assets/runtime/（不入库）
 flutter pub get
