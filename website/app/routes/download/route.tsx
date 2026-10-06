@@ -71,13 +71,14 @@ export default function Download() {
 
   return (
     <section className="relative overflow-hidden">
-      <div className="relative mx-auto flex min-h-[calc(100dvh-var(--ds-header-height))] max-w-prose flex-col items-center justify-center px-6 py-20 text-center short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
+      <div className="relative mx-auto flex min-h-[calc(100dvh-var(--ds-header-height))] max-w-content flex-col items-center justify-center px-6 py-12 text-center short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
         {/* 光团与它身后的一圈呼吸光：页面上唯一的颜色 */}
         <div className="relative">
-          <Breath size="md" className="left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
-          <OrbMark size={64} className="relative" />
+          <Breath size="lg" className="left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
+          {/* 与控制台首页的球同比例：球体约占屏宽三成（SVG 里球的直径是画布的 48%，其余是光晕） */}
+          <OrbMark size={224} className="relative size-56 sm:size-64" />
         </div>
-        <h1 className="mt-8 text-5xl font-semibold tracking-tight sm:text-7xl">{t.heading}</h1>
+        <h1 className="-mt-4 text-5xl font-semibold tracking-tight sm:text-7xl">{t.heading}</h1>
         <p className="mt-4 text-lg text-fg-muted sm:text-xl">{t.lead}</p>
 
         <div role="tablist" aria-label={t.tabsLabel} className="mt-12 inline-flex rounded-full border border-border p-1">
@@ -175,7 +176,7 @@ function Command({ command, copy, copied }: { command: string; copy: string; cop
   };
   return (
     <div className="flex w-fit max-w-full items-center gap-2 rounded-full border border-border bg-surface py-1.5 pl-6 pr-1.5">
-      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-2 text-left font-mono text-sm text-fg [scrollbar-width:none]">{command}</code>
+      <code className="min-w-0 overflow-x-auto whitespace-nowrap py-2 text-left font-mono text-sm text-fg [scrollbar-width:none]">{command}</code>
       <button type="button" onClick={onCopy} aria-label={done ? copied : copy} title={done ? copied : copy} className="flex size-9 shrink-0 items-center justify-center rounded-full text-fg-muted transition-colors duration-(--ds-duration-fast) hover:bg-surface-hover hover:text-fg">
         {done ? (
           <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M3 8.5l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" /></svg>
