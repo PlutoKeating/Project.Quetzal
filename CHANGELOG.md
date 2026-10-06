@@ -2,6 +2,18 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.9
+
+- **多具身体的设置、模型与 Key 真正同步起来**：
+  - 有同步功能之前配好的模型、Key 和设置，以前两边都不算「较新」，永远传不过去；现在启动时按它们实际配置的时间补上记录，新身体连上就拿到。
+  - 一部手机接入时网络拦了 SSH、先在本地建了灵魂仓库，联网后把这段独立历史推了上去，其他身体因此停了灵魂同步、拿不到它的登记，拒绝了它的直连。现在接入时不再推这段历史；已经推上去的（内容都是灵魂仓库的）自动接受，电脑等其他身体升级后恢复同步、连上它（灵魂仓库规范 v12）。
+- **「多具身体」页说清楚**：每具身体显示设置同步的结果（采用了它的哪些设置，或失败的原因）；连不上时说明是灵魂仓库里还没有它的登记，还是拒绝了它的连接请求以及原因。
+
+- **Settings, models and keys really sync across bodies**:
+  - Models, keys and settings configured before syncing existed were never considered "newer" by either side, so they never moved; now their actual configuration time is recorded at startup and a new body gets them as soon as it connects.
+  - A phone that joined while its network blocked SSH created its soul repository locally and later pushed that separate history; other bodies then stopped soul sync, never saw its registration and refused its direct connection. Joining no longer pushes such a history, and one already pushed (containing only soul repository content) is accepted automatically, so other bodies resume syncing and connect after upgrading (soul repository specification v12).
+- **The Multiple bodies page explains itself**: each body shows the result of settings sync (which of its settings were adopted, or why it failed); when a body can't connect, the page says whether its registration is missing from the soul repository or its connection request was refused, and why.
+
 ## 1.1.8
 
 - **拦 SSH 的网络里也能同步记忆**：连 GitHub 的 22 端口被断开或超时时，自动改走 GitHub 官方的 443 端口 SSH（同一把钥匙），之后先走它。很多网络、VPN 和代理只拦 22 端口。
