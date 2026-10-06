@@ -92,6 +92,7 @@ sequenceDiagram
 - 控制台触发的操作（改身份、撤销、立即同步）推送失败时不插话，失败原因显示在「灵魂同步」页。
 - **只推到配置的地址**：推送与拉取直接使用配置里的灵魂仓库地址（`git push <地址> HEAD:refs/heads/<分支>`、`git fetch <地址> …`），不经 `origin`；`origin` 仍按配置校正（有人改了就改回并记日志），但它被改了也不影响推到哪里。系统提示也告诉 agent 不要自己在灵魂目录里运行 git。
 - **不执行灵魂目录里的东西**（规范 §5.2）：每次执行 git 都带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.symlinks=false -c protocol.ext.allow=never -c protocol.file.allow=never`，环境 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=/dev/null`；每次提交、拉取、推送前删掉 `.git/config` 白名单以外的键（`url.*.insteadOf` / `pushInsteadOf`、`core.sshCommand`、`filter.*`、`include.*` 等）。私钥路径必须是绝对路径，在 `GIT_SSH_COMMAND` 里加单引号。
+- **GitHub 的 22 端口不通时改走 443**：远端是 `git@github.com:…` / `ssh://git@github.com/…` 时，clone、fetch、push、ls-remote 遇到连接层面的失败（连接被断开、超时、连不上；ssh 连接超时 20 秒），自动用 `-o HostName=ssh.github.com -o Port=443 -o HostKeyAlias=github.com` 再试一次（GitHub 官方的 443 端口 SSH，同一把钥匙，按 github.com 的主机密钥核对）；走通的那条路在这个进程里记下来，之后先走它。不少网络（以及 VPN、代理）只拦 22 端口。`~/.ssh/config` 里的 Host 别名不改。报错里「连接被断开」不再误报成部署公钥被拒（git 末尾通用的 `Could not read from remote repository` 不作为判据）。
 - **不收符号链接**：暂存区里的符号链接不提交（记日志）；远端分支里有符号链接时拒绝合并，`lastError` 写明，交给人处理。
 - **内容不做检查**（规范 v11 §6）：提交前不检查改动里有没有密钥或其他敏感值，她写什么就提交什么（v10 的密钥检查把身体名之类并不保密的值也当成密钥、挡住同步，已取消）。灵魂桥复用 `soul-repo.ts`，前几条同样生效。
 - **只同步灵魂仓库自己的历史**（规范 §5.1）：每个克隆在第一次同步（身份与「是不是灵魂仓库」的检查都通过后）记下灵魂仓库的根提交，存在 `.git/quetzal-soul-roots.json`（连同远端地址；部署者换了灵魂仓库地址时重新记录）。之后本地或远端出现陌生的根提交——例如有人在灵魂目录里 `reset` 到了一个代码仓库——基座停止同步（不合并、不推送），在时间线与控制台提醒一次，交给人处理（干净的做法是备份后重新克隆灵魂仓库）。

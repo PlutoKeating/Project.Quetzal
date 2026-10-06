@@ -86,9 +86,14 @@ export interface PullResult {
 /** 推送的结果。kind：失败的类别——network（网络，值得静默重试）、auth（部署密钥被拒）、hostkey、notfound、identity（远端属于另一个 agent）、config（地址或私钥配置有误）、rejected（拉取合并后仍被拒）、other。 */
 export interface PushResult { ok: boolean; pushed: boolean; kind?: "network" | "auth" | "hostkey" | "notfound" | "identity" | "config" | "rejected" | "other"; error?: string }
 
+// 连接层面的失败（还没走到验证钥匙）。git 末尾那句通用的「Could not read from remote repository」不算：网络断了、钥匙被拒都会有它
+const NETWORK = /Could not resolve hostname|Network is unreachable|Connection timed out|Connection refused|Connection reset|Operation timed out|timed out|Temporary failure in name resolution|kex_exchange_identification|Connection closed by|early EOF|The remote end hung up|Broken pipe|No route to host/i;
+// 连接被对端直接断开 / 重置：多半是所在网络（或 VPN、代理）拦了 SSH
+const CUT = /Connection closed by|Connection reset|kex_exchange_identification|Broken pipe/i;
+
 export function gitErrorKind(err: string): NonNullable<PushResult["kind"]> {
-  if (/Permission denied \(publickey\)|Could not read from remote repository|Authentication failed|ERROR: .*(key|access)/i.test(err)) return "auth";
-  if (/Could not resolve hostname|Network is unreachable|Connection timed out|Connection refused|Connection reset|Operation timed out|timed out|Temporary failure in name resolution|kex_exchange_identification|Connection closed by|early EOF|The remote end hung up/i.test(err)) return "network";
+  if (/Permission denied \(publickey\)|Authentication failed|ERROR: .*(key|access)/i.test(err)) return "auth";
+  if (NETWORK.test(err)) return "network";
   if (/Host key verification failed/i.test(err)) return "hostkey";
   if (/Repository not found|does not appear to be a git repository/i.test(err)) return "notfound";
   if (/\[rejected\]|non-fast-forward|fetch first|failed to push some refs/i.test(err)) return "rejected";
@@ -101,12 +106,20 @@ export const incomingPath = (file: string) => (file.endsWith(".md") ? `${file.sl
 /** 把 git / ssh 的原始报错翻译成使用者看得懂的一句话（原文截断附在后面，便于排查）。 */
 export function friendlyGitError(err: string): string {
   const raw = err.trim().replace(/\s+/g, " ").slice(0, 200);
-  if (/Permission denied \(publickey\)|Could not read from remote repository/i.test(err)) return `远端拒绝了本机的部署公钥：请把「本机的访问密钥」里的公钥添加到灵魂仓库的 Deploy keys（勾选允许写入）。原文：${raw}`;
-  if (/Could not resolve hostname|Network is unreachable|Connection timed out|Connection refused/i.test(err)) return `连不上灵魂仓库所在的服务器（网络或地址问题）。原文：${raw}`;
+  if (/Permission denied \(publickey\)/i.test(err)) return `远端拒绝了本机的部署公钥：请把「本机的访问密钥」里的公钥添加到灵魂仓库的 Deploy keys（勾选允许写入）。原文：${raw}`;
+  if (CUT.test(err)) return `连接灵魂仓库的服务器时被断开了：多半是当前网络（或 VPN、代理）拦了 SSH，不是钥匙的问题。换个网络或关掉 VPN 再同步。原文：${raw}`;
+  if (NETWORK.test(err)) return `连不上灵魂仓库所在的服务器（网络或地址问题）。原文：${raw}`;
   if (/Host key verification failed/i.test(err)) return `服务器的主机密钥与之前记录的不一致，已拒绝连接（known_hosts）。原文：${raw}`;
   if (/Repository not found|does not appear to be a git repository/i.test(err)) return `远端没有这个仓库，或这把部署密钥没有它的访问权。原文：${raw}`;
+  if (/Could not read from remote repository/i.test(err)) return `没能访问灵魂仓库（钥匙没有权限、仓库不存在或网络中断）。原文：${raw}`;
   return raw;
 }
+
+/** GitHub 官方的 443 端口 SSH：同一套主机密钥，所以按 github.com 核对（HostKeyAlias）。 */
+const VIA_443 = "-o HostName=ssh.github.com -o Port=443 -o HostKeyAlias=github.com";
+/** 远端是不是 GitHub 的 SSH 地址（git@github.com:… 或 ssh://git@github.com[:22]/…）；~/.ssh/config 里的 Host 别名不算（端口与主机由那里决定）。 */
+export const isGithubSsh = (remote: string) => /^(?:[\w.-]+@)?github\.com:/i.test(remote) || /^ssh:\/\/(?:[\w.-]+@)?github\.com(?::22)?\//i.test(remote);
+let githubVia443 = false; // 这个进程里 GitHub 的 22 端口不通、已经改走 443
 
 export class SoulRepo {
   // 同步状态落在 statusFile（有的话），重启后页面上的「上次拉取 / 上次推送」不会归零；任何字段一改就写盘
@@ -128,7 +141,21 @@ export class SoulRepo {
 
   private p = (...a: string[]) => path.join(this.o.dir, ...a);
   private ref = () => `origin/${this.o.branch}`;
-  git(...args: string[]): Promise<{ code: number; out: string; err: string }> {
+  /**
+   * 执行 git。访问 GitHub 远端（clone / fetch / push / ls-remote）时，22 端口的 SSH 连接失败就自动改走 GitHub 官方的 ssh.github.com:443
+   * （同一把钥匙，按 github.com 的主机密钥核对），不少网络（以及 VPN、代理）只拦 22 端口。走通的那条路记下来，之后先走它。
+   */
+  async git(...args: string[]): Promise<{ code: number; out: string; err: string }> {
+    const verb = args.find((a) => !a.startsWith("-"));
+    if (!verb || !["clone", "fetch", "push", "ls-remote"].includes(verb) || !isGithubSsh(this.o.remote)) return this.run(args, false);
+    const first = await this.run(args, githubVia443);
+    if (first.code === 0 || gitErrorKind(first.err) !== "network") return first;
+    const second = await this.run(args, !githubVia443);
+    if (second.code === 0) { githubVia443 = !githubVia443; this.o.log?.(githubVia443 ? "GitHub 的 22 端口连不上，改走 ssh.github.com:443" : "GitHub 的 22 端口又能连上了，改回默认"); return second; }
+    return first; // 两条路都不通：报第一条的原因
+  }
+
+  private run(args: string[], via443: boolean): Promise<{ code: number; out: string; err: string }> {
     const env = { ...process.env };
     // 不读系统与全局配置（~/.gitconfig 里的 url.*.insteadOf 等也能改写地址）
     env.GIT_CONFIG_NOSYSTEM = "1"; env.GIT_CONFIG_GLOBAL = "/dev/null";
@@ -137,12 +164,13 @@ export class SoulRepo {
       // 规范 §7：只使用指定的这把私钥（本身体专属的部署私钥，或使用者指定的私钥），不回退到 ssh-agent 或默认密钥；~/.ssh/config 里的 Host 别名、HostName、Port 仍然生效
       const bad = checkKeyPath(this.o.sshKey);
       if (bad) return Promise.resolve({ code: 1, out: "", err: bad });
-      env.GIT_SSH_COMMAND = `ssh -i ${shellQuote(this.o.sshKey)} -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=accept-new`;
+      env.GIT_SSH_COMMAND = `ssh -i ${shellQuote(this.o.sshKey)} -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20`;
       delete env.SSH_AUTH_SOCK;
     } else {
       // 系统 ssh 配置：钥匙由 ~/.ssh/config（IdentityFile）与 ssh-agent 决定
-      env.GIT_SSH_COMMAND = "ssh -o StrictHostKeyChecking=accept-new";
+      env.GIT_SSH_COMMAND = "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"; // 连不上时 20 秒就放弃，好及时改走 443
     }
+    if (via443) env.GIT_SSH_COMMAND += ` ${VIA_443}`;
     env.GIT_TERMINAL_PROMPT = "0";
     // 只在灵魂目录里找仓库：它的 .git 万一丢了，git 也不会往上层目录找、在外面某个代码仓库里提交和推送
     env.GIT_CEILING_DIRECTORIES = path.dirname(path.resolve(this.o.dir));
