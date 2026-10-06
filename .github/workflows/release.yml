@@ -340,8 +340,12 @@ jobs:
       - name: 下载并核对 Node.js / Git / Python 官方安装包与 NSIS（cli/windows/deps.lock.json）
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          node cli/windows/fetch-deps.mjs $env:ARCH (Join-Path $env:RUNNER_TEMP 'deps')
-          node cli/windows/fetch-deps.mjs --tool nsis (Join-Path $env:RUNNER_TEMP 'tools')
+          # 整个下载脚本最多跑 3 次：下载组件偶尔在进程层面崩溃（不是能被脚本内重试接住的错误）；已核对过的文件不会重新下载
+          foreach ($a in @(@($env:ARCH, (Join-Path $env:RUNNER_TEMP 'deps')), @('--tool', 'nsis', (Join-Path $env:RUNNER_TEMP 'tools')))) {
+            for ($i = 1; ; $i++) {
+              try { node cli/windows/fetch-deps.mjs @a; break } catch { if ($i -ge 3) { throw }; Write-Host "下载失败，第 $i 次重试：$($_.Exception.Message)"; Start-Sleep 10 }
+            }
+          }
           Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP 'tools/nsis-3.13.zip') -DestinationPath (Join-Path $env:RUNNER_TEMP 'tools')
       - name: 编译安装包（makensis → out/quetzal-<版本>-windows-<架构>-setup.exe）
         run: |
