@@ -166,14 +166,58 @@
 
 ## 三、执行备注（动工前要核对或说明的点）
 
-以下是记录时发现的冲突与待核对项，动工时逐条处理，结论补在这里：
+以下是记录时发现的冲突与待核对项。所有者 2026-10-07 答复：「1、2、3 都按你的建议来，现在开工」，并要求避开同时在做的 OAuth 统一化（账户、同步服务登录相关的代码与页面）。结论补在各条后面：
 
-1. **Q8+9 的「已有 node18+ 就跳过」与运行基座的最低版本冲突**：运行基座要 Node 22.13+（`node:sqlite` 免标志），Node 18 跑不起来。按代码实际要求，检测门槛应为 22.13+，不满足就装自带的 Node 24。
-2. **Q4「建议用户直接关闭 UAC 提醒」**：关掉 UAC 会降低整台电脑的安全性，而不只是 Quetzal（任何程序都能静默拿到管理员权限），与「安全第一」相悖。实现上沙箱只需要安装时一次提权，安装器会把所有要管理员的步骤（创建沙箱用户、WFP 规则、静默安装 Node / Git / Python、开机任务）合进同一次 UAC。是否仍在产品与文档里建议关闭 UAC，待所有者再确认。
-3. **Q14 的 c（Windows 服务）要以什么账户运行**：LocalSystem 会让 agent 拿到 SYSTEM 权限，不可接受；以用户本人账户运行服务要保存用户密码（很多人用微软账户 + PIN，不知道密码）。「开机未登录也自动运行」的候选做法是开机触发的计划任务、以用户本人身份、S4U 登录（不存密码，会话 0 非交互）；登录后再由用户会话里的身体助手提供截屏、麦克风、通知等需要桌面会话的能力（参照安卓 `BodyServer` 的本机接口模式）。动工前核对 S4U 与 sandbox-runtime（`srt-win`）是否兼容（例如它是否依赖 DPAPI——S4U 会话没有用户密码，DPAPI 不可用）。
+1. **Q8+9 的「已有 node18+ 就跳过」与运行基座的最低版本冲突**：运行基座要 Node 22.13+（`node:sqlite` 免标志），Node 18 跑不起来。按代码实际要求，检测门槛应为 22.13+，不满足就装自带的 Node 24。**已定：按此执行。**
+2. **Q4「建议用户直接关闭 UAC 提醒」**：关掉 UAC 会降低整台电脑的安全性，而不只是 Quetzal（任何程序都能静默拿到管理员权限），与「安全第一」相悖。实现上沙箱只需要安装时一次提权，安装器会把所有要管理员的步骤（创建沙箱用户、WFP 规则、静默安装 Node / Git / Python、开机任务）合进同一次 UAC。是否仍在产品与文档里建议关闭 UAC，待所有者再确认。**已定：不建议关闭 UAC，安装时合并为一次提权。**
+3. **Q14 的 c（Windows 服务）要以什么账户运行**：LocalSystem 会让 agent 拿到 SYSTEM 权限，不可接受；以用户本人账户运行服务要保存用户密码（很多人用微软账户 + PIN，不知道密码）。「开机未登录也自动运行」的候选做法是开机触发的计划任务、以用户本人身份、S4U 登录（不存密码，会话 0 非交互）；登录后再由用户会话里的身体助手提供截屏、麦克风、通知等需要桌面会话的能力（参照安卓 `BodyServer` 的本机接口模式）。动工前核对 S4U 与 sandbox-runtime（`srt-win`）是否兼容（例如它是否依赖 DPAPI——S4U 会话没有用户密码，DPAPI 不可用）。**已定：按此执行。** 核对结果：sandbox-runtime 把 `srt-sandbox` 账户的密码以机器范围的 DPAPI 存在 `HKLM\SOFTWARE\sandbox-runtime`（README「Setup」），不依赖调用者的用户密码；S4U 会话里能否 `CreateProcessWithLogonW` 由 CI 的 Windows runner 实测。
 4. **Q19 的答复「全部做，linux也顺带补齐」**：Q19 问的是电脑版的「耳朵」，按答复，Windows 与 Linux 桌面控制台都要做听觉（安卓的耳朵是原生 Kotlin：降噪、VAD、回声消除、流式上传；桌面上要找对应实现）。
 5. **Q17 不接受 Smart App Control 拦截**：受影响的不只是 `.node`，还有未签名的控制台 exe、`Setup.exe`、`srt-win.exe`（是否带签名待核对）。安装器检测 SAC 状态，开着就引导用户关闭（或在签名渠道落地后消除）。
 6. **Q21**：另一个 agent 在 1.3.0（`9b8f71e`）已发布「桌面控制台本机免配对码」，动工前核对它是否已按 a 实现。
 7. **Q25 的版本号**：1.3.0 / 1.3.1 已被提醒功能占用，Windows 支持的版本号到发版时按当时最新版本递增。
 8. **Q22**：Mermaid 在 Windows 与 Linux 桌面版都要能渲染成图（不再退化为源码），需要选型（WebView2 / WebKitGTK，或纯 Dart / 运行基座侧渲染）。
 9. **Q2**：「2018 年以后的 Windows 10」即 1809（2018-10）起。要核对 Node 24、Flutter、sandbox-runtime、WFP 规则、`wsb` 以外各组件在 1809 上的可用性。
+
+## 四、实现约定（各部分共同遵守的接口）
+
+### 4.1 目录（Q12 a）
+
+`ROOT = %LOCALAPPDATA%\Quetzal`：
+
+```
+ROOT\home\                      QUETZAL_HOME（config、secrets、data、soul、logs …，与 Linux 同构）
+ROOT\runtime\<版本>\             main.cjs、windows.mjs（适配器）、windows-body.mjs（身体助手）、windows-supervise.mjs（守护）、
+                                  web\（网页控制台）、srt-win\srt-win.exe、node_modules\（网状层原生组件，复制而不是链接）、VERSION
+ROOT\runtime\current.txt         当前版本号（一行）；previous.txt 上一版（Q13 a：指针文件代替符号链接）
+ROOT\console\<版本>\             quetzal-console.exe 与 Flutter 的 dll、data\
+ROOT\console\current.txt         当前控制台版本
+ROOT\node.txt                     运行基座用的 node.exe 绝对路径（安装器写入：已有的 22.13+ 或自带安装的 Node 24）
+ROOT\bin\quetzal.cmd             命令行入口
+```
+
+### 4.2 常驻（Q14 a + c）
+
+- 计划任务目录 `\Quetzal\`：
+  - `Runtime-Boot`：开机触发，以安装用户本人身份、S4U（不存密码），失败后每分钟重启，无执行时限、电池下也运行。电脑崩溃重启后不登录也会跑起来。
+  - `Runtime-Logon`：登录触发、交互会话。S4U 注册失败的机器上靠它；两者都执行 `"<node>" ROOT\runtime\<当前>\windows-supervise.mjs`，守护进程单实例（`ROOT\home\state\supervise.lock` 里的 pid + 进程存在性），重复启动的直接退出。
+- 守护进程 `windows-supervise.mjs`：读 `current.txt`，以 `QUETZAL_HOME=ROOT\home`、`QUETZAL_ADAPTER=…\windows.mjs` 启动 `main.cjs`，退出后退避重启；stdout / stderr 写 `ROOT\home\logs\runtime.log`（5 MB 轮转 3 份）；`state\supervise.off` 存在时暂停拉起，`state\quit` 存在时连同自己退出（与 Linux 守护循环同义）。
+- 控制台：`HKCU\…\CurrentVersion\Run` 的 `Quetzal` = `"<console exe>" --background`（登录时只起托盘）。
+
+### 4.3 身体助手（会话 0 里拿不到桌面）
+
+- 运行基座在 `Runtime-Boot` 下运行于会话 0：电池、温度这类读数自己取；通知、截图、剪贴板、打开网址、播放与朗读、相机、录音要交给**用户会话**里的身体助手。
+- 身体助手 = `"<node>" ROOT\runtime\<当前>\windows-body.mjs`，由控制台托盘进程在登录时以不显示窗口的方式启动并看护（崩溃重启）。它监听 `127.0.0.1` 随机端口，令牌随机，写 `ROOT\home\secrets\desktop-body.json` = `{port, token, pid, session}`（0600 等价 ACL）。
+- 协议：`POST /call`，`Authorization: Bearer <令牌>`，体 `{op, args}` → `{ok, result?, error?}`；`GET /health` → `{ok, session}`。`op` 与适配器方法一一对应（`notify`、`screenshot`、`clipboard.get/set`、`open`、`playAudio`、`stopAudio`、`speak`、`camera`、`record`）。
+- 运行基座的 Windows 适配器：自己在交互会话里就直接做；在会话 0 就找身体助手，找不到如实报告「需要登录桌面」。
+
+### 4.4 安装（Q8–Q11、Q15–Q17）
+
+- 发布资产（每个架构 `x64` / `arm64`）：`quetzal-<版本>-windows-<架构>-setup.exe`（NSIS，内嵌运行基座、控制台、Node 24 / Git / Python 3.14 官方安装包）。
+- `install.ps1`（官网 `/install.ps1`，`irm … | iex`）：纯 ASCII；判断架构；取 `SHA256SUMS` 与 `SHA256SUMS.sig` 用内置公钥做 Ed25519 验签（PowerShell 自己实现，不借 node）；检测智能应用控制（SAC），开着就引导关闭并等用户确认；下载 setup.exe、核对哈希、静默运行。
+- `setup.exe`：以用户身份运行（文件装进用户的 `%LOCALAPPDATA%`），再以**一次** UAC 提权运行机器级步骤：缺的 Node（22.13+ 才算有）/ Git / Python 3+ 静默安装（机器范围，沙箱用户才读得到）、`srt-win install`、注册计划任务、写防火墙规则（只有开局域网时）。运行中的旧进程先经用户同意再全部关掉，干净安装；健康检查 40 秒不过就回到上一版。
+- 依赖版本锁在仓库里（官方下载地址 + SHA-256），构建安装包时下载并核对。
+
+### 4.5 沙箱（Q3–Q5）
+
+- `SandboxKind` 增加 `srt`：Windows 上用 `@anthropic-ai/sandbox-runtime`（Apache-2.0，锁版本）的 Windows 后端与它自带的 `srt-win.exe`。agent 的命令以 `srt-sandbox` 用户运行：它对用户的文件本来没有任何权限，只授权工作区、`data\`、灵魂目录（`.git` 拒写）、保密库（只读）、Node / Git / Python 所在目录（只读）；`secrets\`、`config\` 不授权即不可见；网络只能经运行基座进程里的代理出去，代理拒绝回环、链路本地、内网与元数据地址（连不到本机网关）。
+- 没装好（没提权、WFP 不在）就 fail-closed，`status.sandbox.kind = none`，控制台提示重新运行安装。
