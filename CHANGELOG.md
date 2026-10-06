@@ -2,6 +2,22 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.1
+
+**一个链接接入：不用再去 GitHub 找任何页面。**
+
+- **一个链接接入**：Hermes、OpenClaw（灵魂桥 `soul-bridge connect`）和新装的手机、电脑在接入时只给你一个链接和 3 个表情的核对词。你点开、核对、点「批准」，页面在同一个标签页经 GitHub 跳一下就回来：同步服务把这具身体专属的部署密钥加到灵魂仓库（只加这一把、只对这一个仓库，用完的 GitHub 令牌立即吊销），身体随即克隆、同步、接好。不需要令牌、不需要复制公钥、不需要打开 GitHub 的设置页。
+- **新设备选进哪个 agent**：新装的身体还不知道自己属于谁时，批准页让你选（或新建）；老用户换新设备不再多出一个 agent。
+- **登录与灵魂仓库共用一个 GitHub App**：只对你选中的灵魂仓库有管理权限。
+- 灵魂桥的自检新增「访问方式」：发现借用了本机个人 SSH 密钥的主机别名时提醒重新 `connect`，换成专属的部署密钥。
+
+**One link to join: no more hunting through GitHub.**
+
+- **One link to join**: Hermes, OpenClaw (soul-bridge `connect`) and newly installed phones and computers give you a single link plus a 3-emoji check when they join. Open it, compare, tap Approve; the tab hops through GitHub and comes back while the sync service adds this body's own deploy key to the soul repository (only this key, only that repository, and the GitHub token is revoked right after), then the body clones, syncs and is ready. No tokens, no copying keys, no GitHub settings pages.
+- **Pick the agent for a new device**: when a freshly installed body does not know whom it belongs to, the approval page lets you choose (or create) one; a returning user's new device no longer creates an extra agent.
+- **Sign-in and the soul repository share one GitHub App**, with admin rights only on the soul repositories you select.
+- soul-bridge's doctor gains an "access method" check: if the repository is reached through a personal SSH host alias, it asks you to `connect` again and switch to its own deploy key.
+
 ## 1.1.0
 
 **只装一个 App；更懂你的官网。**
