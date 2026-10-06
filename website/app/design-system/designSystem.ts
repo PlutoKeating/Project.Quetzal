@@ -163,10 +163,10 @@ export const designSystem = {
     breathAmplitude: "0.08",
   },
 
-  /** 字体：人文无衬线。Inter（自托管，拉丁字形）+ 系统中文字体；英文 hero 可用衬线做对比。 */
+  /** 字体：全站统一。英文 Inter，中文思源黑体（两者都自托管：Inter 在 public/fonts，思源黑体是 @fontsource-variable/noto-sans-sc，按 unicode-range 分片、用到才下载）；
+   *  Inter 排在前面，拉丁字形与数字由它出，汉字与全角标点落到思源黑体。等宽只给代码、命令、指纹这类要逐字核对的内容。 */
   font: {
-    sans: '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", sans-serif',
-    serif: '"Iowan Old Style", "Palatino Linotype", "Songti SC", "Noto Serif CJK SC", Georgia, serif',
+    sans: '"Inter", "Noto Sans SC Variable", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif',
     mono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", monospace',
   },
   /** 字号（rem）与行高 */

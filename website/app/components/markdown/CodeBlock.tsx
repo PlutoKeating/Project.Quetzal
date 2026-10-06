@@ -41,7 +41,7 @@ export function CodeBlock({ code, lang, className }: { code: string; lang: strin
   return (
     <div className={cx("md-code group relative my-5 overflow-hidden rounded-lg border border-border bg-code-bg", className)}>
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-xs text-fg-subtle">
-        <span className="font-mono">{language}</span>
+        <span>{language}</span>
         <button type="button" onClick={copy} className="rounded-sm px-2 py-0.5 text-fg-muted transition-colors duration-(--ds-duration-fast) hover:bg-surface-hover hover:text-fg">
           {copied ? t.copied : t.copy}
         </button>

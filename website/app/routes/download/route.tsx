@@ -142,7 +142,7 @@ export default function Download() {
           )}
           {latest && (
             <p className="flex flex-wrap items-center justify-center gap-y-1">
-              <span className="font-mono">{latest.version}</span>
+              <span className="tabular-nums">{latest.version}</span>
               {latest.prerelease && <Badge tone="warning" className="ml-2">{t.latest.prerelease}</Badge>}
               <Dot /><time dateTime={latest.publishedAt}>{new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en", { dateStyle: "medium" }).format(new Date(latest.publishedAt))}</time>
               <Dot /><button type="button" aria-expanded={notesOpen} onClick={() => setNotesOpen((v) => !v)} className="hover:text-fg">{t.latest.notes} {notesOpen ? "−" : "+"}</button>

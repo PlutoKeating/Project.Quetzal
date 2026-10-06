@@ -35,7 +35,7 @@ function Settings({ login, onDone }: { login: string; onDone: (msg: string) => v
       {error && <p className="text-danger">{errorText(s, error)}</p>}
       <Card className="flex flex-col gap-2">
         <Heading as="h2" size="sm">{t.profileHeading}</Heading>
-        <p className="font-mono text-sm text-fg">{login}</p>
+        <p className="text-sm text-fg">{login}</p>
         <p className="text-sm text-fg-muted">{t.profile}</p>
         <ButtonAnchor variant="secondary" href="#" onClick={(e) => { e.preventDefault(); window.location.assign(accountUrl(window.location.href)); }} className="self-start">{t.manage}</ButtonAnchor>
       </Card>

@@ -44,7 +44,7 @@ export default function Home() {
             <span className="text-xs font-medium uppercase tracking-wide text-secondary-fg">{t.hero.eyebrow}</span>
           </p>
           <h1 className="max-w-4xl whitespace-pre-line text-3xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
-          <p className={cx("max-w-3xl whitespace-pre-line text-xl text-fg-muted", lang === "zh" ? "font-serif italic" : "")}>{t.hero.titleAlt}</p>
+          <p className="max-w-3xl whitespace-pre-line text-xl text-fg-muted">{t.hero.titleAlt}</p>
           <Lead className="max-w-prose">{t.hero.lead}</Lead>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
@@ -130,7 +130,7 @@ export default function Home() {
                 <Link to={`${localized(lang, "/features")}#${it.id}`} className="group flex w-full">
                   <Card interactive className="flex w-full flex-col gap-4 p-7 sm:p-8">
                     <span className="flex items-center gap-3 text-xs font-medium uppercase tracking-wide text-secondary-fg">
-                      <span className="font-mono text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>{it.tag}
+                      <span className="tabular-nums text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>{it.tag}
                     </span>
                     <Heading as="h3" size="md">{it.title}</Heading>
                     <p className="text-fg-muted text-pretty">{it.text}</p>
@@ -193,7 +193,7 @@ export default function Home() {
             <ol className="divide-y divide-border">
               {t.day.entries.map((e) => (
                 <li key={e.time} className="grid grid-cols-[auto_auto_1fr] items-baseline gap-x-4 px-5 py-3 text-sm">
-                  <time className="font-mono text-fg-subtle">{e.time}</time>
+                  <time className="tabular-nums text-fg-subtle">{e.time}</time>
                   <Badge tone={kindTone[e.kind as keyof typeof kindTone]}>{t.day.kinds[e.kind as keyof typeof t.day.kinds]}</Badge>
                   <span className="text-fg-muted">
                     {e.text}
