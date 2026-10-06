@@ -66,6 +66,7 @@ async function bindViaWeb(b: Browser, agent: string, body: string) {
   assert.equal((await b.web("/v1/web/device/decide", { code: code.user_code, approve: true })).status, 200);
   const tok = await (await api("/v1/device/token", { device_code: code.device_code })).json() as any;
   assert.match(tok.access_token, /^qsb_/);
+  assert.match(tok.console.access_token, /^qsc_/, "运行基座同一次批准也拿到控制台登录");
   return tok.access_token as string;
 }
 
@@ -137,16 +138,34 @@ test("控制台登录：只有本账户下的身体能申请；令牌只能用�
 
   const acc = await (await asConsole("/v1/web/account")).json() as any;
   assert.equal(acc.user.login, "user7");
-  assert.equal(acc.consoles.length, 1);
-  assert.deepEqual([acc.consoles[0].body, acc.consoles[0].current], ["honor9", true]);
+  assert.equal(acc.consoles.length, 2, "绑定时自动发的一个 + 这次单独申请的一个");
+  assert.deepEqual(acc.consoles.filter((c: any) => c.current).map((c: any) => c.body), ["honor9"]);
   assert.equal((await s.app.request(PUBLIC + "/v1/web/account", { headers: { authorization: `Bearer ${bodyToken}` } })).status, 401, "身体令牌不能当账户令牌");
   assert.equal((await s.app.request(PUBLIC + "/v1/me", { headers: { authorization: `Bearer ${tok.access_token}` } })).status, 401, "账户令牌不能当身体令牌");
   assert.equal((await new Browser().req("/v1/web/account", { headers: { origin: WEB, cookie: `__Host-quetzal_session=${tok.access_token}` } })).status, 401, "控制台令牌不能当 Cookie 用");
 
   // 网页上吊销 → 控制台立即失效
-  const handle = ((await (await owner.web("/v1/web/account")).json()) as any).consoles[0].id;
+  const handle = ((await (await asConsole("/v1/web/account")).json()) as any).consoles.find((c: any) => c.current).id;
   assert.equal((await owner.web("/v1/web/consoles/revoke", { id: handle })).status, 200);
   assert.equal((await asConsole("/v1/web/account")).status, 401);
+});
+
+test("一次登录：批准运行基座时同时发控制台令牌，能管理账户，随身体解绑作废；灵魂桥不发", async () => {
+  const owner = new Browser(); await owner.login(17);
+  const agent = crypto.randomUUID();
+  const code = await (await api("/v1/device/code", { agent: { id: agent, name: "薰" }, body: "phone", kind: "runtime", nodeKey: nodeKey(), version: "1.2.0" })).json() as any;
+  assert.equal((await owner.web("/v1/web/device/decide", { code: code.user_code, approve: true })).status, 200);
+  const tok = await (await api("/v1/device/token", { device_code: code.device_code })).json() as any;
+  const asConsole = (p: string) => s.app.request(PUBLIC + p, { headers: { authorization: `Bearer ${tok.console.access_token}` } });
+  assert.equal(((await (await asConsole("/v1/web/account")).json()) as any).user.login, "user17");
+  assert.ok(tok.console.expires_in > 0);
+  assert.equal((await s.app.request(PUBLIC + "/v1/me", { method: "DELETE", headers: { authorization: `Bearer ${tok.access_token}` } })).status, 200);
+  assert.equal((await asConsole("/v1/web/account")).status, 401, "身体解绑后控制台令牌作废");
+  const bridge = await (await api("/v1/device/code", { agent: { id: agent, name: "薰" }, body: "hermes", kind: "bridge", nodeKey: nodeKey(), version: "1.2.0" })).json() as any;
+  assert.equal((await owner.web("/v1/web/device/decide", { code: bridge.user_code, approve: true })).status, 200);
+  const bt = await (await api("/v1/device/token", { device_code: bridge.device_code })).json() as any;
+  assert.match(bt.access_token, /^qsb_/);
+  assert.equal(bt.console, undefined);
 });
 
 test("换令牌：直连 github.com 不通时经中转；GitHub 明确拒绝时不换路；中转没配置时如实报错", async () => {

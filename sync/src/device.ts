@@ -92,7 +92,7 @@ export function decide(db: Db, cfg: Config, code: DeviceCode, userId: number, ap
 }
 
 export type PollResult =
-  | { status: 200; body: { access_token: string; token_type: "bearer"; agent: { id: string; name: string }; body: string; account: string; kind?: "console"; expires_in?: number; soul?: { repo: string; remote: string } | { error: string } } }
+  | { status: 200; body: { access_token: string; token_type: "bearer"; agent: { id: string; name: string }; body: string; account: string; kind?: "console"; expires_in?: number; soul?: { repo: string; remote: string } | { error: string }; console?: { access_token: string; expires_in: number } } }
   | { status: 400; body: { error: "authorization_pending" | "slow_down" | "access_denied" | "expired_token" | "invalid_grant" } };
 
 /** 身体轮询。批准后在这一刻生成令牌并写入身体登记（库里只存哈希），设备码随即作废。onBound 用来踢掉同名身体的旧连接。 */
@@ -108,10 +108,15 @@ export function poll(db: Db, deviceCode: string, onBound: (agent: number, body: 
   }
   if (code.kind === "console") return pollConsole(db, code);
   const token = randomToken("qsb_");
+  // 运行基座：批准它的就是账户的主人，同一次批准也给它的控制台发一个控制台登录（与 §5.2 的令牌相同，随这具身体解绑一并作废），
+  // 人不用再批准第二次才能在 App 里管理账户。灵魂桥没有控制台，不发。
+  const consoleToken = code.kind === "runtime" ? randomToken("qsc_") : undefined;
+  const life = CONSOLE_SESSION_DAYS * 86_400_000;
   const agent = db.tx(() => {
     const a = code.user_id === null ? undefined : db.agentOf(code.user_id, code.agent_id);
     if (!a) return undefined; // 批准之后 agent 被删除（或账户被删）
     db.putBody({ agent: a.id, body: code.body, kind: code.kind, node_key: code.node_key, version: code.version }, token);
+    if (consoleToken) db.createSession(consoleToken, a.user_id, now() + life, "console", code.body, a.id);
     db.deleteCode(code.id);
     return a;
   });
@@ -119,7 +124,7 @@ export function poll(db: Db, deviceCode: string, onBound: (agent: number, body: 
   onBound(agent.id, code.body);
   const soul = code.soul_status === "done" ? { repo: code.soul_repo, remote: `git@github.com:${code.soul_repo}.git` }
     : code.soul_status === "failed" ? { error: code.soul_error || "没能链接灵魂仓库" } : undefined;
-  return { status: 200, body: { access_token: token, token_type: "bearer", agent: { id: agent.agent_id, name: agent.name }, body: code.body, account: db.user(agent.user_id)?.login ?? "", ...(soul ? { soul } : {}) } };
+  return { status: 200, body: { access_token: token, token_type: "bearer", agent: { id: agent.agent_id, name: agent.name }, body: code.body, account: db.user(agent.user_id)?.login ?? "", ...(soul ? { soul } : {}), ...(consoleToken ? { console: { access_token: consoleToken, expires_in: life / 1000 } } : {}) } };
 }
 
 /** 控制台登录批准后：生成会话令牌（qsc_，库里只存哈希，按 CONSOLE_SESSION_DAYS 滑动续期），记下发起它的身体与 agent（解绑时一并作废），设备码作废。 */

@@ -69,8 +69,10 @@ sequenceDiagram
   S->>G: 吊销令牌
   S-->>U: 回到前端 /device?soul=linked
   B->>S: 轮询 /v1/device/token
-  S-->>B: {access_token, …, soul: {repo, remote: "git@github.com:<repo>.git"}}
+  S-->>B: {access_token, …, soul: {repo, remote: "git@github.com:<repo>.git"}, console: {access_token: "qsc_…", expires_in}}
 ```
+
+- **一次登录**：批准的是运行基座（`kind` 为 `runtime`）时，同一次批准也给它的控制台发一个控制台登录（`console`，与 §5.2 的令牌完全相同：只有账户主人能批准、随这具身体解绑一并作废、可在「已登录」里退出）。人不用再批准第二次就能在 App 里管理账户。灵魂桥没有控制台，不发。旧的运行基座忽略这个字段，照旧走 §5.2。
 
 - 批准后、链接完成之前，轮询照常返回 `authorization_pending`；码的有效期延到批准后 15 分钟。链接失败时身体仍拿到令牌，`soul` 为 `{error}`。
 - **一次性票据**（`qsl_` 开头，256 位，库里只存哈希）只在批准的响应里发给批准者，只对这一个码、只在「待链接」时有效，用过即失效；它让网页与 App 都能走这一步，不依赖浏览器里的登录会话。
@@ -189,7 +191,7 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
 
 ### 5.2 控制台登录
 
-App 只和自己的运行基座通信，没有浏览器 Cookie；身体令牌只代表这具身体。要在 App 里管理账户，运行基座代它申请一次控制台登录：
+App 只和自己的运行基座通信，没有浏览器 Cookie；身体令牌只代表这具身体。运行基座绑定时通常已随同一次批准拿到控制台登录（§2「一次登录」）；没有拿到（旧的同步服务）或被退出后，运行基座代它单独申请一次：
 
 ```mermaid
 sequenceDiagram
