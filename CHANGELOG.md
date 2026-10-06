@@ -2,6 +2,18 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.10
+
+- **电脑上从控制台升级不再一直转圈**：
+  - 控制台写着「升级到 X」，就真的装 X：以前装的是 npm 上标为最新的版本，它有时晚于发布，装完版本号不变，界面就一直转。
+  - 升级失败（下载断了、网络出错）或卡住时，版本卡片说明原因，可以「重试」；进行中显示正在做哪一步，重开控制台也接着显示。
+  - 同一时间只跑一个升级，重复点不会叠起好几个互相干扰。
+
+- **Upgrading from the desktop console no longer spins forever**:
+  - "Upgrade to X" now really installs X; it used to install whatever npm tagged as latest, which sometimes lagged behind the release, so the version never changed and the card kept spinning.
+  - When an upgrade fails (a download dropped, a network error) or stalls, the Version card says why and offers Retry; while it runs it shows the current step, also after reopening the console.
+  - Only one upgrade runs at a time, so repeated clicks no longer start several that get in each other's way.
+
 ## 1.1.9
 
 - **多具身体的设置、模型与 Key 真正同步起来**：
