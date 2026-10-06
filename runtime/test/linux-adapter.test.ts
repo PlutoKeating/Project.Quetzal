@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pickBattery, pickThermal, prettyName, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "../adapters/linux/linux.ts";
-import { hasRebootLine, withRebootLine, DROPIN_OFF } from "../adapters/linux/supervise.ts";
+import { hasRebootLine, withRebootLine, DROPIN_OFF, quit } from "../adapters/linux/supervise.ts";
 import { upgradeShell, detachCommand, parseUpgradeLog } from "../adapters/linux/upgrade.ts";
 
 test("挑出整机电池，跳过蓝牙鼠标之类的外设电池", () => {
@@ -96,4 +96,23 @@ test("升级指定版本；日志里每次升级带编号，读得出进行中�
   const two = `== Tue 从控制台发起升级\n== 退出码 0\n${failed}== 升级 ${t0 + 5} 开始 Tue\n  ✓ Native console in place\n== 升级 ${t0 + 5} 退出码 0\n`;
   const st = parseUpgradeLog(two, t0);
   assert.equal(st.exitCode, 0); assert.equal(st.target, undefined); assert.equal(st.step, "Native console in place");
+});
+
+test("退出（托盘）：守护循环放 state/quit 让它这次不再拉起，然后结束进程；没有守护者时直接结束", async () => {
+  const fs = await import("node:fs"), os = await import("node:os"), path = await import("node:path");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-quit-")), cfg = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-quitcfg-"));
+  const saved = { h: process.env.QUETZAL_HOME, c: process.env.XDG_CONFIG_HOME };
+  process.env.QUETZAL_HOME = home; process.env.XDG_CONFIG_HOME = cfg; // 没有 systemd 单元文件
+  try {
+    let exited = 0;
+    await quit(() => { exited++; });
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(exited, 1, "没有守护者：直接结束进程");
+    assert.ok(!fs.existsSync(path.join(home, "state", "quit")));
+    fs.mkdirSync(path.join(home, "bin"), { recursive: true }); fs.writeFileSync(path.join(home, "bin", "quetzal-supervise"), "#!/bin/sh\n");
+    await quit(() => { exited++; });
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(exited, 2);
+    assert.ok(fs.existsSync(path.join(home, "state", "quit")), "守护循环：留下 quit 标记");
+  } finally { process.env.QUETZAL_HOME = saved.h; process.env.XDG_CONFIG_HOME = saved.c; }
 });

@@ -56,6 +56,8 @@ export interface BodyAdapter {
   tools?: AdapterTool[];
   hands?: Hands;
   supervision?: Supervision;  // 守护开关（控制台「服务」页）；没有的身体不显示
+  /** 退出（桌面托盘的「退出」）：这一次停掉后台服务，开机自启照旧。没有的身体由 ops 直接结束进程 */
+  quit?(): Promise<void>;
   /** 让这具身体在后台重跑安装（升级运行基座与控制台到最新发布）：立即返回一句说明，进程随后由守护者重启。没有的身体（安卓由 App 升级）不提供 */
   upgrade?(version?: string): Promise<string>;
   /** 最近一次升级的状态（进行中 / 退出码 / 最后一步）：控制台据此显示结果或失败原因，不再只等版本号变化 */

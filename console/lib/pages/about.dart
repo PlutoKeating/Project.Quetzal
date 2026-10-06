@@ -136,7 +136,7 @@ class _AboutPageState extends State<AboutPage> {
     final self = Platform.resolvedExecutable; // …/console/<版本>/quetzal-console（目录已删时末尾带「 (deleted)」，取上两级不受影响）
     final next = '${Directory(self).parent.parent.path}/current/quetzal-console';
     try {
-      await Process.start(next, [], mode: ProcessStartMode.detached);
+      await Process.start(next, ['--replace'], mode: ProcessStartMode.detached); // --replace：新版本接管单实例的名字，这个旧的随即退出（见 linux/runner）
       exit(0);
     } catch (e) { if (mounted) toast(context, '没能重新打开：$e'); }
   }

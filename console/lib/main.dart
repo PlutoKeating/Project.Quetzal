@@ -27,7 +27,7 @@ import 'shell/desktop.dart';
 /// 暗色模式的背景：固定 RGB(32,32,32)，与主题色无关。
 const darkBackground = Color(0xFF202020);
 
-void main() async {
+void main(List<String> args) async {
   loc.claimUrl(); // 网页版：URL 的 #片段由桌面外壳的 Nav 管理，Flutter 不改写
   WidgetsFlutterBinding.ensureInitialized();
   await fonts.loadFonts(); // 网页版：自带的中文字体子集；安卓什么都不做
@@ -36,7 +36,7 @@ void main() async {
   wakes.start(); // 跟踪她正在进行的醒来（首页与心流页的只读入口）
   hearing.start(); // 耳朵：安卓上跟随基座的听觉开关启停本机的麦克风前台服务；网页版只跟着状态显示
   runApp(const ConsoleApp());
-  initTray(); // 桌面版：右上角状态栏的托盘图标（关窗收进托盘）；网页版与安卓什么都不做
+  initTray(background: args.contains('--background')); // 桌面版：右上角状态栏的托盘图标（运行基座在跑就在；关窗只是隐藏）；网页版与安卓什么都不做
 }
 
 class ConsoleApp extends StatelessWidget {

@@ -106,3 +106,15 @@ test("装运行基座：选定的源装不上（镜像还没同步到刚发布�
   assert.equal(run("off", "https://registry.npmmirror.com"), "试 https://registry.npmjs.org\n试 https://registry.npmmirror.com\nrc=0");
   assert.match(run("off", "none"), /rc=1$/);
 });
+
+test("守护循环：托盘「退出」留下的 state/quit 让循环在运行基座退出后自己也退出（这次不再拉起），标记删掉", () => {
+  const home = mkdtempSync(join(tmpdir(), "quetzal-sup-"));
+  mkdirSync(join(home, "current"), { recursive: true });
+  const fakeNode = join(home, "node.sh");
+  writeFileSync(fakeNode, `#!/bin/sh\necho run >> "${home}/runs"\nexit 0\n`);
+  execFileSync("chmod", ["+x", fakeNode]);
+  const r = sh(`HOME_DIR="${home}"; NODE="${fakeNode}"; install_supervisor; : > "${home}/state/quit"; timeout 10 "$SUPERVISOR"; echo rc=$?`);
+  assert.match(r.out, /rc=0$/, "循环自己退出了（没有被 timeout 杀掉）");
+  assert.equal(readFileSync(join(home, "runs"), "utf8"), "run\n", "运行基座只跑了一次，没有再拉起");
+  assert.equal(spawnSync("test", ["-e", join(home, "state", "quit")]).status, 1, "quit 标记已删除");
+});

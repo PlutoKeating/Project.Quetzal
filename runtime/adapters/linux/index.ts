@@ -150,6 +150,7 @@ const adapter: BodyAdapter = {
   async stopAudio() { playing?.kill("SIGTERM"); playing = undefined; },
   tools,
   supervision: { status: supervise.status, set: supervise.set }, // 守护开关：systemd 用户服务或一键安装脚本的守护循环
+  quit: () => supervise.quit(), // 托盘的「退出」：停掉后台服务（这一次）
   upgrade, // 从控制台升级：后台重跑一键安装脚本（systemd-run 脱离服务的 cgroup）
   upgradeStatus, // 读 logs/upgrade.log：进行中、退出码、最后一步
   // speak 不提供：与 Termux 适配器一致，说话统一由运行基座的 voice_speak 完成

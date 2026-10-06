@@ -77,3 +77,15 @@ export async function set(enabled: boolean): Promise<void> {
   if (enabled) { if (hasDesktop()) { fs.mkdirSync(path.dirname(autostart()), { recursive: true }); fs.writeFileSync(autostart(), autostartText(sup)); } }
   else fs.rmSync(autostart(), { force: true });
 }
+
+/**
+ * 退出（托盘的「退出」）：这一次停掉后台服务，开机自启照旧。systemd 用户服务：stop（不等，它会来停掉这个进程）；
+ * 守护循环：放 state/quit，循环在运行基座退出后看到它就自己也退出；都没有：进程直接退出。
+ * 保险：5 秒后还活着就自己退出。
+ */
+export async function quit(exit: () => void = () => process.exit(0)): Promise<void> {
+  const s = await status();
+  if (s.kind === "systemd") await sysctl("stop", "--no-block", UNIT);
+  else if (s.kind === "loop") { fs.mkdirSync(path.join(home(), "state"), { recursive: true }); fs.writeFileSync(path.join(home(), "state", "quit"), `${new Date().toISOString()}\n`); }
+  setTimeout(exit, s.kind === "systemd" ? 5000 : 300);
+}

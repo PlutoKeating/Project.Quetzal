@@ -686,6 +686,7 @@ install_supervisor() {
 # Quetzal 守护者（没有 systemd 用户实例的机器）：由安装脚本生成。循环拉起运行基座，退出 3 秒后重启；
 # 同一时刻只有一个（flock 或 pid 文件）。开机由 crontab 的 @reboot 或桌面自启动项拉起；停止：kill $(cat state/supervise.pid)
 # 控制台「服务」页的守护开关关闭时会放一个 state/supervise.off：循环看到它就暂停拉起（自己不退出），删掉即恢复。
+# 托盘的「退出」会放一个 state/quit：运行基座退出后循环看到它就删掉它、自己也退出（这一次不再拉起；下次打开 Quetzal 或开机时照常）。
 HOME_DIR=__HOME_DIR__
 NODE=__NODE__
 mkdir -p "$HOME_DIR/state" "$HOME_DIR/logs"
@@ -705,6 +706,7 @@ while :; do
   cd "$HOME_DIR/current" 2>/dev/null || { echo "no current version" >>"$LOG"; sleep 10; continue; }
   "$NODE" --enable-source-maps "$HOME_DIR/current/main.cjs" >>"$LOG" 2>&1 &
   child=$!; wait "$child"
+  if [ -e "$HOME_DIR/state/quit" ]; then rm -f "$HOME_DIR/state/quit" "$PIDF"; exit 0; fi
   sleep 3
 done
 EOF
@@ -888,6 +890,25 @@ EOF
   if [[ -f $icons/icon-theme.cache ]] && ! grep -q "$icon_name" "$icons/icon-theme.cache" 2>/dev/null; then rm -f "$icons/icon-theme.cache"; fi
   if [[ -n $NATIVE ]]; then ok "$(t '应用列表里有「Quetzal」了：点开就是原生控制台' 'Quetzal is in the app list: it opens the native console')"
   else ok "$(t '应用列表里有「Quetzal」了：点开在浏览器里打开控制台' 'Quetzal is in the app list: it opens the console in the browser')"; fi
+  install_tray
+}
+TRAY_AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/xyz.quetzal.tray.desktop"
+install_tray() { # 右上角的托盘图标：原生控制台以 --background 常驻（只起托盘、不开窗口），运行基座在跑就显示；登录桌面时由自启动项拉起
+  if [[ -z $NATIVE ]]; then rm -f "$TRAY_AUTOSTART"; return 0; fi
+  mkdir -p "$(dirname "$TRAY_AUTOSTART")"
+  cat >"$TRAY_AUTOSTART" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Quetzal
+Comment=$(t 'Quetzal 托盘图标（运行基座在跑时显示）' 'Quetzal tray icon (shown while the runtime is running)')
+Exec="$LAUNCHER" --background
+Icon=xyz.quetzal.console
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+  # 这次登录里现在就起上（已经有一个在跑时，新启动的只是把激活转给它、自己退出，不会多出第二个托盘图标）
+  if [[ -n ${WAYLAND_DISPLAY:-}${DISPLAY:-} ]]; then ( setsid "$NATIVE" --background >/dev/null 2>&1 </dev/null & ) || true; fi
+  ok "$(t '右上角有 Quetzal 的托盘图标了：运行基座在跑就在；登录桌面时自动出现' 'Quetzal is in the tray (top right) while the runtime runs; it appears automatically when you log in')"
 }
 
 # ---------------------------------------------------------------- 6. 收尾
@@ -926,7 +947,8 @@ uninstall() {
   local pid; pid=$(cat "$HOME_DIR/state/supervise.pid" 2>/dev/null || true)
   if [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null; then kill -TERM "$pid" 2>/dev/null || true; ok "$(t '守护循环已停止' 'Supervisor loop stopped')"; did=1; fi
   if have crontab && crontab -l 2>/dev/null | grep -q quetzal-supervise; then crontab -l 2>/dev/null | grep -v quetzal-supervise | crontab - 2>/dev/null || true; ok "$(t '已移除 crontab 的开机项' 'crontab @reboot entry removed')"; did=1; fi
-  local f; for f in "$HOME/.config/autostart/quetzal-runtime.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/quetzal.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/xyz.quetzal.console.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps/quetzal.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/192x192/apps/quetzal.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps/xyz.quetzal.console.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/192x192/apps/xyz.quetzal.console.png" "$HOME/.local/bin/quetzal-console" "$HOME/.local/bin/quetzal" "$HOME/.config/fish/conf.d/quetzal.fish" "$HOME/.config/systemd/user/quetzal.service.d/quetzal-off.conf"; do
+  pkill -f "$HOME_DIR/console/.*/quetzal-console" >/dev/null 2>&1 || true # 托盘与控制台窗口
+  local f; for f in "$TRAY_AUTOSTART" "$HOME/.config/autostart/quetzal-runtime.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/quetzal.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/xyz.quetzal.console.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps/quetzal.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/192x192/apps/quetzal.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps/xyz.quetzal.console.png" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/192x192/apps/xyz.quetzal.console.png" "$HOME/.local/bin/quetzal-console" "$HOME/.local/bin/quetzal" "$HOME/.config/fish/conf.d/quetzal.fish" "$HOME/.config/systemd/user/quetzal.service.d/quetzal-off.conf"; do
     [[ -e $f ]] && { rm -f "$f"; did=1; }
   done
   if [[ -e "$HOME_DIR/console/current" ]]; then ok "$(t '原生控制台已移除' 'Native console removed')"; did=1; fi

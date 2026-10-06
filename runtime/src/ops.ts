@@ -196,6 +196,8 @@ export const ops = {
   config: () => ({ body: config.body, timezone: config.timezone, heart: config.heart, brain: config.brain, feishu: { ...config.feishu, hasSecret: fs.existsSync(`${paths.secrets}/feishu_secret`) } }),
   setConfig: (a: { timezone?: string; brain?: Partial<typeof config.brain>; heart?: Partial<typeof config.heart> }, actor: string) => { saveConfig(a); audit(actor, "config", "", a, "ok"); return true; },
   restart: (_: unknown, actor: string) => { audit(actor, "restart", "", null, "ok"); setTimeout(() => process.exit(0), 300); return true; }, // 由进程守护者（runit/systemd）重新拉起
+  // 退出：停掉后台服务、不再拉起（这一次；开机自启照旧）。由适配器实现（Linux：systemd stop / 守护循环的 quit 标记）；没有的直接结束进程
+  quit: (_: unknown, actor: string) => { audit(actor, "quit", "", null, "ok"); setTimeout(() => { if (adapter.quit) adapter.quit().catch(() => process.exit(0)); else process.exit(0); }, 300); return true; },
   // 守护开关（开机自启 + 退出后自动重启）：由身体适配器实现；没有的身体返回 available=false，控制台不显示
   supervision: async () => adapter.supervision ? adapter.supervision.status() : { available: false, enabled: false, kind: "none", detail: "" },
   // 从控制台升级这具身体上的运行基座与控制台：由适配器在后台重跑安装（Linux）；安卓由 App 自己升级，这里不提供

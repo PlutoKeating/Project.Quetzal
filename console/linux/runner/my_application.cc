@@ -7,23 +7,37 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
+// 单实例（xyz.quetzal.console）：
+//   - 再次启动（例如从应用列表点开）时，新进程只把「激活」转给已经在运行的那个，然后退出；已在运行的把窗口提到最前（没有窗口就打开）。
+//   - --background：只起托盘、不显示窗口（登录桌面时的自启动项用它；托盘图标只在运行基座在跑时显示，见 lib/platform/tray_io.dart）。
+//   - --replace：接管已经在运行的那个（它收到 name-lost 就退出）：升级后「重新打开」、安装脚本换上新版本时用。
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  GtkWindow* window;    // 第一次激活时创建
+  gboolean background;  // --background 启动：首帧后也不显示窗口
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
+  if (self->background) return;  // 后台启动：等「打开 Quetzal」或再次激活时再显示
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+  if (self->window != nullptr) {  // 已经在运行（可能只在托盘里）：显示并提到最前
+    self->background = FALSE;
+    gtk_widget_show(GTK_WIDGET(self->window));
+    gtk_window_present(self->window);
+    return;
+  }
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  self->window = window;
   // 窗口图标按名字从图标主题取：安装脚本把光团放在 ~/.local/share/icons/hicolor/<尺寸>/apps/xyz.quetzal.console.png
   gtk_window_set_icon_name(window, "xyz.quetzal.console");
 
@@ -87,11 +101,23 @@ static gboolean my_application_local_command_line(GApplication* application,
   MyApplication* self = MY_APPLICATION(application);
   // Strip out the first argument as it is the binary name.
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
+  for (char** a = self->dart_entrypoint_arguments; a != nullptr && *a != nullptr; a++) {
+    if (g_strcmp0(*a, "--background") == 0) self->background = TRUE;
+    if (g_strcmp0(*a, "--replace") == 0)
+      g_application_set_flags(application, static_cast<GApplicationFlags>(g_application_get_flags(application) | G_APPLICATION_REPLACE));
+  }
 
   g_autoptr(GError) error = nullptr;
   if (!g_application_register(application, nullptr, &error)) {
     g_warning("Failed to register: %s", error->message);
     *exit_status = 1;
+    return TRUE;
+  }
+
+  // 已经有一个在运行：把「激活」转给它（它把窗口提到最前），自己退出；后台启动时什么都不转（它已经在托盘里了）
+  if (g_application_get_is_remote(application)) {
+    if (!self->background) g_application_activate(application);
+    *exit_status = 0;
     return TRUE;
   }
 
@@ -135,7 +161,10 @@ static void my_application_class_init(MyApplicationClass* klass) {
   G_OBJECT_CLASS(klass)->dispose = my_application_dispose;
 }
 
-static void my_application_init(MyApplication* self) {}
+static void my_application_init(MyApplication* self) {
+  self->window = nullptr;
+  self->background = FALSE;
+}
 
 MyApplication* my_application_new() {
   // Set the program name to the application ID, which helps various systems
@@ -146,5 +175,5 @@ MyApplication* my_application_new() {
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     G_APPLICATION_ALLOW_REPLACEMENT, nullptr));
 }
