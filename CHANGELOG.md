@@ -2,6 +2,18 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.3.0
+
+- **让 ta 提醒你**：说「明早 8 点提醒我吃药」「每周一 9 点提醒我开会」，到点准时提醒，ta 醒着睡着都一样。此刻页能看到接下来的提醒，点叉取消。
+- **不急的事等你在身边再提**：「这两天找个时间提醒我还书」——ta 会等你拿起手机或刚找过 ta 的时候再提，告诉你为什么挑这时候，夜里不打扰，最晚到时间也一定提醒。
+- **能翻旧话了**：检索覆盖所有会话的聊天记录。问「上周说的那家店叫什么」，ta 会把「上周」换成具体日子再找。
+- 电脑上的桌面控制台第一次打开就能直接连上，不再要配对码。
+
+- **Ask it to remind you**: say "remind me to take my pills at 8 tomorrow morning" or "remind me about the meeting every Monday at 9", and the reminder arrives on time whether it is awake or asleep. **Now** shows upcoming reminders; tap the cross to cancel one.
+- **Non-urgent things wait until you are around**: "remind me to return the book sometime in the next two days" — it waits until you pick up the phone or have just messaged it, tells you why it chose that moment, stays quiet at night, and reminds you by the end of the window at the latest.
+- **It can look up old conversations**: search covers chat history from every session. Ask "what was that shop we talked about last week" and it turns "last week" into specific days before searching.
+- The desktop console on a computer connects the first time you open it, without a pairing code.
+
 ## 1.2.1
 
 - **电脑上更新后自动换上新控制台**：以前更新完要点「重新打开」，关掉窗口再打开仍是旧界面，关于页还误写「已是最新」。现在更新完成就自动换上；托盘里的旧控制台也会自己发现并换新。
