@@ -1,0 +1,69 @@
+{
+  "//": "Windows 安装包（setup.exe）内嵌的官方安装包与构建工具：只从官方地址下载，按这里的 SHA-256 与大小核对，不符就让构建失败（fetch-deps.mjs）。升级某一项时同时改 version、file、url、sha256、size 与 source（哈希的出处），见 cli/docs/README.md「Windows 安装包」。",
+  "embedded": {
+    "node": {
+      "name": "Node.js",
+      "version": "24.21.0",
+      "source": "https://nodejs.org/dist/v24.21.0/SHASUMS256.txt（已用 nodejs/release-keys 里发布者的 GPG 公钥验证 SHASUMS256.txt.sig）",
+      "x64": {
+        "file": "node-v24.21.0-x64.msi",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-x64.msi",
+        "sha256": "bb0eaee134f9357f22aea915ee793343e627aefc1e66488164bac6915bce2cac",
+        "size": 33230848
+      },
+      "arm64": {
+        "file": "node-v24.21.0-arm64.msi",
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-arm64.msi",
+        "sha256": "22ca85110f26015696a3fa9216bc372ae65203d170622eaf7d211e2dd5bb49e3",
+        "size": 29671424
+      }
+    },
+    "git": {
+      "name": "Git for Windows",
+      "version": "2.56.0.windows.2",
+      "source": "https://github.com/git-for-windows/git/releases/tag/v2.56.0.windows.2（发布说明里的 SHA-256 表，与 GitHub 记录的资产 digest 一致）",
+      "x64": {
+        "file": "Git-2.56.0.2-64-bit.exe",
+        "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/Git-2.56.0.2-64-bit.exe",
+        "sha256": "52188f917b378f00c70ec136bcf090005f30d44fbc4eba0bce759cc6592d60f6",
+        "size": 66763664
+      },
+      "arm64": {
+        "file": "Git-2.56.0.2-arm64.exe",
+        "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/Git-2.56.0.2-arm64.exe",
+        "sha256": "b9ced78ce371577dc966f50ae571909d6731e36d31065d35c8efa21544c58bf0",
+        "size": 64316408
+      }
+    },
+    "python": {
+      "name": "Python",
+      "version": "3.14.8",
+      "source": "https://www.python.org/api/v2/downloads/release_file/?release=1126（python.org 发布文件记录的 sha256_sum；同目录另有 Sigstore 签名 <文件>.sigstore）",
+      "x64": {
+        "file": "python-3.14.8-amd64.exe",
+        "url": "https://www.python.org/ftp/python/3.14.8/python-3.14.8-amd64.exe",
+        "sha256": "759be887b96e736a3ca886daf8d575f18fcae1a09efab6902f42d59e8999f8ef",
+        "size": 33387464
+      },
+      "arm64": {
+        "file": "python-3.14.8-arm64.exe",
+        "url": "https://www.python.org/ftp/python/3.14.8/python-3.14.8-arm64.exe",
+        "sha256": "53ba74b5b4370eb823fe0005eedeab907479f7339cecb11efea0e75ab5f10cfc",
+        "size": 32654848
+      }
+    }
+  },
+  "tools": {
+    "nsis": {
+      "name": "NSIS",
+      "version": "3.13",
+      "source": "SourceForge 上 NSIS 官方项目的 NSIS 3/3.13/nsis-3.13.zip。上游不发布 SHA-256：这里的值是下载后自己算的，文件与 SourceForge 列出的 MD5（530e3623c077cba879ed2ae6e13be362）和大小一致",
+      "any": {
+        "file": "nsis-3.13.zip",
+        "url": "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip",
+        "sha256": "ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8",
+        "size": 2363925
+      }
+    }
+  }
+}
