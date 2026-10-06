@@ -47,8 +47,13 @@ jobs:
         if: runner.os == 'Windows'
         run: node node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js windows-install
       - name: 测试
-        env:
-          QUETZAL_TEST_SRT: ${{ runner.os == 'Windows' && '1' || '' }}
+        if: runner.os == 'Linux'
         run: npm test
+      # Windows：每条沙箱里的命令都要以沙箱用户登录一次（加载它的配置文件），几十个测试进程同时这样做会互相拖慢到超时，所以一个文件一个文件地跑
+      - name: 测试（Windows，逐个文件）
+        if: runner.os == 'Windows'
+        env:
+          QUETZAL_TEST_SRT: "1"
+        run: node --experimental-strip-types --test --test-concurrency=1 test/*.test.ts
       - name: 构建
         run: npm run build

@@ -38,7 +38,7 @@ test("写入校验：名字、保留名、schema、语法、新工具必须带�
 
 test("sh / ps1 工具：参数经 stdin JSON 与环境变量传入，热加载进工具表并经闸门调用", async () => {
   const r = await ct.writeTool({
-    name: "greet", description: "打招呼", runtime: RT, permission: "shell", timeout: 15,
+    name: "greet", description: "打招呼", runtime: RT, permission: "shell", timeout: 60,
     parameters: { type: "object", properties: { who: { type: "string" }, n: { type: "number" } }, required: ["who"] },
     source: SRC.greet,
     skill: "## 用途\n对人打招呼。\n## 参数\nwho：对谁；n：次数。",
