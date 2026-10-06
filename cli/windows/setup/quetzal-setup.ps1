@@ -221,7 +221,7 @@ function Machine {
     Log ("elevating once for: " + (@($need) + @($why) -join ', '))
     if ($Upgrade -and [Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0) { Log 'upgrade from session 0 needs elevation: run the installer once on this computer'; return 14 }
     try {
-      $p = Start-Process -FilePath $ps -ArgumentList (($argv | ForEach-Object { Quote-Arg $_ }) -join ' ') -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+      $p = Start-Process -FilePath $ps -ArgumentList (($argv | ForEach-Object { Quote-Arg $_ }) -join ' ') -Verb RunAs -WindowStyle Hidden -PassThru; $null = $p.Handle; $p.WaitForExit()
     } catch {
       Log ("elevation declined or failed: " + $_.Exception.Message)
       if ($node) { Write-Text (Join-Path $Root 'node.txt') $node; return 10 }
@@ -387,7 +387,7 @@ function Machine-Uninstall {
   $result = Join-Path $env:TEMP "quetzal-uninstall-$PID.json"
   $argv = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $script, '-Mode', 'Uninstall', '-Root', $Root, '-Result', $result)
   if ($SrtWin -and (Test-Path -LiteralPath $SrtWin)) { $argv += @('-SrtWin', $SrtWin) }
-  try { $p = Start-Process -FilePath $ps -ArgumentList (($argv | ForEach-Object { Quote-Arg $_ }) -join ' ') -Verb RunAs -WindowStyle Hidden -Wait -PassThru }
+  try { $p = Start-Process -FilePath $ps -ArgumentList (($argv | ForEach-Object { Quote-Arg $_ }) -join ' ') -Verb RunAs -WindowStyle Hidden -PassThru; $null = $p.Handle; $p.WaitForExit() }
   catch { Log ("elevation declined: " + $_.Exception.Message); return 10 }
   Log "machine uninstall exit code $($p.ExitCode): $(Read-Text $result)"
   Remove-Item -LiteralPath $result -Force -ErrorAction SilentlyContinue

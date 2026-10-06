@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.5.2
+
+- Windows 的一行安装装完后会正常返回，不再停在那里等（安装包拉起的后台进程本来就一直运行）。1.5.0、1.5.1 的 Windows 安装包没有发布出来，Windows 支持从这一版开始提供。
+
+- The one-line Windows install now returns when it finishes instead of waiting forever (the background processes the installer starts are meant to keep running). The 1.5.0 and 1.5.1 Windows installers were not published; Windows support starts with this release.
+
 ## 1.5.1
 
 - 1.5.0 的 Windows 安装包没有发布出来（构建时下载安装包的依赖出错），这一版补上。1.5.0 里写的 Windows 支持都在这一版里。

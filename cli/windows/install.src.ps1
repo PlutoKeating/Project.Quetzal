@@ -298,7 +298,8 @@ if ($PSVersionTable.PSEdition -ne 'Core') { $env:PSModulePath = (@([IO.Path]::Co
     $argv = @('/S')
     if ($close) { $argv += '/CLOSEAPPS' }
     if ($upgrade) { $argv += '/UPGRADE' } else { $argv += '/OPEN' }
-    $p = Start-Process -FilePath $exe -ArgumentList $argv -Wait -PassThru
+    # 只等安装包本身：-Wait 会连它拉起的常驻进程（守护进程、控制台）一起等，命令行永远不返回；取一次 Handle 才拿得到退出码
+    $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru; $null = $p.Handle; $p.WaitForExit()
     $code = [int]$p.ExitCode
     if ($code -ne 0) { Bad (Explain-Setup $code); Bad ((T '详情：{0}' 'Details: {0}') -f (Join-Path $root 'install.log')); return $code }
     Ok ((T 'Quetzal {0} 已装好' 'Quetzal {0} is installed') -f $v)

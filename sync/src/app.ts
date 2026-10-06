@@ -19,7 +19,7 @@ import { layout, pickLang, t, ago, type Lang } from "./pages.ts";
 import { RateLimiter, normalizeUserCode, fingerprint, log, clientIp as pickIp, ipKey } from "./util.ts";
 import { PROTOCOL } from "./hub.ts";
 
-export const VERSION = "1.5.1";
+export const VERSION = "1.5.2";
 
 const TokenRequest = z.object({ device_code: z.string().min(1).max(200) });
 

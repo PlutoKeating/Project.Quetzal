@@ -28,6 +28,7 @@ jobs:
           sparse-checkout: .github/scripts
       # 用户的做法：Windows PowerShell 5.1 里的一行命令。QUETZAL_YES：无人值守时同意关闭正在运行的 Quetzal（这里本来没有）
       - name: irm https://quetzal.plutokeating.beer/install.ps1 | iex
+        timeout-minutes: 20
         shell: powershell
         env:
           QUETZAL_YES: "1"
@@ -60,4 +61,4 @@ jobs:
         run: |
           $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
           $u = Join-Path $root 'uninstall.exe'
-          if (Test-Path $u) { Start-Process -FilePath $u -ArgumentList '/S' -Wait }
+          if (Test-Path $u) { $p = Start-Process -FilePath $u -ArgumentList '/S' -PassThru; $p.WaitForExit() }

@@ -362,15 +362,16 @@ jobs:
       # 只作参考，失败不阻断发版：S4U、沙箱这些真机行为以 Windows 实机为准。
       - name: 冒烟测试（静默安装 → 状态 → 卸载）
         continue-on-error: true
+        timeout-minutes: 15
         run: |
           $exe = Get-ChildItem out -Filter "quetzal-$env:V-windows-$env:ARCH-setup.exe" | Select-Object -First 1
-          $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S', '/CLOSEAPPS' -Wait -PassThru
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S', '/CLOSEAPPS' -PassThru; $null = $p.Handle; $p.WaitForExit() # -Wait 会连常驻的守护进程一起等
           "setup.exe 退出码 $($p.ExitCode)"
           $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
           Get-Content -LiteralPath (Join-Path $root 'install.log') -ErrorAction SilentlyContinue
           & (Join-Path $root 'bin/quetzal.cmd') status
           Get-Content -LiteralPath (Join-Path $root 'home/logs/runtime.log') -Tail 40 -ErrorAction SilentlyContinue
-          $u = Start-Process -FilePath (Join-Path $root 'uninstall.exe') -ArgumentList '/S', '/PURGE' -Wait -PassThru
+          $u = Start-Process -FilePath (Join-Path $root 'uninstall.exe') -ArgumentList '/S', '/PURGE' -PassThru; $null = $u.Handle; $u.WaitForExit()
           "uninstall.exe 退出码 $($u.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

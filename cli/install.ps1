@@ -296,7 +296,7 @@ if ($PSVersionTable.PSEdition -ne 'Core') { $env:PSModulePath = (@([IO.Path]::Co
     $argv = @('/S')
     if ($close) { $argv += '/CLOSEAPPS' }
     if ($upgrade) { $argv += '/UPGRADE' } else { $argv += '/OPEN' }
-    $p = Start-Process -FilePath $exe -ArgumentList $argv -Wait -PassThru
+    $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru; $null = $p.Handle; $p.WaitForExit()
     $code = [int]$p.ExitCode
     if ($code -ne 0) { Bad (Explain-Setup $code); Bad ((T (Z '6K+m5oOF77yaezB9') 'Details: {0}') -f (Join-Path $root 'install.log')); return $code }
     Ok ((T (Z 'UXVldHphbCB7MH0g5bey6KOF5aW9') 'Quetzal {0} is installed') -f $v)
