@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 import '../widgets.dart';
+import '../platform/tray.dart';
 import '../hearing.dart';
 import '../platform/location.dart' as loc;
 import '../pages/agents.dart';
@@ -82,6 +83,8 @@ class _DesktopShellState extends State<DesktopShell> {
         body: Column(children: [
           if (api.conn != Conn.online) const OfflineBanner(),
           if (api.safeMode) Banner0(text: '${api.name}反复出错，暂停了醒来', color: Colors.orange),
+          ValueListenableBuilder<bool>(valueListenable: consoleStale, builder: (_, stale, _) => !stale ? const SizedBox.shrink()
+              : Banner0(text: '新版本已装好', color: Colors.blueGrey, action: FilledButton.tonal(onPressed: relaunchConsole, child: const Text('重新打开')))),
           Expanded(
             child: LayoutBuilder(builder: (context, box) {
               // 分配宽度：主区至少 _mainMin。不够时先把「她此刻」压到最小，再压列表栏，仍不够就收起「她此刻」

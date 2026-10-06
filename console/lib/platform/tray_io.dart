@@ -5,9 +5,12 @@
 //   菜单：打开 Quetzal（没有窗口就打开，有就提到最前并获得焦点）、急停 · 本机、急停 · 全部设备、退出（让运行基座停掉后台服务，整个 Quetzal 退出）。
 //   Linux 的状态栏图标（AppIndicator）单击就是弹出菜单、没有单击 / 双击事件；tray_manager 在 Linux 上只实现了
 //   setIcon / setContextMenu / setTitle / destroy（不调 setToolTip，会抛异常）。底层 libayatana-appindicator3。
+//   换新版本：安装脚本把新控制台装到 console/<版本>/、把 current 指过去、删掉旧目录，但单实例让正在跑的旧进程留了下来。
+//   这里每分钟（以及运行基座重新连上时）看一眼自己的可执行文件还是不是 current 那一个：不是了——窗口没开就悄悄换成新版本（--replace --background），
+//   窗口开着就把 consoleStale 置真，外壳给一条「新版本已装好 · 重新打开」，不打断正在看的人。
 import 'dart:async';
-import 'dart:io' show Platform, exit;
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'dart:io' show Directory, File, Platform, Process, ProcessStartMode, exit;
+import 'package:flutter/foundation.dart' show ValueNotifier, debugPrint, visibleForTesting;
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 import '../api.dart';
@@ -16,10 +19,44 @@ bool _supported = false; // 这台桌面能起托盘（第一次显示成功过�
 bool _shown = false;     // 托盘图标此刻在不在
 String _last = '';
 Timer? _gone;            // 运行基座连不上之后的宽限计时
+Timer? _staleCheck;
+
+/// 磁盘上已经装好了更新的控制台，正在跑的是旧的（窗口开着时由外壳提示「重新打开」）。
+final consoleStale = ValueNotifier(false);
+
+/// 正在跑的可执行文件已经不是 console/current 那一个（被删了，或 current 指到了别的版本目录）。不是安装脚本的目录布局时为假。
+bool consoleIsStale() => Platform.isLinux && _isStale();
+bool _isStale() => staleExecutable(Platform.resolvedExecutable);
+
+/// [exe] 是不是旧版本（测试用：传入任意路径）。
+@visibleForTesting
+bool staleExecutable(String exe) {
+  if (exe.endsWith(' (deleted)')) return true;
+  final dir = File(exe).parent, current = Directory('${dir.parent.path}/current');
+  if (!current.existsSync()) return false;
+  try { return current.resolveSymbolicLinksSync() != dir.resolveSymbolicLinksSync(); } catch (_) { return false; }
+}
+
+/// 换成新版本：启动 console/current 下的控制台接管单实例（--replace），等它真的起来再退出自己。background：只起托盘、不开窗口。
+Future<void> relaunchConsole({bool background = false}) async {
+  final next = '${File(Platform.resolvedExecutable.replaceFirst(' (deleted)', '')).parent.parent.path}/current/quetzal-console';
+  if (!File(next).existsSync()) return;
+  await Process.start(next, ['--replace', if (background) '--background'], mode: ProcessStartMode.detached);
+  exit(0);
+}
+
+Future<void> _checkStale() async {
+  if (!_isStale()) return;
+  bool visible = true;
+  try { visible = await windowManager.isVisible(); } catch (_) {}
+  if (!visible) { try { await relaunchConsole(background: true); } catch (e) { debugPrint('换新版本失败：$e'); } }
+  consoleStale.value = true;
+}
 
 /// 起托盘。background：以 --background 启动（只起托盘、不开窗口）。返回窗口管理是否就绪。
 Future<bool> initTray({bool background = false}) async {
   if (!Platform.isLinux) return false;
+  _staleCheck ??= Timer.periodic(const Duration(minutes: 1), (_) => _checkStale()); // 起不来托盘也照样检查
   try {
     await windowManager.ensureInitialized();
     trayManager.addListener(_TrayEvents());
@@ -36,6 +73,7 @@ Future<bool> initTray({bool background = false}) async {
 /// 运行基座连得上就显示托盘、连不上超过 20 秒就收起。
 Future<void> _onApi() async {
   if (api.conn == Conn.online) {
+    if (_gone != null || !_shown) unawaited(_checkStale()); // 运行基座重新连上（升级时会重启一次）：看看控制台是不是也换了新版本
     _gone?.cancel(); _gone = null;
     if (!_shown) await _show();
     await _menu();

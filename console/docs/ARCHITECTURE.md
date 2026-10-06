@@ -16,7 +16,7 @@ lib/
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
 ├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble
-├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、tray（桌面版右上角的托盘图标，代表后台的运行基座：运行基座连得上就显示，连不上超过 20 秒收起，与控制台窗口开没开无关；菜单为打开 Quetzal（没有窗口就打开，有就提到最前）、急停 · 本机、急停 · 全部设备、退出（网关 quit：停掉后台服务，整个 Quetzal 退出）；控制台是单实例（linux/runner/my_application.cc：再次启动只把激活转给已在运行的那个，--background 只起托盘不开窗口，--replace 接管旧实例），登录桌面时由自启动项以 --background 拉起，关窗只是隐藏窗口；tray_manager 0.5.3 + window_manager，底层 libayatana-appindicator3，Linux 上单击图标就是弹出菜单，不调 Linux 不支持的 setToolTip；网页版空实现）、
+├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、tray（桌面版右上角的托盘图标，以及换新版本：每分钟与运行基座重新连上时检查自己的可执行文件还是不是 console/current 那一个，不是了——窗口没开就以 --replace --background 悄悄换上新版本，窗口开着就在外壳顶部提示「新版本已装好 · 重新打开」；代表后台的运行基座：运行基座连得上就显示，连不上超过 20 秒收起，与控制台窗口开没开无关；菜单为打开 Quetzal（没有窗口就打开，有就提到最前）、急停 · 本机、急停 · 全部设备、退出（网关 quit：停掉后台服务，整个 Quetzal 退出）；控制台是单实例（linux/runner/my_application.cc：再次启动只把激活转给已在运行的那个，--background 只起托盘不开窗口，--replace 接管旧实例），登录桌面时由自启动项以 --background 拉起，关窗只是隐藏窗口；tray_manager 0.5.3 + window_manager，底层 libayatana-appindicator3，Linux 上单击图标就是弹出菜单，不调 Linux 不支持的 setToolTip；网页版空实现）、
 │                      location（页面来源、URL #片段、标题）、fonts（网页版加载自带的中文子集）、mermaid（安卓 WebView / 网页 iframe，同一份 assets/mermaid/view.html，postMessage 桥；Linux 桌面版没有 WebView，退化为显示源码）
 ├── shell/
 │   ├── nav.dart       桌面外壳的位置（区 / 子项 / 条目），网页版与 URL 的 #片段互相同步
@@ -37,7 +37,7 @@ lib/
     ├── tools.dart     工具：她自己造的工具（定义、源码、技能文档）与灵魂仓库里的技能文档；停用 / 启用、删除
     ├── sound.dart     声音：她的声音（只要 Azure 密钥，区域由运行基座自动找出；音色、试听；区域与自定义端点收在「更多」，只发改过的）与听你说话（开关、灵敏度、麦克风权限、此刻在不在听）；语速音调、会话窗口、识别语言等由她自己用 voice_config / hearing_config 调
     ├── providers.dart 模型：ProvidersPage（默认）只有已接上的供应商一行一个，与「选供应商 + 粘贴 Key + 接上」（网关 providers.quick 自动挑模型、试通、排好）；ProvidersEditor（右上角「编辑」）是完整管理：多个 Key、手选模型、自定义供应商、全局顺序、轻量任务模型
-    └── about.dart     关于（三种形态共用）：简介与链接，一张「版本」卡片（当前版本一行 + 此刻唯一的状态或动作：已是最新 / 升级到 x / 进度 / 重新打开）——安卓用 updater.dart 的 appUpdater 与安装向导，「最新版」先问官网的发布接口（已按 npm 上运行基座的版本封顶），不通时直连 GitHub 的发布列表并自己按 npm 封顶（updater.dart 的 directLatest）；Linux 桌面版 / 网页版调网关 selfUpdate（带上要升到的版本）让运行基座后台重跑安装脚本、每 3 秒查 selfUpdateStatus（失败、卡住、跑完版本没变都说明原因并可重试），桌面版升完点「重新打开」（等新进程启动后才退出旧的）
+    └── about.dart     关于（三种形态共用）：简介与链接，一张「版本」卡片（当前版本一行 + 此刻唯一的状态或动作：已是最新 / 升级到 x / 进度 / 重新打开）——安卓用 updater.dart 的 appUpdater 与安装向导，「最新版」先问官网的发布接口（已按 npm 上运行基座的版本封顶），不通时直连 GitHub 的发布列表并自己按 npm 封顶（updater.dart 的 directLatest）；Linux 桌面版 / 网页版调网关 selfUpdate（带上要升到的版本）让运行基座后台重跑安装脚本（桌面版装完自动换上新控制台，不等人点「重新打开」）、每 3 秒查 selfUpdateStatus（失败、卡住、跑完版本没变都说明原因并可重试），桌面版升完点「重新打开」（等新进程启动后才退出旧的）
 tool/
 ├── android-runtime/   App 内置的运行环境（只装一个 App）：versions.env（termux-packages 的锁定提交、包名、要编的包、打进 jniLibs 的可执行文件白名单）、
 │                      build-packages.sh（Docker 里以 App 的前缀从源码编 Node.js、git、openssh、proot 及依赖）、pack.sh（依赖闭包 → jniLibs/lib*.so + 原生资源 runtime-env/{rootfs.tar,manifest.json}）

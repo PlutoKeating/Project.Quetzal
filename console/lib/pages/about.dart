@@ -4,7 +4,6 @@
 //     服务重启一次后版本号会变；桌面版装完还要重新打开控制台才用上新版的界面。
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Directory, Platform, Process, ProcessStartMode, exit;
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../api.dart';
@@ -13,6 +12,7 @@ import '../platform/caps.dart';
 import '../platform/net.dart' as net;
 import '../updater.dart' show AppRelease, UpdateState, appUpdater, compareVersions, directLatest, downloadPage, siteLatestApi, githubRepo;
 import '../widgets.dart';
+import '../platform/tray.dart';
 import 'setup.dart';
 import '../links.dart';
 
@@ -59,6 +59,10 @@ class _AboutPageState extends State<AboutPage> {
   void _finish({String? message, String? error}) {
     _poll?.cancel(); _poll = null; _doneAt = null;
     if (mounted) setState(() { upgrading = false; upgradeMessage = message; upgradeError = error; });
+    // 桌面版：新控制台装好了就直接换上，不等人点「重新打开」（关窗再从应用列表打开只会回到这个旧进程）
+    if (message != null && isDesktop) {
+      Future.delayed(const Duration(seconds: 2), () { if (consoleIsStale()) _relaunch(); });
+    }
   }
 
   /// 打开这页时升级还在进行（例如控制台重开过）：接着显示进度。
@@ -130,15 +134,9 @@ class _AboutPageState extends State<AboutPage> {
     _startPoll();
   }
 
-  /// Linux 桌面版：升级后重新打开控制台（新版本的可执行文件在 console/current 下；旧版本目录此时已被安装脚本删掉）。
-  /// 必须等新进程真正启动后再退出：Process.start 是异步的，不等就 exit，新进程根本来不及起来。
+  /// Linux 桌面版：升级后重新打开控制台（console/current 下的新版本以 --replace 接管单实例，见 platform/tray_io.dart）。
   Future<void> _relaunch() async {
-    final self = Platform.resolvedExecutable; // …/console/<版本>/quetzal-console（目录已删时末尾带「 (deleted)」，取上两级不受影响）
-    final next = '${Directory(self).parent.parent.path}/current/quetzal-console';
-    try {
-      await Process.start(next, ['--replace'], mode: ProcessStartMode.detached); // --replace：新版本接管单实例的名字，这个旧的随即退出（见 linux/runner）
-      exit(0);
-    } catch (e) { if (mounted) toast(context, '没能重新打开：$e'); }
+    try { await relaunchConsole(); } catch (e) { if (mounted) toast(context, '没能重新打开：$e'); }
   }
 
   /// 版本卡片：当前版本一行，下面只放此刻需要的那一个状态或动作。
@@ -174,7 +172,8 @@ class _AboutPageState extends State<AboutPage> {
       final l = latest;
       final outdated = l != null && ((rt.isNotEmpty && compareVersions(l.version, rt) > 0) || (appVersion != null && compareVersions(l.version, appVersion!) > 0));
       body = [
-        if (upgrading) spin(upgradeStep == null || upgradeStep!.isEmpty ? '正在更新…' : '正在更新：$upgradeStep')
+        if (consoleStale.value) row([Text('新版本已装好', style: TextStyle(color: cs.primary)), FilledButton(onPressed: _relaunch, child: const Text('重新打开'))])
+        else if (upgrading) spin(upgradeStep == null || upgradeStep!.isEmpty ? '正在更新…' : '正在更新：$upgradeStep')
         else if (upgradeError != null) row([Text(upgradeError!, style: TextStyle(color: cs.error)), if (l != null) TextButton(onPressed: api.conn == Conn.online ? _selfUpdate : null, child: const Text('重试'))])
         else if (upgradeMessage != null) row([
           Text(isDesktop ? '已更新到 $upgradeMessage' : '已更新到 $upgradeMessage，刷新页面即可', style: TextStyle(color: cs.primary)),
@@ -195,7 +194,7 @@ class _AboutPageState extends State<AboutPage> {
     Widget link(String label, String url) => TextButton(onPressed: () => openExternal(context, url), child: Text(label));
     return PageFrame(
       title: '关于',
-      body: ListenableBuilder(listenable: Listenable.merge([api, appUpdater]), builder: (context, _) => ListView(padding: const EdgeInsets.all(12), children: [
+      body: ListenableBuilder(listenable: Listenable.merge([api, appUpdater, consoleStale]), builder: (context, _) => ListView(padding: const EdgeInsets.all(12), children: [
         Section('Quetzal', [
           Row(children: [const Orb(mode: 'awake', alertness: 1, size: 44), const SizedBox(width: 14), Expanded(child: Text('Not running, but living.', style: t.bodyLarge?.copyWith(color: cs.onSurfaceVariant)))]),
           Wrap(children: [link('官网', _site), link('文档', '$_site/zh/docs'), link('源代码', 'https://github.com/$githubRepo')]),
