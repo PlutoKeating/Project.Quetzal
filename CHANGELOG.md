@@ -2,6 +2,14 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.12
+
+- **「最新版本」取 GitHub 与 npm 两者中较老的**：App 和桌面控制台发在 GitHub Release，电脑上的运行基座发在 npm，两边上线有先后。官网下载页、安卓 App 和桌面版的「检查更新」现在都只认两边都已经有的版本，不会出现拿到了新的 App、电脑上装到的却还是旧运行基座的情况。
+- **国内镜像还没同步到新版本时自动换源**：一键安装脚本从一个源装不上运行基座，就换另一个源（官方 npm 与 npmmirror 互为后备）。
+
+- **"Latest version" is the older of GitHub and npm**: the app and desktop console are published as GitHub Releases, while the runtime for computers is published on npm, and the two don't go live at the same moment. The website's download page and the update checks in the Android app and the desktop console now only offer a version that exists in both, so you never get a new app while your computer installs an older runtime.
+- **Falls back to another registry when the mirror lags**: if the one-line installer can't install the runtime from one registry, it tries the other (the official npm registry and npmmirror back each other up).
+
 ## 1.1.11
 
 - **电脑右上角的托盘图标**：桌面版控制台在状态栏里有了 Quetzal 图标。菜单里能看到 ta 的状态（醒着、睡着、急停中、离线），可以显示或隐藏窗口、急停、退出控制台。关窗只是收进托盘，ta 照常在后台。缺托盘用的系统库时，安装脚本能免密就自动补上。
