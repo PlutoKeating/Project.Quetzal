@@ -1,11 +1,11 @@
 ---
 title: Adapter interface
-description: The full types of BodyAdapter, RawSample, AdapterTool and Hands, how adapters are loaded, their constraints, and what the Android, Termux and Linux adapters provide.
+description: The full types of BodyAdapter, RawSample, AdapterTool and Hands, how adapters are loaded, their constraints, and what the Android, Termux, Linux and Windows adapters provide.
 ---
 
 ## Types
 
-Defined in `runtime/src/body/adapter.ts`. An adapter is an independently built ES module whose **default export** is a `BodyAdapter`.
+Defined in `runtime/src/body/adapter.ts`. An adapter is an ES module, built on its own, whose **default export** is a `BodyAdapter`.
 
 ```ts
 /** One physical sample. Every field is optional: report what the device has. */
@@ -44,10 +44,13 @@ interface BodyAdapter {
   notify?(title: string, text: string): Promise<void>;   // local system notification
   speak?(text: string): Promise<void>;
   playAudio?(file: string): Promise<void>;               // play an audio file (synthesized speech)
+  stopAudio?(): Promise<void>;                           // stop playback (when the person cuts in)
   tools?: AdapterTool[];
   hands?: Hands;
-  supervision?: { status(): Promise<SupervisionState>; set(enabled: boolean): Promise<void> };
-  upgrade?(): Promise<string>;  // upgrade from the console: rerun the installer in the background  // supervision switch: start at boot + restart after exit
+  supervision?: { status(): Promise<SupervisionState>; set(enabled: boolean): Promise<void> };  // supervision switch: start at boot + restart after exit
+  quit?(): Promise<void>;                                // quit (the desktop tray's Quit): stop the background service this time
+  upgrade?(version?: string): Promise<string>;           // upgrade from the console: rerun the installer in the background
+  upgradeStatus?(): { running: boolean; exitCode?: number; step?: string /* … */ };  // state of the latest upgrade
 }
 ```
 
@@ -68,7 +71,7 @@ interface BodyAdapter {
 ## How samples are used
 
 - `startSenses` calls `sample()` periodically, adapting between 2 and 10 minutes, and never calls a model.
-- Readings join OS information in the body twin, derive body feelings, and produce sense events by comparison with the previous sample; events adjust drives and trigger re-sampling.
+- The body twin combines readings with OS information and derives body feelings from them. Comparing each sample with the previous one produces sense events, which adjust drives and trigger re-sampling.
 - `extra` appears verbatim in the "body" section it sees.
 
 ## The Android adapter (`runtime/adapters/android/`, built as `dist/android.mjs`)
@@ -84,7 +87,7 @@ Used when the Quetzal app runs the built-in runtime: the body abilities come fro
 | Supervision | The app foreground service's switch: start at boot and after app updates, restart after exit (`kind: loop`) |
 | File paths | Photo and recording output and playback input must stay inside `QUETZAL_HOME` |
 
-Camera, microphone and location need the system permissions granted in the app (step two of the setup wizard); without them the tools report an error and it asks you to allow them. It is a **platform-level** adapter too: any Android phone, everything by detection.
+Camera, microphone and location need the system permissions granted in the app (step two of the setup wizard). Without them the tools report an error and the agent asks you to allow them. Like the others, it is a **platform** adapter: it works on any Android phone and detects everything at run time.
 
 ## The Termux adapter (`runtime/adapters/termux/`, built as `dist/termux.mjs`)
 
@@ -96,16 +99,14 @@ Used by installs made the Termux way in 1.0.x and kept for them; new installs us
 | `notify()` | System notification with an "Open Quetzal" button (`QUETZAL_CONSOLE_ACTIVITY`, default `xyz.quetzal.console/.MainActivity`) |
 | `playAudio()` | `termux-media-player` |
 | Tools | `take_photo` (camera), `record_audio` (microphone), `location` (location), `vibrate` / `torch` / `clipboard` / `read_sensor` (device) |
-| Upgrade from the console `upgrade()` | Reruns `curl -fsSL …/install \| bash -s -- --no-open` in the background: with systemd via a transient `systemd-run --user` unit (outside the quetzal service's cgroup, otherwise restarting the service would kill it), otherwise via `setsid`; log `~/.quetzal/logs/upgrade.log` |
-| Supervision switch `supervision` | The systemd user service `quetzal.service` (off = `systemctl --user disable` + a drop-in `quetzal.service.d/quetzal-off.conf` with `Restart=no`, effective right after daemon-reload); without systemd, the one-line installer's supervisor loop `~/.quetzal/bin/quetzal-supervise` (off = the flag file `state/supervise.off`, which pauses the loop, + removing the crontab `@reboot` line and the desktop autostart entry); with neither (manual deployment) `available=false` |
 | `speak` | Not provided (many phones lack a system TTS); speech comes from the runtime's `voice_speak` |
 | Media location | `QUETZAL_HOME/data/media/` |
 
-It is a **platform-level** adapter: any Android phone plus Termux:API, everything by detection, with no device-specific code.
+It is a **platform** adapter: it works on any Android phone with Termux:API, detects everything at run time, and contains no code for a specific device.
 
 ## The Linux adapter (`runtime/adapters/linux/`, built as `dist/linux.mjs`)
 
-Installed by the npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal`); platform-level too: any Linux computer or server, everything by detection.
+Installed by the npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal`). It is a platform adapter too: it works on any Linux computer or server and detects everything at run time.
 
 | Capability | Implementation |
 |---|---|
@@ -114,7 +115,29 @@ Installed by the npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal
 | `notify()` | `notify-send` when a desktop is present; always written to stdout (the service log) too, so a headless machine reads the pairing code from `quetzal logs` |
 | `playAudio()` / `stopAudio()` | `pw-play` / `paplay` / `ffplay` / `mpv`, plus `aplay` for WAV; plays in the background and returns at once |
 | Tools | `take_photo` (camera: `ffmpeg` on `/dev/video0`), `record_audio` (microphone: `arecord` / `pw-record` / `parecord` / `ffmpeg`, WAV), `screenshot` (hands: `grim` / `gnome-screenshot` / `spectacle` on Wayland, `scrot` / `gnome-screenshot` / `spectacle` / `import` on X11), `clipboard` (device: `wl-clipboard` / `xclip` / `xsel`), `open` (device: `xdg-open`) |
+| Upgrade from the console `upgrade()` | Reruns `curl -fsSL …/install \| bash -s -- --no-open` in the background: with systemd via a transient `systemd-run --user` unit (outside the quetzal service's cgroup, otherwise restarting the service would kill it), otherwise via `setsid`; log `~/.quetzal/logs/upgrade.log` |
+| Supervision switch `supervision` | The systemd user service `quetzal.service` (off = `systemctl --user disable` + a drop-in `quetzal.service.d/quetzal-off.conf` with `Restart=no`, effective right after daemon-reload); without systemd, the one-line installer's supervisor loop `~/.quetzal/bin/quetzal-supervise` (off = the flag file `state/supervise.off`, which pauses the loop, + removing the crontab `@reboot` line and the desktop autostart entry); with neither (manual deployment) `available=false` |
 | `speak` | Not provided; speech comes from the runtime's `voice_speak` |
 | Media location | `QUETZAL_HOME/data/media/` |
 
-On a headless server the screenshot, clipboard and open tools simply say that the machine has no graphical session instead of failing. To write a new one see [Custom body adapter](/docs/advanced/custom-adapter).
+On a headless server the screenshot, clipboard and open tools report that the machine has no graphical session.
+
+## The Windows adapter (`runtime/adapters/windows/`, built as `dist/windows.mjs`)
+
+Installed by the Windows one-liner or installer; see [Windows](/docs/advanced/windows). It is a platform adapter: it works on any Windows 10 1809 or later / Windows 11 PC (x64, arm64), detects everything at run time and installs nothing, using the built-in PowerShell 5.1, .NET Framework and WinRT.
+
+The runtime started at boot runs in session 0 and cannot see the desktop. Desktop work (notifications, screenshots, clipboard, open, playback, photos, recording) then goes through the body helper `windows-body.mjs`, which the console tray starts after sign-in (127.0.0.1, random port and token in `secrets\desktop-body.json`). When the runtime itself runs in the signed-in desktop, it does this work directly. With nobody signed in, these tools say that someone needs to sign in to Windows.
+
+| Capability | Implementation |
+|---|---|
+| `sample()` | System power status (`SystemInformation.PowerStatus`, readable in session 0): level / charging; `extra`: power source, and temperature only when an ACPI thermal zone is readable (not treated as body temperature). PCs without a battery report extra only |
+| `describe` | Windows edition (`Win32_OperatingSystem`), laptop or not, running in the signed-in desktop or in the background from boot, camera and sound devices (Plug and Play) |
+| `notify()` | Toast notification; with nobody signed in it is written to the log instead, so the pairing code can be read from `quetzal logs` |
+| `playAudio()` / `stopAudio()` | WPF `MediaPlayer`; plays in the background and returns at once |
+| Tools | `take_photo` (camera: WinRT `MediaCapture`, falling back to `ffmpeg` dshow), `record_audio` (microphone: WAV, up to 120 s), `screenshot` (hands: all displays), `clipboard` (device), `open` (device: URLs and ordinary documents, images, audio/video files and folders with the default program; programs and scripts are refused) |
+| Upgrade from the console `upgrade()` | Reruns `install.ps1` in the background, detached from the runtime's process tree (through the body helper when someone is signed in, so the administrator prompt can appear); log `logs\upgrade.log` in the same format as on Linux |
+| Supervision switch `supervision` | Scheduled tasks `\Quetzal\Runtime-Boot` and `\Quetzal\Runtime-Logon`, both running `windows-supervise.mjs` (off = the flag file `state\supervise.off` plus an attempt to disable both tasks) |
+| `speak` | Not provided; speech comes from the runtime's `voice_speak` |
+| Media location | `QUETZAL_HOME\data\media\` |
+
+To write a new adapter, see [Custom body adapter](/docs/advanced/custom-adapter).

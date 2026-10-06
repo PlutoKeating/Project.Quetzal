@@ -5,7 +5,7 @@ description: 一台 Linux 电脑或服务器一行 curl 命令就能成为身体
 
 ## 适用场景
 
-手机是最合适的身体；一台笔记本、家里的小主机、树莓派、云服务器也都能跑运行基座。Linux 机器有现成的一键安装；Windows 电脑见 [Windows](/docs/advanced/windows)；别的系统按第 4 节手动部署。
+手机是最合适的身体，笔记本、家里的小主机、树莓派、云服务器也都能跑运行基座。Linux 机器用第 1 节的一行命令安装；Windows 10（1809 起）与 Windows 11 电脑用一行 PowerShell 或安装包，见 [Windows](/docs/advanced/windows)；别的系统按第 4 节手动部署。
 
 ## 1. Linux：一行命令
 
@@ -13,20 +13,24 @@ description: 一台 Linux 电脑或服务器一行 curl 命令就能成为身体
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余缺什么它补什么。架构：x86_64 与 arm64 全功能（含原生控制台）；龙芯（loongarch64）、RISC-V、armv6l 这些官方 Node 不出二进制的架构，脚本从 Node.js 项目的 [unofficial-builds](https://unofficial-builds.nodejs.org) 直接下载对应的 Node 22 到 `~/.quetzal/node/`（先与同一发布目录里的 `SHASUMS256.txt` 核对 SHA-256，那里没有 GPG 签名），运行基座与网页控制台照常可用，只是没有原生控制台（Flutter 上游尚不支持 LoongArch），桌面项用浏览器打开。装完之后：
+前提只有两个：Linux，以及 `curl`（或 `wget`）与 bash 4+。其余依赖缺什么，脚本补什么。
 
-- 浏览器里打开了**网页控制台** `http://127.0.0.1:7788/`，同一台机器免配对码，模型、身份、授权、飞书、灵魂仓库、对话都在里面（第 2 节）。
-- 应用列表里多了一个 **Quetzal**（光团图标），点开是**原生控制台**（Flutter Linux 桌面版，从 GitHub Release 下载同版本的包放在 `~/.quetzal/console/`），任务栏、Alt-Tab、活动概览都是 Quetzal 自己的图标，与浏览器无关。这个版本没有原生包（arm64、旧版本）或下载失败时退回浏览器打开：Chromium 系以独立窗口打开，只有 Firefox 时用默认浏览器，此时任务栏显示的是浏览器的图标。
+架构：x86_64 与 arm64 功能齐全，包括原生控制台。龙芯（loongarch64）、RISC-V、armv6l 这些架构没有官方 Node 二进制，脚本从 Node.js 项目的 [unofficial-builds](https://unofficial-builds.nodejs.org) 下载对应的 Node 22 到 `~/.quetzal/node/`，先用同一发布目录里的 `SHASUMS256.txt` 核对 SHA-256（那里没有 GPG 签名）。这些架构上运行基座与网页控制台照常可用，只是没有原生控制台（Flutter 上游尚不支持 LoongArch），桌面项用浏览器打开。
+
+装完之后：
+
+- 浏览器打开**网页控制台** `http://127.0.0.1:7788/`。同一台机器上不需要配对码，模型、身份、授权、飞书、灵魂仓库、对话都在里面（第 2 节）。
+- 应用列表里多了一个 **Quetzal**（光团图标），点开是**原生控制台**（Flutter Linux 桌面版，从 GitHub Release 下载同版本的包放在 `~/.quetzal/console/`）。任务栏、Alt-Tab、活动概览里显示 Quetzal 自己的图标。这个版本没有原生包（arm64、旧版本）或下载失败时，改用浏览器打开：有 Chromium 系浏览器就以独立窗口打开，只有 Firefox 时用默认浏览器，这时任务栏显示浏览器的图标。
 - 终端里多了 `quetzal` 命令（`~/.local/bin/quetzal`，新开的终端生效）：`quetzal status` / `logs -f` / `open` / `rollback` / `uninstall`。
-- 它在开机时自己起来，崩溃或被杀后 3 秒内自己回来；再跑一次同一条命令就是升级。
+- 运行基座开机自动启动，崩溃或被杀后 3 秒内重新启动。再跑一次同一条命令就是升级。
 
-安装器一步一步做了什么（幂等）：
+安装器的每一步（可以重复运行）：
 
 | 步骤 | 做什么 |
 |---|---|
 | 这台机器 | 认出发行版、架构、包管理器（apt / dnf / yum / pacman / zypper / apk / xbps）、有没有 systemd 用户实例、有没有桌面、是不是 WSL / 容器 |
 | 依赖 | 缺 `git`、`curl`、`tar`、CA 证书就用这台机器自己的包管理器装（需要时 `sudo` / `doas` 会问一次密码，root 直接装）。**Node.js 22.13+**：PATH 上已有够新的（且带 npm）就用；否则装 [nvm](https://github.com/nvm-sh/nvm) 到 `~/.nvm` 并装 Node.js 22（不碰系统的 Node；nvm 的安装脚本先下载成文件，与脚本里固定的 SHA-256 核对一致才执行，两个下载地址内容相同）；Alpine 这类 musl 系统与 NixOS 跑不了 nvm 的官方二进制，Alpine 用 `apk add nodejs npm`，NixOS 请先自备 Node。直连 nodejs.org 不通时自动改用国内镜像（npmmirror） |
-| 运行基座 | 把 npm 包 `@plutokeating/quetzal` 装进 `~/.quetzal/npm`（独立前缀，不污染全局 npm），由它完成版本目录、缺省配置、systemd 服务、健康检查与失败回滚（见 1.1） |
+| 运行基座 | 把 npm 包 `@plutokeating/quetzal` 装进 `~/.quetzal/npm`（独立前缀，与全局 npm 分开），由它完成版本目录、缺省配置、systemd 服务、健康检查与失败回滚（见 1.1） |
 | 守护 | 有 systemd 用户实例：`systemd --user` 服务 `quetzal`，`Restart=always`，并 `loginctl enable-linger`（没登录也运行；需要管理员权限时会问一次密码）。没有（Alpine / Void / Devuan、容器、未开 systemd 的 WSL）：写一个几十行的守护循环 `~/.quetzal/bin/quetzal-supervise`（退出 3 秒后重启，flock 保证只有一个），开机靠 `crontab @reboot` 与桌面自启动项，不安装任何额外的服务框架 |
 | 桌面 | 有桌面环境才做：下载同版本的原生控制台到 `~/.quetzal/console/<版本>/`（先核对发布签名：`SHA256SUMS.sig` 是内置公钥的 Ed25519 签名、`commit <提交> v<版本>` 一行与要装的版本一致、包的 SHA-256 与清单相符，任何一项不通过就不装，退回浏览器；没有签名清单的旧版本同样退回浏览器，见 [发布签名与校验](/docs/start/install#发布签名与校验)。`console/current` 指向它；依赖检查只用只读的 `readelf -d/-V` 或 `objdump -p` 看所需的库与 glibc 版本，不执行下载的程序，两者都没有就跳过检查；旧发行版缺库就放弃，退回浏览器；musl 系统不装原生控制台），图标放进 `~/.local/share/icons/hicolor/`（`xyz.quetzal.console.png`），启动器 `~/.local/bin/quetzal-console`（优先原生，否则浏览器），桌面项 `~/.local/share/applications/xyz.quetzal.console.desktop` |
 | 收尾 | 有图形会话就打开控制台；打印地址、守护方式与常用命令。服务器上会给出 `ssh -L 7788:127.0.0.1:7788 <这台机器>` |
@@ -49,25 +53,25 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --lan        #
 curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall  # 卸载
 ```
 
-脚本的源码在仓库的 [`cli/install.sh`](https://github.com/PlutoKeating/Project.Quetzal/blob/main/cli/install.sh)，官网构建时原样复制到 `/install`；也可以从 `https://raw.githubusercontent.com/PlutoKeating/Project.Quetzal/main/cli/install.sh` 取。安装日志在 `~/.quetzal/install.log`。
+脚本的源码是仓库里的 [`cli/install.sh`](https://github.com/PlutoKeating/Project.Quetzal/blob/main/cli/install.sh)，官网构建时原样复制到 `/install`；也可以从 `https://raw.githubusercontent.com/PlutoKeating/Project.Quetzal/main/cli/install.sh` 取。安装日志在 `~/.quetzal/install.log`。
 
 > [!NOTE]
-> 服务用安装时选定的那个 Node 的绝对路径（nvm 装的在 `~/.nvm/versions/node/v22.x/bin/node`），所以之后 `nvm uninstall 22` 会让服务起不来，再跑一次安装命令即可修复。没有 systemd 的机器上 `quetzal stop` / `logs` 这两个子命令不可用：停止用 `kill $(cat ~/.quetzal/state/supervise.pid)`，日志在 `~/.quetzal/logs/runtime.log`。
+> 服务记录的是安装时选定的那个 Node 的绝对路径（nvm 装的在 `~/.nvm/versions/node/v22.x/bin/node`）。之后执行 `nvm uninstall 22` 会让服务起不来，再跑一次安装命令就能修复。没有 systemd 的机器上 `quetzal stop` / `logs` 这两个子命令不可用：停止用 `kill $(cat ~/.quetzal/state/supervise.pid)`，日志在 `~/.quetzal/logs/runtime.log`。
 
 ### 命令沙箱
 
-ta 执行的命令（shell、自造工具）在沙箱里运行，看不到运行基座的密钥（模型 Key、令牌、部署私钥）。安装脚本按顺序准备：
+ta 执行的命令（shell、自造工具）在沙箱里运行，看不到运行基座的密钥（模型 Key、令牌、部署私钥）。安装脚本按下面的顺序准备沙箱：
 
 1. **bubblewrap**：用这台机器的包管理器装上（各主流发行版都有）。
-2. **Ubuntu 23.10 及以后**：系统默认用 AppArmor 限制「非特权用户命名空间」，bubblewrap 因此建不了沙箱。脚本会请你输入一次管理员密码，给 Quetzal 装一份专用的 bubblewrap 和只属于它的 AppArmor 配置（`/usr/local/lib/quetzal/bwrap`、`/etc/apparmor.d/quetzal-bwrap`）；不改系统自带的 bubblewrap，也不关闭这项系统保护，卸载时一并移除。
-3. **还不行**（内核禁止了这项功能，或者在容器里）：改用 Linux 内核自带的 **Landlock**，下载经过发版签名核对的启动器 landrun，不需要管理员权限。
+2. **Ubuntu 23.10 及以后**：系统默认用 AppArmor 限制「非特权用户命名空间」，bubblewrap 因此建不了沙箱。脚本请你输入一次管理员密码，给 Quetzal 装一份专用的 bubblewrap 和它专用的 AppArmor 配置（`/usr/local/lib/quetzal/bwrap`、`/etc/apparmor.d/quetzal-bwrap`）。系统自带的 bubblewrap 和这项系统保护保持原样，卸载时这两个文件一并移除。
+3. **还不行**（内核禁止了这项功能，或者在容器里）：改用 Linux 内核自带的 **Landlock**。脚本下载启动器 landrun 并用发版签名核对，不需要管理员权限。
 4. **再不行**：Debian / Ubuntu 上改用 proot（尽力而为的隔离）。
 
-都不可用时，运行基座会**拒绝执行 ta 的命令**，以免命令读到密钥；控制台 **控制 → 高级 → 运行** 会说明原因。补上沙箱后重新运行一次安装命令即可。确实需要时，也可以在那里明确打开「不隔离也运行（不安全）」。
+四种都不可用时，运行基座**拒绝执行 ta 的命令**，以免命令读到密钥，并在控制台 **控制 → 高级 → 运行** 说明原因。补上沙箱后重新运行一次安装命令即可。确实需要时，也可以在那里手动打开「不隔离也运行（不安全）」。
 
 ### 1.1 只要 npm 包：`npx @plutokeating/quetzal`
 
-已经有 Node.js 22.13+（内置 `node:sqlite` 从这个版本起不需要标志）与 git、也不需要桌面快捷方式时，可以只用 npm 包；一键安装脚本内部调用的也是它。
+已经有 Node.js 22.13+（内置 `node:sqlite` 从这个版本起不需要标志）与 git、也不需要桌面快捷方式时，可以只用 npm 包。一键安装脚本内部调用的也是它。
 
 ```bash
 npx @plutokeating/quetzal            # 安装：运行基座、Linux 身体适配器与网页控制台放进 ~/.quetzal，注册 systemd 用户服务并启动，然后在浏览器里打开控制台
@@ -75,7 +79,7 @@ npx @plutokeating/quetzal open       # 再次打开网页控制台 http://127.0.
 npx @plutokeating/quetzal --lan      # 让网关对局域网开放（加密的 HTTPS，端口 7789），手机上的 App 也能直接填这台机器的地址连接
 ```
 
-它做了什么：把包里内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/.quetzal/releases/<版本>/`，`current` 指向它（与手机上的目录约定相同）；写 `~/.config/systemd/user/quetzal.service`（退出即重启），启动并等 `/health`；40 秒内没有响应就切回上一版。第一次装好、有桌面时自动打开浏览器（`--no-open` 不打开）。再运行一次 `npx @plutokeating/quetzal` 就是升级。
+它把包里的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/.quetzal/releases/<版本>/`，让 `current` 指向它（与手机上的目录约定相同）；然后写 `~/.config/systemd/user/quetzal.service`（退出即重启），启动服务并等待 `/health`，40 秒内没有响应就切回上一版。第一次装好、有桌面时自动打开浏览器（加 `--no-open` 不打开）。再运行一次 `npx @plutokeating/quetzal` 就是升级。
 
 常用命令（一键安装之后，`npx @plutokeating/quetzal` 可以换成 `quetzal`）：
 
@@ -90,30 +94,30 @@ npx @plutokeating/quetzal --lan      # 让网关对局域网开放（加密的 H
 | `npx @plutokeating/quetzal run` | 没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）：前台运行，交给你自己的守护者 |
 
 > [!NOTE]
-> 服务用安装时运行 npx 的那个 Node，所以 nvm 之类装的 Node 也行；服务不依赖 npx 缓存。没有登录会话时也要运行（服务器）需要 `loginctl enable-linger`，安装器会尝试，失败会提示你用 sudo 执行一次。
+> 服务使用安装时运行 npx 的那个 Node，所以 nvm 之类装的 Node 也可以；服务不依赖 npx 缓存。服务器上要在没有登录会话时运行，需要 `loginctl enable-linger`。安装器会尝试执行，失败时提示你用 sudo 执行一次。
 
 ### 这具身体能感知什么
 
-Linux 适配器一切靠探测：笔记本有电量与充电状态，CPU 温度进 extra；有桌面时能弹通知、放声音、截图、看剪贴板、打开网址；有摄像头与麦克风就能拍照、录音。没有图形界面的服务器上这些工具会直接说明，不报错。细节见 [适配器接口](/docs/reference/adapter-interface)。
+Linux 适配器靠探测决定能力：笔记本上报电量与充电状态，CPU 温度放进 extra；有桌面时能弹通知、放声音、截图、看剪贴板、打开网址；有摄像头与麦克风就能拍照、录音。在没有图形界面的服务器上，这些工具会直接说明原因，不报错。细节见 [适配器接口](/docs/reference/adapter-interface)。
 
 ## 2. 网页控制台：装好就能用，不需要手机
 
-打开 `http://127.0.0.1:7788/`。这就是 Quetzal App 的网页版，同一份界面为电脑横屏重新排布：左边导航（对话 / 心流 / 记忆 / 控制）与这一区的列表，中间是正在看的内容，右边永远是 ta 此刻的样子（光团、ta 想分享的一句话、正在进行的醒来、待你批准的请求、内在与身体）。模型、身份、授权、飞书、灵魂仓库与对话都在这里完成，和 App 完全一致。
+打开 `http://127.0.0.1:7788/`。这是 Quetzal App 的网页版，同一份界面按电脑横屏重新排布：左边是导航（对话 / 心流 / 记忆 / 控制）和当前分区的列表，中间是正在看的内容，右边一直显示 ta 此刻的样子（光团、ta 想分享的一句话、正在进行的醒来、待你批准的请求、内在与身体）。模型、身份、授权、飞书、灵魂仓库与对话都在这里完成，和 App 完全一致。
 
-- **免配对码**：同一台机器上的浏览器打开即登录（网关只对回环地址、Host 为本机名的请求放行，见 [网关 API](/docs/reference/gateway-api)）。
-- **没有桌面的服务器**：`ssh -L 7788:127.0.0.1:7788 <服务器>` 转发端口后，在本机浏览器打开同样的地址；隧道过来的连接对网关来说也是本机。
-- **地址栏记录位置**（`#/chat/<会话>`、`#/control/providers`……），可收藏、可前进后退。
-- 网页版没有麦克风与安装器：听觉在手机 App 上；升级在这台机器上再跑一次安装命令（或 `npx @plutokeating/quetzal`）。
+- **免配对码**：同一台机器上的浏览器打开就已登录（网关只对来自回环地址、Host 为本机名的请求放行，见 [网关 API](/docs/reference/gateway-api)）。
+- **没有桌面的服务器**：用 `ssh -L 7788:127.0.0.1:7788 <服务器>` 转发端口，再在本机浏览器打开同样的地址。网关把隧道过来的连接也当作本机连接。
+- **地址栏记录位置**（`#/chat/<会话>`、`#/control/providers`……），可以收藏，也可以前进后退。
+- 网页版没有麦克风与安装器：听觉在手机 App 上；升级时在这台机器上再跑一次安装命令（或 `npx @plutokeating/quetzal`）。
 
 ## 3. 用手机上的 App 连接 Linux 机器（可选）
 
 - 装的时候加了 `--lan`：在 App 里点顶栏名字 → **连接另一个**（或在连接页展开「连接另一台设备」）→ 只填这台机器的地址（如 `192.168.1.8`；App 自动用加密连接 `https://192.168.1.8:7789`）→ App 显示这台机器的**证书指纹**，与 `npx @plutokeating/quetzal status` 打印的核对一致 → **获取配对码**。
-- 没有加：网关只监听 `127.0.0.1`，先转发端口（手机经 USB 连着这台机器时 `adb reverse tcp:7788 tcp:7788`，或一条 ssh 隧道），再在 App 里填 `127.0.0.1:7788`。随时可以 `npx @plutokeating/quetzal --lan` 改成开放。
+- 没有加：网关只监听 `127.0.0.1`。先转发端口（手机经 USB 连着这台机器时用 `adb reverse tcp:7788 tcp:7788`，或者开一条 ssh 隧道），再在 App 里填 `127.0.0.1:7788`。之后随时可以用 `npx @plutokeating/quetzal --lan` 改成对局域网开放。
 
-配对码连同证书的短指纹（如 `配对码 ABCD-EFGH · 证书指纹 1a2b 3c4d 5e6f 7a8b`）在这台机器上弹桌面通知，同时写进服务日志；没有桌面的服务器从 `quetzal logs` 里看。
+配对码和证书的短指纹（如 `配对码 ABCD-EFGH · 证书指纹 1a2b 3c4d 5e6f 7a8b`）以桌面通知的形式出现在这台机器上，同时写进服务日志。没有桌面的服务器用 `quetzal logs` 查看。
 
 > [!NOTE]
-> 局域网上的一切都经 TLS 加密，明文 HTTP 只留在这台机器的 `127.0.0.1:7788`。证书是运行基座自己生成的（自签名），App 配对时记下它的指纹，之后只认这张证书；配对码只在 App 里参与计算，不在网络上传输，有人在中间冒充这台机器也配不上。从别的电脑用浏览器打开 `https://<这台机器的地址>:7789/` 会看到「证书不受信任」的警告：查看证书，SHA-256 指纹的开头与通知里的短指纹一致再继续。旧版 App 里保存的 `http://<地址>:7788` 连接会提示「运行基座已改为加密连接，请重新配对」。
+> 局域网上的通信全部经 TLS 加密，明文 HTTP 只留在这台机器的 `127.0.0.1:7788`。证书是运行基座自己生成的（自签名），App 配对时记下它的指纹，之后只认这张证书。配对码只在 App 里参与计算，不在网络上传输，有人在中间冒充这台机器也配不上。从别的电脑用浏览器打开 `https://<这台机器的地址>:7789/` 会看到「证书不受信任」的警告：先查看证书，确认 SHA-256 指纹的开头与通知里的短指纹一致，再继续。旧版 App 里保存的 `http://<地址>:7788` 连接会提示「运行基座已改为加密连接，请重新配对」。
 
 ## 4. 其他机器：手动部署
 
@@ -124,7 +128,7 @@ git clone https://github.com/PlutoKeating/Project.Quetzal.git
 cd Project.Quetzal/runtime
 npm ci
 npm test            # 单元测试
-npm run build       # 生成 dist/main.cjs（单文件，已内置依赖）与各平台适配器 dist/android.mjs、dist/linux.mjs、dist/termux.mjs
+npm run build       # 生成 dist/main.cjs（单文件，已内置依赖）与各平台适配器 dist/android.mjs、dist/linux.mjs、dist/termux.mjs、dist/windows.mjs
 QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 
@@ -135,7 +139,7 @@ QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 | `QUETZAL_HOME` | 家目录（默认 `~/.quetzal`），配置、密钥、数据、灵魂目录都在这里 |
 | `QUETZAL_ADAPTER` | 身体适配器模块路径；不设则用通用适配器（只有操作系统信息，没有传感器） |
 
-基座只负责自身逻辑，**进程守护交给外部**：退出即重启。systemd 用户服务示例：
+基座只负责自身逻辑，**进程守护由外部负责**，要求进程退出后立即重启。systemd 用户服务示例：
 
 ```ini
 [Unit]
@@ -152,11 +156,15 @@ WantedBy=default.target
 ```
 
 > [!NOTE]
-> 10 分钟内被拉起超过 5 次，基座会进入安全模式（只开网关与飞书，不醒来），防止反复崩溃烧钱。
+> 10 分钟内被拉起超过 5 次，基座进入安全模式（只开网关与飞书，不醒来），避免反复崩溃时不停花钱。
 
-连接方式与第 3 节相同（手动部署没有网页控制台，除非把控制台的 Web 构建放到 `main.cjs` 旁边的 `web/` 或用 `QUETZAL_WEB_DIR` 指定）；要对局域网开放，在 `config/quetzal.json` 里把 `gateway.lan` 设为 `true`（或 `gateway.host` 设为 `0.0.0.0`）：局域网上开 HTTPS / WSS（`gateway.lanPort`，默认 7789），明文仍只在本机。**没有 `notify` 的适配器**（比如通用适配器）收不到配对码通知，这时部署者从 `QUETZAL_HOME/secrets/gateway.token` 读出令牌填入即可。
+连接方式与第 3 节相同。手动部署默认没有网页控制台；要用它，把控制台的 Web 构建放到 `main.cjs` 旁边的 `web/`，或用 `QUETZAL_WEB_DIR` 指定位置。
 
-通用适配器没有传感器。给这台机器写一个适配器（几十行），ta 就能感知这具身体，或者获得设备动作工具。见 [自定义身体适配器](/docs/advanced/custom-adapter)。
+要对局域网开放，在 `config/quetzal.json` 里把 `gateway.lan` 设为 `true`（或把 `gateway.host` 设为 `0.0.0.0`）。局域网上开的是 HTTPS / WSS（`gateway.lanPort`，默认 7789），明文仍只在本机。
+
+**没有 `notify` 的适配器**（比如通用适配器）收不到配对码通知。这时部署者从 `QUETZAL_HOME/secrets/gateway.token` 读出令牌填入即可。
+
+通用适配器没有传感器。给这台机器写一个几十行的适配器，ta 就能感知这具身体，也能用上设备动作工具。见 [自定义身体适配器](/docs/advanced/custom-adapter)。
 
 ## 开发模式
 

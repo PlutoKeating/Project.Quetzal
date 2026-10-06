@@ -1,11 +1,11 @@
 ---
 title: Passing secrets
-description: When it needs a password, token or key, you type it in the chat box; it never enters the conversation or the model context and goes straight into the vault.
+description: When the agent needs a password, token or key, you type it in the chat box. The value goes straight into the vault and never enters the conversation or the model context.
 ---
 
 ## Why this exists
 
-While working it often needs credentials: a GitHub token, a service password, a private key. If you sent them in chat, the plaintext would land in the conversation log, the model context and the provider's logs. So it does not ask that way. It calls `pass_secret` to start a **secret input**.
+While working, the agent often needs credentials: a GitHub token, a password for some service, a private key. If you sent them in chat, the plain text would end up in the conversation log, the model context and the provider's logs. So the agent calls `pass_secret` to start a **secret input**.
 
 ## The flow
 
@@ -25,26 +25,26 @@ sequenceDiagram
   W-->>A: name, path, byte count, no plaintext
 ```
 
-- It first explains in its own words which items it needs and what each is.
-- After that, **each message you send is one value**, matched in order. Only leading and trailing whitespace is trimmed; multi-line values (such as private keys) are kept as is.
-- When finished, send the **done spell** (the app's "Done / Redo / Cancel" buttons are equivalent). `spell redo` clears and starts over; `spell cancel` abandons.
-- **Ten minutes of silence abandons automatically**; abandoned values are discarded. Only the done spell writes anything to disk.
+- It first explains in its own words which items it needs and what each one is.
+- After that, **each message you send is one value**, matched to the items in order. Only spaces and line breaks at the start and end are removed. Values with several lines (such as private keys) are kept as they are.
+- When you have sent them all, send the **done spell**. The app's "Done / Redo / Cancel" buttons do the same. Send the spell followed by `redo` (`spell redo`) to clear the values and start over, or `spell cancel` to give up.
+- **After ten minutes with no messages, the input is cancelled automatically**, and the values received so far are thrown away. Nothing is saved to disk until you send the done spell.
 
-In the app, a banner sits above the input during secret input and the field is masked by default (tap the eye to reveal; multi-line values need to be revealed before pasting). In Feishu it is a card that updates with progress; afterwards **recall those messages yourself**.
+In the app, a banner sits above the input box during a secret input, and the box hides what you type by default. Tap the eye to show it; you need to show it before pasting a value with several lines. In Feishu, a card shows the progress. When you finish, **recall those messages yourself**.
 
 ## The vault
 
-Stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Control → Advanced → Secrets** shows name, hint, source channel and time, and lets you delete; it **never shows contents**.
+Secrets are stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Control → Advanced → Secrets** shows each item's name, hint, source channel and time, and lets you delete it. It **never shows the contents**.
 
-The vault belongs to this body only: it is **not synced to other bodies** and never enters the soul repository.
+The vault belongs to this body only. It is **not synced to other bodies** and never enters the soul repository.
 
 ## How it uses it
 
-It references values by path in commands (`"$(cat path)"` or `< path`) without printing them. Every tool's output is scrubbed before reaching the model: any secret value that appears becomes `‹secret:name›`.
+The agent refers to values by their path in commands (`"$(cat path)"` or `< path`) and does not print them. Before any tool output reaches the model, the runtime replaces every secret value in it with `‹secret:name›`.
 
 > [!WARNING]
-> This protects against **accidental** leaks (`cat`, `env`, debug output). It and the runtime are the same system user, so the vault is readable from its shell; "it cannot see the plaintext" is guaranteed by protocol, tool conventions and output scrubbing, not by OS-level isolation. If you do not want it near a credential, do not hand it over.
+> This protects against **accidental** leaks (`cat`, `env`, debug output). The agent's commands can read the vault: on Android and Linux the agent and the runtime are the same system user, and on Windows the sandbox user is allowed to read it. What keeps the plain text from the model is the protocol, how the tools are written and the output replacement; the operating system does not isolate the vault. If you do not want the agent near a credential, do not give it to the agent.
 
 ## It can be denied
 
-"Request secrets" is its own permission category and can be set to ask or deny under **Control → Permissions**. It can only start a secret input inside a conversation; when it wakes alone the tool tells it to arrange a time with you first.
+"Request secrets" is a separate permission category. You can set it to ask or deny under **Control → Permissions**. The agent can start a secret input only during a conversation. When it wakes on its own with nobody there, the tool tells it to arrange a time with you first.

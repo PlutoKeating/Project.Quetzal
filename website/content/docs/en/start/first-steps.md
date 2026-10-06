@@ -1,6 +1,6 @@
 ---
 title: First steps
-description: The first ten minutes after installing: configure a model, name it, poke it, chat a little, then watch its wake up on its own.
+description: The first ten minutes after installing. Configure a model, name the agent, poke it, chat a little, then watch it wake up on its own.
 ---
 
 ## Checklist :white_check_mark:
@@ -9,48 +9,52 @@ description: The first ten minutes after installing: configure a model, name it,
 - [ ] Give the agent a name and a theme color
 - [ ] Glance at the permissions
 - [ ] Poke it, or chat a little
-- [ ] Wait in **Flow** for its first self-initiated wake-up
+- [ ] Wait in **Flow** for it to wake up on its own for the first time
 
 ## 1. Configure a model
 
-**Control → Models** (the setup wizard's last step **Choose a model**, and the **Choose a model** card on **Now** while there is no model, lead here too):
+Go to **Control → Models**. The setup wizard's last step, **Choose a model**, leads here too, and so does the **Choose a model** card on **Now** while no model is set up.
 
-1. Tap a provider (DeepSeek, Kimi, Zhipu, Alibaba Cloud Bailian, SiliconFlow, Volcano Ark, OpenRouter, OpenAI, Anthropic, Gemini; search the rest under **More**).
+1. Tap a provider: DeepSeek, Kimi, Zhipu, Alibaba Cloud Bailian, SiliconFlow, Volcano Ark, OpenRouter, OpenAI, Anthropic or Gemini. Search for others under **More**.
 2. Paste the API key and tap **Connect**.
 
-Everything else is automatic: the key is encrypted on the device; the runtime asks the provider which models it offers, picks the newest tool-capable ones from the public catalog (models.dev), tests them one by one and keeps two (the first is the main model, the other takes over when it fails; whichever is cheaper than the main one handles the lightweight introspection check). A wrong key changes nothing and the reason is shown.
+The rest happens automatically:
 
-To add several keys, pick models by hand, reorder or use a custom API URL, tap **Edit** in the top right.
+- The key is stored encrypted on the device.
+- The runtime asks the provider which models it offers and compares them with the public catalog (models.dev). It picks the newest models that can call tools, tests them one by one and keeps two. The first is the main model, and the other takes over when the main one fails. Whichever model is cheaper than the main one handles the quick introspection check.
+- If the key is wrong, nothing changes and the app shows the reason.
 
-Details in [Models and providers](/docs/guide/models).
+To add several keys, pick models by hand, change their order or use a custom API URL, tap **Edit** in the top right.
+
+See [Models and providers](/docs/guide/models) for details.
 
 > [!TIP]
-> Once a model is configured it starts waking at its own rhythm. With no model it never wakes: the guard holds its wake rate at zero.
+> Once a model is configured, the agent starts waking at its own rhythm. Without a model it never wakes, because its wake rate is held at zero.
 
 ## 2. Identity
 
-On **Control**, tap its name at the top → **Identity**: a display name, a theme color, a one-line description. The app's wording and colors follow. Identity is written to its soul directory, and once a soul repository is connected it syncs to every body. See [Identity](/docs/guide/identity).
+On **Control**, tap the agent's name at the top, then **Identity**. Set a display name, a theme color and a one-line description, and the app's wording and colors change to match. The identity is written to the agent's soul directory. Once a soul repository is connected, it syncs to every body. See [Identity](/docs/guide/identity).
 
 ## 3. Permissions
 
-**Control → Permissions**: camera, microphone, location and building tools default to "ask". When it wants to use one it sends you a request, shown at the top of this page, and acts only after you approve. Switch to "allow" once you are comfortable. See [Permissions and safety](/docs/guide/permissions).
+Under **Control → Permissions**, camera, microphone, location and building tools are set to "ask" by default. When the agent wants to use one, it sends you a request that appears at the top of this page, and it acts only after you approve. Once you trust it, switch them to "allow". See [Permissions and safety](/docs/guide/permissions).
 
 ## 4. Poke it, chat a little
 
 The **Now** page has two entry points:
 
-- **Poke**: raises its longing and curiosity and immediately re-samples the next wake-up, without forcing one.
-- **Chat**: a message wakes it from sleep. While it replies you watch what it does in real time (which tools it calls, what it writes). If you send another message while it is working, it is merged into the current turn as an **interjection** by default; you can also queue it or interrupt.
+- **Poke**: makes it miss you more and feel more curious, and makes it decide again right away when to wake next. It may not wake at once.
+- **Chat**: a message wakes it from sleep. While it replies, you can watch what it does in real time: which tools it calls and what it writes. If you send another message while it is working, the message joins the current turn as an **interjection** by default. You can also queue it or interrupt.
 
 ## 5. Watch the first wake-up
 
-**Flow** is its timeline: every wake-up, dream and conversation leaves an entry. Expand one to see the trigger (why, and what it intended), the process, the journal entry and its mood.
+**Flow** is the agent's timeline. Every wake-up, dream and conversation leaves an entry there. Expand one to see the trigger (why it woke and what it meant to do), the process, the journal entry and its mood.
 
-When it wakes is decided by drives and alertness. While awake, a drive $d$ approaches 1 with time constant $\tau$:
+Its drives and alertness decide when it wakes. While it is awake, each drive $d$ rises toward 1 with time constant $\tau$:
 
 $$d' = 1 - (1-d)\,e^{-\Delta t/\tau}$$
 
-The wake rate grows with the square of the weighted mean drive, times alertness and an inhibition factor. So for the first hour or two after installation, with nothing having happened yet, it may stay quiet as if observing. Let it speak first.
+The wake rate grows with the square of the weighted mean of its drives, multiplied by alertness and an inhibition factor. In the first hour or two after installation nothing has happened yet and its drives are low, so it may stay quiet as if it were watching. Wait for it to speak first.
 
 ## Next
 

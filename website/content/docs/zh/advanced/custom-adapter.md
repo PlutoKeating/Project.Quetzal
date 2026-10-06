@@ -5,9 +5,14 @@ description: 用几十行 TypeScript 让一台新设备成为身体：实现 Bod
 
 ## 适配器是什么
 
-运行基座的核心不知道自己跑在手机、树莓派还是服务器上。设备的一切（传感器采样、系统通知、播放声音、设备动作）都由**身体适配器**提供。适配器是一个独立构建的 ES 模块，默认导出一个 `BodyAdapter` 对象。
+设备的一切能力（传感器采样、系统通知、播放声音、设备动作）都由**身体适配器**提供，运行基座的核心只通过它接触设备。适配器是一个独立构建的 ES 模块，默认导出一个 `BodyAdapter` 对象。
 
-仓库自带几个平台级的参考实现：`runtime/adapters/android/`（任意安卓手机，身体能力经 Quetzal App 的本机身体接口提供），构建为 `dist/android.mjs`；`runtime/adapters/termux/`（旧的 Termux 安装：任意安卓手机 + Termux:API，传感器按名字探测），构建为 `dist/termux.mjs`；`runtime/adapters/linux/`（任意 Linux 机器，电池与温度读 `/sys`，桌面工具按可用程序探测），构建为 `dist/linux.mjs`。
+仓库自带几个平台级的参考实现：
+
+- `runtime/adapters/android/`：任意安卓手机，身体能力经 Quetzal App 的本机身体接口提供，构建为 `dist/android.mjs`；
+- `runtime/adapters/termux/`：旧的 Termux 安装，任意安卓手机 + Termux:API，传感器按名字探测，构建为 `dist/termux.mjs`；
+- `runtime/adapters/linux/`：任意 Linux 机器，电池与温度读 `/sys`，桌面工具按可用程序探测，构建为 `dist/linux.mjs`；
+- `runtime/adapters/windows/`：任意 Windows 10（1809 起）/ 11 电脑，电源读系统电源状态，通知、截图、剪贴板、拍照、录音用系统自带的 PowerShell 5.1、.NET 与 WinRT，构建为 `dist/windows.mjs`，见 [Windows](/docs/advanced/windows)。
 
 ## 接口
 
@@ -53,9 +58,9 @@ export default adapter;
 
 ## 约束
 
-- 适配器**只能 `import type`** 接口文件的类型，不得依赖核心的其他实现；构建时类型被擦除，产物不依赖核心。
+- 适配器**只能 `import type`** 接口文件的类型，不得依赖核心的其他实现。构建时类型被擦除，产物因此不依赖核心。
 - 工具的 `permission` 必须是闸门已知的类别，否则按「允许」处理。
-- 加载失败时核心回退到通用适配器（无传感器），并在日志里说明。
+- 加载失败时，核心改用通用适配器（无传感器），并在日志里说明。
 
 ## 构建与指定
 
@@ -76,12 +81,12 @@ flowchart TB
   EV --> H[心脏：调整驱动力并重新抽样]
 ```
 
-采样间隔自适应：有显著变化时 2 分钟，平静时逐步拉长到 10 分钟。采样不调用模型、不等于醒来。
+采样间隔随变化调整：有显著变化时 2 分钟，平静时逐步拉长到 10 分钟。采样不调用模型，也不算醒来。
 
 ## 安卓适配器提供了什么（参考）
 
-能力与下面相同，由 App 原生实现（拍照用 Camera2、定位定不到时退回最近一次已知位置）；详见 [适配器接口](/docs/reference/adapter-interface)。旧的 Termux 适配器：
+安卓适配器的能力与下面的 Termux 适配器相同，由 App 原生实现（拍照用 Camera2，定位定不到时返回最近一次已知位置），详见 [适配器接口](/docs/reference/adapter-interface)。旧的 Termux 适配器提供：
 
-`sample()`：电量 / 充电 / 体温 / 健康、光照与运动（传感器按名字探测，没有就不报）；`notify()`（带「打开 Quetzal」按钮）、`playAudio()`；工具 `take_photo`、`record_audio`、`location`、`vibrate`、`torch`、`clipboard`、`read_sensor`。不提供 `speak`（很多手机没有系统 TTS），说话由运行基座的 `voice_speak`（Azure 语音）完成。
+`sample()`：电量 / 充电 / 体温 / 健康、光照与运动（传感器按名字探测，没有就不报）；`notify()`（带「打开 Quetzal」按钮）、`playAudio()`；工具 `take_photo`、`record_audio`、`location`、`vibrate`、`torch`、`clipboard`、`read_sensor`。它不提供 `speak`（很多手机没有系统 TTS），说话由运行基座的 `voice_speak`（Azure 语音）完成。
 
 完整类型见 [适配器接口](/docs/reference/adapter-interface)。

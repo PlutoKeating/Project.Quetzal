@@ -64,14 +64,14 @@ flowchart LR
 | 路径 | 内容 | 数据来源 |
 |---|---|---|
 | `/` | 语言跳转 | 内联脚本 |
-| `/:lang` | 首页：hero（slogan 与引言，固定文案）→ 没有定时器（与 Codex / Hermes / OpenClaw 的一处差别 + 三条 24 小时带子 + 凭证小字）→ 别处没有的（四张卡：身体 · 灵魂 · 许多身体 · 会长大，各链到亮点页对应一节）→ 此刻（示例身体）→ 一天 → 它有时候不动 → 你说了算（三条）→ 开始 | `routes/home/i18n.ts`；`ExampleBody.tsx`、`DayStrip.tsx` 只用 `lib/bodyClock` 的模型，不含任何真实设备数据 |
+| `/:lang` | 首页：hero（slogan 与引言，固定文案；按钮下一行写支持的平台）→ 没有定时器（与 Codex / Hermes / OpenClaw 的一处差别 + 三条 24 小时带子 + 凭证小字）→ 别处没有的（四张卡：身体 · 灵魂 · 许多身体 · 会长大，各链到亮点页对应一节）→ 装在哪（安卓 · Windows · Linux 三张卡，链到下载页对应平台的 `#android` `#windows` `#linux`）→ 此刻（示例身体）→ 一天 → 它有时候不动 → 你说了算（三条）→ 开始 | `routes/home/i18n.ts`；`ExampleBody.tsx`、`DayStrip.tsx` 只用 `lib/bodyClock` 的模型，不含任何真实设备数据 |
 | `/:lang/features` | 七个亮点故事（灵魂 · 许多身体 · 没有定时器 · 身体 · 会长大 · 你说了算 · 装在旧手机上；通俗标题 + 示意图 + 要点 + 文档链接，左右交替，锚点即故事 id，首页四张卡链到 `#body` `#soul` `#mesh` `#tools`）与「还有这些」网格 | `routes/features/i18n.ts`；示意图为 `routes/features/illustrations.tsx` 里的内联 SVG（只用语义类，文字走 i18n） |
 | `/:lang/docs/*` | 文档教程：侧栏、正文（统一 Markdown 组件）、页内目录 | `content/docs/<lang>/**/*.md`（构建时读取） |
 
 **图表与图片的可读性**（`components/markdown/Mermaid.tsx`、`Lightbox.tsx`）：mermaid 以原始尺寸渲染（`useMaxWidth: false`，字号 16px）；容器窄于 640px 时横向流程图（LR / RL，含子图 direction）自动改为纵向；图比容器宽时，若缩放不低于 0.72 则整体缩放，否则原尺寸横向滚动并提示；每张图与文档里的图片都可点按进入全屏查看（缩放按钮、双向滚动、Esc 关闭）。时序图开启自动换行。架构参考页的总图改用与 README 相同的手绘 SVG（`public/img/architecture.{zh,en}.svg`，由 `scripts/gen-architecture-svg.py` 生成）。
 | `/:lang/account` `account/device` `account/consoles` `account/settings` | 账户（像控制台的一组子页面）：概览（agent 与身体、解绑、删除 agent）· 批准设备（输入码、核对指纹与码的生成时间，控制台登录还核对发起方身体的指纹与绑定时间，批准或拒绝）· 控制台登录（吊销）· 账户设置（「管理账号」跳到 PlutoKeating 账号的设置页，改完点「返回」回来、退出、退出所有网页登录、删除账户）；没登录时显示「登录」 | 浏览器调用同步服务的账户接口 `https://sync.quetzal.plutokeating.beer/v1/web/*`（`lib/sync.ts`，见 §5） |
 | `/device` `/account` | 不带语言的入口（身体与 App 给出的链接、同步服务跳来的地址）：内联脚本按访客语言转到 `/:lang/account/device` 或 `/:lang/account`，保留查询参数 | `i18n/core.ts` 的 `FORWARD_SCRIPT` |
-| `/:lang/download` | 最新版本、资产下载、安装三步（只装一个 App）、发布说明、历史版本、Linux 一行安装命令 | 浏览器请求官网的发布接口镜像 `/api/releases`（不另存，刷新即最新；不通时退回直连 GitHub，才用 sessionStorage 缓存），不硬编码版本 |
+| `/:lang/download` | 多平台下载：首屏是名字、一句话、平台切换（安卓 · Windows · Linux）、该平台的安装方式（安卓是 APK 按钮；Windows 是 PowerShell 一行命令与按架构的安装包；Linux 是一行 curl 命令）与最新版本一行；下面是发布说明与历史版本（列出 APK 与 Windows 安装包）。平台按地址的 `#android` / `#windows` / `#linux` 选，没有锚点时按访客系统猜；预渲染的 HTML 里是安卓，不跑脚本的旧手机也拿得到 `/dl/latest/android.apk` | 浏览器请求官网的发布接口镜像 `/api/releases`（不另存，刷新即最新；不通时退回直连 GitHub，才用 sessionStorage 缓存），不硬编码版本 |
 | `/:lang/about` `terms` `privacy` | 关于 / 条款 / 隐私（共用 `components/Article.tsx` 长文版式） | 各自 `i18n.ts`（分节 + 段落 + 要点） |
 | `/404` | 404 页 | — |
 

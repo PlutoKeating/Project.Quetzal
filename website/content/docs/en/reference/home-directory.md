@@ -1,9 +1,9 @@
 ---
 title: Home directory and configuration
-description: The layout of QUETZAL_HOME, every key in config/quetzal.json, and the file conventions of the Android (built into the app), Termux (older installs) and Linux deployments.
+description: The layout of QUETZAL_HOME, every key in config/quetzal.json, and the file conventions of the Android (built into the app), Termux (older installs), Linux and Windows deployments.
 ---
 
-## `QUETZAL_HOME` (default: `files/home/quetzal` in the app's data directory on Android, `~/quetzal` for older Termux installs, `~/.quetzal` on Linux and other machines; all overridable with the environment variable)
+## `QUETZAL_HOME` (default: `files/home/quetzal` in the app's data directory on Android, `~/quetzal` for older Termux installs, `%LOCALAPPDATA%\Quetzal\home` on Windows, `~/.quetzal` on Linux and other machines; all overridable with the environment variable)
 
 ```
 config/quetzal.json      runtime configuration (editable from the app)
@@ -45,7 +45,7 @@ STOP                     emergency stop flag: if present, everything freezes
 | `gateway.lan` / `gateway.lanPort` / `gateway.host` | `false` / `7789` / `127.0.0.1` | Open to the LAN (`lan` true or `host` not a loopback address): HTTPS / WSS on `host` (`0.0.0.0` when it is loopback):`lanPort` |
 | `speech.region` / `endpoint` / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | `""` / `""` / `zh-CN-XiaoxiaoNeural` / `""` / `0%` / `0%` / `100` / `audio-24khz-48kbitrate-mono-mp3` | Azure Speech (key in `secrets/azure_speech_key`) |
 
-All of these are editable from the console (phone app or web version); no file editing required.
+You can edit all of these from the console (phone app or web version).
 
 ## Environment variables
 
@@ -68,14 +68,14 @@ The app's foreground service (`RuntimeService`) follows these; `<data>` is `/dat
 <data>/files/home/quetzal/        QUETZAL_HOME
 ```
 
-- When the app version or the native library directory changes (an update), the environment is unpacked again; the home directory is left alone.
+- When the app version or the native library directory changes (an update), the app unpacks the environment again and keeps the home directory as it is.
 - Environment: `PREFIX`, `QUETZAL_HOME`, `QUETZAL_ADAPTER` (`android.mjs`), `SSL_CERT_FILE`, `GIT_EXEC_PATH`, `PROOT_LOADER`, `QUETZAL_HIDE_PATHS` (`shared_prefs`, `app_flutter`, `databases`, `cache`, `code_cache`).
 - On first start the body name (the model, lowercased) and time zone are written; after that the console manages them.
 - Supervision: the process is restarted with backoff (from 2 seconds up to 1 minute) after it exits; it starts at boot (`BOOT_COMPLETED`) and after app updates (`MY_PACKAGE_REPLACED`), which vendor systems only deliver once autostart is allowed.
 
 ### Older Termux installs
 
-Installs made the Termux way in 1.0.x keep working (`runtime/adapters/termux/` is kept); new installs no longer use it:
+Installs made the Termux way in 1.0.x keep working (`runtime/adapters/termux/` is kept). New installs do not use this layout:
 
 ```
 ~/quetzal/releases/<version>/      main.cjs, termux.mjs
@@ -87,7 +87,7 @@ $PREFIX/var/log/sv/quetzal/        logs
 
 ## Linux / npm deployment conventions
 
-The npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal`) follows these, mirroring the older Termux layout (the Linux home directory defaults to `~/.quetzal`, changeable with `QUETZAL_HOME` or `--home`; installs made before 0.6.7 under `~/quetzal` are moved over automatically the next time the installer runs); the one-line installer (`curl -fsSL https://quetzal.plutokeating.beer/install | bash`) adds a few things on top:
+The npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal`) follows these, using the same layout as the older Termux installs. The Linux home directory defaults to `~/.quetzal` and can be changed with `QUETZAL_HOME` or `--home`; installs made before 0.6.7 under `~/quetzal` are moved over automatically the next time the installer runs. The one-line installer (`curl -fsSL https://quetzal.plutokeating.beer/install | bash`) adds a few things on top:
 
 ```
 ~/.quetzal/releases/<version>/           main.cjs, linux.mjs, web/ (the web console; the gateway serves current/web/)
@@ -108,3 +108,23 @@ Without systemd: ~/.quetzal/bin/quetzal-supervise (supervisor loop), ~/.quetzal/
 ```
 
 Requires Node.js 22.13+. Only the last three versions are kept. A health check failing for 40 seconds (or reporting a different version) switches back to `previous`. `--lan` writes `gateway.host` as `0.0.0.0` and `gateway.lan` as `true` in `config/quetzal.json` (HTTPS on port 7789 on the LAN; `quetzal status` prints the address and certificate fingerprint). After installing, the web console opens at `http://127.0.0.1:7788/` (`npx @plutokeating/quetzal open`), with no pairing code on the same machine.
+
+## Windows deployment conventions
+
+The PowerShell one-liner (`irm https://quetzal.plutokeating.beer/install.ps1 | iex`) and the installer `quetzal-<version>-windows-<x64|arm64>-setup.exe` both follow these on Windows 10 1809 or later and Windows 11:
+
+```
+%LOCALAPPDATA%\Quetzal\
+├── home\                  QUETZAL_HOME
+├── runtime\<version>\     main.cjs, windows.mjs, windows-body.mjs, windows-supervise.mjs, srt.mjs, mermaid.mjs, web\, srt-win\srt-win.exe
+├── runtime\current.txt    the running version (previous.txt: the one before); pointer files instead of symlinks
+├── console\<version>\     the console (quetzal-console.exe); console\current.txt as above
+├── bin\                   the quetzal.cmd command and the scheduled tasks' launcher (quetzal-supervise.ps1)
+└── node.txt               where the runtime's node.exe is
+```
+
+- Scheduled tasks `\Quetzal\Runtime-Boot` (at boot, as the installing user, S4U) and `\Quetzal\Runtime-Logon` (at sign-in) both start the supervisor `windows-supervise.mjs`. It restarts the runtime with backoff after it exits and logs to `home\logs\runtime.log` (rotated). `home\state\supervise.off` pauses supervision (the console's Supervision switch); with `home\state\quit` present, the supervisor exits together with the runtime (the tray's Quit).
+- The runtime started at boot cannot see the desktop. The body helper `windows-body.mjs`, started by the console tray after sign-in, handles notifications, screenshots, the clipboard, opening, playback, photos and recording; its address and token are in `secrets\desktop-body.json`.
+- A health check failing for 40 seconds after an upgrade switches the pointer back to the previous version.
+
+See [Windows](/docs/advanced/windows) for installation, the command sandbox and what is still missing.

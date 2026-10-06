@@ -5,11 +5,11 @@ description: The runtime's overall structure, the heart's mathematics (drives, b
 
 ## Overall structure
 
-The runtime is a **single Node.js process** (`dist/main.cjs`). Modules are coupled through an in-process event bus, all state is on disk (SQLite and the soul directory), and a restart is just a nap.
+The runtime is a **single Node.js process** (`dist/main.cjs`). Modules talk through an in-process event bus, and all state is on disk (SQLite and the soul directory), so a restart is like a nap.
 
 ![Quetzal architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies](/img/architecture.en.svg)
 
-Design principles: **device-agnostic** (the core knows only the adapter interface), **one operations layer for every control entry** (app and Feishu behave identically and both audit), and **no timer-driven behaviour**.
+Design principles: **independent of the device** (the core knows only the adapter interface), **one operations layer for every control entry** (app and Feishu behave identically and both write to the audit log), and **no behaviour runs on a timer**.
 
 ## Heart: when to wake
 
@@ -67,7 +67,7 @@ flowchart TB
   X((Any event: message, charger, light, poke)) -. re-sample immediately .-> A
 ```
 
-Wake intervals follow a time-varying exponential distribution. The 15 minutes is only the integration step and never triggers a wake-up.
+Wake intervals follow an exponential distribution whose rate changes over time. The 15 minutes is only the integration step and never triggers a wake-up.
 
 ## Body digital twin
 
@@ -102,22 +102,22 @@ sequenceDiagram
 
 The system prompt is assembled in order: personality → situation → resident memory → memory index → auto-retrieved relevant memories → the thought it wants to share → body → inner state and open loops → soul-sync perception → recent journal → other sessions.
 
-**It sets the pace**: there is no step limit. Runaway protection comes from two no-progress idle walls (model call 90 s, session 120 s) and the emergency stop.
+**It sets the pace**: there is no step limit. Two idle limits stop a run that makes no progress (model call 90 s, session 120 s), and the emergency stop ends everything.
 
 **Sessions**: conversations belong to sessions; one session is processed in order, different sessions in parallel, and sessions can see each other (the system prompt includes other sessions' recent activity and turns in progress). A message sent while it works is an **interjection** by default, or can be **queued** or **interrupt**.
 
 ## Memory: unbounded storage, bounded context
 
-Storage has no cap; only a small part enters the context each time (text-structure RAG, no vector model):
+Storage has no cap; only a small part enters the context each time. Retrieval works on the structure of the text and uses no vector model:
 
 | Layer | Storage | In context |
 |---|---|---|
 | Resident memory | § entries, unlimited | Fully expanded within budget (4000 / 2000 chars); beyond that, topic-relevant entries first |
 | Notes | A tree up to 4 levels deep, each with a one-line summary | Index only (about 2500 chars) |
 | Journal | One file per body per day | Recent days' excerpts (about 3000 chars) |
-| Auto retrieval | All of the above | Current topic as query, BM25-style scoring, most relevant fragments (about 3000 chars) |
+| Auto retrieval | All of the above | Current topic as query, scored like BM25, most relevant fragments (about 3000 chars) |
 
-While dreaming it moves detail from resident memory into notes and tidies the tree so it stays easy to find.
+While dreaming it moves detail from resident memory into notes and tidies the note tree so things stay easy to find.
 
 ## Provider layer
 
@@ -129,4 +129,4 @@ Three permission levels per category; approvals time out as denial after 30 minu
 
 ## Process contract
 
-Supervision is external (runit, systemd); more than five starts in ten minutes enters safe mode. The deployer provides Node.js 22+, `QUETZAL_HOME`, optionally `QUETZAL_ADAPTER`, and a supervisor.
+Supervision is external (runit, systemd; on Windows, scheduled tasks start a small supervisor, see [Windows](/docs/advanced/windows)). More than five starts in ten minutes puts the runtime into safe mode. The deployer provides Node.js 22+, `QUETZAL_HOME`, optionally `QUETZAL_ADAPTER`, and a supervisor.

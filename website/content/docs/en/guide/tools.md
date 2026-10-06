@@ -1,11 +1,11 @@
 ---
 title: Its own tools and skills
-description: What it does often, it writes into its own tools; the tool stays with the body, the guide (a skill document) syncs with the soul, and a new body builds the tool again from it.
+description: The agent turns what it does often into its own tools. The tool stays on its body, the guide (a skill document) syncs with the soul, and a new body builds the tool again from the guide.
 ---
 
 ## What it is
 
-When it has done the same thing a few times, the steps are stable and it will need them again, it writes them into **its own tool**. From then on the tool sits in its tool list next to the built-in ones and runs in one step. While dreaming it also looks back at what it did recently, to see whether anything is worth keeping.
+When the agent has done the same thing a few times, the steps no longer change and it will need them again, it writes them into **its own tool**. From then on the tool sits in its tool list next to the built-in ones and runs in one step. While dreaming, it also looks back at what it did recently to see whether anything is worth keeping.
 
 Every tool it makes has two halves:
 
@@ -22,19 +22,19 @@ flowchart LR
 
 ## Why split it
 
-Bodies differ: the phone has the app's compact built-in environment, the laptop a full Linux, with different commands and paths. A copied script would most likely not run. So only the **intent** is synced — purpose, parameters, approach, dependencies, how to verify, pitfalls — and it builds the implementation on each body from the guide.
+Each body has a different environment. The phone has the app's small built-in environment, a Linux computer has a full Linux, and a Windows PC has PowerShell, each with its own commands and paths. A copied script would most likely not run. So only the **intent** is synced: the purpose, parameters, approach, dependencies, how to check the result and known pitfalls. On each body, the agent builds the tool itself from the guide.
 
-When it wakes in a new body and finds a guide in its soul without a matching tool here, it knows it can build one.
+When it wakes in a new body and finds a guide in its soul with no matching tool on this body, it knows it can build one.
 
-Guides use the open [Agent Skills](https://agentskills.io/specification) format, so Hermes and OpenClaw with the [soul-bridge](/docs/advanced/soul-bridge) can read them directly.
+Guides use the open [Agent Skills](https://agentskills.io/specification) format, so Hermes and OpenClaw with the [soul-bridge](/docs/advanced/soul-bridge) installed can read them directly.
 
 ## What you control
 
-- **Making a tool asks every time by default**: a tool is code that will run later, so creating or rewriting one waits for your approval. Change it under **Control → Permissions** to allow or deny.
-- **Running a tool is checked as running a command**: the category a tool declares cannot loosen the gate.
-- **It runs in a sandbox**: like its other commands, it cannot see the runtime's key directory; on timeout the whole process group is stopped; every call is audited.
-- **Control → Advanced → Tools**: see this body's tools, disable, enable or delete them (optionally with the guide). Code is not edited on the phone.
+- **By default it asks you every time before it makes a tool.** A tool is code that will run later, so creating or rewriting one waits for your approval. You can change this to allow or deny under **Control → Permissions**.
+- **Running a tool is checked the same way as running a command.** The category a tool declares cannot loosen that check.
+- **It runs in a sandbox.** Like the agent's other commands, it cannot see the runtime's key directory. If it times out, its whole process group is stopped. Every call is written to the audit log.
+- **Control → Advanced → Tools** lists this body's tools. You can disable, enable or delete them, and delete the guide along with a tool. You cannot edit the code on the phone.
 
 ## Implementation details
 
-The file format (`tool.json` + `tool.sh` / `tool.mjs`), validation rules and gating are in the source repository's [ARCHITECTURE.md §5.2](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/ARCHITECTURE.md) (Chinese); the skill document format is in the [soul repository spec](/docs/reference/soul-repo-spec).
+The file format (`tool.json` + `tool.sh` / `tool.mjs`), the validation rules and the permission checks are in the source repository's [ARCHITECTURE.md §5.2](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/ARCHITECTURE.md) (Chinese). The skill document format is in the [soul repository spec](/docs/reference/soul-repo-spec).

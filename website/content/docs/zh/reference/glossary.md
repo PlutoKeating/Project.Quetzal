@@ -8,9 +8,9 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 术语 | 英文 | 含义 |
 |---|---|---|
 | 运行基座 | runtime | Quetzal 的核心程序（单文件 `main.cjs`），让 agent 活在一具身体里 |
-| agent | agent | 住在运行基座里的那个"ta"；身份来自灵魂仓库的 `agent.json` |
-| 身体 | body | 运行着一个运行基座（或灵魂桥）的设备；同一个 agent 可以有多具身体 |
-| 身体适配器 | body adapter | 设备与核心之间唯一的边界：采样、通知、播放、设备工具 |
+| agent | agent | 住在运行基座里的 ta；身份来自灵魂仓库的 `agent.json` |
+| 身体 | body | 运行着一个运行基座（或灵魂桥）的设备：安卓手机、Linux 机器、[Windows](/docs/advanced/windows) 电脑等；同一个 agent 可以有多具身体 |
+| 身体适配器 | body adapter | 设备与核心之间唯一的边界：采样、通知、播放、设备工具；仓库自带安卓、Termux、Linux、Windows 四个 |
 | 身体数字孪生 | body twin | 把物理采样镜像为内部模型，派生精力、冷热、明暗、被拿起等身体感受 |
 | sense 事件 | sense event | 身体状态的显著变化（插电、光线、被拿起、过热…），会调整驱动力 |
 | 心脏 | heart | 决定何时醒来的模块：内驱力、生物钟、醒来抽样 |
@@ -27,7 +27,7 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 灵魂 | soul | agent 的人格与记忆（`SOUL.md`、常驻记忆、日记、笔记、身份） |
 | 灵魂目录 | soul directory | 本机 `QUETZAL_HOME/soul/`，一个 git 仓库 |
 | 灵魂仓库 | soul repository | 多具身体共享的私有 git 仓库，`<agent>.soul` |
-| 灵魂同步 | soul sync | 基座全自动的拉取、合并、推送；ta 改动灵魂目录后立即提交并推送，推送失败或真正的冲突才提醒 ta |
+| 灵魂同步 | soul sync | 基座全自动的拉取、合并、推送；ta 改动灵魂目录后立即提交并推送，推送失败或两边改动冲突时才提醒 ta |
 | 多具身体 | multiple bodies | 同时在线的几具身体直接连成一个心智：一份对话、一颗心、一份设置 |
 | 同步服务 | sync service | 让身体互相找到、打不通时中转的服务（`sync/`）；只有账户与身体登记，看不到对话与记忆 |
 | 协调者 | coordinator | 此刻持有心跳的那具身体，由它决定 ta 什么时候醒来；其他身体跟随 |
@@ -50,7 +50,7 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 网关 | gateway | 运行基座的接口：本机 `127.0.0.1:7788` 明文 HTTP + WebSocket RPC；对局域网开放时另有 `https://<地址>:7789`（HTTPS / WSS） |
 | 证书指纹 | certificate fingerprint | 网关自签名证书的 SHA-256 指纹，短格式如 `1a2b 3c4d 5e6f 7a8b`；配对时在 App 与配对通知里核对，之后 App 只认这张证书 |
 | 配对码 | pairing code | 8 位字母数字（如 ABCD-EFGH）、5 分钟有效、输错多次会锁定一段时间，用于另一台设备上的控制台连接网关；同一台机器上的浏览器不需要（网关直接放行） |
-| 网页控制台 | web console | 控制台的网页版，由运行基座的网关托管（`http://127.0.0.1:7788/`），为电脑横屏重新排布；随 npm 包装到 Linux 机器上 |
+| 网页控制台 | web console | 控制台的网页版，由运行基座的网关托管（`http://127.0.0.1:7788/`），按电脑横屏重新排布；随 npm 包装到 Linux 机器上 |
 | 启动 | ignite | 基座离线时 App 重新启动自己的前台服务（App 内置的运行基座）；离线横幅上的「启动」按钮 |
 | 安全模式 | safe mode | 10 分钟内启动超过 5 次后的保护状态：只开网关与飞书 |
 | 此刻 | Now | App 首页：状态、驱动力、ta 想分享的一句话 |
@@ -58,4 +58,5 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 主动消息 | proactive message | ta 自己醒来时用 `send_message` 发出的消息 |
 | hands | hands | 预留的屏幕与应用操作接口（尚未实现） |
 | 身体接口 | body interface | Quetzal App 在本机提供给内置运行基座的身体能力（传感器、通知、相机、麦克风、定位……），只认令牌，地址与令牌在 `secrets/body.json` |
-| 家目录 | QUETZAL_HOME | 运行基座的全部数据所在，默认安卓 App 数据目录下的 `files/home/quetzal`（旧的 Termux 安装为 `~/quetzal`）、Linux `~/.quetzal`，可用环境变量改 |
+| 身体助手 | body helper | Windows 上控制台托盘在登录时启动的 `windows-body.mjs`。开机任务里的运行基座看不到桌面，通知、截图、剪贴板、打开、播放、拍照、录音由它完成；端口与令牌在 `secrets\desktop-body.json` |
+| 家目录 | QUETZAL_HOME | 运行基座的全部数据所在。默认：安卓 App 数据目录下的 `files/home/quetzal`（旧的 Termux 安装为 `~/quetzal`）、Linux `~/.quetzal`、Windows `%LOCALAPPDATA%\Quetzal\home`；可用环境变量改 |

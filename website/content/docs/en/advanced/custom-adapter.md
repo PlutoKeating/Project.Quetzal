@@ -5,9 +5,14 @@ description: Turn a new device into a body with a few dozen lines of TypeScript:
 
 ## What an adapter is
 
-The runtime core does not know whether it runs on a phone, a Raspberry Pi or a server. Everything about the device (sensor sampling, system notifications, playing audio, device actions) comes from the **body adapter**. An adapter is an independently built ES module whose default export is a `BodyAdapter`.
+Everything about the device (sensor sampling, system notifications, playing audio, device actions) comes from the **body adapter**, so the runtime core does not need to know whether it runs on a phone, a Raspberry Pi or a server. An adapter is an ES module, built on its own, whose default export is a `BodyAdapter`.
 
-The repository ships several platform-level reference implementations: `runtime/adapters/android/` (any Android phone, body abilities served by the Quetzal app's local body interface), built as `dist/android.mjs`; `runtime/adapters/termux/` (older Termux installs: any Android phone + Termux:API, sensors detected by name), built as `dist/termux.mjs`; and `runtime/adapters/linux/` (any Linux machine: battery and temperature from `/sys`, desktop tools by detecting available programs), built as `dist/linux.mjs`.
+The repository ships several platform adapters to learn from:
+
+- `runtime/adapters/android/`, built as `dist/android.mjs`: any Android phone, with body abilities served by the Quetzal app's local body interface.
+- `runtime/adapters/termux/`, built as `dist/termux.mjs`: older Termux installs on any Android phone with Termux:API; sensors are detected by name.
+- `runtime/adapters/linux/`, built as `dist/linux.mjs`: any Linux machine; battery and temperature come from `/sys`, and desktop tools depend on which programs are available.
+- `runtime/adapters/windows/`, built as `dist/windows.mjs`: any Windows 10 1809 or later / Windows 11 PC; power comes from the system power status, and notifications, screenshots, clipboard, photos and recording use the built-in PowerShell 5.1, .NET and WinRT. See [Windows](/docs/advanced/windows).
 
 ## The interface
 
@@ -44,7 +49,7 @@ export default adapter;
 | Member | Required | Notes |
 |---|---|---|
 | `name` / `describe` | yes | `describe` is one sentence about this body, written into its self-image |
-| `sample()` | yes | One physical sample; every field optional: report what you have |
+| `sample()` | yes | One physical sample; every field is optional, so report what you have |
 | `init()` | no | Called once at start |
 | `notify()` | no | Local system notification; without it pairing codes can only be read from the token file |
 | `speak()` / `playAudio()` | no | Speak / play an audio file |
@@ -76,11 +81,11 @@ flowchart TB
   EV --> H[heart: adjust drives and re-sample]
 ```
 
-Sampling intervals adapt: two minutes while things change, stretching to ten when calm. Sampling never calls a model and is not a wake-up.
+Sampling intervals adapt: two minutes while things change, stretching to ten when calm. Sampling never calls a model and does not count as a wake-up.
 
 ## What the Android adapter provides (reference)
 
-The same abilities as below, implemented natively by the app (Camera2 for photos; location falls back to the last known fix when no new one arrives); see [Adapter interface](/docs/reference/adapter-interface). The older Termux adapter:
+The Android adapter has the same abilities as the Termux adapter below, implemented natively by the app (Camera2 for photos; location falls back to the last known fix when no new one arrives); see [Adapter interface](/docs/reference/adapter-interface). The older Termux adapter provides:
 
 `sample()`: battery / charging / temperature / health, light and motion (sensors detected by name; absent ones are not reported); `notify()` (with an "Open Quetzal" button), `playAudio()`; tools `take_photo`, `record_audio`, `location`, `vibrate`, `torch`, `clipboard`, `read_sensor`. No `speak` (many phones have no system TTS); speech comes from the runtime's `voice_speak` (Azure Speech).
 
