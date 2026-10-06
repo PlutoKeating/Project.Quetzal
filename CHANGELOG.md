@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.6
+
+- **复读会被截停**：模型偶尔陷入复读，同一段文字反复出现、越写越长。现在一出现就截停：那段输出丢掉，基座提醒 ta 换个思路接着做；连续三次仍复读就停下来如实告诉你。正常的长回复、代码、表格和文件列表不受影响。
+
+- **Repetition loops are cut off**: the model occasionally falls into a loop, repeating the same text at ever greater length. Now it is stopped as soon as that happens: the output is discarded and the runtime reminds the agent to take another approach; after three loops in a row the turn ends and says so plainly. Normal long replies, code, tables and file lists are unaffected.
+
 ## 1.1.5
 
 - **不再编造过程记录**：对话历史里，ta 自己每条回复的开头附着那一轮的过程记录，模型有时照着这个格式在新回复里自己编一段，越写越长，变成上千字没有意义的路径。现在时间与过程记录放在回复之前一条单独的附注里，ta 的回复只留原文。
