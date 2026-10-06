@@ -2,6 +2,14 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.3
+
+- **不再出现空白回复「……」**：长时间连续做事（几十上百步工具调用）后，模型最后一步有时什么也不输出（多半是输出长度用完在思考上），以前这一轮就以「……」结束。现在这一步不算结束：基座提醒 ta 直接把结果告诉你，最多两次；仍然没有文字时，回复会写明做了几步、没能把结果说出来。
+- **官网下载页兼容旧手机的浏览器**：页面脚本跑不起来时（比如 Chromium 79 内核的系统浏览器），「下载 Quetzal App」按钮照样在，直接下载最新版本。
+
+- **No more blank "……" replies**: after long runs of work (dozens or hundreds of tool calls), the model's last step sometimes produced nothing at all (usually because it spent its output budget thinking), and the turn ended with "……". Such a step no longer ends the turn: the runtime reminds the agent to just tell you the result, up to twice; if there is still no text, the reply says how many steps were done and that the result could not be put into words.
+- **Download page works on old phone browsers**: when the page script cannot run (for example a system browser on Chromium 79), the "Download Quetzal app" button is still there and downloads the latest version.
+
 ## 1.1.2
 
 **一个链接接入：不用再去 GitHub 找任何页面。**
