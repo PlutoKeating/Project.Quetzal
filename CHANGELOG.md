@@ -2,6 +2,22 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.1.13
+
+- **托盘图标代表后台的 Quetzal**：只要运行基座在跑，右上角就有 Quetzal 的图标，和控制台窗口开没开无关；登录桌面时自动出现，基座停了就收起。菜单：
+  - **打开 Quetzal**：没有窗口就打开，已经开着就提到最前。
+  - **急停 · 本机** / **急停 · 全部设备**。
+  - **退出**：停掉后台的运行基座，整个 Quetzal 退出（开机自启照旧）。
+- 1.1.11 的托盘图标点了没反应、关窗就消失（初始化时调用了 Linux 不支持的功能），一并修好；关窗现在只是隐藏窗口。
+- 桌面控制台只开一个：再从应用列表点 Quetzal，会把已有的窗口提到最前。
+
+- **The tray icon stands for Quetzal running in the background**: as long as the runtime is running, the Quetzal icon is in the top-right tray, whether or not the console window is open; it appears when you log in and goes away when the runtime stops. Menu:
+  - **Open Quetzal**: opens the window, or brings it to the front if it's already open.
+  - **Emergency stop · this device** / **Emergency stop · all devices**.
+  - **Quit**: stops the runtime in the background, so all of Quetzal exits (it still starts at boot).
+- The 1.1.11 tray icon did nothing when clicked and vanished when the window closed (setup called something Linux doesn't support); that's fixed, and closing the window now just hides it.
+- Only one desktop console runs: clicking Quetzal in the app list again brings the existing window to the front.
+
 ## 1.1.12
 
 - **「最新版本」取 GitHub 与 npm 两者中较老的**：App 和桌面控制台发在 GitHub Release，电脑上的运行基座发在 npm，两边上线有先后。官网下载页、安卓 App 和桌面版的「检查更新」现在都只认两边都已经有的版本，不会出现拿到了新的 App、电脑上装到的却还是旧运行基座的情况。
