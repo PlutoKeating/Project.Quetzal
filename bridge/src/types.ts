@@ -33,4 +33,5 @@ export interface BridgeConfig {
   branch: string;
   body: string; // 这具身体的名字
   poll: number; // 守护模式下拉取远端的间隔（秒，0 = 只在本地变化与钩子触发时同步）
+  agentId?: string; // 同步服务批准时给的 agent id（新建的 agent 由这里决定 agent.json 的 id）
 }

@@ -2,6 +2,11 @@
 // soul-bridge：把 Hermes Agent / OpenClaw 接入 agent 的灵魂仓库，随时插拔。
 // 这些命令由框架里的 agent 按技能说明代为执行（skills/soul-bridge/SKILL.md），用户不需要使用命令行。
 //
+//   connect [--framework hermes|openclaw] [--home <目录>] [--name <显示名>] [--agent <短名>] [--body <身体名>] [--server <https://…>]
+//          推荐的接入方式（一个链接）：生成本机部署密钥 → 向同步服务申请绑定（带上部署公钥）→ 立即输出给人的链接与核对词后退出；
+//          后台等人批准：同步服务经 GitHub 把部署密钥加到灵魂仓库、告诉这里仓库地址 → 克隆、导入、钩子、后台服务、首次同步、自检全自动。
+//          人不需要打开 GitHub、不需要令牌、不需要复制公钥。已经接入的再运行一次 = 换成本机专属的部署密钥与规范的仓库地址。
+//   connect --wait   等后台接入完成（最长 20 分钟），输出结果
 //   init   [--framework hermes|openclaw] [--repo <owner/name | git 地址>] [--agent <短名>] [--name <显示名>]
 //          [--home <目录>] [--body <身体名>] [--poll <秒>]
 //          一条命令完成：识别框架 → 生成部署密钥 → （有 gh 或 GITHUB_TOKEN 时）创建私有仓库并添加可写部署密钥
@@ -19,9 +24,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { frameworks, detect } from "./frameworks/index.ts";
-import { loadConfig, saveConfig, keyPath, repoDir, dirOf, listAgents } from "./config.ts";
+import { loadConfig, saveConfig, keyPath, repoDir, dirOf, listAgents, ROOT } from "./config.ts";
 import { repoOf, syncOnce, VERSION } from "./bridge.ts";
 import { checkRemote } from "../../runtime/src/memory/soul-repo.ts";
 import { runDaemon, installService, removeService } from "./service.ts";
@@ -30,6 +35,10 @@ import { fingerprint } from "../../runtime/src/mesh/identity.ts";
 import { selfUpdate } from "./release.ts";
 import { shJoin } from "./quote.ts";
 import { parseGithub, sshUrl, whoami, ensurePrivateRepo, addDeployKey } from "./github.ts";
+import { startBinding, pollBinding, serverOrigin } from "../../runtime/src/mesh/binding.ts";
+
+const OFFICIAL_SYNC = "https://sync.quetzal.plutokeating.beer";
+const connectState = () => path.join(ROOT, "connect.json");
 import type { BridgeConfig } from "./types.ts";
 
 const CLI = fileURLToPath(import.meta.url);
@@ -47,13 +56,98 @@ async function attach(agent: string) {
   say(await installService(c, CLI));
 }
 
-async function init() {
+/** 识别框架、家目录与显示名（init 与 connect 共用）。 */
+function setup() {
   const found = detect();
   const framework = opt("framework") ?? (found.length === 1 ? found[0] : undefined);
   if (!framework || !frameworks[framework]) throw new Error(found.length > 1 ? `本机同时有 ${found.join("、")}，请用 --framework 指定` : `没有检测到 Hermes 或 OpenClaw，请用 --framework 与 --home 指定`);
   const fw = frameworks[framework];
   const home = opt("home") ?? fw.defaultHome();
-  const displayName = opt("name") ?? fw.guessName?.(home);
+  return { framework, fw, home, displayName: opt("name") ?? fw.guessName?.(home) };
+}
+
+/** 一个链接接入：申请绑定（带部署公钥），输出链接与核对词，后台等待。 */
+async function connect() {
+  if (args.includes("--wait")) return connectWait();
+  const { framework, fw, home, displayName } = setup();
+  const existing = listAgents().map((a) => loadConfig(a)).find((x) => x.framework === framework && x.home === home);
+  const agent = opt("agent") ?? existing?.agent ?? (slug(displayName ?? "") || "agent");
+  const prev = existing ?? (listAgents().includes(agent) ? loadConfig(agent) : undefined);
+  const body = opt("body") ?? prev?.body ?? slug(`${framework}-${os.hostname()}`);
+  const c: BridgeConfig = { agent, framework, home, remote: prev?.remote ?? "", branch: prev?.branch ?? opt("branch") ?? "main", body, poll: prev?.poll ?? Number(opt("poll") ?? 300), ...(prev?.agentId ? { agentId: prev.agentId } : {}) };
+  saveConfig(c);
+  if (!fs.existsSync(keyPath(agent))) execFileSync("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", `soul-bridge@${body}`, "-f", keyPath(agent)], { stdio: "ignore" });
+  let id: { id?: string; displayName?: string } = {};
+  try { id = JSON.parse(fs.readFileSync(path.join(repoDir(agent), "agent.json"), "utf8")); } catch {}
+  const server = serverOrigin(opt("server") ?? OFFICIAL_SYNC);
+  const start = await startBinding(server, {
+    agent: { ...(id.id ? { id: id.id } : {}), name: id.displayName ?? displayName ?? agent }, // 读不到灵魂仓库时不报 agent id：批准的人选
+    body, kind: "bridge", nodeKey: nodeKey(agent).nodeKey, version: VERSION, soulKey: fs.readFileSync(keyPath(agent) + ".pub", "utf8").trim(),
+  });
+  // 设备码只交给后台进程（文件 0600），不出现在命令行参数与输出里
+  const secret = path.join(dirOf(agent), "connect-device.json");
+  fs.writeFileSync(secret, JSON.stringify({ server, start }), { mode: 0o600 });
+  fs.writeFileSync(connectState(), JSON.stringify({ status: "waiting", agent, link: start.verification_uri_complete, check: start.check ?? "", expires: Date.now() + start.expires_in * 1000 }, null, 2));
+  const child = spawn(process.execPath, [CLI, "connect-finish", "--agent", agent], { detached: true, stdio: "ignore" });
+  child.unref();
+  say(JSON.stringify({
+    needHuman: true,
+    say: `点这个链接批准我接入（${fw.label}）：${start.verification_uri_complete}\n核对词：${start.check ?? ""}（打开的页面上应当显示同样的 3 个表情）`,
+    link: start.verification_uri_complete, check: start.check ?? "",
+    next: `把 say 原样发给对方，然后运行：${shJoin([process.execPath, CLI, "connect", "--wait"])}`,
+    expiresInSeconds: start.expires_in,
+  }, null, 2));
+}
+
+/** 后台：等人批准 → 采用链接好的灵魂仓库 → 完成接入。结果写进 connect.json。 */
+async function connectFinish() {
+  const agent = opt("agent")!;
+  const secret = path.join(dirOf(agent), "connect-device.json");
+  const write = (o: object) => fs.writeFileSync(connectState(), JSON.stringify({ agent, ...o }, null, 2));
+  try {
+    const { server, start } = JSON.parse(fs.readFileSync(secret, "utf8"));
+    const b = await pollBinding(server, start, AbortSignal.timeout(Math.max(60, start.expires_in + 900) * 1000));
+    fs.rmSync(secret, { force: true });
+    const { soul, ...binding } = b;
+    fs.writeFileSync(path.join(dirOf(agent), "sync.json"), JSON.stringify(binding, null, 2), { mode: 0o600 });
+    const c = loadConfig(agent);
+    if (soul && "remote" in soul) { c.remote = soul.remote; } // 规范的地址与本机专属的部署密钥（不再借用个人 SSH 密钥的别名）
+    else if (!c.remote) throw new Error(soul && "error" in soul ? `没能链接灵魂仓库：${soul.error}` : "同步服务没有给出灵魂仓库（它还没有配置 GitHub App）");
+    c.agentId = b.agent || c.agentId;
+    saveConfig(c);
+    const repo = repoOf(c);
+    const how = await repo.ensure();
+    if (how === "initialized") throw new Error("仓库还是访问不了（部署密钥没有生效）");
+    await repo.pull();
+    const r = await syncOnce(c);
+    await attach(agent);
+    await installModules(() => {}).catch(() => false); // 多具身体的近况：组件装不上也不影响灵魂同步
+    write({ status: "done", account: b.account, repo: soul && "repo" in soul ? soul.repo : c.remote, body: c.body, changed: { native: r.changedNative.length, soul: r.changedSoul.length } });
+  } catch (e) {
+    fs.rmSync(secret, { force: true });
+    write({ status: "failed", error: (e as Error).message });
+  }
+}
+
+/** 等后台接入完成。 */
+async function connectWait() {
+  const deadline = Date.now() + 20 * 60_000;
+  for (;;) {
+    let st: any = {};
+    try { st = JSON.parse(fs.readFileSync(connectState(), "utf8")); } catch {}
+    if (st.status === "done") {
+      say(`已接入：${st.agent}，身体名 ${st.body}，灵魂仓库 ${st.repo}（账户 ${st.account}）。首次同步：框架 ${st.changed?.native ?? 0} 处、灵魂 ${st.changed?.soul ?? 0} 处。`);
+      return doctor(loadConfig(st.agent), true);
+    }
+    if (st.status === "failed") { say(JSON.stringify({ ok: false, error: st.error, retry: shJoin([process.execPath, CLI, "connect"]) }, null, 2)); process.exitCode = 1; return; }
+    if (!st.status) { say("没有进行中的接入：先运行 connect"); process.exitCode = 1; return; }
+    if (Date.now() > deadline || (st.expires && Date.now() > st.expires + 16 * 60_000)) { say(JSON.stringify({ ok: false, error: "等了太久没有人批准（链接已过期）", retry: shJoin([process.execPath, CLI, "connect"]) }, null, 2)); process.exitCode = 1; return; }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+}
+
+async function init() {
+  const { framework, fw, home, displayName } = setup();
   let repoArg = opt("repo");
   const agent = opt("agent") ?? (repoArg ? slug(path.basename(repoArg).replace(/\.git$/, "").replace(/\.soul$/i, "")) : slug(displayName ?? "") || "agent");
 
@@ -102,7 +196,10 @@ async function doctor(c: BridgeConfig, brief = false) {
   add("git", (await sh("git", ["--version"])).ok, undefined, "安装 git");
   add("框架目录", fs.existsSync(c.home), c.home, "用 attach 前确认 --home 指向正确的 Hermes 家目录或 OpenClaw 工作区");
   const ls = await repoOf(c).git("ls-remote", "origin", "HEAD");
-  add("仓库访问", ls.code === 0, c.remote, "部署密钥未生效：重新运行 init，或请用户在仓库 Settings → Deploy keys 添加 status 输出的公钥（勾选写权限）");
+  add("仓库访问", ls.code === 0, c.remote, "部署密钥未生效：重新运行 connect，把新的链接发给人类");
+  // 地址里的主机是 ~/.ssh/config 的别名（没有点，如 github-personal）：多半借用了个人 SSH 密钥，它能读写人类的所有仓库
+  const host = /^[\w.-]+@([^:/]+):/.exec(c.remote)?.[1];
+  add("访问方式", !host || host.includes("."), c.remote, "灵魂仓库经 SSH 主机别名访问（可能借用了个人密钥）：运行 connect，换成本机专属的部署密钥与 git@github.com: 地址");
   let last: any = {};
   try { last = JSON.parse(fs.readFileSync(path.join(dirOf(c.agent), "last-sync.json"), "utf8")); } catch {}
   add("最近同步", !!last.at && !last.error, last.at ? `${last.at}${last.error ? `：${last.error}` : ""}` : "从未", "运行 sync 查看错误");
@@ -151,6 +248,8 @@ async function mesh(c: BridgeConfig) {
 
 async function main() {
   if (cmd === "init") return init();
+  if (cmd === "connect") return connect();
+  if (cmd === "connect-finish") return connectFinish();
   if (cmd === "version") return say(VERSION);
   if (cmd === "self-update") {
     const r = await selfUpdate();
