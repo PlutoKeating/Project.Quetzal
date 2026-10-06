@@ -122,6 +122,7 @@ export function OrbMark({ size = 20, className }: { size?: number; className?: s
   const id = useId();
   const g = `${id}g`, s = `${id}s`, h = `${id}h`;
   const v = (k: string) => `var(--ds-color-${k})`;
+  // 高光点用 orb-hi（两套主题同色）：用正文色在浅色模式下会成黑点
   // 视口 100×100，球半径 r=24，光晕半径 2.2r；球体渐变以球心左上 0.38r 为光源、半径 1.38r；高光点在 -0.42r、半径 0.2r
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden className={className}>
@@ -133,7 +134,7 @@ export function OrbMark({ size = 20, className }: { size?: number; className?: s
           <stop offset="0" style={{ stopColor: v("orb-hi") }} /><stop offset="0.25" style={{ stopColor: v("orb-mid") }} /><stop offset="0.6" style={{ stopColor: v("orb") }} /><stop offset="1" style={{ stopColor: v("orb-rim") }} />
         </radialGradient>
         <radialGradient id={h} cx="39.9" cy="39.9" r="4.8" gradientUnits="userSpaceOnUse">
-          <stop offset="0" style={{ stopColor: v("fg"), stopOpacity: 0.95 }} /><stop offset="1" style={{ stopColor: v("fg"), stopOpacity: 0 }} />
+          <stop offset="0" style={{ stopColor: v("orb-hi"), stopOpacity: 0.95 }} /><stop offset="1" style={{ stopColor: v("orb-hi"), stopOpacity: 0 }} />
         </radialGradient>
       </defs>
       <circle cx="50" cy="50" r="52.8" fill={`url(#${g})`} />

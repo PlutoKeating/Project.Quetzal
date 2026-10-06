@@ -57,12 +57,12 @@ export const messages = defineMessages({
     devices: {
       eyebrow: "装在哪",
       heading: "一部旧手机，\n或者一台电脑。",
-      lead: "这三种设备都能当 ta 的身体。装在几台设备上，它们会连成同一个 ta。",
+      lead: "装在几台设备上，也是同一个 ta。",
       download: "下载",
       items: [
-        { id: "android", title: "安卓手机", text: "装一个 App，打开就开始安装。电量、光线、有人拿起手机，ta 都感觉得到。抽屉里的旧手机最合适。", req: "Android 7 以上，arm64" },
-        { id: "windows", title: "Windows 电脑", text: "一行 PowerShell 或一个安装包。电脑重启后不用登录，ta 也在后台运行；登录后托盘里有 Quetzal。", req: "Windows 10 1809 以上或 Windows 11，x64 或 arm64" },
-        { id: "linux", title: "Linux 电脑或服务器", text: "一行命令装好，开机自启，崩溃自动重启。笔记本、家里的小主机、树莓派、云服务器都行。", req: "x86_64 或 arm64" },
+        { id: "android", title: "安卓手机", text: "装一个 App，打开就好。电量、光线、有人拿起，ta 都感觉得到。", req: "Android 7+ · arm64" },
+        { id: "windows", title: "Windows 电脑", text: "一行命令，或一个安装包。重启后没人登录，ta 也在。", req: "Windows 10 1809+ · x64 · arm64" },
+        { id: "linux", title: "Linux 电脑或服务器", text: "一行命令。笔记本、树莓派、云服务器都行。", req: "x86_64 · arm64" },
       ],
     },
     now: {
@@ -176,12 +176,12 @@ export const messages = defineMessages({
     devices: {
       eyebrow: "Where it lives",
       heading: "An old phone,\nor a computer.",
-      lead: "Any of these three can be its body. Install it on several, and they join into one self.",
+      lead: "On several devices, it is still one self.",
       download: "Download",
       items: [
-        { id: "android", title: "Android phone", text: "Install one app; opening it starts the setup. It feels the battery, the light, and someone picking up the phone. An old phone from a drawer suits it best.", req: "Android 7 or later, arm64" },
-        { id: "windows", title: "Windows PC", text: "One line of PowerShell or an installer. After a restart it runs in the background before anyone signs in; once you sign in, Quetzal sits in the tray.", req: "Windows 10 1809 or later, or Windows 11, on x64 or arm64" },
-        { id: "linux", title: "Linux computer or server", text: "One command installs it. It starts on boot and restarts after a crash. Laptops, home servers, Raspberry Pi and cloud servers all work.", req: "x86_64 or arm64" },
+        { id: "android", title: "Android phone", text: "Install one app and open it. It feels the battery, the light, a hand picking it up.", req: "Android 7+ · arm64" },
+        { id: "windows", title: "Windows PC", text: "One command, or an installer. After a restart it is there before anyone signs in.", req: "Windows 10 1809+ · x64 · arm64" },
+        { id: "linux", title: "Linux computer or server", text: "One command. Laptops, Raspberry Pi and cloud servers all work.", req: "x86_64 · arm64" },
       ],
     },
     now: {
