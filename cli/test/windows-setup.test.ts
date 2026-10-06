@@ -19,7 +19,7 @@ test("版本号与资产名", () => {
   assert.equal(viVersion("1.4.0-rc.1"), "1.4.0.0");
   assert.throws(() => viVersion("1.4"));
   assert.equal(setupName("1.4.0", "arm64"), "quetzal-1.4.0-windows-arm64-setup.exe");
-  assert.deepEqual(RUNTIME_FILES, ["main.cjs", "windows.mjs", "windows-body.mjs", "windows-supervise.mjs", "srt.mjs"]);
+  assert.deepEqual(RUNTIME_FILES, ["main.cjs", "windows.mjs", "windows-body.mjs", "windows-supervise.mjs", "srt.mjs", "mermaid.mjs"]);
 });
 
 test("控制台压缩包解开后的目录：有没有顶层目录都能找到 quetzal-console.exe", () => {

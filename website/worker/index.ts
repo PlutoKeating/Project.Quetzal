@@ -20,7 +20,7 @@ import { NPM_LATEST_API, capReleases, pickLatest } from "../app/lib/versions";
 const REPO = "PlutoKeating/Project.Quetzal";
 const TAG = /^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/;
 // 资产：APK、Linux 控制台包、合并的 SHA256SUMS 与它的签名 SHA256SUMS.sig（旧版本还有按架构分开的 SHA256SUMS-linux-*）
-const ASSET = /^(?:quetzal-[A-Za-z0-9.+-]+\.(?:apk|tar\.gz)|SHA256SUMS(?:\.sig|-[a-z0-9-]+)?)$/;
+const ASSET = /^(?:quetzal-[A-Za-z0-9.+-]+\.(?:apk|tar\.gz|exe)|SHA256SUMS(?:\.sig|-[a-z0-9-]+)?)$/;
 // RELEASE_TTL：按 tag 取的发布 JSON（只用来核对 /dl/ 资产的 digest）；SMALL_MAX：不超过它的资产整个读进来核对，不符直接 502
 const API_TTL = 300, DL_TTL = 7 * 86400, STALE_TTL = 7 * 86400, RELEASE_TTL = 300, SMALL_MAX = 1 << 20;
 

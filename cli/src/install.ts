@@ -19,7 +19,7 @@ export function bundled() {
   const web = path.join(dir, "web");
   return {
     dir, version,
-    files: ["main.cjs", "linux.mjs"].map((name) => ({ name, from: path.join(dir, name) })),
+    files: ["main.cjs", "linux.mjs", "mermaid.mjs"].map((name) => ({ name, from: path.join(dir, name) })),
     dirs: fs.existsSync(path.join(web, "index.html")) ? [{ name: "web", from: web }] : [],
   };
 }

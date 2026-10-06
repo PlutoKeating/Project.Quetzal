@@ -273,7 +273,7 @@ jobs:
           if-no-files-found: error
 
   # Windows 安装包：x64 与 arm64 各在原生的 Windows runner 上构建。控制台由 console/tool/build-windows.ps1 打包；运行基座 npm ci + build
-  # （dist/main.cjs、windows.mjs、windows-body.mjs、windows-supervise.mjs、srt.mjs；srt-win.exe 取自 sandbox-runtime 包里对应架构的 vendor 目录）；
+  # （dist/main.cjs、windows.mjs、windows-body.mjs、windows-supervise.mjs、srt.mjs、mermaid.mjs；srt-win.exe 取自 sandbox-runtime 包里对应架构的 vendor 目录）；
   # 网状层原生组件按 runtime/tool/mesh-modules.lock.json 的 win32-<架构> 条目核对 sha512 装好；命令行 quetzal.mjs 与网页控制台取自 npm-pack 构建的包
   # （与 Linux 发布的是同一份）；Node.js / Git / Python 与 NSIS 按 cli/windows/deps.lock.json 下载核对；最后 makensis 编译 setup.exe。
   windows:

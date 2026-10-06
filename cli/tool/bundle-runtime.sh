@@ -7,7 +7,7 @@ RT=$(node -p "require('../runtime/package.json').version"); PKG=$(node -p "requi
 [ "$RT" = "$PKG" ] || { echo "版本号不一致：runtime $RT，cli $PKG"; exit 1; }
 ( cd ../runtime && { [ -d node_modules ] || npm ci --no-audit --no-fund 2>&1 | tail -20; } && npm run build --silent )
 rm -rf dist/runtime && mkdir -p dist/runtime
-cp ../runtime/dist/main.cjs ../runtime/dist/linux.mjs dist/runtime/
+cp ../runtime/dist/main.cjs ../runtime/dist/linux.mjs ../runtime/dist/mermaid.mjs dist/runtime/ # mermaid.mjs：桌面控制台没有网页引擎时的 Mermaid 兜底渲染
 cp ../runtime/tool/mesh-modules.lock.json ../runtime/tool/install-mesh-modules.mjs dist/runtime/ # 网状层原生组件：安装时按锁定的 sha512 下载核对
 printf '%s' "$RT" > dist/runtime/VERSION
 if [ "${QUETZAL_NO_WEB:-}" = 1 ]; then

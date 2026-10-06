@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { readLock, entries, verified } from "./fetch-deps.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const RUNTIME_FILES = ["main.cjs", "windows.mjs", "windows-body.mjs", "windows-supervise.mjs", "srt.mjs"];
+export const RUNTIME_FILES = ["main.cjs", "windows.mjs", "windows-body.mjs", "windows-supervise.mjs", "srt.mjs", "mermaid.mjs"];
 const DEP_NAMES = { node: "node.msi", git: "git.exe", python: "python.exe" };
 
 /** 版本号 → VIProductVersion 要的四段数字（预发布后缀去掉）。 */
