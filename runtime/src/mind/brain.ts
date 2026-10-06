@@ -16,6 +16,7 @@ import * as soul from "../memory/soul-sync.ts";
 import { addExperience, setOpenLoops, markBusy, isBusy, nudge, stopped, type WakeKind } from "../heart/heart.ts";
 import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
+import { Runaway, watchRunaway } from "./runaway.ts";
 import { Session, SessionTimeout, Interrupted, summarize } from "./activity.ts";
 import { intake, redactArgs } from "./secrets.ts";
 import { noteSilence } from "../voice/hearing.ts";
@@ -62,24 +63,35 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
  */
 /** 模型某一步什么也没输出时的提醒（基座的话，不是对方说的）。 */
 const BLANK = "（基座提醒，不是对方说的话：你上一步什么也没有输出——没有调用工具，也没有文字。还要做事就接着调用工具；做完了就用文字回复对方：做了什么、发现了什么、结论或下一步。）";
+const RUNAWAY = "（基座提醒，不是对方说的话：你上一步的输出陷入了重复（同一段文字反复出现），已被截停，那段输出已丢弃。换个思路，简短地继续：还要做事就调用工具，做完了就直接回复对方。）";
 const BLANK_TRUNCATED = "（基座提醒，不是对方说的话：你上一步的输出到了长度上限，没有留下任何给对方的文字。不要再长篇思考，直接用文字回复对方：做了什么、发现了什么、结论或下一步。）";
 
 async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>) {
   const tools: ToolDef[] = [...allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
   const steps: Step[] = [];
-  let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "", blanks = 0;
+  let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "", blanks = 0, runaways = 0;
   for (let i = 0; !finish; i++) {
     s.check(); s.touch();
     if (stopped()) throw new Error("急停中，已停下");
     await drain(messages, s);
     s.emit({ kind: "step", step: i + 1 });
     let r: Awaited<ReturnType<typeof chat>>;
+    const watch = watchRunaway(() => s.stopRunaway());
     try {
       r = await chat({
         messages, tools, maxTokens: config.brain.maxOutputTokens, session: s.id,
-        signal: s.beginLLM(), onChunk: () => s.touch(), onText: (t) => s.delta(t),
+        signal: s.beginLLM(), onChunk: () => s.touch(), onText: (t) => { s.delta(t); watch(t); },
       });
     } catch (e) {
+      if (e instanceof Runaway && !s.signal.aborted) {
+        // 复读被截停：这段输出丢掉不进上下文，提醒她换个思路；连续三次仍复读就结束这一轮
+        s.flush();
+        log("brain", `第 ${i + 1} 步输出陷入重复，已截停（${++runaways}/3）`);
+        s.emit({ kind: "text", step: i + 1, text: "（输出陷入重复，已截停）", final: false });
+        if (runaways >= 3) { text = "（我的输出连续几次陷入重复，先停在这里。你可以换个说法再问我。）"; break; }
+        messages.push({ role: "user", content: RUNAWAY });
+        continue;
+      }
       if (!(e instanceof Interrupted) || s.signal.aborted) throw e;
       s.flush(); // 被打断：保留已经说出的部分，下一步带着对方的新消息继续
       const partial = stripStamp(s.stepText).trim();

@@ -8,6 +8,7 @@
 import crypto from "node:crypto";
 import { config } from "../config.ts";
 import { bus, type Activity } from "../bus.ts";
+import { Runaway } from "./runaway.ts";
 
 export const SESSION_IDLE_MS = 120_000;
 export const HEARTBEAT_MS = 15_000;
@@ -151,6 +152,8 @@ export class Session {
   endLLM() { this.llm = undefined; }
   /** 打断正在进行的模型输出；此刻没有模型调用（例如正在执行工具）时返回 false，消息会在工具结束后立即处理。 */
   interrupt(): boolean { if (!this.llm) return false; this.llm.abort(new Interrupted()); return true; }
+  /** 截停陷入复读的模型输出（见 runaway.ts）。 */
+  stopRunaway() { this.llm?.abort(new Runaway()); }
 
   /** 模型流式输出的文字，合并后每 200ms 广播一次。 */
   delta(text: string) {
