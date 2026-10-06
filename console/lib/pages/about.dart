@@ -1,6 +1,6 @@
 // 关于：简介，与一张「版本」卡片（当前版本 + 一个动作：已是最新 / 升级 / 进度）。三种形态共用同一页：
 //   安卓 App：App 自身的更新走 updater.dart（下载 APK、核对、交给系统安装器），运行基座的升级走安装向导（新 App 内置的版本）；
-//   Linux 桌面版与网页版：让运行基座在它所在的机器上后台重跑一键安装脚本（网关方法 selfUpdate，Linux 适配器实现），运行基座、网页控制台与原生控制台一起更新，
+//   桌面版（Linux / Windows）与网页版：让运行基座在它所在的机器上后台重跑一键安装脚本（网关方法 selfUpdate，由各平台的适配器实现），运行基座、网页控制台与原生控制台一起更新，
 //     服务重启一次后版本号会变；桌面版装完还要重新打开控制台才用上新版的界面。
 import 'dart:async';
 import 'dart:convert';
@@ -122,7 +122,7 @@ class _AboutPageState extends State<AboutPage> {
     if (mounted) setState(() => checking = false);
   }
 
-  /// Linux 桌面版 / 网页版：让运行基座在它那台机器上后台重跑安装脚本。
+  /// 桌面版 / 网页版：让运行基座在它那台机器上后台重跑安装（Linux 是安装脚本，Windows 是 install.ps1，由各自的适配器实现）。
   Future<void> _selfUpdate() async {
     final to = latest?.version ?? '最新版';
     if (!await confirm(context, '更新到 $to', '约一分钟，期间会短暂断开。')) return;
@@ -134,7 +134,7 @@ class _AboutPageState extends State<AboutPage> {
     _startPoll();
   }
 
-  /// Linux 桌面版：升级后重新打开控制台（console/current 下的新版本以 --replace 接管单实例，见 platform/tray_io.dart）。
+  /// 桌面版：升级后重新打开控制台（当前版本——Linux 的 console/current、Windows 的 console\current.txt 指的那个——以 --replace 接管单实例，见 platform/tray_io.dart）。
   Future<void> _relaunch() async {
     try { await relaunchConsole(); } catch (e) { if (mounted) toast(context, '没能重新打开：$e'); }
   }

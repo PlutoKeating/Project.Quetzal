@@ -1,4 +1,4 @@
-// 原生平台（安卓、Linux 桌面）：HttpOverrides 接管所有 HttpClient。
+// 原生平台（安卓、Linux / Windows 桌面）：HttpOverrides 接管所有 HttpClient。
 //   钉住或正在捕获的 host:port（pins.handles）：直连（不走代理），TLS 上下文不带系统 CA，每张证书都交给 pins.accept 按指纹判定——
 //   这样即使有人拿到这个名字的 CA 签发证书也替换不了。其他地址（GitHub、官网等）照常用系统 CA，不受影响。
 import 'dart:io';

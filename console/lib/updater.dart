@@ -2,7 +2,7 @@
 //   信任根是内置的发布公钥（Ed25519）：SHA256SUMS.sig 验不过、SHA256SUMS 里没有这个 APK、哈希不符——一律拒绝（宁可不更新）；
 //   镜像源与 GitHub 都只是搬运者。交给系统安装器之前，原生侧再核对 APK 的签名证书与正在运行的 App 一致。
 //   装好新 App 之后，运行基座的升级由现有的流程接管：新 App 内置的版本与运行中的不同 → 外壳顶部的「升级」横幅 → 安装向导第 4 步。
-//   这里只做 App 这一层；网页版与 Linux 桌面版的升级在装运行基座的那台机器上再跑一次安装命令。
+//   这里只做 App 这一层；网页版与桌面版（Linux / Windows）的升级由运行基座在它那台机器上重跑安装（关于页的 selfUpdate）。
 //   原生侧（MethodChannel quetzal/updater，MainActivity.kt）：自己的版本号、缓存目录、是否允许安装未知应用、打开对应设置页、用 FileProvider 把 APK 交给系统安装器。
 import 'dart:async';
 import 'dart:convert';
