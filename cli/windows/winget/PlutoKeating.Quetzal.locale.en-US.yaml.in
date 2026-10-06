@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: PlutoKeating.Quetzal
+PackageVersion: {{VERSION}}
+PackageLocale: en-US
+Publisher: Quetzal
+PublisherUrl: https://quetzal.plutokeating.beer
+PackageName: Quetzal
+PackageUrl: https://quetzal.plutokeating.beer
+License: AGPL-3.0-only
+LicenseUrl: https://github.com/PlutoKeating/Project.Quetzal/blob/main/LICENSE
+ShortDescription: An open-source agent runtime that lives on your computer, remembers what you said, and wakes up on its own.
+Tags:
+  - agent
+  - ai
+ReleaseNotesUrl: https://github.com/PlutoKeating/Project.Quetzal/releases/tag/v{{VERSION}}
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

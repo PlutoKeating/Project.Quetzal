@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.10.0.schema.json
+PackageIdentifier: PlutoKeating.Quetzal
+PackageVersion: {{VERSION}}
+PackageLocale: zh-CN
+Publisher: Quetzal
+PublisherUrl: https://quetzal.plutokeating.beer
+PackageName: Quetzal
+PackageUrl: https://quetzal.plutokeating.beer/zh
+License: AGPL-3.0-only
+LicenseUrl: https://github.com/PlutoKeating/Project.Quetzal/blob/main/LICENSE
+ShortDescription: 开源的 agent 运行基座：住在你的电脑上，记得你说过的话，自己醒来。
+Tags:
+  - agent
+  - ai
+ReleaseNotesUrl: https://github.com/PlutoKeating/Project.Quetzal/releases/tag/v{{VERSION}}
+ManifestType: locale
+ManifestVersion: 1.10.0
