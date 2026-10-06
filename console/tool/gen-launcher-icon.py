@@ -7,6 +7,8 @@
   android/app/src/main/res/mipmap-*/ic_launcher_foreground.png  自适应图标前景（Android 8+，108dp，球在中央安全区）
   android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml    自适应图标：前景 + 背景色 #202020
   android/app/src/main/res/values/ic_launcher_background.xml
+  windows/runner/resources/app_icon.ico                        Windows 桌面版的程序图标（16–256，每个尺寸单独渲染，透明底）
+  assets/tray/icon.ico                                          Windows 托盘图标（由 assets/tray/icon.png 缩放，与 Linux 托盘同一个球）
 用法：python3 tool/gen-launcher-icon.py   依赖 Pillow、numpy。"""
 import colorsys, os
 import numpy as np
@@ -63,4 +65,9 @@ open(os.path.join(res, "mipmap-anydpi-v26", "ic_launcher.xml"), "w").write(
 open(os.path.join(res, "values", "ic_launcher_background.xml"), "w").write(
     f'<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">{BG}</color>\n</resources>\n')
 render(512, .30, BG).save(os.path.join(os.path.dirname(__file__), "..", "..", "docs", "assets", "readme", "app-icon.png"), optimize=True)  # 商店 / 文档用的 512 预览
-print("已生成启动图标：5 个密度的传统图标与自适应前景、mipmap-anydpi-v26/ic_launcher.xml、values/ic_launcher_background.xml、docs/assets/readme/app-icon.png")
+here = os.path.dirname(__file__)
+ico = [render(n, .30) for n in (256, 64, 48, 32, 24, 16)]  # Windows：程序图标（资源管理器、任务栏、Alt-Tab），小尺寸单独渲染才清楚
+ico[0].save(os.path.join(here, "..", "windows", "runner", "resources", "app_icon.ico"), sizes=[im.size for im in ico], append_images=ico[1:])
+tray = Image.open(os.path.join(here, "..", "assets", "tray", "icon.png")).convert("RGBA")  # Windows 托盘要 .ico：与 Linux 托盘同一张图
+tray.save(os.path.join(here, "..", "assets", "tray", "icon.ico"), sizes=[(n, n) for n in (16, 20, 24, 32, 40, 48, 64)])
+print("已生成启动图标：5 个密度的传统图标与自适应前景、mipmap-anydpi-v26/ic_launcher.xml、values/ic_launcher_background.xml、docs/assets/readme/app-icon.png、windows/runner/resources/app_icon.ico、assets/tray/icon.ico")
