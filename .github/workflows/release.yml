@@ -340,6 +340,10 @@ jobs:
       - name: 下载并核对 Node.js / Git / Python 官方安装包与 NSIS（cli/windows/deps.lock.json）
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
+          # NSIS 在 SourceForge：它的多次跳转会让 Node 的下载组件在 x64 runner 上稳定崩溃，先用系统自带的 curl.exe 取下来，再由下载脚本按锁定的 SHA-256 核对（核对过就不再下载）
+          $tools = Join-Path $env:RUNNER_TEMP 'tools'; New-Item -ItemType Directory -Force $tools | Out-Null
+          $nsis = (Get-Content cli/windows/deps.lock.json -Raw | ConvertFrom-Json).tools.nsis.any
+          curl.exe -fsSL --retry 3 --proto '=https' -o (Join-Path $tools $nsis.file) $nsis.url
           # 整个下载脚本最多跑 3 次：下载组件偶尔在进程层面崩溃（不是能被脚本内重试接住的错误）；已核对过的文件不会重新下载
           foreach ($a in @(@($env:ARCH, (Join-Path $env:RUNNER_TEMP 'deps')), @('--tool', 'nsis', (Join-Path $env:RUNNER_TEMP 'tools')))) {
             for ($i = 1; ; $i++) {
