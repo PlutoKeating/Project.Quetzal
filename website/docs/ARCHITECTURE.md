@@ -34,9 +34,9 @@ flowchart LR
 
 ## 2. 设计系统
 
-`app/design-system/designSystem.ts` 是唯一事实源，分为：语义色（深 / 浅两套，键一致）、圆角与描边、阴影与光效（引用色变量，随明暗切换）、透明度、动效时长与曲线、字体与字号、容器宽度与断点、矮窗口阈值。
+`app/design-system/designSystem.ts` 是唯一事实源，分为：语义色（深 / 浅两套，键一致）、圆角与描边、阴影与光效（引用色变量，随明暗切换）、文字阴影（`text-shadow-*`，同样引用色变量：下载页大标题用 `fg-display` 与 `text-shadow-display`，浅色下字更黑、无阴影，深色下 45% 黑的阴影）、透明度、动效时长与曲线、字体与字号、容器宽度与断点、矮窗口阈值。
 
-`scripts/gen-tokens.ts` 生成三段 CSS：`:root` 深色变量；`prefers-color-scheme: light` 与 `[data-theme]` 的覆盖；`@theme inline` 把 Tailwind 的 `--color-*`、`--radius-*`、`--shadow-*`、`--blur-*`、`--ease-*`、`--font-*`、`--text-*`、`--container-*`、`--breakpoint-*` 命名空间先清空（`initial`）再映射到 `--ds-*` 变量。于是 Tailwind 内置调色板与阴影在本项目里不存在，页面只能用语义类名。另有 `short:` 变体对应矮窗口（横屏手机）。
+`scripts/gen-tokens.ts` 生成三段 CSS：`:root` 深色变量；`prefers-color-scheme: light` 与 `[data-theme]` 的覆盖；`@theme inline` 把 Tailwind 的 `--color-*`、`--radius-*`、`--shadow-*`、`--blur-*`、`--text-shadow-*`、`--ease-*`、`--font-*`、`--text-*`、`--container-*`、`--breakpoint-*` 命名空间先清空（`initial`）再映射到 `--ds-*` 变量。于是 Tailwind 内置调色板与阴影在本项目里不存在，页面只能用语义类名。另有 `short:` 变体对应矮窗口（横屏手机）。
 
 `scripts/lint-tokens.ts` 在构建前扫描 `app/`（设计系统目录除外）。
 

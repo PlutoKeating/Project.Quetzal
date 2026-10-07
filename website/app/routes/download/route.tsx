@@ -78,7 +78,7 @@ export default function Download() {
           {/* 与控制台首页的球同比例：球体约占屏宽三成（SVG 里球的直径是画布的 48%，其余是光晕） */}
           <OrbMark size={224} className="relative size-56 sm:size-64" />
         </div>
-        <h1 className="relative -mt-4 text-5xl font-semibold tracking-tight sm:text-7xl">{t.heading}</h1>
+        <h1 className="relative -mt-4 text-5xl font-semibold tracking-tight text-fg-display text-shadow-display sm:text-7xl">{t.heading}</h1>
         <p className="mt-4 text-lg text-fg-muted sm:text-xl">{t.lead}</p>
 
         <div role="tablist" aria-label={t.tabsLabel} className="mt-12 inline-flex rounded-full border border-border p-1">

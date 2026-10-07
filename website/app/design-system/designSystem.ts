@@ -24,6 +24,8 @@ const palette = {
     border: "rgb(232 228 221 / 0.08)",
     "border-strong": "rgb(232 228 221 / 0.18)",
     fg: "#e8e4dd",
+    "fg-display": "#e8e4dd",                 // 大标题（下载页的名字）：深色下同正文
+    "display-shadow": "rgb(0 0 0 / 0.45)",   // 大标题的文字阴影：深色下把字从光晕里托出来
     "fg-muted": "#a9a49c",
     "fg-subtle": "#6f6b65",
     link: "#cfd8d5",
@@ -72,6 +74,8 @@ const palette = {
     border: "rgb(44 38 32 / 0.1)",
     "border-strong": "rgb(44 38 32 / 0.22)",
     fg: "#26221e",
+    "fg-display": "#16130f",                 // 浅色下比正文再黑一点，压得住身后的暖光
+    "display-shadow": "transparent",         // 浅色下不要阴影
     "fg-muted": "#625b53",
     "fg-subtle": "#8d857c",
     link: "#4b6560",
@@ -140,6 +144,8 @@ export const designSystem = {
     ring: "0 0 0 3px var(--ds-color-accent-soft)",
   },
   blur: { glass: "12px", halo: "90px" },
+  /** 文字阴影（text-shadow-*）：颜色引用色变量，随明暗切换 */
+  textShadow: { display: "0 2px 16px var(--ds-color-display-shadow)" },
 
   /** 透明度（用于 opacity-(--ds-opacity-*)） */
   opacity: {
