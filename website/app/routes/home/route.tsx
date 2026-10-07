@@ -44,7 +44,7 @@ export default function Home() {
             <span className="text-xs font-medium uppercase tracking-wide text-secondary-fg">{t.hero.eyebrow}</span>
           </p>
           <h1 className="max-w-4xl whitespace-pre-line text-3xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
-          <p className="max-w-3xl whitespace-pre-line text-xl italic text-fg-muted">{t.hero.titleAlt}</p>
+          <p className="-mt-3 max-w-3xl whitespace-pre-line text-xl italic text-fg-muted">{t.hero.titleAlt}</p>
           <Lead className="max-w-prose">{t.hero.lead}</Lead>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
