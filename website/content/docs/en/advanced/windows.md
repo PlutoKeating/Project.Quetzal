@@ -62,7 +62,7 @@ If the sandbox is not installed (for example the administrator prompt was declin
 
 - The `srt-sandbox` user is shared by every program on this PC that uses sandbox-runtime (Claude Code, for example). Access granted to it while Quetzal runs applies to them too.
 - Commands in the sandbox can resolve domain names (connections are still blocked), and the proxy token appears on a command line that other programs in the same session can read.
-- The installer and the sandbox program `srt-win.exe` sit in your user folder, so malware already running as you could replace them before the administrator prompt appears. Any per-user install that later asks for administrator rights has this problem.
+- The installer unpacks its files into your user folder before asking for administrator rights, so malware already running as you could replace them before the prompt appears. Once installed, the sandbox program `srt-win.exe` lives in `C:\Program Files\Quetzal`, which only administrators can change. Any per-user install that later asks for administrator rights has this problem.
 - The tools that read documents and view images do not go through the sandbox; the runtime blocks the key folder and the secret vault by resolving the real path.
 
 ## 4. Signing and Smart App Control

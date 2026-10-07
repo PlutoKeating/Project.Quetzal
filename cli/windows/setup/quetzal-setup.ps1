@@ -183,6 +183,7 @@ function Machine-Needed($found) {
   $srt = Srt-Path
   if (Test-Path -LiteralPath $srt) { if ($m.srtSha256 -ne (Sha256Hex $srt)) { return 'sandbox helper changed' } }
   if (-not $m.srtOk) { return 'sandbox not installed last time' }
+  if (-not (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Quetzal\srt-win.exe'))) { return 'sandbox helper not in Program Files' } # 1.5.5: the sandbox user must be able to read it
   return ''
 }
 

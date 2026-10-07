@@ -160,6 +160,7 @@ try {
     $tasks = Remove-Tasks
     $srt = @{ code = $null; out = 'skipped (no srt-win.exe)' }
     if ($SrtWin -and (Test-Path -LiteralPath $SrtWin)) { $srt = Srt @('uninstall'); Log "srt-win uninstall exit $($srt.code): $($srt.out)" }
+    Remove-Item -LiteralPath (Join-Path $env:ProgramFiles 'Quetzal') -Recurse -Force -ErrorAction SilentlyContinue
     Save @{ ok = ($tasks -and ($null -eq $srt.code -or $srt.code -eq 0)); tasks = $tasks; srt = $srt }
     exit 0
   }
@@ -174,6 +175,14 @@ try {
   }
 
   if ($SrtWin -and (Test-Path -LiteralPath $SrtWin)) {
+    # The sandbox user runs srt-win.exe itself (the runner half of the two-hop launch), and it cannot read anything in this
+    # user's profile (%LOCALAPPDATA%): keep a machine-wide copy under Program Files (readable by Users, writable only by admins),
+    # which the runtime prefers. Overwritten on every machine step, so it follows the version the installer brings.
+    $pf = Join-Path $env:ProgramFiles 'Quetzal'
+    New-Item -ItemType Directory -Force -Path $pf | Out-Null
+    Copy-Item -LiteralPath $SrtWin -Destination (Join-Path $pf 'srt-win.exe') -Force
+    $SrtWin = Join-Path $pf 'srt-win.exe'
+    Log "srt-win copied to $SrtWin"
     $s = Srt @('install', '--proxy-port-range', $ProxyPorts)
     if ($s.code -eq 13) { Log 'srt-win: existing install with a different config, replacing'; $s = Srt @('install', '--proxy-port-range', $ProxyPorts, '--force') }
     Log "srt-win install exit $($s.code): $($s.out)"

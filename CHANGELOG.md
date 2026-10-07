@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.5.5
+
+- Windows：ta 的命令在有人登录后能真正运行了（1.5.4 里沙箱用户读不到装在你用户目录里的沙箱程序，命令一律不执行）。安装时把沙箱程序放到 `C:\Program Files\Quetzal`，只有管理员能改。已装 1.5.4 的电脑升级（或重新运行安装）时会补上，需要再点一次管理员权限。
+
+- Windows: the agent's commands now actually run once someone is signed in (in 1.5.4 the sandbox user could not read the sandbox program installed in your user folder, so no command ran). Installation now puts the sandbox program in `C:\Program Files\Quetzal`, which only administrators can change. On a PC with 1.5.4, upgrading (or running the installer again) adds it, with one more administrator prompt.
+
 ## 1.5.4
 
 - Windows 支持从这一版开始提供（1.5.0–1.5.3 的发版没有完成，内容都在这一版里）。

@@ -223,9 +223,12 @@ let srtPreparing: Promise<void> | undefined;
 let srtMgr: SrtManager | undefined;
 const mainDir = () => path.dirname(process.argv[1] ?? process.execPath);
 let srtModule: any;
-/** srt-win.exe：环境变量指定的 > main.cjs 旁边 srt-win\ 里的（发布时放的） > 开发与测试时 npm 包自带的。 */
+/** srt-win.exe：环境变量指定的 > 安装时复制到 Program Files\Quetzal 的（沙箱用户读得到；用户目录里的它读不到，两跳启动的第二跳会被拒）
+ *  > main.cjs 旁边 srt-win\ 里的 > 开发与测试时 npm 包自带的。 */
 const srtWinPath = () => {
   if (process.env.QUETZAL_SRT_WIN) return process.env.QUETZAL_SRT_WIN;
+  const machine = path.join(process.env.ProgramFiles || "C:\\Program Files", "Quetzal", "srt-win.exe");
+  if (fs.existsSync(machine)) return machine;
   const bundled = path.join(mainDir(), "srt-win", "srt-win.exe");
   return fs.existsSync(bundled) || !srtModule?.VENDORED_SRT_WIN_EXE ? bundled : srtModule.VENDORED_SRT_WIN_EXE;
 };
