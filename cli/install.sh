@@ -113,7 +113,7 @@ orb_px() { # x y -> PX：SGR 颜色参数（不含前景/背景前缀），圆�
   fi
 }
 banner() {
-  local lines=("" "${B}${AMBER}Quetzal${R}" "${MUTE}$(t '不是运行着，是活着。' 'Not running, but living.')${R}" "" "${MUTE}$(t 'Linux 安装器' 'Linux installer')${R}" "${MUTE}${SITE#https://}${R}" "")
+  local lines=("" "${B}${AMBER}Quetzal${R}" "${MUTE}$(t '活成一缕风。' 'Living like wind.')${R}" "" "${MUTE}$(t 'Linux 安装器' 'Linux installer')${R}" "${MUTE}${SITE#https://}${R}" "")
   say ""
   if (( COLOR && UNICODE )); then
     local row x top bot cell line

@@ -6,6 +6,7 @@ import { Badge, Breath, ExternalLink, OrbMark, TextLink, cx } from "~/design-sys
 import { GITHUB_RELEASES } from "~/components/i18n";
 import { Markdown } from "~/components/markdown/Markdown";
 import { fetchReleases, findAsset, formatBytes, pickLatest, type Release } from "~/lib/github";
+import { PLATFORMS, browserInfo, detectPlatform, isPlatform, type Platform } from "~/lib/platform";
 import { messages } from "./i18n";
 
 export const meta: Route.MetaFunction = ({ params }) => {
@@ -28,19 +29,10 @@ function useLatest(): [State, () => void] {
   return [state, () => load(true)];
 }
 
-const PLATFORMS = ["android", "windows", "linux"] as const;
-type Platform = (typeof PLATFORMS)[number];
-const isPlatform = (s: string): s is Platform => (PLATFORMS as readonly string[]).includes(s);
-
-/** 地址里的 #windows 这类锚点优先（文档可以直接链到某个平台），否则按访客的系统挑；认不出的（苹果设备等）给安卓。 */
-function detectPlatform(): Platform {
+/** 地址里的 #windows 这类锚点优先（文档与首页的卡片直接链到某个平台），否则按访客的系统识别（lib/platform.ts），认不出的给安卓。 */
+function initialPlatform(): Platform {
   const hash = location.hash.slice(1);
-  if (isPlatform(hash)) return hash;
-  const ua = navigator.userAgent;
-  if (/Android/i.test(ua)) return "android";
-  if (/Windows/i.test(ua)) return "windows";
-  if (/Linux|X11|CrOS/i.test(ua)) return "linux";
-  return "android";
+  return isPlatform(hash) ? hash : detectPlatform(browserInfo());
 }
 
 // 每个平台的完整步骤
@@ -58,7 +50,7 @@ export default function Download() {
   const latest = state.status === "ready" ? state.latest : undefined;
   // 预渲染的 HTML 里是安卓：跑不动页面脚本的旧手机也能拿到 APK 链接；水合后换成访客的系统
   const [platform, setPlatform] = useState<Platform>("android");
-  useEffect(() => setPlatform(detectPlatform()), []);
+  useEffect(() => setPlatform(initialPlatform()), []);
   const choose = (p: Platform) => { setPlatform(p); history.replaceState(null, "", `#${p}`); };
   const [notesOpen, setNotesOpen] = useState(false);
   const navigate = useNavigate();
@@ -78,7 +70,7 @@ export default function Download() {
           {/* 与控制台首页的球同比例：球体约占屏宽三成（SVG 里球的直径是画布的 48%，其余是光晕） */}
           <OrbMark size={224} className="relative size-56 sm:size-64" />
         </div>
-        <h1 className="relative -mt-4 text-5xl font-semibold tracking-tight sm:text-7xl">{t.heading}</h1>
+        <h1 className="relative -mt-4 text-5xl font-semibold tracking-tight text-fg-display text-shadow-display sm:text-7xl">{t.heading}</h1>
         <p className="mt-4 text-lg text-fg-muted sm:text-xl">{t.lead}</p>
 
         <div role="tablist" aria-label={t.tabsLabel} className="mt-12 inline-flex rounded-full border border-border p-1">

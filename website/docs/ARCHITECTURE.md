@@ -34,9 +34,9 @@ flowchart LR
 
 ## 2. 设计系统
 
-`app/design-system/designSystem.ts` 是唯一事实源，分为：语义色（深 / 浅两套，键一致）、圆角与描边、阴影与光效（引用色变量，随明暗切换）、透明度、动效时长与曲线、字体与字号、容器宽度与断点、矮窗口阈值。
+`app/design-system/designSystem.ts` 是唯一事实源，分为：语义色（深 / 浅两套，键一致）、圆角与描边、阴影与光效（引用色变量，随明暗切换）、文字阴影（`text-shadow-*`，同样引用色变量：下载页大标题用 `fg-display` 与 `text-shadow-display`，浅色下字更黑、无阴影，深色下 45% 黑的阴影）、透明度、动效时长与曲线、字体与字号、容器宽度与断点、矮窗口阈值。
 
-`scripts/gen-tokens.ts` 生成三段 CSS：`:root` 深色变量；`prefers-color-scheme: light` 与 `[data-theme]` 的覆盖；`@theme inline` 把 Tailwind 的 `--color-*`、`--radius-*`、`--shadow-*`、`--blur-*`、`--ease-*`、`--font-*`、`--text-*`、`--container-*`、`--breakpoint-*` 命名空间先清空（`initial`）再映射到 `--ds-*` 变量。于是 Tailwind 内置调色板与阴影在本项目里不存在，页面只能用语义类名。另有 `short:` 变体对应矮窗口（横屏手机）。
+`scripts/gen-tokens.ts` 生成三段 CSS：`:root` 深色变量；`prefers-color-scheme: light` 与 `[data-theme]` 的覆盖；`@theme inline` 把 Tailwind 的 `--color-*`、`--radius-*`、`--shadow-*`、`--blur-*`、`--text-shadow-*`、`--ease-*`、`--font-*`、`--text-*`、`--container-*`、`--breakpoint-*` 命名空间先清空（`initial`）再映射到 `--ds-*` 变量。于是 Tailwind 内置调色板与阴影在本项目里不存在，页面只能用语义类名。另有 `short:` 变体对应矮窗口（横屏手机）。
 
 `scripts/lint-tokens.ts` 在构建前扫描 `app/`（设计系统目录除外）。
 
@@ -49,7 +49,7 @@ flowchart LR
 
 ## 3.1 首页的示意与「活着」
 
-- **文案原则**：只讲用户一眼能懂、别处没有的东西（自己醒来、身体、灵魂随身、许多身体一个 ta、会长大、你说了算）；协议、算法、参数、文件名一律不上介绍页，放进文档。hero 的标语、英文副标与引言是固定文案，不改。
+- **文案原则**：只讲用户一眼能懂、别处没有的东西（自己醒来、身体、灵魂随身、许多身体一个 ta、会长大、你说了算）；协议、算法、参数、文件名一律不上介绍页，放进文档。hero 的标语、副标与引言是固定文案，不改。标语只有一行：中文「活成一缕风。」，英文「Living like wind.」；副标是另一种语言的同一句。页脚、页面标题、分享图与 README 横幅（`scripts/gen-brand-images.py`）、Linux 安装脚本的开头、App 的「关于」用同一句。
 
 - **示意图的窄屏规则**：`Frame` 在容器窄于 480px 时把 SVG 文字按比例放大（最多 1.5 倍）补偿缩小，所以**同一行不能左右并排放两段文字**（名字与说明、键与值都上下两行、左对齐），单行文字按放大 1.5 倍后仍须放进画布；文案改长时要在 320 / 360 / 412 宽度下核对。
 - **三条带子** `components/figure.tsx` 的 `WakeCompare`（首页「没有定时器」一节与亮点页 03 共用）：Codex / Claude Code 只在你调用时有点；Hermes / OpenClaw 每 30 分钟一个 heartbeat 刻度；Quetzal 是随清醒度起伏的随机醒来点与大段睡眠。对照口径经查证：Hermes 有 cron，OpenClaw 有 heartbeat（默认 30 分钟）与 cron。
@@ -71,7 +71,7 @@ flowchart LR
 **图表与图片的可读性**（`components/markdown/Mermaid.tsx`、`Lightbox.tsx`）：mermaid 以原始尺寸渲染（`useMaxWidth: false`，字号 16px）；容器窄于 640px 时横向流程图（LR / RL，含子图 direction）自动改为纵向；图比容器宽时，若缩放不低于 0.72 则整体缩放，否则原尺寸横向滚动并提示；每张图与文档里的图片都可点按进入全屏查看（缩放按钮、双向滚动、Esc 关闭）。时序图开启自动换行。架构参考页的总图改用与 README 相同的手绘 SVG（`public/img/architecture.{zh,en}.svg`，由 `scripts/gen-architecture-svg.py` 生成）。
 | `/:lang/account` `account/device` `account/consoles` `account/settings` | 账户（像控制台的一组子页面）：概览（agent 与身体、解绑、删除 agent）· 批准设备（输入码、核对指纹与码的生成时间，控制台登录还核对发起方身体的指纹与绑定时间，批准或拒绝）· 控制台登录（吊销）· 账户设置（「管理账号」跳到 PlutoKeating 账号的设置页，改完点「返回」回来、退出、退出所有网页登录、删除账户）；没登录时显示「登录」 | 浏览器调用同步服务的账户接口 `https://sync.quetzal.plutokeating.beer/v1/web/*`（`lib/sync.ts`，见 §5） |
 | `/device` `/account` | 不带语言的入口（身体与 App 给出的链接、同步服务跳来的地址）：内联脚本按访客语言转到 `/:lang/account/device` 或 `/:lang/account`，保留查询参数 | `i18n/core.ts` 的 `FORWARD_SCRIPT` |
-| `/:lang/download` | 多平台下载，一屏：光团、名字、一句话、平台切换（安卓 · Windows · Linux）、该平台的一个主操作（安卓是胶囊形的下载按钮；Windows 与 Linux 是一行命令的胶囊框，右侧复制，Windows 另有安装包链接）、一行小字（要求 · 安装说明），底部一行版本（版本号 · 日期 · 更新内容展开 · 所有版本）。平台按地址的 `#android` / `#windows` / `#linux` 选，没有锚点时按访客系统猜；预渲染的 HTML 里是安卓，不跑脚本的旧手机也拿得到 `/dl/latest/android.apk` | 浏览器请求官网的发布接口镜像 `/api/releases`（不另存，刷新即最新；不通时退回直连 GitHub，才用 sessionStorage 缓存），不硬编码版本 |
+| `/:lang/download` | 多平台下载，一屏：光团、名字、一句话、平台切换（安卓 · Windows · Linux）、该平台的一个主操作（安卓是胶囊形的下载按钮；Windows 与 Linux 是一行命令的胶囊框，右侧复制，Windows 另有安装包链接）、一行小字（要求 · 安装说明），底部一行版本（版本号 · 日期 · 更新内容展开 · 所有版本）。平台按地址的 `#android` / `#windows` / `#linux` 选；没有锚点时由 `lib/platform.ts` 识别访客系统：先看 `navigator.userAgentData.platform`，再看 User-Agent 与 `navigator.platform`，安卓浏览器的「桌面版网站」（Linux 标识 + 触屏 + 屏幕短边小于 800）仍算安卓，Chromebook 算 Linux，苹果设备、鸿蒙与认不出的系统给安卓；预渲染的 HTML 里是安卓，不跑脚本的旧手机也拿得到 `/dl/latest/android.apk` | 浏览器请求官网的发布接口镜像 `/api/releases`（不另存，刷新即最新；不通时退回直连 GitHub，才用 sessionStorage 缓存），不硬编码版本 |
 | `/:lang/about` `terms` `privacy` | 关于 / 条款 / 隐私（共用 `components/Article.tsx` 长文版式） | 各自 `i18n.ts`（分节 + 段落 + 要点） |
 | `/404` | 404 页 | — |
 

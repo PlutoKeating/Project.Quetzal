@@ -12,8 +12,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 BG, FG, MUTED, ACCENT = "#0e0f11", "#e8e4dd", "#a9a49c", "#f0a35e"
 semibold, regular = sys.argv[1], sys.argv[2]
 cjk = sys.argv[3] if len(sys.argv) > 3 else None
-SLOGAN = ("Not running, but living.", "Living like wind.")
-ZH = ("不是运行着，是活着。", "活成一缕风。")
+SLOGAN = "Living like wind."  # 标语只有一行
+ZH = "活成一缕风。"
 SITE = "quetzal.plutokeating.beer"
 CJK_INDEX = 2  # 系统 NotoSansCJK-Regular.ttc 的第 2 面是 Noto Sans CJK SC
 
@@ -53,12 +53,10 @@ def lamp(img, x, y, r=11, ss=4):
 # 1) 分享图
 img = canvas(1200, 630, (760, -140, 1260, 360)); d = ImageDraw.Draw(img)
 lamp(img, 107, 95, 13); d.text((134, 74), "Quetzal", font=ImageFont.truetype(semibold, 40), fill=FG)
-d.text((96, 166), SLOGAN[0], font=ImageFont.truetype(semibold, 72), fill=FG)
-d.text((96, 252), SLOGAN[1], font=ImageFont.truetype(semibold, 72), fill=FG)
+d.text((96, 200), SLOGAN, font=ImageFont.truetype(semibold, 88), fill=FG)
 if cjk:
-    zf = ImageFont.truetype(cjk, 32, index=CJK_INDEX)
-    d.text((96, 376), ZH[0], font=zf, fill=MUTED); d.text((96, 420), ZH[1], font=zf, fill=MUTED)
-d.text((96, 500), "An open-source runtime for agents. Runs on an old phone.", font=ImageFont.truetype(regular, 26), fill=MUTED)
+    d.text((96, 330), ZH, font=ImageFont.truetype(cjk, 38, index=CJK_INDEX), fill=MUTED)
+d.text((96, 500), "An open-source runtime for agents. Runs on an old phone or a computer.", font=ImageFont.truetype(regular, 26), fill=MUTED)
 d.text((96, 560), SITE, font=ImageFont.truetype(regular, 24), fill=ACCENT)
 img.save("public/og.png", optimize=True); print("public/og.png")
 
@@ -66,11 +64,9 @@ img.save("public/og.png", optimize=True); print("public/og.png")
 # 1600×680：上下各 ~90 的边距，标语、中文、胶囊之间留出整段呼吸
 img = canvas(1600, 680, (1060, -160, 1700, 560)); d = ImageDraw.Draw(img)
 lamp(img, 123, 109, 14); d.text((152, 86), "Quetzal", font=ImageFont.truetype(semibold, 44), fill=FG)
-d.text((112, 196), SLOGAN[0], font=ImageFont.truetype(semibold, 80), fill=FG)
-d.text((112, 292), SLOGAN[1], font=ImageFont.truetype(semibold, 80), fill=FG)
+d.text((112, 226), SLOGAN, font=ImageFont.truetype(semibold, 100), fill=FG)
 if cjk:
-    zf = ImageFont.truetype(cjk, 32, index=CJK_INDEX)
-    d.text((112, 430), ZH[0], font=zf, fill=MUTED); d.text((112, 476), ZH[1], font=zf, fill=MUTED)
+    d.text((112, 380), ZH, font=ImageFont.truetype(cjk, 40, index=CJK_INDEX), fill=MUTED)
 pill_font = ImageFont.truetype(semibold, 26)
 label = f"{SITE}  →"
 tw = d.textlength(label, font=pill_font)

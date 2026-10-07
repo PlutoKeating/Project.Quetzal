@@ -32,7 +32,7 @@ export default function Home() {
 
   return (
     <>
-      {/* 1 · Hero：名字与一句类别、两行标语、一句定义、入口。只此四样。 */}
+      {/* 1 · Hero：名字与一句类别、一行标语（另一种语言的同一句做副标，斜体：英文用 Inter 的斜体，中文由浏览器倾斜，思源黑体没有斜体字形）、一句定义、入口。只此四样。 */}
       <section className="relative overflow-hidden border-b border-border">
         <Breath className="-right-32 -top-24 sm:-right-16 sm:top-0 landscape:short:-top-40" />
         <Container className="relative flex min-h-[calc(100dvh-var(--ds-header-height))] flex-col justify-center gap-6 py-16 sm:py-24 short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
@@ -44,7 +44,7 @@ export default function Home() {
             <span className="text-xs font-medium uppercase tracking-wide text-secondary-fg">{t.hero.eyebrow}</span>
           </p>
           <h1 className="max-w-4xl whitespace-pre-line text-3xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">{t.hero.title}</h1>
-          <p className="max-w-3xl whitespace-pre-line text-xl text-fg-muted">{t.hero.titleAlt}</p>
+          <p className="-mt-3 max-w-3xl whitespace-pre-line text-xl italic text-fg-muted">{t.hero.titleAlt}</p>
           <Lead className="max-w-prose">{t.hero.lead}</Lead>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
