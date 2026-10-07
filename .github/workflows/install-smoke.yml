@@ -34,6 +34,26 @@ jobs:
           QUETZAL_YES: "1"
           QUETZAL_VERSION: ${{ inputs.version }}
         run: irm https://quetzal.plutokeating.beer/install.ps1 | iex
+      # 模拟有人登录：开机任务（S4U）里命令沙箱起不来，登录任务的守护进程会接管。runner 的会话里沙箱可用，
+      # 带上 SESSIONNAME 运行登录任务的同一个启动器，验证交接与接管后的沙箱（脚本只用 ASCII，原因见下一步）
+      - name: 模拟登录：交互会话接管运行基座
+        shell: powershell
+        run: |
+          $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
+          $lock = Join-Path $root 'home\state\supervise.lock'
+          $before = (Get-Content $lock -Raw).Trim()
+          "boot-task supervisor: $before"
+          $env:SESSIONNAME = 'Console'
+          Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', (Join-Path $root 'bin\quetzal-supervise.ps1')
+          $done = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep 2
+            $now = (Get-Content $lock -Raw -ErrorAction SilentlyContinue)
+            if ($now -and $now.Trim() -ne $before) { "logon-session supervisor took over: $($now.Trim())"; $done = $true; break }
+          }
+          if (-not $done) { throw 'the logon-session supervisor did not take over within 2 minutes' }
+          for ($i = 0; $i -lt 60; $i++) { try { Invoke-RestMethod -UseBasicParsing http://127.0.0.1:7788/health | Out-Null; break } catch { Start-Sleep 2 } }
+      # 这一步的脚本只用 ASCII：Windows PowerShell 5.1 按系统代码页读取没有 BOM 的脚本文件
       - name: 核对：健康、版本、适配器、沙箱、计划任务、命令行
         shell: powershell
         run: |
@@ -42,19 +62,19 @@ jobs:
           "current: $(Get-Content (Join-Path $root 'runtime\current.txt'))"
           $ok = $false
           for ($i = 0; $i -lt 60; $i++) { try { $h = Invoke-RestMethod -UseBasicParsing http://127.0.0.1:7788/health; "health: $($h | ConvertTo-Json -Compress)"; $ok = $true; break } catch { Start-Sleep 2 } }
-          if (-not $ok) { throw '运行基座 2 分钟内没有响应' }
+          if (-not $ok) { throw 'runtime did not respond within 2 minutes' }
           Get-ScheduledTask -TaskPath '\Quetzal\' | Format-Table TaskName, State -AutoSize | Out-String
-          if (-not (Get-ScheduledTask -TaskPath '\Quetzal\' -ErrorAction SilentlyContinue)) { throw '没有注册计划任务' }
+          if (-not (Get-ScheduledTask -TaskPath '\Quetzal\' -ErrorAction SilentlyContinue)) { throw 'no scheduled tasks registered' }
           $node = (Get-Content (Join-Path $root 'node.txt')).Trim()
           & $node .github/scripts/windows-status.mjs "${{ inputs.version }}"
-          if ($LASTEXITCODE -ne 0) { throw '状态核对没通过' }
+          if ($LASTEXITCODE -ne 0) { throw 'status check failed' }
           & (Join-Path $root 'bin\quetzal.cmd') status
       - name: 日志
         if: always()
         shell: powershell
         run: |
           $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
-          foreach ($f in @('install.log', 'home\logs\runtime.log')) { $p = Join-Path $root $f; if (Test-Path $p) { "===== $f"; Get-Content $p -Tail 200 } }
+          foreach ($f in @('install.log', 'home\logs\runtime.log')) { $p = Join-Path $root $f; if (Test-Path $p) { "===== $f"; Get-Content $p -Tail 200 -Encoding UTF8 } }
       - name: 卸载
         if: always()
         shell: powershell
