@@ -18,13 +18,18 @@ const { converse } = await import("../src/mind/brain.ts");
 
 // 模拟供应商：记录每次请求；回复慢一点，让两个会话真正重叠
 const seen: any[] = [];
+const aborted: boolean[] = []; // 第 i 次请求在回复前被客户端断开（模型调用被中止）
 let script: ((j: any) => any) | undefined; // 设置时由它决定回复（choices[0]），否则回声
 const server = http.createServer((req, res) => {
   let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
     const j = JSON.parse(body); seen.push(j);
+    const i = seen.length - 1; let replied = false;
+    res.on("close", () => { if (!replied) aborted[i] = true; });
     const user = j.messages.at(-1);
     const text = typeof user.content === "string" ? user.content : user.content.find((c: any) => c.type === "text").text;
     setTimeout(() => {
+      if (res.destroyed) return;
+      replied = true;
       res.writeHead(200, { "content-type": "application/json" });
       const choice = script?.(j) ?? { message: { content: `收到：${text.match(/对你说：\n(.*)/)?.[1] ?? "?"}` } };
       res.end(JSON.stringify({ choices: [choice], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
@@ -122,14 +127,13 @@ test("工作中发消息：默认插话，在这次模型调用后并入", async
 });
 
 test("工作中发消息：打断只中止模型输出，立即带着新消息继续", async () => {
-  seen.length = 0;
+  seen.length = 0; aborted.length = 0;
   store.ensureSession("it", "打断");
-  const t0 = Date.now();
   const main = converse("你", "写一篇长文", "控制台", { conv: "it" });
   await sleep(100);
   assert.match(await converse("你", "停，先回答我", "控制台", { conv: "it", mode: "interrupt" }), /已打断/);
   await main;
-  assert.ok(Date.now() - t0 < (process.platform === "win32" ? 1500 : 550), "第一次调用应被中止，而不是等它完成"); // Windows runner 的计时器粒度粗、启动慢 // 300ms 的第一次调用被打断 + 300ms 的第二次
+  assert.equal(aborted[0], true, "第一次调用应被中止，而不是等它完成"); // 直接看连接是否在回复前被断开，不靠总耗时（CI 机器忙时计时会超）
   assert.equal(seen.length, 2);
   assert.match(lastUser(seen[1]), /打断了你：\n停，先回答我/);
 });

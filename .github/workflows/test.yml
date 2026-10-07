@@ -1,11 +1,14 @@
-# 测试：每次推送到 main 或 feature/* 分支、以及拉取请求时，在 Linux 与 Windows（x64、arm64）上跑运行基座的测试。
+# 测试：推送到 main 或 feature/* 分支、以及拉取请求里改到运行基座（runtime/）或本文件时，在 Linux 与 Windows（x64、arm64）上跑运行基座的测试。
+# 只改官网、文档、控制台、同步服务时不跑：这里只测 runtime/，它也不读仓库里别的目录。
 # Windows 上先用 sandbox-runtime 的 windows-install 建好沙箱用户与 WFP 规则（runner 是管理员、UAC 已关），沙箱的真机测试才有意义。
 name: test
 
 on:
   push:
     branches: [main, "feature/**"]
+    paths: ["runtime/**", ".github/workflows/test.yml"]
   pull_request:
+    paths: ["runtime/**", ".github/workflows/test.yml"]
   workflow_dispatch:
 
 permissions:
