@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 发版时取用以往编好的同一份安卓运行环境，免得每次都从源码重编 Node.js（几个小时）。只在 CI 里用。
-#   配方哈希 = versions.env、build-packages.sh、pack.sh 与网状层组件的锁定文件 / 安装程序的内容哈希：这些都没变，编出来的运行环境就相同。
+#   配方哈希 = versions.env、build-packages.sh、pack.sh、网状层组件的安装程序，以及锁定文件里安卓用得到的部分（common 与 platform.android-arm64，
+#   规整成固定格式）的内容哈希：这些都没变，编出来的运行环境就相同。锁定文件里别的平台（Linux、Windows）变了不影响安卓，不该让它重编几个小时。
 #   依次尝试：
 #     1. 以往 Release 上的 quetzal-android-runtime-<配方哈希>.tar.gz：先用内置的发布公钥核对那个 Release 的 SHA256SUMS.sig，
 #        再核对资产的 sha256 在签名过的清单里——核对不过就不用；
@@ -12,11 +13,14 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$here/../../.." && pwd)"
 main="$repo_root/console/android/app/src/main"
-RECIPE=(console/tool/android-runtime/versions.env console/tool/android-runtime/build-packages.sh console/tool/android-runtime/pack.sh runtime/tool/mesh-modules.lock.json runtime/tool/install-mesh-modules.mjs)
+RECIPE=(console/tool/android-runtime/versions.env console/tool/android-runtime/build-packages.sh console/tool/android-runtime/pack.sh runtime/tool/install-mesh-modules.mjs)
+LOCK=runtime/tool/mesh-modules.lock.json
+# 锁定文件里安卓用得到的部分，规整成固定格式（键排序）
+android_lock() { node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const d=JSON.parse(s);const sort=(v)=>v&&typeof v==="object"&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map((k)=>[k,sort(v[k])])):v;process.stdout.write(JSON.stringify(sort({common:d.common,android:d.platform["android-arm64"]})))})'; }
 
 recipe_key() { # [提交]：在工作区或某个提交上算配方哈希
-  if [ $# -eq 0 ]; then (cd "$repo_root" && cat "${RECIPE[@]}") | sha256sum | cut -c1-16
-  else (cd "$repo_root" && for f in "${RECIPE[@]}"; do git show "$1:$f" || return 1; done) | sha256sum | cut -c1-16; fi
+  if [ $# -eq 0 ]; then (cd "$repo_root" && cat "${RECIPE[@]}" && android_lock < "$LOCK") | sha256sum | cut -c1-16
+  else (cd "$repo_root" && for f in "${RECIPE[@]}"; do git show "$1:$f" || return 1; done && git show "$1:$LOCK" | android_lock) | sha256sum | cut -c1-16; fi
 }
 KEY=$(recipe_key)
 NAME="quetzal-android-runtime-$KEY.tar.gz"

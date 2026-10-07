@@ -1,7 +1,7 @@
 // 安装网状层的原生组件到 <目标目录>/node_modules：按 mesh-modules.lock.json 的版本下载 npm 包，逐个核对 sha512 后解压。
 // 用法：node install-mesh-modules.mjs [--extra=<名>] <锁定文件> <目标目录> <平台> [registry …]
 //   --extra=bridge：同时装上锁定文件 extra.bridge 里的包（灵魂桥从源代码运行时需要）。
-//   平台：android-arm64 / linux-x64-gnu / linux-arm64-gnu / linux-x64-musl / linux-arm64-musl / win32-x64 / win32-arm64；registry 依次尝试（默认 npmjs，可再给镜像源）。
+//   平台：android-arm64 / linux-x64-gnu / linux-arm64-gnu / linux-x64-musl / linux-arm64-musl；registry 依次尝试（默认 npmjs，可再给镜像源）。
 // 只用 Node 内置模块（安卓 Termux 与 Linux 安装器共用）。核对不过就不安装：宁可没有网状层，也不装来路不明的原生代码。
 import fs from "node:fs";
 import path from "node:path";
@@ -102,7 +102,6 @@ function untar(tgz, dir) {
 }
 
 const nm = path.join(dest, "node_modules");
-fs.mkdirSync(dest, { recursive: true }); // 目标目录还不存在时先建好（发版流水线装到临时目录）
 const stage = fs.mkdtempSync(path.join(dest, ".mesh-modules-"));
 try {
   for (const [name, spec] of Object.entries(pkgs)) {

@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.5.4
+
+- Windows 支持从这一版开始提供（1.5.0–1.5.3 的发版没有完成，内容都在这一版里）。
+
+- Windows support starts with this release (the 1.5.0–1.5.3 releases did not complete; everything in them is in this one).
+
 ## 1.5.3
 
 - Windows 支持从这一版开始提供（1.5.0–1.5.2 的 Windows 安装包没有发布出来）。
