@@ -82,7 +82,8 @@ function Task-Xml([string]$kind, [string]$sid) {
   $launcher = Join-Path $Root 'bin\quetzal-supervise.ps1'
   $args_ = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcher`""
   if ($kind -eq 'Boot') {
-    $trigger = '<BootTrigger><Enabled>true</Enabled><Delay>PT30S</Delay></BootTrigger>'
+    # every 5 minutes as well: after the user logs off, the logon-session supervisor is gone and this brings the runtime back in the background
+    $trigger = '<BootTrigger><Repetition><Interval>PT5M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><Enabled>true</Enabled><Delay>PT30S</Delay></BootTrigger>'
     $logon = 'S4U'
     $desc = 'Quetzal runtime: starts at boot as this user, without a logon (S4U, no stored password).'
   } else {

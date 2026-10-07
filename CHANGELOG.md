@@ -2,6 +2,14 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.5.3
+
+- Windows 支持从这一版开始提供（1.5.0–1.5.2 的 Windows 安装包没有发布出来）。
+- Windows 电脑开机后还没人登录时，ta 照常在后台运行、能和你说话，但不能执行命令（这时 Windows 不允许以沙箱用户启动程序）；有人登录后自动接过来，命令随之可用；注销后 5 分钟内又在后台接上。
+
+- Windows support starts with this release (the 1.5.0–1.5.2 Windows installers were not published).
+- After a Windows PC starts and before anyone signs in, the agent runs in the background and can talk with you, but cannot run commands (Windows does not allow starting programs as the sandbox user then); once someone signs in it is taken over automatically and commands work, and after signing out it is picked up in the background again within 5 minutes.
+
 ## 1.5.2
 
 - Windows 的一行安装装完后会正常返回，不再停在那里等（安装包拉起的后台进程本来就一直运行）。1.5.0、1.5.1 的 Windows 安装包没有发布出来，Windows 支持从这一版开始提供。

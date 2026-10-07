@@ -307,6 +307,8 @@ export function prepareSandbox(): Promise<void> {
     } catch (e) {
       srtState = "failed";
       srtError = (e as Error).message.split("\n")[0].slice(0, 300);
+      // 开机任务（S4U，没人登录）里 Windows 不允许以沙箱用户启动进程：有人登录后登录任务会接管运行基座，沙箱随之可用
+      if (/CreateProcessWithLogonW/.test(srtError) && !process.env.SESSIONNAME) srtError = "这台电脑还没有人登录：开机后在后台运行时，Windows 不允许以沙箱用户启动命令，有人登录桌面后自动恢复";
       log("sandbox", `Windows 沙箱不可用：${srtError}`);
     }
     probed = undefined; warned = false;

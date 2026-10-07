@@ -116,7 +116,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash
 irm https://quetzal.plutokeating.beer/install.ps1 | iex
 ```
 
-或者从[下载页](https://quetzal.plutokeating.beer/zh/download)下载安装包双击。安装时会请求一次管理员权限：建好给 ta 运行命令用的低权限用户，装上缺的 Node.js、Git、Python，注册开机任务。之后电脑重启了，不用登录 ta 也在后台运行；登录后托盘里有 Quetzal，截图、通知、麦克风这些要桌面的能力随之可用。ta 的命令只能读写 `%USERPROFILE%\Quetzal` 这个文件夹，想让 ta 处理的文件放进去就行。
+或者从[下载页](https://quetzal.plutokeating.beer/zh/download)下载安装包双击。安装时会请求一次管理员权限：建好给 ta 运行命令用的低权限用户，装上缺的 Node.js、Git、Python，注册开机任务。之后电脑重启了，不用登录 ta 也在后台运行，你在手机上照常能和 ta 说话；登录后托盘里有 Quetzal，执行命令、截图、通知、麦克风这些能力随之可用（没人登录时 Windows 不允许以沙箱用户启动程序）。ta 的命令只能读写 `%USERPROFILE%\Quetzal` 这个文件夹，想让 ta 处理的文件放进去就行。
 
 更多：[文档](https://quetzal.plutokeating.beer/zh/docs) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · 把一台旧手机腾出来的记录 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 
