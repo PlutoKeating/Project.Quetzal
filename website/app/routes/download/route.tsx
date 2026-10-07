@@ -71,14 +71,14 @@ export default function Download() {
 
   return (
     <section className="relative overflow-hidden">
-      <div className="relative mx-auto flex min-h-[calc(100dvh-var(--ds-header-height))] max-w-content flex-col items-center justify-center px-6 py-12 text-center short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
-        {/* 光团与它身后的一圈呼吸光：页面上唯一的颜色 */}
+      <div className="relative mx-auto flex min-h-[calc(100dvh-var(--ds-header-height))] isolate max-w-content flex-col items-center justify-center px-6 py-12 text-center short:min-h-0 short:py-10"> {/* ds-allow：高度表达式只引用变量 */}
+        {/* 光团与它身后的一圈呼吸光：页面上唯一的颜色。这一列自成层叠上下文（isolate），呼吸光压在最底层（-z-10），名字再盖在光团的光晕之上，文字都不被光晕罩住 */}
         <div className="relative">
-          <Breath size="lg" className="left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
+          <Breath size="lg" className="left-1/2 top-1/2 -z-10 -translate-x-1/2 -translate-y-1/2" />
           {/* 与控制台首页的球同比例：球体约占屏宽三成（SVG 里球的直径是画布的 48%，其余是光晕） */}
           <OrbMark size={224} className="relative size-56 sm:size-64" />
         </div>
-        <h1 className="-mt-4 text-5xl font-semibold tracking-tight sm:text-7xl">{t.heading}</h1>
+        <h1 className="relative -mt-4 text-5xl font-semibold tracking-tight sm:text-7xl">{t.heading}</h1>
         <p className="mt-4 text-lg text-fg-muted sm:text-xl">{t.lead}</p>
 
         <div role="tablist" aria-label={t.tabsLabel} className="mt-12 inline-flex rounded-full border border-border p-1">
