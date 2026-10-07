@@ -51,6 +51,8 @@ lines.push(`@keyframes ds-breath {\n  0%, 100% { opacity: calc(1 - var(--ds-brea
 lines.push(`@keyframes ds-reveal {\n  from { opacity: 0; transform: translateY(var(--ds-reveal-offset)); }\n  to { opacity: 1; transform: translateY(0); }\n}`);
 // 自托管 Inter（OFL，public/fonts/LICENSE-Inter.txt）
 lines.push(`@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/InterVariable.woff2") format("woff2"); }`);
+// 斜体（首页 hero 的副标）：与正体同一次构建，取自 Inter 作者发布的 npm 包 inter-ui 4.1.1；只在有斜体文字的页面才下载
+lines.push(`@font-face { font-family: "Inter"; font-style: italic; font-weight: 100 900; font-display: swap; src: url("/fonts/InterVariable-Italic.woff2") format("woff2"); }`);
 
 // 横屏手机 / 矮窗口变体
 lines.push(`@custom-variant short (@media (max-height: ${ds.shortHeight}));`);
