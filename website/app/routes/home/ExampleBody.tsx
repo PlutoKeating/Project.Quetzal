@@ -52,7 +52,7 @@ export function ExampleBody({ t, events, className }: { t: Labels; events: strin
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex items-baseline justify-between gap-4 border-t border-border py-3 text-sm">
       <dt className="text-fg-muted">{label}</dt>
-      <dd className="font-mono text-fg">{value}</dd>
+      <dd className="tabular-nums text-fg">{value}</dd>
     </div>
   );
   return (

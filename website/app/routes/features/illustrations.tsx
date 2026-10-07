@@ -52,7 +52,7 @@ export function SoulGit({ t }: { t: { repo: string; bodies: readonly string[]; l
         <g key={i}>
           <circle cx={48} cy={252 + i * 22} r="3.5" className={i === 0 ? "fill-accent" : "fill-secondary-fg"} />
           {i < 2 && <line x1={48} y1={256 + i * 22} x2={48} y2={270 + i * 22} className="stroke-border-strong" strokeWidth="1.5" />}
-          <T x={64} y={256 + i * 22} className="fill-fg-subtle font-mono" size={11}>{time}</T>
+          <T x={64} y={256 + i * 22} className="fill-fg-subtle tabular-nums" size={11}>{time}</T>
           <T x={128} y={256 + i * 22} className="fill-fg" size={12}>{what}</T>
           <T x={440} y={256 + i * 22} className="fill-fg-subtle" size={11} anchor="end">{body}</T>
         </g>
