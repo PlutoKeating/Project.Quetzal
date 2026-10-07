@@ -21,7 +21,7 @@ website/
 │   │   └── tokens.generated.css 由 scripts/gen-tokens.ts 生成（不入库）
 │   ├── i18n/core.ts             i18n 内核：defineMessages / useMessages / 语言检测与记忆 / 路径切换
 │   ├── components/              跨页面组件：SiteHeader、SiteFooter、LangSwitch、ThemeToggle、Wordmark（光团 OrbMark + 名字）、Article（长文版式）、NotFound、markdown/（统一 Markdown 渲染）；i18n.ts 为壳层文案与 GitHub 链接常量
-│   ├── lib/                     与界面无关的逻辑：prerender（预渲染清单）、bodyClock（生物钟模型）、github（Releases 客户端）、docs（文档清单与内容）、sync（同步服务的账户接口客户端）
+│   ├── lib/                     与界面无关的逻辑：prerender（预渲染清单）、bodyClock（生物钟模型）、github（Releases 客户端）、docs（文档清单与内容）、sync（同步服务的账户接口客户端）、platform（下载页按访客系统预选平台）
 │   └── routes/<page>/           每个页面一个目录：route.tsx + i18n.ts（中英文案，键必须一致），可带页面私有组件
 ├── content/docs/                manifest.json（分区与页面顺序，中英共用）+ {zh,en}/<section>/<slug>.md
 ├── public/                      原样复制的静态文件：favicon.svg（光团，色值与设计系统的 orb-* 一致，手动同步）、og.png（分享图）、robots.txt、fonts/（自托管 Inter 的正体与斜体、Inter 与思源黑体的许可证；思源黑体的字体文件由 Vite 从依赖打包进 assets/）
