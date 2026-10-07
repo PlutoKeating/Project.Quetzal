@@ -2,12 +2,12 @@ import { defineMessages } from "~/i18n/core";
 
 export const messages = defineMessages({
   zh: {
-    title: "Quetzal · 不是运行着，是活着。活成一缕风。",
+    title: "Quetzal · 活成一缕风。",
     description: "Quetzal 让一个 AI 住进你的旧安卓手机、Windows 或 Linux 电脑。ta 记得你说过的话，睡着时把它们整理成笔记，存进你自己的私有仓库，你随时能翻开读。ta 自己醒来，困了就睡，几台设备连成同一个 ta。开源，AGPL-3.0。",
     hero: {
       eyebrow: "开源的 agent 运行基座",
-      title: "不是运行着，是活着。\n活成一缕风。",
-      titleAlt: "Not running, but living.\nLiving like wind.",
+      title: "活成一缕风。",
+      titleAlt: "Living like wind.",
       lead: "让一个 AI 住进你的旧手机。ta 记得你说过的话，自己醒来，困了就睡。",
       download: "下载 Quetzal",
       features: "看看它能做什么",
@@ -121,12 +121,12 @@ export const messages = defineMessages({
     },
   },
   en: {
-    title: "Quetzal · Not running, but living. Living like wind.",
+    title: "Quetzal · Living like wind.",
     description: "Quetzal moves an AI into your old Android phone, or a Windows or Linux computer. It remembers what you tell it, turns it into notes while it sleeps, and keeps them in your own private repository, where you can read them any time. It wakes on its own, sleeps when tired, and stays one self across several devices. Open source, AGPL-3.0.",
     hero: {
       eyebrow: "an open-source runtime for agents",
-      title: "Not running, but living.\nLiving like wind.",
-      titleAlt: "不是运行着，是活着。\n活成一缕风。",
+      title: "Living like wind.",
+      titleAlt: "活成一缕风。",
       lead: "Move an AI into your old phone. It remembers what you say, wakes on its own, and sleeps when tired.",
       download: "Download Quetzal",
       features: "See what it can do",
