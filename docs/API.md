@@ -307,5 +307,6 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
 | `gateway.port` / `gateway.host` / `gateway.lan` / `gateway.lanPort` | 7788 / `127.0.0.1` / false / 7789 | 网关（§1）：明文 HTTP 只监听本机回环的 `port`；`lan` 为真或 `host` 不是回环地址（旧配置的 `0.0.0.0`）时，在 `host`（回环时为 `0.0.0.0`）:`lanPort` 上另开 HTTPS / WSS（自签名证书，`secrets/gateway-tls.*`）。Linux 安装器的 `--lan` 写 `host: 0.0.0.0, lan: true`，`--no-lan` 写回 `127.0.0.1` 与 `false` |
 | `mesh.server` / `mesh.priority` | `https://sync.quetzal.plutokeating.beer` / 0 | 同步服务地址（HTTPS；缺省为官方同步服务 `OFFICIAL_SYNC`，旧配置里为空时加载即补上；绑定令牌在 `secrets/sync.json`，节点密钥在 `secrets/mesh_ed25519`）；当协调者的优先级（越大越优先，适合一直开着、接着电源的身体） |
+| `mesh.lan` | 安卓与 Linux 为 `true`，Windows 为 `false` | 同步服务连不上、或它说对方不在线时，经局域网信令（UDP，端口同 `gateway.port`）直接连记得地址的身体（`mesh/lan.ts`，见 ARCHITECTURE.md「局域网信令」）。Windows 上监听端口会弹防火墙询问，所以缺省关 |
 | `hearing.enabled` / `windowMin` / `sensitivity` / `language` | false / 10 / 2 / ""（取她的偏好语言） | 听觉：开关；最近会话多少分钟内有更新就并入（0 为每句新开）；灵敏度 1 迟钝 / 2 适中 / 3 灵敏（App 的 VAD 模式）；识别语言 |
 | `speech.region` / `endpoint`（只接受 Azure 的 HTTPS 域名） / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |
