@@ -22,7 +22,7 @@ export function Frame({ children, label, height = 320, bare }: { children: React
     return () => ro.disconnect();
   }, []);
   return (
-    <figure ref={ref} className={bare ? "" : "rounded-2xl border border-border bg-surface p-4 sm:p-6"}>
+    <figure ref={ref} className={cx("mx-auto w-full max-w-figure", !bare && "rounded-2xl border border-border bg-surface p-4 sm:p-6")}>
       <TextScale.Provider value={k}>
         <svg viewBox={`0 0 ${DESIGN_W} ${height}`} role="img" aria-label={label} className="block w-full font-sans">{children}</svg>
       </TextScale.Provider>

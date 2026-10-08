@@ -193,7 +193,7 @@ export const designSystem = {
   tracking: { tight: "-0.02em", normal: "0", wide: "0.06em" },
 
   /** 版式宽度与断点 */
-  container: { prose: "44rem", content: "72rem", wide: "88rem" },
+  container: { figure: "32rem", prose: "44rem", content: "72rem", wide: "88rem" }, // figure：示意图的最大宽度墙
   breakpoint: { sm: "40rem", md: "48rem", lg: "64rem", xl: "80rem", "2xl": "96rem" },
   /** 高度断点：横屏手机 / 小窗口（配合 short: 变体） */
   shortHeight: "36rem",

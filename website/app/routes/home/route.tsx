@@ -1,7 +1,7 @@
 import type { Route } from "./+types/route";
 import { Link } from "react-router";
 import { useMessages, isLang, DEFAULT_LANG, localized, useLang } from "~/i18n/core";
-import { Breath, ButtonAnchor, ButtonLink, Container, Heading, OrbMark, Reveal, Section, StatusDot, cx } from "~/design-system/components";
+import { Breath, ButtonAnchor, ButtonLink, Container, Heading, OrbMark, Phrases, Reveal, Section, StatusDot, cx } from "~/design-system/components";
 import { GITHUB_REPO } from "~/components/i18n";
 import { BodySenses, MeshBodies, SkillTools, SoulGit, WakeTimeline } from "~/routes/features/illustrations";
 import { messages as featureMessages } from "~/routes/features/i18n";
@@ -51,16 +51,15 @@ export default function Home() {
             </p>
             <h1 className="text-4xl font-semibold tracking-tight sm:text-6xl lg:text-7xl">{t.hero.title}</h1>
             <p className="-mt-3 text-xl italic text-fg-muted">{t.hero.titleAlt}</p>
-            <p className="max-w-prose whitespace-pre-line text-xl text-fg text-pretty sm:text-2xl">{t.hero.lead}</p>
+            <p className="max-w-prose text-xl text-fg sm:text-2xl"><Phrases text={t.hero.lead} /></p>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.hero.download}</ButtonLink>
               <ButtonLink variant="ghost" size="lg" to={localized(lang, "/features")}>{t.hero.features} →</ButtonLink>
             </div>
             <p className="text-sm text-fg-subtle">{t.hero.platforms}</p>
           </div>
-          {/* 构造的示例对话，只演示已经写进代码的做法：记得你说过的事、醒着时自己找你 */}
+          {/* 构造的一段对话，只演示已经写进代码的做法：记得你说过的事、醒着时自己找你 */}
           <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5 shadow-lg sm:p-7">
-            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-fg-subtle"><StatusDot alive />{t.hero.sample}</p>
             <ol className="flex flex-col gap-3">
               {t.hero.chat.map((c, i) => (
                 c.from === "event"
@@ -72,39 +71,39 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* 章节：与亮点页同一顺序，每章一句标题、一句话、一张图 */}
+      {/* 章节：许多身体接着 hero 的「住在你所有设备上」，其余与亮点页同一顺序；每章一句标题、一句话、一张图（宽度上限在 Frame 里） */}
       {t.chapters.map((c, i) => (
         <Section key={c.id} tone={i % 2 ? "elevated" : "plain"} className="py-24 sm:py-36">
           <Container className="flex flex-col items-center gap-14 text-center">
-            <Reveal className="flex max-w-3xl flex-col items-center gap-6">
+            <Reveal className="flex max-w-prose flex-col items-center gap-6">
               <Tag>{c.tag}</Tag>
-              <Heading size="xl" className="whitespace-pre-line">{c.heading}</Heading>
-              <p className="max-w-2xl text-xl text-fg-muted text-pretty">{c.lead}</p>
+              <Heading size="xl"><Phrases text={c.heading} /></Heading>
+              <p className="text-xl text-fg-muted"><Phrases text={c.lead} /></p>
               {"note" in c && c.note && <Link to={localized(lang, c.noteLink)} className={cx("text-sm", link)}>{c.note} →</Link>}
               <Link to={`${localized(lang, "/features")}#${c.id}`} className={cx("text-sm", link)}>{t.more} →</Link>
             </Reveal>
-            <Reveal delay={1} className="w-full max-w-xl text-left">{art(c.id)}</Reveal>
+            <Reveal delay={1} className="w-full text-left">{art(c.id)}</Reveal>
           </Container>
         </Section>
       ))}
 
-      {/* 你说了算：回应「安全吗」。三件事 + 一句如实的话，细节在「信任与边界」 */}
+      {/* 你说了算：回应「安全吗」。三件事 + 一句话链到「信任与边界」 */}
       <Section tone={t.chapters.length % 2 ? "elevated" : "plain"} className="py-24 sm:py-36">
         <Container className="flex flex-col items-center gap-16 text-center">
-          <Reveal className="flex max-w-3xl flex-col items-center gap-6">
+          <Reveal className="flex max-w-prose flex-col items-center gap-6">
             <Tag>{t.control.tag}</Tag>
-            <Heading size="xl" className="whitespace-pre-line">{t.control.heading}</Heading>
-            <p className="max-w-2xl text-xl text-fg-muted text-pretty">{t.control.lead}</p>
+            <Heading size="xl"><Phrases text={t.control.heading} /></Heading>
+            <p className="text-xl text-fg-muted"><Phrases text={t.control.lead} /></p>
           </Reveal>
-          <dl className="grid w-full max-w-4xl gap-10 sm:grid-cols-3">
+          <dl className="grid w-full max-w-content gap-10 sm:grid-cols-3">
             {t.control.facts.map((x, i) => (
               <Reveal key={x.title} delay={i as 0 | 1 | 2} className="flex flex-col gap-2">
                 <dt className="text-lg font-semibold text-fg">{x.title}</dt>
-                <dd className="text-fg-muted text-pretty">{x.text}</dd>
+                <dd className="text-fg-muted"><Phrases text={x.text} /></dd>
               </Reveal>
             ))}
           </dl>
-          <p className="max-w-2xl text-sm text-fg-subtle text-pretty">{t.control.honest} <Link to={localized(lang, "/docs/guide/trust")} className={cx("whitespace-nowrap", link)}>{t.control.more} →</Link></p>
+          <p className="max-w-prose text-sm text-fg-subtle"><Phrases text={t.control.honest} /> <Link to={localized(lang, "/docs/guide/trust")} className={cx("whitespace-nowrap", link)}>{t.control.more} →</Link></p>
         </Container>
       </Section>
 
@@ -112,8 +111,8 @@ export default function Home() {
       <Section className="py-24 sm:py-36">
         <Container className="flex flex-col items-center gap-8 text-center">
           <OrbMark size={40} />
-          <Heading size="xl">{t.start.heading}</Heading>
-          <p className="max-w-2xl whitespace-pre-line text-xl text-fg-muted text-pretty">{t.start.lead}</p>
+          <Heading size="xl"><Phrases text={t.start.heading} /></Heading>
+          <p className="max-w-prose text-xl text-fg-muted"><Phrases text={t.start.lead} /></p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.start.download}</ButtonLink>
             <ButtonLink variant="secondary" size="lg" to={localized(lang, "/docs")}>{t.start.docs}</ButtonLink>

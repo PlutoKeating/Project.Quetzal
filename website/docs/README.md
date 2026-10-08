@@ -17,7 +17,7 @@ website/
 │   ├── app.css                  Tailwind 入口 + 基础样式（只引用变量）
 │   ├── design-system/
 │   │   ├── designSystem.ts      ★ 全站唯一的视觉参数来源（色 / 外形 / 阴影光效 / 透明度 / 动效 / 字体 / 断点）
-│   │   ├── components.tsx       基础构件：Container / Section / Eyebrow / Heading / Lead / Button* / TextLink / Card / Badge / Kbd / StatusDot / Reveal / Breath
+│   │   ├── components.tsx       基础构件：Container / Section / Eyebrow / Heading / Lead / Button* / TextLink / Card / Badge / Kbd / StatusDot / Reveal / Breath / Phrases（按标点换行）
 │   │   └── tokens.generated.css 由 scripts/gen-tokens.ts 生成（不入库）
 │   ├── i18n/core.ts             i18n 内核：defineMessages / useMessages / 语言检测与记忆 / 路径切换
 │   ├── components/              跨页面组件：SiteHeader、SiteFooter、LangSwitch、ThemeToggle、Wordmark（光团 OrbMark + 名字）、Article（长文版式）、NotFound、markdown/（统一 Markdown 渲染）；i18n.ts 为壳层文案与 GitHub 链接常量

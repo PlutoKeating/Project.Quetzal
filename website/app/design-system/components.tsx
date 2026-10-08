@@ -2,7 +2,7 @@
  * 设计系统组件：全站可复用的基础构件。只用语义工具类，不含任何字面量视觉参数。
  */
 import { Link, type LinkProps } from "react-router";
-import { useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
 
 export const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(" ");
 
@@ -184,5 +184,24 @@ export function Breath({ className, size = "lg" }: { className?: string; size?: 
       <div className="absolute inset-0 rounded-full bg-accent-glow blur-halo opacity-(--ds-opacity-halo) animate-breath motion-reduce:animate-none" />
       <div className="absolute inset-[18%] rounded-[46%_54%_52%_48%/55%_45%_55%_45%] bg-accent-glow-faint blur-glass animate-breath [animation-delay:calc(var(--ds-duration-breath)/-3)] motion-reduce:animate-none" /> {/* ds-allow：有机形状的圆角比例 */}
     </div>
+  );
+}
+
+/**
+ * 按短语换行：把一句话在标点处切成几段，每段是一个 inline-block，换行只发生在段与段之间（标点之后），不会在一个短语中间断开。
+ * 一段比整行还长时，才在段内照常换行。`\n` 是强制换行。用于居中的大标题与引言。
+ */
+export function Phrases({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("\n").map((line, i) => (
+        <Fragment key={i}>
+          {i > 0 && <br />}
+          {(line.match(/[^，。、；：？！,.;:?!]+[，。、；：？！,.;:?!]*\s*/g) ?? [line]).map((seg, j) => (
+            <Fragment key={j}><span className="inline-block">{seg.trimEnd()}</span>{/\s$/.test(seg) ? " " : ""}</Fragment>
+          ))}
+        </Fragment>
+      ))}
+    </>
   );
 }
