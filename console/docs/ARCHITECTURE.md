@@ -8,6 +8,7 @@ lib/
 ├── api.dart           网关客户端（连接档案 Profile 带钉住的证书指纹 fp；加密配对 pairInfo / pairFinish）：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版问 /auth/local；桌面版先读家目录里的 secrets/gateway.token、核对后才用）、点火；HTTP 令牌放请求头 X-Quetzal-Token
 ├── pins.dart          加密连接：网关证书指纹的钉住与配对时的捕获（Pins）、配对证明（PBKDF2，后台 isolate）、网关地址的写法（只填地址时别的机器用 https:7789）、旧的明文局域网档案的识别
 ├── links.dart         打开外部链接的唯一入口：只放行 https（http 只限本机回环地址）
+├── zoom.dart          界面字号（原生桌面版）：MaterialApp 外层 MediaQuery 的 textScaler 乘上 80%–160%；Ctrl + = / + 放大、Ctrl + - 缩小、Ctrl + 0 还原（HardwareKeyboard 全局处理，输入框有焦点时也生效）；记在本机 shared_preferences 的 ui.scale
 ├── igniter.dart       运行基座桥（MethodChannel quetzal/runtime）：App 内置运行基座的启动 / 重启 / 停止、状态、网关令牌、身体权限、电池优化 / 自启动管理页（安卓）
 ├── hearing.dart       听觉：跟随基座 status.hearing.listening 启停本机的耳朵（只对本机的 agent）——安卓是原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing），
 │                      桌面版是控制台进程里的 DesktopEar（platform/ear_io.dart）；耳朵开着时登记为播放器、播放 speak；权限、事件、界面上的一句话（网页版只跟着状态显示）
@@ -35,7 +36,7 @@ lib/
     ├── wake.dart      醒来记录（只读）：WakeView 与手机页；WakeWatch 跟踪进行中的醒来
     ├── flow.dart      心流：FlowFeed（时间线加载与筛选）、手机页（可展开的卡片）、FlowList（桌面列表栏）、FlowDistribution（醒来分布）
     ├── memory.dart    记忆：MemoryCore / JournalList / NotesList / MemorySearch / MarkdownDoc；手机 4 个 Tab，桌面索引在列表栏、内容在主区
-    ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用；group：head 身份 · main 首屏 · end 高级与关于 · more 收进「高级」· hidden 从别的页进入）、controlItem（按 id 找页，旧 id approvals / hearing 映射到权限 / 声音）、MorePage（高级）、节律、权限（ApprovalCard 与能力授权）、预算、操作记录、保密库、飞书、同步（灵魂仓库、同步服务地址、心跳优先级）、运行（含命令沙箱 status.sandbox，none 时提醒）
+    ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用；group：head 身份 · main 首屏 · end 高级与关于 · more 收进「高级」· hidden 从别的页进入）、controlItem（按 id 找页，旧 id approvals / hearing 映射到权限 / 声音）、MorePage（高级）、节律、权限（ApprovalCard 与能力授权）、预算、操作记录、保密库、飞书、同步（灵魂仓库、同步服务地址、心跳优先级）、运行（含命令沙箱 status.sandbox，none 时提醒）、字号（ZoomPage，只在原生桌面版，见 zoom.dart）
     ├── account.dart   账户（从「设备」进入）：控制台登录（码、链接、二维码，申请到就打开浏览器），之后分四页——概览（agent 与设备、移除、删除 agent）、添加设备（输入码、核对、批准或拒绝）、已登录（退出）、设置（退出管理、删除账户）
     ├── mesh.dart      设备：账户入口、登录（设备码绑定，signInDevice 申请到码就打开浏览器；DeviceCodeView 显示核对表情、码、链接、二维码，向导与账户页共用）、设备列表（直连 / 中转、往返时间、心跳在哪、公钥变了时的「信任」）、这台设备退出登录
     ├── tools.dart     工具：她自己造的工具（定义、源码、技能文档）与灵魂仓库里的技能文档；停用 / 启用、删除
@@ -95,7 +96,7 @@ flowchart TB
   D --> D0["身份（顶部名字行）"]
   D --> D1["模型 · 权限 · 节律 · 声音 · 飞书 · 设备"]
   D1 -.-> D11["设备 › 账户"]
-  D --> D2["高级：工具 · 保密库 · 预算 · 同步 · 记忆历史 · 操作记录 · 运行"]
+  D --> D2["高级：工具 · 保密库 · 预算 · 同步 · 记忆历史 · 操作记录 · 运行 · 字号（原生桌面版）"]
   D --> D3["关于"]
 ```
 
@@ -167,6 +168,7 @@ flowchart TB
 | 控制 · 高级 · 保密库 | 你通过保密输入交给她的值：名字、说明、时间、来源通道与大小，不显示内容；删除（二次确认） |
 | 控制 · 权限 / 高级 · 操作记录 | 权限：待批准（理由 Markdown，参数折叠）在上，每类能力 允许 / 询问 / 禁止 在下；操作记录：列表一行预览（agent 显示为她的名字），点开看完整参数与输出 |
 | 控制 · 高级 · 运行 | 连接、版本、设备与适配器、命令沙箱、系统资源；守护开关（开机自启，退出后自动重启）；重启、重装（安卓，进安装向导的升级模式）、重新配对。升级在「关于」里一键完成 |
+| 控制 · 高级 · 字号 | 只在原生桌面版（Linux / Windows）出现：一根滑杆（80%–160%，每格 10%）与快捷键说明一行，不是 100% 时有「还原」；与 Ctrl + = / - / 0 改的是同一个值，记在本机，重开仍生效。安卓跟随系统字号，网页版用浏览器的缩放 |
 | 安装向导 | 一次只展开一步，完成的收成一行：① 安装（打开即开始；端口被旧版 Termux 安装占着时提示迁移）② 权限（装好自动弹系统请求）③ 后台运行（能检测已允许，可跳过）④ 登录（设备码，可跳过）⑤ 模型；装好后随时可点「开始」。电脑上只有 ④ 登录与 ⑤ 模型 |
 
 视觉：Material 3，种子色取当前 agent 的主题色（默认 `#F0A35E`，与官网设计系统的琥珀 accent 一致），默认深色；暗色模式下主色（按钮、进度条）直接用 agent 的主题色、其上文字用设计系统的 accent-fg `#1A120A`，而不是 M3 从种子推导的淡色；暗色背景固定为中性灰 `#202020`（RGB 32,32,32），各层容器为同一灰阶，不随主题色偏色；光团是主题色提高饱和度与亮度后的发光体（集中高光、压暗边缘、外层光晕；睡着时略沉、思考时更亮、急停变红）；动效表达状态、少用文字；光团用 `RepaintBoundary` 隔离重绘。
