@@ -4,6 +4,8 @@
 import { EventEmitter } from "node:events";
 import { WebSocket } from "ws";
 import { isNodeKey, BODY_NAME } from "./identity.ts";
+import { normAddr } from "./link.ts";
+import { routeLocal } from "./netwatch.ts";
 
 export const PROTOCOL = 1;
 
@@ -42,6 +44,8 @@ export type DirectoryState = "connecting" | "online" | "offline" | "unauthorized
 /**
  * 信令连接。事件：online、offline、peer（Peer）、peer.removed（body）、signal（{from, data}）、turn（iceServers）、error（说明）、revoked。
  * 断线后指数退避重连（1 秒到 1 分钟，带抖动）；令牌失效（4401 / 4403）就不再重连，状态 unauthorized。
+ * 网络变了时网状层调用 checkPath()：这条连接用的本机地址没了、或去往同步服务的路由改用了别的本机地址（旧连接已经走不通），就立即重连；
+ * 正在退避等待时立即重试。不额外发请求，只在确实换了网络时重连一次。
  */
 export class Directory extends EventEmitter {
   state: DirectoryState = "offline";
@@ -54,6 +58,7 @@ export class Directory extends EventEmitter {
   account = "";
   clockSkew = 0; // 本机时钟减去服务端时钟（毫秒）
   private ws?: WebSocket;
+  private sock?: { local: string; remote: string };   // 这条连接两端的地址（只在内存里，用来判断网络变了以后它还走不走得通）
   private retry = 0;
   private timer?: NodeJS.Timeout;
   private turnTimer?: NodeJS.Timeout;
@@ -69,6 +74,8 @@ export class Directory extends EventEmitter {
     const url = serverOrigin(this.b.server).replace(/^http/, "ws") + "/v1/ws";
     const ws = new WebSocket(url, { handshakeTimeout: 15_000, maxPayload: 1 << 20, perMessageDeflate: false });
     this.ws = ws;
+    this.sock = undefined;
+    ws.on("upgrade", (res) => { const s = res.socket; if (this.ws === ws && s?.localAddress && s.remoteAddress) this.sock = { local: normAddr(s.localAddress), remote: normAddr(s.remoteAddress) }; });
     ws.on("open", () => ws.send(JSON.stringify({ t: "hello", token: this.b.token, protocol: PROTOCOL, ...this.hello() })));
     ws.on("message", (raw) => {
       if (this.ws !== ws) return;
@@ -90,6 +97,31 @@ export class Directory extends EventEmitter {
       if (wasOnline) this.emit("offline");
     });
     ws.on("error", (e) => { this.error = `连不上同步服务：${e.message}`; });
+  }
+
+  /** 信令连接的对端地址（同步服务或它前面的代理）；没连上时为 undefined。 */
+  remoteAddress() { return this.state === "online" ? this.sock?.remote : undefined; }
+
+  /** 立即重连（退避清零）：丢掉现在这条连接（可能已经走不通），马上连一条新的。 */
+  reconnect(why: string) {
+    if (this.closed || this.state === "unauthorized") return;
+    this.emit("error", `${why}：重新连接同步服务`);
+    this.retry = 0;
+    clearTimeout(this.timer);
+    const ws = this.ws;
+    if (ws && ws.readyState !== WebSocket.CLOSED) { ws.terminate(); return; } // close 事件里按 retry = 0 排下一次（0.5 到 1 秒后）
+    this.connect();
+  }
+
+  /** 网络变了：判断现在的信令连接是否还走得通，走不通就立即重连；正在退避等待就立即重试。addrs 为本机现有地址（取不到为 undefined）。 */
+  async checkPath(addrs?: Set<string>) {
+    if (this.closed || this.state === "unauthorized" || this.state === "connecting") return;
+    if (this.state === "offline") return this.reconnect("网络变了");
+    const s = this.sock;
+    if (!s) return;
+    if (addrs && !addrs.has(s.local)) return this.reconnect("网络变了，信令连接用的本机地址已经没有了");
+    const route = await routeLocal(s.remote);
+    if (route && route !== s.local && this.sock === s) this.reconnect("网络变了，去往同步服务的路由换了本机地址");
   }
 
   private schedule() {

@@ -136,6 +136,7 @@ class _MeshPageState extends State<MeshPage> {
       if (coordinator == p['body']) '心跳在这里',
       p['online'] == true ? (_linkLabel['${p['link']}'] ?? '${p['link']}') : '离线${(p['lastSeen'] ?? 0) == 0 ? '' : ' · ${hm(p['lastSeen'])}'}',
       if (p['path'] != null) pathLabel(p['path'] as Map),
+      if (p['via'] != null) '经 ${p['via']} 中转',
       if (p['pinMismatch'] == true) '公钥变了，已断开',
       if (p['keyOk'] == false && p['online'] == true && p['pinMismatch'] != true) p['registered'] == false ? '等待记忆同步后连上' : '公钥对不上',
       if ('${p['error'] ?? ''}'.isNotEmpty && !open) '${p['error']}',

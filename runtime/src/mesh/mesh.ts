@@ -5,6 +5,9 @@
 // 同步服务或灵魂仓库任一方说它是灵魂桥，就只当只读成员。
 // 首次见到的身体记下它的公钥与类型（钉住，TOFU）：之后公钥变了、或从灵魂桥变成运行基座，在控制台确认（acceptPin）之前不连。
 // 对方（以及同步服务）发来的任何东西都不能让进程崩溃：所有由对方触发的回调都接住异常，记一笔丢掉。
+// 网络变了（netwatch.ts）：信令连接走不通就立即重连，已连上的连接立刻探一次，没连上的退避清零立即重来。
+// 同步服务说某具身体下线了：直连还通着就留着（它可能只是和同步服务断了），断了以后不再重试；它发来验过签名的连接请求就恢复。
+// 直连打不通的两具身体经第三具身体中转（route.ts）：对上层来说它们照样「连着」（PeerStatus.via 是中转的身体）。
 import { EventEmitter } from "node:events";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -12,6 +15,8 @@ import path from "node:path";
 import { Directory, type Binding, type Peer } from "./directory.ts";
 import { Link, type Ndc } from "./link.ts";
 import { Opener, seal, fingerprint, BODY_NAME, type NodeKey } from "./identity.ts";
+import { Router } from "./route.ts";
+import { watchNetwork, localAddresses } from "./netwatch.ts";
 
 export interface MeshOptions {
   me: string;
@@ -28,10 +33,18 @@ export interface MeshOptions {
   log: (msg: string) => void;
   warn?: (msg: string) => void;                   // 安全相关的提醒（签名不符、公钥不一致），进时间线；已截断、限频
   relayOnly?: boolean;
+  netEvents?: (cb: (detail: string) => void) => (() => void) | void; // 平台的网络变化通知（适配器的 onNetworkChange）
+  watchNetwork?: boolean;                         // 监视网络变化（缺省开）
 }
 
 export type Handler = (params: any, from: string) => unknown | Promise<unknown>;
-export interface PeerStatus { body: string; kind: string; version: string; online: boolean; lastSeen: number; link: string; path?: { local: string; remote: string; rtt: number }; error?: string; keyOk: boolean; registered: boolean; fingerprint: string; pinMismatch?: boolean }
+export interface PeerStatus {
+  body: string; kind: string; version: string; online: boolean; lastSeen: number; link: string; path?: { local: string; remote: string; rtt: number }; error?: string;
+  keyOk: boolean; registered: boolean; fingerprint: string; pinMismatch?: boolean;
+  via?: string;                                   // 直连不通、经这具身体中转（此时 link 为 open）
+  attempts: number; since: number; lastOpen: number; // 直连连续失败的次数、进入当前状态的时刻、最近一次直连上的时刻
+  candidates?: { local: string[]; remote: string[] }; // 最近一次直连尝试双方交换过的候选类型（诊断：谁拿不到中转地址）
+}
 
 /** 钉住的身体：第一次见到时的公钥与类型。 */
 export interface Pin { meshKey: string; kind: "runtime" | "bridge"; at: number }
@@ -99,6 +112,8 @@ export class Mesh extends EventEmitter {
   private kinds = new Map<string, { kind: string | undefined; at: number }>();
   private lastRefresh = 0;
   private refreshing?: Promise<void>;
+  private router?: Router;                // 经其他身体中转（只读成员没有）
+  private unwatch?: () => void;
 
   constructor(o: MeshOptions) {
     super();
@@ -111,13 +126,23 @@ export class Mesh extends EventEmitter {
     this.dir.on("offline", this.safe(() => this.fire("state")));
     this.dir.on("revoked", this.safe((e: string) => { this.warn(clip(e, 200)); for (const l of this.links.values()) l.stop(); this.fire("state"); }));
     this.dir.on("error", this.safe((e: string) => this.o.log(clip(e, 200))));
-    this.dir.on("peer", this.safe((p: Peer) => this.onPeer(p)));
-    this.dir.on("peer.removed", this.safe((body: string) => { this.links.get(body)?.stop(); this.links.delete(body); this.fire(this.readers.delete(body) ? "reader" : "peer", { body, online: false, link: "closed" }); }));
+    this.dir.on("peer", this.safe((p: Peer) => this.onPeer(p, true)));
+    this.dir.on("peer.removed", this.safe((body: string) => { this.links.get(body)?.stop(); this.links.delete(body); this.router?.recompute(); this.fire(this.readers.delete(body) ? "reader" : "peer", { body, online: false, link: "closed" }); }));
     this.dir.on("signal", this.safe((s: { from: string; data: unknown }) => { this.onSignal(s.from, s.data).catch((e) => this.o.log(`处理 ${s.from} 的信令出错：${clip((e as Error)?.message, 200)}`)); }));
+    if (!o.reader) this.router = new Router({
+      me: o.me, agent: this.agent, key: o.key, keyOf: o.keyOf, log: o.log,
+      eligible: (b) => this.routable(b), direct: () => this.directMembers(), send: (b, m) => this.sendDirect(b, m),
+      deliver: (from, m) => this.dispatch(from, m, false), changed: (bodies) => bodies.forEach((b) => this.emitPeer(b)),
+    });
   }
 
-  start() { this.dir.connect(); }
+  start() {
+    this.dir.connect();
+    if (this.o.watchNetwork !== false) this.unwatch = watchNetwork({ onChange: (w) => this.onNetwork(w), target: () => this.dir.remoteAddress(), platform: this.o.netEvents });
+  }
   stop() {
+    this.unwatch?.(); this.unwatch = undefined;
+    this.router?.stop();
     for (const l of this.links.values()) l.stop(true);
     this.links.clear();
     this.dir.close();
@@ -149,7 +174,19 @@ export class Mesh extends EventEmitter {
     this.o.warn?.(clip(text, 300));
   }
 
-  private onPeer(p: Peer) {
+  /**
+   * 网络变了（netwatch 报告，或测试直接调用）：信令连接走不通就立即重连；已连上的直连立刻探一次（本机地址没了、几秒没回音就重建），
+   * 没连上的退避清零、立即重来。被停下的（对方不在线）不动。
+   */
+  onNetwork(why: string) {
+    this.o.log(`网络变了（${why}）：检查各条连接`);
+    const addrs = localAddresses();
+    this.dir.checkPath(addrs).catch(() => {});
+    for (const l of this.links.values()) { if (l.state === "open") l.probe(addrs); else if (l.state !== "closed") l.start(true, true); }
+  }
+
+  /** 同步服务的在场：fromDir 为真表示同步服务刚发来（重新连上时的整份名单、或这具身体上下线），没连上的连接退避清零、立即重来。 */
+  private onPeer(p: Peer, fromDir = false) {
     if (p.body === this.o.me) return;
     // 同步服务转告的公钥与灵魂仓库登记的不一致：以灵魂仓库为准，并提醒（可能是重新绑定还没同步到，也可能有人冒充）
     const soulKey = this.o.keyOf(p.body);
@@ -160,9 +197,23 @@ export class Mesh extends EventEmitter {
       return;
     }
     const link = this.link(p.body);
-    if (p.online) { if (link.state === "idle" || link.state === "closed") link.start(); }
+    if (p.online) { if (link.state === "idle" || link.state === "closed" || (fromDir && link.state !== "open")) link.start(fromDir); }
+    else if (link.state === "open") link.probe(); // 直连还通着就探一次、通就留着：它可能只是和同步服务断了；不通则断开，之后不再重试（见 wantRetry）
     else link.stop();
     this.emitPeer(p.body);
+  }
+
+  /** 直连断开后还要不要再试：同步服务说它在线、或我们和同步服务断着（不知道）、或它两分钟内发来过信令。 */
+  private wantRetry(body: string) {
+    return this.dir.state !== "online" || !!this.dir.peers.get(body)?.online || Date.now() - (this.links.get(body)?.lastSignalAt ?? 0) < 120_000;
+  }
+
+  /** 可以经中转往来的身体：同步服务登记过、灵魂仓库登记了公钥、是正式成员、钉住的公钥与类型对得上。 */
+  private routable(body: string): boolean {
+    if (!BODY_NAME.test(body) || body === this.o.me || this.mismatch.has(body)) return false;
+    const p = this.dir.peers.get(body);
+    if (!p || !this.o.keyOf(body) || this.isReaderNow(body) || this.isReader(body, p.kind) !== false) return false;
+    return this.checkPin(body, "runtime");
   }
 
   /** 这具身体能不能连、以什么身份连：类型认得、钉住的公钥与类型对得上。会更新只读成员的集合；类型变了就重连。 */
@@ -206,6 +257,7 @@ export class Mesh extends EventEmitter {
     this.kinds.delete(body);
     const p = this.dir.peers.get(body);
     if (p) this.onPeer(p);
+    this.router?.recompute();
     return this.peerStatus(body);
   }
 
@@ -226,6 +278,7 @@ export class Mesh extends EventEmitter {
         if (p) this.onPeer(p);
       } catch (e) { this.o.log(`核对 ${body} 出错：${clip((e as Error)?.message, 200)}`); }
     }
+    this.router?.recompute();
   }
 
   /** 这具身体是不是只读成员：同步服务与灵魂仓库都说是运行基座才算正式成员；任一方说是灵魂桥就是只读成员；都不是则 undefined。 */
@@ -258,10 +311,21 @@ export class Mesh extends EventEmitter {
       signal: (b) => { this.dir.signal(body, seal(this.o.key, this.agent, this.o.me, body, b)); },
       log: (m) => this.o.log(m),
       maxMessage: () => (this.isReaderNow(body) ? READER_MAX_MESSAGE : 32 << 20),
+      shouldRetry: () => this.wantRetry(body),
     });
-    l.on("open", () => { this.o.log(`与 ${body} 连上了（${l!.path?.local ?? "?"}↔${l!.path?.remote ?? "?"}）${this.readers.has(body) ? "（只读成员）" : ""}`); this.emitPeer(body); });
-    l.on("close", (why: string) => { this.o.log(`与 ${body} 断开：${why}`); this.emitPeer(body); });
+    l.on("open", () => {
+      this.o.log(`与 ${body} 连上了（${l!.path?.local ?? "?"}↔${l!.path?.remote ?? "?"}）${this.readers.has(body) ? "（只读成员）" : ""}`);
+      if (this.router && !this.isReaderNow(body)) { this.router.recompute(); this.router.greet(body); this.router.topologyChanged(); }
+      this.emitPeer(body);
+    });
+    l.on("close", (why: string) => {
+      this.o.log(`与 ${body} 断开：${why}`);
+      this.router?.recompute(); // 先算出能不能经别的身体中转：能的话对上层来说它一直连着，不闪断
+      this.router?.topologyChanged();
+      this.emitPeer(body);
+    });
     l.on("path", () => this.emitPeer(body));
+    l.on("retry", () => this.emitPeer(body));
     l.on("message", (m: Record<string, unknown>) => {
       try { this.onMessage(body, m); } catch (e) { this.o.log(`处理 ${body} 的消息出错（已丢弃）：${clip((e as Error)?.message, 200)}`); }
     });
@@ -282,7 +346,14 @@ export class Mesh extends EventEmitter {
     }
     if (r.env.from !== from) return; // 同步服务标注的来源与签名的来源不一致：丢弃
     this.sigErrors.delete(from);
-    this.link(from).onSignal(r.env.body);
+    const l = this.link(from), b = r.env.body;
+    if (l.state === "closed" && (b.kind === "hello" || (b.kind === "desc" && b.type === "offer"))) {
+      // 被停下的连接（同步服务说过它下线了）：它发来了验过签名的连接请求，说明它此刻在线（同步服务的通知可能还在路上，或我们漏了）
+      const p = this.dir.peers.get(from);
+      if (this.dir.state === "unauthorized" || !p || !this.admit(from, p.kind)) return;
+      l.resume();
+    }
+    l.onSignal(b);
   }
 
   /** 拉取一次灵魂仓库（遇到没登记的身体时）：最快一分钟一次，同时只有一次。返回是否真的拉了。 */
@@ -297,17 +368,22 @@ export class Mesh extends EventEmitter {
     return true;
   }
 
-  // ---------- 消息：req / res / ev
+  // ---------- 消息：req / res / ev（以及中转用的 rt / fwd，见 route.ts）
   private onMessage(from: string, m: Record<string, unknown>) {
     const reader = this.isReaderNow(from);
+    if (m.t === "rt" || m.t === "fwd") { if (!reader && this.router) this.router.onMessage(from, m); return; } // 只读成员不参与中转
+    this.dispatch(from, m, reader);
+  }
+
+  /** 处理一条请求 / 回应 / 事件：from 是直连认证过的对端，或经中转验过签名的发出者。 */
+  private dispatch(from: string, m: Record<string, unknown>, reader: boolean) {
     if (m.t === "req" && typeof m.id === "string" && m.id.length <= 64 && typeof m.m === "string" && m.m.length <= 100) {
       if (this.o.reader) return; // 只读成员不提供方法
       const id = m.id, method = m.m;
       const h = reader && !this.readable.has(method) ? undefined : this.handlers.get(method);
       const reply = (ok: boolean, v: unknown) => {
-        const l = this.links.get(from);
-        try { l?.send({ t: "res", id, ok, ...(ok ? { r: v } : { e: clip(v, 2000) }) }); }
-        catch (e) { try { l?.send({ t: "res", id, ok: false, e: clip((e as Error).message, 200) }); } catch {} }
+        try { this.sendTo(from, { t: "res", id, ok, ...(ok ? { r: v } : { e: clip(v, 2000) }) }); }
+        catch (e) { try { this.sendTo(from, { t: "res", id, ok: false, e: clip((e as Error).message, 200) }); } catch {} }
       };
       if (!h) return reply(false, reader && this.handlers.has(method) ? `只读成员不能调用 ${method}` : `没有这个方法：${clip(method, 100)}`);
       Promise.resolve().then(() => h(m.p, from)).then((v) => reply(true, v ?? null), (e) => reply(false, (e as Error)?.message ?? e));
@@ -325,37 +401,61 @@ export class Mesh extends EventEmitter {
   /** 注册一个可以被其他身体调用的方法；readable 为真时只读成员（灵魂桥）也可以调用——只给不改变任何状态的方法。 */
   handle(method: string, fn: Handler, readable = false) { this.handlers.set(method, fn); if (readable) this.readable.add(method); }
 
-  /** 调用另一具身体上的方法（对方必须在线且连上；没连上会排队等待，直到超时）。 */
+  /** 发给某具身体：直连通着走直连；不通但经中转可达就经中转；直连正在连就排队等它连上。返回是否发出（或排进队列）。 */
+  private sendTo(body: string, m: Record<string, unknown>): boolean {
+    const l = this.links.get(body);
+    if (l?.state === "open") return l.send(m);
+    if (this.router?.via(body) && !this.isReaderNow(body)) return this.router.sendVia(body, m);
+    return !!l && l.state !== "closed" && l.send(m);
+  }
+  /** 只经直连发（中转自己用）：没连上就不发。 */
+  private sendDirect(body: string, m: Record<string, unknown>): boolean {
+    const l = this.links.get(body);
+    if (l?.state !== "open") return false;
+    try { return l.send(m); } catch (e) { this.o.log(`发给 ${body} 失败：${clip((e as Error).message, 200)}`); return false; }
+  }
+  /** 此刻直连着的正式成员。 */
+  private directMembers(): string[] { return [...this.links].filter(([b, l]) => l.state === "open" && !this.isReaderNow(b)).map(([b]) => b); }
+
+  /** 调用另一具身体上的方法（对方必须在线且连上，直连或经中转；直连没连上会排队等待，直到超时）。 */
   request<T = unknown>(body: string, method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
     const l = this.links.get(body);
-    if (!l || l.state === "closed") return Promise.reject(new Error(`${body} 不在网上`));
+    if ((!l || l.state === "closed") && !(this.router?.via(body) && !this.isReaderNow(body))) return Promise.reject(new Error(`${body} 不在网上`));
     const id = crypto.randomUUID();
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${body} 在 ${Math.round(timeoutMs / 1000)} 秒内没有回应 ${method}`)); }, timeoutMs);
       timer.unref?.();
       this.pending.set(id, { body, resolve: resolve as (v: unknown) => void, reject, timer });
       let sent = false;
-      try { sent = l.send({ t: "req", id, m: method, p: params }); } catch (e) { this.pending.delete(id); clearTimeout(timer); return reject(e as Error); }
+      try { sent = this.sendTo(body, { t: "req", id, m: method, p: params }); } catch (e) { this.pending.delete(id); clearTimeout(timer); return reject(e as Error); }
       if (!sent) { this.pending.delete(id); clearTimeout(timer); reject(new Error(`发给 ${body} 失败`)); }
     });
   }
 
-  /** 发一个事件给某具身体 / 所有连上的身体。 */
-  emitTo(body: string, name: string, data?: unknown) { try { return this.links.get(body)?.send({ t: "ev", e: name, d: data }) ?? false; } catch { return false; } }
-  broadcast(name: string, data?: unknown) { for (const [b, l] of this.links) if (l.state === "open" && !this.isReaderNow(b)) { try { l.send({ t: "ev", e: name, d: data }); } catch (e) { this.o.log(`广播 ${name} 给 ${b} 失败：${clip((e as Error).message, 200)}`); } } }
+  /** 发一个事件给某具身体 / 所有连上的身体（直连或经中转）。 */
+  emitTo(body: string, name: string, data?: unknown) { try { return this.sendTo(body, { t: "ev", e: name, d: data }); } catch { return false; } }
+  broadcast(name: string, data?: unknown) { for (const b of this.connected()) { try { this.sendTo(b, { t: "ev", e: name, d: data }); } catch (e) { this.o.log(`广播 ${name} 给 ${b} 失败：${clip((e as Error).message, 200)}`); } } }
 
-  /** 此刻连上的正式成员（运行基座）。只读成员不在其中：不被调度、不选协调者、不收广播。 */
-  connected(): string[] { return [...this.links].filter(([b, l]) => l.state === "open" && !this.isReaderNow(b)).map(([b]) => b); }
+  /** 此刻连上的正式成员（运行基座）：直连的，加上直连不通、经中转可达的。只读成员不在其中：不被调度、不选协调者、不收广播。 */
+  connected(): string[] {
+    const out = this.directMembers();
+    for (const b of this.router?.reachable() ?? []) if (!out.includes(b)) out.push(b);
+    return out;
+  }
   /** 此刻连上的只读成员（灵魂桥）。 */
   connectedReaders(): string[] { return [...this.links].filter(([b, l]) => l.state === "open" && this.isReaderNow(b)).map(([b]) => b); }
 
   peerStatus(body: string): PeerStatus {
     const p = this.dir.peers.get(body), l = this.links.get(body), soulKey = this.o.keyOf(body), mismatch = this.mismatch.has(body);
+    const direct = l?.state === "open", via = direct || this.isReaderNow(body) ? undefined : this.router?.via(body);
+    const cands = l?.candidates();
     return {
-      body, kind: this.readers.has(body) ? "bridge" : p?.kind ?? "", version: p?.version ?? "", online: !!p?.online, lastSeen: p?.lastSeen ?? 0,
-      link: l?.state ?? "none", path: l?.path, error: l?.lastError || this.sigErrors.get(body) || undefined,
+      body, kind: this.readers.has(body) ? "bridge" : p?.kind ?? "", version: p?.version ?? "", online: !!p?.online || direct || !!via, lastSeen: p?.lastSeen ?? 0,
+      link: direct || via ? "open" : l?.state ?? "none", path: l?.path, error: l?.lastError || this.sigErrors.get(body) || undefined,
       keyOk: !!soulKey && soulKey === p?.nodeKey && !mismatch, registered: !!soulKey, fingerprint: p?.nodeKey ? fingerprint(p.nodeKey) : "",
-      ...(mismatch ? { pinMismatch: true } : {}),
+      ...(mismatch ? { pinMismatch: true } : {}), ...(via ? { via } : {}),
+      attempts: l?.attempts ?? 0, since: l?.since ?? 0, lastOpen: l?.lastOpen ?? 0,
+      ...(cands && (cands.local.length || cands.remote.length) ? { candidates: cands } : {}),
     };
   }
 

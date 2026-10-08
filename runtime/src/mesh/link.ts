@@ -3,6 +3,8 @@
 // 双方再用节点密钥对两端的 DTLS 证书指纹做一次挑战与应答，确认通道另一端就是灵魂仓库登记的那具身体。
 // 对方发来的一切都不可信到不能让进程崩溃：不是对象、认证前发分块、分块超限都算违反协议，断开这条连接（5 分钟后再试）；
 // 原生库回调里的异常一律接住（异常若逃进 node-datachannel 的线程安全回调，整个进程会崩）。
+// libdatachannel 用的 libjuice 不做 ICE 重启、TURN 只支持 UDP：网络变了（换 Wi-Fi / 移动数据）由网状层通知 probe()，
+// 本机地址没了或对方几秒内没有回音就整条重建；应答方请对方发起（hello）后也有时限，没回应就按退避再请。
 import { EventEmitter } from "node:events";
 import crypto from "node:crypto";
 import type { PeerConnection, DataChannel, IceServer as NdcIceServer } from "node-datachannel";
@@ -21,6 +23,8 @@ const MAX_PARALLEL = 16;           // 同时在重组的消息条数
 const PING_MS = 15_000;
 const DEAD_MS = 45_000;            // 这么久收不到任何东西就算断了
 const CONNECT_TIMEOUT_MS = 30_000; // 建立连接（含认证）的时限
+const HELLO_TIMEOUT_MS = 15_000;   // 应答方请对方发起后，等对方的 offer 的时限
+const PROBE_MS = 8_000;            // 网络变了以后，等对方回音的时限
 
 export interface LinkDeps {
   me: string;
@@ -34,7 +38,13 @@ export interface LinkDeps {
   log: (msg: string) => void;
   relayOnly?: boolean;                          // 测试用：只走 TURN 中转
   maxMessage?: () => number;                    // 对方发来的单条消息上限（只读成员小得多）
+  shouldRetry?: () => boolean;                  // 断开后还要不要再试（对方已经下线就不试，等它上线或发来信令）
 }
+
+/** 地址规范化（小写、去掉 IPv6 的 %网卡、IPv4 映射地址还原），用来和本机网卡地址比较。 */
+export const normAddr = (a: string) => a.toLowerCase().replace(/%.*$/, "").replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, "$1");
+/** ICE 候选里的类型（host / srflx / prflx / relay）。 */
+const candType = (c: string) => c.match(/ typ (host|srflx|prflx|relay)\b/)?.[1];
 
 /** 把同步服务给的 ICE 服务器（WebRTC 的 RTCIceServer 格式）转成 libdatachannel 的格式。 */
 export function toNdcIce(servers: IceServer[]): NdcIceServer[] {
@@ -55,11 +65,14 @@ export const sdpFingerprint = (sdp: string | undefined) => (sdp?.match(/a=finger
 const binding = (agent: string, signer: string, verifier: string, nonce: string, signerFp: string, verifierFp: string) => `quetzal-mesh-auth/${MESH_PROTOCOL}|${agent}|${signer}|${verifier}|${nonce}|${signerFp}|${verifierFp}`;
 
 /**
- * 事件：open（认证通过、可以收发）、message（对象）、close（原因）、path（{local, remote, rtt}）。
+ * 事件：open（认证通过、可以收发）、message（对象）、close（原因）、path（{local, remote, rtt}）、retry（一次尝试失败，lastError 是原因）。
  * 名字字典序较小的一方发起（发 offer），另一方应答；任何一方都可以请求重连（hello）。gen 区分每一次连接尝试，过期的信令直接丢弃。
  */
 export class Link extends EventEmitter {
   state: LinkState = "idle";
+  since = Date.now();                           // 进入当前状态的时刻
+  lastOpen = 0;                                 // 最近一次连上的时刻
+  lastSignalAt = 0;                             // 最近一次收到对方（验过签名的）信令的时刻：说明对方此刻连着同步服务
   path: { local: string; remote: string; rtt: number } | undefined;
   lastError = "";
   authKey = "";                                 // 这条连接认证时用的对方公钥（灵魂仓库更新后据此核对）
@@ -76,7 +89,11 @@ export class Link extends EventEmitter {
   private chunks = new Map<string, { parts: string[]; got: number; size: number; at: number }>();
   private inflight = 0;
   private lastSeen = 0;
+  private received = 0;
+  private cands = { local: new Set<string>(), remote: new Set<string>() }; // 这一次尝试双方交换过的候选类型（诊断：拿不拿得到中转地址）
+  private localHost = "";                       // 选中的本机候选是局域网地址时记下它：网络变了据此判断这条连接是否已经失效
   private pinger?: NodeJS.Timeout;
+  private probeTimer?: NodeJS.Timeout;
   private connectTimer?: NodeJS.Timeout;
   private retryTimer?: NodeJS.Timeout;
   private retries = 0;
@@ -89,19 +106,53 @@ export class Link extends EventEmitter {
     this.initiator = d.me < d.peer;
   }
 
-  /** 开始（或重新开始）连接。发起方建立新的 PeerConnection 并发 offer；应答方请对方发起。 */
-  start() {
+  private setState(s: LinkState) { if (s !== this.state) { this.state = s; this.since = Date.now(); } }
+
+  /** 连续失败了几次（连上后清零）。 */
+  get attempts() { return this.retries; }
+  /** 这一次尝试双方交换过的候选类型。 */
+  candidates() { return { local: [...this.cands.local].sort(), remote: [...this.cands.remote].sort() }; }
+
+  /**
+   * 开始（或重新开始）连接；fresh 为真时退避清零（网络变了、重新连上同步服务）。发起方建立新的 PeerConnection 并发 offer；
+   * 应答方请对方发起（带上手上正在进行的那次尝试，对方据此不必重来），HELLO_TIMEOUT_MS 内没等到 offer 就按退避再请。
+   * discard 为真时（网络变了：正在进行的尝试用的是旧网络的地址）应答方先丢掉手上的尝试，请对方从头来。
+   */
+  start(fresh = false, discard = false) {
     this.stopped = false;
+    if (fresh) this.retries = 0;
     clearTimeout(this.retryTimer);
-    if (this.initiator) this.open(crypto.randomUUID());
-    else this.d.signal({ kind: "hello" });
+    if (this.initiator) return this.open(crypto.randomUUID());
+    if (discard && this.pc) this.teardown();
+    this.d.signal({ kind: "hello", have: this.pc ? this.gen : "" });
+    if (this.pc) return;
+    this.setState("connecting");
+    clearTimeout(this.connectTimer);
+    this.connectTimer = setTimeout(() => { if (!this.pc && this.state === "connecting") this.fail(`${HELLO_TIMEOUT_MS / 1000} 秒内对方没有回应连接请求`); }, HELLO_TIMEOUT_MS);
+    this.connectTimer.unref?.();
+  }
+
+  /** 被停下的连接恢复可用（对方发来了验过签名的信令，说明它在线）：不主动发起，交给随后的信令处理。 */
+  resume() { if (this.stopped) { this.stopped = false; if (this.state === "closed") this.setState("idle"); } }
+
+  /** 网络变了：这条连接用的本机局域网地址没了就立即重建；否则立刻 ping 一次，PROBE_MS 内没有任何回音就重建。addrs 为本机现有地址（取不到为 undefined）。 */
+  probe(addrs?: Set<string>) {
+    if (this.state !== "open") return;
+    if (addrs && this.localHost && !addrs.has(normAddr(this.localHost))) return this.fail("网络变了，这条连接用的本机地址已经没有了");
+    const n = this.received;
+    this.raw({ t: "ping", ts: Date.now() });
+    clearTimeout(this.probeTimer);
+    this.probeTimer = setTimeout(() => { if (this.state === "open" && this.received === n) this.fail(`网络变了以后 ${PROBE_MS / 1000} 秒没有收到对方的回音`); }, PROBE_MS);
+    this.probeTimer.unref?.();
   }
 
   private open(gen: string) {
     this.teardown();
+    clearTimeout(this.retryTimer); // 由对方的请求开始的新尝试：之前排着的重试作废（否则它到点会拆掉刚连上的连接）
     this.gen = gen;
     this.openedAt = Date.now();
-    this.state = "connecting";
+    this.setState("connecting");
+    this.cands = { local: new Set(), remote: new Set() };
     this.verified = false; this.acked = false; this.authKey = "";
     const ice = this.d.iceServers();
     this.issued = ice.issued;
@@ -110,7 +161,7 @@ export class Link extends EventEmitter {
     });
     this.pc = pc;
     pc.onLocalDescription(this.guard((sdp: string, type: string) => { if (this.pc === pc) this.d.signal({ kind: "desc", gen, sdp, type }); }));
-    pc.onLocalCandidate(this.guard((candidate: string, mid: string) => { if (this.pc === pc) this.d.signal({ kind: "cand", gen, candidate, mid }); }));
+    pc.onLocalCandidate(this.guard((candidate: string, mid: string) => { if (this.pc !== pc) return; const t = candType(candidate); if (t) this.cands.local.add(t); this.d.signal({ kind: "cand", gen, candidate, mid }); }));
     pc.onStateChange(this.guard((s: string) => {
       if (this.pc !== pc) return;
       if (s === "connected") this.updatePath();
@@ -133,39 +184,48 @@ export class Link extends EventEmitter {
 
   /** 收到对方经同步服务转来的、已验过签名的信令。 */
   onSignal(b: Record<string, unknown>) {
+    this.lastSignalAt = Date.now();
     if (this.stopped) return;
     switch (b.kind) {
-      case "hello": // 对方请我发起（只有发起方处理）。对方发 hello 说明它那边没有连接（新启动或刚断开），即使我以为还连着也重来；2 秒内的重复请求忽略
-        if (this.initiator && Date.now() - this.openedAt > 2000) this.open(crypto.randomUUID());
+      case "hello": { // 对方请我发起（只有发起方处理）。对方发 hello 说明它那边没有连接（新启动或刚断开），即使我以为还连着也重来；2 秒内的重复请求忽略
+        if (!this.initiator) return;
+        const have = typeof b.have === "string" ? b.have : "";
+        if (have && have === this.gen && (this.state === "connecting" || this.state === "authenticating")) return; // 对方手上就是正在进行的这一次：不必重来
+        if (Date.now() - this.openedAt > 2000) this.open(crypto.randomUUID());
         return;
+      }
       case "desc": {
         const gen = String(b.gen ?? "");
         if (b.type === "offer") {
           if (this.initiator) return; // 双方都发起不会发生（发起方由名字决定），忽略异常的 offer
-          if (gen !== this.gen) this.open(gen); // 新的一次连接尝试：丢掉旧的
+          if (gen !== this.gen || !this.pc) this.open(gen); // 新的一次连接尝试：丢掉旧的
+          this.remoteCands(String(b.sdp));
           try { this.pc?.setRemoteDescription(String(b.sdp), "offer"); } catch (e) { this.fail(`对方的连接描述无效（${String((e as Error).message).slice(0, 80)}）`); }
-        } else if (b.type === "answer" && gen === this.gen) { try { this.pc?.setRemoteDescription(String(b.sdp), "answer"); } catch (e) { this.fail(`对方的连接描述无效（${String((e as Error).message).slice(0, 80)}）`); } }
+        } else if (b.type === "answer" && gen === this.gen) { this.remoteCands(String(b.sdp)); try { this.pc?.setRemoteDescription(String(b.sdp), "answer"); } catch (e) { this.fail(`对方的连接描述无效（${String((e as Error).message).slice(0, 80)}）`); } }
         return;
       }
       case "cand":
-        if (String(b.gen ?? "") === this.gen && typeof b.candidate === "string") { try { this.pc?.addRemoteCandidate(b.candidate, String(b.mid ?? "0")); } catch {} }
+        if (String(b.gen ?? "") === this.gen && typeof b.candidate === "string") { this.remoteCands(b.candidate); try { this.pc?.addRemoteCandidate(b.candidate, String(b.mid ?? "0")); } catch {} }
         return;
       case "bye": if (this.gen && b.gen === this.gen) this.fail("对方关闭了连接", true); return; // 只认这一次连接的 bye（旧的 bye 被重放也断不了新连接）
     }
   }
 
+  /** 记下对方给的候选类型（SDP 里带的与单独发来的）。 */
+  private remoteCands(text: string) { for (const line of text.slice(0, 64 * 1024).split(/\r?\n/)) { const t = candType(line); if (t) this.cands.remote.add(t); } }
+
   private attach(dc: DataChannel) {
     this.dc = dc;
     dc.onOpen(this.guard(() => {
       if (this.dc !== dc) return;
-      this.state = "authenticating";
+      this.setState("authenticating");
       this.lastSeen = Date.now();
       this.challenge = crypto.randomBytes(24).toString("base64url");
       this.raw({ t: "auth", nonce: this.challenge });
     }));
     dc.onMessage(this.guard((m: string | Buffer | ArrayBuffer) => {
       if (this.dc !== dc) return;
-      this.lastSeen = Date.now();
+      this.lastSeen = Date.now(); this.received++;
       this.receive(typeof m === "string" ? m : Buffer.from(m as ArrayBuffer).toString("utf8"));
     }));
     dc.onClosed(this.guard(() => { if (this.dc === dc) this.fail("数据通道关闭"); }));
@@ -214,9 +274,9 @@ export class Link extends EventEmitter {
 
   private maybeOpen() {
     if (!this.verified || !this.acked || this.state === "open") return;
-    this.state = "open";
-    this.retries = 0; this.lastError = "";
-    clearTimeout(this.connectTimer);
+    this.setState("open");
+    this.retries = 0; this.lastError = ""; this.lastOpen = Date.now();
+    clearTimeout(this.connectTimer); clearTimeout(this.retryTimer);
     this.updatePath();
     clearInterval(this.pinger);
     this.pinger = setInterval(() => this.tick(), PING_MS);
@@ -242,6 +302,7 @@ export class Link extends EventEmitter {
   private updatePath() {
     const p = this.pc?.getSelectedCandidatePair();
     if (!p) return;
+    this.localHost = p.local.type === "host" ? p.local.address : "";
     const next = { local: p.local.type, remote: p.remote.type, rtt: Math.round(this.pc?.rtt() ?? 0) };
     const changed = !this.path || next.local !== this.path.local || next.remote !== this.path.remote;
     this.path = next;
@@ -293,26 +354,42 @@ export class Link extends EventEmitter {
     for (const [id, c] of this.chunks) if (now - c.at > REASSEMBLY_MS) { this.chunks.delete(id); this.inflight -= c.size; }
   }
 
-  /** 连接失败：清理，按退避重试（1 秒到 1 分钟）。fatal 为真时（认证失败、对方主动关闭）等更久再试。 */
+  /**
+   * 连接失败：清理，按退避重试（1 秒到 1 分钟）。fatal 为真时（认证失败、对方主动关闭）等更久再试。
+   * 对方已经下线（shouldRetry 为假）就停下，等它上线（网状层重新 start）或发来信令（resume）。
+   */
   private fail(reason: string, fatal = false) {
     if (this.state === "closed" && this.stopped) return;
     const was = this.state;
-    this.lastError = reason;
+    this.lastError = reason + (was === "open" ? "" : this.hint());
     this.teardown();
-    this.state = "idle";
+    if (!this.stopped && this.d.shouldRetry && !this.d.shouldRetry()) this.stopped = true;
+    this.setState(this.stopped ? "closed" : "idle");
     if (was === "open") this.emit("close", reason);
-    if (this.stopped) return;
+    if (this.stopped) { this.d.log(`${this.d.peer}：${reason}；对方不在线，等它上线再连`); this.emit("retry"); return; }
     const delay = fatal ? 5 * 60_000 : Math.min(60_000, 1000 * 2 ** this.retries++) * (0.5 + Math.random() / 2);
-    this.d.log(`${this.d.peer}：${reason}，${Math.round(delay / 1000)} 秒后重试`);
+    this.d.log(`${this.d.peer}：${this.lastError}，${Math.round(delay / 1000)} 秒后重试`);
     clearTimeout(this.retryTimer);
     this.retryTimer = setTimeout(() => this.start(), delay);
     this.retryTimer.unref?.();
+    this.emit("retry");
+  }
+
+  /** 没连上时的诊断：配了中转服务器，却有一方没拿到中转地址（UDP 3478 被挡、中转服务器连不上），直连又不通，就连不上。 */
+  private hint(): string {
+    const { local, remote } = this.cands;
+    if (!local.size && !remote.size) return "";
+    const turn = this.d.iceServers().servers.some((s) => s.urls.some((u) => /^turns?:/.test(u)));
+    if (!turn) return "（同步服务没有提供中转服务器）";
+    if (local.size && !local.has("relay")) return "（这具身体拿不到中转地址：中转服务器连不上）";
+    if (remote.size && !remote.has("relay")) return "（对方拿不到中转地址：它那边连不上中转服务器）";
+    return "";
   }
 
   private teardown() {
-    clearInterval(this.pinger); clearTimeout(this.connectTimer);
+    clearInterval(this.pinger); clearTimeout(this.connectTimer); clearTimeout(this.probeTimer);
     const pc = this.pc, dc = this.dc;
-    this.pc = undefined; this.dc = undefined; this.path = undefined;
+    this.pc = undefined; this.dc = undefined; this.path = undefined; this.localHost = "";
     this.chunks.clear(); this.inflight = 0;
     // 不在 libdatachannel 的回调栈里同步销毁（可能触发原生层的重入）：推迟到下一轮事件循环
     setImmediate(() => { try { dc?.close(); } catch {} try { pc?.close(); } catch {} });
@@ -325,7 +402,7 @@ export class Link extends EventEmitter {
     clearTimeout(this.retryTimer);
     const was = this.state;
     this.teardown();
-    this.state = "closed";
+    this.setState("closed");
     this.queue = [];
     if (was === "open") this.emit("close", "已停止");
   }

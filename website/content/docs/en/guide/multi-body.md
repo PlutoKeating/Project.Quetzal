@@ -32,7 +32,7 @@ Every console shows which body is talking with you right now. If you speak to th
 1. The sync service is set to the one this project runs, `https://sync.quetzal.plutokeating.beer`, so you do not need to enter anything. If you host your own, enter its address under **Sync service** in **Control → Advanced → Sync** and save. Clear the field to go back to the official one.
 2. Tap **Sign in**, and the app opens the browser for you. The page also shows an 8-character code and a link, so you can scan it on another device. The Android setup wizard has this step too.
 3. In the browser (the site's [Account → Add a device](/account/device)), sign in and enter or confirm the code. **Check that the key fingerprint on the web page matches the one in the console**, then approve.
-4. Within seconds the body connects to the sync service, and other bound bodies that are online connect to it directly. They use the LAN, IPv6 or NAT traversal. When none of these work, traffic goes through the server, and that relayed traffic is end-to-end encrypted too.
+4. Within seconds the body connects to the sync service, and other bound bodies that are online connect to it directly. They use the LAN, IPv6 or NAT traversal. When none of these work, traffic goes through the server, and that relayed traffic is end-to-end encrypted too. If two bodies cannot reach each other at all but both reach a third, messages pass through that third body, so the bodies still act as one.
 
 All bodies of one agent must be signed in to **the same account** to see each other. To disconnect this body, tap **Sign out this device**.
 
@@ -84,7 +84,7 @@ Each body registers its uuid in the soul repository's body registry. When resolv
 
 ## When disconnected
 
-If the bodies cannot reach each other (offline, sync service down), each one keeps running, and memory still syncs through the soul repository. If they split into groups, each group has its own heart. When they reconnect, conversations catch up and the hearts merge back into one.
+When a body changes networks (say a phone leaves home and switches from Wi-Fi to mobile data), it notices within seconds and reconnects. If the bodies cannot reach each other (offline, sync service down), each one keeps running, and memory still syncs through the soul repository. If they split into groups, each group has its own heart. When they reconnect, conversations catch up and the hearts merge back into one.
 
 ## Account
 
