@@ -7,6 +7,8 @@ export interface BodiesHooks {
   call: (body: string, tool: string, args: Record<string, unknown>, reason: string) => Promise<{ text: string; status: "ok" | "error" | "denied" }>;
   /** 换到另一具身体继续：对话 → 那具身体在同一个会话里接着做（返回它的回复）；醒来 → 那具身体按交接继续这次醒来。 */
   move: (body: string, ctx: { origin: string; conv: string; channel: string; note: string; reason: string }) => Promise<string>;
+  /** 向另一具身体要一张图（view_image 带 body）：那边只交出图片（mind/tools.ts 的 lendImage），返回缩过的图片数据与那边的绝对路径。 */
+  image?: (body: string, file: string, reason: string) => Promise<{ mime: string; data: string; note: string; path: string }>;
 }
 let hooks: BodiesHooks | undefined;
 export const setBodies = (h: BodiesHooks | undefined) => { hooks = h; };

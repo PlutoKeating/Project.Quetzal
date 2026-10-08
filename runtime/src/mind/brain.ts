@@ -271,6 +271,7 @@ export function stripStamp(text: string): string {
  * 多具身体时，对方的话（与耳朵听到的话）从哪具身体进来：控制台连的网关、飞书长连接的持有者、听到的耳朵。
  * 只有一具身体时不标（没有别的可能，徒增噪声）；有别的身体在线、或这句话本来就是从别的身体进来的，才标出来。
  * 旧消息没有记（via 为空）就不标：处理它的身体（body）不一定是它进来的身体。
+ * 她自己的回复按同样的规则标出是在哪具身体上做的（body）。
  */
 export function entryBody(via: string | null | undefined): string | undefined {
   return via && (via !== config.body || remoteBodies().length > 0) ? via : undefined;
@@ -333,7 +334,8 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
       text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}${via ? `｜经 ${via} 发来` : ""}] ${m.text}${files}`;
     } else {
       const proc = describeProcess(m.process, replies++ < FULL_PROCESS);
-      const note = `[基座附注，不是对方的话｜${stamp(m.ts)} 你回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
+      const where = entryBody(m.body); // 多具身体时：这一轮在哪具身体上做的（那一轮拍的照片、写的文件在那具身体上）
+      const note = `[基座附注，不是对方的话｜${stamp(m.ts)} 你${where ? `在 ${where} 上` : ""}回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
       if (used + note.length + m.text.length > budget) break;
       used += note.length + m.text.length;
       out.unshift({ role: "user", content: note }, { role: "assistant", content: m.text });
