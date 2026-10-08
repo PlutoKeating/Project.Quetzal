@@ -231,7 +231,7 @@ sequenceDiagram
   U->>B: 结束口令（或按钮「完成」）
   B->>B: 各项写入保密库 vault/<名字>（0600）
   B-->>A: 工具结果：名字、路径、字节数（没有明文）
-  A->>B: shell：gh auth login --with-token < 路径
+  A->>B: shell：GH_TOKEN="$(cat 路径)" gh issue list
 ```
 
 - **现场约定**：要哪几项、每项是什么，由她在调用时给出（`items`：名字 + 给对方看的说明），并在调用前用自己的话向对方解释。每条消息是一项不可变的值，按 `items` 的顺序对应；值只去掉首尾空白。

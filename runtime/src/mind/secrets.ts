@@ -20,8 +20,8 @@ import { baseSecrets } from "../secret-values.ts";
 
 /** 在命令里怎么引用保密库里的值：Windows 的 PowerShell 没有 < 重定向。 */
 export const USAGE = () => process.platform === "win32"
-  ? "用法：在 PowerShell 命令里用 (Get-Content -Raw 路径).Trim() 引用，例如 Get-Content -Raw 路径 | gh auth login --with-token、$env:TOKEN = (Get-Content -Raw 路径).Trim()。"
-  : "用法：在 shell 命令里用 \"$(cat 路径)\" 或 < 路径 引用，例如 gh auth login --with-token < 路径、export TOKEN=\"$(cat 路径)\"。";
+  ? "用法：在 PowerShell 命令里用 (Get-Content -Raw 路径).Trim() 引用，例如 $env:GH_TOKEN = (Get-Content -Raw 路径).Trim(); gh issue list（只在这条命令里生效，不写进任何配置）。"
+  : "用法：在 shell 命令里用 \"$(cat 路径)\" 或 < 路径 引用，例如 GH_TOKEN=\"$(cat 路径)\" gh issue list（只在这条命令里生效，不写进任何配置）。";
 
 export const SECRET_IDLE_MS = 10 * 60_000;
 export const MAX_ITEMS = 20;
