@@ -2,6 +2,20 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.8.0
+
+- 手机换了网络（比如出门时从 Wi-Fi 换成移动数据），身体会在几秒内发现并重新连上其他身体。以前要等系统自己判断连接断了，可能要十几分钟，这期间几具身体会分成互不相通的几组。安卓 App 由系统直接通知网络变化，其他平台每 5 秒检查一次本机地址和路由。检查不发任何网络请求，只在确实换了网络时重连一次同步服务。
+- 两具身体之间连不上（比如移动网络挡住了直连和中转服务器），但都连得上第三具身体时，消息经那具身体转过去，几具身体仍是一个整体：同一颗心、同一份对话。转过去的消息由发出的身体签名，中转的身体改不了，也冒充不了。App 的设备页上会写「经 X 中转」。
+- 同步服务短暂认为某具身体下线时（比如同步服务重启），已经连着的身体不再断开。
+- 设备页上连不上的原因更具体，比如「这具身体拿不到中转地址」。
+- 经其他身体中转需要相关的身体都是 1.8.0；和旧版本的身体照常直连。安卓 App 新增「查看网络连接」权限，安装时不需要确认。
+
+- When a phone changes networks (say it leaves home and switches from Wi-Fi to mobile data), the body notices within seconds and reconnects to the other bodies. Before, it waited for the system to decide the old connection was dead, which could take more than ten minutes, and in the meantime the bodies split into groups that could not reach each other. The Android app gets network changes straight from the system; other platforms check local addresses and routes every 5 seconds. The check sends no network requests, and the body reconnects to the sync service once, only when the network really changed.
+- If two bodies cannot connect to each other (for example, a mobile network blocks both direct links and the relay server) but both reach a third body, messages pass through that third body, so the bodies still share one heart and one conversation. Relayed messages are signed by the sending body, and the body in the middle cannot change or forge them. The app's Devices page shows which body the link goes through.
+- Bodies that are already connected no longer drop each other when the sync service briefly thinks one of them is offline (for example while the sync service restarts).
+- The Devices page gives more specific reasons when a body cannot connect, for example that this body cannot get a relay address.
+- Relaying through another body needs 1.8.0 on the bodies involved; older bodies still connect directly. The Android app adds the "view network connections" permission, which does not ask for confirmation at install time.
+
 ## 1.7.1
 
 - 内容与 1.7.0 相同，只改了发版流程。1.7.0 发版时一次运行报错，当时以为 npm 包没有发布出来，就发了这一版；其实同一个标签被触发了两次，另一次已经把 1.7.0 完整发布，包括 npm。
