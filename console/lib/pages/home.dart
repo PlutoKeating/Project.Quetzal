@@ -18,12 +18,21 @@ double _n(dynamic v) => (v is num) ? v.toDouble() : 0;
   return (mode: mode, label: {'stopped': '急停中', 'asleep': '睡着了', 'active': '醒着，在想事情', 'awake': '醒着'}[mode] ?? mode);
 }
 
+/// 读运行基座状态的首页与右栏部件：自己跟着状态（与耳朵）重建。它们在父级里是 const，父级重建时 Flutter 会跳过 const 子部件，
+/// 只靠父级重建的话，启动瞬间（还没取到状态）画出来的 0% 会一直留着，要切走再切回来才刷新。
+abstract class _Live extends StatelessWidget {
+  const _Live({super.key});
+  Widget view(BuildContext context);
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(listenable: Listenable.merge([api, hearing]), builder: (c, _) => view(c));
+}
+
 /// 光团 + 状态一句话 + 「在听」标记。
-class PresenceHead extends StatelessWidget {
+class PresenceHead extends _Live {
   final double size;
   const PresenceHead({super.key, this.size = 200});
   @override
-  Widget build(BuildContext context) {
+  Widget view(BuildContext context) {
     final h = api.heart, m = presenceMode(), cs = Theme.of(context).colorScheme, t = Theme.of(context).textTheme;
     return Column(children: [
       Center(child: Orb(mode: m.mode, alertness: _n(h['alertness'] ?? 0.5), size: size)),
@@ -39,10 +48,10 @@ class PresenceHead extends StatelessWidget {
 }
 
 /// 她想分享的一句话，由她自己维护（share_thought）。折叠时最多 3 行；点击看全文（完整 Markdown）。没有就不占位。
-class ThoughtLine extends StatelessWidget {
+class ThoughtLine extends _Live {
   const ThoughtLine({super.key});
   @override
-  Widget build(BuildContext context) {
+  Widget view(BuildContext context) {
     final thought = api.status['thought'] as Map?;
     if (thought == null || '${thought['text'] ?? ''}'.isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -60,11 +69,11 @@ class ThoughtLine extends StatelessWidget {
 }
 
 /// 内在：驱动力、清醒与困意、醒来率。
-class InnerSection extends StatelessWidget {
+class InnerSection extends _Live {
   final bool compact;
   const InnerSection({super.key, this.compact = false});
   @override
-  Widget build(BuildContext context) {
+  Widget view(BuildContext context) {
     final h = api.heart, d = (h['drives'] as Map?) ?? {};
     final rows = [
       DriveBar('好奇', _n(d['curiosity'])), DriveBar('表达', _n(d['expression'])), DriveBar('想念', _n(d['social'])), DriveBar('牵挂', _n(d['openLoops'])),
@@ -76,11 +85,11 @@ class InnerSection extends StatelessWidget {
 }
 
 /// 身体读数。
-class BodySection extends StatelessWidget {
+class BodySection extends _Live {
   final bool compact;
   const BodySection({super.key, this.compact = false});
   @override
-  Widget build(BuildContext context) {
+  Widget view(BuildContext context) {
     final p = api.physical, raw = (p['raw'] as Map?) ?? {}, feel = (p['feel'] as Map?) ?? {}, bat = raw['battery'] as Map?;
     final chips = Wrap(spacing: 8, runSpacing: 4, children: [
       if (bat != null) Chip(avatar: Icon(bat['charging'] == true ? Icons.battery_charging_full : Icons.battery_std, size: 18), label: Text('${bat['level']}%')),

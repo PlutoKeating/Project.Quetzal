@@ -14,7 +14,9 @@ class ToolsPage extends StatefulWidget {
   State<ToolsPage> createState() => _ToolsPageState();
 }
 
-class _ToolsPageState extends State<ToolsPage> {
+class _ToolsPageState extends State<ToolsPage> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   List<Map> tools = [], skills = [];
   bool loading = true;
   @override
@@ -62,7 +64,9 @@ class ToolDetailPage extends StatefulWidget {
   State<ToolDetailPage> createState() => _ToolDetailPageState();
 }
 
-class _ToolDetailPageState extends State<ToolDetailPage> {
+class _ToolDetailPageState extends State<ToolDetailPage> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   Map? t;
   String skill = '';
   bool loading = true;

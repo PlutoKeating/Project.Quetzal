@@ -131,6 +131,7 @@ class _ChatViewState extends State<ChatView> {
     }));
     subs.add(api.events.where((e) => e.name == 'session.switch' && (e.data as Map)['to'] == widget.conv && (e.data as Map)['done'] == true).listen((_) => _resync())); // 回复落进了这个新会话
     api.addListener(_onConn);
+    wasOnline = api.conn == Conn.online; // 创建时还没连上：连上那一刻要重新取（只靠初值 true 会漏掉这一次）
     input.addListener(_onInput);
     life = AppLifecycleListener(onResume: () async { await api.ensureAlive(); _resync(); }); // 从后台切回：确认连接并从后端重建
     _resync(first: true);

@@ -93,7 +93,9 @@ class IdentityPage extends StatefulWidget {
   State<IdentityPage> createState() => _IdentityPageState();
 }
 
-class _IdentityPageState extends State<IdentityPage> {
+class _IdentityPageState extends State<IdentityPage> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   final f = <String, TextEditingController>{};
   String color = '#F0A35E';
   Map? a;
@@ -150,7 +152,9 @@ class HistoryPage extends StatefulWidget {
   State<HistoryPage> createState() => _HistoryPageState();
 }
 
-class _HistoryPageState extends State<HistoryPage> {
+class _HistoryPageState extends State<HistoryPage> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   List items = [];
   List bodies = [];
   @override

@@ -13,7 +13,9 @@ class SoundPage extends StatefulWidget {
   State<SoundPage> createState() => _SoundPageState();
 }
 
-class _SoundPageState extends State<SoundPage> {
+class _SoundPageState extends State<SoundPage> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   Map? speech, ear;
   final key = TextEditingController(), region = TextEditingController(), voice = TextEditingController(), endpoint = TextEditingController();
 

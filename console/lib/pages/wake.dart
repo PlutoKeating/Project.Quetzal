@@ -119,6 +119,7 @@ class _WakeViewState extends State<WakeView> {
       subs.add(api.events.where((e) => e.name == 'activity').listen(_onActivity));
       subs.add(api.events.where((e) => e.name == 'timeline').listen(_onTimeline));
       api.addListener(_onConn);
+      wasOnline = api.conn == Conn.online; // 创建时还没连上：连上那一刻要重新取
       life = AppLifecycleListener(onResume: () async { await api.ensureAlive(); _resync(); });
       _resync();
     }

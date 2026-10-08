@@ -193,6 +193,18 @@ class DriveBar extends StatelessWidget {
 }
 
 /// 依赖 api 状态的组件基类：自己监听 api，const 实例也会随状态刷新。
+/// 页面状态：连上运行基座的那一刻调用 reloadOnConnect（刚启动、更新后重启、断线重连）。
+/// 页面创建时往往还没连上，那次加载会失败；只在创建时加载一次的话，要切走再切回来才有内容。
+mixin ReloadOnConnect<T extends StatefulWidget> on State<T> {
+  bool _wasOnline = false;
+  void reloadOnConnect();
+  @override
+  void initState() { super.initState(); _wasOnline = api.conn == Conn.online; api.addListener(_onConnChange); }
+  void _onConnChange() { final on = api.conn == Conn.online; if (on && !_wasOnline && mounted) reloadOnConnect(); _wasOnline = on; }
+  @override
+  void dispose() { api.removeListener(_onConnChange); super.dispose(); }
+}
+
 abstract class ApiWidget extends StatelessWidget {
   const ApiWidget({super.key});
   Widget view(BuildContext context);

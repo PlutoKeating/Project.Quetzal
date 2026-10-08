@@ -31,7 +31,9 @@ class ProvidersPage extends StatefulWidget {
   State<ProvidersPage> createState() => _QuickPageState();
 }
 
-class _QuickPageState extends State<ProvidersPage> {
+class _QuickPageState extends State<ProvidersPage> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   List<Map> providers = [];
   bool loaded = false, busy = false, show = false;
   String pick = 'deepseek';
@@ -116,7 +118,9 @@ class ProvidersEditor extends StatefulWidget {
   State<ProvidersEditor> createState() => _ProvidersPageState();
 }
 
-class _ProvidersPageState extends State<ProvidersEditor> {
+class _ProvidersPageState extends State<ProvidersEditor> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   Map? saved; // 服务器上的配置
   Map draft = {'providers': []};
   String version = '';

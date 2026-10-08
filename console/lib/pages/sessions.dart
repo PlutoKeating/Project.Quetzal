@@ -46,12 +46,13 @@ class _SessionsListState extends State<SessionsList> {
   @override
   void initState() {
     super.initState();
+    _wasOnline = api.conn == Conn.online;
     _load();
     sub = api.events.where((e) => (e.name == 'activity' && const ['start', 'done', 'error'].contains((e.data as Map)['kind'])) || e.name == 'session.switch' || e.name == 'say' || e.name == 'replica').listen((_) => _load()); // replica：其他身体的对话到了
     api.addListener(_onConn);
   }
 
-  bool _wasOnline = true;
+  bool _wasOnline = false; // 初值在 initState 里按此刻的连接状态设：创建时还没连上，连上那一刻就要重新加载
   void _onConn() { final on = api.conn == Conn.online; if (on && !_wasOnline) _load(); _wasOnline = on; }
 
   @override

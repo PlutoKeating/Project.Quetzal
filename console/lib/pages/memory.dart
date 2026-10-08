@@ -30,11 +30,13 @@ class MemoryCore extends StatefulWidget {
   State<MemoryCore> createState() => _CoreState();
 }
 
-class _CoreState extends State<MemoryCore> {
+class _CoreState extends State<MemoryCore> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   Map? m;
   @override
   void initState() { super.initState(); _load(); }
-  Future<void> _load() async { final r = await act(context, () => api.call<Map>('memory')); if (mounted && r != null) setState(() => m = r); }
+  Future<void> _load() async { if (api.conn != Conn.online) return; final r = await act(context, () => api.call<Map>('memory')); if (mounted && r != null) setState(() => m = r); }
 
   Future<void> _edit(String target, {String? old}) async {
     final c = TextEditingController(text: old ?? '');
@@ -107,11 +109,13 @@ class JournalList extends StatefulWidget {
   State<JournalList> createState() => _JournalState();
 }
 
-class _JournalState extends State<JournalList> {
+class _JournalState extends State<JournalList> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   List days = [];
   @override
   void initState() { super.initState(); _load(); }
-  Future<void> _load() async { final r = await act(context, () => api.call<List>('journalList')); if (mounted && r != null) setState(() => days = r); }
+  Future<void> _load() async { if (api.conn != Conn.online) return; final r = await act(context, () => api.call<List>('journalList')); if (mounted && r != null) setState(() => days = r); }
   @override
   Widget build(BuildContext context) => RefreshIndicator(
         onRefresh: _load,
@@ -139,11 +143,13 @@ class NotesList extends StatefulWidget {
   State<NotesList> createState() => _NotesState();
 }
 
-class _NotesState extends State<NotesList> {
+class _NotesState extends State<NotesList> with ReloadOnConnect {
+  @override
+  void reloadOnConnect() => _load();
   List notes = [];
   @override
   void initState() { super.initState(); _load(); }
-  Future<void> _load() async { final r = await act(context, () => api.call<List>('notes')); if (mounted && r != null) setState(() => notes = r); }
+  Future<void> _load() async { if (api.conn != Conn.online) return; final r = await act(context, () => api.call<List>('notes')); if (mounted && r != null) setState(() => notes = r); }
   @override
   Widget build(BuildContext context) => RefreshIndicator(
         onRefresh: _load,
