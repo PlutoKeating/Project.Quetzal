@@ -54,7 +54,7 @@ cd Project.Quetzal/sync
 | `TURN_SECRET` | 自动生成；同步服务与 coturn 共用，用来签发有时效的 TURN 凭据 |
 | `TURN_MIN_PORT` / `TURN_MAX_PORT` | TURN 中转端口段，默认 49160–49250 |
 | `TURN_USER_QUOTA` / `TURN_TOTAL_QUOTA` | 每具身体同时最多几个中转分配（默认 16：每条连接都占一个，直连通了也占着）、全服务器最多几个（默认 90；超过端口段的端口数时 `start.sh` 自动改小） |
-| `TURN_MAX_BPS` / `TURN_BPS_CAPACITY` | 每个中转会话、全部会话合计的带宽上限（字节 / 秒，默认 625000 ≈ 5 Mbit/s 与 2500000 ≈ 20 Mbit/s；0 为不限），按服务器带宽调整 |
+| `TURN_MAX_BPS` / `TURN_BPS_CAPACITY` | 每个中转会话、全部会话合计的带宽上限（字节 / 秒，默认 625000 ≈ 5 Mbit/s 与 0 不限）。合计上限要慎设：coturn 按每会话上限给每个分配预留带宽，合计 ÷ 每会话就是全服务器能同时有的分配数，空闲的分配也占名额 |
 | `SYNC_MAX_AGENTS_PER_USER` / `SYNC_MAX_BODIES_PER_AGENT` | 每个账户的 agent 上限（20）、每个 agent 的身体上限（16） |
 | `NODE_IMAGE` / `CADDY_IMAGE` / `COTURN_IMAGE` / `NPM_REGISTRY` | 镜像与 npm 源。镜像默认按 `tag@sha256:…` 固定；服务器拉不动 Docker Hub 或 npm 时改成可用的镜像源，镜像地址保留 `@sha256:…` 部分。仍是官方地址时 `start.sh` 会跟到本仓库当前固定的摘要 |
 | `TURN_RELAY_IP` / `TURN_EXTERNAL_IP` | TURN 的中转地址。留空时由 `start.sh` 探测：主网卡（默认路由出口）的 IPv4 作为 `relay-ip`；它是内网地址时（云服务器常见的 1:1 NAT）再探测公网地址，写成 `公网/内网`。必须显式指定，否则 coturn 会把 Docker 网桥等所有网卡地址都当作中转地址；coturn 也只在这个地址上监听（不在 Docker 网桥、VPN、回环上开 3478）。服务器换了地址就清空再运行 `./start.sh` |

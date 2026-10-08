@@ -94,6 +94,8 @@ configs:
   # 也禁止中转到本机自己的地址（中转地址与公网地址）：同一台服务器上的其他服务不能借 TURN 从「本机」访问。代价是两端都只能走中转时连不上（少见，见 docs/ARCHITECTURE.md）。
   # 分配最长 60 秒：身体用的 libjuice 关掉连接时不释放分配（实测：连接关了，分配仍占到寿命结束），寿命长了，连接失败重试几次就把额度占满，
   # 之后谁都拿不到中转地址（2026-10-09 实测全服务器 486 Allocation Quota Reached）。活着的连接每过约 3/4 寿命自动续期，不受影响。
+  # bps-capacity 缺省不设上限：coturn 给每个分配按 max-bps 预留带宽，capacity ÷ max-bps 就是全服务器能同时有的分配数（原来 2500000 ÷ 625000 = 4 个），
+  # 空闲的分配并不占带宽，却把名额占满了（2026-10-09 实测第 5 个分配起 486）。单个会话的上限 max-bps 保留；总流量受云服务器自己的带宽约束。
   # 每具身体与每具别的身体各有一条连接，每条都占一个分配（直连通了也占着），再加上重试留下、还没过期的：每具身体 16 个。
   # user-quota 按凭据的标识部分计（coturn 去掉时间戳；同步服务给每具身体一个固定的不透明标识）；total-quota 不要超过中转端口段的端口数（start.sh 会检查）。
   # 不记日志：日志里会有访客与对端的 IP 与 TURN 用户名。
@@ -114,7 +116,7 @@ configs:
       user-quota=${TURN_USER_QUOTA:-16}
       total-quota=${TURN_TOTAL_QUOTA:-90}
       max-bps=${TURN_MAX_BPS:-625000}
-      bps-capacity=${TURN_BPS_CAPACITY:-2500000}
+      bps-capacity=${TURN_BPS_CAPACITY:-0}
       max-allocate-lifetime=60
       stale-nonce=600
       unauthorized-ratelimit
