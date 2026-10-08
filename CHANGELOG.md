@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.7.1
+
+- 1.7.0 的 npm 包没有发布出来（发版时 GitHub 在最后一步返回了错误），这一版补上；内容与 1.7.0 相同，见下一节。
+
+- The 1.7.0 npm package was not published (GitHub returned an error at the last release step); this release adds it. The contents are the same as 1.7.0, listed below.
+
 ## 1.7.0
 
 - 多具身体时，ta 能用别的身体上的任意文件：`view_image`、`read_document`、`shell` 带上那具身体的 uuid（`body`），基座把文件经加密连接分段取过来、核对 sha256 后再用（单个文件最多 64 MB；密钥目录与保密库里的文件取不到）。1.6.0 里只能看图的做法去掉了。
