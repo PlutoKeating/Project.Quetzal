@@ -22,7 +22,7 @@ import { isWindows } from "../platform.ts";
 import { guardedFetch } from "./fetch-guard.ts";
 import { listManifests, listCustomTools, readTool, readSkill, writeTool, deleteTool, runTool, missingRequires, SKILL_SPEC_URL, runtimesHere, sourceFile } from "./custom-tools.ts";
 import { PERMISSION_LABELS } from "../guard/guard.ts";
-import { identity, setIdentity } from "../memory/identity.ts";
+import { identity, setIdentity, displayName } from "../memory/identity.ts";
 import * as soul from "../memory/soul-sync.ts";
 import * as hearing from "../voice/hearing.ts";
 import * as reminders from "../time/reminders.ts";
@@ -33,6 +33,10 @@ import { ensureSession, getSession, kv } from "../store.ts";
 import crypto from "node:crypto";
 import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf } from "./bodies.ts";
+import { hostActive, touchHost, requestHost, exitHost, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
+
+/** 这一轮所在的、处在真实环境里的会话（只认对话；醒来、做梦、子 agent、其他身体的调用都没有）。 */
+const hostConv = (ctx: ToolContext): string | undefined => ctx.session?.origin === "chat" && ctx.session.conv && hostActive(ctx.session.conv) ? ctx.session.conv : undefined;
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -212,18 +216,32 @@ const core: Tool[] = [
     name: "shell", permission: "shell",
     description: (isWindows
       ? `在这具身体（Windows）上执行一条 PowerShell 命令（不是 bash：变量写 $env:NAME，路径用 C:\\…，Windows PowerShell 5.1 不支持 &&，用 ; 或 if ($?) { }）。命令在沙箱里以低权限的沙箱用户运行：工作目录是 ${workDir()}（对方也能在这里放文件、取结果），只能写工作区、data 与灵魂目录，读不到对方主目录里别的文件和基座的密钥；联网经代理，连不到这台机器自己的端口。被超时或停止结束的命令退出码是 1，不是命令本身出错。`
-      : "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。") + "默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
+      : "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。") + "这个会话处在真实环境里时（系统提示会写明），命令不经沙箱，直接在主机上执行。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
     parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
-    handler: async (a) => {
+    handler: async (a, ctx) => {
       const blocked = soulGitBlock(String(a.command ?? "")) ?? secretsBlock(String(a.command ?? ""));
       if (blocked) return blocked;
-      if (a.background) { let j; try { j = await startJob(a.command); } catch (e) { return (e as Error).message; } return `已在后台运行，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
-      const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000);
+      const host = hostConv(ctx), signal = host ? touchHost(host) : undefined;
+      const where = host ? "（真实环境：不经沙箱）" : "";
+      if (a.background) { let j; try { j = await startJob(a.command, { host }); } catch (e) { return (e as Error).message; } return `已在后台运行${where}，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
+      const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000, { host: !!host, signal });
       const out = (r.out + r.err).slice(0, 8000);
       // 输出为空而命令丢弃了 stderr：报错可能被吞了，看起来像"没有结果"，不能据此下结论（非零退出时 run 会补一句 Command failed，不算输出）
       const real = r.out + r.err.replace(/^Command failed: [^\n]*\n?/, "");
       const note = !real.trim() && /2>\s*\/dev\/null|2>&-/.test(String(a.command)) ? "\n（输出为空，而命令把 stderr 丢弃了：可能是命令报错被吞掉，不等于「没有」。去掉 2>/dev/null 再看，或换别的来源核实，比如 processes。）" : "";
-      return `exit ${r.code}\n${out}${note}`;
+      return `exit ${r.code}${where}\n${out}${note}`;
+    },
+  },
+  {
+    name: "host_mode", permission: "shell",
+    description: `真实环境：让这个会话里的 shell 命令不经沙箱、直接在主机上以基座的系统用户执行。沙箱刻意让你碰不到主机上的登录凭据与系统服务（例如对方在终端里 gh auth login 了，沙箱里的 gh 仍然报令牌无效；系统钥匙串、对方本人的配置都不可见），这类事确实需要主机环境时才用。action=request 带上理由（为什么沙箱里做不到、要做什么），对方在控制台或飞书里同意后才进入，等待期间你会一直停在这里；action=exit 做完就退出，回到沙箱。只能在对话中请求。模式按会话、只在这具身体上；${HOST_IDLE_MS / 60_000} 分钟没有命令、基座重启、急停都会自动回到沙箱，对方也随时可以手动退出。不要用真实环境去读基座的密钥或改基座的配置。`,
+    parameters: obj({ action: { type: "string", enum: ["request", "exit"] }, reason: str("request 用：理由，会显示给对方") }, ["action"]),
+    handler: async (a, ctx) => {
+      const s = ctx.session;
+      if (s?.origin !== "chat" || !s.conv) return "真实环境只能在对话中使用：需要对方在场决定。";
+      if (a.action === "exit") return exitHost(s.conv, "agent", "她做完了") ? "已退出真实环境，之后的命令回到沙箱里执行。" : "这个会话本来就不在真实环境里。";
+      if (a.action !== "request") return "action 只能是 request 或 exit";
+      return requestHost(s.conv, String(a.reason ?? ""), (text) => { void adapter.notify?.(displayName(), text).catch(() => {}); });
     },
   },
   {
@@ -546,7 +564,8 @@ export function strictest(perms: string[]): string {
 export async function callTool(name: string, args: Record<string, any>, reason: string, ctx: ToolContext = {}): Promise<{ text: string; status: ToolStatus }> {
   const t = allTools().find((x) => x.name === name);
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };
-  const safe = redactArgs(args); // 参数里的保密值不进审批、时间线与审计
+  const real = name === "shell" && !!hostConv(ctx);
+  const safe = real ? { ...redactArgs(args), realEnv: true } : redactArgs(args); // 参数里的保密值不进审批、时间线与审计；真实环境里的命令另外标记
   if (!(await check(strictest([t.permission, ...(t.also ?? [])]), name, reason, safe))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
     const out = redactSecrets(await t.handler(args, ctx)); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计

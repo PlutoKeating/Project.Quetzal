@@ -3,11 +3,13 @@
 //   普通文字 → 与 agent 对话（处理中加 OnIt 表情；调用工具时回复一张实时更新的「执行过程」卡片，每个工具一行、中途说的话一段）
 //     她正在工作时再发的消息 → 插话：在下一次模型调用前并入进行中的这一轮，只加一个表情表示收到，回复在那一轮里给出
 //     /new [标题] → 开启新的飞书会话（此后的对话都在新会话里）
+//     /sandbox → 当前会话退出真实环境（host-mode.ts），她的命令回到沙箱；进入真实环境的请求是一张普通的审批卡片
 //   注意：SDK 默认对每个聊天串行投递消息（等处理函数返回才投递下一条），所以处理函数必须立即返回，对话在后台进行，否则插话无法生效。
 //   保密输入（pass_secret）进行中 → 一张提醒卡片（要哪几项、结束口令、完成 / 取消按钮，随进展原地更新）；期间的每条消息只回一条不含内容的回执
 //   agent 自主思考时主动说的话 → 私聊（带「主动消息」标识）；审批 → 带按钮的卡片
 // 接入：控制台一键扫码创建机器人（registerApp），自动获得凭据并绑定扫码的人，全程无需命令行。
 import crypto from "node:crypto";
+import { exitHost } from "../host-mode.ts";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { config, saveConfig, readSecret, writeSecret, newBindCode } from "../config.ts";
 import { bus } from "../bus.ts";
@@ -131,6 +133,10 @@ async function handle(msg: lark.NormalizedMessage) {
       ensureSession(conv, m[1]?.trim() || "新的对话", "飞书");
       kv.set("feishu.conv", conv);
       await send(msg.chatId, { markdown: `🆕 已开启新会话${m[1] ? `「${m[1].trim()}」` : ""}，接下来的对话都在这里。之前的会话可以在控制台里找回。` });
+      return;
+    }
+    if (/^\/sandbox$/i.test(text)) {
+      await send(msg.chatId, { markdown: exitHost(currentConv(), "飞书", "对方退出") ? "已退出真实环境，她的命令回到沙箱里执行。" : "这个会话本来就不在真实环境里。" });
       return;
     }
     const conv = currentConv();

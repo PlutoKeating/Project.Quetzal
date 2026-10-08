@@ -12,6 +12,7 @@ import { listSessions, sessionMessages } from "../store.ts";
 import { liveTurns } from "./activity.ts";
 import { recallBlock } from "../memory/retrieval.ts";
 import { listSecrets } from "./secrets.ts";
+import { hostActive, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
 import { listCustomTools, listSkills } from "./custom-tools.ts";
 import { hearingStatus } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
@@ -108,6 +109,13 @@ function otherSessions(conv = "", budget = 4000): string {
   return out;
 }
 
+/** 命令在哪里执行：沙箱，或这个会话此刻处在真实环境里（host-mode.ts）。 */
+function hostBlock(conv?: string): string {
+  const h = hostActive(conv);
+  if (h) return `## 真实环境（此刻开启）\n这个会话此刻处在真实环境里（${h.by === "user" ? "对方自己打开的" : "对方同意了你的请求"}，${new Date(h.since).toLocaleString("zh-CN", { timeZone: config.timezone })} 起）：你的 shell 命令不经沙箱，以基座的系统用户直接在主机上执行，能读写对方能读写的一切。上面的红线照旧（不碰密钥目录、网关与令牌）。只做对方同意的事，做完用 host_mode 的 exit 回到沙箱；${HOST_IDLE_MS / 60_000} 分钟没有命令也会自动回到沙箱。`;
+  return `## 命令在沙箱里\n你的 shell 命令在沙箱里执行：主机上的登录凭据（系统钥匙串、对方在终端里登录的 gh 等）在里面用不了。确实需要主机环境时，用 host_mode 带上理由请求进入真实环境，对方同意后才生效；只需要一个令牌时，也可以用 pass_secret 向对方要一个权限尽量小的令牌，在命令里引用（如 ${process.platform === "win32" ? "$env:GH_TOKEN = (Get-Content -Raw 路径).Trim(); gh …" : "GH_TOKEN=\"$(cat 路径)\" gh …"}）。`;
+}
+
 export function systemPrompt(context = "", o: { conv?: string } = {}): string {
   const h = snapshot();
   const d = h.drives;
@@ -138,6 +146,7 @@ ${(() => { const l = reminders.active(); return l.length ? `你答应对方的�
     ...(context.trim() ? [`## 可能相关的记忆（自动检索，仅供参考）\n${recallBlock(context) || "（没有检索到相关的笔记或日记）"}`] : []),
     `## 想分享的一句话\n${(() => { const t = mem.thought(); return t ? `对方的首页正显示着你之前写下的：「${t.text}」（${new Date(t.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}）。想法变了就用 share_thought 更新。` : "你还没有写下想分享的话。它会一直显示在对方的首页上——当你有正在想、愿意和对方分享的一句话或议题时，用 share_thought 写下来（一句话，最好不超过 50 字）。"; })()}`,
     `## 保密库\n需要对方给你密码、令牌、密钥等敏感信息时，用 pass_secret 让对方保密输入，不要让对方直接发在对话里。存进来的值你看不到明文，只在命令里按路径引用（${process.platform === "win32" ? "(Get-Content -Raw 路径).Trim()" : "\"$(cat 路径)\" 或 < 路径"}），不要输出。${(() => { const l = listSecrets(); return l.length ? `现有：\n${l.map((x) => `- ${x.name}${x.hint ? `：${x.hint}` : ""}（${x.path}）`).join("\n")}` : "现在是空的。"; })()}`,
+    hostBlock(o.conv),
     `## 身体\n${describeBody()}`,
     ...(othersBlock() ? [othersBlock()] : []),
     `## 技能与自造工具\n${skillsBlock()}`,
