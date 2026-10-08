@@ -2,6 +2,16 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.9.4
+
+- 同步服务连不上时，同一个局域网里的设备照样连在一起：只要它们经同步服务连上过一次，就记得彼此在局域网里的地址，之后直接互相找到。收到的每个连接请求仍用灵魂仓库里登记的公钥核对，别人冒充不了。Windows 上这项缺省关闭（监听端口会弹防火墙询问），在配置文件里把 `mesh.lan` 设为 `true` 打开。
+- 「控制 → 节律」的活跃度滑块改叫「她来找你」，两端是「少找我」和「多找我」。
+- 文档改正：几台设备不用装同一个版本，1.0.3 以后的版本都能互连。新增「听觉与麦克风」一页，写明开了听觉以后声音经过哪里、存在哪里。
+
+- When the sync service is unreachable, devices on the same LAN stay connected: once they have connected through the sync service, they remember each other's LAN addresses and find each other directly. Every connection request is still checked against the public keys registered in the soul repository, so nobody can pose as one of your devices. This is off by default on Windows (listening on a port triggers a firewall prompt); set `mesh.lan` to `true` in the config file to turn it on.
+- The activity slider under Control → Rhythm is now called "She reaches out to you", running from "Less" to "More".
+- Docs fix: your devices do not need to run the same version; every version since 1.0.3 can connect to the others. A new page, "Hearing and the microphone", explains where the sound goes and where it is kept once hearing is on.
+
 ## 1.9.3
 
 - 点开对话里的工具卡片，直接看到这次调用的完整参数和完整结果，不用再去心流里找。完整记录只保存在执行它的那台设备上，不同步到别的设备；在别的设备上点开时，会临时向那台设备取一次（它要在线）。1.9.3 之前的调用没有完整记录，仍只显示开头。
