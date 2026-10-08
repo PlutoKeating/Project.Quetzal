@@ -109,6 +109,8 @@ test("对话里：上一轮的工具过程进入下一轮的上下文", async ()
   await converse("你", "你刚才做了什么", "控制台", { conv: "cv" });
   const msgs = seen.at(-1).messages, i = msgs.findIndex((m: any) => m.role === "assistant");
   assert.equal(msgs[i].content, "好了"); // 她的回复只留原文
+  assert.equal(msgs.filter((m: any) => typeof m.content === "string" && m.content.includes("好了")).length, 1); // 上一轮的回复在上下文里只出现一次（#10：上下文没有把同一段话插两次）
+  assert.ok(!msgs.some((m: any) => m.role === "assistant" && m.content.includes("我先记一下"))); // 中途的话只在附注的过程记录里，不另作一条回复
   assert.equal(msgs[i - 1].role, "user");
   assert.match(msgs[i - 1].content, /^\[基座附注，不是对方的话｜\d\d\/\d\d \d\d:\d\d 你回复了下一条；这一轮的过程记录：说：「我先记一下」；open_loop\(装 CLI\) ✓ → 已记下，现在有 \d+ 件\]$/);
   assert.match(seen.at(-1).messages[0].content, /关于「我做过什么」/);

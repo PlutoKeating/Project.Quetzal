@@ -197,6 +197,15 @@ test("模型某一步什么也没输出：提醒她再来，不留空回复", as
   assert.equal(n, 4);
   assert.match(r, /做了 1 步，但最后没能把结果说出来/);
   assert.equal(store.sessionMessages("blank-2").at(-1)!.text, r);
+  // 中途说过话、最后一步却是空的：回复不拿中途的话顶替（#10：否则同一段话在过程里和回复里各出现一次）
+  const narrate = { finish_reason: "tool_calls", message: { content: "我先查一下时间", tool_calls: tool.message.tool_calls } };
+  n = 0;
+  script = () => (++n === 1 ? narrate : blank);
+  const r3 = await converse("测试者", "空白测试三", "控制台", { conv: "blank-3" });
+  assert.match(r3, /做了 1 步，但最后没能把结果说出来/);
+  const last = store.sessionMessages("blank-3").at(-1)!;
+  assert.equal(last.text, r3);
+  assert.deepEqual((last.process as any[]).filter((x) => x.type === "text").map((x) => x.text), ["我先查一下时间"]); // 中途的话只在过程里出现一次
   script = undefined;
   server.close();
 });
