@@ -21,6 +21,7 @@ export class Interrupted extends Error {
 /** 对方在她工作时发来的消息（插话 / 打断），在下一次模型调用前并入上下文。 */
 export interface Incoming {
   id: number; text: string; mode: "steer" | "interrupt"; attachments: unknown[];
+  via?: string; // 多具身体时：这句话从哪具身体进来（只在需要标注时给出）
   notice?: string; // 不是对方说的话，而是基座或子 agent 送来的提醒（通道名，如「灵魂同步」「子agent」）：按提醒的口吻并入
 }
 

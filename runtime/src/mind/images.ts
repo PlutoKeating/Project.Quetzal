@@ -15,17 +15,23 @@ const MAX_EDGE = 1600;
 
 const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
 
-/** 按扩展名或文件头判断图片类型；不是图片返回 undefined。 */
-export function imageMime(file: string, head?: Buffer): string | undefined {
-  const byExt = MIME[path.extname(file).slice(1).toLowerCase()];
-  if (byExt) return byExt;
-  const h = head ?? Buffer.alloc(0);
-  if (h[0] === 0xff && h[1] === 0xd8) return "image/jpeg";
+/** 只按文件头判断图片类型（不看扩展名）；不是图片返回 undefined。 */
+export function sniffImage(h: Buffer): string | undefined {
+  if (h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff) return "image/jpeg";
   if (h.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
-  if (h.subarray(0, 4).toString() === "GIF8") return "image/gif";
-  if (h.subarray(0, 4).toString() === "RIFF" && h.subarray(8, 12).toString() === "WEBP") return "image/webp";
+  if (h.subarray(0, 4).toString("latin1") === "GIF8") return "image/gif";
+  if (h.subarray(0, 4).toString("latin1") === "RIFF" && h.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  if (h.length >= 18 && h.subarray(0, 2).toString("latin1") === "BM" && [12, 40, 52, 56, 108, 124].includes(h.readUInt32LE(14))) return "image/bmp"; // 文件头之后是 DIB 头的长度
   return undefined;
 }
+
+/** 按扩展名或文件头判断图片类型；不是图片返回 undefined。 */
+export function imageMime(file: string, head?: Buffer): string | undefined {
+  return MIME[path.extname(file).slice(1).toLowerCase()] ?? sniffImage(head ?? Buffer.alloc(0));
+}
+
+/** 另一具身体来要的图片，原图最大多少（读之前就按文件大小拒绝；交出去的是缩过的或不超过 MAX_RAW 的原图）。 */
+export const LEND_MAX_BYTES = 40 << 20;
 
 /** 纯 JS 缩图（只支持 JPEG）：解码 → 盒式采样缩到长边 MAX_EDGE → 质量 85 编码。12 MP 的照片在手机上约需几秒。 */
 export function shrinkJpegJs(file: string, out: string, maxEdge = MAX_EDGE): boolean {

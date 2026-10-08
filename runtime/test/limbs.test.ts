@@ -36,7 +36,7 @@ const until = async (f: () => Promise<boolean>, ms = 20_000) => { const t = Date
 const toolCall = (name: string, args: unknown) => ({ content: null, tool_calls: [{ id: `c-${name}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
 after(() => { for (const p of procs) p.kill(); sync.close(); });
 
-test("body_call：在手机上调用电脑的 shell，在电脑上执行、电脑记审计；move_to：换到电脑上继续对话，回复回到手机这边的调用方", { skip }, async () => {
+test("body_call：在手机上调用电脑的 shell，在电脑上执行、电脑记审计；move_to：换到电脑上继续对话，回复回到手机这边的调用方；view_image 带 body：看电脑上的图", { skip }, async () => {
   const phone = spawnBody("phone"), pc = spawnBody("pc");
   await Promise.all([phone.ready, pc.ready]);
   await until(async () => (await phone.call<string[]>("connected")).includes("pc") && (await pc.call<string[]>("connected")).includes("phone"));
@@ -63,4 +63,20 @@ test("body_call：在手机上调用电脑的 shell，在电脑上执行、电�
   await until(async () => (await view(phone)).length === 3);
   assert.deepEqual(await view(phone), [["user", "控制台", "phone"], ["ambient", "换身体", "pc"], ["agent", "换身体", "pc"]]);
   assert.deepEqual(await view(pc), await view(phone));
+
+  // view_image 带 body：在手机上看电脑上的图——经网状层向电脑要，电脑只交出图片、记审计；不是图片的文件、密钥目录不给
+  const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a5f2e2d20000000049454e44ae426082", "hex");
+  const shot = path.join(tmp, "pc", "photo.png"), fake = path.join(tmp, "pc", "notes.png");
+  fs.writeFileSync(shot, PNG); fs.writeFileSync(fake, "这不是图片");
+  fs.writeFileSync(path.join(tmp, "pc", "secrets", "probe.png"), PNG);
+  await phone.call("llmScript", { messages: [toolCall("view_image", { body: "pc", paths: [shot, fake, path.join(tmp, "pc", "secrets", "probe.png")] }), { content: "看到了电脑上的图" }] });
+  assert.equal(await phone.call("converse", { text: "看看电脑上拍的照片", conv: "z" }), "看到了电脑上的图");
+  const vstep = (await phone.call<any[]>("timeline")).find((e) => e.kind === "chat").detail.steps.find((x: any) => x.tool === "view_image");
+  assert.ok(vstep.result.includes(`✓ pc:${shot}`), vstep.result);
+  assert.match(vstep.result, /✗ pc:.*notes\.png：不是图片/);
+  assert.match(vstep.result, /✗ pc:.*probe\.png：没有读取：这是基座的密钥目录/);
+  assert.ok((await phone.call<string[]>("llmSeen")).some((t) => t.includes("以下是你用 view_image 请求查看的 1 张图片：pc 上的")), "图片放进了手机这边的上下文");
+  const lent = (await pc.call<any[]>("audit")).filter((a) => a.action === "view_image" && /来自 phone/.test(a.reason));
+  assert.equal(lent.length, 3, "电脑上每次都记审计（给了的与拒绝的）");
+  assert.equal(lent.filter((a) => a.result.startsWith("✓")).length, 1);
 });

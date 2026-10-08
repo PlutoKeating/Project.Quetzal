@@ -50,6 +50,8 @@ export function openStore() {
   db.exec("CREATE INDEX IF NOT EXISTS messages_session ON messages(session, id)");
   // 1.0：来源身体、按时间排序的索引、会话的标题 / 归档修改时间（多具身体之间以较新的修改为准）
   if (!cols.includes("body")) db.exec("ALTER TABLE messages ADD COLUMN body TEXT");
+  // 对方的话从哪具身体进来（控制台连的网关、飞书长连接的持有者、听到的耳朵）：转给另一具身体处理时 body 是处理它的身体，via 仍是进来的那具
+  if (!cols.includes("via")) db.exec("ALTER TABLE messages ADD COLUMN via TEXT");
   const tcols = (db.prepare("PRAGMA table_info(timeline)").all() as any[]).map((c) => c.name);
   if (!tcols.includes("body")) db.exec("ALTER TABLE timeline ADD COLUMN body TEXT");
   const scols = (db.prepare("PRAGMA table_info(sessions)").all() as any[]).map((c) => c.name);
@@ -131,7 +133,7 @@ export function listTimeline(limit = 50, before = Number.MAX_SAFE_INTEGER, kind?
 export interface SessionInfo { id: string; title: string; channel: string; created: number; updated: number; archived: boolean; changed?: number; count?: number; last?: string }
 export interface Attachment { id: string; name: string; path: string; rel: string; mime: string; size: number; kind: "image" | "text" | "file" } // rel：相对 uploads 目录
 export type Role = "user" | "agent" | "ambient"; // ambient：环境的声音（麦克风听到并识别的话），不是对方发来的消息
-export interface MessageRow { id: number; ts: number; role: Role; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null; body?: string | null } // mode：她工作时发来的消息如何并入（steer / interrupt）；body：在哪具身体上
+export interface MessageRow { id: number; ts: number; role: Role; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null; body?: string | null; via?: string | null } // mode：她工作时发来的消息如何并入（steer / interrupt）；body：在哪具身体上；via：对方的话从哪具身体进来（旧行为空，按 body）
 
 const rowSession = (r: any): SessionInfo => ({ ...r, archived: !!r.archived });
 const rowMessage = (r: any): MessageRow => ({ ...r, process: r.process ? JSON.parse(r.process) : null, attachments: r.attachments ? JSON.parse(r.attachments) : null });
@@ -164,11 +166,11 @@ function replicateSession(id: string) {
   if (r) bus.emit("replica", { table: "sessions", rows: [r] });
 }
 
-export function addMessage(role: Role, channel: string, text: string, o: { session?: string; process?: unknown[]; attachments?: Attachment[]; mode?: string } = {}) {
+export function addMessage(role: Role, channel: string, text: string, o: { session?: string; process?: unknown[]; attachments?: Attachment[]; mode?: string; via?: string } = {}) {
   const ts = Date.now(), session = o.session ?? "first", id = nextId("messages");
-  const row = { id, ts, role, channel, text, session, process: o.process?.length ? JSON.stringify(o.process) : null, attachments: o.attachments?.length ? JSON.stringify(o.attachments) : null, mode: o.mode ?? null, body: config.body };
-  db.prepare("INSERT INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body) VALUES(?,?,?,?,?,?,?,?,?,?)")
-    .run(row.id, row.ts, row.role, row.channel, row.text, row.session, row.process, row.attachments, row.mode, row.body);
+  const row = { id, ts, role, channel, text, session, process: o.process?.length ? JSON.stringify(o.process) : null, attachments: o.attachments?.length ? JSON.stringify(o.attachments) : null, mode: o.mode ?? null, body: config.body, via: o.via ?? null };
+  db.prepare("INSERT INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body,via) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+    .run(row.id, row.ts, row.role, row.channel, row.text, row.session, row.process, row.attachments, row.mode, row.body, row.via);
   db.prepare("UPDATE sessions SET updated=MAX(updated, ?), archived=0 WHERE id=?").run(ts, session); // 有新消息的会话自动回到列表
   bus.emit("replica", { table: "messages", rows: [row] });
   return id;
@@ -220,6 +222,7 @@ const okJson = (v: unknown, max: number, shape: (x: unknown) => boolean) => {
   try { return shape(JSON.parse(v)); } catch { return false; }
 };
 const okAttachments = (x: unknown) => Array.isArray(x) && x.length <= 50 && x.every((a) => !!a && typeof a === "object" && isStr((a as any).name, 500) && isStr((a as any).rel ?? "", 1000));
+const okVia = (v: unknown) => v === null || v === undefined || (isStr(v, 40) && BODY_RE.test(v));
 const okMode = (m: unknown) => m === null || m === undefined || (isStr(m, 20) && /^[a-z]+$/.test(m));
 /** 编号与作者对得上：id 落在作者身体的编号段里、序号在可用范围内。 */
 const okAuthor = (id: unknown, body: unknown): body is string => {
@@ -236,7 +239,7 @@ function okRow(table: "messages" | "timeline", r: any, from: string, catchUp: bo
   if (!catchUp && r.body !== from) return false;
   if (!okTs(r.ts)) return false;
   if (table === "messages") {
-    return ROLES.has(r.role) && isStr(r.channel, 100) && isStr(r.text, 200_000) && isStr(r.session, 200, 1) && okMode(r.mode)
+    return ROLES.has(r.role) && isStr(r.channel, 100) && isStr(r.text, 200_000) && isStr(r.session, 200, 1) && okMode(r.mode) && okVia(r.via)
       && okJson(r.process, 4 << 20, (x) => Array.isArray(x) || (!!x && typeof x === "object")) && okJson(r.attachments, 256 << 10, okAttachments);
   }
   return isStr(r.kind, 40, 1) && isStr(r.title, 4000) && okJson(r.detail ?? "null", 1 << 20, () => true);
@@ -257,8 +260,8 @@ export function applyRemote(table: ReplicaTable, rows: any[], o: { from: string;
     for (const r of rows.slice(0, 1000)) {
       if (table === "messages") {
         if (!okRow("messages", r, o.from, !!o.catchUp)) { rejected++; continue; }
-        const ok = db.prepare("INSERT OR IGNORE INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body) VALUES(?,?,?,?,?,?,?,?,?,?)")
-          .run(r.id, r.ts, r.role, r.channel, r.text, r.session, r.process ?? null, r.attachments ?? null, r.mode ?? null, r.body);
+        const ok = db.prepare("INSERT OR IGNORE INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body,via) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+          .run(r.id, r.ts, r.role, r.channel, r.text, r.session, r.process ?? null, r.attachments ?? null, r.mode ?? null, r.body, r.via ?? null);
         if (Number(ok.changes)) {
           db.prepare("INSERT OR IGNORE INTO sessions(id,title,channel,created,updated,changed) VALUES(?,?,?,?,?,0)").run(r.session, "新的对话", r.channel, r.ts, r.ts);
           db.prepare("UPDATE sessions SET updated=MAX(updated, ?), archived=0 WHERE id=?").run(r.ts, r.session);

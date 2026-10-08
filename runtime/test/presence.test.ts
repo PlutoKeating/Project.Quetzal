@@ -54,6 +54,11 @@ test("别处进行中的一轮：看得到、话转过去作为插话、两边�
   await until(async () => (await view(b)).length === 3);
   assert.deepEqual(await view(b), [["user", "在手机上开始的话题", ""], ["user", "电脑上补充一句", "steer"], ["agent", "honor9 的回复", ""]]);
   assert.deepEqual(await view(a), await view(b));
+  // 对方的话记下从哪具身体进来：电脑上说的那句由手机处理（body 为手机），via 仍是电脑；她看到的插话也标明经电脑发来
+  const vias = async (x: typeof a) => (await x.call<any[]>("messages", { session: "c1" })).filter((m) => m.role === "user").map((m) => [m.text, m.body, m.via]);
+  assert.deepEqual(await vias(a), [["在手机上开始的话题", "honor9", "honor9"], ["电脑上补充一句", "honor9", "pc"]]);
+  assert.deepEqual(await vias(b), await vias(a));
+  assert.ok((await a.call<string[]>("llmSeen")).some((t) => t.includes("补充了新消息（经 pc 这具身体）")), "插话标明经哪具身体发来");
 
   // 给只读成员（灵魂桥）的近况：最近的会话与它的最后几句，只取摘要
   const d = await b.call<any>("digest");

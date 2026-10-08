@@ -12,7 +12,7 @@ description: Join several phones and computers into one agent with one conversat
 | One conversation | Sessions, conversations and the flow are the same on every body. Start a topic on the phone and keep reading it in the computer's console. Replies given on another body are marked "on X" |
 | One heart | Only one body (the coordinator) decides when the agent wakes. What the other bodies sense (picked up, plugged in…) is passed to it |
 | It chooses where | On waking, the agent sees each body's battery, temperature and current work and where you last talked, and picks one body (or several at once) to think or dream on |
-| Using another body | While thinking on the computer it can take a photo with the phone or run a command on the server (`body_call`), or move the whole turn to another body (`move_to`) |
+| Using another body | While thinking on the computer it can take a photo with the phone or run a command on the server (`body_call`), or move the whole turn to another body (`move_to`). A photo taken on the phone can be viewed from the computer (`view_image` with the body name; only images can be fetched this way) |
 | One set of settings | Change models and keys, permissions, budget (a daily total), hearing and voice, or the emergency stop on one body, and it changes on all of them |
 | One thought to share | The thought shown on the home page is the same on every body. When the agent changes it on one body, the others follow; a body that was offline catches up when it connects |
 
@@ -52,6 +52,7 @@ flowchart LR
 - **Emergency stop**: with other bodies online, the stop asks whether to freeze "all bodies" or "only this body".
 - **Feishu**: one Feishu bot can be connected from only one body. Choose which device connects it under **Control → Feishu**. Proactive messages from the other bodies are sent through that body.
 - **Hearing**: when several phones hear the same sentence, only one copy is kept. When the agent answers aloud, it speaks from the phone you talked to.
+- **Where you said it**: the agent sees which body your message came in through: the body your console is connected to, the body that receives Feishu, or the phone whose ears heard you. With a single body this is left out.
 - **Hermes / OpenClaw**: a body with the [soul bridge](https://github.com/PlutoKeating/Project.Quetzal/blob/main/bridge/skills/soul-bridge/SKILL.md) can join as a **read-only member**. Give the sync service address to the agent there, and it hands you a link and a binding code. That body can see what the agent is doing on which body and the recent conversations. It cannot act on other bodies and is never chosen to think or dream.
 
 ## When disconnected
