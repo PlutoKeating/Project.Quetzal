@@ -147,7 +147,7 @@ class ProcessView extends StatelessWidget {
 const _statusLabel = {'running': '执行中', 'ok': '完成', 'denied': '被拒绝', 'error': '失败', 'unknown': '结果未记录'};
 
 /// 工具调用详情：点开就是完整的参数与结果。完整记录只存在做那一轮的身体上（运行基座的 tool.detail，本机没有就问其他身体）；
-/// 取不到时（1.9.2 之前的调用没有存）退回时间线的 steps 或过程记录里的摘要与结果开头。
+/// 取不到时（1.9.3 之前的调用没有存）退回时间线的 steps 或过程记录里的摘要与结果开头。
 void showToolDetail(BuildContext context, Map x, Map? step) {
   final t = Theme.of(context).textTheme, cs = Theme.of(context).colorScheme;
   String pretty(Object? v) {
@@ -178,7 +178,7 @@ void showToolDetail(BuildContext context, Map x, Map? step) {
             Text(complete || loading ? '结果' : '结果（开头）', style: t.labelLarge),
             if ('${result ?? ''}'.isEmpty) Text('（无）', style: t.bodySmall) else SelectableText('$result', style: t.bodySmall?.copyWith(fontFamily: 'monospace')),
             if (!loading && !complete && x['status'] != 'running')
-              Padding(padding: const EdgeInsets.only(top: 8), child: Text('这次调用没有完整记录（早于 1.9.2，或做这一轮的身体不在线）', style: t.bodySmall?.copyWith(color: cs.outline))),
+              Padding(padding: const EdgeInsets.only(top: 8), child: Text('这次调用没有完整记录（早于 1.9.3，或做这一轮的身体不在线）', style: t.bodySmall?.copyWith(color: cs.outline))),
             if (d?['body'] != null && (d!['body'] as String).isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text('在 ${d['body']} 上执行', style: t.bodySmall?.copyWith(color: cs.outline))),
             const SizedBox(height: 24),
           ]);

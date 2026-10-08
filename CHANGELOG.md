@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.9.3
+
+- 点开对话里的工具卡片，直接看到这次调用的完整参数和完整结果，不用再去心流里找。完整记录只保存在执行它的那台设备上，不同步到别的设备；在别的设备上点开时，会临时向那台设备取一次（它要在线）。1.9.3 之前的调用没有完整记录，仍只显示开头。
+
+- Tapping a tool card in a conversation now shows the call's full arguments and full result, so there is no need to look in the Flow page. The full record is kept only on the device that ran the call and is not synced to other devices. Opening the card on another device fetches it once from that device, which must be online. Calls made before 1.9.3 have no full record and still show only the beginning.
+
 ## 1.9.2
 
 - App 更新或重启后，会话列表、首页的「内在」状态条、记忆页会在连上之后自己加载，不用再切到别的页面再切回来。断线重连后，模型、工具、声音这几页也会重新加载。
