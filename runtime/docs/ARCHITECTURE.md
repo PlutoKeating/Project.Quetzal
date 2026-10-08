@@ -28,16 +28,18 @@ src/
 ├── web.ts                网页控制台：托管 current/web/（QUETZAL_WEB_DIR 可覆盖，单页回退、ETag）；判定「同一台机器上打开着网页控制台的浏览器」（回环地址 + 本机 Host + Origin 正好是网关自己的源 / QUETZAL_DEV_ORIGINS）与「发起连接的是不是运行基座的子孙进程」（Linux 读 /proc，Windows 用 netstat 与 Win32_Process 的父进程表，查不出按拒绝）给 GET /auth/local；配对接口的 Host 检查
 ├── body/
 │   ├── adapter.ts        身体适配器接口（与设备仓库的唯一边界）+ 通用适配器
-│   └── twin.ts           身体数字孪生：采样、身体感受、sense 事件、感官循环；「身体」段落含她自己的进程 pid
+│   ├── twin.ts           身体数字孪生：采样、身体感受、sense 事件、感官循环；「身体」段落含她自己的进程 pid；加载适配器后定下身体 uuid
+│   └── uuid.ts           身体的 uuid：绑定到设备（适配器的 deviceId() 经 sha256 派生为 RFC 9562 v8，原始标识不外露），存在 state/body-uuid、之后以它为准；取不到设备标识时随机 v4
 ├── heart/
 │   ├── model.ts          纯数学：驱动力、双过程生物钟、醒来率、指数抽样（无副作用）
 │   └── heart.ts          状态机与稀疏化抽样调度；抑制；有界的性格修改；跟随模式（不抽样，操作转给协调者）与状态的导出 / 采用
 ├── mind/
 │   ├── prompt.ts         系统提示组装（其他会话的近况带会话 id）
 │   ├── fetch-guard.ts    web_fetch 的出站检查：每一跳解析 DNS、拒绝回环 / 私有 / 链路本地 / CGNAT / 元数据地址，连接时再查（防 DNS 重绑定），手动跟随重定向
-│   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write）；参数脱敏后才进审批与审计；read_document / view_image 的真实路径检查；soulGitBlock / secretsBlock 只是提示，边界是 sandbox.ts；每次调用结束后触发灵魂目录的触碰即同步
+│   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write）；参数脱敏后才进审批与审计；read_document / view_image 的真实路径检查；多具身体时读文件的工具（view_image、read_document、shell）多一个 body 参数，交给 body-files.ts；soulGitBlock / secretsBlock 只是提示，边界是 sandbox.ts；每次调用结束后触发灵魂目录的触碰即同步
 │   ├── claims.ts         认领（claim 工具）：几个会话避免同时做同一件对外的事；按名字字面比较、带说明与期限；存 kv；多具身体时由协调者决定（setClaimRouter），记录按条目合并；系统提示「其他会话」里列出
-│   ├── bodies.ts         其他身体的登记（多具身体时由 mesh/ 填入）：工具表的 body_call / move_to 与系统提示的「其他身体」一节读它；可跨身体调用的内置工具名单
+│   ├── bodies.ts         其他身体的登记（多具身体时由 mesh/ 填入，带灵魂仓库登记的 uuid 与对方自报的 uuid）：工具表的 body_call / move_to 与系统提示的「其他身体」一节读它；可跨身体调用的内置工具名单
+│   ├── body-files.ts     身体参数：解析 body（uuid → 登记里的身体名 → 认证过的连接，核对自报一致、拒绝一个 uuid 对多具身体）；file.read 的两端（那边 lendFile：闸门、真实路径挡密钥目录与保密库、只交普通文件、64 MB、分段；这边 fetchFile：闸门、核对大小与 sha256、文件名清洗、落到 data/from-bodies/<身体>/）；两边记审计
 │   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话）
 │   ├── custom-tools.ts   自造工具：QUETZAL_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（一律在子进程里、经沙箱：stdin JSON + ARG_ 环境变量 / 子进程里加载 ES 模块，超时整组杀掉）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
@@ -64,7 +66,7 @@ src/
 │   ├── presence.ts       在场：进展事件转发给其他身体（控制台看得到别处进行中的一轮）、刚连上时取回对方的进行中轮次、断开时清掉；发给别处进行中会话的话（含附件）转过去（接收方只取白名单字段、就地处理，via 记为发来的那具身体）；给灵魂桥的近况（单行、截断、标明谁说的）
 │   ├── coordinator.ts    协调者：交换候选条件（优先级、电源、启动时刻）选出持有心跳的身体；跟随者的心脏操作转给它，它广播心脏状态；分区重连时合并
 │   ├── placement.ts      运行位置：各身体的概况（body.overview）、打分推荐、她在内省时选 where；在选中的身体上执行醒来（mind.wake）
-│   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call）、借图给别处的 view_image（image.read：只交出图片，经 tools.ts 的 lendImage）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
+│   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call）、把这里的文件交给别处带 body 的工具（file.read，经 mind/body-files.ts 的 lendFile；灵魂桥调用不到）、灵魂仓库身体登记里的 uuid（soulRegistry）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
 │   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）
 │   ├── channels.ts       通道：飞书只由指定的身体持有（其他身体的主动消息转过去）；几只耳朵同时听到同一句话只留一只；记下哪只耳朵听到的（voice_speak 从那里说）
 │   ├── node-key.ts       这具身体的节点密钥（灵魂同步写身体登记时用，不依赖整个网状层）

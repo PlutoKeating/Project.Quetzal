@@ -8,6 +8,8 @@ loadConfig();
 saveConfig({ body: process.env.BODY, mesh: { priority: Number(process.env.PRIORITY ?? 0) } });
 const store = await import("../../src/store.ts");
 store.openStore();
+const { ensureBodyUuid, bodyUuid } = await import("../../src/body/uuid.ts");
+await ensureBodyUuid(); // 测试身体没有设备标识：随机生成
 const { Mesh } = await import("../../src/mesh/mesh.ts");
 const { loadNodeKey } = await import("../../src/mesh/identity.ts");
 const { installReplica } = await import("../../src/mesh/replica.ts");
@@ -109,6 +111,7 @@ const cmds: Record<string, (a: any) => unknown> = {
   earOf: (a) => earOf(a.conv) ?? null,
   llmScript: (a) => { llmScript.push(...a.messages); return true; },
   audit: () => store.listAudit(20),
+  uuid: () => bodyUuid(),
   llmWhere: (a) => { llmWhere = a.where; return true; },
   wake: (a) => wake(a.kind ?? "think", a.reason ?? "测试"),
   llmDelay: (a) => { llmDelay = a.ms; return true; },

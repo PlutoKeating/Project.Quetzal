@@ -5,6 +5,14 @@ import { pickBattery, pickThermal, prettyName, playerCommand, screenshotCommand,
 import { hasRebootLine, withRebootLine, DROPIN_OFF, quit } from "../adapters/linux/supervise.ts";
 import { upgradeShell, detachCommand, parseUpgradeLog } from "../adapters/linux/upgrade.ts";
 
+test("设备标识：/etc/machine-id，退回 /var/lib/dbus/machine-id；格式不对的不用", async () => {
+  const { machineId } = await import("../adapters/linux/index.ts");
+  const id = "0123456789abcdef0123456789abcdef";
+  assert.equal(machineId((f) => (f === "/etc/machine-id" ? id + "\n" : undefined)), id);
+  assert.equal(machineId((f) => (f === "/var/lib/dbus/machine-id" ? id.toUpperCase() : f === "/etc/machine-id" ? "uninitialized\n" : undefined)), id);
+  assert.equal(machineId(() => undefined), undefined);
+});
+
 test("挑出整机电池，跳过蓝牙鼠标之类的外设电池", () => {
   assert.equal(pickBattery([{ name: "ADP0", type: "Mains" }, { name: "hidpp_battery_7", type: "Battery", scope: "Device" }, { name: "BAT0", type: "Battery" }]), "BAT0");
   assert.equal(pickBattery([{ name: "axp20x-battery", type: "Battery" }, { name: "axp20x-usb", type: "USB" }]), "axp20x-battery");

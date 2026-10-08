@@ -13,7 +13,9 @@ import { summarize, type Session } from "./activity.ts";
 import { htmlToText, readDocument } from "./documents.ts";
 import { webSearch, BROWSER_HEADERS } from "./search.ts";
 import fs from "node:fs";
-import { loadImage, sniffImage, LEND_MAX_BYTES } from "./images.ts";
+import { loadImage } from "./images.ts";
+import { localize, withBodyParam, type Fetched } from "./body-files.ts";
+import { bodyUuid } from "../body/uuid.ts";
 import { describeProcesses } from "./processes.ts";
 import * as voice from "../voice/azure.ts";
 import { config, paths } from "../config.ts";
@@ -41,10 +43,13 @@ import { hostActive, touchHost, requestHost, exitHost, IDLE_MS as HOST_IDLE_MS }
 const hostConv = (ctx: ToolContext): string | undefined => ctx.session?.origin === "chat" && ctx.session.conv && hostActive(ctx.session.conv) ? ctx.session.conv : undefined;
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
-export interface ToolContext { session?: Session }
+/** fetched：带 body 时从另一具身体取来的文件（远端路径 → 本地路径），见 body-files.ts。 */
+export interface ToolContext { session?: Session; fetched?: Fetched[] }
 /** also：除了 permission 还要满足的类别，闸门按其中最严的一个检查（自造工具一律加上 shell；tool_write 加上 tool_write）。 */
 /** onBody：属于这具身体的工具（适配器的设备工具、hands、自造工具）：多具身体时，它返回的文件路径要注明是哪具身体上的。 */
-export interface Tool extends ToolDef { permission: string; also?: string[]; onBody?: boolean; handler: (a: Record<string, any>, ctx: ToolContext) => Promise<string> }
+/** bodyParams：多具身体时才出现的其他参数（例如 shell 的 files）。 */
+/** bodyFiles：哪些参数是要读的文件路径（字符串或字符串数组）：多具身体时这个工具多一个 body 参数，带上时这些路径指那具身体上的文件（body-files.ts）。 */
+export interface Tool extends ToolDef { permission: string; also?: string[]; onBody?: boolean; bodyFiles?: string[]; bodyParams?: Record<string, unknown>; handler: (a: Record<string, any>, ctx: ToolContext) => Promise<string> }
 
 // 造工具（写会被执行的代码）单独一个能力类别，缺省「每次询问」（config.ts）。标签放进闸门的表里，控制台与飞书的权限页才列得出来。
 
@@ -75,66 +80,21 @@ export function secretsBlock(text: string): string | undefined {
   return touches ? "没有执行：基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥）不能读取、复制或使用。需要这些能力的事由基座或对方在控制台里做。" : undefined;
 }
 
-/**
- * view_image 看另一具身体上的图：经网状层（端到端加密、节点密钥认证过的连接）向那具身体要。
- * 这边按「跨身体操作」（body）再过一次闸门；那边按它自己的闸门、只交出图片（见 lendImage），两边都记审计。
- */
-async function viewRemote(body: string, list: string[], ctx: ToolContext): Promise<string> {
-  const s = ctx.session!, h = bodiesHooks(), names = remoteBodies().map((b) => b.body);
-  if (!h?.image || !names.includes(body)) return `${body} 不在线${names.length ? `（在线的：${names.join("、")}）` : "（现在没有其他在线的身体）"}，看不到那边的图`;
-  if (!(await check("body", "view_image", `看 ${body} 上的图`, { body, paths: list }))) return "这个动作没有被允许（闸门拒绝或急停中）";
-  const out: string[] = [];
-  let sent = 0;
-  for (const p of list) {
-    try {
-      const r = await h.image(body, p, `${s.origin} ${s.conv}`);
-      const key = `${body}:${r.path}`;
-      if (s.seen.has(key)) { out.push(`= ${body}:${r.path}：这张图这一轮已经在你眼前，就是同一张，不再重复发送`); continue; }
-      s.images.push({ image: { mime: r.mime, data: r.data }, label: `${body} 上的 ${r.path}${r.note ? `（${r.note}）` : ""}` });
-      s.seen.add(key);
-      sent++;
-      out.push(`✓ ${body}:${r.path}${r.note ? `：${r.note}` : ""}`);
-    } catch (e: any) { out.push(`✗ ${body}:${p}：${e.message}`); }
-  }
-  return `${out.join("\n")}${sent ? `\n图片（从 ${body} 取来）会在你下一步思考时出现（会自动选用能看图的模型）。` : ""}`;
-}
-
-/**
- * 另一具身体（from）来要一张图（view_image 带 body）：只交出图片，不是任意读文件。
- *   - 路径：与本机的 view_image 一样按真实路径挡住密钥目录与保密库（protectedPath），只收普通文件；
- *   - 类型：只认文件头（不看扩展名），不是 JPEG / PNG / GIF / WebP / BMP 的一律不给；
- *   - 大小：原图超过 LEND_MAX_BYTES 不读；交出去的是缩过的（或不超过上限的原图），经网状层分块传；
- *   - 闸门按这具身体自己的（与本机 view_image 同一类别，急停时一律拒绝），审计在这边记一笔（调用方也记）。
- */
-export async function lendImage(file: unknown, from: string, reason = ""): Promise<{ mime: string; data: string; note: string; path: string }> {
-  if (typeof file !== "string" || !file.trim() || file.length > 4096 || file.includes("\0")) throw new Error("路径不对");
-  const p = path.resolve(workDir(), file.replace(/^file:\/\//, ""));
-  const why = `来自 ${from}：${String(reason).slice(0, 200)}`;
-  const deny = (msg: string): never => { audit("agent", "view_image", why, { path: p }, `denied: ${msg}`); throw new Error(msg); };
-  if (!(await check("memory", "view_image", why, { path: p }))) deny(`${config.body} 的闸门没有允许（或急停中）`);
-  const blocked = protectedPath(p);
-  if (blocked) deny(blocked);
-  let st: fs.Stats;
-  try { st = fs.statSync(p); } catch { return deny(`${config.body} 上没有这个文件`); }
-  if (!st.isFile()) deny("不是文件");
-  if (st.size > LEND_MAX_BYTES) deny(`图片太大（${(st.size / 1048576).toFixed(1)} MB，最多 ${LEND_MAX_BYTES >> 20} MB）`);
-  const head = Buffer.alloc(32), fd = fs.openSync(p, "r");
-  try { fs.readSync(fd, head, 0, 32, 0); } finally { fs.closeSync(fd); }
-  const mime = sniffImage(head);
-  if (!mime) deny("不是图片（只能跨身体看 JPEG、PNG、GIF、WebP、BMP）");
-  let got: Awaited<ReturnType<typeof loadImage>>;
-  try { got = await loadImage(p); } catch (e) { return deny((e as Error).message); }
-  const { note } = got, image = { ...got.image, mime: note ? got.image.mime : mime! }; // 没缩的原图按文件头定类型（扩展名可能不对）；缩过的一律是 JPEG
-  audit("agent", "view_image", why, { path: p }, `✓ ${image.mime} ${Math.round(image.data.length * 3 / 4 / 1024)} KB${note ? `（${note}）` : ""}`);
-  return { mime: image.mime, data: image.data, note, path: p };
-}
-
-/** 多具身体时，属于这具身体的工具返回的文件路径注明在哪具身体上（另一具身体上同一个路径不存在）；有图片就提示怎么在别处看。 */
+/** 多具身体时，属于这具身体的工具返回的文件路径注明在哪具身体上（另一具身体上同一个路径不存在），以及在别处怎么用（带 body 的 uuid）。 */
 const ABS_PATH = /(?:^|[\s：:（(「"'])(\/[^\s，。；、（）()」"']+|[A-Za-z]:\\[^\s，。；、（）()」"']+)/;
-const IMAGE_PATH = /\.(?:jpe?g|png|gif|webp|bmp)(?=$|[\s，。；、（）()」"'])/i;
 export function notePaths(out: string): string {
   if (!remoteBodies().length || !ABS_PATH.test(out)) return out;
-  return `${out}\n（以上文件在 ${config.body} 这具身体上，别的身体上没有这个路径${IMAGE_PATH.test(out) ? `；在别的身体上看图用 view_image 并带上 body: "${config.body}"` : ""}）`;
+  const self = bodyUuid();
+  return `${out}\n（以上文件在 ${config.body} 这具身体上${self ? `（body: ${self}）` : ""}，别的身体上没有这个路径${self ? `；在别的身体上用 view_image、read_document、shell 读它时带上 body: "${self}"` : ""}）`;
+}
+
+/** shell 带 body 与 files：命令里出现的远端路径（前后不是路径字符）换成取来后的本地路径，长的先换。 */
+export function substitutePaths(command: string, fetched: Fetched[]): string {
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!fetched.length) return command;
+  const local = new Map(fetched.map((f) => [f.remote, f.local]));
+  const alt = [...local.keys()].sort((x, y) => y.length - x.length).map(esc).join("|"); // 一遍换完：换进去的本地路径不会再被换
+  return command.replace(new RegExp(`(?<![\\w./\\\\-])(?:${alt})(?![\\w./\\\\-])`, "g"), (m) => local.get(m) ?? m);
 }
 
 const core: Tool[] = [
@@ -230,15 +190,12 @@ const core: Tool[] = [
     },
   },
   {
-    name: "view_image", permission: "memory",
-    description: "看图：把本地图片（自己拍的照片、下载的图片、对话里的附件等）交给你自己看，图片会在你下一步思考时出现在眼前。一次最多 4 张；较大的照片会自动缩小。之前对话里的图片只保留了路径，想再看就用它；这一轮已经在你眼前的图片（随消息附带的、刚看过的）不会重复发送。" +
-      "图片在你的另一具身体上（例如在那边拍的照片）时，带上 body（那具身体的名字），路径照那边给的写：基座经身体之间的加密连接向那具身体要这几张图（只给图片，不给别的文件）。",
-    parameters: obj({ paths: { type: "array", items: { type: "string" }, description: "图片的路径（1–4 个）" }, body: str("图片在哪具身体上（缺省为这具身体；多具身体时才需要）") }, ["paths"]),
+    name: "view_image", permission: "memory", bodyFiles: ["paths"],
+    description: "看图：把本地图片（自己拍的照片、下载的图片、对话里的附件等）交给你自己看，图片会在你下一步思考时出现在眼前。一次最多 4 张；较大的照片会自动缩小。之前对话里的图片只保留了路径，想再看就用它；这一轮已经在你眼前的图片（随消息附带的、刚看过的）不会重复发送。",
+    parameters: obj({ paths: { type: "array", items: { type: "string" }, description: "图片的路径（1–4 个）" } }, ["paths"]),
     handler: async (a, ctx) => {
       if (!ctx.session) return "现在无法看图（没有进行中的思考）";
       const list = (Array.isArray(a.paths) ? a.paths : [a.paths]).filter(Boolean).slice(0, 4).map(String);
-      const body = typeof a.body === "string" ? a.body.trim() : "";
-      if (body && body !== config.body) return viewRemote(body, list, ctx);
       const out: string[] = [];
       let sent = 0;
       for (const p0 of list) {
@@ -272,21 +229,23 @@ const core: Tool[] = [
     },
   },
   {
-    name: "read_document", permission: "shell",
+    name: "read_document", permission: "shell", bodyFiles: ["path"],
     description: "读取本地文档的文字内容（分页，每次约 2 万字）：Word（docx/doc）、PowerPoint（pptx/ppt，含备注）、Excel（xlsx/xls，按工作表输出为制表符分隔）、PDF、OpenDocument（odt/ods/odp）、EPUB、HTML、RTF、各类文本；zip 会列出内容。用户上传的附件在附件列表里给出了本地路径。",
-    parameters: obj({ path: str("文件的本地路径"), offset: { type: "number", description: "从第几个字开始（用于翻页）" } }, ["path"]),
+    parameters: obj({ path: str("文件路径"), offset: { type: "number", description: "从第几个字开始（用于翻页）" } }, ["path"]),
     handler: async (a) => {
       const p = path.resolve(workDir(), String(a.path ?? "").replace(/^file:\/\//, ""));
       return protectedPath(p) ?? readDocument(p, Number(a.offset) || 0); // 比较真实路径（跟随符号链接），不是字符串
     },
   },
   {
-    name: "shell", permission: "shell",
+    name: "shell", permission: "shell", bodyFiles: ["files"],
     description: (isWindows
       ? `在这具身体（Windows）上执行一条 PowerShell 命令（不是 bash：变量写 $env:NAME，路径用 C:\\…，Windows PowerShell 5.1 不支持 &&，用 ; 或 if ($?) { }）。命令在沙箱里以低权限的沙箱用户运行：工作目录是 ${workDir()}（对方也能在这里放文件、取结果），只能写工作区、data 与灵魂目录，读不到对方主目录里别的文件和基座的密钥；联网经代理，连不到这台机器自己的端口。被超时或停止结束的命令退出码是 1，不是命令本身出错。`
       : "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。") + "这个会话处在真实环境里时（系统提示会写明），命令不经沙箱，直接在主机上执行。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
     parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
+    bodyParams: { files: { type: "array", items: { type: "string" }, description: "只和 body 一起用：先从那具身体取来的文件（照那边的路径写）。命令仍在这具身体上执行，命令里出现的这些路径会换成取来后的本地路径；要在那具身体上执行命令用 body_call" } },
     handler: async (a, ctx) => {
+      if (ctx.fetched?.length) a = { ...a, command: substitutePaths(String(a.command ?? ""), ctx.fetched) };
       const blocked = soulGitBlock(String(a.command ?? "")) ?? secretsBlock(String(a.command ?? ""));
       if (blocked) return blocked;
       const host = hostConv(ctx), signal = host ? touchHost(host) : undefined;
@@ -649,7 +608,8 @@ function bodyTools(): Tool[] {
 /** 属于这具身体的工具：适配器的设备工具、hands、自造工具。 */
 const bodyOwn = (): Tool[] => [...(adapter.tools ?? []), ...handsTools(), ...customTools()].map((t) => ({ ...t, onBody: true }));
 export function allTools(): Tool[] {
-  return [...core, ...bodyOwn(), ...bodyTools()];
+  const multi = remoteBodies().length > 0;
+  return [...(multi ? core.map((t) => (t.bodyFiles ? withBodyParam(t) : t)) : core), ...bodyOwn(), ...bodyTools()];
 }
 /** 可以被其他身体经 body_call 调用的工具：适配器的设备工具、hands、自造工具，以及属于这具身体的几个内置工具（见 bodies.ts）。 */
 export function limbTools(allowedCore: Set<string>): Tool[] {
@@ -672,8 +632,14 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
   const safe = real ? { ...redactArgs(args), realEnv: true } : redactArgs(args); // 参数里的保密值不进审批、时间线与审计；真实环境里的命令另外标记
   if (!(await check(strictest([t.permission, ...(t.also ?? [])]), name, reason, safe))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
-    const raw = await t.handler(args, ctx);
-    const out = redactSecrets(t.onBody ? notePaths(raw) : raw); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计
+    let a = args, note = "";
+    if (t.bodyFiles && args.body !== undefined) { // 带 body：先把路径参数指的文件从那具身体取来（闸门、检查与审计都在 body-files.ts）
+      const l = await localize(name, t.bodyFiles, args, reason);
+      if (typeof l === "string") { const text = redactSecrets(l); audit("agent", name, reason, safe, `error: ${text}`); return { text, status: "error" }; }
+      ({ args: a, note } = l); ctx = { ...ctx, fetched: l.fetched };
+    }
+    const raw = await t.handler(a, ctx);
+    const out = redactSecrets(`${note ? `${note}\n\n` : ""}${t.onBody ? notePaths(raw) : raw}`); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计
     audit("agent", name, reason, safe, out.slice(0, 500));
     return { text: out, status: "ok" };
   } catch (e: any) {

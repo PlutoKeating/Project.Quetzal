@@ -1,5 +1,6 @@
 // 身体的数字孪生：把适配器报告的物理采样镜像为内部模型，再派生出"身体感受"（精力、冷热、明暗、安静/被拿起）。
 // 感知采样不调用 LLM，也不等于醒来；显著变化作为 sense 事件交给心脏，由心脏决定醒来的可能性是否改变。
+import { ensureBodyUuid } from "./uuid.ts";
 import { pathToFileURL } from "node:url";
 import os from "node:os";
 import path from "node:path";
@@ -35,6 +36,9 @@ export async function loadAdapter(spec: string | undefined) {
   }
   await adapter.init?.().catch((e) => log("body", `适配器初始化失败：${e.message}`));
   log("body", `身体：${adapter.name}（${adapter.describe}）`);
+  // 身体的 uuid：存过的为准，否则由设备标识派生（原始标识不记日志），取不到就随机生成
+  const id = await ensureBodyUuid(adapter.deviceId ? () => adapter.deviceId!() : undefined).catch((e) => { log("body", `身体 uuid 没能保存：${e.message}`); return undefined; });
+  if (id) log("body", `身体 uuid：${id.uuid}（${id.source === "stored" ? "已保存的" : id.source === "device" ? "由设备标识派生" : "取不到设备标识，随机生成，重装后会变"}）`);
 }
 
 async function online(): Promise<boolean> {

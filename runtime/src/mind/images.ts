@@ -30,8 +30,6 @@ export function imageMime(file: string, head?: Buffer): string | undefined {
   return MIME[path.extname(file).slice(1).toLowerCase()] ?? sniffImage(head ?? Buffer.alloc(0));
 }
 
-/** 另一具身体来要的图片，原图最大多少（读之前就按文件大小拒绝；交出去的是缩过的或不超过 MAX_RAW 的原图）。 */
-export const LEND_MAX_BYTES = 40 << 20;
 
 /** 纯 JS 缩图（只支持 JPEG）：解码 → 盒式采样缩到长边 MAX_EDGE → 质量 85 编码。12 MP 的照片在手机上约需几秒。 */
 export function shrinkJpegJs(file: string, out: string, maxEdge = MAX_EDGE): boolean {

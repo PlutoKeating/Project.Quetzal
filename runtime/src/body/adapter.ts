@@ -56,6 +56,11 @@ export interface BodyAdapter {
   tools?: AdapterTool[];
   hands?: Hands;
   supervision?: Supervision;  // 守护开关（控制台「高级 · 运行」页）；没有的身体不显示
+  /**
+   * 设备自身稳定的标识（Linux 的 machine-id、Windows 的 MachineGuid、安卓的 ANDROID_ID……），取不到返回 undefined。
+   * 核心只用它的哈希派生这具身体的 uuid（body/uuid.ts），原始值不进日志、审计、灵魂仓库与网状层。没有的适配器不提供。
+   */
+  deviceId?(): Promise<string | undefined>;
   /** 退出（桌面托盘的「退出」）：这一次停掉后台服务，开机自启照旧。没有的身体由 ops 直接结束进程 */
   quit?(): Promise<void>;
   /** 让这具身体在后台重跑安装（升级运行基座与控制台到最新发布）：立即返回一句说明，进程随后由守护者重启。没有的身体（安卓由 App 升级）不提供 */

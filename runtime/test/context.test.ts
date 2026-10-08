@@ -166,37 +166,3 @@ test("消息从哪具身体进来：只有一具身体时不标；多具身体�
   assert.equal(store.applyRemote("messages", [{ ...row, via: "phone" }], { from: "pc" }).changed.length, 1);
   assert.equal(store.sessionMessages("via").find((m) => m.text === "复制来的")!.via, "phone");
 });
-
-test("借图给另一具身体（lendImage）：只认文件头是图片的、挡住密钥目录与保密库、有大小上限、记审计；多具身体时设备工具返回的路径注明在哪具身体上", async () => {
-  const { lendImage, notePaths } = await import("../src/mind/tools.ts");
-  const { sniffImage, LEND_MAX_BYTES } = await import("../src/mind/images.ts");
-  const { setBodies } = await import("../src/mind/bodies.ts");
-  const { config, paths } = await import("../src/config.ts");
-  assert.equal(sniffImage(PNG), "image/png");
-  assert.equal(sniffImage(Buffer.from("hello.png")), undefined);
-  const r = await lendImage(img, "pc", "看看");
-  assert.equal(r.mime, "image/png"); assert.equal(r.path, img); assert.equal(Buffer.from(r.data, "base64").length, PNG.length);
-  const txt = path.join(dir, "fake.png"); fs.writeFileSync(txt, "不是图片，只是名字像");
-  await assert.rejects(lendImage(txt, "pc"), /不是图片/);
-  fs.mkdirSync(paths.secrets, { recursive: true }); fs.writeFileSync(path.join(paths.secrets, "x.png"), PNG);
-  await assert.rejects(lendImage(path.join(paths.secrets, "x.png"), "pc"), /密钥目录/);
-  fs.mkdirSync(paths.vault, { recursive: true }); fs.writeFileSync(path.join(paths.vault, "y.png"), PNG);
-  await assert.rejects(lendImage(path.join(paths.vault, "y.png"), "pc"), /保密库/);
-  const big = path.join(dir, "big.png"); fs.writeFileSync(big, PNG); fs.truncateSync(big, LEND_MAX_BYTES + 1);
-  await assert.rejects(lendImage(big, "pc"), /图片太大/);
-  await assert.rejects(lendImage(dir, "pc"), /不是文件/);
-  await assert.rejects(lendImage(path.join(dir, "nope.png"), "pc"), /没有这个文件/);
-  await assert.rejects(lendImage(42, "pc"), /路径不对/);
-  const rows = store.listAudit(20, { action: "view_image" }).filter((a) => a.reason.startsWith("来自 pc"));
-  assert.equal(rows.length, 7, "每次读文件的尝试都记审计（连路径都不是字符串的不算）");
-  assert.equal(rows.filter((a) => a.result.startsWith("denied")).length, 6);
-
-  const said = `已拍摄：${img}（1 KB）`;
-  assert.equal(notePaths(said), said, "只有一具身体时不加");
-  setBodies({ list: () => [{ body: "pc", describe: "", tools: [] }], call: async () => ({ text: "", status: "ok" }), move: async () => "" });
-  try {
-    assert.match(notePaths(said), new RegExp(`（以上文件在 ${config.body} 这具身体上，别的身体上没有这个路径；在别的身体上看图用 view_image 并带上 body: "${config.body}"）$`));
-    assert.doesNotMatch(notePaths("已录制 5 秒：/tmp/a.wav"), /view_image/);
-    assert.equal(notePaths("电量 80%"), "电量 80%");
-  } finally { setBodies(undefined); }
-});

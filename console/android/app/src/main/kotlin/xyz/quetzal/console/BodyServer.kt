@@ -38,6 +38,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.provider.Settings
 import android.view.Surface
 import org.json.JSONArray
 import org.json.JSONObject
@@ -120,6 +121,7 @@ class BodyServer(private val ctx: Context, private val quetzalHome: File) {
 
     private fun route(method: String, path: String, a: JSONObject): Pair<Int, JSONObject> = when ("$method $path") {
         "GET /v1/info" -> 200 to info()
+        "GET /v1/device-id" -> 200 to JSONObject().put("ok", true).put("id", deviceId())
         "GET /v1/sample" -> 200 to sample()
         "GET /v1/sensors" -> 200 to JSONObject().put("ok", true).put("sensors", JSONArray(sensors().getSensorList(Sensor.TYPE_ALL).map { it.name }))
         "POST /v1/sensor" -> 200 to JSONObject().put("ok", true).put("values", JSONArray(readSensor(sensors().getSensorList(Sensor.TYPE_ALL).firstOrNull { it.name == a.optString("name") } ?: throw IllegalArgumentException("没有这个传感器"), 3000)?.map { it.toDouble() } ?: throw IllegalStateException("没有读到数值")))
@@ -146,6 +148,13 @@ class BodyServer(private val ctx: Context, private val quetzalHome: File) {
             .put("camera", ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY))
             .put("torch", ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH))
     }
+
+    /**
+     * 设备标识：Settings.Secure.ANDROID_ID（Android 8 起按签名密钥与用户区分；恢复出厂设置、换签名会变）。
+     * 运行基座只用它的哈希派生身体 uuid（runtime/src/body/uuid.ts），原始值不记日志、不出这台手机。
+     */
+    @SuppressLint("HardwareIds")
+    private fun deviceId(): String? = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID)
 
     /** 读一次传感器：注册监听，等第一个读数（最多 timeoutMs）。 */
     private fun readSensor(s: Sensor, timeoutMs: Long): FloatArray? {

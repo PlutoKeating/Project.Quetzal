@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fork, type ChildProcess } from "node:child_process";
 import { fakeSync } from "./fixtures/fake-sync.ts";
+import crypto from "node:crypto";
 import { loadNodeKey } from "../src/mesh/identity.ts";
 
 let has = true;
@@ -36,7 +37,7 @@ const until = async (f: () => Promise<boolean>, ms = 20_000) => { const t = Date
 const toolCall = (name: string, args: unknown) => ({ content: null, tool_calls: [{ id: `c-${name}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
 after(() => { for (const p of procs) p.kill(); sync.close(); });
 
-test("body_call：在手机上调用电脑的 shell，在电脑上执行、电脑记审计；move_to：换到电脑上继续对话，回复回到手机这边的调用方；view_image 带 body：看电脑上的图", { skip }, async () => {
+test("body_call：在手机上调用电脑的 shell，在电脑上执行、电脑记审计；move_to：换到电脑上继续对话，回复回到手机这边的调用方；view_image、read_document、shell 带 body：用电脑上的文件", { skip }, async () => {
   const phone = spawnBody("phone"), pc = spawnBody("pc");
   await Promise.all([phone.ready, pc.ready]);
   await until(async () => (await phone.call<string[]>("connected")).includes("pc") && (await pc.call<string[]>("connected")).includes("phone"));
@@ -64,19 +65,40 @@ test("body_call：在手机上调用电脑的 shell，在电脑上执行、电�
   assert.deepEqual(await view(phone), [["user", "控制台", "phone"], ["ambient", "换身体", "pc"], ["agent", "换身体", "pc"]]);
   assert.deepEqual(await view(pc), await view(phone));
 
-  // view_image 带 body：在手机上看电脑上的图——经网状层向电脑要，电脑只交出图片、记审计；不是图片的文件、密钥目录不给
+  // 带 body（电脑的 uuid）：view_image、read_document、shell 读电脑上的文件——经网状层的 file.read 取到手机上，电脑那边过闸门、记审计；密钥目录不给。
+  // uuid 以灵魂仓库的身体登记为准（这里直接写进手机的灵魂目录），电脑经网状层自报的要一致
+  const pcId = await pc.call<string>("uuid");
+  fs.mkdirSync(path.join(tmp, "phone", "soul", "bodies"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "phone", "soul", "bodies", "pc.json"), JSON.stringify({ body: "pc", kind: "runtime", uuid: pcId }));
   const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a5f2e2d20000000049454e44ae426082", "hex");
-  const shot = path.join(tmp, "pc", "photo.png"), fake = path.join(tmp, "pc", "notes.png");
-  fs.writeFileSync(shot, PNG); fs.writeFileSync(fake, "这不是图片");
+  const shot = path.join(tmp, "pc", "photo.png"), doc = path.join(tmp, "pc", "notes.md"), blob = path.join(tmp, "pc", "blob.bin"), bin = crypto.randomBytes(1_500_000);
+  fs.writeFileSync(shot, PNG); fs.writeFileSync(doc, "电脑上的笔记"); fs.writeFileSync(blob, bin);
   fs.writeFileSync(path.join(tmp, "pc", "secrets", "probe.png"), PNG);
-  await phone.call("llmScript", { messages: [toolCall("view_image", { body: "pc", paths: [shot, fake, path.join(tmp, "pc", "secrets", "probe.png")] }), { content: "看到了电脑上的图" }] });
+  const got = path.join(tmp, "phone", "data", "from-bodies", "pc");
+  const stepOf = async (tool: string) => (await phone.call<any[]>("timeline")).find((e) => e.kind === "chat").detail.steps.find((x: any) => x.tool === tool);
+
+  await phone.call("llmScript", { messages: [toolCall("view_image", { body: pcId, paths: [shot, path.join(tmp, "pc", "secrets", "probe.png")] }), { content: "看到了电脑上的图" }] });
   assert.equal(await phone.call("converse", { text: "看看电脑上拍的照片", conv: "z" }), "看到了电脑上的图");
-  const vstep = (await phone.call<any[]>("timeline")).find((e) => e.kind === "chat").detail.steps.find((x: any) => x.tool === "view_image");
-  assert.ok(vstep.result.includes(`✓ pc:${shot}`), vstep.result);
-  assert.match(vstep.result, /✗ pc:.*notes\.png：不是图片/);
+  const vstep = await stepOf("view_image");
+  assert.ok(vstep.result.includes(`✓ pc:${shot} → ${path.join(got, "photo.png")}`), vstep.result);
   assert.match(vstep.result, /✗ pc:.*probe\.png：没有读取：这是基座的密钥目录/);
-  assert.ok((await phone.call<string[]>("llmSeen")).some((t) => t.includes("以下是你用 view_image 请求查看的 1 张图片：pc 上的")), "图片放进了手机这边的上下文");
-  const lent = (await pc.call<any[]>("audit")).filter((a) => a.action === "view_image" && /来自 phone/.test(a.reason));
-  assert.equal(lent.length, 3, "电脑上每次都记审计（给了的与拒绝的）");
-  assert.equal(lent.filter((a) => a.result.startsWith("✓")).length, 1);
+  assert.ok((await phone.call<string[]>("llmSeen")).some((t) => t.includes("以下是你用 view_image 请求查看的 1 张图片")), "图片放进了手机这边的上下文");
+  assert.ok(fs.readFileSync(path.join(got, "photo.png")).equals(PNG));
+
+  await phone.call("llmScript", { messages: [toolCall("read_document", { body: pcId, path: doc }), { content: "读完了" }] });
+  assert.equal(await phone.call("converse", { text: "读读电脑上的笔记", conv: "z" }), "读完了");
+  assert.match((await stepOf("read_document")).result, /电脑上的笔记/);
+
+  const local = path.join(got, "blob.bin");
+  const command = process.platform === "win32" ? `"$((Get-Item '${blob}').Length) $((Get-Item '${blob}').FullName)"` : `wc -c '${blob}'`;
+  await phone.call("llmScript", { messages: [toolCall("shell", { body: pcId, files: [blob], command }), { content: "数完了" }] });
+  assert.equal(await phone.call("converse", { text: "数一下电脑上那个文件多大", conv: "z" }), "数完了");
+  const sstep = await stepOf("shell");
+  assert.ok(sstep.result.includes(`1500000`) && sstep.result.includes(local), `命令在手机上对取来的文件执行：${sstep.result}`);
+  assert.ok(fs.readFileSync(local).equals(bin), "取回的二进制文件字节一致");
+
+  const lent = (await pc.call<any[]>("audit")).filter((a) => a.action === "file.read" && /来自 phone/.test(a.reason));
+  assert.equal(lent.length, 4, "电脑上每次都记审计（给了的与拒绝的）");
+  assert.equal(lent.filter((a) => a.result.startsWith("✓")).length, 3);
+  assert.equal((await phone.call<any[]>("audit")).filter((a) => a.action === "file.read" && a.result.startsWith("✓")).length, 3, "手机上也记审计");
 });

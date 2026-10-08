@@ -61,7 +61,7 @@ const CONFIG_KEEP = /^(core\.(repositoryformatversion|filemode|bare|logallrefupd
 const LEASE_MS = 30 * 60_000;
 /** 灵魂仓库里允许出现的顶层条目（规范 §2 的固定与必需条目，加上新建仓库常见的 README、LICENSE）。远端没有 agent.json 时据此判断它是不是灵魂仓库。 */
 const SOUL_TOP = new Set([".soul-spec.json", ".gitattributes", ".gitignore", "README.md", "README", "LICENSE", "agent.json", "SOUL.md", "memories", "journal", "notes", "bodies", "skills", "locks", ".gitkeep"]);
-export const SPEC = { spec: "soul-repo", version: 13 };
+export const SPEC = { spec: "soul-repo", version: 14 };
 const MAX_FILE = 1 << 20;
 export const FIXED_FILES: Record<string, string> = {
   ".soul-spec.json": JSON.stringify(SPEC, null, 2) + "\n",

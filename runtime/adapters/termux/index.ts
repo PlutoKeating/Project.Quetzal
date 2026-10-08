@@ -89,6 +89,12 @@ const adapter: BodyAdapter = {
     parts.push(`有相机、麦克风、扬声器${has.length ? `、${has.join("与")}传感器` : ""}`);
     return parts.join("，");
   },
+  // 设备标识：尽力取 ANDROID_ID（settings 命令在多数手机上 Termux 没有权限读，取不到就随机生成 uuid）。只用来派生身体 uuid
+  async deviceId() {
+    const r = await run("settings", ["get", "secure", "android_id"], 5_000);
+    const v = r.code === 0 ? r.out.trim().toLowerCase() : "";
+    return /^[0-9a-f]{8,32}$/.test(v) ? v : undefined;
+  },
   async init() {
     // 机型是公开的非唯一信息；传感器按名字探测，没有 Termux:API 时两者都为空
     model = (await run("getprop", ["ro.product.model"], 5_000)).out.trim();

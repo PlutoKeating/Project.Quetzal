@@ -99,6 +99,12 @@ const tools: AdapterTool[] = [
   },
 ];
 
+/** 设备标识：systemd 的 /etc/machine-id，退回 D-Bus 的 /var/lib/dbus/machine-id（32 个十六进制字符；重装系统会变）。只用来派生身体 uuid。 */
+export function machineId(read: (f: string) => string | undefined = readText): string | undefined {
+  for (const f of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) { const v = read(f)?.trim().toLowerCase(); if (v && /^[0-9a-f]{32}$/.test(v)) return v; }
+  return undefined;
+}
+
 const adapter: BodyAdapter = {
   name: "linux",
   get describe() {
@@ -108,6 +114,7 @@ const adapter: BodyAdapter = {
     if (has.length) parts.push(`有${has.join("、")}`);
     return parts.join("，");
   },
+  async deviceId() { return machineId(); },
   async init() {
     distro = prettyName(readText("/etc/os-release") ?? "") ?? "Linux";
     battery = pickBattery(listSys(POWER, ["type", "scope"]) as { name: string; type?: string; scope?: string }[]);

@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
 import type { BodyAdapter, AdapterTool, RawSample } from "../../src/body/adapter.ts";
 import { ps, ops } from "./desktop.ts";
 import * as supervise from "./supervise.ts";
@@ -52,6 +53,14 @@ const tools: AdapterTool[] = [
     handler: (a) => say(() => desk("open", { target: String(a.target) })) },
 ];
 
+/** 设备标识：注册表 HKLM\\SOFTWARE\\Microsoft\\Cryptography 的 MachineGuid（安装 Windows 时生成，重装系统会变）。只用来派生身体 uuid。 */
+export function parseMachineGuid(out: string): string | undefined {
+  const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]{36})/);
+  return m ? m[1].toLowerCase() : undefined;
+}
+const machineGuid = () => new Promise<string | undefined>((resolve) => execFile(path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "reg.exe"),
+  ["query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid", "/reg:64"], { timeout: 10_000, windowsHide: true }, (e, out) => resolve(e ? undefined : parseMachineGuid(String(out)))));
+
 const adapter: BodyAdapter = {
   name: "windows",
   get describe() {
@@ -61,6 +70,7 @@ const adapter: BodyAdapter = {
     if (has.length) parts.push(`有${has.join("、")}`);
     return parts.join("，");
   },
+  deviceId: machineGuid,
   async init() {
     const out = await ps.run(`
 $s = [System.Diagnostics.Process]::GetCurrentProcess().SessionId

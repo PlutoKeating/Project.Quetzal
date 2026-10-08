@@ -9,6 +9,13 @@ import { openable } from "../adapters/windows/desktop.ts";
 
 const WIN = process.platform === "win32";
 
+test("设备标识：从 reg query 的输出里取 MachineGuid", async () => {
+  const { parseMachineGuid } = await import("../adapters/windows/index.ts");
+  const out = "\r\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography\r\n    MachineGuid    REG_SZ    3F2504E0-4F89-11D3-9A0C-0305E82C3301\r\n\r\n";
+  assert.equal(parseMachineGuid(out), "3f2504e0-4f89-11d3-9a0c-0305e82c3301");
+  assert.equal(parseMachineGuid("错误: 系统找不到指定的注册表项或值。"), undefined);
+});
+
 test("打开：网址与文档可以，程序与脚本不行", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "q-open-"));
   const doc = path.join(dir, "a.pdf"), exe = path.join(dir, "a.exe"), lnk = path.join(dir, "b.LNK");

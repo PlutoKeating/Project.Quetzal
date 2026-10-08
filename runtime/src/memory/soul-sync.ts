@@ -3,6 +3,7 @@
 //   - 触碰即同步：她的每次工具调用之后看一眼灵魂目录（git status），有变化就立即提交，3 秒去抖后推送；一轮结束时立即推送。
 //   - 推送失败：网络类静默退避重试，仍失败（或其他原因）就以插话提醒碰过记忆的那一轮（已结束则在原会话开新的一轮）。
 //   - 拉取：醒来与对话前；合并时两边都改过的文本文件，落选的一版另存为副本，提醒最近改过它的会话裁决。
+import { bodyUuid } from "../body/uuid.ts";
 import { config, paths } from "../config.ts";
 import path from "node:path";
 import os from "node:os";
@@ -33,7 +34,8 @@ function r(): SoulRepo {
       isSeedSoul: (t) => t.trim() === seedSoul(identity().displayName).trim(),
       seedIdentity: () => defaultIdentity(),
       seedSoul,
-      bodyInfo: () => ({ kind: "runtime", runtime: VERSION, meshKey: nodeKey().nodeKey }), // meshKey：网状层的节点公钥（规范 v8），其他身体以它为准核对这具身体
+      // meshKey：网状层的节点公钥（规范 v8），其他身体以它为准核对这具身体；uuid：绑定到设备的身体 uuid（规范 v14，body/uuid.ts），工具的 body 参数用它
+      bodyInfo: () => { const uuid = bodyUuid(); return { kind: "runtime", runtime: VERSION, meshKey: nodeKey().nodeKey, ...(uuid ? { uuid } : {}) }; },
       log: (m) => log("soul", m),
       exclusive, // 合并与写记忆的入口互斥（memory.ts）
     });

@@ -109,6 +109,8 @@ const adapter: BodyAdapter = {
     parts.push(`有${info.camera === false ? "" : "相机、"}麦克风、扬声器${has.length ? `、${has.join("与")}传感器` : ""}`);
     return parts.join("，");
   },
+  // 设备标识：App 原生代码取的 Settings.Secure.ANDROID_ID（恢复出厂设置、换签名会变）。只用来派生身体 uuid
+  async deviceId() { const j = await quiet(call<{ id?: string }>("/v1/device-id")); return typeof j?.id === "string" && /^[0-9a-f]{8,32}$/i.test(j.id) ? j.id.toLowerCase() : undefined; },
   async init() { info = (await quiet(call<Info>("/v1/info"))) ?? {}; }, // 机型是公开的非唯一信息；传感器由 App 按类型探测
   async sample(): Promise<RawSample> {
     const j = await quiet(call<RawSample & { plugged?: string }>("/v1/sample", undefined, 15_000));

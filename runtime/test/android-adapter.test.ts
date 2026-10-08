@@ -25,6 +25,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === "/v1/location" && located) return send(200, { ok: true, ...(located as object) });
   if (req.url === "/v1/location") return send(500, { ok: false, error: "没有定位权限：请在 Quetzal App 里允许定位" });
   if (req.url === "/v1/supervision") return send(200, { ok: true, enabled: true });
+  if (req.url === "/v1/device-id") return send(200, { ok: true, id: "9A7B3C2D1E0F4A5B" });
   return send(200, { ok: true });
 });
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -37,6 +38,12 @@ test("没有身体接口时：采样为空、描述仍然成立，不崩溃", as
   assert.match(adapter.describe, /安卓手机/);
   assert.deepEqual(await adapter.sample(), {});
   assert.equal((await adapter.supervision!.status()).available, false);
+  assert.equal(await adapter.deviceId!(), undefined, "取不到设备标识时返回 undefined（运行基座随机生成 uuid）");
+});
+
+test("设备标识：经身体接口取 App 原生代码读的 ANDROID_ID", async () => {
+  writeBody(TOKEN);
+  assert.equal(await adapter.deviceId!(), "9a7b3c2d1e0f4a5b");
 });
 
 test("采样、描述与守护：经身体接口，带令牌", async () => {
