@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-host-"));
 process.env.QUETZAL_SANDBOX = "none"; // 「沙箱」这一侧用部署者允许的不隔离运行代替：这里只比较两条路径的差别（环境变量），不依赖本机有没有 bwrap
@@ -118,7 +119,7 @@ test("急停：立即退出全部真实环境；急停中不能进入", async ()
 test("不持久：基座重启（新进程）后一律回到沙箱", () => {
   host.enterHost("h7", "user", "", "控制台");
   const src = path.resolve(import.meta.dirname, "../src");
-  const imp = (f: string) => JSON.stringify(path.join(src, f));
+  const imp = (f: string) => JSON.stringify(pathToFileURL(path.join(src, f)).href); // Windows 上 import() 不认 D:\ 这样的绝对路径
   const out = execFileSync(process.execPath, ["--experimental-strip-types", "--no-warnings", "--input-type=module", "-e",
     `const c = await import(${imp("config.ts")}); c.loadConfig(); (await import(${imp("store.ts")})).openStore(); const h = await import(${imp("host-mode.ts")}); console.log(JSON.stringify(h.hostModes())); process.exit(0);`],
     { env: process.env, encoding: "utf8" });
