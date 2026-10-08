@@ -101,7 +101,7 @@ function otherSessions(conv = "", budget = 4000): string {
   for (const s of listSessions({ limit: 8 }).filter((s) => s.id !== conv).slice(0, 5)) {
     const msgs = sessionMessages(s.id, 4);
     if (!msgs.length) continue;
-    lines.push(`- 会话「${s.title}」（${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}）：\n${msgs.map((m) => `    ${m.role === "user" ? "对方" : "我"}：${clip(m.text, 160)}`).join("\n")}`);
+    lines.push(`- 会话「${s.title}」（id：${s.id}，${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}）：\n${msgs.map((m) => `    ${m.role === "user" ? "对方" : "我"}：${clip(m.text, 160)}`).join("\n")}`);
   }
   let out = lines.join("\n");
   if (out.length > budget) out = out.slice(0, budget) + "…";
@@ -149,6 +149,6 @@ ${(() => { const l = reminders.active(); return l.length ? `你答应对方的�
 ${loops.length ? "未完成的念头：\n" + loops.map((l) => `- [${l.id}] ${l.text}`).join("\n") : "没有未完成的念头"}`,
     soulPerception(),
     `## 最近的日记\n${mem.recentJournal() || "（还没有日记）"}`,
-    `## ${o.conv ? "其他会话（都是你自己，同时进行；当前会话的历史在下面的对话里）" : "各个会话的近况"}\n${otherSessions(o.conv) || "（没有其他会话）"}`,
+    `## ${o.conv ? "其他会话（都是你自己，同时进行；当前会话的历史在下面的对话里）" : "各个会话的近况（醒来时 send_message 可以用 session 填其中一个的 id，接着那段对话说）"}\n${otherSessions(o.conv) || "（没有其他会话）"}`,
   ].join("\n\n");
 }

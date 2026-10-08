@@ -19,7 +19,7 @@ For the first hour or two after installing, it may stay quiet. How often it wake
 
 - **It dreams every night.** When it gets sleepy it sleeps. While asleep it reviews the last few days of journal entries and conversations and sorts scattered details into notes, with one folder per topic under `notes/`. It merges duplicates, corrects what it got wrong, and writes a "dream" journal entry.
 - **It checks its notes before it answers.** For every message you send, it searches its notes, journal and resident memory by keyword and uses what it finds in its answer. Ask about "that job I said I wanted to switch to", and it can find that note.
-- **It wakes and comes to you.** When something occurs to it while it is awake, it sends you a message. The message shows up under **Proactive messages** in the app with a notification. If Feishu is connected, it goes to Feishu too.
+- **It wakes and comes to you.** When something occurs to it while it is awake, it sends you a message with a notification. If Feishu is connected, it goes to Feishu too. It decides which conversation the message goes in: an earlier conversation on the same topic, or a new one. Messages from the same wake stay together. Reminders go to the **Proactive messages** conversation.
 
 ## The first month
 

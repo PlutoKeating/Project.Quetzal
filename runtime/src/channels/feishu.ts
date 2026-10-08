@@ -158,10 +158,11 @@ async function handle(msg: lark.NormalizedMessage) {
 /** 多具身体时只有一具身体持有飞书长连接（同一个应用开多条长连接，每条消息只随机投递给其中一条）。没指定时这具身体自己连。 */
 export const holdsFeishu = () => !config.channels.feishuHolder || config.channels.feishuHolder === config.body;
 /** 不持有飞书的身体：主动消息转给持有者发出（mesh/ 设置）。 */
-let forwardSay: ((text: string) => boolean) | undefined;
+let forwardSay: ((text: string, title?: string) => boolean) | undefined;
 export const setFeishuForwarder = (f: typeof forwardSay) => { forwardSay = f; };
-/** 持有者收到其他身体转来的主动消息。 */
-export const sayToOwner = (text: string) => void toOwner({ markdown: `💭 **主动消息**（她自己醒来时想跟你说的）\n\n${text}` });
+/** 发出主动消息（本机的，或其他身体转来的）。title：放进的会话（「主动消息」会话不标）；在飞书里回复仍进飞书当前的会话。 */
+export const sayToOwner = (text: string, title?: string) =>
+  void toOwner({ markdown: `💭 **主动消息**（她自己醒来时想跟你说的${title && title !== "主动消息" ? `，在会话「${title}」里` : ""}）\n\n${text}` });
 
 export async function startFeishu() {
   await channel?.disconnect().catch(() => {});
@@ -215,7 +216,7 @@ export async function startFeishu() {
 }
 
 export function wireFeishu() {
-  bus.on("say", (text) => { if (holdsFeishu()) sayToOwner(text); else if (!forwardSay?.(text)) log("feishu", `主动消息没能转给飞书的持有者 ${config.channels.feishuHolder}（不在线），只留在「主动消息」会话里`); });
+  bus.on("say", (text, to) => { if (holdsFeishu()) sayToOwner(text, to?.title); else if (!forwardSay?.(text, to?.title)) log("feishu", `主动消息没能转给飞书的持有者 ${config.channels.feishuHolder}（不在线），只留在会话「${to?.title || "主动消息"}」里`); });
   const onChannels = (sections: string[]) => { if (sections.includes("channels")) void startFeishu(); }; // 持有者变了：该连的连，不该连的断
   bus.on("shared", onChannels);
   bus.on("shared.applied", onChannels);

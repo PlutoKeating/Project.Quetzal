@@ -56,6 +56,15 @@ test("对话历史：每条带时间，回复前附过程记录，插话有标�
   assert.ok(!h.some((m) => m.content.includes("现在这句")));
 });
 
+test("对话历史：醒来时主动发来的消息标明是主动发的，不当成对上一句的回复（#9）", () => {
+  store.ensureSession("pro", "晚霞");
+  store.addMessage("agent", "主动", "今天的晚霞很好看", { session: "pro" });
+  const self = store.addMessage("user", "控制台", "真的！我也看到了", { session: "pro" });
+  const h = history("pro", self);
+  assert.match(h[0].content, /^\[基座附注，不是对方的话｜\d\d\/\d\d \d\d:\d\d 你自己醒来时主动发了下一条消息\]$/);
+  assert.deepEqual([h[1].role, h[1].content], ["assistant", "今天的晚霞很好看"]);
+});
+
 test("同一张图不重复发送：随消息附带过的、view_image 看过的", async () => {
   const s = new Session("chat", "控制台", "t-img", "c-img");
   const m = await userMessage("看图", [attachment], "回复", s.seen);

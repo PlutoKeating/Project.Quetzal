@@ -322,7 +322,9 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
       text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}] ${m.text}${files}`;
     } else {
       const proc = describeProcess(m.process, replies++ < FULL_PROCESS);
-      const note = `[基座附注，不是对方的话｜${stamp(m.ts)} 你回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
+      const note = m.channel === "主动" // 醒来时主动发来的（或基座替她发的提醒），不是对上一句的回复
+        ? `[基座附注，不是对方的话｜${stamp(m.ts)} 你自己醒来时主动发了下一条消息]`
+        : `[基座附注，不是对方的话｜${stamp(m.ts)} 你回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
       if (used + note.length + m.text.length > budget) break;
       used += note.length + m.text.length;
       out.unshift({ role: "user", content: note }, { role: "assistant", content: m.text });

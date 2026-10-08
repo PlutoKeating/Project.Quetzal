@@ -31,9 +31,9 @@ export function installChannels(mesh: Mesh): () => void {
   const recent: Heard[] = []; // 别的耳朵最近听到的（10 秒内）
   const prune = () => { const now = Date.now(); while (recent.length && now - recent[0].at > 10_000) recent.shift(); };
 
-  setFeishuForwarder((text) => {
+  setFeishuForwarder((text, title) => {
     const holder = config.channels.feishuHolder;
-    return !!holder && mesh.connected().includes(holder) && mesh.emitTo(holder, "feishu.say", { text });
+    return !!holder && mesh.connected().includes(holder) && mesh.emitTo(holder, "feishu.say", { text, title });
   });
   setHearingMesh({
     async dedupe(u) {
@@ -57,7 +57,7 @@ export function installChannels(mesh: Mesh): () => void {
       prune();
     }
     else if (e.name === "ear" && typeof e.data?.conv === "string" && e.data.conv && e.data.conv.length <= 200) setEar(e.data.conv, e.from);
-    else if (e.name === "feishu.say" && typeof e.data?.text === "string" && e.data.text.length <= 20_000 && holdsFeishu()) sayToOwner(e.data.text);
+    else if (e.name === "feishu.say" && typeof e.data?.text === "string" && e.data.text.length <= 20_000 && holdsFeishu()) sayToOwner(e.data.text, typeof e.data.title === "string" ? e.data.title.slice(0, 60) : undefined);
   };
   mesh.on("event", onEvent);
   return () => { mesh.off("event", onEvent); setFeishuForwarder(undefined); setHearingMesh(undefined); };

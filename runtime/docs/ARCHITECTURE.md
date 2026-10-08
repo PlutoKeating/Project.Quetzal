@@ -4,7 +4,7 @@
 
 ```
 src/
-├── main.ts               装配各模块；熔断（安全模式）；没人接住的同步异常记下后以非零退出（由守护者拉起）
+├── main.ts               装配各模块；主动消息（say）入库到它带的会话，没带的进「主动消息」会话，并发系统通知；熔断（安全模式）；没人接住的同步异常记下后以非零退出（由守护者拉起）
 ├── config.ts             家目录布局（Windows 为 %LOCALAPPDATA%\Quetzal\home）、配置读写、密钥文件（改名遇到占用时重试）；密钥目录与保密库：POSIX 0700，Windows 用 ACL 只留本用户与 SYSTEM
 ├── platform.ts           平台差异：命令查找（Windows 按 PATHEXT）、结束整棵进程树（POSIX 进程组 / Windows taskkill /T）、只给本用户的目录权限（chmod / icacls）、遇到占用时重试的改名
 ├── ssh-key.ts            OpenSSH 格式的 ed25519 部署密钥（Node 内置 crypto 生成，不依赖 ssh-keygen）
@@ -32,9 +32,9 @@ src/
 │   ├── model.ts          纯数学：驱动力、双过程生物钟、醒来率、指数抽样（无副作用）
 │   └── heart.ts          状态机与稀疏化抽样调度；抑制；有界的性格修改；跟随模式（不抽样，操作转给协调者）与状态的导出 / 采用
 ├── mind/
-│   ├── prompt.ts         系统提示组装
+│   ├── prompt.ts         系统提示组装（其他会话的近况带会话 id）
 │   ├── fetch-guard.ts    web_fetch 的出站检查：每一跳解析 DNS、拒绝回环 / 私有 / 链路本地 / CGNAT / 元数据地址，连接时再查（防 DNS 重绑定），手动跟随重定向
-│   ├── tools.ts          内置工具（含 recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write）；参数脱敏后才进审批与审计；read_document / view_image 的真实路径检查；soulGitBlock / secretsBlock 只是提示，边界是 sandbox.ts；每次调用结束后触发灵魂目录的触碰即同步
+│   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write）；参数脱敏后才进审批与审计；read_document / view_image 的真实路径检查；soulGitBlock / secretsBlock 只是提示，边界是 sandbox.ts；每次调用结束后触发灵魂目录的触碰即同步
 │   ├── bodies.ts         其他身体的登记（多具身体时由 mesh/ 填入）：工具表的 body_call / move_to 与系统提示的「其他身体」一节读它；可跨身体调用的内置工具名单
 │   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话）
 │   ├── custom-tools.ts   自造工具：QUETZAL_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（一律在子进程里、经沙箱：stdin JSON + ARG_ 环境变量 / 子进程里加载 ES 模块，超时整组杀掉）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
@@ -46,7 +46,7 @@ src/
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
 │   ├── runaway.ts        重复输出检测：流式输出最近 2000 字里不同的 32 字片段不到 20% 就判为复读，由工具循环截停
 │   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（QUETZAL_HOME/vault）、工具输出与参数里的保密值替换（连同基座自己的密钥，见 secret-values.ts）
-│   └── brain.ts          醒来（内省 → 多具身体时选在哪里做 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess；放在回复前一条单独的「基座附注」里，她的回复只留原文），session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；对话中模型空回的一步不算结束（提醒后重试最多两次，仍空则说明没能回复）；输出陷入复读时截停（runaway.ts），丢掉那段输出并提醒她换个思路，连续三次就结束这一轮；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
+│   └── brain.ts          醒来（内省 → 多具身体时选在哪里做 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess；放在回复前一条单独的「基座附注」里，她的回复只留原文；主动消息的附注写明是她醒来时主动发的）；回复只取结束这一轮的那一步的文字，session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；对话中模型空回的一步不算结束（提醒后重试最多两次，仍空则说明没能回复）；输出陷入复读时截停（runaway.ts），丢掉那段输出并提醒她换个思路，连续三次就结束这一轮；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
 ├── memory/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头
 │   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块
@@ -77,7 +77,7 @@ src/
 │   ├── router.ts         全局顺序路由、Key 轮换、故障转移、连通性测试
 │   └── compat/           供应商兼容层（仅对匹配的供应商自动生效）：index.ts 登记，opencode-go.ts
 └── channels/
-    ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话；保密输入期间只回不含内容的回执）、菜单与单聊事件、卡片回调、一键接入
+    ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话；保密输入期间只回不含内容的回执）、主动消息（注明所在会话）、菜单与单聊事件、卡片回调、一键接入
     ├── feishu-progress.ts 执行过程卡片：按插话分段——插话那一刻上面的卡片定格，新的一段回复插话消息在下面重新开出；发送 / 更新经注入的 sender，可测试
     └── feishu-cards.ts   卡片 JSON 2.0：此刻 / 心流 / 记忆 / 控制 / 模型 / 权限 / 预算 / 审批 / 保密输入
 ```
