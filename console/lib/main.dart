@@ -25,6 +25,7 @@ import 'platform/location.dart' as loc;
 import 'platform/pin.dart';
 import 'platform/tray.dart';
 import 'shell/desktop.dart';
+import 'zoom.dart';
 
 /// 暗色模式的背景：固定 RGB(32,32,32)，与主题色无关。
 const darkBackground = Color(0xFF202020);
@@ -36,6 +37,7 @@ void main(List<String> args) async {
   installPinning(); // 原生平台：网关的 https 连接只认配对时钉住的证书指纹（pins.dart）；网页版由浏览器处理
   api.init();
   wakes.start(); // 跟踪她正在进行的醒来（首页与心流页的只读入口）
+  if (isDesktop) zoom.start(); // 原生桌面版：界面字号（Ctrl + = / - / 0，记在本机）
   hearing.start(); // 耳朵：跟随基座的听觉开关启停本机的耳朵（安卓是麦克风前台服务，桌面版在控制台进程里）；网页版只跟着状态显示
   runApp(const ConsoleApp());
   initTray(background: args.contains('--background')); // 桌面版：托盘图标（运行基座在跑就在；关窗只是隐藏；Windows 上同时看护身体助手）；网页版与安卓什么都不做
@@ -77,7 +79,17 @@ class ConsoleApp extends StatelessWidget {
         darkTheme: theme(Brightness.dark),
         themeMode: ThemeMode.dark,
         // 外壳模式随窗口宽度：所有页面（含推入的二级页）都从这里得知自己在哪种外壳里
-        builder: (context, child) => ShellScope(mode: MediaQuery.sizeOf(context).width >= desktopBreakpoint ? ShellMode.desktop : ShellMode.phone, child: child!),
+        // 原生桌面版的界面字号（zoom.dart）乘在系统的字号上
+        builder: (context, child) => ListenableBuilder(
+          listenable: zoom,
+          builder: (context, _) {
+            final mq = MediaQuery.of(context);
+            return MediaQuery(
+              data: zoom.scale == 1 ? mq : mq.copyWith(textScaler: TextScaler.linear(mq.textScaler.scale(1) * zoom.scale)),
+              child: ShellScope(mode: mq.size.width >= desktopBreakpoint ? ShellMode.desktop : ShellMode.phone, child: child!),
+            );
+          },
+        ),
         home: const Shell(),
       ),
     );

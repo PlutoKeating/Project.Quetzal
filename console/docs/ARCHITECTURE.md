@@ -8,6 +8,7 @@ lib/
 ├── api.dart           网关客户端（连接档案 Profile 带钉住的证书指纹 fp；加密配对 pairInfo / pairFinish）：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版问 /auth/local；桌面版先读家目录里的 secrets/gateway.token、核对后才用）、点火；HTTP 令牌放请求头 X-Quetzal-Token
 ├── pins.dart          加密连接：网关证书指纹的钉住与配对时的捕获（Pins）、配对证明（PBKDF2，后台 isolate）、网关地址的写法（只填地址时别的机器用 https:7789）、旧的明文局域网档案的识别
 ├── links.dart         打开外部链接的唯一入口：只放行 https（http 只限本机回环地址）
+├── zoom.dart          界面字号（原生桌面版）：MaterialApp 外层 MediaQuery 的 textScaler 乘上 80%–160%；Ctrl + = / + 放大、Ctrl + - 缩小、Ctrl + 0 还原（HardwareKeyboard 全局处理，输入框有焦点时也生效）；记在本机 shared_preferences 的 ui.scale
 ├── igniter.dart       运行基座桥（MethodChannel quetzal/runtime）：App 内置运行基座的启动 / 重启 / 停止、状态、网关令牌、身体权限、电池优化 / 自启动管理页（安卓）
 ├── hearing.dart       听觉：跟随基座 status.hearing.listening 启停本机的耳朵（只对本机的 agent）——安卓是原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing），
 │                      桌面版是控制台进程里的 DesktopEar（platform/ear_io.dart）；耳朵开着时登记为播放器、播放 speak；权限、事件、界面上的一句话（网页版只跟着状态显示）
@@ -17,7 +18,7 @@ lib/
 ├── widgets.dart       外壳模式（ShellScope）、页面框架（PageFrame：手机是 Scaffold + AppBar，桌面是主区里的一行标题）、面板宽度（PaneWidth）、底部面板 / 对话框（showSheet）、光团、驱动力条、连接状态、急停、离线横幅、分节卡片、提示
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
-├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble
+├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble（整个气泡一个 SelectionArea：拖选、Ctrl+A、右键 / 长按复制）
 ├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux / Windows 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、
 │                      desktop（desktop_paths.dart 纯函数：家目录、网关令牌、Windows 的 ROOT 与 current.txt 指针、身体助手命令、退避；desktop_io.dart：读令牌并核对、Windows 身体助手的看护 BodyHelper）、
 │                      ear（桌面版耳朵 DesktopEar：采集 Linux parec / pw-record / arecord、Windows record_windows，断句，分块 POST /hear，播放 Linux pw-play / paplay / ffplay / mpv、Windows winmm）、fvad（libfvad 的 dart:ffi 绑定）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、tray（桌面版右上角的托盘图标，以及换新版本：每分钟与运行基座重新连上时检查自己的可执行文件还是不是 console/current 那一个，不是了——窗口没开就以 --replace --background 悄悄换上新版本，窗口开着就在外壳顶部提示「新版本已装好 · 重新打开」；代表后台的运行基座：运行基座连得上就显示，连不上超过 20 秒收起，与控制台窗口开没开无关；菜单为打开 Quetzal（没有窗口就打开，有就提到最前）、急停 · 本机、急停 · 全部设备、退出（网关 quit：停掉后台服务，整个 Quetzal 退出；Windows 上连同身体助手）；控制台是单实例（linux/runner/my_application.cc；windows/runner/main.cpp 用命名互斥量 + 按窗口类名找到已在运行的那个：再次启动只把激活转给它，--background 只起托盘不开窗口，--replace 接管旧实例），登录桌面时由自启动项（Linux 桌面自启动项、Windows 的 HKCU Run）以 --background 拉起，关窗只是隐藏窗口；tray_manager 0.5.3 + window_manager，Linux 底层 libayatana-appindicator3，单击图标就是弹出菜单，不调 Linux 不支持的 setToolTip；Windows 用 .ico，左键打开窗口、右键菜单；换新版本的判断 Linux 按 console/current 符号链接与 /proc 的 (deleted)，Windows 按 console\current.txt 指针比较自己所在的版本目录（正在运行的 exe 删不掉）；网页版空实现）、
@@ -31,11 +32,11 @@ lib/
     ├── agents.dart    多 agent 切换、身份资料（名字、代词、简介、语言、颜色；标识符不在界面上改）、记忆历史
     ├── home.dart      此刻：PresenceHead（光团 + 状态）、ModelNudge（还没有模型时唯一的入口）、RemindersSection（她答应的提醒：时间、是否重复、内容，可取消；没有就不占位）、ThoughtLine、InnerSection、BodySection、poke；手机首页与桌面「她此刻」面板共用
     ├── sessions.dart  会话：SessionsList（列表、新建、重命名、归档与找回；进行中的会话带标记）与手机页
-    ├── chat.dart      对话：ChatView（一个会话的完整内容：实时过程、附件、发送方式、保密输入、贴底与「新消息」；桌面 Enter 发送）与手机页
+    ├── chat.dart      对话：ChatView（一个会话的完整内容：实时过程、附件（回形针、Ctrl+V 粘贴图片与文件、拖入、输入法插入的图片）、发送方式、保密输入、贴底与「新消息」；桌面 Enter 发送）与手机页
     ├── wake.dart      醒来记录（只读）：WakeView 与手机页；WakeWatch 跟踪进行中的醒来
     ├── flow.dart      心流：FlowFeed（时间线加载与筛选）、手机页（可展开的卡片）、FlowList（桌面列表栏）、FlowDistribution（醒来分布）
     ├── memory.dart    记忆：MemoryCore / JournalList / NotesList / MemorySearch / MarkdownDoc；手机 4 个 Tab，桌面索引在列表栏、内容在主区
-    ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用；group：head 身份 · main 首屏 · end 高级与关于 · more 收进「高级」· hidden 从别的页进入）、controlItem（按 id 找页，旧 id approvals / hearing 映射到权限 / 声音）、MorePage（高级）、节律、权限（ApprovalCard 与能力授权）、预算、操作记录、保密库、飞书、同步（灵魂仓库、同步服务地址、心跳优先级）、运行（含命令沙箱 status.sandbox，none 时提醒）
+    ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用；group：head 身份 · main 首屏 · end 高级与关于 · more 收进「高级」· hidden 从别的页进入）、controlItem（按 id 找页，旧 id approvals / hearing 映射到权限 / 声音）、MorePage（高级）、节律、权限（ApprovalCard 与能力授权）、预算、操作记录、保密库、飞书、同步（灵魂仓库、同步服务地址、心跳优先级）、运行（含命令沙箱 status.sandbox，none 时提醒）、字号（ZoomPage，只在原生桌面版，见 zoom.dart）
     ├── account.dart   账户（从「设备」进入）：控制台登录（码、链接、二维码，申请到就打开浏览器），之后分四页——概览（agent 与设备、移除、删除 agent）、添加设备（输入码、核对、批准或拒绝）、已登录（退出）、设置（退出管理、删除账户）
     ├── mesh.dart      设备：账户入口、登录（设备码绑定，signInDevice 申请到码就打开浏览器；DeviceCodeView 显示核对表情、码、链接、二维码，向导与账户页共用）、设备列表（直连 / 中转、往返时间、心跳在哪、公钥变了时的「信任」）、这台设备退出登录
     ├── tools.dart     工具：她自己造的工具（定义、源码、技能文档）与灵魂仓库里的技能文档；停用 / 启用、删除
@@ -68,6 +69,7 @@ native/fvad/           libfvad（WebRTC VAD 的独立 C 库，BSD-3，锁定上�
 状态管理只用 `ChangeNotifier`（全局 `api`、跟踪进行中醒来的 `wakes`、桌面位置 `nav`）+ `ListenableBuilder`，不引入额外框架。**同一份页面在两种外壳里都成立**：二级页面一律用 `PageFrame`，手机上它是 Scaffold + AppBar，桌面主区里它是一行标题；弹出面板一律用 `showSheet`，手机是底部面板，桌面是居中对话框；气泡与过程卡片按 `PaneWidth`（所在面板的宽度）而不是窗口宽度限制自己。
 
 **凡是她写的文字都按完整 Markdown 渲染**：对话（她的与对方的气泡、中途叙述）、心流里的日记 / 回复、记忆页的人格 / 常驻记忆条目 / 未完成的念头 / 日记 / 笔记 / 搜索结果、首页她想分享的一句话（点开）、审批的理由、醒来记录页。
+消息气泡里的文字整段可选：一个气泡一个 `SelectionArea`，鼠标可跨段落、跨代码块拖选，Ctrl+A 全选这个气泡，右键菜单或 Ctrl+C 复制，手机上长按选择；链接、公式与 Mermaid 图照常可点。其余地方的 Markdown 每段各自可选（放在可点击的列表项里时不可选）。
 工具的参数与结果、审计日志的输出用 `RawOrMarkdown`：像 Markdown（笔记、说明）才渲染，shell 输出与 JSON 原样等宽显示。只能放一行的地方（会话列表、笔记摘要、首页折叠的一句话、通知条）用 `plainPreview` 去掉标记。
 
 ```mermaid
@@ -95,7 +97,7 @@ flowchart TB
   D --> D0["身份（顶部名字行）"]
   D --> D1["模型 · 权限 · 节律 · 声音 · 飞书 · 设备"]
   D1 -.-> D11["设备 › 账户"]
-  D --> D2["高级：工具 · 保密库 · 预算 · 同步 · 记忆历史 · 操作记录 · 运行"]
+  D --> D2["高级：工具 · 保密库 · 预算 · 同步 · 记忆历史 · 操作记录 · 运行 · 字号（原生桌面版）"]
   D --> D3["关于"]
 ```
 
@@ -148,7 +150,7 @@ flowchart TB
 
 | 页面 | 内容 |
 |---|---|
-| 对话 | 每个会话一个页面，右上角新建会话、打开会话列表。**环境声音**（`role: ambient`，耳朵听到并识别的话）居中、小字、斜体显示，带耳朵图标：它既不是对方发的消息也不是她的话。耳朵在听时，识别中的文字（`hearing` 事件的 `partial`）流式显示在最底部，识别完成后等记录里出现这条消息；她判断不是对她说的（`ignored`）就自动消失，回应了就保留。输入框上方有一行聆听状态：在听（灰）→ 有人在说话 / 听到了，正在听清（主题色，带小转圈），让对方知道她在听。**环境输入**按通道显示：子 agent 的报告、她写的上下文摘要（`session_compact`）、切会话时的交接（`session_new`）以 Markdown 展开并带标题；她用 `session_new` 切会话时，打开的会话页收到 `session.switch` 自动切到新会话，回复落进去后再刷新。**插话分段**：对方插话或打断（文字或环境声音）到达的那一刻，之前的过程（工具卡片、中途的话）截断在插话消息上方，她接下来的过程从插话消息下面重新开出；已入库的回复同样按过程里的 `steer` 标记分段显示。界面以后端为准：打开、断线重连、从后台切回、每轮结束时，从后端取回记录与进行中的快照重建，实时进展增量更新，所以切到后台再回来卡片不会丢。她的回复按完整 Markdown 渲染：表格、公式、Mermaid 图；执行过程（工具卡片与中间叙述）随回复保存。附件：回形针一次最多 20 个文件，上传进度与移除，图片缩略图可放大，文档显示为文件卡片。她工作时，发送按钮右侧出现小三角：默认插话，可改为排队或打断，发送按钮图标随之变化，用户消息下标注方式。打开即在最底部；在底部时新内容自动跟随；上滑后右下角出现「回到底部」，有新内容时变亮并显示「新消息」。**保密输入**：她调用 `pass_secret` 时，输入框上方出现提示条（用途、要哪几项、已收到几项），此后每条消息都是一项保密值：不显示在对话里，只提示回执；输入框默认遮挡，点眼睛显示（多行的值如私钥需要显示后再粘贴）；「完成 / 重填 / 取消」按钮与发回结束口令等价；状态来自 `secret` 推送，重建界面时从 `secrets.pending` 取回 |
+| 对话 | 每个会话一个页面，右上角新建会话、打开会话列表。**环境声音**（`role: ambient`，耳朵听到并识别的话）居中、小字、斜体显示，带耳朵图标：它既不是对方发的消息也不是她的话。耳朵在听时，识别中的文字（`hearing` 事件的 `partial`）流式显示在最底部，识别完成后等记录里出现这条消息；她判断不是对她说的（`ignored`）就自动消失，回应了就保留。输入框上方有一行聆听状态：在听（灰）→ 有人在说话 / 听到了，正在听清（主题色，带小转圈），让对方知道她在听。**环境输入**按通道显示：子 agent 的报告、她写的上下文摘要（`session_compact`）、切会话时的交接（`session_new`）以 Markdown 展开并带标题；她用 `session_new` 切会话时，打开的会话页收到 `session.switch` 自动切到新会话，回复落进去后再刷新。**插话分段**：对方插话或打断（文字或环境声音）到达的那一刻，之前的过程（工具卡片、中途的话）截断在插话消息上方，她接下来的过程从插话消息下面重新开出；已入库的回复同样按过程里的 `steer` 标记分段显示。界面以后端为准：打开、断线重连、从后台切回、每轮结束时，从后端取回记录与进行中的快照重建，实时进展增量更新，所以切到后台再回来卡片不会丢。她的回复按完整 Markdown 渲染：表格、公式、Mermaid 图；执行过程（工具卡片与中间叙述）随回复保存。附件：一次最多 20 个文件，来源有回形针、输入框里 Ctrl+V（剪贴板里是文件管理器复制的文件时加入这些文件——只在原生桌面版；没有文字而有图片时加入这张图，名为 `pasted-<时刻>.png`；是文字照常粘贴）、把文件拖进对话页（拖到上方时整页描一圈主题色的边，文件夹跳过，保密输入期间不接收）、手机输入法插入的图片；输入框上方的附件条显示上传进度，可逐个移除；图片缩略图可放大，文档显示为文件卡片。她工作时，发送按钮右侧出现小三角：默认插话，可改为排队或打断，发送按钮图标随之变化，用户消息下标注方式。打开即在最底部；在底部时新内容自动跟随；上滑后右下角出现「回到底部」，有新内容时变亮并显示「新消息」。**保密输入**：她调用 `pass_secret` 时，输入框上方出现提示条（用途、要哪几项、已收到几项），此后每条消息都是一项保密值：不显示在对话里，只提示回执；输入框默认遮挡，点眼睛显示（多行的值如私钥需要显示后再粘贴）；「完成 / 重填 / 取消」按钮与发回结束口令等价；状态来自 `secret` 推送，重建界面时从 `secrets.pending` 取回 |
 | 会话 | 按最近更新排序，显示条数、最后一句、是否进行中；新建、重命名、归档；「已归档」里找回 |
 | 醒来记录（只读） | 她自己醒来思考、做梦（以及某一次对话）的完整过程，显示的内容与对话页一致：缘起（因为 / 想）、工具卡片（点开看参数摘要、完整参数与结果）、中途说的话、正在写的文字，结束后接上日记、心情与想分享的一句话。**没有输入框**：这是她自己的时间，只能看，不能插话；底部一行说明想说话去「聊天」。进行中的一轮从 `sessions.live` 快照重建，随 `activity` 事件增量更新，结束后自动接上时间线里保存的记录（`detail.process`）；断线重连、从后台切回都会重建。入口：首页与心流页顶部「她醒着，在想事情… / 她在做梦…」；心流里每条记录展开后的「完整过程」 |
 | 控制 · 声音（她的声音） | Azure 语音服务：只填密钥（只显示末四位），区域自动找出；配好后可选音色（点开从列表选）与试听；「更多」里是区域与自定义端点（端点只有对方能改，不交给她）。风格、语速、音调、音量、输出格式不在界面上，由她用 voice_config 调 |
@@ -167,6 +169,7 @@ flowchart TB
 | 控制 · 高级 · 保密库 | 你通过保密输入交给她的值：名字、说明、时间、来源通道与大小，不显示内容；删除（二次确认） |
 | 控制 · 权限 / 高级 · 操作记录 | 权限：待批准（理由 Markdown，参数折叠）在上，每类能力 允许 / 询问 / 禁止 在下；操作记录：列表一行预览（agent 显示为她的名字），点开看完整参数与输出 |
 | 控制 · 高级 · 运行 | 连接、版本、设备与适配器、命令沙箱、系统资源；守护开关（开机自启，退出后自动重启）；重启、重装（安卓，进安装向导的升级模式）、重新配对。升级在「关于」里一键完成 |
+| 控制 · 高级 · 字号 | 只在原生桌面版（Linux / Windows）出现：一根滑杆（80%–160%，每格 10%）与快捷键说明一行，不是 100% 时有「还原」；与 Ctrl + = / - / 0 改的是同一个值，记在本机，重开仍生效。安卓跟随系统字号，网页版用浏览器的缩放 |
 | 安装向导 | 一次只展开一步，完成的收成一行：① 安装（打开即开始；端口被旧版 Termux 安装占着时提示迁移）② 权限（装好自动弹系统请求）③ 后台运行（能检测已允许，可跳过）④ 登录（设备码，可跳过）⑤ 模型；装好后随时可点「开始」。电脑上只有 ④ 登录与 ⑤ 模型 |
 
 视觉：Material 3，种子色取当前 agent 的主题色（默认 `#F0A35E`，与官网设计系统的琥珀 accent 一致），默认深色；暗色模式下主色（按钮、进度条）直接用 agent 的主题色、其上文字用设计系统的 accent-fg `#1A120A`，而不是 M3 从种子推导的淡色；暗色背景固定为中性灰 `#202020`（RGB 32,32,32），各层容器为同一灰阶，不随主题色偏色；光团是主题色提高饱和度与亮度后的发光体（集中高光、压暗边缘、外层光晕；睡着时略沉、思考时更亮、急停变红）；动效表达状态、少用文字；光团用 `RepaintBoundary` 隔离重绘。

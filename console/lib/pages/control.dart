@@ -18,6 +18,7 @@ import 'mesh.dart';
 import 'account.dart';
 import '../platform/caps.dart';
 import '../links.dart';
+import '../zoom.dart';
 
 /// 控制菜单的一项：手机上推入页面，桌面列表栏里点选后在主区打开。
 /// group：head 顶部的身份 · main 首屏 · end 底部（高级、关于）· more 收在「高级」里 · hidden 从别的页面进入（账户从「设备」进）。
@@ -54,6 +55,7 @@ List<ControlItem> controlItems() {
     ControlItem('history', 'more', Icons.history, '记忆历史', _none, () => const HistoryPage()),
     ControlItem('audit', 'more', Icons.receipt_long_outlined, '操作记录', _none, () => const AuditPage()),
     ControlItem('service', 'more', Icons.monitor_heart_outlined, '运行', _none, () => const ServicePage()),
+    if (isDesktop) ControlItem('zoom', 'more', Icons.format_size, '字号', _none, () => const ZoomPage()), // 原生桌面版的界面字号（zoom.dart）
     ControlItem('account', 'hidden', Icons.account_circle_outlined, '账户', _none, () => const AccountPage()),
   ];
 }
@@ -137,6 +139,32 @@ class MorePage extends StatelessWidget {
               onTap: () => ShellScope.isDesktop(context) ? nav.go('control', id: it.id) : Navigator.push(context, MaterialPageRoute(builder: (_) => it.page())),
             ),
         ]),
+      );
+}
+
+// ---------------------------------------------------------------- 字号
+/// 原生桌面版的界面字号：滑块与快捷键（Ctrl + = / - / 0）改的是同一个值，记在本机。
+class ZoomPage extends StatelessWidget {
+  const ZoomPage({super.key});
+  @override
+  Widget build(BuildContext context) => PageFrame(
+        title: '字号',
+        body: ListenableBuilder(listenable: zoom, builder: (context, _) {
+          final t = Theme.of(context).textTheme, cs = Theme.of(context).colorScheme;
+          return ListView(padding: const EdgeInsets.all(12), children: [
+            Section('字号', trailing: Text('${(zoom.scale * 100).round()}%', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)), [
+              Row(children: [
+                const Text('A', style: TextStyle(fontSize: 12)),
+                Expanded(child: Slider(value: zoom.scale, min: zoomMin, max: zoomMax, divisions: ((zoomMax - zoomMin) / zoomStep).round(), label: '${(zoom.scale * 100).round()}%', onChanged: zoom.set)),
+                const Text('A', style: TextStyle(fontSize: 20)),
+              ]),
+              Row(children: [
+                Expanded(child: Text('Ctrl + =  放大 · Ctrl + -  缩小 · Ctrl + 0  还原', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant))),
+                if (zoom.scale != 1) TextButton(onPressed: () => zoom.set(1), child: const Text('还原')),
+              ]),
+            ]),
+          ]);
+        }),
       );
 }
 
