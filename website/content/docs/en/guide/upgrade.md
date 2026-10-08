@@ -60,4 +60,4 @@ If the runtime starts more than five times within ten minutes, Quetzal treats it
 
 Every production release is published on GitHub Releases with release notes. The [download page](/download) shows the latest and past versions, read live from there.
 
-Quetzal still changes fast, and some days several versions come out. Before upgrading, you can read what the new version changed. Upgrading leaves the agent's memory alone, and every change to the soul repository format works with old repositories. Your bodies must run the same version to connect; see [Trust and limits](/docs/guide/trust#how-fast-updates-come).
+Quetzal still changes fast, and some days several versions come out. Before upgrading, you can read what the new version changed. Upgrading leaves the agent's memory alone, and every change to the soul repository format works with old repositories. Your bodies do not have to upgrade together, since every version since 1.0.3 can connect; see [Trust and limits](/docs/guide/trust#how-fast-updates-come).

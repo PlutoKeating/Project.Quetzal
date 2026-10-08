@@ -64,7 +64,7 @@ For what each of them can do and how to take it back, see [Trust and limits](/do
 
 ## Updates come so often. Will it lose its memory?
 
-Its memory is Markdown files in your repository. The format has changed 13 times, and no old repository has needed converting; every change is a commit you can revert. You confirm each update. Watch out for two things: your devices must run the same version to connect, and conversation history lives only on the device, so uninstalling the app deletes it. See [Trust and limits](/docs/guide/trust#how-fast-updates-come).
+Its memory is Markdown files in your repository. The format has changed 13 times, and no old repository has needed converting; every change is a commit you can revert. You confirm each update. Watch out for one thing: conversation history lives only on the device, so uninstalling the app deletes it. Your devices do not need to run the same version; every version since 1.0.3 can connect to the others. See [Trust and limits](/docs/guide/trust#how-fast-updates-come).
 
 ## Can I run two agents at once?
 

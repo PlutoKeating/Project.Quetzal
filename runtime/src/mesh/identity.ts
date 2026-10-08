@@ -42,7 +42,7 @@ export function verify(nodeKey: string, data: string, sig: string): boolean {
 
 /**
  * 身体之间的网状层协议版本：签名信封的 v、通道认证串、数据通道的子协议都带着它。2：信封与通道认证都带上 agent id（防止跨 agent 重放）。
- * 版本不同的身体互相连不上（信封被拒），所以同一个 agent 的身体要一起升级。
+ * 协议版本不同的身体互相连不上（信封被拒）；软件版本不同而协议相同的照常互连（1.0.3 起一直是 2）。只有改这个数时，同一个 agent 的身体才要一起升级。
  */
 export const MESH_PROTOCOL = 2;
 export const BODY_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -71,7 +71,7 @@ export class Opener {
   open(e: unknown, now = Date.now()): { ok: true; env: Envelope } | { ok: false; error: string; from?: string; unknown?: boolean } {
     const x = e as Envelope;
     if (!x || typeof x !== "object" || typeof x.from !== "string" || !BODY_NAME.test(x.from) || typeof x.to !== "string" || typeof x.ts !== "number" || typeof x.nonce !== "string" || x.nonce.length > 64 || typeof x.sig !== "string" || x.sig.length > 200 || typeof x.body !== "object" || !x.body || Array.isArray(x.body)) return { ok: false, error: "信封格式不对" };
-    if (x.v !== MESH_PROTOCOL) return { ok: false, error: `对方的网状层协议版本（${String(x.v).slice(0, 8)}）与这里（${MESH_PROTOCOL}）不同：两边都升级到同一版本才能连接`, from: x.from };
+    if (x.v !== MESH_PROTOCOL) return { ok: false, error: `对方的网状层协议版本（${String(x.v).slice(0, 8)}）与这里（${MESH_PROTOCOL}）不同：两边都升级到最新版本才能连接`, from: x.from };
     if (x.agent !== this.agent) return { ok: false, error: "不是同一个 agent 的信令", from: x.from };
     if (x.to !== this.me) return { ok: false, error: "不是发给这具身体的", from: x.from };
     if (Math.abs(now - x.ts) > SKEW_MS) return { ok: false, error: "时间相差超过 5 分钟（重放或时钟不准）", from: x.from };
