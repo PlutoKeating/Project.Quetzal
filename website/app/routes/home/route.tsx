@@ -7,7 +7,6 @@ import { GITHUB_REPO } from "~/components/i18n";
 import { WakeCompare } from "~/components/figure";
 import { fetchRepoStats, type RepoStats } from "~/lib/github";
 import { messages } from "./i18n";
-import { ExampleBody } from "./ExampleBody";
 import { DayStrip } from "./DayStrip";
 
 export const meta: Route.MetaFunction = ({ params }) => {
@@ -54,25 +53,43 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* 2 · 懂你：最重要的一句话，单独一节 */}
+      {/* 2 · 能帮你做什么：一段构造的示例对话（只演示已经写进代码的做法：软提醒等你在身边、按日子翻旧话）+ 六项能力 + 还不会的 */}
       <Section tone="elevated">
-        <Container className="flex flex-col gap-6">
-          <Reveal className="flex max-w-4xl flex-col gap-6">
-            <Eyebrow>{t.own.eyebrow}</Eyebrow>
-            <Heading size="lg" className="whitespace-pre-line">{t.own.heading}</Heading>
-            <Lead className="max-w-prose">{t.own.lead}</Lead>
-            <Link to={`${localized(lang, "/features")}#soul`} className="text-sm text-link underline-offset-4 hover:underline">{t.own.more} →</Link>
+        <Container className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:gap-14"> {/* ds-allow：栅格比例 */}
+          <Reveal className="flex flex-col gap-6">
+            <Eyebrow>{t.help.eyebrow}</Eyebrow>
+            <Heading size="lg" className="whitespace-pre-line">{t.help.heading}</Heading>
+            <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+              {t.help.items.map((it) => (
+                <div key={it.name} className="flex flex-col gap-1 border-t border-border pt-3">
+                  <dt className="font-medium text-fg">{it.name}</dt>
+                  <dd className="text-sm text-fg-muted text-pretty">{it.text}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="text-sm text-fg-subtle">{t.help.cant}</p>
+            <Link to={localized(lang, "/docs/start/introduction")} className="text-sm text-link underline-offset-4 hover:underline">{t.help.more} →</Link>
+          </Reveal>
+          <Reveal delay={1} as="div" className="flex flex-col gap-3 self-center rounded-xl border border-border bg-surface p-5 sm:p-6">
+            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-fg-subtle"><StatusDot alive />{t.help.sample}</p>
+            <ol className="flex flex-col gap-2.5">
+              {t.help.chat.map((c, i) => (
+                c.from === "event"
+                  ? <li key={i} className="py-1 text-center text-xs text-fg-subtle tabular-nums">{c.text}</li>
+                  : <li key={i} className={cx("max-w-[85%] rounded-xl px-4 py-2.5 text-sm text-pretty", c.from === "you" ? "self-end bg-secondary-soft text-fg" : "self-start border border-border bg-bg-elevated text-fg")}>{c.text}</li> /* ds-allow：气泡最大宽度 */
+              ))}
+            </ol>
           </Reveal>
         </Container>
       </Section>
 
-      {/* 3 · 一个月后：ta 的记忆是你读得到的文字文件；按 ta 的做法写，不摘任何真实记录 */}
+      {/* 3 · 懂你 + 一个月后：最重要的一句话，接着是 ta 的记忆在一个月里怎么长出来；按 ta 的做法写，不摘任何真实记录 */}
       <Section>
         <Container className="flex flex-col gap-10">
-          <Reveal className="flex max-w-prose flex-col gap-4">
-            <Eyebrow>{t.month.eyebrow}</Eyebrow>
-            <Heading className="whitespace-pre-line">{t.month.heading}</Heading>
-            <Lead>{t.month.lead}</Lead>
+          <Reveal className="flex max-w-4xl flex-col gap-6">
+            <Eyebrow>{t.own.eyebrow}</Eyebrow>
+            <Heading size="lg" className="whitespace-pre-line">{t.own.heading}</Heading>
+            <Lead className="max-w-prose">{t.own.lead}</Lead>
           </Reveal>
           <ol className="grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
             {t.month.items.map((it, i) => (
@@ -84,7 +101,10 @@ export default function Home() {
           </ol>
           <div className="flex flex-col gap-2">
             <p className="text-sm text-fg-subtle">{t.month.note}</p>
-            <Link to={localized(lang, "/docs/start/first-month")} className="text-sm text-link underline-offset-4 hover:underline">{t.month.more} →</Link>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              <Link to={localized(lang, "/docs/start/first-month")} className="text-sm text-link underline-offset-4 hover:underline">{t.month.more} →</Link>
+              <Link to={`${localized(lang, "/features")}#soul`} className="text-sm text-link underline-offset-4 hover:underline">{t.own.more} →</Link>
+            </div>
           </div>
         </Container>
       </Section>
@@ -95,6 +115,7 @@ export default function Home() {
           <Reveal className="flex flex-col gap-6">
             <Eyebrow>{t.position.eyebrow}</Eyebrow>
             <Heading as="h2" size="lg" className="whitespace-pre-line">{t.position.title}</Heading>
+            <Lead>{t.position.lead}</Lead>
             <dl className="flex flex-col divide-y divide-border border-y border-border">
               {t.position.rows.map((r, i) => (
                 <div key={r.name} className="grid grid-cols-[1.5rem_1fr] gap-x-3 py-4">
@@ -106,6 +127,7 @@ export default function Home() {
                 </div>
               ))}
             </dl>
+            <Link to={localized(lang, "/docs/advanced/soul-bridge")} className="text-sm text-link underline-offset-4 hover:underline">{t.position.bridge} →</Link>
             <ul className="flex flex-wrap gap-2">
               <li><a className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} href={GITHUB_REPO} target="_blank" rel="noreferrer noopener">{stats && stats.stars >= 10 ? t.position.chips.stars.replace("{n}", String(stats.stars)) : "GitHub ↗"}</a></li>
               {stats?.latestTag && <li><Link className={cx(chip, "transition-colors duration-(--ds-duration-fast) hover:text-fg")} to={localized(lang, "/download")}>{t.position.chips.release.replace("{v}", stats.latestTag)}</Link></li>}
@@ -143,7 +165,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 5.1 · 装在哪：安卓、Windows、Linux 各一张卡，链到下载页对应的平台 */}
+      {/* 6 · 装在哪：安卓、Windows、Linux 各一张卡，链到下载页对应的平台 */}
       <Section tone="elevated">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
@@ -168,20 +190,8 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 6 · 它此刻（示例身体） */}
+      {/* 7 · 一天：示例时间线，不含真实设备数据 */}
       <Section>
-        <Container className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-center"> {/* ds-allow：栅格比例 */}
-          <Reveal className="flex flex-col gap-4">
-            <Eyebrow>{t.now.eyebrow}</Eyebrow>
-            <Heading>{t.now.heading}</Heading>
-            <Lead>{t.now.lead}</Lead>
-          </Reveal>
-          <Reveal delay={1}><ExampleBody t={t.now} events={t.day.entries.map((e) => e.time)} /></Reveal>
-        </Container>
-      </Section>
-
-      {/* 7 · 一天 */}
-      <Section tone="elevated">
         <Container className="grid gap-10 lg:grid-cols-[1fr_1.4fr]"> {/* ds-allow：栅格比例 */}
           <Reveal className="flex flex-col gap-4">
             <Eyebrow>{t.day.eyebrow}</Eyebrow>
@@ -206,25 +216,7 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 8 · 你说了算 */}
-      <Section>
-        <Container className="flex flex-col gap-10">
-          <Reveal className="flex max-w-prose flex-col gap-4">
-            <Eyebrow>{t.trust.eyebrow}</Eyebrow>
-            <Heading>{t.trust.heading}</Heading>
-          </Reveal>
-          <dl className="grid gap-x-10 gap-y-8 md:grid-cols-3">
-            {t.trust.items.map((it, i) => (
-              <Reveal key={it.title} delay={i as 0 | 1 | 2} className="flex flex-col gap-2 border-t border-border pt-5">
-                <dt className="font-medium text-fg">{it.title}</dt>
-                <dd className="text-sm text-fg-muted text-pretty">{it.text}</dd>
-              </Reveal>
-            ))}
-          </dl>
-        </Container>
-      </Section>
-
-      {/* 9 · 托付之前：谁看得到什么、ta 能碰到什么、它还年轻。细节在文档「信任与边界」 */}
+      {/* 8 · 托付之前：先问你、密码不进模型、急停与花费上限、ta 能碰到什么、谁看得到什么、它还年轻。细节在文档「信任与边界」 */}
       <Section tone="elevated">
         <Container className="flex flex-col gap-10">
           <Reveal className="flex max-w-prose flex-col gap-4">
@@ -243,12 +235,20 @@ export default function Home() {
         </Container>
       </Section>
 
-      {/* 10 · 开始 */}
+      {/* 9 · 开始：入口与你需要准备的三样 */}
       <Section>
         <Container className="flex flex-col items-start gap-6">
           <Eyebrow>{t.start.eyebrow}</Eyebrow>
           <Heading size="lg" className="max-w-3xl">{t.start.heading}</Heading>
           <p className="max-w-prose text-fg-muted">{t.start.lead}</p>
+          <div className="flex max-w-prose flex-col gap-2">
+            <p className="text-sm font-medium text-fg">{t.start.needs.title}</p>
+            <ul className="flex flex-col gap-1.5 text-sm text-fg-muted">
+              {t.start.needs.items.map((x) => (
+                <li key={x} className="grid grid-cols-[0.75rem_1fr] gap-2"><span aria-hidden className="mt-2 inline-block size-1.5 rounded-full bg-secondary" /><span>{x}</span></li>
+              ))}
+            </ul>
+          </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <ButtonLink variant="accent" size="lg" to={localized(lang, "/download")}>{t.start.download}</ButtonLink>
             <ButtonLink variant="secondary" size="lg" to={localized(lang, "/features")}>{t.start.features}</ButtonLink>
