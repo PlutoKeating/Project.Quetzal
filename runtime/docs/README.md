@@ -4,7 +4,7 @@ TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），
 
 | 命令 | 作用 |
 |---|---|
-| `npm test` | 单元与集成测试（心脏数学、记忆语义、灵魂 git 合并、供应商保存与故障转移、保密传递、自造工具、听觉、网关的加密局域网传输与配对证明、两个适配器的探测逻辑） |
+| `npm test` | 单元与集成测试（心脏数学、记忆语义、灵魂 git 合并、供应商保存与故障转移、保密传递、真实环境模式、自造工具、听觉、网关的加密局域网传输与配对证明、两个适配器的探测逻辑） |
 | `npm run build` | 类型检查 + esbuild 打包（`dist/main.cjs`、`dist/android.mjs`、`dist/linux.mjs`、`dist/termux.mjs`） |
 | `npm run dev` | 以 `./.dev` 为家目录直接运行源码 |
 
@@ -14,6 +14,6 @@ TypeScript / Node.js 22+。无原生依赖（存储用内置 `node:sqlite`），
 
 环境变量：`QUETZAL_HOME`（家目录，默认 Termux `~/quetzal`、其他机器 `~/.quetzal`；Quetzal App 内置时由 App 设为它数据目录下的 `files/home/quetzal`）、`QUETZAL_ADAPTER`（身体适配器模块路径）、`QUETZAL_WEB_DIR`（网页控制台的静态文件目录，缺省为 `main.cjs` 旁边的 `web/`；`src/web.ts` 托管它并提供本机浏览器免配对码登录 `GET /auth/local`）、`QUETZAL_DEV_ORIGINS`（开发时允许领取本机登录令牌的额外页面源，逗号分隔）、`QUETZAL_GATEWAY_HOSTS`（局域网模式下配对接口额外接受的 Host 名，逗号分隔；局域网监听只走 HTTPS，见 [API §1](../../docs/API.md)）、`QUETZAL_SANDBOX=none`（强制不用沙箱，只供排查问题）、`QUETZAL_HIDE_PATHS`（proot 沙箱额外遮住的目录，冒号分隔；Quetzal App 用它遮住自己的私有数据）。
 
-agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bubblewrap）或 Landlock，安卓用 `proot`（Quetzal App 内置；旧的 Termux 安装由安装脚本装）；一种都没有时缺省不执行她的命令，`status.sandbox.kind` 为 `none`。这些程序不是 npm 依赖。
+agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bubblewrap）或 Landlock，安卓用 `proot`（Quetzal App 内置；旧的 Termux 安装由安装脚本装）；一种都没有时缺省不执行她的命令，`status.sandbox.kind` 为 `none`。这些程序不是 npm 依赖。对方批准或自己打开「真实环境」（`src/host-mode.ts`）的那个会话里，她的命令不经沙箱，见 [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) §8.2。
 
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，接口见 [../../docs/API.md](../../docs/API.md)。
