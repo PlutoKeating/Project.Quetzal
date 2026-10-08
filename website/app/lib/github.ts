@@ -187,29 +187,3 @@ export async function fetchReleases(options: { force?: boolean } = {}): Promise<
   writeCache(data);
   return data;
 }
-
-/* ---------- 仓库概况（首页凭证小字用） ---------- */
-
-export type RepoStats = { stars: number; latestTag: string | null };
-const STATS_KEY = "quetzal.repo-stats";
-
-/** 星标数与最新版本号：GitHub 公开 API，sessionStorage 缓存 10 分钟；失败返回 null（页面静默降级）。 */
-export async function fetchRepoStats(): Promise<RepoStats | null> {
-  try {
-    const raw = sessionStorage.getItem(STATS_KEY);
-    if (raw) { const c = JSON.parse(raw) as { at: number; stats: RepoStats }; if (Date.now() - c.at < CACHE_TTL_MS) return c.stats; }
-  } catch { /* ignore */ }
-  try {
-    const headers = { Accept: "application/vnd.github+json" };
-    const [repo, rel] = await Promise.all([
-      fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO_NAME}`, { headers }),
-      fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO_NAME}/releases/latest`, { headers }),
-    ]);
-    if (!repo.ok) return null;
-    const r = (await repo.json()) as { stargazers_count?: number };
-    const latest = rel.ok ? ((await rel.json()) as { tag_name?: string }).tag_name ?? null : null;
-    const stats = { stars: r.stargazers_count ?? 0, latestTag: latest };
-    try { sessionStorage.setItem(STATS_KEY, JSON.stringify({ at: Date.now(), stats })); } catch { /* ignore */ }
-    return stats;
-  } catch { return null; }
-}
