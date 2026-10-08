@@ -14,6 +14,8 @@ data/quetzal.db          SQLite: kv / timeline / messages / audit / usage
 data/catalog.json        cached public model catalog (models.dev)
 data/uploads/<date>/     chat attachments
 data/media/              photos and recordings it made (Android adapter)
+data/mesh-pins.json      with several bodies: the public key and kind of each body, recorded the first time it was seen (not secret)
+data/mesh-lan.json       with several bodies: remembered LAN addresses of the other bodies, used to connect over the LAN when the sync service is unreachable (stays on this device)
 data/from-bodies/<body>/ files fetched from other bodies (tools called with body; see Multiple bodies)
 data/runtime.log         with the Android app: log of the runtime and the app service (rotated past 4 MB)
 soul/                    soul directory (a git repository)

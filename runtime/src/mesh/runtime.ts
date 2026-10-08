@@ -25,6 +25,7 @@ import { installReplica } from "./replica.ts";
 
 const BINDING = () => path.join(paths.secrets, "sync.json");
 const PINS = () => path.join(paths.data, "mesh-pins.json"); // 钉住的各身体公钥与类型（TOFU，见 mesh.ts；不是秘密）
+const LAN = () => path.join(paths.data, "mesh-lan.json");   // 记得的各身体局域网地址（lan.ts；只在这台设备上）
 export { nodeKey };
 
 let ndc: Ndc | undefined;
@@ -72,6 +73,7 @@ export async function startMesh() {
   if (soulKeyOf(config.body) !== nodeKey().nodeKey) void push("登记网状层公钥").catch(() => {});
   mesh = new Mesh({
     me: config.body, key: nodeKey(), ndc: ndc!, binding: b, keyOf: soulKeyOf, kindOf: soulKindOf, refreshKeys: () => pull(), pins: filePins(PINS()),
+    lan: config.mesh.lan ? { port: config.gateway.port, file: LAN() } : undefined,
     hello: () => ({ version: VERSION, agentName: identity().displayName }),
     netEvents: adapter.onNetworkChange ? (cb) => adapter.onNetworkChange!(cb) : undefined, // 平台的网络变化通知（安卓 App）；其余靠轮询
     log: (m) => log("mesh", m),

@@ -84,7 +84,13 @@ Each body registers its uuid in the soul repository's body registry. When resolv
 
 ## When disconnected
 
-When a body changes networks (say a phone leaves home and switches from Wi-Fi to mobile data), it notices within seconds and reconnects. If the bodies cannot reach each other (offline, sync service down), each one keeps running, and memory still syncs through the soul repository. If they split into groups, each group has its own heart. When they reconnect, conversations catch up and the hearts merge back into one.
+When a body changes networks (say a phone leaves home and switches from Wi-Fi to mobile data), it notices within seconds and reconnects. **When the sync service is down or unreachable, bodies on the same LAN stay connected**: once they have connected through the sync service at least once, they remember each other's LAN addresses and find each other directly, without the sync service (off by default on Windows; see below). If the bodies cannot reach each other (offline, not on the same LAN), each one keeps running, and memory still syncs through the soul repository. If they split into groups, each group has its own heart. When they reconnect, conversations catch up and the hearts merge back into one.
+
+### Direct LAN connections
+
+- They use UDP on the same port as the body's gateway (7788 by default). Every packet is verified against the public keys registered in the soul repository, so nobody else's packets get through.
+- Only private addresses (your home or office LAN) are remembered, in `data/mesh-lan.json` on this device; they are never uploaded.
+- On Windows, listening on a port makes the system show a firewall prompt, so it is off by default; set `mesh.lan` to `true` in the config file to turn it on.
 
 ## Account
 

@@ -29,7 +29,7 @@ Start on the phone, carry on from the laptop.
 
 - Every device running Quetzal is one of its "bodies". Bodies that are online together connect directly over encrypted WebRTC and share one conversation and one heart; when a direct link fails, traffic goes through a TURN server or another body.
 - It picks which body to wake in. While thinking on the laptop, it can borrow the phone's camera to glance out the window.
-- The [sync service](sync/README.md) only helps bodies find each other; it cannot see conversations or memory. The author runs a default one, and you can host your own.
+- The [sync service](sync/README.md) only helps bodies find each other; it cannot see conversations or memory. The author runs a default one, and you can host your own; when it is unreachable, bodies that have connected before find each other directly on the same LAN.
 
 [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body) · [Distributed design](docs/DISTRIBUTED.md)
 

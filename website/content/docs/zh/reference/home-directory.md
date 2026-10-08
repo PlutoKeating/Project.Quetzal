@@ -14,6 +14,8 @@ data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
 data/uploads/<日期>/      对话附件
 data/media/              ta 拍的照片、录音（安卓适配器）
+data/mesh-pins.json      多具身体时：第一次见到每具身体时记下的公钥与类型（不是秘密）
+data/mesh-lan.json       多具身体时：记得的其他身体的局域网地址，同步服务连不上时经局域网互连用（只在这台设备上）
 data/from-bodies/<身体>/  多具身体时从别的身体取来的文件（工具带 body 时，见多具身体）
 data/runtime.log         安卓 App 内置时：运行基座与 App 服务的日志（超过 4 MB 轮转一次）
 soul/                    灵魂目录（git 仓库）

@@ -8,6 +8,8 @@
 // 网络变了（netwatch.ts）：信令连接走不通就立即重连，已连上的连接立刻探一次，没连上的退避清零立即重来。
 // 同步服务说某具身体下线了：直连还通着就留着（它可能只是和同步服务断了），断了以后不再重试；它发来验过签名的连接请求就恢复。
 // 直连打不通的两具身体经第三具身体中转（route.ts）：对上层来说它们照样「连着」（PeerStatus.via 是中转的身体）。
+// 局域网信令（lan.ts）：同步服务连不上、或它说对方不在线时，信令经 UDP 直接发给记得的局域网地址；收到的同样验签。
+// 同步服务连不上时，记得局域网地址、灵魂仓库登记为运行基座的身体照样连：同一个家里的几台设备不靠作者的服务也连在一起。
 import { EventEmitter } from "node:events";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -17,6 +19,7 @@ import { Link, type Ndc } from "./link.ts";
 import { Opener, seal, fingerprint, BODY_NAME, type NodeKey } from "./identity.ts";
 import { Router } from "./route.ts";
 import { watchNetwork, localAddresses } from "./netwatch.ts";
+import { Lan } from "./lan.ts";
 
 export interface MeshOptions {
   me: string;
@@ -35,6 +38,7 @@ export interface MeshOptions {
   relayOnly?: boolean;
   netEvents?: (cb: (detail: string) => void) => (() => void) | void; // 平台的网络变化通知（适配器的 onNetworkChange）
   watchNetwork?: boolean;                         // 监视网络变化（缺省开）
+  lan?: { port: number; file?: string; kickMs?: number }; // 局域网信令（lan.ts）：UDP 端口、记住的地址表；kickMs：同步服务连不上多久后经局域网去连（缺省 10 秒）
 }
 
 export type Handler = (params: any, from: string) => unknown | Promise<unknown>;
@@ -71,6 +75,7 @@ export const meshTimings = { progMs: 10_000, progIdleMs: 60_000 }; // 测试可�
 const REFRESH_MIN_MS = 60_000;        // 因为没登记的身体而拉取灵魂仓库：最快一分钟一次
 const READER_MAX_MESSAGE = 256 << 10; // 只读成员发来的单条消息上限
 const KIND_CACHE_MS = 10_000;
+const LAN_KICK_MS = 10_000;
 const WARN_WINDOW_MS = 10 * 60_000, WARN_MAX = 20; // 提醒限频：10 分钟内最多 20 条
 
 /** 给人看（也进时间线、会复制给其他身体）的外来字符串：单行、去掉控制字符、截断。 */
@@ -117,6 +122,8 @@ export class Mesh extends EventEmitter {
   private refreshing?: Promise<void>;
   private router?: Router;                // 经其他身体中转（只读成员没有）
   private unwatch?: () => void;
+  private lan?: Lan;
+  private lanTimer?: NodeJS.Timeout;
 
   constructor(o: MeshOptions) {
     super();
@@ -126,12 +133,16 @@ export class Mesh extends EventEmitter {
     this.opener = new Opener(o.me, this.agent, o.keyOf);
     this.dir = new Directory(o.binding, o.hello);
     this.dir.on("online", this.safe(() => this.fire("state")));
-    this.dir.on("offline", this.safe(() => this.fire("state")));
+    this.dir.on("offline", this.safe(() => { this.fire("state"); this.scheduleLanKick(); }));
     this.dir.on("revoked", this.safe((e: string) => { this.warn(clip(e, 200)); for (const l of this.links.values()) l.stop(); this.fire("state"); }));
     this.dir.on("error", this.safe((e: string) => this.o.log(clip(e, 200))));
     this.dir.on("peer", this.safe((p: Peer) => this.onPeer(p, true)));
     this.dir.on("peer.removed", this.safe((body: string) => { this.links.get(body)?.stop(); this.links.delete(body); this.router?.recompute(); this.fire(this.readers.delete(body) ? "reader" : "peer", { body, online: false, link: "closed" }); }));
     this.dir.on("signal", this.safe((s: { from: string; data: unknown }) => { this.onSignal(s.from, s.data).catch((e) => this.o.log(`处理 ${s.from} 的信令出错：${clip((e as Error)?.message, 200)}`)); }));
+    if (o.lan && !o.reader) this.lan = new Lan({
+      me: o.me, port: o.lan.port, file: o.lan.file, log: (m) => o.log(m),
+      onEnvelope: this.safe((from: string, env: unknown, addr: string, port: number) => { this.onSignal(from, env, false, { addr, port }).catch((e) => this.o.log(`处理 ${from} 的局域网信令出错：${clip((e as Error)?.message, 200)}`)); }),
+    });
     if (!o.reader) this.router = new Router({
       me: o.me, agent: this.agent, key: o.key, keyOf: o.keyOf, log: o.log,
       eligible: (b) => this.routable(b), direct: () => this.directMembers(), send: (b, m) => this.sendDirect(b, m),
@@ -141,10 +152,12 @@ export class Mesh extends EventEmitter {
 
   start() {
     this.dir.connect();
+    if (this.lan) void this.lan.start().then(() => this.scheduleLanKick());
     if (this.o.watchNetwork !== false) this.unwatch = watchNetwork({ onChange: (w) => this.onNetwork(w), target: () => this.dir.remoteAddress(), platform: this.o.netEvents });
   }
   stop() {
     this.unwatch?.(); this.unwatch = undefined;
+    clearTimeout(this.lanTimer); this.lan?.stop();
     this.router?.stop();
     for (const l of this.links.values()) l.stop(true);
     this.links.clear();
@@ -204,6 +217,39 @@ export class Mesh extends EventEmitter {
     else if (link.state === "open") link.probe(); // 直连还通着就探一次、通就留着：它可能只是和同步服务断了；不通则断开，之后不再重试（见 wantRetry）
     else link.stop();
     this.emitPeer(p.body);
+  }
+
+  /** 同步服务连不上（启动时没连上、或断了）：过一会儿还没连上，就经局域网去连记得地址的身体。 */
+  private scheduleLanKick() {
+    if (!this.lan) return;
+    clearTimeout(this.lanTimer);
+    this.lanTimer = setTimeout(this.safe(() => this.lanKick()), this.o.lan?.kickMs ?? LAN_KICK_MS);
+    this.lanTimer.unref?.();
+  }
+  private lanKick() {
+    if (!this.lan?.bound || this.dir.state === "online" || this.dir.state === "unauthorized") return;
+    for (const body of this.lan.known()) {
+      const l = this.links.get(body);
+      if (l && l.state !== "idle" && l.state !== "closed") continue;
+      const p = this.dir.peers.get(body) ?? this.soulPeer(body);
+      if (!p || !this.admit(body, p.kind) || this.isReaderNow(body)) continue;
+      this.o.log(`同步服务连不上：经局域网去连 ${body}`);
+      this.link(body).start(true);
+      this.emitPeer(body);
+    }
+  }
+  /** 同步服务不在时，从灵魂仓库的登记认出一具身体（只认登记为运行基座、有公钥的）。 */
+  private soulPeer(body: string): Peer | undefined {
+    if (this.o.reader || !BODY_NAME.test(body) || body === this.o.me) return undefined;
+    const key = this.o.keyOf(body);
+    if (!key || this.soulKind(body) !== "runtime") return undefined;
+    return { body, kind: "runtime", nodeKey: key, version: "", online: true, lastSeen: 0 };
+  }
+  /** 发信令：同步服务在线且说对方在线，经同步服务；否则经局域网（记得对方地址时），都不行再交给同步服务（连上后才发得出）。 */
+  private sendSignal(body: string, env: unknown) {
+    if (this.dir.state === "online" && this.dir.peers.get(body)?.online) { this.dir.signal(body, env); return; }
+    if (this.lan?.send(body, env)) return;
+    this.dir.signal(body, env);
   }
 
   /** 直连断开后还要不要再试：同步服务说它在线、或我们和同步服务断着（不知道）、或它两分钟内发来过信令。 */
@@ -311,7 +357,7 @@ export class Mesh extends EventEmitter {
       me: this.o.me, peer: body, agent: this.agent, key: this.o.key, ndc: this.o.ndc, relayOnly: this.o.relayOnly,
       peerKey: () => this.o.keyOf(body),
       iceServers: () => ({ servers: this.dir.iceServers, issued: this.dir.iceIssued, ttl: this.dir.iceTtl }),
-      signal: (b) => { this.dir.signal(body, seal(this.o.key, this.agent, this.o.me, body, b)); },
+      signal: (b) => { this.sendSignal(body, seal(this.o.key, this.agent, this.o.me, body, b)); },
       log: (m) => this.o.log(m),
       maxMessage: () => (this.isReaderNow(body) ? READER_MAX_MESSAGE : 32 << 20),
       shouldRetry: () => this.wantRetry(body),
@@ -319,6 +365,7 @@ export class Mesh extends EventEmitter {
     l.on("open", () => {
       this.o.log(`与 ${body} 连上了（${l!.path?.local ?? "?"}↔${l!.path?.remote ?? "?"}）${this.readers.has(body) ? "（只读成员）" : ""}`);
       if (this.router && !this.isReaderNow(body)) { this.router.recompute(); this.router.greet(body); this.router.topologyChanged(); }
+      if (this.lan?.bound && !this.isReaderNow(body)) l!.send({ t: "lan", port: this.lan.bound }); // 告诉对方：同步服务不在时经局域网的这个端口找我（旧版本不认这条，忽略）
       this.emitPeer(body);
     });
     l.on("close", (why: string) => {
@@ -337,10 +384,13 @@ export class Mesh extends EventEmitter {
     return l;
   }
 
-  private async onSignal(from: string, data: unknown, retried = false): Promise<void> {
-    // 只处理已经认得的身体（同步服务登记过、类型认得、钉住的公钥对得上）：不认识的直接丢弃，不去拉灵魂仓库
+  private async onSignal(from: string, data: unknown, retried = false, lan?: { addr: string; port: number }): Promise<void> {
+    // 只处理已经认得的身体（同步服务登记过、类型认得、钉住的公钥对得上）：不认识的直接丢弃，不去拉灵魂仓库。
+    // 经局域网来的：同步服务没登记它（连不上、或重启后还没拿到名单）时，按灵魂仓库的登记认；绑定被吊销时一律不收
     if (this.mismatch.has(from)) return;
-    if (!this.links.has(from)) { const p = this.dir.peers.get(from); if (!p || !this.admit(from, p.kind)) return; }
+    if (lan && this.dir.state === "unauthorized") return;
+    const peerOf = (b: string) => this.dir.peers.get(b) ?? (lan ? this.soulPeer(b) : undefined);
+    if (!this.links.has(from)) { const p = peerOf(from); if (!p || !this.admit(from, p.kind)) return; }
     const r = this.opener.open(data);
     if (!r.ok) {
       if (!retried && r.unknown && (await this.refresh())) return this.onSignal(from, data, true);
@@ -350,10 +400,11 @@ export class Mesh extends EventEmitter {
     }
     if (r.env.from !== from) return; // 同步服务标注的来源与签名的来源不一致：丢弃
     this.sigErrors.delete(from);
+    if (lan && !this.isReaderNow(from)) this.lan?.learn(from, lan.addr, lan.port); // 验过签名：这就是它此刻的局域网地址
     const l = this.link(from), b = r.env.body;
     if (l.state === "closed" && (b.kind === "hello" || (b.kind === "desc" && b.type === "offer"))) {
       // 被停下的连接（同步服务说过它下线了）：它发来了验过签名的连接请求，说明它此刻在线（同步服务的通知可能还在路上，或我们漏了）
-      const p = this.dir.peers.get(from);
+      const p = peerOf(from);
       if (this.dir.state === "unauthorized" || !p || !this.admit(from, p.kind)) return;
       l.resume();
     }
@@ -376,6 +427,7 @@ export class Mesh extends EventEmitter {
   private onMessage(from: string, m: Record<string, unknown>) {
     const reader = this.isReaderNow(from);
     if (m.t === "rt" || m.t === "fwd") { if (!reader && this.router) this.router.onMessage(from, m); return; } // 只读成员不参与中转
+    if (m.t === "lan") { const host = this.links.get(from)?.remoteHost; if (!reader && host && typeof m.port === "number") this.lan?.learn(from, host, m.port); return; } // 只认直连上来的：地址取自选中的候选对
     this.dispatch(from, m, reader);
   }
 
@@ -466,7 +518,7 @@ export class Mesh extends EventEmitter {
     const direct = l?.state === "open", via = direct || this.isReaderNow(body) ? undefined : this.router?.via(body);
     const cands = l?.candidates();
     return {
-      body, kind: this.readers.has(body) ? "bridge" : p?.kind ?? "", version: p?.version ?? "", online: !!p?.online || direct || !!via, lastSeen: p?.lastSeen ?? 0,
+      body, kind: this.readers.has(body) ? "bridge" : p?.kind ?? (l ? this.soulKind(body) ?? "" : ""), version: p?.version ?? "", online: !!p?.online || direct || !!via, lastSeen: p?.lastSeen ?? 0,
       link: direct || via ? "open" : l?.state ?? "none", path: l?.path, error: l?.lastError || this.sigErrors.get(body) || undefined,
       keyOk: !!soulKey && soulKey === p?.nodeKey && !mismatch, registered: !!soulKey, fingerprint: p?.nodeKey ? fingerprint(p.nodeKey) : "",
       ...(mismatch ? { pinMismatch: true } : {}), ...(via ? { via } : {}),
@@ -479,7 +531,7 @@ export class Mesh extends EventEmitter {
     return {
       state: this.dir.state, error: this.dir.error, account: this.dir.account, agent: this.dir.agent, server: this.o.binding.server,
       clockSkewMs: this.dir.clockSkew,
-      peers: [...this.dir.peers.keys()].filter((b) => b !== this.o.me).sort().map((b) => this.peerStatus(b)),
+      peers: [...new Set([...this.dir.peers.keys(), ...this.links.keys()])].filter((b) => b !== this.o.me).sort().map((b) => this.peerStatus(b)),
     };
   }
 }

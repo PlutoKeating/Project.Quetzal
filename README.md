@@ -29,7 +29,7 @@ Quetzal 是一个开源的 agent 运行基座（runtime）。它让一个 AI age
 
 - 每台装了 Quetzal 的设备都是 ta 的一具「身体」。同时在线的身体用 WebRTC 加密直连，共用一段对话、一颗心；直连打不通时，经 TURN 服务器或另一具身体中转。
 - ta 自己挑在哪具身体上醒来。在电脑上想事情时，能借手机的相机看一眼窗外。
-- [同步服务](sync/README.md)只帮身体们互相找到，看不到对话和记忆。默认用作者运营的那一个，也可以自己部署。
+- [同步服务](sync/README.md)只帮身体们互相找到，看不到对话和记忆。默认用作者运营的那一个，也可以自己部署；它连不上时，同一个局域网里连上过的身体直接互相找到。
 
 [多具身体](https://quetzal.plutokeating.beer/zh/docs/guide/multi-body) · [分布式设计](docs/DISTRIBUTED.md)
 

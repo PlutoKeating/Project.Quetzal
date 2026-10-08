@@ -92,6 +92,7 @@ export class Link extends EventEmitter {
   private received = 0;
   private cands = { local: new Set<string>(), remote: new Set<string>() }; // 这一次尝试双方交换过的候选类型（诊断：拿不拿得到中转地址）
   private localHost = "";                       // 选中的本机候选是局域网地址时记下它：网络变了据此判断这条连接是否已经失效
+  remoteHost = "";                              // 选中的对方候选是 host 或 prflx 时记下它的地址：局域网信令据此找到它（lan.ts 只收私有地址）
   private pinger?: NodeJS.Timeout;
   private probeTimer?: NodeJS.Timeout;
   private connectTimer?: NodeJS.Timeout;
@@ -303,6 +304,7 @@ export class Link extends EventEmitter {
     const p = this.pc?.getSelectedCandidatePair();
     if (!p) return;
     this.localHost = p.local.type === "host" ? p.local.address : "";
+    this.remoteHost = p.remote.type === "host" || p.remote.type === "prflx" ? normAddr(p.remote.address) : ""; // prflx：从对方实际发来的包认出的地址，局域网里就是它的本地地址
     const next = { local: p.local.type, remote: p.remote.type, rtt: Math.round(this.pc?.rtt() ?? 0) };
     const changed = !this.path || next.local !== this.path.local || next.remote !== this.path.remote;
     this.path = next;
@@ -390,7 +392,7 @@ export class Link extends EventEmitter {
   private teardown() {
     clearInterval(this.pinger); clearTimeout(this.connectTimer); clearTimeout(this.probeTimer);
     const pc = this.pc, dc = this.dc;
-    this.pc = undefined; this.dc = undefined; this.path = undefined; this.localHost = "";
+    this.pc = undefined; this.dc = undefined; this.path = undefined; this.localHost = ""; this.remoteHost = "";
     this.chunks.clear(); this.inflight = 0;
     // 不在 libdatachannel 的回调栈里同步销毁（可能触发原生层的重入）：推迟到下一轮事件循环
     setImmediate(() => { try { dc?.close(); } catch {} try { pc?.close(); } catch {} });

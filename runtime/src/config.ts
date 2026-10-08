@@ -50,7 +50,7 @@ export interface Config {
   // 命令沙箱：没有可用的沙箱时，她的命令缺省一律不执行；allowUnsandboxed 为真时照常执行（部署者在控制台明确打开，不安全）。只属于这具身体，不随多具身体同步
   //   share：Windows 上另外授权给她读写的文件夹（绝对路径；缺省只有工作区 %USERPROFILE%\Quetzal，见 sandbox.ts）
   sandbox: { allowUnsandboxed: boolean; share: string[] };
-  mesh: { server: string; priority: number }; // priority：当协调者的优先级（越大越优先，适合一直开着、接着电源的身体）
+  mesh: { server: string; priority: number; lan: boolean }; // priority：当协调者的优先级（越大越优先，适合一直开着、接着电源的身体）；lan：同步服务连不上时经局域网信令互连（mesh/lan.ts，UDP，端口同网关）
   // 多具身体共用的设置分区最近一次被修改的时刻（毫秒）。网状层据此在身体之间同步：较新的修改生效（mesh/shared.ts）
   sharedRev: Record<string, number>;
   // 通道：feishuHolder 为持有飞书长连接的身体（多具身体时由部署者指定；空 = 这具身体自己连）。全网共用
@@ -93,7 +93,7 @@ export const defaults: Config = {
   soul: { remote: "", branch: "main", sshMode: "deploy", sshKeyPath: "" },
   gateway: { port: 7788, host: "127.0.0.1", lan: false, lanPort: 7789 },
   sandbox: { allowUnsandboxed: false, share: [] },
-  mesh: { server: OFFICIAL_SYNC, priority: 0 },
+  mesh: { server: OFFICIAL_SYNC, priority: 0, lan: !isWindows }, // Windows 上监听端口会弹防火墙询问，缺省不开局域网信令
   sharedRev: {},
   channels: { feishuHolder: "" },
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
