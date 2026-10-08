@@ -202,6 +202,13 @@ test("工具失败：上下文里写明失败；同样的调用失败多次时�
   assert.match(tools[1].content, /同样的调用、同样的参数，这一轮已经失败了 2 次/);
   const card = (store.sessionMessages("fail-1").at(-1)!.process as any[]).find((x) => x.type === "tool");
   assert.equal(card.status, "error", "卡片是红叉，不是绿钩");
+  // 完整记录只存在本机：控制台点开卡片时取完整参数与完整结果
+  const full = store.getToolCall(card.call)!;
+  assert.equal(full.tool, "shell_jobs");
+  assert.deepEqual(full.args, { action: "output", id: "nope" });
+  assert.match(full.result, /^没有这个任务：nope$/);
+  assert.equal(full.status, "error");
+  assert.equal(store.getToolCall("no-such-call"), undefined);
   script = undefined;
 });
 

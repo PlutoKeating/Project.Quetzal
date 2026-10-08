@@ -9,7 +9,7 @@ import { chat } from "../providers/router.ts";
 import type { Msg, ToolDef } from "../providers/types.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemPrompt } from "./prompt.ts";
-import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, type Attachment } from "../store.ts";
+import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, type Attachment } from "../store.ts";
 import { userMessage } from "./attachments.ts";
 import { config } from "../config.ts";
 import * as mem from "../memory/memory.ts";
@@ -132,6 +132,7 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
       const out = await s.hold(() => untilStopped(callTool(c.name, c.args, reason, { session: s }), s)); // 执行工具即在工作：暂停会话时间墙；对方停止时不等工具做完
       s.emit({ kind: "tool", ...card, status: out.status, ms: Date.now() - t0, result: out.text.split("\n").find((l) => l.trim())?.slice(0, 120) ?? "" });
       steps.push({ tool: c.name, args: redactArgs(c.args), result: out.text.slice(0, 1500), status: out.status });
+      try { saveToolCall({ call: c.id, session: s.id, ts: Date.now(), tool: c.name, args: redactArgs(c.args), result: out.text, status: out.status, ms: Date.now() - t0 }); } catch (e) { log("brain", `没能存下工具调用的完整记录：${(e as Error).message}`); }
       // 失败（含被拒绝）写在结果的最前面：只给原文时，「exit 1」之类的结果她容易当成做成了
       let content = out.text.slice(0, 12000);
       if (out.status !== "ok") {

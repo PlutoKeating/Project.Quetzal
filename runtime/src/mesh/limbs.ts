@@ -5,6 +5,7 @@
 //     闸门与审计在这边（mind/body-files.ts 的 lendFile）。只读成员（灵魂桥）不能调用。
 //   - chat.continue / mind.wake：接手换过来的一轮。
 import type { Mesh, PeerStatus } from "./mesh.ts";
+import { getToolCall } from "../store.ts";
 import { config, paths } from "../config.ts";
 import { adapter } from "../body/twin.ts";
 import { limbTools, callTool } from "../mind/tools.ts";
@@ -42,6 +43,7 @@ export function soulRegistry(): { body: string; uuid: string }[] {
 export function installLimbs(mesh: Mesh, registry: () => { body: string; uuid: string }[] = soulRegistry): () => void {
   const known = new Map<string, RemoteBody>();
   mesh.handle("tool.list", () => limbList());
+  mesh.handle("tool.detail", (p: { call?: unknown }) => (typeof p?.call === "string" && p.call.length <= 200 ? getToolCall(p.call) ?? null : null)); // 别处的控制台点开这里做的那一轮里的工具卡片
   mesh.handle("tool.call", async (p: { tool: string; args: Record<string, unknown>; reason: string }, from: string) => {
     const tool = String(p?.tool ?? "");
     if (!limbTools(REMOTE_CORE_TOOLS).some((t) => t.name === tool)) return { text: `${config.body} 上没有可以跨身体调用的工具 ${tool}`, status: "error" };

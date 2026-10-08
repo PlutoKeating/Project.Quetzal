@@ -4,6 +4,7 @@
 //   Bubble：消息气泡，她的话与对方的话都按完整 Markdown 渲染；整个气泡是一个选择区（拖选、Ctrl+A、右键 / 长按复制）。
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'api.dart';
 import 'markdown.dart';
 import 'widgets.dart';
 
@@ -145,37 +146,44 @@ class ProcessView extends StatelessWidget {
 
 const _statusLabel = {'running': '执行中', 'ok': '完成', 'denied': '被拒绝', 'error': '失败', 'unknown': '结果未记录'};
 
-/// 工具调用详情：名称、状态、耗时、参数摘要、结果开头；有完整记录（时间线的 steps）时给出完整参数与结果。
+/// 工具调用详情：点开就是完整的参数与结果。完整记录只存在做那一轮的身体上（运行基座的 tool.detail，本机没有就问其他身体）；
+/// 取不到时（1.9.2 之前的调用没有存）退回时间线的 steps 或过程记录里的摘要与结果开头。
 void showToolDetail(BuildContext context, Map x, Map? step) {
-  final t = Theme.of(context).textTheme;
+  final t = Theme.of(context).textTheme, cs = Theme.of(context).colorScheme;
   String pretty(Object? v) {
     if (v is String) return v;
     try { return const JsonEncoder.withIndent('  ').convert(v); } catch (_) { return '$v'; }
   }
-  final args = step?['args'], result = step?['result'] ?? x['result'];
-  showSheet(context, (_, scroll) => ListView(controller: scroll, padding: const EdgeInsets.all(16), children: [
-        Row(children: [
-          ProcessView.statusIcon(x['status'], Theme.of(context).colorScheme),
-          const SizedBox(width: 8),
-          Expanded(child: Text('${x['name']}', style: t.titleMedium)),
-          Text('${_statusLabel[x['status']] ?? x['status']}${x['ms'] != null ? ' · ${((x['ms'] as num) / 1000).toStringAsFixed(1)}s' : ''}', style: t.bodySmall),
-        ]),
-        if ('${x['summary'] ?? ''}'.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text('参数摘要', style: t.labelLarge),
-          SelectableText('${x['summary']}', style: t.bodySmall),
-        ],
-        if (args != null) ...[
-          const SizedBox(height: 12),
-          Text('完整参数', style: t.labelLarge),
-          SelectableText(pretty(args), style: t.bodySmall?.copyWith(fontFamily: 'monospace')),
-        ],
-        const SizedBox(height: 12),
-        Text(step != null ? '结果' : '结果（开头）', style: t.labelLarge),
-        if ('${result ?? ''}'.isEmpty) Text('（无）', style: t.bodySmall) else RawOrMarkdown('$result'),
-        if (step == null && x['status'] != 'running') Padding(padding: const EdgeInsets.only(top: 8), child: Text('完整内容在心流里', style: t.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline))),
-        const SizedBox(height: 24),
-      ]));
+  final call = '${x['call'] ?? ''}';
+  final full = call.isEmpty || x['status'] == 'running' ? Future<Map?>.value(null) : api.call<Map?>('tool.detail', {'call': call}).catchError((_) => null);
+  showSheet(context, (_, scroll) => FutureBuilder<Map?>(
+        future: full,
+        builder: (context, snap) {
+          final d = snap.data, loading = snap.connectionState != ConnectionState.done;
+          final args = d?['args'] ?? step?['args'];
+          final result = d?['result'] ?? step?['result'] ?? x['result'];
+          final complete = d != null || step != null;
+          return ListView(controller: scroll, padding: const EdgeInsets.all(16), children: [
+            Row(children: [
+              ProcessView.statusIcon(x['status'], cs),
+              const SizedBox(width: 8),
+              Expanded(child: Text('${x['name']}', style: t.titleMedium)),
+              Text('${_statusLabel[x['status']] ?? x['status']}${x['ms'] != null ? ' · ${((x['ms'] as num) / 1000).toStringAsFixed(1)}s' : ''}', style: t.bodySmall),
+            ]),
+            if (loading) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: LinearProgressIndicator()),
+            const SizedBox(height: 12),
+            Text(args != null ? '参数' : '参数摘要', style: t.labelLarge),
+            SelectableText(args != null ? pretty(args) : '${x['summary'] ?? ''}', style: t.bodySmall?.copyWith(fontFamily: args != null ? 'monospace' : null)),
+            const SizedBox(height: 12),
+            Text(complete || loading ? '结果' : '结果（开头）', style: t.labelLarge),
+            if ('${result ?? ''}'.isEmpty) Text('（无）', style: t.bodySmall) else SelectableText('$result', style: t.bodySmall?.copyWith(fontFamily: 'monospace')),
+            if (!loading && !complete && x['status'] != 'running')
+              Padding(padding: const EdgeInsets.only(top: 8), child: Text('这次调用没有完整记录（早于 1.9.2，或做这一轮的身体不在线）', style: t.bodySmall?.copyWith(color: cs.outline))),
+            if (d?['body'] != null && (d!['body'] as String).isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text('在 ${d['body']} 上执行', style: t.bodySmall?.copyWith(color: cs.outline))),
+            const SizedBox(height: 24),
+          ]);
+        },
+      ));
 }
 
 /// 时间线里的 steps（无 process 的旧记录）折成工具卡片，让旧的醒来记录也能按同一种方式回放。

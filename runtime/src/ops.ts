@@ -3,7 +3,7 @@ import path from "node:path";
 import { ensureSshKeyFile } from "./ssh-key.ts";
 import fs from "node:fs";
 import { config, saveConfig, paths, type Level } from "./config.ts";
-import { audit, listTimeline, listAudit, usageToday, recentMessages, listSessions, ensureSession, updateSession, sessionMessages } from "./store.ts";
+import { getToolCall, type ToolCallRow, audit, listTimeline, listAudit, usageToday, recentMessages, listSessions, ensureSession, updateSession, sessionMessages } from "./store.ts";
 import { liveTurns } from "./mind/activity.ts";
 import * as voice from "./voice/azure.ts";
 import crypto from "node:crypto";
@@ -131,6 +131,19 @@ export const ops = {
   host: () => hostModes(),
   "host.enter": (a: { conv: string }, actor: string) => enterHost(String(a?.conv ?? ""), "user", "对方自己打开", actor),
   "host.exit": (a: { conv: string }, actor: string) => exitHost(String(a?.conv ?? ""), actor, "对方退出"),
+  // 一张工具卡片的完整记录（完整参数与完整结果）：只存在做那一轮的身体上。本机没有，就问连着的其他身体（谁做的谁有）
+  "tool.detail": async (a: { call: string }) => {
+    const call = String(a?.call ?? "");
+    if (!call || call.length > 200) return null;
+    const here = getToolCall(call);
+    if (here) return { ...here, body: config.body };
+    const m = meshRt.mesh;
+    for (const b of m?.connected() ?? []) {
+      const r = await m!.request<ToolCallRow | null>(b, "tool.detail", { call }, 15_000).catch(() => null);
+      if (r && typeof r === "object") return { ...r, body: b };
+    }
+    return null;
+  },
   approvals: () => [...guard.approvals(), ...remoteApprovals()], // 含其他身体上等待批准的（带 body）
   decide: (a: { id: string; approve: boolean; note?: string; body?: string }, actor: string) => decideAnywhere(a.id, a.approve, actor, a.note, typeof a.body === "string" && a.body ? a.body : undefined), // 其他身体上的审批转过去；body 指明是哪具身体上的（审批号可能重复）
   budget: () => ({ ...config.budget, usage: usageToday() }),
