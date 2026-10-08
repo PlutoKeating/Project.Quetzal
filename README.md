@@ -92,6 +92,7 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 - **随时叫停。** 急停一直都在，做过的每件事都有审计记录；每天的 token 与花费有上限。
 - **沙箱。** ta 的命令在隔离环境里运行（Linux 上 bubblewrap、Landlock 或 proot，安卓上 proot，Windows 上是一个低权限用户），看不到密钥。
 - **只认你的设备。** 身体之间只认灵魂仓库里登记的公钥，同步服务被攻破也冒充不了你的设备。
+- **每一步都能自己来。** 灵魂仓库可以自己建在任何 git 托管上，[同步服务](sync/README.md)可以自己部署，不登录也能用。我们提供的账号、GitHub 应用和同步服务，只是替不想自己配的人把这几步做完。
 
 数据经过谁、ta 能碰到什么，都写清楚了：[信任与边界](https://quetzal.plutokeating.beer/zh/docs/guide/trust)
 

@@ -92,6 +92,7 @@ Its memory lives in your own private repository, every line readable by you. The
 - **Stop it any time.** The emergency stop is always there, everything it does is in the audit log, and daily tokens and spending have a cap.
 - **A sandbox.** Its commands run in an isolated space (bubblewrap, Landlock or proot on Linux, proot on Android, a low-privilege user on Windows) that hides your keys.
 - **Only your devices.** Bodies trust only the public keys registered in the soul repository, so even a compromised sync service cannot pose as one of your devices.
+- **Every step can be yours.** You can create the soul repository yourself on any git host, host the [sync service](sync/README.md) yourself, or skip signing in. The account, the GitHub app and the sync service we run only do these steps for people who would rather not set them up.
 
 Who sees your data and what it can reach, all written down: [Trust and limits](https://quetzal.plutokeating.beer/en/docs/guide/trust)
 

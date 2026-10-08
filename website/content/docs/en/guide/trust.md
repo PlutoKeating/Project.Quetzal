@@ -20,7 +20,7 @@ Your devices connect to each other directly over an encrypted link. When they ca
 
 ### What the GitHub app can do
 
-The first time a soul repository is created, GitHub asks you to install the **Quetzal** app and to choose which repositories it can manage.
+The first time a soul repository is created, GitHub asks you to install the **Quetzal** app and to choose which repositories it can manage. It only saves you two steps, creating the repository and adding deploy keys; if you would rather not install it, you can do both yourself, see [You can do every step yourself](#you-can-do-every-step-yourself) below.
 
 - **Its permission**: write access to "Administration" on the repositories you chose. Under GitHub's rules, this permission can create repositories, add deploy keys, change repository settings and delete those repositories. It cannot read the files in them.
 - **Quetzal uses it for two things**: it creates a private repository for a new user who has none, and it adds a deploy key for each new device that belongs to that device alone.
@@ -33,10 +33,13 @@ Quetzal commits whatever the agent writes into memory as it is, with no filterin
 
 So do not let the agent write passwords into its notes. When you need to give it a password, it starts a **secret input**. What you type goes straight into the vault on this device and never enters the conversation, the model or the repository. See [Passing secrets](/docs/guide/secrets).
 
-### Skipping the official sync service
+### You can do every step yourself
 
+Signing in, creating the repository automatically and the sync service exist to do a few steps for people who would rather not set things up. You can take over any of these steps at any time, without us:
+
+- **Create the soul repository yourself**: make a private repository on GitHub, Gitee, GitLab or your own git server, and add the public key your device shows as a deploy key. No GitHub app needed; see [Soul sync](/docs/guide/soul-sync#connecting-your-own-repository-by-hand).
 - **One device only**: you can use Quetzal without signing in. Skip sign-in in the setup wizard, and the agent's personality and memory stay on this device. If you want a private repository later, enter the address of a repository you created yourself under **Control → Advanced → Sync**, and add the public key shown there to the repository's deploy keys.
-- **Several devices, your own sync service**: start `sync/` from the repository with one command on a Linux server with a public address, then enter its address under **Control → Advanced → Sync**. See [sync/README](https://github.com/PlutoKeating/Project.Quetzal/blob/main/sync/README.md).
+- **Several devices, your own sync service**: start `sync/` from the repository with one command (`./start.sh`) on a Linux server with a public address, connect sign-in to your own identity service, and enter its address under **Control → Advanced → Sync**. Accounts, device registrations and relaying then all live on your own server. See [sync/README](https://github.com/PlutoKeating/Project.Quetzal/blob/main/sync/README.md).
 - **If someone breaks into the sync service**: they cannot pose as your devices, because devices trust only the public keys registered in the soul repository. The most they can do is keep your devices from connecting, and memory still syncs through the soul repository.
 
 ## What it can reach
@@ -77,7 +80,7 @@ Your memory stays safe in these ways:
 
 Watch out for these:
 
-- **Your devices must run the same version to connect.** 1.0.3 changed the protocol devices use to connect, so older versions cannot connect to newer ones, and the timeline tells you "Upgrade both sides to the same version to connect". While they cannot connect, each device runs as usual, and memory still syncs through the soul repository.
+- **Your devices do not need to run the same version.** Every version since 1.0.3 uses the same connection protocol, so they can all connect; some newer cross-device features work only once both sides run a version that supports them. Only a change to the connection protocol would require upgrading together; that version's release notes would say so, and a device that cannot connect shows "Upgrade both sides to the latest version to connect" in its timeline. While devices cannot connect, each runs as usual, and memory still syncs through the soul repository.
 - **Conversation history lives only on the device.** Conversations and the timeline sit in the device's database and never enter the soul repository. Uninstalling the app deletes them.
 - **The environment inside the app** (Node.js, git, ssh, proot) is compiled from source using public recipes with pinned versions, kept in the repository. The maintainer compiled the current build on their own computer, tested it on real phones, signed it and uploaded it. When a recipe changes, the release pipeline compiles it again from source on GitHub.
 
