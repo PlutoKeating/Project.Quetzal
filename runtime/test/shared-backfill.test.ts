@@ -22,12 +22,14 @@ test("有内容、没有修订号的分区补上修订号；空的与缺省的�
   cfg.config.sharedRev = {};
   fs.writeFileSync(path.join(cfg.paths.config, "quetzal.json"), JSON.stringify(cfg.config, null, 2));
   const t = fs.statSync(path.join(cfg.paths.config, "providers.json")).mtimeMs;
-  const names = backfillRevs();
+  const before0 = Date.now(), names = backfillRevs(), after0 = Date.now();
   assert.ok(names.includes("providers"));
   assert.ok(names.includes("budget"));
   assert.ok(!names.includes("speechKey"), "没有语音密钥");
   assert.ok(!names.includes("permissions"), "与缺省相同");
-  assert.equal(cfg.config.sharedRev.providers, Math.floor(t), "取数据文件的修改时刻");
+  // 取数据文件的修改时刻，但不晚于现在（有的系统上文件时间戳与 Date.now() 来自不同的时钟，刚写的文件可能比「现在」晚几毫秒）
+  const rev = cfg.config.sharedRev.providers!;
+  assert.ok(rev === Math.floor(t) || (Math.floor(t) > before0 && rev >= before0 && rev <= after0), `修订号 ${rev}，文件修改时刻 ${Math.floor(t)}`);
   // 再跑一次不变
   const before = { ...cfg.config.sharedRev };
   assert.deepEqual(backfillRevs(), []);
