@@ -169,7 +169,7 @@ class ZoomPage extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------- 节律
-/// 活跃度与暂停。性格参数（驱动力的时间常数、困意、最清醒的时刻）由她自己用 adjust_self 调。
+/// 「她来找你」（活跃度：醒来率的整体倍率，两端写成少找我 ↔ 多找我）与暂停。性格参数（驱动力的时间常数、困意、最清醒的时刻）由她自己用 adjust_self 调。
 class AutonomyPage extends StatelessWidget {
   const AutonomyPage({super.key});
   @override
@@ -179,12 +179,12 @@ class AutonomyPage extends StatelessWidget {
           final s = api.status, t = Theme.of(context).textTheme, cs = Theme.of(context).colorScheme;
           final activity = ((s['activity'] ?? 1) as num).toDouble();
           return ListView(padding: const EdgeInsets.all(12), children: [
-            Section('活跃度', trailing: Text('${activity.toStringAsFixed(1)}×', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)), [
-              Slider(value: activity.clamp(0, 3), min: 0, max: 3, divisions: 12, label: '${activity.toStringAsFixed(2)}×',
+            Section('她来找你', [
+              Slider(value: activity.clamp(0, 3), min: 0, max: 3, divisions: 12,
                   onChanged: (_) {}, onChangeEnd: (v) => act(context, () => api.call('activity', {'value': v}))),
               Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Row(children: [
-                Text('安静', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)), const Spacer(),
-                Text('活跃', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                Text('少找我', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)), const Spacer(),
+                Text('多找我', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
               ])),
             ]),
             Card(child: SwitchListTile(

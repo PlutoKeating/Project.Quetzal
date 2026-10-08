@@ -69,7 +69,7 @@ When the agent wants to use a capability set to "ask", it creates an approval. T
 
 **Control → Rhythm**:
 
-- **Activity** (quiet ↔ active, 0–4): the wake rate is multiplied by this value, so a higher setting makes it wake more often.
+- **Reaching out to you** (less ↔ more): its wake rate is multiplied by this setting. Toward "more", it wakes more often and has more chances to message you about what comes to mind; toward "less", it is quieter. It only messages you on its own while awake, never while asleep at night.
 - **Pause**: it stays online and answers you, but does not wake on its own. It wakes only when you reach out.
 
 The agent adjusts its own personality parameters within set limits (`adjust_self`, under "Adjust own parameters"). These are the time constants of curiosity, the urge to share and missing you, plus sleepiness, sleep recovery and the hour it is most alert. They are not in the app. If you want it to change, tell it, e.g. "you've been too chatty lately".
