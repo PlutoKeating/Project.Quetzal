@@ -51,6 +51,7 @@ interface BodyAdapter {
   quit?(): Promise<void>;                                // 退出（桌面托盘的「退出」）：这一次停掉后台服务
   upgrade?(version?: string): Promise<string>;           // 从控制台升级：后台重跑安装
   upgradeStatus?(): { running: boolean; exitCode?: number; step?: string /* … */ };  // 最近一次升级的状态
+  deviceId?(): Promise<string | undefined>;              // 设备自身稳定的标识：核心只用它的哈希派生身体 uuid，原始值不外露
 }
 ```
 
@@ -67,6 +68,7 @@ interface BodyAdapter {
 - 适配器**只能 `import type`** 接口文件的类型，不得依赖核心的其他实现。
 - `tools[].permission` 必须是闸门已知的能力类别，否则按「允许」处理。
 - `notify` 是配对码与主动消息的本地出口；没有它，配对码只能从 `secrets/gateway.token` 读。
+- `deviceId()` 返回的是敏感信息：适配器自己也不得写进日志或工具结果；取不到就返回 `undefined`（运行基座随机生成 uuid）。见[多具身体 · 身体的 uuid](/docs/guide/multi-body)。
 
 ## 采样如何使用
 
@@ -86,6 +88,7 @@ Quetzal App 内置运行基座时用它。身体能力由 App 自己的原生代
 | 工具 | `take_photo`（Camera2 无预览拍照）、`record_audio`（系统录音）、`location`（网络定位；给了精确定位时加 GPS；都定不到时返回最近一次已知位置并说明是多久以前的）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device） |
 | 守护 | App 前台服务的开关：开机与 App 升级后自启、退出后重启（`kind: loop`） |
 | 文件路径 | 拍照、录音的输出与播放的输入都只能在 `QUETZAL_HOME` 之内 |
+| 设备标识 `deviceId()` | `Settings.Secure.ANDROID_ID`（身体接口 `GET /v1/device-id`）；恢复出厂设置、App 换签名会变 |
 
 相机、麦克风、定位需要用户在 App 里授予系统权限（安装向导第二步）；没授权时工具报错，ta 会请你去允许。它也是**平台级**适配器：适用于任意安卓手机，能力全部靠探测。
 
@@ -101,6 +104,7 @@ Quetzal App 内置运行基座时用它。身体能力由 App 自己的原生代
 | 工具 | `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device） |
 | `speak` | 不提供（很多手机没有系统 TTS）；说话由运行基座的 `voice_speak` 完成 |
 | 媒体位置 | `QUETZAL_HOME/data/media/` |
+| 设备标识 `deviceId()` | 尽力 `settings get secure android_id`，多数手机上 Termux 没有权限，取不到 |
 
 它是**平台级**适配器：适用于任意安卓手机 + Termux:API，能力全部靠探测，不含任何具体机型的实现。
 
@@ -119,6 +123,7 @@ Quetzal App 内置运行基座时用它。身体能力由 App 自己的原生代
 | 守护开关 `supervision` | systemd 用户服务 `quetzal.service`（关 = `systemctl --user disable` + 覆盖片段 `quetzal.service.d/quetzal-off.conf` 写 `Restart=no`，daemon-reload 后立即生效）；没有 systemd 时是一键安装脚本的守护循环 `~/.quetzal/bin/quetzal-supervise`（关 = 标志文件 `state/supervise.off` 让循环暂停拉起 + 删 crontab `@reboot` 与桌面自启动项）；两者都没有（手动部署）则 `available=false` |
 | `speak` | 不提供；说话由运行基座的 `voice_speak` 完成 |
 | 媒体位置 | `QUETZAL_HOME/data/media/` |
+| 设备标识 `deviceId()` | `/etc/machine-id`，没有时 `/var/lib/dbus/machine-id`；重装系统会变 |
 
 在没有图形界面的服务器上，截图、剪贴板、打开网址这些工具直接回复「这台电脑没有图形界面」，不报错。
 
@@ -139,5 +144,6 @@ Windows 安装包与 `install.ps1` 装的就是它（见 [Windows](/docs/advance
 | 守护开关 `supervision` | 计划任务 `\Quetzal\Runtime-Boot` / `Runtime-Logon`（`kind: task`）；关 = 标志文件 `state\supervise.off` 让守护进程停止拉起，并尝试禁用这两个任务；没有安装器注册的任务时 `available=false` |
 | `speak` | 不提供；说话由运行基座的 `voice_speak` 完成 |
 | 媒体位置 | `QUETZAL_HOME\data\media\` |
+| 设备标识 `deviceId()` | 注册表 `HKLM\SOFTWARE\Microsoft\Cryptography` 的 `MachineGuid`（`reg.exe query`）；重装 Windows 会变 |
 
 写一个新适配器见 [自定义身体适配器](/docs/advanced/custom-adapter)。

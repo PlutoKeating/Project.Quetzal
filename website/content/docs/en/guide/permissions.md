@@ -34,7 +34,7 @@ flowchart TB
 | Screen and apps | **ask** | Reserved (hands) |
 | Request secrets | allow | `pass_secret`, see [Passing secrets](/docs/guide/secrets) |
 | Sessions and subagents | allow | Start a new session, send a subagent to do a job |
-| Cross-body actions | allow | Use another device's camera or shell (`body_call`), move to another device to continue (`move_to`), view an image on another device (`view_image` with a body name) |
+| Cross-body actions | allow | Use another device's camera or shell (`body_call`), move to another device to continue (`move_to`), view an image, read a document or fetch a file for a command from another device by its uuid (`view_image` / `read_document` / `shell` with `body`; the device handing out the file also checks its own "run commands" category) |
 | Build tools | **ask** | Write something it does often into its own tool (`tool_write`) |
 
 Each category has three levels, **allow / ask / deny**, which you set one by one under **Control → Permissions**. When a tool belongs to several categories, the strictest one applies.

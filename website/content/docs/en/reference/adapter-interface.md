@@ -51,6 +51,7 @@ interface BodyAdapter {
   quit?(): Promise<void>;                                // quit (the desktop tray's Quit): stop the background service this time
   upgrade?(version?: string): Promise<string>;           // upgrade from the console: rerun the installer in the background
   upgradeStatus?(): { running: boolean; exitCode?: number; step?: string /* … */ };  // state of the latest upgrade
+  deviceId?(): Promise<string | undefined>;              // the device's own stable identifier; the core only uses its hash to derive the body uuid, the raw value never leaves
 }
 ```
 
@@ -67,6 +68,7 @@ interface BodyAdapter {
 - An adapter may **only `import type`** from the interface file and must not depend on any other part of the core.
 - `tools[].permission` must be a category the guard knows; otherwise it is treated as "allow".
 - `notify` is the local outlet for pairing codes and proactive messages; without it the pairing code can only be read from `secrets/gateway.token`.
+- `deviceId()` returns sensitive data: the adapter itself must not write it to logs or tool results either; return `undefined` when it is unavailable (the runtime then generates a random uuid). See [Multiple bodies · Body uuid](/docs/guide/multi-body).
 
 ## How samples are used
 
@@ -86,6 +88,7 @@ Used when the Quetzal app runs the built-in runtime: the body abilities come fro
 | Tools | `take_photo` (Camera2 capture without preview), `record_audio` (system recorder), `location` (network location; GPS too when precise location is granted; when neither gets a fix, the last known location with how long ago it was), `vibrate` / `torch` / `clipboard` / `read_sensor` (device) |
 | Supervision | The app foreground service's switch: start at boot and after app updates, restart after exit (`kind: loop`) |
 | File paths | Photo and recording output and playback input must stay inside `QUETZAL_HOME` |
+| Device identifier `deviceId()` | `Settings.Secure.ANDROID_ID` (body interface `GET /v1/device-id`); changes after a factory reset or if the App's signing key changes |
 
 Camera, microphone and location need the system permissions granted in the app (step two of the setup wizard). Without them the tools report an error and the agent asks you to allow them. Like the others, it is a **platform** adapter: it works on any Android phone and detects everything at run time.
 
@@ -101,6 +104,7 @@ Used by installs made the Termux way in 1.0.x and kept for them; new installs us
 | Tools | `take_photo` (camera), `record_audio` (microphone), `location` (location), `vibrate` / `torch` / `clipboard` / `read_sensor` (device) |
 | `speak` | Not provided (many phones lack a system TTS); speech comes from the runtime's `voice_speak` |
 | Media location | `QUETZAL_HOME/data/media/` |
+| Device identifier `deviceId()` | tries `settings get secure android_id`; on most phones Termux is not allowed to read it |
 
 It is a **platform** adapter: it works on any Android phone with Termux:API, detects everything at run time, and contains no code for a specific device.
 
@@ -119,6 +123,7 @@ Installed by the npm package `@plutokeating/quetzal` (`npx @plutokeating/quetzal
 | Supervision switch `supervision` | The systemd user service `quetzal.service` (off = `systemctl --user disable` + a drop-in `quetzal.service.d/quetzal-off.conf` with `Restart=no`, effective right after daemon-reload); without systemd, the one-line installer's supervisor loop `~/.quetzal/bin/quetzal-supervise` (off = the flag file `state/supervise.off`, which pauses the loop, + removing the crontab `@reboot` line and the desktop autostart entry); with neither (manual deployment) `available=false` |
 | `speak` | Not provided; speech comes from the runtime's `voice_speak` |
 | Media location | `QUETZAL_HOME/data/media/` |
+| Device identifier `deviceId()` | `/etc/machine-id`, or `/var/lib/dbus/machine-id`; changes when the OS is reinstalled |
 
 On a headless server the screenshot, clipboard and open tools report that the machine has no graphical session.
 
@@ -139,5 +144,6 @@ The runtime started at boot runs in session 0 and cannot see the desktop. Deskto
 | Supervision switch `supervision` | Scheduled tasks `\Quetzal\Runtime-Boot` and `\Quetzal\Runtime-Logon`, both running `windows-supervise.mjs` (off = the flag file `state\supervise.off` plus an attempt to disable both tasks) |
 | `speak` | Not provided; speech comes from the runtime's `voice_speak` |
 | Media location | `QUETZAL_HOME\data\media\` |
+| Device identifier `deviceId()` | registry `HKLM\SOFTWARE\Microsoft\Cryptography` `MachineGuid` (`reg.exe query`); changes when Windows is reinstalled |
 
 To write a new adapter, see [Custom body adapter](/docs/advanced/custom-adapter).

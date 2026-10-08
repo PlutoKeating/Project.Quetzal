@@ -14,9 +14,11 @@ data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
 data/uploads/<日期>/      对话附件
 data/media/              ta 拍的照片、录音（安卓适配器）
+data/from-bodies/<身体>/  多具身体时从别的身体取来的文件（工具带 body 时，见多具身体）
 data/runtime.log         安卓 App 内置时：运行基座与 App 服务的日志（超过 4 MB 轮转一次）
 soul/                    灵魂目录（git 仓库）
 state/starts.json        启动记录（熔断用）
+state/body-uuid          这具身体的 uuid（绑定到设备，只存哈希派生的值；见多具身体）
 STOP                     急停标志：存在即冻结一切行动
 ```
 

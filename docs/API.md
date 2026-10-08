@@ -261,6 +261,7 @@ interface BodyAdapter {
   hands?: Hands;                           // 预留：看屏幕与操作其他应用
   supervision?: { status(): Promise<SupervisionState>; set(enabled: boolean): Promise<void> }; // 守护开关：开机自启 + 退出后自动重启；SupervisionState = {available, enabled, kind, detail}
   upgrade?(): Promise<string>;             // 从控制台升级：后台重跑安装，立即返回一句说明（Linux 适配器有；安卓由 App 升级）
+  deviceId?(): Promise<string | undefined>; // 设备自身稳定的标识（取不到为 undefined）：核心只用它的哈希派生身体 uuid（body/uuid.ts），原始值不进日志、审计、灵魂仓库与网状层
 }
 interface RawSample {
   battery?: { level: number; charging: boolean; tempC?: number; health?: string };
@@ -275,9 +276,10 @@ interface RawSample {
 
 - 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带几个平台级实现：`runtime/adapters/android/`（任意安卓手机）构建为 `dist/android.mjs`，随 Quetzal App 内置；`runtime/adapters/termux/`（旧的 Termux 安装：安卓手机 + Termux:API）构建为 `dist/termux.mjs`；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `@plutokeating/quetzal` 随运行基座放到 `~/quetzal/current/`；
 - 适配器从 `QUETZAL_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
-- 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理。
+- 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理；
+- `deviceId()` 返回的是敏感信息：适配器自己也不得写进日志或工具结果。各平台实现：Linux `/etc/machine-id`（退回 `/var/lib/dbus/machine-id`）、Windows 注册表 `HKLM\SOFTWARE\Microsoft\Cryptography` 的 `MachineGuid`、安卓 App 身体接口的 `GET /v1/device-id`、Termux 尽力用 `settings get secure android_id`（多数手机上没有权限，取不到）。
 
-安卓适配器经 Quetzal App 的**身体接口**取得身体能力：App 在 127.0.0.1 的随机端口提供 HTTP/1.1 接口（`Authorization: Bearer <令牌>`，令牌 256 位、每次启动重新生成），端口与令牌写在 `QUETZAL_HOME/secrets/body.json`（`{port, token}`，0600）。接口：`GET /v1/info`（机型、光线与加速度传感器名、有没有相机与闪光灯）、`GET /v1/sample`（`battery {level, charging, tempC, health}`、`plugged`、`lux`、`motion`、`screenOn`）、`GET /v1/sensors`、`POST /v1/sensor {name}` → `{values}`、`POST /v1/notify {title, text}`、`POST /v1/play {file}`、`POST /v1/stop`、`POST /v1/vibrate {ms}`、`POST /v1/torch {on}`、`POST /v1/clipboard {text?}` → `{text}`、`POST /v1/location` → `{latitude, longitude, accuracy, ageMinutes}`（定不到新位置时为最近一次已知位置）、`POST /v1/photo {camera, file}`、`POST /v1/record {seconds, file}`、`GET/POST /v1/supervision {enabled}`。成功 `{ok: true, …}`，失败 `{ok: false, error}`；文件路径必须在 `QUETZAL_HOME` 之内；请求体最大 64 KiB。工具与 Termux 适配器同名同参数。
+安卓适配器经 Quetzal App 的**身体接口**取得身体能力：App 在 127.0.0.1 的随机端口提供 HTTP/1.1 接口（`Authorization: Bearer <令牌>`，令牌 256 位、每次启动重新生成），端口与令牌写在 `QUETZAL_HOME/secrets/body.json`（`{port, token}`，0600）。接口：`GET /v1/info`（机型、光线与加速度传感器名、有没有相机与闪光灯）、`GET /v1/sample`（`battery {level, charging, tempC, health}`、`plugged`、`lux`、`motion`、`screenOn`）、`GET /v1/sensors`、`POST /v1/sensor {name}` → `{values}`、`POST /v1/notify {title, text}`、`POST /v1/play {file}`、`POST /v1/stop`、`POST /v1/vibrate {ms}`、`POST /v1/torch {on}`、`POST /v1/clipboard {text?}` → `{text}`、`POST /v1/location` → `{latitude, longitude, accuracy, ageMinutes}`（定不到新位置时为最近一次已知位置）、`POST /v1/photo {camera, file}`、`POST /v1/record {seconds, file}`、`GET/POST /v1/supervision {enabled}`、`GET /v1/device-id` → `{id}`（`Settings.Secure.ANDROID_ID`，只用来派生身体 uuid）。成功 `{ok: true, …}`，失败 `{ok: false, error}`；文件路径必须在 `QUETZAL_HOME` 之内；请求体最大 64 KiB。工具与 Termux 适配器同名同参数。
 
 Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Quetzal」按钮）、`playAudio()` / `stopAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`QUETZAL_HOME`（媒体保存位置 `data/media/`）、`QUETZAL_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.quetzal.console/.MainActivity`）。
 

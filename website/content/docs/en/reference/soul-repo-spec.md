@@ -1,11 +1,11 @@
 ---
 title: Soul repository spec
-description: A summary of the soul repository specification (v13): directory tree, file formats, merge rules, commit conventions and authentication.
+description: A summary of the soul repository specification (v14): directory tree, file formats, merge rules, commit conventions and authentication.
 ---
 
 ## Scope
 
-This page summarizes the [Soul Repository Specification v13](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
+This page summarizes the [Soul Repository Specification v14](https://github.com/PlutoKeating/Project.Quetzal/blob/main/docs/SOUL_REPO_SPEC.md). Every implementation that reads or writes a soul repository (the runtime, soul-bridge, and future ones) must follow it. The repository is the agent's own **private** repository and its contents are never inspected.
 
 ## Repository
 
@@ -42,7 +42,7 @@ Extra top-level entries **may** appear (things it put there itself); implementat
 | `memories/*.md` | Entries separated by `\n§\n`, file ends with `\n`; **no character limit**; truncated when written to a framework with a limit, and the truncation is never written back |
 | `journal/<body>/…` | First line `# <date> · <body>`, sections `## <HH:MM> <title>`, append-only; each body writes only its own directory |
 | `notes/…` | First line `# <topic>`, optional `> ` summary line; path segments stripped of illegal characters, max 60 chars, max 4 levels; no index files committed |
-| `bodies/<body>.json` | `{body, kind: runtime｜bridge, runtime/framework/bridge version, host?, meshKey?, lastSeen}`; `meshKey` is the body's node public key for the mesh (v8; other bodies verify it against this entry); `lastSeen` is updated when the content changes or after an hour; **no** IP, MAC or serial numbers |
+| `bodies/<body>.json` | `{body, kind: runtime｜bridge, runtime/framework/bridge version, host?, meshKey?, uuid?, lastSeen}`; `meshKey` is the body's node public key for the mesh (v8; other bodies verify it against this entry); `uuid` is the body's device-bound uuid (v14; derived from a hash of the device identifier, never the raw identifier; a uuid registered for several bodies is refused); `lastSeen` is updated when the content changes or after an hour; **no** IP, MAC or serial numbers |
 | `locks/consolidation.json` | `{body, until}`, valid 30 minutes; a successful push acquires it |
 
 ## Merge rules
@@ -78,6 +78,7 @@ The agent may have changed the soul directory, so implementations treat everythi
 
 ## Version history
 
+- v14 adds the optional `uuid` to the body registry (tied to the device; tools use it to name a body).
 - v13 requires every path in the repository to fit on every kind of body (no Windows reserved names, no trailing dot or space, no two paths differing only in case), and a Windows body keeps syncing past paths that do not fit but does not write them to disk.
 - v12 accepts a history that a body created locally when it joined, as long as it contains only soul repository content, and no longer pushes such a local history.
 - v11 drops the pre-commit secret check, so content is not inspected at all.

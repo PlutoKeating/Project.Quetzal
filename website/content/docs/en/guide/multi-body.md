@@ -12,7 +12,7 @@ description: Join several phones and computers into one agent with one conversat
 | One conversation | Sessions, conversations and the flow are the same on every body. Start a topic on the phone and keep reading it in the computer's console. Replies given on another body are marked "on X" |
 | One heart | Only one body (the coordinator) decides when the agent wakes. What the other bodies sense (picked up, plugged in…) is passed to it |
 | It chooses where | On waking, the agent sees each body's battery, temperature and current work and where you last talked, and picks one body (or several at once) to think or dream on |
-| Using another body | While thinking on the computer it can take a photo with the phone or run a command on the server (`body_call`), or move the whole turn to another body (`move_to`). A photo taken on the phone can be viewed from the computer (`view_image` with the body name; only images can be fetched this way) |
+| Using another body | While thinking on the computer it can take a photo with the phone or run a command on the server (`body_call`), or move the whole turn to another body (`move_to`). Photos, recordings and files made on the phone can be used on the computer too: when viewing an image, reading a document or running a command, the agent adds that body's uuid and the runtime fetches the file first (see "Using files on another body" below) |
 | One set of settings | Change models and keys, permissions, budget (a daily total), hearing and voice, or the emergency stop on one body, and it changes on all of them |
 | One thought to share | The thought shown on the home page is the same on every body. When the agent changes it on one body, the others follow; a body that was offline catches up when it connects |
 
@@ -55,6 +55,32 @@ flowchart LR
 - **Hearing**: when several phones hear the same sentence, only one copy is kept. When the agent answers aloud, it speaks from the phone you talked to.
 - **Where you said it**: the agent sees which body your message came in through: the body your console is connected to, the body that receives Feishu, or the phone whose ears heard you. With a single body this is left out.
 - **Hermes / OpenClaw**: a body with the [soul bridge](https://github.com/PlutoKeating/Project.Quetzal/blob/main/bridge/skills/soul-bridge/SKILL.md) can join as a **read-only member**. Give the sync service address to the agent there, and it hands you a link and a binding code. That body can see what the agent is doing on which body and the recent conversations. It cannot act on other bodies and is never chosen to think or dream.
+
+## Using files on another body
+
+Files belong to the body they are on: a photo taken on the phone has no path on the computer. On the computer, the agent can add `body` to `view_image` (look at an image), `read_document` (read a document) and `shell` (run a command), writing the path as it is on the phone. The runtime fetches the file over the encrypted link between the bodies into the computer's `data/from-bodies/<body name>/` and hands it to the tool. `shell` takes the files to fetch in `files` and still runs the command on the computer; to run a command on the phone, use `body_call`.
+
+- The phone decides with its own permissions (the "run commands" category) and refuses during an emergency stop. It never hands out the secrets directory or the vault (a symlink pointing into them does not work either), only regular files, up to 64 MB.
+- The computer checks the "cross-body actions" category. A fetched file is kept only if its size and sha256 match; a file with the same name but different content gets a new name instead of overwriting.
+- Both sides write an audit entry (path, size, result; never the content).
+- If the other body still runs 1.6.0, the agent is told that body needs an upgrade.
+
+### Body uuid
+
+`body` takes the other body's uuid, not its name. The system prompt lists the uuid of every online body, and paths returned by device tools end with "these files are on body X (body: …)".
+
+The uuid is tied to the device. The runtime derives it from the device's own identifier (only a hash is used; the raw identifier never leaves the device and is not written to logs or the soul repository), stores it in `state/body-uuid` the first time, and uses that file from then on. If the home directory is gone (Quetzal reinstalled), the same identifier gives the same uuid again. Whether it survives a reinstall depends on the platform:
+
+| Platform | Device identifier | Reinstall Quetzal | Factory reset / reinstall the OS |
+|---|---|---|---|
+| Linux | `/etc/machine-id` (or `/var/lib/dbus/machine-id`) | unchanged | changes when the OS is reinstalled; cloned system images may share the original machine's id |
+| Windows | registry `MachineGuid` | unchanged | changes when Windows is reinstalled |
+| Android (Quetzal App) | `ANDROID_ID` | unchanged | changes after a factory reset, or if the App's signing key changes |
+| Android (Termux) | tries `ANDROID_ID`; most phones do not allow it | changes if it could not be read | changes |
+
+If no device identifier is available, the runtime generates a random uuid, which stays the same only as long as the home directory exists.
+
+Each body registers its uuid in the soul repository's body registry. When resolving `body`, other bodies go by the registry and check that the body reports the same uuid itself; a mismatch is refused. **If two bodies are registered with the same uuid** (for example the App and Termux both running a runtime on the same phone, which derive the same value), the runtime refuses that uuid and says why, without picking one for you. To fix it, keep only one runtime, or on one of the bodies replace `QUETZAL_HOME/state/body-uuid` with a new random UUID (for example `cat /proc/sys/kernel/random/uuid`) and restart; that body keeps the new value from then on.
 
 ## When disconnected
 
