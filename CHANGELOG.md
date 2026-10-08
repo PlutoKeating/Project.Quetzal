@@ -2,6 +2,28 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.6.0
+
+- **真实环境**：ta 需要用你在电脑上登录过的东西（比如 `gh`）时，可以写明理由请求进入「真实环境」，App 弹出请求，App 在后台时发通知。你同意后，这个对话里 ta 的命令不经隔离环境、直接在这台机器上运行，顶部一直亮着红色提示条，你随时可以退出；你也可以在对话标题栏的盾牌图标里自己打开。30 分钟没有命令、急停、重启后都回到隔离环境。在真实环境里，ta 能读写你能读写的一切。
+- 多具身体时，ta 知道你的话是经哪具身体发来的；在一部手机上拍的照片，ta 在别的身体上也能看（`view_image` 带上身体名，只能取图片）。
+- 首页上「想分享的一句话」在所有身体上是同一句：在哪具身体上更新，别的身体跟着换，当时离线的连上后补上。
+- ta 醒来时主动发的消息不再全部堆在「主动消息」里：可以接着某个已有的会话说，也可以开新会话；没指定时一次醒来开一个新会话。
+- 几个会话同时进行时：同步灵魂仓库的过程中写下的记忆不会再被覆盖掉；新增「认领」，ta 做开 issue、发消息这类对外的事之前先认领，别的会话（包括别的身体上的）看到有人认领就先不做。
+- 修复一处回复重复：最后一步没写出文字时，不再把这一轮中途说过的话当作回复再贴一遍。
+- 桌面版可以调界面字号：Ctrl + = / Ctrl + - 放大缩小，Ctrl + 0 还原，也可以在「控制 · 高级 · 字号」里调。
+- 对话气泡里的文字可以选中、全选、复制；手机上长按选择。
+- 截图和文件可以直接粘贴（Ctrl+V）或拖进对话，自动成为附件。
+
+- **Real environment**: when the agent needs something you signed in to on the computer (such as `gh`), it can ask, with a reason, to enter the "real environment"; the app shows the request, and sends a notification when it is in the background. Once you agree, its commands in that chat run directly on the machine instead of in the sandbox, a red bar stays at the top, and you can leave at any time; you can also turn it on yourself from the shield icon in the chat title bar. Thirty minutes without a command, an emergency stop or a restart returns it to the sandbox. In the real environment the agent can read and write everything you can.
+- With several bodies, the agent knows which body your message came in through, and a photo taken on one phone can be viewed from another body (`view_image` with the body name; only images can be fetched this way).
+- The thought shown on the home page is the same on every body: an update on one body reaches the others, and a body that was offline catches up when it reconnects.
+- Messages the agent sends after waking on its own no longer all pile up in "Proactive messages": it can continue an existing conversation or start a new one, and by default each wake gets its own conversation.
+- With several conversations running at once, memory written while the soul repository is being synced is no longer overwritten. New "claims": before an outside task such as opening an issue, the agent claims it, and other conversations (on any body) see the claim and hold off.
+- Fixed a duplicated reply: when the last step produces no text, something said earlier in the turn is no longer reused as the reply.
+- The desktop app has an adjustable font size: Ctrl + = / Ctrl + - to change it, Ctrl + 0 to reset, or Control › Advanced › Font size.
+- Text in chat bubbles can be selected, select-all'd and copied; on phones, long-press to select.
+- Paste a screenshot or file with Ctrl+V, or drag files into the chat, and they are added as attachments.
+
 ## 1.5.5
 
 - Windows：ta 的命令在有人登录后能真正运行了（1.5.4 里沙箱用户读不到装在你用户目录里的沙箱程序，命令一律不执行）。安装时把沙箱程序放到 `C:\Program Files\Quetzal`，只有管理员能改。已装 1.5.4 的电脑升级（或重新运行安装）时会补上，需要再点一次管理员权限。
