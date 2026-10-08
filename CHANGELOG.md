@@ -2,6 +2,18 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.9.1
+
+- 还在推进的工作不会再被一到点就打断：命令、自造工具一直有输出就一直等；模型还在输出的长回答不再限 15 分钟；跨身体的请求（转过去的对话、在另一具身体上醒来、调用另一具身体的工具、补齐对话）只要对方还在处理就一直等；灵魂仓库的克隆、拉取、推送还在传就不中断；说了很长一句话，识别还在进行就一直等结果。只有真的没有动静时才算超时。命令的 `timeout` 现在是「多少秒没有任何输出就结束」。
+- 修了几具身体之间经中转时连不上、或连上后一分钟左右就断的问题：同步服务的中转服务器整台同时只能分出 4 个中转地址，而且身体关掉的连接要等很久才释放名额。现在不再按带宽预留名额，每具身体能用 16 个；这部分在服务器上改，已经生效。
+- 做梦整理记忆超过 30 分钟时，整理租约会自动续上，别的身体不会同时开始整理。
+- 从控制台升级时，升级日志还在更新就不会被判成「卡住了」。
+
+- Work that is still making progress is no longer cut off when a fixed time runs out. Commands and custom tools keep running as long as they produce output. A long answer that the model is still streaming is no longer capped at 15 minutes. Requests to another body (a forwarded chat, a wake-up on another body, calling another body's tool, catching up the conversation) keep waiting while that body is still working. Cloning, pulling and pushing the soul repository continue while data is still moving. A long spoken sentence keeps waiting for its result while recognition is still running. A timeout now only happens when nothing has happened for a while. A command's `timeout` now means "end it after this many seconds without any output".
+- Fixed bodies failing to connect through the relay, or dropping about a minute after connecting. The sync service's relay server could hand out only 4 relay addresses at a time across the whole server, and connections a body had closed took a long time to give their slot back. Slots are no longer reserved by bandwidth, and each body can use 16. This was changed on the server and is already in effect.
+- When consolidating memory while dreaming takes more than 30 minutes, the consolidation lease is renewed automatically, so another body does not start consolidating at the same time.
+- An upgrade started from the console is no longer reported as stuck while its log is still being updated.
+
 ## 1.9.0
 
 - ta 在对话里做事时，输入框是空的，发送键就是停止键：按下就停止这一轮，正在跑的命令一起结束。电脑上也可以连按两次 Esc（第一次按下时会提示）。只停这个对话里的这一轮。
