@@ -26,6 +26,7 @@ const { wake } = await import("../../src/mind/brain.ts");
 const { liveTurns } = await import("../../src/mind/activity.ts");
 const { converse } = await import("../../src/mind/brain.ts");
 const reg = await import("../../src/providers/registry.ts");
+const mem = await import("../../src/memory/memory.ts");
 const http = await import("node:http");
 
 // 模拟的模型：回复里带上身体名（看得出是哪具身体在回答），可以设置延迟（制造「正在进行的一轮」）
@@ -98,6 +99,8 @@ const cmds: Record<string, (a: any) => unknown> = {
   decide: (a) => decideAnywhere(a.id, a.approve, "测试控制台"),
   addUsage: (a) => { store.addUsage(a.model ?? "m", a.input ?? 0, a.output ?? 0, a.cost ?? 0); return true; },
   usageToday: () => store.usageToday(),
+  setThought: (a) => mem.setThought(a.text),
+  thought: () => mem.thought(),
   heard: (a) => meshHeard(a.text, a.conv, a.at),
   earOf: (a) => earOf(a.conv) ?? null,
   llmScript: (a) => { llmScript.push(...a.messages); return true; },

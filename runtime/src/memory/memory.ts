@@ -222,13 +222,34 @@ export function addLoop(text: string) { const l = openLoops(); l.push({ id: Math
 export function closeLoop(id: string) { const l = openLoops().filter((x) => x.id !== id); kv.set("openLoops", l); return l.length; }
 
 // ---------- 想分享的一句话：她此刻正在想、并且乐于和对方分享的一句话或一个议题（控制台首页与飞书「此刻」卡片持续展示）
+// 属于心智（DISTRIBUTED.md §2.1）：多具身体时经网状层全网共用（mesh/shared.ts 的 thought 分区），按写下的时刻后写胜（mergeThought）。
 import { bus } from "../bus.ts";
 export interface Thought { text: string; ts: number }
+const THOUGHT_MAX = 120;
+const cleanThought = (text: string) => text.replace(/[\p{Cc}\p{Cf}]+/gu, " ").trim().replace(/\s+/g, " ").slice(0, THOUGHT_MAX);
 export const thought = (): Thought | null => kv.get<Thought | null>("thought", null);
 export function setThought(text: string): string {
-  const t = text.trim().replace(/\s+/g, " ").slice(0, 120);
+  const t = cleanThought(String(text ?? ""));
   if (!t) return "内容为空，没有更新";
   kv.set("thought", { text: t, ts: Date.now() });
   bus.emit("state");
+  bus.emit("shared", ["thought"]); // 多具身体时网状层广播给其他身体
   return `已更新，对方的首页会显示：「${t}」`;
+}
+
+/**
+ * 采用别处的「想分享的一句话」：写下的时刻较新的生效（相同时刻按文字比较，保证各身体收敛到同一句）。
+ * 别处来的先检查：文字按本机同样的规则清理、不能为空，时刻是有限的正数且不晚于「现在 + 5 分钟」。返回是否有变化。
+ */
+export function mergeThought(theirs: unknown): boolean {
+  if (!theirs || typeof theirs !== "object") return false;
+  const { text, ts } = theirs as { text?: unknown; ts?: unknown };
+  if (typeof text !== "string" || typeof ts !== "number" || !Number.isFinite(ts) || ts <= 0 || ts > Date.now() + 5 * 60_000) return false;
+  const t = cleanThought(text);
+  if (!t) return false;
+  const mine = thought();
+  if (mine && (mine.ts > ts || (mine.ts === ts && mine.text >= t))) return false;
+  kv.set("thought", { text: t, ts });
+  bus.emit("state");
+  return true;
 }
