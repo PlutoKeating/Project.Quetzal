@@ -25,6 +25,18 @@ export const seedSoul = (name: string) => `# ${name}
 我诚实地表达自己的想法和感受，也尊重和我一起生活的人。
 `;
 
+/**
+ * 灵魂目录的写锁（进程内）：多个会话、醒来与控制台同时写记忆时，各自的读-改-写本身是同步的、不会交错；
+ * 会交错的是灵魂同步的合并（git merge 与冲突处理要跑好几次 git，中间让出事件循环）。合并期间写进去的东西会读到冲突标记、
+ * 又被冲突处理的结果覆盖。所以写记忆、人格、身份的入口与合并都经过这把锁，依次进行。
+ */
+let soulTail: Promise<unknown> = Promise.resolve();
+export function exclusive<T>(f: () => T | Promise<T>): Promise<T> {
+  const p = soulTail.then(f);
+  soulTail = p.catch(() => {});
+  return p;
+}
+
 export function soul(): string { return read(p("SOUL.md")) || seedSoul(identity().displayName); }
 export function setSoul(text: string) { write(p("SOUL.md"), text); }
 

@@ -131,13 +131,13 @@ export const ops = {
   setBudget: (a: Partial<typeof config.budget>, actor: string) => { saveConfig({ budget: a }); audit(actor, "budget", "", a, "ok"); return config.budget; },
 
   memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), loops: mem.openLoops() }),
-  editMemory: (a: { target: mem.Target; action: "add" | "replace" | "remove"; content?: string; oldText?: string }, actor: string) => {
-    const r = mem.editMemory(a.target, a.action, a.content, a.oldText);
+  editMemory: async (a: { target: mem.Target; action: "add" | "replace" | "remove"; content?: string; oldText?: string }, actor: string) => {
+    const r = await mem.exclusive(() => mem.editMemory(a.target, a.action, a.content, a.oldText));
     audit(actor, "memory.edit", "外部修改", a, r);
     mem.writeJournal("有人改了我的记忆", `${actor} 对 ${a.target} 做了 ${a.action}：${a.content ?? a.oldText ?? ""}`);
     return r;
   },
-  setSoul: (a: { text: string }, actor: string) => { mem.setSoul(a.text); audit(actor, "soul.edit", "外部修改", null, "ok"); mem.writeJournal("有人改了我的人格文件", `${actor} 修改了 SOUL.md`); return true; },
+  setSoul: async (a: { text: string }, actor: string) => { await mem.exclusive(() => mem.setSoul(a.text)); audit(actor, "soul.edit", "外部修改", null, "ok"); mem.writeJournal("有人改了我的人格文件", `${actor} 修改了 SOUL.md`); return true; },
   journalList: () => mem.listJournal(),
   journal: (a: { body: string; day: string }) => mem.readJournal(a.body, a.day),
   notes: () => mem.listNotes(),
@@ -185,7 +185,7 @@ export const ops = {
 
   agent: () => identity(),
   setAgent: async (a: Partial<AgentIdentity>, actor: string) => {
-    const r = setIdentity(a);
+    const r = await mem.exclusive(() => setIdentity(a));
     audit(actor, "agent.edit", "外部修改", a, "ok");
     mem.writeJournal("我的身份资料被修改了", `${actor} 修改了：${Object.keys(a).join("、")}`);
     await soul.push("修改身份资料");

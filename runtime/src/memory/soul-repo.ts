@@ -27,6 +27,9 @@ export interface SoulRepoOptions {
   isSeedSoul?: (text: string) => boolean; // 判断 SOUL.md 是否仍是种子人格
   bodyInfo?: () => Record<string, unknown>; // 写入 bodies/<身体>.json 的额外信息
   log?: (msg: string) => void;
+  // 改动工作区的那一段（合并前的提交、git merge、冲突处理、合并提交，以及撤销）在这里面执行：调用方用它与自己写灵魂目录的地方互斥，
+  // 免得合并到一半时写进来的内容读到冲突标记、又被冲突处理的结果覆盖。不给就直接执行（桥接模块）
+  exclusive?: <T>(f: () => Promise<T>) => Promise<T>;
 }
 
 /** 私钥路径必须是绝对路径、不含控制字符（它会进入 GIT_SSH_COMMAND）。返回错误说明或 undefined。 */
@@ -444,6 +447,14 @@ export class SoulRepo {
       if (!this.known()) await this.recordRoots(["HEAD", this.ref()]);
       this.status.lastPull = Date.now(); this.status.lastError = ""; return none;
     }
+    return this.locked(() => this.mergeIn());
+  }
+
+  private locked<T>(f: () => Promise<T>): Promise<T> { return this.o.exclusive ? this.o.exclusive(f) : f(); }
+
+  /** pull 的后半段：在写锁里提交本地改动、合并远端、处理冲突。 */
+  private async mergeIn(): Promise<PullResult> {
+    const none: PullResult = { merged: false, incoming: [], resolved: [] };
     await this.commit("拉取前保存");
     const links = (await this.git("ls-tree", "-r", "-z", this.ref())).out.split("\0").filter((l) => l.startsWith("120000 ")).map((l) => l.slice(l.indexOf("\t") + 1));
     if (links.length) { this.status.lastError = `远端的灵魂仓库里有符号链接（${links.slice(0, 3).join("、")}），已拒绝合并：灵魂仓库只放普通文件（规范 §5.2）`; this.o.log?.(this.status.lastError); return none; }
@@ -555,8 +566,10 @@ export class SoulRepo {
   }
   async revert(hash: string) {
     if (!/^[0-9a-f]{7,40}$/.test(hash)) throw new Error("提交号无效");
-    const r = await this.git("revert", "--no-edit", hash);
-    if (r.code !== 0) { await this.git("revert", "--abort"); throw new Error(`无法自动撤销：${r.err.slice(0, 200)}`); }
+    await this.locked(async () => {
+      const r = await this.git("revert", "--no-edit", hash);
+      if (r.code !== 0) { await this.git("revert", "--abort"); throw new Error(`无法自动撤销：${r.err.slice(0, 200)}`); }
+    });
     await this.push(`撤销 ${hash.slice(0, 7)}`);
   }
 }

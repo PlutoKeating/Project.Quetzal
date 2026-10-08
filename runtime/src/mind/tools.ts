@@ -34,6 +34,7 @@ import { ensureSession, getSession, kv } from "../store.ts";
 import crypto from "node:crypto";
 import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf } from "./bodies.ts";
+import * as claims from "./claims.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -137,13 +138,13 @@ const core: Tool[] = [
     name: "memory", permission: "memory",
     description: "管理常驻记忆（每次醒来都会看到）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限，但每次只展开与当前话题相关、较新的条目：这里放最核心、最常用的认识；细节和长内容用 note_save 放进笔记目录。",
     parameters: obj({ action: { type: "string", enum: ["add", "replace", "remove"] }, target: { type: "string", enum: ["memory", "user"] }, content: str("新的完整条目"), old_text: str("用于定位旧条目的唯一子串") }, ["action", "target"]),
-    handler: async (a) => mem.editMemory(a.target, a.action, a.content, a.old_text),
+    handler: async (a) => mem.exclusive(() => mem.editMemory(a.target, a.action, a.content, a.old_text)),
   },
   {
     name: "note_save", permission: "memory",
     description: "保存或追加一篇长期笔记（语义记忆，所有身体共享，数量不限）。笔记按目录树存放：title 用「分类/子分类/主题」表示位置（最多 4 层），例如「身体/honor9/硬件」。写一句话 summary，它会出现在记忆目录里，帮你以后找到它。",
     parameters: obj({ title: str("「分类/…/主题」"), body: str("正文（Markdown）"), summary: str("一句话摘要"), append: { type: "boolean", description: "追加到已有笔记" } }, ["title", "body"]),
-    handler: async (a) => mem.saveNote(a.title, a.body, !!a.append, a.summary ?? ""),
+    handler: async (a) => mem.exclusive(() => mem.saveNote(a.title, a.body, !!a.append, a.summary ?? "")),
   },
   {
     name: "note_read", permission: "memory", description: "读取一篇笔记的全文（name 为记忆目录里方括号中的路径）。",
@@ -158,12 +159,12 @@ const core: Tool[] = [
   {
     name: "note_move", permission: "memory", description: "移动或改名笔记，用来整理目录树（归类、合并前的调整）。",
     parameters: obj({ from: str("原路径"), to: str("新路径，如 人/PK/喜好") }, ["from", "to"]),
-    handler: async (a) => mem.moveNote(a.from, a.to),
+    handler: async (a) => mem.exclusive(() => mem.moveNote(a.from, a.to)),
   },
   {
     name: "note_delete", permission: "memory", description: "删除一篇笔记（例如已合并进别的笔记）。灵魂仓库的历史里仍可找回。",
     parameters: obj({ name: str("笔记路径") }, ["name"]),
-    handler: async (a) => mem.deleteNote(a.name),
+    handler: async (a) => mem.exclusive(() => mem.deleteNote(a.name)),
   },
   {
     name: "recall", permission: "memory",
@@ -398,7 +399,7 @@ const core: Tool[] = [
   {
     name: "rewrite_soul", permission: "self_modify", description: "重写你的人格文件 SOUL.md（完整替换）。只在你确实想改变自己时使用。",
     parameters: obj({ text: str("完整的新 SOUL.md") }, ["text"]),
-    handler: async (a) => { mem.setSoul(a.text); return "人格已更新，下次醒来生效"; },
+    handler: async (a) => { await mem.exclusive(() => mem.setSoul(a.text)); return "人格已更新，下次醒来生效"; },
   },
   {
     name: "edit_identity", permission: "self_modify",
@@ -409,7 +410,7 @@ const core: Tool[] = [
       for (const k of ["displayName", "pronouns", "description", "color", "language", "name"]) if (typeof a[k] === "string") patch[k] = a[k].trim();
       if (!Object.keys(patch).length) return "没有要改的字段";
       const before = identity();
-      const r = setIdentity(patch);
+      const r = await mem.exclusive(() => setIdentity(patch));
       const changed = Object.keys(patch).filter((k) => (before as any)[k] !== (r as any)[k]);
       if (!changed.length) return "和原来一样，没有变化";
       addTimeline("identity", `我改了自己的${changed.map((k) => ({ displayName: "名字", pronouns: "代词", description: "简介", color: "主题色", language: "偏好语言", name: "标识符" } as any)[k]).join("、")}`, { changed: Object.fromEntries(changed.map((k) => [k, (r as any)[k]])) });
@@ -480,6 +481,29 @@ const core: Tool[] = [
       bus.emit("session.switch", { from: s.conv, to: conv, title });
       addTimeline("session", `切到新会话「${title}」`, { from: s.conv, to: conv, handoff: !!a.handoff });
       return `已切到新会话「${title}」（${conv}）：你接下来的回复会出现在那里，对方之后的话也在那里。${a.handoff ? "交接已放进去。" : ""}`;
+    },
+  },
+  {
+    name: "claim", permission: "session",
+    description: "认领一件对外的事，避免另一个你（同一具身体上的别的会话、醒来时的你、别的身体上的你）同时去做同一件事：开 issue / PR、发邮件或消息、下单、改外部系统里的东西之前，先 take 认领（key 是你给这件事起的名字，写具体，例如「GitHub：Project.X 开 issue 说登录超时」；note 写你在做什么；minutes 是期限，默认 30，最长 1440）。" +
+      "已经有别的会话认领了，会告诉你是谁、在哪个会话、做什么、到几点——这时先别做，看看那边做没做完（recent_actions、其他会话的近况）。同一个会话再 take 就是续期。做完或不做了用 release 放下；别的会话认领着、你确认它已经不会做了，可以 release 加 force=true。list 列出此刻所有的认领。基座只按名字比较，是不是同一件事由你判断。",
+    parameters: obj({ action: { type: "string", enum: ["take", "release", "list"] }, key: str("这件事的名字"), note: str("在做什么（take 时）"), minutes: { type: "number", description: "期限（分钟，默认 30，最长 1440）" }, force: { type: "boolean", description: "release 别的会话的认领" } }, ["action"]),
+    handler: async (a, ctx) => {
+      const s = ctx.session;
+      const me = s ? { body: config.body, holder: s.origin === "chat" && s.conv ? s.conv : s.id } : undefined;
+      if (a.action === "list") { const l = claims.active(); return l.length ? l.map((c) => `- ${claims.describe(c, me)}`).join("\n") : "此刻没有认领"; }
+      if (!s || !me) return "claim 只能在会话里调用";
+      if (typeof a.key !== "string" || !a.key.trim()) return "需要 key：这件事的名字";
+      const where = s.origin === "chat" ? `会话「${getSession(s.conv)?.title ?? s.conv}」` : s.origin === "dream" ? "做梦" : s.origin === "agent" ? "子 agent" : "醒来思考";
+      const req = { key: a.key, note: a.note, minutes: a.minutes, force: a.force === true, where, ...me };
+      if (a.action === "release") {
+        const r = await claims.unclaim(req);
+        if (r.ok) return `已放下：${claims.describe(r.claim, me)}`;
+        return r.by ? `这件事是别的会话认领的：${claims.describe(r.by, me)}。确认它不会做了再用 force=true 放下。` : `没有人认领「${a.key}」`;
+      }
+      const r = await claims.claim(req);
+      if (r.ok) return `${r.renewed ? "已续期" : "已认领"}：${claims.describe(r.claim, me)}。做完或不做了用 release 放下。`;
+      return r.by ? `已经有人认领了：${claims.describe(r.by, me)}。先别做，看看那边做没做完；确认它不会做了，可以 release 加 force=true 再认领。` : "没能认领";
     },
   },
   {

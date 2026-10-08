@@ -24,6 +24,7 @@ const { earOf } = await import("../../src/mind/bodies.ts");
 const fs = await import("node:fs");
 const { wake } = await import("../../src/mind/brain.ts");
 const { liveTurns } = await import("../../src/mind/activity.ts");
+const claims = await import("../../src/mind/claims.ts");
 const { converse } = await import("../../src/mind/brain.ts");
 const reg = await import("../../src/providers/registry.ts");
 const mem = await import("../../src/memory/memory.ts");
@@ -114,6 +115,9 @@ const cmds: Record<string, (a: any) => unknown> = {
   llmSeen: () => llmSeen,
   converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode }),
   digest: () => digest(),
+  claim: (a) => claims.claim({ key: a.key, note: a.note, body: process.env.BODY!, holder: a.holder, where: a.where ?? "测试会话" }),
+  unclaim: (a) => claims.unclaim({ key: a.key, body: process.env.BODY!, holder: a.holder, where: "", force: a.force }),
+  claims: () => claims.active(),
   live: () => liveTurns().map((t) => ({ conv: t.conv, body: t.body, origin: t.origin, status: t.status })),
   stop: () => { mesh.stop(); setTimeout(() => { ndc.cleanup(); process.exit(0); }, 200); return true; },
 };

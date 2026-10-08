@@ -17,6 +17,7 @@ import { hearingStatus } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
 import * as zone from "../time/zone.ts";
 import * as reminders from "../time/reminders.ts";
+import * as claims from "./claims.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
 
@@ -88,10 +89,11 @@ function hearingBlock(): string {
 /**
  * 其他会话：它们都是同一个你，只是同时在和人说话或在想事情。这里给出每个会话的近况，以及正在进行中的工作，
  * 让每个会话都知道全部正在发生的事（而不是彼此隔离）。conv 为当前会话，醒来时为空（看到全部会话）。
+ * 此刻所有会话的认领（mind/claims.ts）列在最前面。
  */
 function otherSessions(conv = "", budget = 4000): string {
   const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n) + "…" : x; };
-  const lines: string[] = [];
+  const lines: string[] = claims.active().map((c) => `- 【认领】${claims.describe(c, conv ? { body: config.body, holder: conv } : undefined)}`);
   const title = (id: string) => listSessions({ limit: 200 }).find((s) => s.id === id)?.title ?? id;
   for (const t of liveTurns().filter((t) => t.conv !== conv)) {
     const lastTool = [...t.items].reverse().find((x) => x.type === "tool") as any;
@@ -121,6 +123,7 @@ export function systemPrompt(context = "", o: { conv?: string } = {}): string {
 你可以用任何你喜欢的语言思考和书写。现在是 ${now()}。
 ${calendar()}
 ${(() => { const l = reminders.active(); return l.length ? `你答应对方的提醒（到点由基座准时发出，用 reminder 管理）：\n${l.slice(0, 8).map((r) => `- [${r.id}] ${reminders.describe(r)}：${r.text}`).join("\n")}${l.length > 8 ? `\n- ……还有 ${l.length - 8} 条` : ""}` : "对方让你「到时候提醒我」时，用 reminder 设好，到点由基座准时发出。"; })()}
+同一时刻可能有好几个你在进行：同一具身体上的几个对话、醒来思考的你、别的身体上的你，下面「其他会话」里看得到彼此的近况和认领。开 issue、发消息、改外部系统这类做两次就重复的事，动手前先用 claim 认领；已经有人认领，就先看那边做没做完。
 
 关于「我做过什么」：这一轮里你调过的工具和结果都在你眼前；对话历史里每条消息带有时间，你自己的每条回复之前有一条「基座附注」，写着那一轮的过程记录（用过的工具、结果开头、中途说的话；更早的几轮只有工具计数）。附注是基座加的，不是对方的话，你回复时不要自己写。不在眼前的事（更早的轮次、其他会话、醒来时做的事）不要凭印象断言：要说自己做过或没做过什么、看过或没看过什么，先看记录，或用 recent_actions 查审计；记录里有的不要否认，记录里没有的不要假装看过。`,
     `## 红线（任何时候都要遵守，包括你自己醒来做事时）

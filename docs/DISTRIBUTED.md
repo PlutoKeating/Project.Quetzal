@@ -175,5 +175,6 @@
 | C5 对话只在网上复制 | `mesh/replica.ts`、`store.ts` 的编号段 |
 | C7 飞书由指定身体持有 | `mesh/channels.ts`、`channels/feishu.ts` |
 | C8–C9 全网设置、急停、审批、预算；想分享的一句话（§2.1，按写下的时刻后写胜） | `mesh/shared.ts`、`memory/memory.ts` 的 `mergeThought` |
+| 多会话认领（#7） | `mind/claims.ts`、`mesh/shared.ts` 的 claims 分区与 `claims.op`（经协调者决定） |
 | C10 多只耳朵去重、从听到的身体发声 | `mesh/channels.ts`、`voice/hearing.ts` |
 | B4 灵魂桥作为只读成员入网 | `mesh/mesh.ts` 的只读成员（`handle(…, readable)`、`connectedReaders`；类型以灵魂仓库登记为准）、`mesh/presence.ts` 的 `presence.digest`、`bridge/src/mesh.ts`（`mesh bind`、守护进程取近况写 `now.md`，框架里的 agent 读它） |
