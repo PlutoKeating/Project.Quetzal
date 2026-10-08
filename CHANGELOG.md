@@ -2,6 +2,20 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.9.0
+
+- ta 在对话里做事时，输入框是空的，发送键就是停止键：按下就停止这一轮，正在跑的命令一起结束。电脑上也可以连按两次 Esc（第一次按下时会提示）。只停这个对话里的这一轮。
+- 工具调用的成败如实标出：命令出错（退出码不是 0）、参数不对、另一具身体上出错，卡片是红叉，不再是绿钩。ta 收到的结果开头也写明这次失败了；同样的调用连着失败时，基座提醒 ta 不要原样重试。
+- 修了一个让 ta 反复做无用功的问题：基座遮挡密钥时，会把长度够 12 个字符的公开值（比如账户名）也遮成 `‹secret:…›`，ta 把占位符当成真名写进命令，连续失败。现在只遮真正的凭据，判断依据是文件和字段，不看长短；命令里出现占位符时直接说明，不执行。
+- 同样按「猜」做判断的地方都改掉了：听觉不再丢掉一两个字的话（「停」「好」都会交给 ta）；几只耳朵只有听到同样的字才算同一句；搜索拿到结果就给 ta，不再替 ta 判断相不相关；查不到能不能看图的模型就当不能看，可以在「模型」页手动打开；灵魂同步失败时附上 git 的原文；不再按命令里的文字拦截命令。
+- 真实环境的提示条改成浅红色，放在对话标题下面，不再和窗口顶部的提示条重复。
+
+- While the agent is working in a chat and the input box is empty, the send button becomes a stop button: pressing it stops the current turn, and any running command ends with it. On a computer you can also press Esc twice (the first press shows a hint). Only this turn in this chat stops.
+- Tool calls now show whether they really succeeded. A command that exits with a non-zero code, wrong arguments, or an error on another body shows a red cross instead of a green check. The result the agent receives also starts by saying the call failed, and when the same call keeps failing, the runtime tells the agent not to retry it unchanged.
+- Fixed a problem that sent the agent into repeated useless work. When masking secrets, the runtime also masked public values that were at least 12 characters long (such as the account name) as `‹secret:…›`; the agent then used the placeholder as a real name in commands and kept failing. Now only real credentials are masked, decided by file and field rather than length, and a command containing a placeholder is not run and the reason is explained.
+- Other decisions that relied on guesses were changed the same way. Hearing no longer drops one- or two-character utterances ("stop" in Chinese is one character). Two ears count as hearing the same sentence only when they recognise the same words. Search returns the first results it gets and lets the agent judge relevance. Models whose image support cannot be looked up are treated as unable to see images, and you can switch it on in the Models page. Soul sync failures include git's own error text. Commands are no longer blocked based on their text.
+- The real-environment bar is now light red and sits under the chat title, so it no longer repeats the bar at the top of the window.
+
 ## 1.8.0
 
 - 手机换了网络（比如出门时从 Wi-Fi 换成移动数据），身体会在几秒内发现并重新连上其他身体。以前要等系统自己判断连接断了，可能要十几分钟，这期间几具身体会分成互不相通的几组。安卓 App 由系统直接通知网络变化，其他平台每 5 秒检查一次本机地址和路由。检查不发任何网络请求，只在确实换了网络时重连一次同步服务。
