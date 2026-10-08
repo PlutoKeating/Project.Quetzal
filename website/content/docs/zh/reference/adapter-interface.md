@@ -52,6 +52,7 @@ interface BodyAdapter {
   upgrade?(version?: string): Promise<string>;           // 从控制台升级：后台重跑安装
   upgradeStatus?(): { running: boolean; exitCode?: number; step?: string /* … */ };  // 最近一次升级的状态
   deviceId?(): Promise<string | undefined>;              // 设备自身稳定的标识：核心只用它的哈希派生身体 uuid，原始值不外露
+  onNetworkChange?(cb: (detail: string) => void): () => void; // 平台知道默认网络换了时立即通知，网状层据此马上检查连接（另有每 5 秒的轮询兜底）
 }
 ```
 
@@ -89,6 +90,7 @@ Quetzal App 内置运行基座时用它。身体能力由 App 自己的原生代
 | 守护 | App 前台服务的开关：开机与 App 升级后自启、退出后重启（`kind: loop`） |
 | 文件路径 | 拍照、录音的输出与播放的输入都只能在 `QUETZAL_HOME` 之内 |
 | 设备标识 `deviceId()` | `Settings.Secure.ANDROID_ID`（身体接口 `GET /v1/device-id`）；恢复出厂设置、App 换签名会变 |
+| 网络变化 `onNetworkChange()` | App 注册系统的默认网络回调，Wi-Fi 与移动数据之间切换、断网又连上时立即通知（身体接口 `POST /v1/network`，长轮询） |
 
 相机、麦克风、定位需要用户在 App 里授予系统权限（安装向导第二步）；没授权时工具报错，ta 会请你去允许。它也是**平台级**适配器：适用于任意安卓手机，能力全部靠探测。
 

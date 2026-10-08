@@ -17,6 +17,7 @@ import { installLimbs } from "./limbs.ts";
 import { installShared, alignStatus } from "./shared.ts";
 import { installChannels } from "./channels.ts";
 import { snapshot } from "../heart/heart.ts";
+import { adapter } from "../body/twin.ts";
 import { Mesh, filePins } from "./mesh.ts";
 import { startBinding, pollBinding, unbind as unbindRemote, serverOrigin, type Binding } from "./directory.ts";
 import type { Ndc } from "./link.ts";
@@ -72,6 +73,7 @@ export async function startMesh() {
   mesh = new Mesh({
     me: config.body, key: nodeKey(), ndc: ndc!, binding: b, keyOf: soulKeyOf, kindOf: soulKindOf, refreshKeys: () => pull(), pins: filePins(PINS()),
     hello: () => ({ version: VERSION, agentName: identity().displayName }),
+    netEvents: adapter.onNetworkChange ? (cb) => adapter.onNetworkChange!(cb) : undefined, // 平台的网络变化通知（安卓 App）；其余靠轮询
     log: (m) => log("mesh", m),
     warn: (w) => { log("mesh", w); addTimeline("mesh", `网状层：${w}`, {}); }, // 已截断、限频（mesh.ts）
   });

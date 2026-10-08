@@ -52,6 +52,7 @@ interface BodyAdapter {
   upgrade?(version?: string): Promise<string>;           // upgrade from the console: rerun the installer in the background
   upgradeStatus?(): { running: boolean; exitCode?: number; step?: string /* … */ };  // state of the latest upgrade
   deviceId?(): Promise<string | undefined>;              // the device's own stable identifier; the core only uses its hash to derive the body uuid, the raw value never leaves
+  onNetworkChange?(cb: (detail: string) => void): () => void; // called as soon as the platform sees the default network change; the mesh then checks its connections at once (a 5-second poll is the fallback)
 }
 ```
 
@@ -89,6 +90,7 @@ Used when the Quetzal app runs the built-in runtime: the body abilities come fro
 | Supervision | The app foreground service's switch: start at boot and after app updates, restart after exit (`kind: loop`) |
 | File paths | Photo and recording output and playback input must stay inside `QUETZAL_HOME` |
 | Device identifier `deviceId()` | `Settings.Secure.ANDROID_ID` (body interface `GET /v1/device-id`); changes after a factory reset or if the App's signing key changes |
+| Network changes `onNetworkChange()` | the App registers the system's default-network callback and reports switches between Wi-Fi and mobile data, or losing and regaining the network, at once (body interface `POST /v1/network`, long poll) |
 
 Camera, microphone and location need the system permissions granted in the app (step two of the setup wizard). Without them the tools report an error and the agent asks you to allow them. Like the others, it is a **platform** adapter: it works on any Android phone and detects everything at run time.
 

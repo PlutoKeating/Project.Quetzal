@@ -112,6 +112,26 @@ const adapter: BodyAdapter = {
   // 设备标识：App 原生代码取的 Settings.Secure.ANDROID_ID（恢复出厂设置、换签名会变）。只用来派生身体 uuid
   async deviceId() { const j = await quiet(call<{ id?: string }>("/v1/device-id")); return typeof j?.id === "string" && /^[0-9a-f]{8,32}$/i.test(j.id) ? j.id.toLowerCase() : undefined; },
   async init() { info = (await quiet(call<Info>("/v1/info"))) ?? {}; }, // 机型是公开的非唯一信息；传感器由 App 按类型探测
+  // 网络变化：App 注册了系统的默认网络回调，这里长轮询 /v1/network（变了立即返回，否则 50 秒后返回原样）
+  onNetworkChange(cb) {
+    let stopped = false;
+    const names: Record<string, string> = { wifi: "Wi-Fi", cellular: "移动数据", ethernet: "有线网络", vpn: "VPN", none: "没有网络" };
+    void (async () => {
+      let seq = -1;
+      while (!stopped) {
+        try {
+          const j = await call<{ seq: number; transport?: string }>("/v1/network", { seq }, 65_000);
+          if (stopped) return;
+          if (seq >= 0 && j.seq !== seq) cb(`系统报告默认网络变了（现在是${names[j.transport ?? ""] ?? "其他网络"}）`);
+          seq = j.seq;
+        } catch (e) {
+          if (/没有这个接口/.test((e as Error).message)) return; // 旧版 App：只靠轮询
+          await new Promise((r) => setTimeout(r, 10_000).unref?.());
+        }
+      }
+    })();
+    return () => { stopped = true; };
+  },
   async sample(): Promise<RawSample> {
     const j = await quiet(call<RawSample & { plugged?: string }>("/v1/sample", undefined, 15_000));
     if (!j) return {};

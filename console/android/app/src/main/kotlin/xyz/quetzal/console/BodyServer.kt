@@ -29,6 +29,10 @@ import android.location.LocationManager
 import android.media.ImageReader
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
@@ -51,6 +55,8 @@ import java.security.SecureRandom
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -60,6 +66,7 @@ import kotlin.math.sqrt
  *    运行基座的安卓适配器（runtime/adapters/android/）读它；agent 的命令在 proot 沙箱里看不到密钥目录，绕不过闸门直接调用身体。
  *  - 极简 HTTP/1.1：一个请求一个连接（Connection: close），请求体 JSON，最大 64 KiB；令牌定长比较。
  *  - 路径只能落在 QUETZAL_HOME 之内（拍照、录音的输出与播放的输入），防止被当成任意文件读写的跳板。
+ *  - 网络变化：注册系统的默认网络回调，运行基座长轮询 POST /v1/network，默认网络一换（Wi-Fi ↔ 移动数据、断网又连上）立即知道。
  */
 class BodyServer(private val ctx: Context, private val quetzalHome: File) {
     private var server: ServerSocket? = null
@@ -67,6 +74,12 @@ class BodyServer(private val ctx: Context, private val quetzalHome: File) {
     private val token = ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
     private val main = Handler(Looper.getMainLooper())
     private var player: MediaPlayer? = null
+    private val netLock = ReentrantLock()
+    private val netChanged = netLock.newCondition()
+    @Volatile private var netSeq = 0
+    @Volatile private var netKey = ""
+    @Volatile private var netTransport = "none"
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     fun start() {
         val s = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
@@ -83,9 +96,16 @@ class BodyServer(private val ctx: Context, private val quetzalHome: File) {
                 pool.execute { handle(c) }
             }
         }
+        watchNetwork()
     }
 
-    fun stop() { try { server?.close() } catch (_: Exception) {}; main.post { player?.release(); player = null } }
+    fun stop() {
+        try { server?.close() } catch (_: Exception) {}
+        main.post { player?.release(); player = null }
+        netCallback?.let { cb -> try { connectivity().unregisterNetworkCallback(cb) } catch (_: Exception) {} }
+        netCallback = null
+        netLock.withLock { netChanged.signalAll() }
+    }
 
     private fun handle(c: Socket) = c.use { sock ->
         sock.soTimeout = 120_000
@@ -134,9 +154,54 @@ class BodyServer(private val ctx: Context, private val quetzalHome: File) {
         "POST /v1/location" -> 200 to location()
         "POST /v1/photo" -> { photo(a.optInt("camera", 0), inside(a.getString("file"))); 200 to ok() }
         "POST /v1/record" -> { record(a.optInt("seconds", 5).coerceIn(1, 120), inside(a.getString("file"))); 200 to ok() }
+        "POST /v1/network" -> 200 to network(a.optInt("seq", -1))
         "GET /v1/supervision" -> 200 to JSONObject().put("ok", true).put("enabled", RuntimeService.autostart(ctx))
         "POST /v1/supervision" -> { RuntimeService.setAutostart(ctx, a.optBoolean("enabled", true)); 200 to ok() }
         else -> 404 to err("没有这个接口")
+    }
+
+    // ---------- 网络变化
+    private fun connectivity() = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    /** 注册默认网络回调（Android 7 起）：网络、传输方式、是否验证过能上网、本机地址任一变化就把序号加一，叫醒等着的长轮询。 */
+    private fun watchNetwork() {
+        if (Build.VERSION.SDK_INT < 24 || netCallback != null) return
+        val cm = connectivity()
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(n: Network) = update(n, null, null)
+            override fun onLost(n: Network) = update(null, null, null)
+            override fun onCapabilitiesChanged(n: Network, c: NetworkCapabilities) = update(n, c, null)
+            override fun onLinkPropertiesChanged(n: Network, lp: LinkProperties) = update(n, null, lp)
+        }
+        try { cm.registerDefaultNetworkCallback(cb); netCallback = cb } catch (_: Exception) {}
+    }
+
+    private fun update(n: Network?, caps: NetworkCapabilities?, props: LinkProperties?) {
+        val cm = connectivity()
+        val c = if (n == null) null else caps ?: try { cm.getNetworkCapabilities(n) } catch (_: Exception) { null }
+        val lp = if (n == null) null else props ?: try { cm.getLinkProperties(n) } catch (_: Exception) { null }
+        val transport = when {
+            c == null -> "none"
+            c.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "vpn"
+            c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> "other"
+        }
+        // 只比较这几项（信号强度等也会触发回调，不算变化）；本机地址只在内存里比较，不交给运行基座
+        val validated = c?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        val key = "$n|$transport|$validated|${lp?.linkAddresses?.map { it.address.hostAddress }?.sorted()?.joinToString(",") ?: ""}"
+        netLock.withLock {
+            if (key == netKey) return
+            netKey = key; netTransport = transport; netSeq++
+            netChanged.signalAll()
+        }
+    }
+
+    /** 长轮询：seq 与现在的不同就立即返回，否则最多等 50 秒（中途变了立即返回）。 */
+    private fun network(seen: Int): JSONObject {
+        netLock.withLock { if (seen == netSeq && server?.isClosed == false) netChanged.await(50, TimeUnit.SECONDS) }
+        return JSONObject().put("ok", true).put("seq", netSeq).put("transport", netTransport)
     }
 
     // ---------- 采样
