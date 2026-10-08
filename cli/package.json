@@ -1,6 +1,6 @@
 {
   "name": "@plutokeating/quetzal",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "type": "module",
   "license": "AGPL-3.0-only",
   "description": "Quetzal：让 agent 像生命一样活着的运行基座。npx @plutokeating/quetzal 把它装到这台 Linux 机器上并交给 systemd 守护；Windows 上由安装包安装，这个命令提供运维（status / open / logs / rollback / uninstall）",

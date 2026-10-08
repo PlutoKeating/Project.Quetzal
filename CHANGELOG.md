@@ -2,6 +2,16 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.7.0
+
+- 多具身体时，ta 能用别的身体上的任意文件：`view_image`、`read_document`、`shell` 带上那具身体的 uuid（`body`），基座把文件经加密连接分段取过来、核对 sha256 后再用（单个文件最多 64 MB；密钥目录与保密库里的文件取不到）。1.6.0 里只能看图的做法去掉了。
+- 每具身体有一个绑定到设备的 uuid，重装 Quetzal 也不变（Linux 取 machine-id，Windows 取 MachineGuid，安卓 App 取 ANDROID_ID；恢复出厂或重装系统会变）。ta 指一具身体时一律用 uuid：`body_call`、`move_to` 也一样。灵魂仓库规范升到 v14（身体登记多了 uuid），旧仓库不用转换。
+- 所有身体都要升到 1.7.0 才能互相取文件、互相调用。
+
+- With several bodies, the agent can use any file on another body: `view_image`, `read_document` and `shell` take that body's uuid (`body`), and the runtime fetches the file in pieces over the encrypted link and checks its sha256 before use (up to 64 MB per file; files in the secrets folder and the vault cannot be fetched). The image-only approach from 1.6.0 is removed.
+- Each body has a uuid tied to the device that stays the same when Quetzal is reinstalled (machine-id on Linux, MachineGuid on Windows, ANDROID_ID in the Android app; a factory reset or OS reinstall changes it). The agent always refers to a body by its uuid, including in `body_call` and `move_to`. The soul repository spec moves to v14 (body records gain a uuid); existing repositories need no conversion.
+- All bodies need 1.7.0 to fetch files from and call each other.
+
 ## 1.6.0
 
 - **真实环境**：ta 需要用你在电脑上登录过的东西（比如 `gh`）时，可以写明理由请求进入「真实环境」，App 弹出请求，App 在后台时发通知。你同意后，这个对话里 ta 的命令不经隔离环境、直接在这台机器上运行，顶部一直亮着红色提示条，你随时可以退出；你也可以在对话标题栏的盾牌图标里自己打开。30 分钟没有命令、急停、重启后都回到隔离环境。在真实环境里，ta 能读写你能读写的一切。
