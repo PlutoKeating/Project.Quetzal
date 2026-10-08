@@ -24,6 +24,7 @@
 //   每种沙箱在第一次使用前都实际验证一次：密钥目录在里面确实看不到（有内容时），否则不用它。
 //   保密库（vault/）在沙箱里仍然可读：pass_secret 的用法就是在命令里引用 "$(cat vault/名字)"。
 //   环境变量 QUETZAL_SANDBOX=none 强制不用沙箱（只给部署者排查问题用）。
+//   真实环境模式（host-mode.ts，对方批准或自己打开，只对一个会话、只在这具身体上）：那个会话里的 shell 改用 hostScript，不经沙箱。
 import fs from "node:fs";
 import os from "node:os";
 import net from "node:net";
@@ -345,6 +346,22 @@ export async function wrapScript(script: string, cwd = workDir(), env: Record<st
   }
   const w = wrap(sh(), ["-c", script], cwd, { ...process.env, ...env });
   return { ...w, env: { ...process.env, ...env } };
+}
+
+/** 真实环境模式（host-mode.ts）下的环境变量：基座自己的（QUETZAL_*：家目录、适配器、要遮住的目录……）与名字像令牌、密钥、密码的一律不传。
+ *  这只是不主动交给她：真实环境里她的命令以基座的系统用户运行，密钥目录与保密库对它照样可读（文档如实写明）。 */
+export function hostEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) if (!/^QUETZAL_/i.test(k) && !/TOKEN|SECRET|PASSW|API_?KEY|PRIVATE_?KEY|CREDENTIAL/i.test(k)) out[k] = v;
+  return out;
+}
+
+/** 真实环境模式：她的一条命令不经沙箱，直接以基座进程的系统用户在用户主目录里执行（POSIX 用 $SHELL -c；Windows 用 PowerShell，
+ *  是安装用户本人而不是沙箱用户 srt-sandbox）。只有 host-mode.ts 判断当前会话处在真实环境里时才用它。 */
+export function hostScript(script: string): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
+  const env = hostEnv(), cwd = os.homedir();
+  if (isWindows) return { cmd: powershellPath(), args: [...PS_FLAGS, PS_PREAMBLE + script], cwd, env };
+  return { cmd: sh(), args: ["-c", script], cwd, env };
 }
 
 /** 一个程序与参数包进沙箱。Windows 上写成 PowerShell 的调用（& 程序 参数…，退出码照传）。 */

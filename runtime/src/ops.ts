@@ -32,6 +32,7 @@ import { remoteApprovals, decideAnywhere } from "./mesh/shared.ts";
 import { sandboxStatus, resetSandbox } from "./sandbox.ts";
 import { checkKeyPath } from "./memory/soul-repo.ts";
 import * as reminders from "./time/reminders.ts";
+import { hostModes, enterHost, exitHost } from "./host-mode.ts";
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -43,6 +44,7 @@ export const status = () => ({
   mesh: meshRt.meshStatus(), // 网状层：同步服务、绑定、各身体的连接
   sandbox: sandboxStatus(), // agent 命令的沙箱：kind 为 bwrap / proot / none（none 时控制台应提示安装）
   reminders: reminderView(), // 她答应的提醒（首页显示接下来的几条）
+  host: hostModes(), // 此刻处在真实环境里（命令不经沙箱）的会话：控制台据此显示警示条
 });
 
 /** 控制台看到的提醒：下一次的说法、是否重复、内容。 */
@@ -125,6 +127,10 @@ export const ops = {
     audit(actor, "sandbox.allowUnsandboxed", a.allow === true ? "允许不隔离运行" : "恢复缺省：没有沙箱就不执行", { allow: a.allow === true }, "ok");
     return sandboxStatus();
   },
+  // 真实环境（host-mode.ts）：对方在某个会话里自己打开或随时退出；她的请求走审批（decide）
+  host: () => hostModes(),
+  "host.enter": (a: { conv: string }, actor: string) => enterHost(String(a?.conv ?? ""), "user", "对方自己打开", actor),
+  "host.exit": (a: { conv: string }, actor: string) => exitHost(String(a?.conv ?? ""), actor, "对方退出"),
   approvals: () => [...guard.approvals(), ...remoteApprovals()], // 含其他身体上等待批准的（带 body）
   decide: (a: { id: string; approve: boolean; note?: string; body?: string }, actor: string) => decideAnywhere(a.id, a.approve, actor, a.note, typeof a.body === "string" && a.body ? a.body : undefined), // 其他身体上的审批转过去；body 指明是哪具身体上的（审批号可能重复）
   budget: () => ({ ...config.budget, usage: usageToday() }),

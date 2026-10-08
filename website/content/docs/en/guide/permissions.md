@@ -48,6 +48,19 @@ The agent's commands, background jobs and the tools it builds all run in a sandb
 
 The agent and the runtime are the same system user, so this sandbox does not stop everything. For the remaining risks and what we recommend, see [Trust and limits](/docs/guide/trust#what-it-can-reach). On Windows, the agent's commands run as a low-privilege user created at install time; see section 3 of [Windows](/docs/advanced/windows).
 
+## Real environment
+
+Things you signed in to on the computer do not work inside the sandbox. For example, if you ran `gh auth login` in a terminal, `gh` in the sandbox still says the token is invalid: the token is in the system keyring, which the sandbox deliberately keeps out of reach.
+
+When it really needs to, the agent can ask to enter the **real environment** and must give a reason. The request shows at the top of the chat and under **Control → Permissions**; in Feishu it is an approval card, and the phone also shows a notification. Once you agree, the agent's commands in this chat stop going through the sandbox and run directly on this device. You can also turn it on yourself with the shield icon at the top right of the chat.
+
+- **What it can do**: everything you can read and write, including the key directory, the vault and the runtime's configuration.
+- **Scope**: this one chat on this one device. Commands from the agent's own wake-ups, from sub-agents, or called from another device still run in the sandbox.
+- **Visible**: while it is on, a red bar shows at the top of the chat and at the top of the app. Every command is in the activity log, marked as run in the real environment.
+- **Leaving**: tap **Exit** on the red bar, or send `/sandbox` in Feishu; the agent also leaves when it is done. Thirty minutes without a command, the emergency stop, or a runtime restart all bring it back to the sandbox.
+
+If only a token is needed, a safer way is to have the agent ask you for a token with as few permissions as possible through [secret passing](/docs/guide/secrets), so commands stay in the sandbox.
+
 ## Approvals
 
 When the agent wants to use a capability set to "ask", it creates an approval. The approval goes to the app (at the top of **Control → Permissions**, with a badge) and to Feishu (a card with buttons). Approve or deny it, and add a note if you like. **If nobody answers within 30 minutes, it counts as denied.**
