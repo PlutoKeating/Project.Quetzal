@@ -8,7 +8,7 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { log } from "../log.ts";
-import { seedSoul } from "./memory.ts";
+import { seedSoul, exclusive } from "./memory.ts";
 import { identity, defaultIdentity } from "./identity.ts";
 import { SoulRepo, type PullResult, type PushResult } from "./soul-repo.ts";
 import { addTimeline } from "../store.ts";
@@ -35,6 +35,7 @@ function r(): SoulRepo {
       seedSoul,
       bodyInfo: () => ({ kind: "runtime", runtime: VERSION, meshKey: nodeKey().nodeKey }), // meshKey：网状层的节点公钥（规范 v8），其他身体以它为准核对这具身体
       log: (m) => log("soul", m),
+      exclusive, // 合并与写记忆的入口互斥（memory.ts）
     });
     if (prev) repo.status = prev;
     key = k;

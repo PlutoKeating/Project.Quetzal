@@ -73,13 +73,13 @@ const core: Tool[] = [
     name: "memory", permission: "memory",
     description: "管理常驻记忆（每次醒来都会看到）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限，但每次只展开与当前话题相关、较新的条目：这里放最核心、最常用的认识；细节和长内容用 note_save 放进笔记目录。",
     parameters: obj({ action: { type: "string", enum: ["add", "replace", "remove"] }, target: { type: "string", enum: ["memory", "user"] }, content: str("新的完整条目"), old_text: str("用于定位旧条目的唯一子串") }, ["action", "target"]),
-    handler: async (a) => mem.editMemory(a.target, a.action, a.content, a.old_text),
+    handler: async (a) => mem.exclusive(() => mem.editMemory(a.target, a.action, a.content, a.old_text)),
   },
   {
     name: "note_save", permission: "memory",
     description: "保存或追加一篇长期笔记（语义记忆，所有身体共享，数量不限）。笔记按目录树存放：title 用「分类/子分类/主题」表示位置（最多 4 层），例如「身体/honor9/硬件」。写一句话 summary，它会出现在记忆目录里，帮你以后找到它。",
     parameters: obj({ title: str("「分类/…/主题」"), body: str("正文（Markdown）"), summary: str("一句话摘要"), append: { type: "boolean", description: "追加到已有笔记" } }, ["title", "body"]),
-    handler: async (a) => mem.saveNote(a.title, a.body, !!a.append, a.summary ?? ""),
+    handler: async (a) => mem.exclusive(() => mem.saveNote(a.title, a.body, !!a.append, a.summary ?? "")),
   },
   {
     name: "note_read", permission: "memory", description: "读取一篇笔记的全文（name 为记忆目录里方括号中的路径）。",
@@ -94,12 +94,12 @@ const core: Tool[] = [
   {
     name: "note_move", permission: "memory", description: "移动或改名笔记，用来整理目录树（归类、合并前的调整）。",
     parameters: obj({ from: str("原路径"), to: str("新路径，如 人/PK/喜好") }, ["from", "to"]),
-    handler: async (a) => mem.moveNote(a.from, a.to),
+    handler: async (a) => mem.exclusive(() => mem.moveNote(a.from, a.to)),
   },
   {
     name: "note_delete", permission: "memory", description: "删除一篇笔记（例如已合并进别的笔记）。灵魂仓库的历史里仍可找回。",
     parameters: obj({ name: str("笔记路径") }, ["name"]),
-    handler: async (a) => mem.deleteNote(a.name),
+    handler: async (a) => mem.exclusive(() => mem.deleteNote(a.name)),
   },
   {
     name: "recall", permission: "memory",
@@ -320,7 +320,7 @@ const core: Tool[] = [
   {
     name: "rewrite_soul", permission: "self_modify", description: "重写你的人格文件 SOUL.md（完整替换）。只在你确实想改变自己时使用。",
     parameters: obj({ text: str("完整的新 SOUL.md") }, ["text"]),
-    handler: async (a) => { mem.setSoul(a.text); return "人格已更新，下次醒来生效"; },
+    handler: async (a) => { await mem.exclusive(() => mem.setSoul(a.text)); return "人格已更新，下次醒来生效"; },
   },
   {
     name: "edit_identity", permission: "self_modify",
@@ -331,7 +331,7 @@ const core: Tool[] = [
       for (const k of ["displayName", "pronouns", "description", "color", "language", "name"]) if (typeof a[k] === "string") patch[k] = a[k].trim();
       if (!Object.keys(patch).length) return "没有要改的字段";
       const before = identity();
-      const r = setIdentity(patch);
+      const r = await mem.exclusive(() => setIdentity(patch));
       const changed = Object.keys(patch).filter((k) => (before as any)[k] !== (r as any)[k]);
       if (!changed.length) return "和原来一样，没有变化";
       addTimeline("identity", `我改了自己的${changed.map((k) => ({ displayName: "名字", pronouns: "代词", description: "简介", color: "主题色", language: "偏好语言", name: "标识符" } as any)[k]).join("、")}`, { changed: Object.fromEntries(changed.map((k) => [k, (r as any)[k]])) });
