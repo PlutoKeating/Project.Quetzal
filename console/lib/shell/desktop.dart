@@ -83,7 +83,7 @@ class _DesktopShellState extends State<DesktopShell> {
       builder: (context, _) => Scaffold(
         body: Column(children: [
           if (api.conn != Conn.online) const OfflineBanner(),
-          const HostModeBanner(),
+          const HostModeBanner(skipOpen: true),
           if (api.safeMode) Banner0(text: '${api.name}反复出错，暂停了醒来', color: Colors.orange),
           ValueListenableBuilder<bool>(valueListenable: consoleStale, builder: (_, stale, _) => !stale ? const SizedBox.shrink()
               : Banner0(text: '新版本已装好', color: Colors.blueGrey, action: FilledButton.tonal(onPressed: relaunchConsole, child: const Text('重新打开')))),
@@ -355,11 +355,14 @@ class _ChatPaneState extends State<_ChatPane> {
           }),
           HostModeButton(conv: widget.conv, size: 20),
         ],
-        body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 820), child: ChatView(
-          conv: widget.conv,
-          onTitle: (t) { if (t != title && mounted) setState(() => title = t); },
-          onSwitch: (to, t) => nav.go('chat', id: to),
-        ))),
+        body: Column(children: [
+          HostModeBar(conv: widget.conv), // 标题栏下面、占满对话栏的宽度
+          Expanded(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 820), child: ChatView(
+            conv: widget.conv,
+            onTitle: (t) { if (t != title && mounted) setState(() => title = t); },
+            onSwitch: (to, t) => nav.go('chat', id: to),
+          )))),
+        ]),
       );
 }
 

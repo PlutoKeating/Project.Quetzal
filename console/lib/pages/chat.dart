@@ -74,11 +74,14 @@ class _ChatPageState extends State<ChatPage> {
           IconButton(tooltip: '全部会话', icon: const Icon(Icons.forum_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SessionsPage(current: widget.conv)))),
           HostModeButton(conv: widget.conv),
         ],
-        body: ChatView(
-          conv: widget.conv,
-          onTitle: (t) => setState(() => title = t),
-          onSwitch: (to, t) => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: to, title: t))),
-        ),
+        body: Column(children: [
+          HostModeBar(conv: widget.conv),
+          Expanded(child: ChatView(
+            conv: widget.conv,
+            onTitle: (t) => setState(() => title = t),
+            onSwitch: (to, t) => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: to, title: t))),
+          )),
+        ]),
       );
 }
 
@@ -108,6 +111,8 @@ class _ChatViewState extends State<ChatView> {
   Map? secret; // 这个会话进行中的保密输入（pass_secret）
   Map? heard; // 耳朵正在听的一句话：{id, text, status}。partial 流式显示；final 后等记录里出现这条消息；她判断不是对她说的（ignored）就消失
   bool reveal = false; // 保密输入时显示明文（多行的值如私钥需要打开）
+  bool typed = false; // 输入框里有字：发送键是发送；没有字、她又在工作时，发送键变成停止键
+  DateTime? escAt; // 第一次按 Esc 的时刻：几秒内再按一次就停止这一轮
   double lastExtent = 0;
 
   @override
@@ -126,6 +131,7 @@ class _ChatViewState extends State<ChatView> {
     }));
     subs.add(api.events.where((e) => e.name == 'session.switch' && (e.data as Map)['to'] == widget.conv && (e.data as Map)['done'] == true).listen((_) => _resync())); // 回复落进了这个新会话
     api.addListener(_onConn);
+    input.addListener(_onInput);
     life = AppLifecycleListener(onResume: () async { await api.ensureAlive(); _resync(); }); // 从后台切回：确认连接并从后端重建
     _resync(first: true);
   }
@@ -145,9 +151,38 @@ class _ChatViewState extends State<ChatView> {
   void dispose() {
     for (final s in subs) { s.cancel(); }
     api.removeListener(_onConn);
+    input.removeListener(_onInput);
     life.dispose();
     focus.dispose();
     super.dispose();
+  }
+
+  void _onInput() { final t = input.text.trim().isNotEmpty; if (t != typed) setState(() => typed = t); }
+
+  /// 她正在这个会话里工作、输入框是空的、没有待发的附件：发送键变成停止键。
+  bool get stopMode => turns.isNotEmpty && secret == null && !typed && files.isEmpty;
+
+  /// 停止她正在进行的这一轮（运行基座的 chat.stop：中止模型输出与正在执行的命令；在别的身体上就转过去停）。
+  Future<void> _stop() async {
+    escAt = null;
+    final ok = await act(context, () => api.call<bool>('chat.stop', {'conv': widget.conv}));
+    if (ok == false && mounted) toast(context, '这一轮已经结束了');
+  }
+
+  /// Esc：她在工作时，第一次按下提示，几秒内再按一次就停止。
+  KeyEventResult _onKey(FocusNode _, KeyEvent e) {
+    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.escape || turns.isEmpty) return KeyEventResult.ignored;
+    final now = DateTime.now();
+    if (escAt != null && now.difference(escAt!) < const Duration(seconds: 3)) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      _stop();
+    } else {
+      escAt = now;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: const Text('再按一次 Esc 停止这一轮'), duration: const Duration(seconds: 3), behavior: SnackBarBehavior.floating, width: ShellScope.isDesktop(context) ? 440 : null));
+    }
+    return KeyEventResult.handled;
   }
 
   void _onConn() {
@@ -390,7 +425,7 @@ class _ChatViewState extends State<ChatView> {
     ];
     final desktop = ShellScope.isDesktop(context);
     // 拖入文件：整页都是放置区，拖到上方时描一圈主题色的边（保密输入期间不接收）
-    return DropTarget(
+    return Focus(skipTraversal: true, canRequestFocus: false, onKeyEvent: _onKey, child: DropTarget(
       enable: secret == null,
       onDragEntered: (_) => setState(() => dragging = true),
       onDragExited: (_) => setState(() => dragging = false),
@@ -399,7 +434,6 @@ class _ChatViewState extends State<ChatView> {
         position: DecorationPosition.foreground,
         decoration: BoxDecoration(border: dragging ? Border.all(color: cs.primary, width: 2) : null, borderRadius: BorderRadius.circular(8)),
         child: LayoutBuilder(builder: (context, box) => PaneWidth(width: box.maxWidth, child: Column(children: [
-        HostModeBar(conv: widget.conv),
         Expanded(
           child: Stack(children: [
             loading
@@ -457,8 +491,11 @@ class _ChatViewState extends State<ChatView> {
                             suffixIcon: IconButton(tooltip: reveal ? '遮挡' : '显示（多行内容需要显示后再粘贴）', icon: Icon(reveal ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => reveal = !reveal)))),
               ),
               const SizedBox(width: 4),
-              IconButton.filled(onPressed: uploading ? null : _send, tooltip: secret != null ? '保密发送' : mode == 'steer' ? '发送' : modes[mode]!.$1, icon: Icon(secret != null ? Icons.enhanced_encryption : mode == 'steer' ? Icons.send : modes[mode]!.$3)),
-              if (turns.isNotEmpty && secret == null) // 她正在工作：小三角选择发送方式（默认插话；排队 / 打断，再点一次取消）
+              if (stopMode) // 她正在工作、输入框是空的：停止这一轮（桌面上也可以连按两次 Esc）
+                IconButton.filled(onPressed: _stop, tooltip: desktop ? '停止（连按两次 Esc）' : '停止', icon: const Icon(Icons.stop_rounded))
+              else
+                IconButton.filled(onPressed: uploading ? null : _send, tooltip: secret != null ? '保密发送' : mode == 'steer' ? '发送' : modes[mode]!.$1, icon: Icon(secret != null ? Icons.enhanced_encryption : mode == 'steer' ? Icons.send : modes[mode]!.$3)),
+              if (turns.isNotEmpty && secret == null && !stopMode) // 她正在工作、有话要发：小三角选择发送方式（默认插话；排队 / 打断，再点一次取消）
                 PopupMenuButton<String>(
                   tooltip: '她正在工作：这条消息怎么发',
                   padding: EdgeInsets.zero,
@@ -476,7 +513,7 @@ class _ChatViewState extends State<ChatView> {
         ),
       ]))),
       ),
-    );
+    ));
   }
 
   /// 输入框的粘贴（Ctrl+V）先看剪贴板里有没有文件或图片（_paste），没有再交给输入框自己粘贴文字。
