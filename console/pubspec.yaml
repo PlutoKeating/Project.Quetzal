@@ -56,6 +56,9 @@ dependencies:
   record_platform_interface: 2.1.0   # 桌面版耳朵（Windows）：record 的平台接口，只用它与下面的 Windows 实现，不引入安卓 / iOS / 网页的实现
   record_windows: 2.3.0   # Windows 麦克风的 16 kHz 单声道 PCM 流（Media Foundation，BSD-3）；Linux 用系统自带的 parec / pw-record / arecord
   ffi: 2.2.0   # dart:ffi 的内存分配与 UTF-16：调 libfvad（断句）与 Windows 的 winmm（播放她的声音）；本来就是间接依赖
+  pasteboard: 0.5.0   # 对话输入框 Ctrl+V：读剪贴板里的图片（截图）与文件管理器里复制的文件（Flutter 的 Clipboard 只有文字；Mixin Messenger 团队维护，Apache-2.0，纯平台通道，Linux 只依赖 GTK）
+  desktop_drop: 0.8.4   # 把文件、图片拖进对话页加入附件（与 pasteboard 同一团队，Apache-2.0；Linux 只依赖 GTK，Windows 用系统的 OLE 拖放）
+  cross_file: 0.3.5+5   # 按路径读剪贴板里的文件（XFile，网页版也能编译）；desktop_drop 本来就依赖它
 
 dev_dependencies:
   flutter_test:

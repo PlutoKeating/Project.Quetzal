@@ -2,6 +2,7 @@
 //   后端是唯一的事实来源：打开页面、断线重连、从后台切回、每一轮结束时，都从后端取回对话记录与「进行中的轮次」快照重建界面，
 //   期间的实时进展（流式文字、工具卡片）由 activity 推送增量更新。所以切到后台再回来，进行中的卡片会完整恢复并继续更新。
 //   附件：一次最多 20 个文件，先上传到基座，再随消息发送（图片直接进消息，文本内联，文档给路径由她自己读）。
+//     来源：附件按钮；输入框里 Ctrl+V（剪贴板里是文件管理器复制的文件或图片时加入附件，是文字照常粘贴）；把文件拖进对话页；手机输入法插入的图片。
 //   她工作时发消息：默认「插话」（这次模型调用结束后并入）；发送按钮右侧的小三角可改为「排队」（下一轮）或「打断」（立即中止当前模型输出，不打断工具）。
 //   保密输入（她调用 pass_secret 时）：输入框上方出现提示，此后每条消息都是一项保密值——不显示在对话里，输入框默认遮挡；
 //   「完成 / 重填 / 取消」按钮与发回结束口令等价。状态来自 secret 推送，重建界面时从 secrets.pending 取回。
@@ -11,15 +12,19 @@
 //   桌面：Enter 发送、Shift+Enter 换行；内容宽度由外壳限制（PaneWidth）。
 import 'dart:async';
 import 'dart:math';
+import 'package:cross_file/cross_file.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pasteboard/pasteboard.dart';
 import '../api.dart';
 import '../widgets.dart';
 import '../shell/nav.dart';
 import '../markdown.dart';
 import '../process.dart';
 import '../hearing.dart';
+import '../platform/caps.dart';
 import 'sessions.dart';
 
 const maxFiles = 20;
@@ -28,11 +33,21 @@ const modes = {'steer': ('插话', '这一步结束后并入，她会注意到',
 /// 待发送的附件（上传中 / 已上传 / 失败）。
 class _Pending {
   final String name;
-  final int size;
   double progress = 0;
   Map? file;
   String? error;
-  _Pending(this.name, this.size);
+  _Pending(this.name);
+}
+
+/// 要加入附件的一个文件：名字与读出内容的方法（附件按钮、粘贴、拖入、输入法插入共用）。
+typedef _Source = ({String name, Future<Uint8List> Function() read});
+
+/// 粘贴或输入法插入的图片没有名字：按时刻起一个，扩展名决定基座把它当图片。
+String pastedName([String mime = 'image/png']) {
+  String two(int n) => '$n'.padLeft(2, '0');
+  final t = DateTime.now();
+  final ext = switch (mime.split('/').last.toLowerCase()) { 'jpeg' => 'jpg', final e when RegExp(r'^[a-z0-9]{1,5}$').hasMatch(e) => e, _ => 'png' };
+  return 'pasted-${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}${two(t.second)}.$ext';
 }
 
 /// 手机：一个会话一页。
@@ -86,7 +101,7 @@ class _ChatViewState extends State<ChatView> {
   final subs = <StreamSubscription>[];
   late final AppLifecycleListener life;
   final focus = FocusNode();
-  bool atBottom = true, unread = false, wasOnline = true, loading = true;
+  bool atBottom = true, unread = false, wasOnline = true, loading = true, dragging = false;
   String mode = 'steer'; // 她正在工作时发消息的方式
   Map? secret; // 这个会话进行中的保密输入（pass_secret）
   Map? heard; // 耳朵正在听的一句话：{id, text, status}。partial 流式显示；final 后等记录里出现这条消息；她判断不是对她说的（ignored）就消失
@@ -248,24 +263,58 @@ class _ChatViewState extends State<ChatView> {
 
   // ---------- 附件
   Future<void> _pick() async {
-    final room = maxFiles - files.length;
-    if (room <= 0) { toast(context, '一次最多 $maxFiles 个文件'); return; }
+    if (maxFiles - files.length <= 0) { toast(context, '一次最多 $maxFiles 个文件'); return; }
     final r = await FilePicker.pickFiles();
     if (r.isEmpty || !mounted) return;
-    final picked = r.take(room).toList();
-    if (r.length > room) toast(context, '一次最多 $maxFiles 个文件，已取前 $room 个');
-    for (final f in picked) {
-      final size = await f.length() ?? 0;
-      final p = _Pending(f.name, size);
-      if (!mounted) return;
-      setState(() => files.add(p));
+    await _attach([for (final f in r) (name: f.name, read: f.readAsBytes)]);
+  }
+
+  /// 加入附件列表并逐个上传；超过 maxFiles 的丢掉并提示。
+  Future<void> _attach(List<_Source> src) async {
+    if (src.isEmpty || !mounted) return;
+    final room = maxFiles - files.length;
+    if (room <= 0) { toast(context, '一次最多 $maxFiles 个文件'); return; }
+    if (src.length > room) toast(context, '一次最多 $maxFiles 个文件，已取前 $room 个');
+    final added = [for (final f in src.take(room)) (f, _Pending(f.name))];
+    setState(() => files.addAll(added.map((x) => x.$2)));
+    for (final (f, p) in added) {
       try {
-        p.file = await api.upload(f.name, await f.readAsBytes(), onProgress: (v) { if (mounted) setState(() => p.progress = v); });
+        p.file = await api.upload(f.name, await f.read(), onProgress: (v) { if (mounted) setState(() => p.progress = v); });
       } catch (e) {
         p.error = '$e';
       }
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      setState(() {});
     }
+  }
+
+  /// 输入框里的 Ctrl+V：剪贴板里有文件（文件管理器里复制的，只在桌面版）就加入附件；没有文字而有图片（截图）就加入附件。
+  /// 返回 false 时照常粘贴文字。
+  Future<bool> _paste() async {
+    try {
+      if (isDesktop) {
+        final paths = await Pasteboard.files();
+        if (paths.isNotEmpty) {
+          await _attach([for (final p in paths) (name: p.split(RegExp(r'[/\\]')).last, read: XFile(p).readAsBytes)]);
+          return true;
+        }
+      }
+      final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+      if (text.isEmpty) {
+        final img = await Pasteboard.image;
+        if (img != null && img.isNotEmpty) {
+          await _attach([(name: pastedName(), read: () async => img)]);
+          return true;
+        }
+      }
+    } catch (_) {} // 读不了剪贴板：照常粘贴
+    return false;
+  }
+
+  /// 拖进对话页的文件（文件夹跳过）。
+  void _onDrop(DropDoneDetails d) {
+    setState(() => dragging = false);
+    _attach([for (final f in d.files) if (f is! DropItemDirectory) (name: f.name, read: f.readAsBytes)]);
   }
 
   bool get uploading => files.any((f) => f.file == null && f.error == null);
@@ -338,7 +387,16 @@ class _ChatViewState extends State<ChatView> {
       if (heard != null) _heardLive(context, heard!, cs),
     ];
     final desktop = ShellScope.isDesktop(context);
-    return LayoutBuilder(builder: (context, box) => PaneWidth(width: box.maxWidth, child: Column(children: [
+    // 拖入文件：整页都是放置区，拖到上方时描一圈主题色的边（保密输入期间不接收）
+    return DropTarget(
+      enable: secret == null,
+      onDragEntered: (_) => setState(() => dragging = true),
+      onDragExited: (_) => setState(() => dragging = false),
+      onDragDone: _onDrop,
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(border: dragging ? Border.all(color: cs.primary, width: 2) : null, borderRadius: BorderRadius.circular(8)),
+        child: LayoutBuilder(builder: (context, box) => PaneWidth(width: box.maxWidth, child: Column(children: [
         Expanded(
           child: Stack(children: [
             loading
@@ -381,10 +439,15 @@ class _ChatViewState extends State<ChatView> {
                             onKeyEvent: (e) {
                               if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.enter && !HardwareKeyboard.instance.isShiftPressed) { _send(); }
                             },
-                            child: TextField(controller: input, focusNode: focus, minLines: 1, maxLines: 8, textInputAction: TextInputAction.newline,
+                            child: _pasteable(TextField(controller: input, focusNode: focus, minLines: 1, maxLines: 8, textInputAction: TextInputAction.newline,
                                 decoration: const InputDecoration(hintText: '说点什么', border: OutlineInputBorder()),
-                                onChanged: (v) { if (v.endsWith('\n') && !HardwareKeyboard.instance.isShiftPressed) input.text = v.substring(0, v.length - 1); }))
-                        : TextField(controller: input, focusNode: focus, minLines: 1, maxLines: 4, decoration: const InputDecoration(hintText: '说点什么', border: OutlineInputBorder()), onSubmitted: (_) => _send()))
+                                onChanged: (v) { if (v.endsWith('\n') && !HardwareKeyboard.instance.isShiftPressed) input.text = v.substring(0, v.length - 1); })))
+                        : _pasteable(TextField(controller: input, focusNode: focus, minLines: 1, maxLines: 4, decoration: const InputDecoration(hintText: '说点什么', border: OutlineInputBorder()), onSubmitted: (_) => _send(),
+                            // 输入法插入的图片（剪贴板里的截图、表情图）：加入附件
+                            contentInsertionConfiguration: ContentInsertionConfiguration(onContentInserted: (c) {
+                              final d = c.data;
+                              if (d != null && d.isNotEmpty) _attach([(name: pastedName(c.mimeType), read: () async => d)]);
+                            }))))
                     // 保密输入：默认遮挡（单行）；多行的值先点眼睛显示再粘贴
                     : TextField(controller: input, obscureText: !reveal, minLines: 1, maxLines: reveal ? 6 : 1, autocorrect: false, enableSuggestions: false, onSubmitted: reveal ? null : (_) => _send(),
                         decoration: InputDecoration(hintText: _secretHint(secret!), border: const OutlineInputBorder(), prefixIcon: const Icon(Icons.lock_outline),
@@ -408,8 +471,13 @@ class _ChatViewState extends State<ChatView> {
             ]),
           ),
         ),
-      ])));
+      ]))),
+      ),
+    );
   }
+
+  /// 输入框的粘贴（Ctrl+V）先看剪贴板里有没有文件或图片（_paste），没有再交给输入框自己粘贴文字。
+  Widget _pasteable(TextField field) => Actions(actions: {PasteTextIntent: PasteAttachAction(_paste)}, child: field);
 
   static String _secretHint(Map s) {
     final items = (s['items'] as List).cast<Map>(), got = (s['got'] as num).toInt();
@@ -562,4 +630,16 @@ class _ChatViewState extends State<ChatView> {
         if (t.live.isNotEmpty) Bubble(t.live, live: true),
         if (t.hint.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(t.hint, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
       ]);
+}
+
+/// 覆盖输入框的粘贴动作：attach 把剪贴板里的文件或图片加入了附件就返回 true；否则交回输入框原本的粘贴（callingAction）粘贴文字。
+class PasteAttachAction extends Action<PasteTextIntent> {
+  final Future<bool> Function() attach;
+  PasteAttachAction(this.attach);
+  @override
+  Object? invoke(PasteTextIntent intent) {
+    final fallback = callingAction; // 只在这次调用期间有值，先记下
+    attach().then((done) { if (!done && fallback != null && fallback.isActionEnabled) fallback.invoke(intent); });
+    return null;
+  }
 }
