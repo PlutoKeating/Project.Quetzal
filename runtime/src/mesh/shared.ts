@@ -5,6 +5,7 @@
 //   - 审批：一具身体上等待批准的事，所有身体的控制台都看得到；在哪里批准都行（转给发起的那具身体）。
 //   - 预算：用量按身体记，每日预算看全网合计。
 //   - 提醒：按条目合并（time/reminders.ts 的 merge：同一编号以较新的修改为准，删除留墓碑），不看分区的修改时刻；一改就广播，连上时互相拉一次。
+//   - 认领（mind/claims.ts）：同样按条目合并、一改就广播；认领与放下由协调者决定（跟随者经 claims.op 转过去，holder 的身体一律记为发来的那具）。
 //   - 来自别处的设置先校验：修改时刻不能晚于「现在 + 5 分钟」（一个远在未来的时刻会让这个分区再也改不动）；
 //     每个分区只留认得的键、类型与缺省值一致的值。急停是「停优先」：别处停了随时跟着停；解除只解除对方明确解除的那几次急停（见 stopState）。
 import fs from "node:fs";
@@ -18,10 +19,12 @@ import { speechKey, setSpeechKeyRemote } from "../voice/azure.ts";
 import { emergencyStop, releaseStop, stopScope, decide as decideLocal, approvals as localApprovals } from "../guard/guard.ts";
 import { usageRows, applyUsage, kv } from "../store.ts";
 import * as reminders from "../time/reminders.ts";
+import * as claims from "../mind/claims.ts";
+import { coordinator, isCoordinator } from "./coordinator.ts";
 import { log } from "../log.ts";
 
-const SECTIONS = [...SHARED_SECTIONS, "providers", "speechKey", "stop", "reminders"] as const;
-const MERGED = new Set(["stop", "reminders"]); // 按内容合并、不看修改时刻的分区
+const SECTIONS = [...SHARED_SECTIONS, "providers", "speechKey", "stop", "reminders", "claims"] as const;
+const MERGED = new Set(["stop", "reminders", "claims"]); // 按内容合并、不看修改时刻的分区
 type Section = (typeof SECTIONS)[number];
 const FUTURE_MS = 5 * 60_000;
 const BODY_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -93,11 +96,12 @@ function read(section: Section): unknown {
   if (section === "speechKey") return speechKey();
   if (section === "stop") return stopState();
   if (section === "reminders") return reminders.all();
+  if (section === "claims") return claims.all();
   return (config as any)[section];
 }
 
 // ---------- 与每具身体对齐设置的结果（控制台「设备」页显示：哪些设置采用了对方的、失败的原因）
-const LABEL: Record<string, string> = { reminders: "提醒", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
+const LABEL: Record<string, string> = { reminders: "提醒", claims: "认领", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
 export interface AlignStatus { at: number; took: string[]; error?: string }
 const aligned = new Map<string, AlignStatus>();
 const note = (body: string, took: string[], error?: string) => {
@@ -119,6 +123,7 @@ function write(section: Section, value: any, from: string): boolean {
     setSpeechKeyRemote(value);
   } else if (section === "stop") return applyStop(value, from);
   else if (section === "reminders") return reminders.merge(value);
+  else if (section === "claims") return claims.merge(value);
   else {
     const clean = sanitizeSection(section, value);
     if (!clean) throw new Error("格式不对");
@@ -200,6 +205,12 @@ export function installShared(mesh: Mesh): () => void {
   mesh.handle("approval.decide", (p: { id: string; approve: boolean; note?: string }, from: string) => decideLocal(typeof p?.id === "string" ? p.id : "", p?.approve === true, `${from} 上的控制台`, clipText(p?.note, 500)));
   mesh.handle("approvals.pending", () => localApprovals().map((a) => ({ ...a, body: config.body })));
   mesh.handle("usage.today", () => usageRows());
+  mesh.handle("claims.op", (p: { op?: unknown; req?: any }, from: string) => {
+    const r = p?.req && typeof p.req === "object" ? p.req : {};
+    const req: claims.ClaimRequest = { key: clipText(r.key, 200), note: clipText(r.note, 300), minutes: Number(r.minutes) || undefined, body: from, holder: clipText(r.holder, 80), where: clipText(r.where, 120), force: r.force === true };
+    if (!req.holder) throw new Error("缺少会话");
+    return p?.op === "release" ? claims.release(req) : claims.take(req);
+  });
 
   const onShared = (sections: string[]) => mesh.broadcast("settings", pack(sections));
   const onApproval = (a: Approval) => { if (!a.body || a.body === config.body) mesh.broadcast("approval", { ...a, body: config.body }); };
@@ -229,15 +240,18 @@ export function installShared(mesh: Mesh): () => void {
   };
 
   const onReminders = () => onShared(["reminders"]);
+  const onClaims = () => onShared(["claims"]);
   bus.on("shared", onShared);
   bus.on("reminders.changed", onReminders);
+  bus.on("claims.changed", onClaims);
   bus.on("approval", onApproval);
   bus.on("usage", onUsage);
   mesh.on("event", onEvent);
   mesh.on("peer", onPeer);
   setApprovalRouter((body, id, approve, note) => mesh.request<boolean>(body, "approval.decide", { id, approve, note }, 15_000));
+  claims.setClaimRouter((op, req) => (isCoordinator() || !mesh.connected().includes(coordinator()) ? undefined : mesh.request<claims.ClaimResult>(coordinator(), "claims.op", { op, req }, 15_000)));
   return () => {
-    bus.off("shared", onShared as any); bus.off("reminders.changed", onReminders); bus.off("approval", onApproval as any); bus.off("usage", onUsage as any);
+    bus.off("shared", onShared as any); bus.off("reminders.changed", onReminders); bus.off("claims.changed", onClaims); claims.setClaimRouter(undefined); bus.off("approval", onApproval as any); bus.off("usage", onUsage as any);
     mesh.off("event", onEvent); mesh.off("peer", onPeer); setApprovalRouter(undefined); remote.clear();
   };
 }

@@ -6,6 +6,7 @@ export interface Events {
   message: [from: string, text: string, channel: string]; // 有人对 agent 说话
   poke: [note: string];
   "reminders.changed": []; // 提醒有改动（本机）：网状层同步给其他身体
+  "claims.changed": []; // 认领有改动（本机）：网状层同步给其他身体（mind/claims.ts）
   "reminders.missed": [r: { id: string; text: string; at: number }, lateMs: number]; // 错过太久、没有发出的提醒
   timeline: [entry: TimelineEntry];
   state: [];

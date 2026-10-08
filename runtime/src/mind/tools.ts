@@ -33,6 +33,7 @@ import { ensureSession, getSession, kv } from "../store.ts";
 import crypto from "node:crypto";
 import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf } from "./bodies.ts";
+import * as claims from "./claims.ts";
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 export interface ToolContext { session?: Session }
@@ -402,6 +403,29 @@ const core: Tool[] = [
       bus.emit("session.switch", { from: s.conv, to: conv, title });
       addTimeline("session", `切到新会话「${title}」`, { from: s.conv, to: conv, handoff: !!a.handoff });
       return `已切到新会话「${title}」（${conv}）：你接下来的回复会出现在那里，对方之后的话也在那里。${a.handoff ? "交接已放进去。" : ""}`;
+    },
+  },
+  {
+    name: "claim", permission: "session",
+    description: "认领一件对外的事，避免另一个你（同一具身体上的别的会话、醒来时的你、别的身体上的你）同时去做同一件事：开 issue / PR、发邮件或消息、下单、改外部系统里的东西之前，先 take 认领（key 是你给这件事起的名字，写具体，例如「GitHub：Project.X 开 issue 说登录超时」；note 写你在做什么；minutes 是期限，默认 30，最长 1440）。" +
+      "已经有别的会话认领了，会告诉你是谁、在哪个会话、做什么、到几点——这时先别做，看看那边做没做完（recent_actions、其他会话的近况）。同一个会话再 take 就是续期。做完或不做了用 release 放下；别的会话认领着、你确认它已经不会做了，可以 release 加 force=true。list 列出此刻所有的认领。基座只按名字比较，是不是同一件事由你判断。",
+    parameters: obj({ action: { type: "string", enum: ["take", "release", "list"] }, key: str("这件事的名字"), note: str("在做什么（take 时）"), minutes: { type: "number", description: "期限（分钟，默认 30，最长 1440）" }, force: { type: "boolean", description: "release 别的会话的认领" } }, ["action"]),
+    handler: async (a, ctx) => {
+      const s = ctx.session;
+      const me = s ? { body: config.body, holder: s.origin === "chat" && s.conv ? s.conv : s.id } : undefined;
+      if (a.action === "list") { const l = claims.active(); return l.length ? l.map((c) => `- ${claims.describe(c, me)}`).join("\n") : "此刻没有认领"; }
+      if (!s || !me) return "claim 只能在会话里调用";
+      if (typeof a.key !== "string" || !a.key.trim()) return "需要 key：这件事的名字";
+      const where = s.origin === "chat" ? `会话「${getSession(s.conv)?.title ?? s.conv}」` : s.origin === "dream" ? "做梦" : s.origin === "agent" ? "子 agent" : "醒来思考";
+      const req = { key: a.key, note: a.note, minutes: a.minutes, force: a.force === true, where, ...me };
+      if (a.action === "release") {
+        const r = await claims.unclaim(req);
+        if (r.ok) return `已放下：${claims.describe(r.claim, me)}`;
+        return r.by ? `这件事是别的会话认领的：${claims.describe(r.by, me)}。确认它不会做了再用 force=true 放下。` : `没有人认领「${a.key}」`;
+      }
+      const r = await claims.claim(req);
+      if (r.ok) return `${r.renewed ? "已续期" : "已认领"}：${claims.describe(r.claim, me)}。做完或不做了用 release 放下。`;
+      return r.by ? `已经有人认领了：${claims.describe(r.by, me)}。先别做，看看那边做没做完；确认它不会做了，可以 release 加 force=true 再认领。` : "没能认领";
     },
   },
   {
