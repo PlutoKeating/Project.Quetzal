@@ -43,6 +43,7 @@ The bot takes the agent's display name, and whoever tapped **Connect Feishu** be
 
 - Send messages as usual, and it replies in the current turn. If a message arrives while it is working, it adds a reaction emoji to show it got the message, then adds it to the turn before the next model call.
 - Send **`/new [title]`** to start a new session.
+- Send **`/sandbox`** to take the current session out of the [real environment](/docs/guide/permissions#real-environment).
 - When you send images and files, the runtime downloads them through Feishu's message resource API and hands them to the agent as attachments.
 - When it asks for a password or key, it sends a **secret input** card (see [Passing secrets](/docs/guide/secrets)). Feishu does not let bots recall your messages, so afterwards **recall any message that contains a secret yourself**.
 
