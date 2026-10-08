@@ -4,7 +4,7 @@ import path from "node:path";
 import { paths } from "../config.ts";
 import type { Protocol } from "./types.ts";
 
-export interface CatalogModel { id: string; name: string; context: number; output: number; toolCall: boolean; vision?: boolean; released?: string; cost?: { input: number; output: number } } // released：发布日期 YYYY-MM-DD（快速接入按它挑最新的）
+export interface CatalogModel { id: string; name: string; context: number; output: number; toolCall: boolean; vision?: boolean; text?: boolean; status?: string; released?: string; cost?: { input: number; output: number } } // released：发布日期 YYYY-MM-DD（快速接入按它挑最新的）；text：输出模态里有文字（能对话）；status：目录标的 alpha / beta / deprecated
 export interface CatalogProvider { id: string; name: string; api: string; protocol: Protocol; models: CatalogModel[] }
 
 const DEFAULT_BASE: Record<string, string> = {
@@ -21,8 +21,8 @@ function protocolOf(npm = ""): Protocol {
   return "openai-completions";
 }
 
-/** 能否看图只看输入模态（attachment 表示能收文件，不代表能看图）；目录没有模态信息时才退而参考 attachment。 */
-export const visionOf = (m: any): boolean => (Array.isArray(m.modalities?.input) ? m.modalities.input.includes("image") : !!m.attachment);
+/** 能否看图只看输入模态（attachment 表示能收文件，不代表能看图）；目录没有模态信息就是不知道（undefined）。 */
+export const visionOf = (m: any): boolean | undefined => (Array.isArray(m.modalities?.input) ? m.modalities.input.includes("image") : undefined);
 
 export async function refreshCatalog(): Promise<CatalogProvider[]> {
   const res = await fetch("https://models.dev/api.json", { signal: AbortSignal.timeout(20_000) });
@@ -32,7 +32,9 @@ export async function refreshCatalog(): Promise<CatalogProvider[]> {
     id: p.id, name: p.name ?? p.id, api: DEFAULT_BASE[p.id] ?? p.api ?? "", protocol: protocolOf(p.npm),
     models: Object.values(p.models ?? {}).map((m: any) => ({
       id: m.id, name: m.name ?? m.id, context: m.limit?.context ?? 0, output: m.limit?.output ?? 0, toolCall: !!m.tool_call,
-      vision: visionOf(m),
+      ...(visionOf(m) !== undefined ? { vision: visionOf(m) } : {}),
+      ...(Array.isArray(m.modalities?.output) ? { text: m.modalities.output.includes("text") } : {}),
+      ...(typeof m.status === "string" ? { status: m.status } : {}),
       ...(typeof m.release_date === "string" ? { released: m.release_date } : {}),
       cost: m.cost ? { input: m.cost.input ?? 0, output: m.cost.output ?? 0 } : undefined,
     })),
@@ -42,9 +44,9 @@ export async function refreshCatalog(): Promise<CatalogProvider[]> {
 }
 
 let refreshing = false;
-/** 缓存是旧格式（没有「能否看图」或发布日期）时，在后台刷新一次。 */
+/** 缓存是旧格式（没有输出模态或发布日期）时，在后台刷新一次。 */
 function refreshIfStale(c: { providers: CatalogProvider[] }) {
-  if (refreshing || c.providers.some((p) => p.models.some((m) => typeof m.vision === "boolean" && typeof m.released === "string"))) return;
+  if (refreshing || c.providers.some((p) => p.models.some((m) => typeof m.text === "boolean" && typeof m.released === "string"))) return;
   refreshing = true;
   refreshCatalog().catch(() => {}).finally(() => { refreshing = false; });
 }

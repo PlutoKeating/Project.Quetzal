@@ -87,7 +87,7 @@ export async function requestHost(conv: string, reason: string, notify?: (text: 
   asking.add(conv);
   try {
     notify?.(`请求进入真实环境：${why}`);
-    const ok = await ask("进入真实环境（命令不经沙箱）", why, { conv });
+    const ok = await ask("进入真实环境（命令不经沙箱）", why, { conv }, "host");
     if (!ok) return "对方没有同意（或超时、急停），仍在沙箱里。不要设法绕过沙箱；告诉对方你需要什么，或者换个做法。";
     if (!hostActive(conv)) enterHost(conv, "agent", why, "对方");
     return `已进入真实环境：从现在起这个会话里的 shell 命令不经沙箱，以基座的系统用户直接在主机上执行，能读写对方能读写的一切。只做对方同意的事；做完了用 host_mode 的 exit 回到沙箱（${IDLE_MS / 60_000} 分钟没有命令、基座重启或急停也会自动回到沙箱）。`;

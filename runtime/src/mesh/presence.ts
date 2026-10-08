@@ -8,7 +8,7 @@ import type { Mesh, PeerStatus } from "./mesh.ts";
 import { bus, type Activity } from "../bus.ts";
 import { config } from "../config.ts";
 import { foldRemote, adoptLive, dropBody, localTurns, liveTurns, type LiveTurn } from "../mind/activity.ts";
-import { setConverseRouter, converse, type ConverseOptions } from "../mind/brain.ts";
+import { setConverseRouter, setStopRouter, stopTurn, converse, type ConverseOptions } from "../mind/brain.ts";
 import { saveUpload, resolveUpload, MAX_FILE_BYTES } from "../mind/attachments.ts";
 import { listSessions, sessionMessages, type Attachment } from "../store.ts";
 import { log } from "../log.ts";
@@ -84,6 +84,18 @@ export function installPresence(mesh: Mesh): () => void {
     return converse(clip(p?.from, 40) || "你", typeof p?.text === "string" ? p.text.slice(0, 100_000) : "", channel, { ...o, via: from, attachments: attachments.length ? attachments : undefined });
   });
 
+  // 停止这一轮：这个会话正在别的身体上进行，就请那具身体停（那边只停自己的，不再转出）
+  mesh.handle("chat.stop", (p: { conv?: unknown }, from: string) => {
+    if (typeof p?.conv !== "string" || !p.conv || p.conv.length > 200) throw new Error("没有会话");
+    log("mesh", `${from} 请求停止会话 ${clip(p.conv, 40)} 里的一轮`);
+    return stopTurn(p.conv, { local: true });
+  });
+  setStopRouter((conv) => {
+    const owner = ownerOf(conv);
+    if (!owner || !mesh.connected().includes(owner)) return undefined;
+    return mesh.request<boolean>(owner, "chat.stop", { conv }, 15_000).then((r) => r === true, () => false);
+  });
+
   setConverseRouter((conv, from, text, channel, o) => {
     const owner = ownerOf(conv);
     if (!owner || !mesh.connected().includes(owner)) return undefined;
@@ -106,7 +118,7 @@ export function installPresence(mesh: Mesh): () => void {
   mesh.on("event", onEvent);
   mesh.on("peer", onPeer);
   return () => {
-    setConverseRouter(undefined);
+    setConverseRouter(undefined); setStopRouter(undefined);
     bus.off("activity", onActivity as any); mesh.off("event", onEvent); mesh.off("peer", onPeer);
     for (const b of open) dropBody(b);
   };

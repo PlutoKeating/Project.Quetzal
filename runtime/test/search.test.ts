@@ -1,7 +1,7 @@
 // 网页搜索：结果页解析（按真实页面结构构造的样例）、跳转链接解码、引擎选择与兜底。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseBing, parseBaidu, parseSo, bingTarget, enginesFor, webSearch, isCaptcha, relevance } from "../src/mind/search.ts";
+import { parseBing, parseBaidu, parseSo, bingTarget, ORDER, webSearch } from "../src/mind/search.ts";
 
 const bingPage = `<ol id="b_results">
 <li class="b_algo" data-id iid=SERP.5335><link rel="stylesheet" href="/rp/x.css"/><div class="b_tpcn"><a class="tilk" href="https://www.sohu.com/a/1"><div class="tptt">sohu.com</div><cite>https://www.sohu.com</cite></a></div>
@@ -46,9 +46,7 @@ test("360 搜索：优先取 data-mdurl 真实地址", () => {
 
 test("跳转链接解码与引擎选择", () => {
   assert.equal(bingTarget("https://example.com/x"), "https://example.com/x");
-  assert.deepEqual(enginesFor("忒修斯之船 悖论"), ["so", "baidu", "bing-cn"]);
-  assert.deepEqual(enginesFor("Stoic philosophy Seneca"), ["so", "bing-intl", "baidu"]);
-  assert.deepEqual(enginesFor("Locke 人格同一性 记忆"), ["so", "baidu", "bing-cn"]);
+  assert.deepEqual(ORDER, ["so", "baidu", "bing-cn"], "固定顺序，不按查询文字猜语言");
 });
 
 const fake = (pages: Record<string, string | number>) => (async (url: string, init: any) => {
@@ -69,23 +67,18 @@ test("条数限制与全部失败时的说明", async () => {
   assert.match(out, /^【必应】「忒修斯之船」前 1 条/);
   assert.doesNotMatch(out, /Wikipedia/);
   const none = await webSearch("忒修斯之船", { fetcher: fake({ "www.so.com": "<html></html>", "cn.bing.com": 403, "www.baidu.com": "<html></html>" }) });
-  assert.match(none, /没有找到结果。已尝试：360 搜索（无结果）、百度（无结果）、必应（HTTP 403）/);
+  assert.match(none, /没有找到结果。已尝试：360 搜索（没有结果）、百度（没有结果）、必应（HTTP 403）/);
 });
 
-test("识别验证码页，不当作「没有结果」", async () => {
-  assert.ok(isCaptcha("https://qcaptcha.so.com/?ret=x", ""));
-  assert.ok(isCaptcha("https://www.so.com/s", "<title>访问异常页面</title>"));
-  assert.ok(isCaptcha("https://wappass.baidu.com/static/captcha", ""));
-  assert.ok(!isCaptcha("https://www.so.com/s?q=verify", "<title>verify - 搜索</title>"));
-  const out = await webSearch("忒修斯之船", { fetcher: fake({ "www.so.com": "<html><head><title>访问异常页面</title></head></html>", "www.baidu.com": baiduPage }) });
-  assert.match(out, /^【百度】/);
-});
-
-test("相关性不足（必应的降级结果）时换引擎；都不理想时返回最相关的一组并注明", async () => {
-  const degraded = `<li class="b_algo"><h2><a href="https://baike.baidu.com/item/li">李（汉语汉字）_百度百科</a></h2><p>李，汉语常用字</p></li>`;
-  const good = `<li class="b_algo"><h2><a href="https://example.com/lqz">李清照的人生经历</a></h2><p>宋代女词人李清照一生的经历与词作</p></li>`;
-  assert.ok(relevance("李清照 词 人生 经历", parseBing(degraded)) < 0.5);
-  assert.ok(relevance("李清照 词 人生 经历", parseBing(good)) >= 0.5);
-  const out = await webSearch("李清照 词 人生 经历", { fetcher: fake({ "www.so.com": 502, "www.baidu.com": "<html></html>", "cn.bing.com": degraded }) });
-  assert.match(out, /^【必应】「李清照 词 人生 经历」前 1 条，但与查询的相关性较低（已尝试：360 搜索（HTTP 502）、百度（无结果）、必应（结果不相关））/);
+test("没有结果时照实说明：被转到别的网站（验证页）就写出转到了哪里；结果相不相关不替她判断", async () => {
+  const redirect = (async (url: string) => {
+    const host = new URL(url).hostname;
+    if (host === "www.so.com") { const r = new Response("<html></html>", { status: 200 }); Object.defineProperty(r, "url", { value: "https://qcaptcha.so.com/?ret=x" }); return r; }
+    if (host === "www.baidu.com") return new Response("<html></html>", { status: 200 });
+    return new Response(`<li class="b_algo"><h2><a href="https://baike.baidu.com/item/li">李（汉语汉字）_百度百科</a></h2><p>李，汉语常用字</p></li>`, { status: 200 });
+  }) as unknown as typeof fetch;
+  const out = await webSearch("李清照 词 人生 经历", { fetcher: redirect });
+  assert.match(out, /^【必应】「李清照 词 人生 经历」前 1 条（需要全文/, "拿到结果即返回，不按关键词重叠丢弃");
+  const none = await webSearch("忒修斯之船", { engine: "so", fetcher: redirect });
+  assert.match(none, /360 搜索（没有结果，被转到了 qcaptcha\.so\.com）/);
 });

@@ -63,7 +63,6 @@ export interface Config {
     windowMin: number; // 最近一个会话在多少分钟内有更新就并入它，否则新开会话
     sensitivity: number; // 1 迟钝（只听清晰的近距离说话）· 2 适中 · 3 灵敏
     language: string; // 识别语言（BCP 47），空时取她的偏好语言
-    minChars: number; // 识别结果短于这个字数当作没听清，不打扰她
   };
 }
 
@@ -98,7 +97,7 @@ export const defaults: Config = {
   sharedRev: {},
   channels: { feishuHolder: "" },
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
-  hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "", minChars: 2 },
+  hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "" },
 };
 
 const file = () => path.join(paths.config, "quetzal.json");

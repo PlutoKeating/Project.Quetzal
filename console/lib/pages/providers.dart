@@ -281,7 +281,7 @@ class _ProviderCardState extends State<_ProviderCard> {
   /// Key 的形状检查（与运行基座 registry.keyProblem 一致）：HTTP 头只能放 ASCII，粘错成聊天内容、带了空格换行时当场指出，不等到请求时报看不懂的错。
   static String? keyProblem(String raw) {
     final s = raw.trim();
-    if (s.length < 8) return '太短，不像 API Key';
+    if (s.isEmpty) return 'Key 是空的';
     final bad = RegExp(r'[^\x21-\x7e]').firstMatch(s);
     if (bad != null) {
       final c = bad.group(0)!;

@@ -154,11 +154,11 @@ test("后台命令可以随时停止", async () => {
   for (let i = 0; i < 100 && !/开始/.test(sh.getJob(j.id)!.out); i++) await sleep(200); // Windows：沙箱用户与 PowerShell 起来要一两秒
   assert.equal(sh.getJob(j.id)!.ended, undefined);
   assert.match(sh.getJob(j.id)!.out, /开始/);
-  assert.match(sh.stopJob(j.id), /已停止/);
+  assert.match(sh.stopJob(j.id).text, /已停止/);
   await sleep(300);
   assert.ok(sh.getJob(j.id)!.ended);
   assert.doesNotMatch(sh.getJob(j.id)!.out, /不该出现/);
-  assert.match(sh.stopJob(j.id), /已经结束/);
+  assert.match(sh.stopJob(j.id).text, /已经结束/);
 });
 
 test("图片只发给能看图的模型；没有时去掉图片并说明", async () => {
@@ -176,7 +176,40 @@ test("图片只发给能看图的模型；没有时去掉图片并说明", async
   await router.chat({ messages: [img] });
   assert.equal(typeof seen[0].messages[0].content, "string");
   assert.match(seen[0].messages[0].content, /都不支持看图/);
-  assert.equal(router.canSee({ provider: { catalogId: "x" } as any, model: { name: "gpt-4o-mini" } as any }), true);
+  assert.equal(router.canSee({ provider: { catalogId: "x" } as any, model: { name: "gpt-4o-mini" } as any }), false, "目录里查不到、没有手动设置：不按模型名猜");
+});
+
+test("工具失败：上下文里写明失败；同样的调用失败多次时基座提醒不要原样重试", async () => {
+  provider([{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }]);
+  const call = (id: string) => ({ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id, type: "function", function: { name: "shell_jobs", arguments: JSON.stringify({ action: "output", id: "nope" }) } }] } });
+  let n = 0;
+  script = () => (++n <= 2 ? call(`c${n}`) : { finish_reason: "stop", message: { content: "换个做法" } });
+  seen.length = 0;
+  await converse("测试者", "失败测试", "控制台", { conv: "fail-1" });
+  const tools = seen.at(-1).messages.filter((m: any) => m.role === "tool");
+  assert.match(tools[0].content, /^【这次调用失败了】\n没有这个任务/);
+  assert.doesNotMatch(tools[0].content, /已经失败了/);
+  assert.match(tools[1].content, /同样的调用、同样的参数，这一轮已经失败了 2 次/);
+  const card = (store.sessionMessages("fail-1").at(-1)!.process as any[]).find((x) => x.type === "tool");
+  assert.equal(card.status, "error", "卡片是红叉，不是绿钩");
+  script = undefined;
+});
+
+test("对方停止这一轮：正在等的工具不再等，这一轮以一句说明结束；没有进行中的一轮时返回 false", async () => {
+  const { stopTurn } = await import("../src/mind/brain.ts");
+  const guard = await import("../src/guard/guard.ts");
+  provider([{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }]);
+  // 一直等对方批准的工具（真实环境的请求）：停止后不等它
+  script = () => ({ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "h1", type: "function", function: { name: "host_mode", arguments: JSON.stringify({ action: "request", reason: "测试" }) } }] } });
+  const r = converse("测试者", "停止测试", "控制台", { conv: "stop-1" });
+  const t0 = Date.now();
+  while (!guard.approvals().some((a) => a.kind === "host") && Date.now() - t0 < 5000) await new Promise((x) => setTimeout(x, 20));
+  assert.equal(await stopTurn("stop-1"), true);
+  assert.equal(await r, "（这一轮被对方停止了）");
+  assert.equal(store.sessionMessages("stop-1").at(-1)!.text, "（这一轮被对方停止了）");
+  assert.equal(await stopTurn("stop-1"), false);
+  for (const a of guard.approvals()) guard.decide(a.id, false, "test");
+  script = undefined;
 });
 
 test("模型某一步什么也没输出：提醒她再来，不留空回复", async () => {

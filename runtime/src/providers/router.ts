@@ -24,12 +24,9 @@ function target(r: Route, keyId: string, session: string): Target {
   return applyCompat(r.provider, t, { session }); // 仅对需要的供应商生效（如 OpenCode Go）
 }
 
-/** 常见的能看图的模型名（公共目录与手动设置都没有信息时的兜底）。 */
-const VISION_NAME = /gpt-4o|gpt-4\.1|gpt-5|gpt-6|o[34](-|$)|claude-(3|sonnet|opus|haiku)|claude-.*-4|gemini|gemma-3|qwen[\w.-]*-?vl|qvq|glm-4(\.\d)?v|vision|kimi-k2\.5|kimi[\w.-]*vl|grok-(2-vision|4)|llava|pixtral|mistral-(medium|small)-3|minimax-(vl|m3)|doubao[\w.-]*vision|step-1v|internvl|llama-4/i;
-
-/** 这条路由的模型能否看图：手动设置 > 公共目录 > 模型名推断。 */
+/** 这条路由的模型能否看图：手动设置 > 公共目录里的输入模态。两处都没有就当不能（不按模型名猜），控制台「模型」页里可以手动打开。 */
 export function canSee(r: Route): boolean {
-  return r.model.vision ?? catalogVision(r.provider.catalogId, r.model.name) ?? VISION_NAME.test(r.model.name);
+  return r.model.vision ?? catalogVision(r.provider.catalogId, r.model.name) ?? false;
 }
 
 /** 请求里有图片时只用能看图的模型；一个都没有时去掉图片并在消息里说明，保证仍能回应。 */
@@ -40,7 +37,7 @@ function forImages(req: ChatRequest, list: Route[]): { req: ChatRequest; list: R
   return {
     list,
     req: { ...req, messages: req.messages.map((m) => m.role === "user" && m.images?.length
-      ? { role: "user", content: `${m.content}\n\n（这条消息附带了 ${m.images.length} 张图片，但当前启用的模型都不支持看图，图片没有发送给你；需要的话可以用工具处理附件列表里的本地路径。）` }
+      ? { role: "user", content: `${m.content}\n\n（这条消息附带了 ${m.images.length} 张图片，但当前启用的模型都不支持看图（或公共目录里查不到、也没有在「模型」页打开看图），图片没有发送给你；需要的话可以用工具处理附件列表里的本地路径。）` }
       : m) },
   };
 }
@@ -90,7 +87,7 @@ export async function testModel(providerId: string, modelName: string) {
     const r = await adapters[t.protocol](t, { messages: [{ role: "user", content: "Reply with OK." }], maxTokens: 512 });
     return { ok: true, latencyMs: Date.now() - t0, message: r.text.slice(0, 80) || "(空回复)" };
   } catch (e: any) {
-    return { ok: false, latencyMs: Date.now() - t0, message: friendly(e) };
+    return { ok: false, latencyMs: Date.now() - t0, message: friendly(e), ...(typeof e.status === "number" && e.status ? { status: e.status as number } : {}) };
   }
 }
 

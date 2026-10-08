@@ -30,10 +30,11 @@ function preApprove(home: string, command: string) {
   }
   fs.writeFileSync(allowlist(home), JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
 }
-function unapprove(home: string) {
+/** 撤销我们登记的批准：带 note "soul-bridge" 的（我们写的），以及命令与我们在 config.yaml 里注册的命令完全相同的（早期版本写的没有 note）。不按命令里有没有某个词去猜。 */
+function unapprove(home: string, ours: string[]) {
   try {
     const data = JSON.parse(fs.readFileSync(allowlist(home), "utf8"));
-    data.approvals = (data.approvals ?? []).filter((e: any) => !(e?.note === "soul-bridge" || String(e?.command ?? "").includes("soul-bridge") || String(e?.command ?? "").includes("bridge/src/cli.ts")));
+    data.approvals = (data.approvals ?? []).filter((e: any) => !(e?.note === "soul-bridge" || ours.includes(String(e?.command ?? ""))));
     fs.writeFileSync(allowlist(home), JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
   } catch {}
 }
@@ -71,9 +72,11 @@ ${END}`;
     return "已在 config.yaml 注册 Hermes 钩子（memory 工具调用后、会话收尾时同步），并已在 shell-hooks-allowlist.json 中预先批准，无需人工确认；下一个会话起生效。";
   },
   async removeHooks(home) {
-    unapprove(home);
-    if (!fs.existsSync(cfg(home))) return;
-    const text = fs.readFileSync(cfg(home), "utf8");
+    const text = fs.existsSync(cfg(home)) ? fs.readFileSync(cfg(home), "utf8") : "";
+    const block = text.match(new RegExp(`${BEGIN}[\\s\\S]*?${END}`))?.[0] ?? "";
+    const ours = [...block.matchAll(/^\s*(?:- )?command: (".*")$/gm)].map((m) => { try { return JSON.parse(m[1]) as string; } catch { return ""; } }).filter(Boolean);
+    unapprove(home, ours);
+    if (!text) return;
     fs.writeFileSync(cfg(home), text.replace(new RegExp(`${BEGIN}[\\s\\S]*?${END}\\n?`), "").replace(/^hooks:\n(?=\S|$)/m, ""));
   },
 };

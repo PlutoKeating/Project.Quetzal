@@ -37,14 +37,14 @@ test("保存：版本号防覆盖、密钥加密且只返回末四位", () => {
   assert.throws(() => reg.saveProviders(draft, v), /已被其他地方修改/);
 });
 
-test("粘错的 Key 在保存时就被拦住：非 ASCII、含空格、太短；合法的会去掉首尾空白", () => {
+test("粘错的 Key 在保存时就被拦住：非 ASCII、含空格（不按长短猜）；合法的会去掉首尾空白", () => {
   const before = reg.loadProviders(); // 在现有供应商之上追加，测完还原，不影响后面的故障转移测试
   const draft = (secret: string) => ({ ...before, providers: [...before.providers, { id: "p9", catalogId: "custom", name: "Mock2", baseUrl: base, protocol: "openai-completions" as const, enabled: true,
     keys: [{ id: "k9", label: "prod", lastFour: "", enabled: true, secret }], models: [] }] });
   const v = reg.configVersion();
   assert.throws(() => reg.saveProviders(draft("嘟比嘟比嘟，hello神谷姐～自检一下吧"), v), /非 ASCII.*粘进来/);
   assert.throws(() => reg.saveProviders(draft("sk-abc def ghij"), v), /空格或换行/);
-  assert.throws(() => reg.saveProviders(draft("sk-1"), v), /太短/);
+  assert.equal(reg.keyProblem("sk-1"), undefined, "短的 Key 照样收（自建服务的 Key 可以很短）");
   assert.equal(reg.keyProblem("  sk-test-1234567890  "), undefined);
   const saved = reg.saveProviders(draft("  sk-test-1234567890  "), v);
   assert.equal(saved.providers.find((p) => p.id === "p9")!.keys[0].lastFour, "7890");

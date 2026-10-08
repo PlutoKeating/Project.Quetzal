@@ -138,11 +138,12 @@ class ProcessView extends StatelessWidget {
         'running' => const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
         'ok' => const Icon(Icons.check_circle, size: 16, color: Colors.green),
         'denied' => Icon(Icons.block, size: 16, color: cs.outline),
+        'unknown' => Icon(Icons.circle_outlined, size: 16, color: cs.outline), // 旧的记录没有存结果是成功还是失败：不画对钩，也不画叉
         _ => Icon(Icons.error, size: 16, color: cs.error),
       };
 }
 
-const _statusLabel = {'running': '执行中', 'ok': '完成', 'denied': '被拒绝', 'error': '出错'};
+const _statusLabel = {'running': '执行中', 'ok': '完成', 'denied': '被拒绝', 'error': '失败', 'unknown': '结果未记录'};
 
 /// 工具调用详情：名称、状态、耗时、参数摘要、结果开头；有完整记录（时间线的 steps）时给出完整参数与结果。
 void showToolDetail(BuildContext context, Map x, Map? step) {
@@ -180,7 +181,7 @@ void showToolDetail(BuildContext context, Map x, Map? step) {
 /// 时间线里的 steps（无 process 的旧记录）折成工具卡片，让旧的醒来记录也能按同一种方式回放。
 List<Map> itemsFromSteps(List steps) => [
       for (final s in steps.cast<Map>())
-        {'type': 'tool', 'call': '', 'name': '${s['tool']}', 'summary': summarizeArgs(s['args']), 'status': 'ok', 'result': '${s['result'] ?? ''}'.split('\n').firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')},
+        {'type': 'tool', 'call': '', 'name': '${s['tool']}', 'summary': summarizeArgs(s['args']), 'status': '${s['status'] ?? 'unknown'}', 'result': '${s['result'] ?? ''}'.split('\n').firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')},
     ];
 
 /// 参数的一行摘要（与 runtime 的 summarize 同一思路：常见主参数 → 第一个字符串 → JSON）。

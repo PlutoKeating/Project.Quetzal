@@ -7,18 +7,18 @@ import path from "node:path";
 import { fork, type ChildProcess } from "node:child_process";
 import { fakeSync } from "./fixtures/fake-sync.ts";
 import { loadNodeKey } from "../src/mesh/identity.ts";
-import { similarity, winner } from "../src/mesh/channels.ts";
+import { sameWords, overlap, winner } from "../src/mesh/channels.ts";
 
 let has = true;
 try { await import("node-datachannel"); } catch { has = false; }
 const skip = !has && "这台机器没有 node-datachannel（可选依赖）";
 
-test("相似度与留哪一份", () => {
-  assert.ok(similarity("今天天气怎么样", "今天天气怎么样？") > 0.9);
-  assert.ok(similarity("今天天气怎么样", "今天天气怎么") > 0.6);
-  assert.ok(similarity("今天天气怎么样", "帮我拍张照片") < 0.2);
-  assert.equal(winner([{ id: "1", body: "phone", text: "你好呀", at: 0 }, { id: "2", body: "p9", text: "你好呀，在吗", at: 0 }]).body, "p9");
-  assert.equal(winner([{ id: "1", body: "phone", text: "你好", at: 0 }, { id: "2", body: "p9", text: "你好", at: 0 }]).body, "p9");
+test("同一句话：时间重叠、同样的字（不靠相似度猜）；留哪一份按身体名", () => {
+  assert.ok(sameWords("薰，今天天气怎么样", "薰今天天气怎么样？"));
+  assert.ok(!sameWords("今天天气怎么样", "今天天气怎么"), "少一个字就不是同一句：都交给她");
+  assert.ok(overlap({ start: 0, end: 1000 }, { start: 900, end: 2000 }));
+  assert.ok(!overlap({ start: 0, end: 1000 }, { start: 1001, end: 2000 }));
+  assert.equal(winner([{ id: "1", body: "phone", text: "你好", start: 0, end: 1 }, { id: "2", body: "p9", text: "你好", start: 0, end: 1 }]).body, "p9");
 });
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-channels-"));

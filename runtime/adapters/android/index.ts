@@ -31,7 +31,7 @@ export async function call<T = any>(p: string, body?: unknown, timeoutMs = 20_00
     signal: AbortSignal.timeout(timeoutMs),
   });
   const j = await res.json().catch(() => ({})) as any;
-  if (!res.ok || j?.ok === false) throw new Error(j?.error || `身体接口返回 ${res.status}`);
+  if (!res.ok || j?.ok === false) throw Object.assign(new Error(j?.error || `身体接口返回 ${res.status}`), { status: res.status });
   return j as T;
 }
 const quiet = async <T>(p: Promise<T>) => { try { return await p; } catch { return undefined; } };
@@ -39,10 +39,9 @@ const quiet = async <T>(p: Promise<T>) => { try { return await p; } catch { retu
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties: props, required });
 const stamp = () => new Date().toISOString().replace(/[:.]/g, "-");
 const media = (name: string) => { fs.mkdirSync(MEDIA, { recursive: true }); return path.join(MEDIA, name); };
-const tool = (t: AdapterTool): AdapterTool => ({ ...t, handler: async (a) => { try { return await t.handler(a); } catch (e) { return `失败：${(e as Error).message}`; } } });
 
 const tools: AdapterTool[] = [
-  tool({
+  {
     name: "take_photo", permission: "camera", description: "用手机相机拍一张照片（camera 0 后置，1 前置），返回文件路径。",
     parameters: obj({ camera: { type: "number", enum: [0, 1] } }),
     handler: async (a) => {
@@ -50,8 +49,8 @@ const tools: AdapterTool[] = [
       await call("/v1/photo", { camera: Number(a.camera ?? 0), file: f }, 45_000);
       return fs.existsSync(f) ? `已拍摄：${f}（${Math.round(fs.statSync(f).size / 1024)} KB）` : "拍照失败";
     },
-  }),
-  tool({
+  },
+  {
     name: "record_audio", permission: "microphone", description: "用麦克风录一段声音（秒），返回文件路径。",
     parameters: obj({ seconds: { type: "number" } }, ["seconds"]),
     handler: async (a) => {
@@ -60,8 +59,8 @@ const tools: AdapterTool[] = [
       await call("/v1/record", { seconds: s, file: f }, (s + 20) * 1000);
       return fs.existsSync(f) ? `已录制 ${s} 秒：${f}` : "录音失败";
     },
-  }),
-  tool({
+  },
+  {
     name: "location", permission: "location", description: "获取手机的大致位置（网络定位）。",
     parameters: obj({}),
     handler: async () => {
@@ -70,18 +69,18 @@ const tools: AdapterTool[] = [
       const when = age < 3 ? "" : `（这是 ${age < 120 ? `${age} 分钟` : age < 2880 ? `${Math.round(age / 60)} 小时` : `${Math.round(age / 1440)} 天`}前的位置，现在定不到新的）`;
       return `纬度 ${j.latitude.toFixed(3)}，经度 ${j.longitude.toFixed(3)}，精度约 ${Math.round(j.accuracy ?? 0)} 米${when}`;
     },
-  }),
-  tool({
+  },
+  {
     name: "vibrate", permission: "device", description: "让手机振动（毫秒）。",
     parameters: obj({ ms: { type: "number" } }),
     handler: async (a) => { await call("/v1/vibrate", { ms: Math.min(3000, Number(a.ms) || 500) }); return "振动了"; },
-  }),
-  tool({
+  },
+  {
     name: "torch", permission: "device", description: "打开或关闭手电筒。",
     parameters: obj({ on: { type: "boolean" } }, ["on"]),
     handler: async (a) => { await call("/v1/torch", { on: !!a.on }); return a.on ? "手电筒开了" : "手电筒关了"; },
-  }),
-  tool({
+  },
+  {
     name: "clipboard", permission: "device", description: "读取（不给 text）或写入手机剪贴板。",
     parameters: obj({ text: { type: "string" } }),
     handler: async (a) => {
@@ -89,8 +88,8 @@ const tools: AdapterTool[] = [
       const j = await call<{ text?: string }>("/v1/clipboard", {});
       return j.text || "（剪贴板为空，或系统不允许后台读取）";
     },
-  }),
-  tool({
+  },
+  {
     name: "read_sensor", permission: "device", description: "读取一个传感器的当前数值；不给 name 时列出所有传感器。",
     parameters: obj({ name: { type: "string" } }),
     handler: async (a) => {
@@ -98,7 +97,7 @@ const tools: AdapterTool[] = [
       const j = await call<{ values: number[] }>("/v1/sensor", { name: String(a.name) }, 15_000);
       return `${a.name}: ${j.values.join(", ")}`;
     },
-  }),
+  },
 ];
 
 const adapter: BodyAdapter = {
@@ -110,7 +109,7 @@ const adapter: BodyAdapter = {
     return parts.join("，");
   },
   // 设备标识：App 原生代码取的 Settings.Secure.ANDROID_ID（恢复出厂设置、换签名会变）。只用来派生身体 uuid
-  async deviceId() { const j = await quiet(call<{ id?: string }>("/v1/device-id")); return typeof j?.id === "string" && /^[0-9a-f]{8,32}$/i.test(j.id) ? j.id.toLowerCase() : undefined; },
+  async deviceId() { const j = await quiet(call<{ id?: string }>("/v1/device-id")); return typeof j?.id === "string" && /^[0-9a-f]{1,16}$/i.test(j.id) ? j.id.toLowerCase() : undefined; }, // ANDROID_ID 是 64 位数的十六进制写法
   async init() { info = (await quiet(call<Info>("/v1/info"))) ?? {}; }, // 机型是公开的非唯一信息；传感器由 App 按类型探测
   // 网络变化：App 注册了系统的默认网络回调，这里长轮询 /v1/network（变了立即返回，否则 50 秒后返回原样）
   onNetworkChange(cb) {
@@ -125,7 +124,7 @@ const adapter: BodyAdapter = {
           if (seq >= 0 && j.seq !== seq) cb(`系统报告默认网络变了（现在是${names[j.transport ?? ""] ?? "其他网络"}）`);
           seq = j.seq;
         } catch (e) {
-          if (/没有这个接口/.test((e as Error).message)) return; // 旧版 App：只靠轮询
+          if ((e as { status?: number }).status === 404) return; // 旧版 App 没有这个接口（HTTP 404）：只靠轮询
           await new Promise((r) => setTimeout(r, 10_000).unref?.());
         }
       }

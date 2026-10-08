@@ -52,8 +52,8 @@ test("什么工具都没有的机器上：初始化与采样不崩溃，工具�
   if (s.battery) { assert.ok(s.battery.level >= 0 && s.battery.level <= 100); assert.equal(typeof s.battery.charging, "boolean"); }
   const names = adapter.tools!.map((t) => t.name);
   assert.deepEqual(names, ["take_photo", "record_audio", "screenshot", "clipboard", "open"]);
-  assert.match(await adapter.tools!.find((t) => t.name === "screenshot")!.handler({}), /没有图形界面/);
-  assert.match(await adapter.tools!.find((t) => t.name === "record_audio")!.handler({ seconds: 1 }), /需要/);
+  await assert.rejects(adapter.tools!.find((t) => t.name === "screenshot")!.handler({}), /没有图形界面/, "做不成时抛错：核心标为失败");
+  await assert.rejects(adapter.tools!.find((t) => t.name === "record_audio")!.handler({ seconds: 1 }), /需要/);
   await assert.rejects(adapter.playAudio!("x.mp3"), /播放器/);
   await adapter.stopAudio!();
 });

@@ -131,9 +131,22 @@ test("脱敏：基座自己的密钥也替换；工具参数写进审计前替�
   writeSecret("sync.json", JSON.stringify({ token: "sync_tok_abcdefghijklmnop", server: "https://sync.example.com" }));
   assert.equal(redactSecrets("x sync_tok_abcdefghijklmnop"), "x ‹secret:sync.json›", "JSON 里的字符串值");
   assert.equal(redactSecrets("https://sync.example.com"), "https://sync.example.com", "地址不算密钥");
+  // 按结构认定、不按长度：JSON 里只有凭据字段（token）是密钥；账户名、身体名这些公开字段多长都不替换，凭据多短都替换
+  writeSecret("sync.json", JSON.stringify({ token: "qsb_x", server: "https://sync.example.com", agent: "a-1", body: "honor9", account: "PlutoKeating" }));
+  assert.equal(redactSecrets("gh api repos/PlutoKeating/Project.Quetzal"), "gh api repos/PlutoKeating/Project.Quetzal", "账户名不是密钥（2026-10-09：被替换后她用占位符连调二十多次）");
+  assert.equal(redactSecrets("Bearer qsb_x"), "Bearer ‹secret:sync.json›", "短的凭据同样替换");
   assert.deepEqual(redactArgs({ command: `curl -H "x: ${TOKEN}"` }), { command: 'curl -H "x: ‹secret:gateway.token›"' });
   await callTool("recent_actions", { name: TOKEN }, "测试");
   assert.doesNotMatch(JSON.stringify(store.listAudit(5)), /gw_x{20}/, "审计里没有明文");
+});
+
+test("工具的成功与失败按事实判断：命令非零退出是失败；命令里有 ‹secret:…› 占位符不执行", async () => {
+  const bad = await callTool("shell", { command: process.platform === "win32" ? "exit 3" : "exit 3" }, "测试");
+  assert.equal(bad.status, "error");
+  assert.match(bad.text, /^exit (3|126)/);
+  const ph = await callTool("shell", { command: "gh api repos/‹secret:sync.json›/x" }, "测试");
+  assert.equal(ph.status, "error");
+  assert.match(ph.text, /占位符/);
 });
 
 test("闸门：自造工具至少和 shell 一样严；造工具缺省每次询问", async () => {

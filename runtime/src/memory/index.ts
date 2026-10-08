@@ -140,7 +140,7 @@ export function search(query: string, o: { from?: number; to?: number; kinds?: K
     const hay = `${h.title} ${h.text}`.toLowerCase();
     const cover = q.reduce((a, t) => a + (hay.includes(t) ? weight.get(t)! : 0), 0) / total;
     const age = h.ts > 1e12 ? (now - h.ts) / 86_400_000 : 365;
-    h.score = h.score * cover * cover * (1 + 0.3 * Math.exp(-age / 30)) * (h.kind === "chat" && h.text.length < 6 ? 0.3 : 1);
+    h.score = h.score * cover * cover * (1 + 0.3 * Math.exp(-age / 30));
   }
   return hits.sort((a, b) => b.score - a.score).slice(0, limit);
 }

@@ -21,7 +21,7 @@ import { config, readSecret, writeSecret, saveConfig, isAndroid, randomCode } fr
 import { audit } from "./store.ts";
 import { bus } from "./bus.ts";
 import { invoke, status } from "./ops.ts";
-import { converse } from "./mind/brain.ts";
+import { converse, stopTurn } from "./mind/brain.ts";
 import { feishuStatus, setFeishu, registerFeishu } from "./channels/feishu.ts";
 import { VERSION } from "./version.ts";
 import { log } from "./log.ts";
@@ -83,6 +83,8 @@ export function startGateway(safeMode: boolean): GatewayHandle {
       const mode = ["steer", "queue", "interrupt"].includes(p.mode) ? p.mode : undefined; // 她工作时发消息的方式（默认插话）
       return converse("你", String(p.text ?? ""), "控制台", { conv: str64(p.conv), turn: str64(p.turn), attachments: files, mode });
     },
+    // 停止这个会话里正在进行的一轮（控制台的停止按钮 / 连按两次 Esc）；在别的身体上就转过去停。返回是否停下了一轮
+    "chat.stop": (p) => stopTurn(str64(p.conv) || "first"),
     "feishu.status": () => feishuStatus(),
     "feishu.set": (p) => setFeishu(p),
     // 多具身体：指定持有飞书长连接的身体（全网共用的设置；空 = 各自连，只适合一具身体）

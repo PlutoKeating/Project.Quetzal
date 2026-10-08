@@ -10,7 +10,7 @@ import { pathToFileURL } from "node:url";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-host-"));
 process.env.QUETZAL_SANDBOX = "none"; // 「沙箱」这一侧用部署者允许的不隔离运行代替：这里只比较两条路径的差别（环境变量），不依赖本机有没有 bwrap
-process.env.MY_SERVICE_API_TOKEN = "should-not-reach-host-commands";
+process.env.MY_SERVICE_API_TOKEN = "host-token-passes-through"; // 主机上的令牌类环境变量原样传给真实环境里的命令
 const { loadConfig, saveConfig, paths } = await import("../src/config.ts");
 loadConfig();
 saveConfig({ sandbox: { allowUnsandboxed: true }, permissions: { shell: "allow" } } as never);
@@ -31,7 +31,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const chat = (conv: string) => new Session("chat", "控制台", undefined, conv);
 const lastAudit = (action: string) => store.listAudit(50).find((r: any) => r.action === action) as any;
 
-test("对方在控制台打开：只对这个会话生效，命令不经沙箱、不带基座与令牌类的环境变量，审计带标记；退出后回到沙箱", async () => {
+test("对方在控制台打开：只对这个会话生效，命令不经沙箱、不带基座自己的环境变量（其余原样传），审计带标记；退出后回到沙箱", async () => {
   const s = chat("h1"), other = chat("h2");
   try {
     assert.ok((await callTool("shell", { command: probe }, "测试", { session: s })).text.includes(`home=${paths.home}`), "沙箱这一侧照常带 QUETZAL_HOME");
@@ -41,7 +41,7 @@ test("对方在控制台打开：只对这个会话生效，命令不经沙箱�
     const r = await callTool("shell", { command: probe }, "测试", { session: s });
     assert.match(r.text, /真实环境/);
     assert.match(r.text, /home=none/);
-    assert.doesNotMatch(r.text, /tok=yes/);
+    assert.match(r.text, /tok=yes/, "其余环境变量原样传（对方进真实环境往往就是为了用主机上的令牌），不按变量名猜");
     assert.match(String(lastAudit("shell").args), /"realEnv":true/);
     assert.doesNotMatch((await callTool("shell", { command: probe }, "测试", { session: other })).text, /home=none/, "其他会话仍在沙箱里");
     assert.doesNotMatch(String(lastAudit("shell").args), /realEnv/);

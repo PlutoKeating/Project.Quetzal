@@ -151,7 +151,7 @@ class HearingController extends ChangeNotifier {
         _speakTimer?.cancel();
         if (!speaking) {
           speaking = true; _speakTimer = Timer(const Duration(milliseconds: 1200), () { speaking = false; notifyListeners(); }); // 说完后再亮一会儿
-          if (((e['ms'] as num?) ?? 0) >= 400) { pending = true; _pendingTimer?.cancel(); _pendingTimer = Timer(const Duration(seconds: 20), () { pending = false; notifyListeners(); }); }
+          pending = true; _pendingTimer?.cancel(); _pendingTimer = Timer(const Duration(seconds: 20), () { pending = false; notifyListeners(); }); // 每句都交给基座识别，等它的 heard 事件
         }
       case 'heard': lastHeard = e; error = null; pending = false; _pendingTimer?.cancel();
       case 'playing': playing = e['on'] == true;

@@ -30,9 +30,9 @@ export async function check(permission: string, action: string, reason: string, 
 }
 
 /** 生成一条审批，等对方批准或拒绝（30 分钟未处理视为拒绝；急停时直接拒绝）。不看能力类别：真实环境的请求（host-mode.ts）每次都走这里。 */
-export async function ask(action: string, reason: string, args: unknown): Promise<boolean> {
+export async function ask(action: string, reason: string, args: unknown, kind?: Approval["kind"]): Promise<boolean> {
   if (fs.existsSync(paths.stop)) return false;
-  const a: Approval = { id: crypto.randomBytes(8).toString("hex"), action, reason, args, status: "pending" }; // 8 个随机字节：多具身体时各处的审批列在一起（另按「身体/编号」区分，见 mesh/shared.ts）
+  const a: Approval = { id: crypto.randomBytes(8).toString("hex"), action, reason, args, status: "pending", ...(kind ? { kind } : {}) }; // 8 个随机字节：多具身体时各处的审批列在一起（另按「身体/编号」区分，见 mesh/shared.ts）
   addTimeline("approval", `请求批准：${action}`, { id: a.id, reason, args });
   const ok = await new Promise<boolean>((resolve) => {
     pending.set(a.id, { a, resolve });

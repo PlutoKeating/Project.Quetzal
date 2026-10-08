@@ -35,15 +35,14 @@ export function publicView(c = loadProviders()): ProviderConfig {
 
 export class ConfigError extends Error { code: string; constructor(code: string, message: string) { super(message); this.code = code; } }
 
-/** API Key 的形状检查：HTTP 头只能放 Latin1，实际的 Key 都是可打印 ASCII 且没有空白。粘错成聊天内容、带了换行或引号时在这里就拦住，而不是等到请求时报一句看不懂的 ByteString 错误。返回错误说明，合法为空。 */
+/** API Key 的形状检查（只查确定的事：HTTP 头只能放可打印 ASCII、不能有空白；不按长短猜像不像 Key）。粘错成聊天内容、带了换行或引号时在这里就拦住，而不是等到请求时报一句看不懂的 ByteString 错误。返回错误说明，合法为空。 */
 export function keyProblem(secret: string): string | undefined {
   const s = secret.trim();
-  if (s.length < 8) return "太短，不像 API Key";
+  if (!s) return "是空的";
   if (/[^\x21-\x7e]/.test(s)) {
     const bad = s.match(/[^\x21-\x7e]/)![0];
     return bad === " " || bad === "\t" || bad === "\n" || bad === "\r" ? "含有空格或换行，不像 API Key——是不是多复制了什么？" : `含有非 ASCII 字符（如「${bad}」），不像 API Key——是不是把别的文字粘进来了？`;
   }
-  if (/^(Bearer|sk-)?\s*$/i.test(s)) return "不像 API Key";
   return undefined;
 }
 

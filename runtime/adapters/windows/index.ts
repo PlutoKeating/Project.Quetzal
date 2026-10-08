@@ -38,11 +38,11 @@ async function desk(op: string, args: Record<string, any> = {}, timeoutMs = 60_0
   if (!j.ok) throw new Error(j.error ?? "身体助手出错");
   return j.result;
 }
-const say = async (f: () => Promise<any>) => { try { return String(await f()); } catch (e) { return (e as Error).message; } };
+const say = async (f: () => Promise<any>) => String(await f()); // 出错照常抛出：核心把这次调用标为失败（没人登录、助手退出也算）
 
 const tools: AdapterTool[] = [
   { name: "take_photo", permission: "camera", description: "用这台电脑的摄像头拍一张照片，返回文件路径（之后可以用 view_image 看）。", parameters: obj({}),
-    handler: () => camera ? say(() => desk("camera", {}, 90_000)) : Promise.resolve("这台电脑没有摄像头") },
+    handler: () => camera ? say(() => desk("camera", {}, 90_000)) : Promise.reject(new Error("这台电脑没有摄像头")) },
   { name: "record_audio", permission: "microphone", description: "用麦克风录一段声音（秒，最多 120），返回 WAV 文件路径。", parameters: obj({ seconds: { type: "number" } }, ["seconds"]),
     handler: (a) => say(() => desk("record", { seconds: Number(a.seconds) || 5 }, (Math.min(120, Number(a.seconds) || 5) + 45) * 1000)) },
   { name: "screenshot", permission: "hands", description: "截取这台电脑当前的屏幕（全部显示器），返回图片路径（之后可以用 view_image 看）。", parameters: obj({}),

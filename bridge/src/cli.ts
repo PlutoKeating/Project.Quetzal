@@ -197,9 +197,6 @@ async function doctor(c: BridgeConfig, brief = false) {
   add("框架目录", fs.existsSync(c.home), c.home, "用 attach 前确认 --home 指向正确的 Hermes 家目录或 OpenClaw 工作区");
   const ls = await repoOf(c).git("ls-remote", "origin", "HEAD");
   add("仓库访问", ls.code === 0, c.remote, "部署密钥未生效：重新运行 connect，把新的链接发给人类");
-  // 地址里的主机是 ~/.ssh/config 的别名（没有点，如 github-personal）：多半借用了个人 SSH 密钥，它能读写人类的所有仓库
-  const host = /^[\w.-]+@([^:/]+):/.exec(c.remote)?.[1];
-  add("访问方式", !host || host.includes("."), c.remote, "灵魂仓库经 SSH 主机别名访问（可能借用了个人密钥）：运行 connect，换成本机专属的部署密钥与 git@github.com: 地址");
   let last: any = {};
   try { last = JSON.parse(fs.readFileSync(path.join(dirOf(c.agent), "last-sync.json"), "utf8")); } catch {}
   add("最近同步", !!last.at && !last.error, last.at ? `${last.at}${last.error ? `：${last.error}` : ""}` : "从未", "运行 sync 查看错误");

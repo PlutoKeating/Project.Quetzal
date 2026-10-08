@@ -19,7 +19,7 @@ loadConfig();
 const { openStore } = await import("../src/store.ts");
 openStore();
 const soul = await import("../src/memory/soul-sync.ts");
-const { gitErrorKind, incomingPath } = await import("../src/memory/soul-repo.ts");
+const { incomingPath } = await import("../src/memory/soul-repo.ts");
 const { bus } = await import("../src/bus.ts");
 const { Session } = await import("../src/mind/activity.ts");
 const { callTool } = await import("../src/mind/tools.ts");
@@ -56,7 +56,7 @@ test("没碰灵魂目录的工具不产生提交", async () => {
   assert.equal(g(paths.soul, "rev-parse", "HEAD"), before);
 });
 
-test("推送失败（非网络类）：立即提醒碰过记忆的那一轮，变更仍在本地提交里", async () => {
+test("推送失败：不按报错文字分类，静默重试几次仍失败才提醒碰过记忆的那一轮（附 git 原文），变更仍在本地提交里", async () => {
   alerts.length = 0;
   saveConfig({ soul: { remote: path.join(tmp, "missing.git") } });
   await soul.ensureSoul(); // 与控制台改地址时一样：重新配置 origin
@@ -64,8 +64,11 @@ test("推送失败（非网络类）：立即提醒碰过记忆的那一轮，�
   fs.appendFileSync(path.join(paths.soul, "memories/MEMORY.md"), "新的一条\n");
   await soul.touched({ tool: "memory", session: s });
   await soul.push("对话");
+  assert.equal(alerts.length, 0, "第一次失败先静默重试");
+  for (let i = 0; i < 5; i++) await soul.push("对话"); // 每次重试（计时器到点时也是调用 push）
   assert.equal(alerts.length, 1);
   assert.match(alerts[0].text, /推送失败/);
+  assert.match(alerts[0].text, /missing\.git/, "附上 git 的原文");
   assert.match(alerts[0].text, /常驻记忆/);
   assert.equal(alerts[0].targets[0], s, "提醒送回碰过记忆的那一轮");
   assert.match(head(), /memory：常驻记忆/);
@@ -101,14 +104,6 @@ test("两边都改了同一篇笔记：先用较新的一版，另一版另存�
   fs.rmSync(copy);
   assert.deepEqual(soul.pendingCopies(), []);
   s.close();
-});
-
-test("失败类别：网络类才静默重试", () => {
-  assert.equal(gitErrorKind("ssh: Could not resolve hostname github.com: Temporary failure in name resolution"), "network");
-  assert.equal(gitErrorKind("git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository."), "auth");
-  assert.equal(gitErrorKind("Host key verification failed."), "hostkey");
-  assert.equal(gitErrorKind(" ! [rejected]        HEAD -> main (fetch first)"), "rejected");
-  assert.equal(gitErrorKind("ERROR: Repository not found."), "notfound");
 });
 
 test("提醒送进还在进行的醒来：作为「基座提醒」并入收件箱，不当成对方的话", async () => {
@@ -147,7 +142,7 @@ test("配置的地址其实是一个代码仓库（没有 agent.json，有规范
   assert.ok(!fs.existsSync(path.join(paths.soul, "runtime")), "代码没有并进灵魂目录");
   const r = await soul.push("对话");
   assert.equal(r.ok, false);
-  assert.equal(r.kind, "identity");
+  assert.equal(r.kind, "refused");
   assert.equal(g(code, "log", "--oneline", "main").trim().split("\n").length, 1, "代码仓库没有收到灵魂的提交");
   saveConfig({ soul: { remote } });
   await soul.ensureSoul();

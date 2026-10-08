@@ -62,5 +62,9 @@ export async function addDeployKey(owner: string, name: string, pubFile: string,
   }
   const r = await api("POST", `/repos/${owner}/${name}/keys`, { title, key, read_only: false });
   if (!r) return undefined;
-  return r.status < 300 || /already in use/i.test(JSON.stringify(r.json));
+  if (r.status < 300) return true;
+  // 加不上：看这个仓库的部署密钥里是不是已经有这把（且可写）。GitHub 说「already in use」也可能是这把钥匙挂在别的仓库上，不能据此当成功
+  const list = await api("GET", `/repos/${owner}/${name}/keys?per_page=100`);
+  const body = key.split(/\s+/)[1];
+  return !!list && list.status < 300 && Array.isArray(list.json) && list.json.some((k: any) => typeof k?.key === "string" && k.key.split(/\s+/)[1] === body && k.read_only === false);
 }

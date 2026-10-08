@@ -1,5 +1,5 @@
 // 沙箱：agent 能运行的一切命令（shell 工具、后台任务、自造工具 sh 与 node）都经这里包一层，让基座的密钥目录（QUETZAL_HOME/secrets）在里面不存在。
-//   agent 与基座是同一个系统用户，工具层的拦截（tools.ts 的 soulGitBlock / secretsBlock）只是提示，换个写法就绕过去；边界在这里。
+//   agent 与基座是同一个系统用户，边界在这里（不按命令文字拦截：那种拦截换个写法就绕过去，还会误伤无关的命令）。
 //   - Linux：有 bubblewrap（bwrap）就用它。整个文件系统按主机原样挂进来（网络照常），然后：
 //       secrets/ 换成空的 tmpfs；QUETZAL_HOME 其余部分只读（data/ 与灵魂目录的工作区可写，灵魂目录的 .git 只读）；
 //       用户的 shell 启动文件、systemd 用户单元、自启动项、~/.ssh 只读，浏览器配置目录（里面有网页控制台的令牌与各网站的 Cookie）换成空的；
@@ -348,11 +348,11 @@ export async function wrapScript(script: string, cwd = workDir(), env: Record<st
   return { ...w, env: { ...process.env, ...env } };
 }
 
-/** 真实环境模式（host-mode.ts）下的环境变量：基座自己的（QUETZAL_*：家目录、适配器、要遮住的目录……）与名字像令牌、密钥、密码的一律不传。
- *  这只是不主动交给她：真实环境里她的命令以基座的系统用户运行，密钥目录与保密库对它照样可读（文档如实写明）。 */
+/** 真实环境模式（host-mode.ts）下的环境变量：基座自己的（QUETZAL_*：家目录、适配器、要遮住的目录……）不传，其余原样传
+ *  （对方进真实环境往往就是为了用主机上的 GH_TOKEN 这类凭据）。真实环境里她的命令以基座的系统用户运行，密钥目录与保密库对它照样可读（文档如实写明）。 */
 export function hostEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(env)) if (!/^QUETZAL_/i.test(k) && !/TOKEN|SECRET|PASSW|API_?KEY|PRIVATE_?KEY|CREDENTIAL/i.test(k)) out[k] = v;
+  for (const [k, v] of Object.entries(env)) if (!/^QUETZAL_/i.test(k)) out[k] = v;
   return out;
 }
 

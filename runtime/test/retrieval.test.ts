@@ -14,7 +14,7 @@ const mem = await import("../src/memory/memory.ts");
 const rag = await import("../src/memory/retrieval.ts");
 
 test("中文按二字组分词，英文按词", () => {
-  assert.deepEqual(rag.tokens("荣耀9 手机 Termux"), ["termux", "荣耀", "手机"]);
+  assert.deepEqual(rag.tokens("荣耀9 手机 Termux"), ["9", "termux", "荣耀", "手机"], "一个字符的英文 / 数字也算词（权重由 IDF 决定）");
   assert.deepEqual(rag.tokens("猫"), ["猫"]);
 });
 

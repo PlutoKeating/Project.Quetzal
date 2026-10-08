@@ -107,7 +107,7 @@ const cmds: Record<string, (a: any) => unknown> = {
   usageToday: () => store.usageToday(),
   setThought: (a) => mem.setThought(a.text),
   thought: () => mem.thought(),
-  heard: (a) => meshHeard(a.text, a.conv, a.at),
+  heard: (a) => meshHeard(a.text, a.conv, a.at, a.end),
   earOf: (a) => earOf(a.conv) ?? null,
   llmScript: (a) => { llmScript.push(...a.messages); return true; },
   audit: () => store.listAudit(20),

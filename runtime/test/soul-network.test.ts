@@ -1,21 +1,21 @@
-// 灵魂同步的网络：连接被断开不再误报成「钥匙被拒」；GitHub 的 22 端口不通时自动改走 ssh.github.com:443。
+// 灵魂同步的网络：报错照原文给出（不按文字猜是网络还是钥匙）；推送被拒按 --porcelain 判断；GitHub 的 22 端口不通时自动改走 ssh.github.com:443。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { SoulRepo, friendlyGitError, gitErrorKind, isGithubSsh } from "../src/memory/soul-repo.ts";
+import { SoulRepo, gitError, pushRejected, isGithubSsh } from "../src/memory/soul-repo.ts";
 
 const CUT = "Connection closed by 20.205.243.166 port 22\r\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.";
 
-test("连接被断开是网络问题，不是钥匙被拒", () => {
-  assert.equal(gitErrorKind(CUT), "network");
-  assert.match(friendlyGitError(CUT), /被断开了.*不是钥匙的问题/);
-  assert.doesNotMatch(friendlyGitError(CUT), /Deploy keys/);
-  assert.equal(gitErrorKind("git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository."), "auth");
-  assert.match(friendlyGitError("git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository."), /Deploy keys/);
-  assert.match(friendlyGitError("fatal: Could not read from remote repository."), /没能访问灵魂仓库/);
+test("报错照原文给出，不改写成猜出来的原因；被拒只认 --porcelain 的 ! 行", () => {
+  assert.equal(gitError(CUT), CUT.trim());
+  assert.equal(gitError("  something else \n"), "something else");
+  assert.match(gitError("x".repeat(1000) + "最后一行"), /^….*最后一行$/);
+  assert.ok(pushRejected("To ssh://x\n!\tHEAD:refs/heads/main\t[rejected] (fetch first)\nDone\n"));
+  assert.ok(!pushRejected("To ssh://x\n=\tHEAD:refs/heads/main\t[up to date]\nDone\n"));
+  assert.ok(!pushRejected(""), "连不上时没有 porcelain 输出：不算被拒");
 });
 
 test("GitHub 的 SSH 地址识别", () => {

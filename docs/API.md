@@ -48,11 +48,11 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `hello` | `{version, safeMode}`，连接建立时 |
 | `state` | 与 `status` 相同的完整状态（去抖 500ms） |
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
-| `approval` | 审批 `{id, action, reason, args, status}` |
+| `approval` | 审批 `{id, action, reason, args, status, kind?}`（`kind: "host"` 为她请求进入真实环境，控制台据此放在那个对话的顶部） |
 | `say` | Quetzal 主动说的话（字符串）。推送时已入库：醒来时的主动消息在她选的会话或新开的会话里（通道「主动」），基座发的提醒在 `inbox`（「主动消息」）；推送里不带会话，控制台收到后刷新会话列表与打开的会话页 |
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, body, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），`body` 为这一轮在哪具身体上（多具身体时，其他身体上进行的轮次也经同一事件推送），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
-| `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（太短、没听清、没在听；多具身体时另一只耳朵也听到了同一句话、由那边交给她）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
+| `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（没有声音、没识别出文字、没在听；不按字数或时长丢弃；多具身体时另一只耳朵也听到了同一句话、由那边交给她）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
 | `speaking` | `{until}`：她在说话（`voice_speak`、试听）到 `until`（毫秒时刻，按码率估计）为止；App 回报播完或被插嘴时 `until` 提前到现在再推一次。界面用它显示「她在说话」；桌面版的耳朵没有回声消除，这段时间不送音频 |
 | `session.switch` | `{from, to, title, done?}`：她用 `session_new` 把对话切到了新会话；控制台把打开的会话页切过去；`done` 为真表示她这一轮的回复已放进新会话 |
 | `speak` | `{id, url, text, ms}`：让登记为播放器的控制台播放一段合成语音（`url` 为 `/media/<文件名>`；安卓 App 走通话音频路径，耳朵的回声消除以它为参考；桌面版下载到临时文件后用系统播放器放）；播完或被插嘴后调用 `player.done` |
@@ -70,7 +70,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `step` | `step` | 第几次模型调用开始 |
 | `delta` | `text` | 流式文字片段（约每 200ms 合并一次） |
 | `text` | `step, text, final` | 该步的完整文字；`final` 为真表示这就是回复（不再调用工具） |
-| `tool` | `call, name, summary, status: running｜ok｜error｜denied, ms?, result?` | 工具执行中 / 执行后（同一 `call` 先后两条），`summary` 为一行参数摘要 |
+| `tool` | `call, name, summary, status: running｜ok｜error｜denied, ms?, result?` | 工具执行中 / 执行后（同一 `call` 先后两条），`summary` 为一行参数摘要。`error` 为没做成：工具抛错或返回失败（命令非零退出、参数不对、那具身体上出错……），不只是程序异常 |
 | `alive` | — | 心跳，会话存续期间每 15 秒一次 |
 | `done` / `error` | `reply?` / `message, reply?` | 结束；回复与执行过程已写入对话记录 |
 
@@ -87,7 +87,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox, reminders, host}`；`reminders` 同 `reminders` 方法；`host` 同 `host` 方法；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜landlock｜proot｜srt｜none, hidden[], readonly[], note, allowUnsandboxed}`（`srt`：Windows 的沙箱用户，见 ARCHITECTURE §8.1；`note` 写明她能写哪些目录）（`none` 时她的命令缺省一律不执行，`allowUnsandboxed` 为真时才不隔离执行；控制台应提示重新运行安装命令补上沙箱，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护（醒来结束的 `finish` 也可顺带更新），更新时推送 `state`；多具身体时全网共用（按 `ts` 后写胜），任一具身体上更新后，其他身体采用时同样推送 `state` |
 | `host` / `host.enter` / `host.exit` | — / `{conv}` / `{conv}` | 真实环境（ARCHITECTURE §8.2）：此刻开着真实环境的会话 `[{conv, title, since, last, by: agent｜user, reason, until}]`（`until` 为按空闲时限自动退出的时刻，每条真实环境命令往后推）；`host.enter` 对方在这个会话里自己打开（急停中报错），返回该项；`host.exit` 退出，返回原本是否开着。只属于这具身体、只在内存里（重启即清空）；进出写审计与时间线（`kind` 为 `host`），变化时推送 `state`。她的请求不是单独的接口：是一条 `approval`（`action` 为「进入真实环境（命令不经沙箱）」，`args.conv` 指明会话），用 `decide` 同意或拒绝 |
 | `sandbox.allowUnsandboxed` | `{allow}` | 没有可用沙箱时是否允许她的命令不隔离执行（不安全；缺省不允许）。只属于这具身体，不随多具身体同步；返回新的 `sandbox` 状态，记审计 |
-| `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `place`（多具身体时，这次醒来选在了哪具身体上 `{kind, reason, intent, where}`）、`mesh`（网状层的事：绑定、心跳交接、安全提醒）、`hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份）、`session`（切到新会话 / 压缩了上下文）、`agent`（派出 / 完成 / 停止子 agent，完成的条目带 `journal`、`process`、`steps`）、`sandbox`（没有可用的沙箱，启动时提醒一次）、`host`（进入 / 退出真实环境 `{conv, reason?}`））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数与结果（结果最多 1500 字） |
+| `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `place`（多具身体时，这次醒来选在了哪具身体上 `{kind, reason, intent, where}`）、`mesh`（网状层的事：绑定、心跳交接、安全提醒）、`hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份）、`session`（切到新会话 / 压缩了上下文）、`agent`（派出 / 完成 / 停止子 agent，完成的条目带 `journal`、`process`、`steps`）、`sandbox`（没有可用的沙箱，启动时提醒一次）、`host`（进入 / 退出真实环境 `{conv, reason?}`））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数、结果（最多 1500 字）与 `status`（ok / error / denied；1.9.0 之前的记录没有，控制台画成「结果未记录」） |
 | `messages` | `{limit?}` | 全部会话里最近的对话（正序） |
 | `audit` | `{limit?}` | 审计记录 |
 
@@ -98,6 +98,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | 方法 | 参数 | 说明 |
 |---|---|---|
 | `chat.send` | `{text, conv?, turn?, attachments?, mode?}` | 与她对话，返回她的回复。`conv` 为会话（缺省为「最初的对话」）；`turn` 由客户端生成，用于把 `activity` 事件对应到这句话；`attachments` 为 `/upload` 返回的附件（只按 `rel` 解析，最多 20 个）。她正在这个会话里工作时，`mode` 决定这句话怎么处理：`steer`（默认，插话：这次模型调用结束后并入）、`queue`（排队：作为下一轮）、`interrupt`（打断：立即中止当前模型输出并带着新消息继续，不打断正在执行的工具）；插话与打断立即返回。调用不设绝对超时，按「120 秒无进展」判定 |
+| `chat.stop` | `{conv?}` | 停止这个会话里她正在进行的一轮（控制台的停止键、桌面上连按两次 Esc）：中止模型输出与正在执行的 `shell` 命令，不再等其他工具（等批准、等保密输入），这一轮以「（这一轮被对方停止了）」结束；这一轮在另一具身体上时转过去停。返回是否停下了一轮（`false`：没有进行中的一轮） |
 | `sessions` | `{archived?}` | 会话列表 `[{id, title, channel, created, updated, archived, count, last}]`（按最近更新） |
 | `sessions.create` | `{title?}` | 新建会话（首条消息自动成为标题） |
 | `sessions.rename` / `sessions.archive` | `{id, title}` / `{id, archived}` | 重命名 / 归档与找回（有新消息的会话自动回到列表） |
@@ -129,7 +130,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | 方法 | 参数 | 说明 |
 |---|---|---|
 | `player.set` / `player.done` | `{enabled}` / `{id, interrupted?, utterance?}` | 控制台的耳朵开着时登记为她的播放器（之后 `voice_speak` 的声音由控制台播放：安卓 App 经通话路径，桌面版用系统播放器；没有播放器时交给身体适配器）；播完或被插嘴后回报（桌面版不能插嘴，`interrupted` 恒为假），`utterance` 为打断播放的那句话的标识（耳朵送 `/hear` 时带的 `id`），那句话以「打断」并入 |
-| `hearing` / `setHearing` | — / `{enabled?, windowMin?, sensitivity?, language?, minChars?}` | 查看 / 修改：`{…配置, listening, reasons[], speaking, last}`。`listening` 为 App 该不该开麦克风（开关、未急停、Azure 语音已配置、电量与温度在预算限制内），`reasons` 为没在听的原因，`speaking` 为她此刻在说话，`last` 为最近一次识别 |
+| `hearing` / `setHearing` | — / `{enabled?, windowMin?, sensitivity?, language?}` | 查看 / 修改：`{…配置, listening, reasons[], speaking, last}`。`listening` 为 App 该不该开麦克风（开关、未急停、Azure 语音已配置、电量与温度在预算限制内），`reasons` 为没在听的原因，`speaking` 为她此刻在说话，`last` 为最近一次识别 |
 | `status` 的 `hearing` 字段 | — | 同 `hearing`，随 `state` 推送；控制台据此启停本机的耳朵（安卓是麦克风前台服务，桌面版在控制台进程里） |
 
 **图表（控制台桌面版的兜底）**
@@ -278,6 +279,7 @@ interface RawSample {
 - 适配器只能 `import type` 本文件的类型，不得依赖核心的其他实现；仓库自带几个平台级实现：`runtime/adapters/android/`（任意安卓手机）构建为 `dist/android.mjs`，随 Quetzal App 内置；`runtime/adapters/termux/`（旧的 Termux 安装：安卓手机 + Termux:API）构建为 `dist/termux.mjs`；`runtime/adapters/linux/`（任意 Linux 机器）构建为 `dist/linux.mjs`，由 npm 包 `@plutokeating/quetzal` 随运行基座放到 `~/quetzal/current/`；
 - 适配器从 `QUETZAL_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理；
+- 工具做不成时抛出错误（核心把这次调用标为失败、写明给她）；不要只返回一句「失败」的文字，那样会被当成成功；
 - `deviceId()` 返回的是敏感信息：适配器自己也不得写进日志或工具结果。各平台实现：Linux `/etc/machine-id`（退回 `/var/lib/dbus/machine-id`）、Windows 注册表 `HKLM\SOFTWARE\Microsoft\Cryptography` 的 `MachineGuid`、安卓 App 身体接口的 `GET /v1/device-id`、Termux 尽力用 `settings get secure android_id`（多数手机上没有权限，取不到）。
 
 安卓适配器经 Quetzal App 的**身体接口**取得身体能力：App 在 127.0.0.1 的随机端口提供 HTTP/1.1 接口（`Authorization: Bearer <令牌>`，令牌 256 位、每次启动重新生成），端口与令牌写在 `QUETZAL_HOME/secrets/body.json`（`{port, token}`，0600）。接口：`GET /v1/info`（机型、光线与加速度传感器名、有没有相机与闪光灯）、`GET /v1/sample`（`battery {level, charging, tempC, health}`、`plugged`、`lux`、`motion`、`screenOn`）、`GET /v1/sensors`、`POST /v1/sensor {name}` → `{values}`、`POST /v1/notify {title, text}`、`POST /v1/play {file}`、`POST /v1/stop`、`POST /v1/vibrate {ms}`、`POST /v1/torch {on}`、`POST /v1/clipboard {text?}` → `{text}`、`POST /v1/location` → `{latitude, longitude, accuracy, ageMinutes}`（定不到新位置时为最近一次已知位置）、`POST /v1/photo {camera, file}`、`POST /v1/record {seconds, file}`、`GET/POST /v1/supervision {enabled}`、`GET /v1/device-id` → `{id}`（`Settings.Secure.ANDROID_ID`，只用来派生身体 uuid）、`POST /v1/network {seq}` → `{seq, transport}`（长轮询：App 注册了系统的默认网络回调，网络、传输方式、是否验证过能上网或本机地址变了就把 `seq` 加一；给的 `seq` 与现在的不同就立即返回，否则最多等 50 秒；`transport` 为 wifi / cellular / ethernet / vpn / other / none，不返回地址；安卓适配器的 `onNetworkChange` 用它）。成功 `{ok: true, …}`，失败 `{ok: false, error}`；文件路径必须在 `QUETZAL_HOME` 之内；请求体最大 64 KiB。工具与 Termux 适配器同名同参数。
@@ -303,5 +305,5 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
 | `gateway.port` / `gateway.host` / `gateway.lan` / `gateway.lanPort` | 7788 / `127.0.0.1` / false / 7789 | 网关（§1）：明文 HTTP 只监听本机回环的 `port`；`lan` 为真或 `host` 不是回环地址（旧配置的 `0.0.0.0`）时，在 `host`（回环时为 `0.0.0.0`）:`lanPort` 上另开 HTTPS / WSS（自签名证书，`secrets/gateway-tls.*`）。Linux 安装器的 `--lan` 写 `host: 0.0.0.0, lan: true`，`--no-lan` 写回 `127.0.0.1` 与 `false` |
 | `mesh.server` / `mesh.priority` | `https://sync.quetzal.plutokeating.beer` / 0 | 同步服务地址（HTTPS；缺省为官方同步服务 `OFFICIAL_SYNC`，旧配置里为空时加载即补上；绑定令牌在 `secrets/sync.json`，节点密钥在 `secrets/mesh_ed25519`）；当协调者的优先级（越大越优先，适合一直开着、接着电源的身体） |
-| `hearing.enabled` / `windowMin` / `sensitivity` / `language` / `minChars` | false / 10 / 2 / ""（取她的偏好语言）/ 2 | 听觉：开关；最近会话多少分钟内有更新就并入（0 为每句新开）；灵敏度 1 迟钝 / 2 适中 / 3 灵敏（App 的 VAD 模式）；识别语言；短于此字数当没听清 |
+| `hearing.enabled` / `windowMin` / `sensitivity` / `language` | false / 10 / 2 / ""（取她的偏好语言） | 听觉：开关；最近会话多少分钟内有更新就并入（0 为每句新开）；灵敏度 1 迟钝 / 2 适中 / 3 灵敏（App 的 VAD 模式）；识别语言 |
 | `speech.region` / `endpoint`（只接受 Azure 的 HTTPS 域名） / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |

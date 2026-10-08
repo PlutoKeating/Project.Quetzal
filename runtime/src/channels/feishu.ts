@@ -57,7 +57,7 @@ async function onCardAction(d: any) {
       if (v.op === "secrets.end") secretCards.delete(args.id); // 卡片由这次回调原地更新，不再由事件更新
       const r: any = await Promise.race([invoke(v.op, args, "飞书"), new Promise((res) => setTimeout(() => res("__slow__"), 2500))]);
       if (v.op === "testModel" && r !== "__slow__") toast = r.ok ? { type: "success", content: `连通 ✓ ${r.latencyMs}ms：${r.message}` } : { type: "error", content: r.message };
-      else if (typeof r === "string" && r !== "__slow__") toast = { type: r.startsWith("错误") ? "error" : "success", content: r.slice(0, 80) };
+      else if (typeof r === "string" && r !== "__slow__") toast = { type: "success", content: r.slice(0, 80) }; // 出错一律抛出（见下面的 catch），返回的文字就是成功
       else if (r === "__slow__") toast = { type: "info", content: "处理中…" };
       if (v.op === "secrets.end") { ended = r && r !== "__slow__" ? r : { ...(v as any).secret, status: "expired" }; if (!r) toast = { type: "info", content: "这次保密输入已经结束了" }; }
     } catch (e: any) { toast = { type: "error", content: e.message.slice(0, 80) }; }

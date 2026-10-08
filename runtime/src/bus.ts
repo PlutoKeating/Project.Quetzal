@@ -59,7 +59,7 @@ export interface SecretEvent {
   purpose: string; items: { name: string; hint: string }[]; got: number; // got：已收到（done 时为已保存）的项数，按 items 的顺序
   spell: string; expires: number; // spell：结束口令；expires：没有动静时自动放弃的时刻
 }
-export interface Approval { id: string; action: string; reason: string; args: unknown; status: "pending" | "approved" | "denied"; body?: string } // body：在哪具身体上请求的（多具身体时）
+export interface Approval { id: string; action: string; reason: string; args: unknown; status: "pending" | "approved" | "denied"; body?: string; kind?: "host" } // body：在哪具身体上请求的（多具身体时）；kind：host 为进入真实环境的请求（控制台据此放在对话顶部）
 
 class Bus extends EventEmitter {
   emit<K extends keyof Events>(e: K, ...a: Events[K]) { return super.emit(e, ...a); }

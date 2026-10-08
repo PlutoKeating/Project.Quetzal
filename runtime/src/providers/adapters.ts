@@ -43,7 +43,7 @@ async function sse(url: string, headers: Record<string, string>, body: unknown, 
     touch();
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      const immediate = [400, 401, 403, 404].includes(res.status) || /invalid.*(key|model)|not.?found|unauthori|forbidden|unsupported/i.test(text);
+      const immediate = [400, 401, 403, 404].includes(res.status); // 按状态码：这几种换 Key 也没用，直接换下一个模型（不按报错文字猜）
       throw new ProviderError(`HTTP ${res.status}：${text.slice(0, 300)}`, res.status, immediate);
     }
     if (!(res.headers.get("content-type") ?? "").includes("text/event-stream")) {
@@ -170,7 +170,7 @@ async function anthropicMessages(t: Target, r: ChatRequest): Promise<ChatResult>
   };
   for (const m of r.messages) {
     if (m.role === "system") continue;
-    if (m.role === "tool") push("user", { type: "tool_result", tool_use_id: m.toolCallId, content: m.content });
+    if (m.role === "tool") push("user", { type: "tool_result", tool_use_id: m.toolCallId, content: m.content, ...(m.error ? { is_error: true } : {}) });
     else if (m.role === "assistant") {
       if (m.content) push("assistant", { type: "text", text: m.content });
       for (const c of m.toolCalls ?? []) push("assistant", { type: "tool_use", id: c.id, name: c.name, input: c.args });
@@ -219,7 +219,7 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
   };
   for (const m of r.messages as Msg[]) {
     if (m.role === "system") continue;
-    if (m.role === "tool") push("user", { functionResponse: { name: m.name, response: { content: m.content } } });
+    if (m.role === "tool") push("user", { functionResponse: { name: m.name, response: m.error ? { error: m.content } : { content: m.content } } });
     else if (m.role === "assistant") {
       if (m.content) push("model", { text: m.content });
       for (const c of m.toolCalls ?? []) push("model", { functionCall: { name: c.name, args: c.args } });

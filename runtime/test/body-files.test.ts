@@ -54,8 +54,8 @@ test("身体的 uuid：由设备标识派生，稳定、RFC 9562 version 8 格�
   // 家目录没了（重装）：从同一个设备标识重新算出同一个值
   fs.rmSync(file); uuid.resetBodyUuid();
   assert.deepEqual(await uuid.ensureBodyUuid(async () => "self-machine-id-0001"), { uuid: SELF, source: "device" });
-  // 取不到标识（没有、抛错、全 0、太短）：随机 v4，存起来之后不变
-  for (const get of [undefined, async () => undefined, async () => { throw new Error("x"); }, async () => "00000000000000000000", async () => "abc"]) {
+  // 取不到标识（没有、抛错、空的）：随机 v4，存起来之后不变（格式由各适配器自己核对，这里不按长短猜）
+  for (const get of [undefined, async () => undefined, async () => { throw new Error("x"); }, async () => "", async () => "   "]) {
     fs.rmSync(file); uuid.resetBodyUuid();
     const r = await uuid.ensureBodyUuid(get as any);
     assert.equal(r.source, "random"); assert.match(r.uuid, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -139,7 +139,7 @@ test("文件名清洗：只取最后一段、只留安全字符、不以点或�
 });
 
 test("那边交出文件（lendFile）：密钥目录、保密库、指进密钥目录的符号链接、目录、超限、不存在、急停一律拒绝，每次都记审计", async () => {
-  fs.mkdirSync(paths.secrets, { recursive: true }); fs.writeFileSync(path.join(paths.secrets, "gateway.token"), "t");
+  fs.mkdirSync(paths.secrets, { recursive: true }); fs.writeFileSync(path.join(paths.secrets, "gateway.token"), "gw-test-token-0123456789abcdef");
   fs.mkdirSync(paths.vault, { recursive: true }); fs.writeFileSync(path.join(paths.vault, "k"), "v");
   await assert.rejects(bf.lendFile({ path: path.join(paths.secrets, "gateway.token") }, "pc"), /密钥目录/);
   await assert.rejects(bf.lendFile({ path: path.join(paths.vault, "k") }, "pc"), /保密库/);

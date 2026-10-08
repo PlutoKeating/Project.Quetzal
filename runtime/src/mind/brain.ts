@@ -17,8 +17,7 @@ import * as soul from "../memory/soul-sync.ts";
 import { addExperience, setOpenLoops, markBusy, isBusy, nudge, stopped, type WakeKind } from "../heart/heart.ts";
 import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
-import { Runaway, watchRunaway } from "./runaway.ts";
-import { Session, SessionTimeout, Interrupted, summarize } from "./activity.ts";
+import { Session, SessionTimeout, Interrupted, Stopped, summarize } from "./activity.ts";
 import { intake, redactArgs } from "./secrets.ts";
 import { noteSilence } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
@@ -40,7 +39,7 @@ const FINISH: ToolDef = {
   },
 };
 
-interface Step { tool: string; args: unknown; result: string }
+interface Step { tool: string; args: unknown; result: string; status: string } // status：ok / error / denied（与过程记录里的工具卡片一致）
 
 
 /** 把对方在她工作时发来的消息并入上下文（插话 / 打断），以及她用 view_image 请求查看的图片。 */
@@ -65,35 +64,35 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
  */
 /** 模型某一步什么也没输出时的提醒（基座的话，不是对方说的）。 */
 const BLANK = "（基座提醒，不是对方说的话：你上一步什么也没有输出——没有调用工具，也没有文字。还要做事就接着调用工具；做完了就用文字回复对方：做了什么、发现了什么、结论或下一步。）";
-const RUNAWAY = "（基座提醒，不是对方说的话：你上一步的输出陷入了重复（同一段文字反复出现），已被截停，那段输出已丢弃。换个思路，简短地继续：还要做事就调用工具，做完了就直接回复对方。）";
 const BLANK_TRUNCATED = "（基座提醒，不是对方说的话：你上一步的输出到了长度上限，没有留下任何给对方的文字。不要再长篇思考，直接用文字回复对方：做了什么、发现了什么、结论或下一步。）";
+
+/** 等工具做完；对方停止了这一轮就不再等（shell 的命令随之结束；等批准、等保密输入这类工具留在后台自行超时）。 */
+function untilStopped<T>(p: Promise<T>, s: Session): Promise<T> {
+  if (s.signal.aborted) return Promise.reject(s.signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => { if (s.signal.reason instanceof Stopped) reject(s.signal.reason); };
+    s.signal.addEventListener("abort", onAbort, { once: true });
+    p.then((v) => { s.signal.removeEventListener("abort", onAbort); resolve(v); }, (e) => { s.signal.removeEventListener("abort", onAbort); reject(e); });
+  });
+}
 
 async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>) {
   const tools: ToolDef[] = [...allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
   const steps: Step[] = [];
-  let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "", blanks = 0, runaways = 0;
+  let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "", blanks = 0;
+  const failures = new Map<string, number>(); // 这一轮里每个（工具, 参数）失败了几次
   for (let i = 0; !finish; i++) {
     s.check(); s.touch();
     if (stopped()) throw new Error("急停中，已停下");
     await drain(messages, s);
     s.emit({ kind: "step", step: i + 1 });
     let r: Awaited<ReturnType<typeof chat>>;
-    const watch = watchRunaway(() => s.stopRunaway());
     try {
       r = await chat({
         messages, tools, maxTokens: config.brain.maxOutputTokens, session: s.id,
-        signal: s.beginLLM(), onChunk: () => s.touch(), onText: (t) => { s.delta(t); watch(t); },
+        signal: s.beginLLM(), onChunk: () => s.touch(), onText: (t) => s.delta(t),
       });
     } catch (e) {
-      if (e instanceof Runaway && !s.signal.aborted) {
-        // 复读被截停：这段输出丢掉不进上下文，提醒她换个思路；连续三次仍复读就结束这一轮
-        s.flush();
-        log("brain", `第 ${i + 1} 步输出陷入重复，已截停（${++runaways}/3）`);
-        s.emit({ kind: "text", step: i + 1, text: "（输出陷入重复，已截停）", final: false });
-        if (runaways >= 3) { text = "（我的输出连续几次陷入重复，先停在这里。你可以换个说法再问我。）"; break; }
-        messages.push({ role: "user", content: RUNAWAY });
-        continue;
-      }
       if (!(e instanceof Interrupted) || s.signal.aborted) throw e;
       s.flush(); // 被打断：保留已经说出的部分，下一步带着对方的新消息继续
       const partial = stripStamp(s.stepText).trim();
@@ -130,10 +129,18 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
       }
       s.emit({ kind: "tool", ...card, status: "running" });
       const t0 = Date.now();
-      const out = await s.hold(() => callTool(c.name, c.args, reason, { session: s })); // 执行工具即在工作：暂停会话时间墙
+      const out = await s.hold(() => untilStopped(callTool(c.name, c.args, reason, { session: s }), s)); // 执行工具即在工作：暂停会话时间墙；对方停止时不等工具做完
       s.emit({ kind: "tool", ...card, status: out.status, ms: Date.now() - t0, result: out.text.split("\n").find((l) => l.trim())?.slice(0, 120) ?? "" });
-      steps.push({ tool: c.name, args: redactArgs(c.args), result: out.text.slice(0, 1500) });
-      messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: out.text.slice(0, 12000) });
+      steps.push({ tool: c.name, args: redactArgs(c.args), result: out.text.slice(0, 1500), status: out.status });
+      // 失败（含被拒绝）写在结果的最前面：只给原文时，「exit 1」之类的结果她容易当成做成了
+      let content = out.text.slice(0, 12000);
+      if (out.status !== "ok") {
+        const same = JSON.stringify([c.name, c.args]);
+        const n = (failures.get(same) ?? 0) + 1;
+        failures.set(same, n);
+        content = `【这次调用${out.status === "denied" ? "没有被允许" : "失败了"}】\n${content}${n > 1 ? `\n（基座提醒，不是对方说的话：同样的调用、同样的参数，这一轮已经失败了 ${n} 次。原样重试不会有不同的结果：先看清失败的原因，换个做法，或者告诉对方卡在哪里。）` : ""}`;
+      }
+      messages.push({ role: "tool", toolCallId: c.id, name: c.name, content, ...(out.status !== "ok" ? { error: true } : {}) });
     }
     if (s.movedTo) { // move_to：换到另一具身体继续，这一轮在这里结束
       if (withFinish && !finish) finish = { title: `换到 ${s.movedTo} 上继续`, journal: `这次醒来换到 ${s.movedTo} 上接着做。` };
@@ -477,6 +484,13 @@ export function converse(from: string, text: string, channel: string, o: Convers
       await soul.push("对话").catch(() => {});
       return reply;
     } catch (e: any) {
+      if (s.signal.reason instanceof Stopped) { // 对方停止了：这一轮就此结束，留一句说明（下一轮她看得到自己被停在了哪里）
+        const reply = "（这一轮被对方停止了）", process = s.process();
+        addMessage("agent", channel, reply, { session: conv, process });
+        s.emit({ kind: "done", reply });
+        addTimeline("chat", `和${from}说话，被对方停止`, { channel, conv, text, reply, process });
+        return reply;
+      }
       const timeout = e instanceof SessionTimeout || s.signal.aborted;
       log("brain", `对话失败：${e.message}`);
       const reply = timeout ? `（我卡住了：${e.message.split("\n")[0]}。你可以再说一次。）` : `（我现在没法好好思考：${e.message.split("\n")[0]}）`;
@@ -487,6 +501,20 @@ export function converse(from: string, text: string, channel: string, o: Convers
   }).finally(() => { waiting.set(conv, (waiting.get(conv) ?? 1) - 1); s.close(); });
   chains.set(conv, job.catch(() => {}));
   return job;
+}
+
+/** 多具身体时：这个会话正在另一具身体上进行，就请那具身体停止（mesh/presence.ts 设置）。 */
+let stopRouter: ((conv: string) => Promise<boolean> | undefined) | undefined;
+export function setStopRouter(r: typeof stopRouter) { stopRouter = r; }
+
+/**
+ * 停止这个会话里正在进行的一轮（对方按了停止）：中止模型输出与正在执行的命令（shell 的命令随之结束），这一轮以一句说明结束；
+ * 排在它后面的话照常处理。这一轮在另一具身体上就转过去停（local 为真时只停这具身体上的，网状层转来的请求用）。返回是否有一轮被停下。
+ */
+export async function stopTurn(conv: string, o: { local?: boolean } = {}): Promise<boolean> {
+  const s = running.get(conv);
+  if (s) { s.abort(new Stopped()); log("brain", `对方停止了会话 ${conv} 里正在进行的一轮`); return true; }
+  return o.local ? false : (await stopRouter?.(conv)) ?? false;
 }
 
 /**

@@ -79,49 +79,31 @@ const ENGINES = {
 } as const;
 export type Engine = keyof typeof ENGINES;
 
-/** 360 搜索优先；中文其次百度（必应对多词中文查询降级严重）；以英文为主（拉丁字母多于中日韩字符的两倍）的查询用必应国际版。 */
-export const enginesFor = (q: string): Engine[] =>
-  (q.match(/[a-z]/gi)?.length ?? 0) > (q.match(/[\u3400-\u9fff]/g)?.length ?? 0) * 2 ? ["so", "bing-intl", "baidu"] : ["so", "baidu", "bing-cn"];
-
-/** 结果页是验证码 / 访问异常页。 */
-export const isCaptcha = (url: string, html: string) =>
-  /captcha|wappass|verify/i.test(new URL(url, "https://x").hostname + new URL(url, "https://x").pathname) || /<title>[^<]*(验证码|访问异常|安全验证|captcha)/i.test(html);
-
-/** 相关性：查询关键词（去重）有多大比例出现在结果的标题与摘要里。 */
-export function relevance(query: string, results: SearchResult[]): number {
-  const q = [...new Set(tokens(query))];
-  if (!q.length || !results.length) return 0;
-  const text = results.map((r) => `${r.title} ${r.snippet}`).join(" ").toLowerCase();
-  return q.filter((t) => text.includes(t)).length / q.length;
-}
-const GOOD = 0.5;
+/** 缺省的引擎顺序（固定，不按查询的文字猜语言）：360 搜索、百度、必应。英文资料她可以指定必应国际版（engine: bing-intl）。 */
+export const ORDER: Engine[] = ["so", "baidu", "bing-cn"];
 
 /** 搜索：依次尝试引擎，返回可读的结果列表。 */
 export async function webSearch(query: string, o: { count?: number; engine?: Engine; fetcher?: typeof fetch } = {}): Promise<string> {
   const count = Math.min(10, Math.max(1, Math.floor(o.count ?? 8)));
   const f = o.fetcher ?? fetch;
   const tried: string[] = [];
-  let best: { name: string; results: SearchResult[]; score: number } | undefined;
-  const show = (name: string, results: SearchResult[], note = "") =>
-    `【${name}】「${query}」前 ${results.length} 条${note}（需要全文用 web_fetch 打开链接）：\n` +
+  const show = (name: string, results: SearchResult[]) =>
+    `【${name}】「${query}」前 ${results.length} 条（需要全文用 web_fetch 打开链接）：\n` +
     results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`).join("\n");
-  for (const id of o.engine ? [o.engine] : enginesFor(query)) {
+  // 拿到结果即止：结果相不相关由她自己看（不按关键词重叠去猜，猜错会丢掉有用的结果）
+  for (const id of o.engine ? [o.engine] : ORDER) {
     const e = ENGINES[id];
     try {
       const res = await f(e.url(query), { headers: BROWSER_HEADERS, signal: AbortSignal.timeout(20_000) });
       if (!res.ok) { tried.push(`${e.name}（HTTP ${res.status}）`); continue; }
-      const html = await res.text();
-      if (isCaptcha(res.url || e.url(query), html)) { tried.push(`${e.name}（要求验证码，暂时不可用）`); continue; }
-      const results = e.parse(html).slice(0, count);
-      if (!results.length) { tried.push(`${e.name}（无结果）`); continue; }
-      const score = relevance(query, results);
-      if (o.engine || score >= GOOD) return show(e.name, results);
-      tried.push(`${e.name}（结果不相关）`);
-      if (!best || score > best.score) best = { name: e.name, results, score };
+      const results = e.parse(await res.text()).slice(0, count);
+      if (results.length) return show(e.name, results);
+      // 没有结果：被转到了别的网站（例如验证页）就照实写出转到了哪里
+      const asked = new URL(e.url(query)).hostname, landed = res.url ? new URL(res.url).hostname : asked;
+      tried.push(`${e.name}（${landed !== asked ? `没有结果，被转到了 ${landed}` : "没有结果"}）`);
     } catch (err: any) {
       tried.push(`${e.name}（${err?.name === "TimeoutError" ? "超时" : err?.message ?? err}）`);
     }
   }
-  if (best) return show(best.name, best.results, `，但与查询的相关性较低（已尝试：${tried.join("、")}），可以换个说法再搜`);
   return `没有找到结果。已尝试：${tried.join("、")}。可以换个说法或关键词再试。`;
 }

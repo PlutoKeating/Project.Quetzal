@@ -68,8 +68,8 @@ let alertedForeign = "", alertedSkipped = "";
 export const pull = () => serial(async () => {
   const res = await r().pull();
   // 灵魂仓库混进了别的历史：同步已停止，告诉她（只提醒一次），也写进心流
-  const err = r().status.lastError;
-  if (/混进了别的仓库|不是灵魂仓库/.test(err) && err !== alertedForeign) {
+  const { lastError: err, refused } = r().status;
+  if ((refused === "foreign" || refused === "not-soul") && err !== alertedForeign) {
     alertedForeign = err;
     addTimeline("soul", "灵魂同步已停止：仓库里混进了别的历史", { error: err });
     bus.emit("soul.alert", { text: `${err}\n这不是你能自己修的事：不要在灵魂目录里运行 git。请告诉对方，由对方处理。`, targets: [] } satisfies SoulAlert);
@@ -151,7 +151,7 @@ function schedulePush(ms: number) {
 /** 立即提交剩余变更并推送（一轮结束、身份修改、控制台操作时调用）。失败按类别静默重试或提醒。 */
 export const push = (msg: string) => serial(async (): Promise<PushResult> => {
   clearTimeout(pushTimer); pushTimer = undefined;
-  const res = await r().push(msg).catch((e: Error) => ({ ok: false, pushed: false, kind: "other", error: e.message }) as PushResult);
+  const res = await r().push(msg).catch((e: Error) => ({ ok: false, pushed: false, kind: "failed", error: e.message }) as PushResult);
   if (res.ok) {
     attempt = 0;
     if (unpushed.length && res.pushed) bus.emit("soul.pushed", { files: unpushed.flatMap((t) => t.files) });
@@ -159,26 +159,23 @@ export const push = (msg: string) => serial(async (): Promise<PushResult> => {
     return res;
   }
   if (!unpushed.length) return res; // 没有她碰过的东西在等：控制台操作等自己显示 lastError
-  if (res.kind === "network" && attempt < RETRY_MS.length) { schedulePush(RETRY_MS[attempt++]); return res; }
+  // git 失败（网络、钥匙……不猜是哪一种）先静默重试几次，仍失败才提醒；基座自己拒绝的、配置不对的、被拒的立即提醒
+  if (res.kind === "failed" && attempt < RETRY_MS.length) { schedulePush(RETRY_MS[attempt++]); return res; }
   const failed = unpushed; unpushed = []; attempt = 0; // 提醒过的不再重复提醒；变更仍在本地提交里，下一次推送会带上
   pushAlert(failed, res);
   return res;
 });
 
-const ADVICE: Record<string, string> = {
-  network: `基座已经静默重试了 ${RETRY_MS.length} 次。网络恢复后，下一次推送会自动带上这些提交，你不需要重做。`,
-  auth: "远端拒绝了这具身体的访问密钥：需要有人在灵魂仓库的 Deploy keys 里添加本机公钥（控制台「高级 · 同步」页可以看到），请告诉对方。",
-  hostkey: "服务器的主机密钥与之前记录的不一致，基座拒绝了连接。这可能是服务器换了密钥，也可能是中间人攻击，请告诉对方核实。",
-  notfound: "远端没有这个仓库，或者本机的密钥没有它的访问权。请告诉对方检查灵魂仓库地址与部署密钥。",
-  identity: "远端的灵魂仓库属于另一个 agent，基座拒绝合并。请告诉对方检查灵魂仓库地址。",
+const ADVICE: Record<NonNullable<PushResult["kind"]>, string> = {
+  failed: `上面是 git 的原文。基座已经静默重试了 ${RETRY_MS.length} 次；问题解决后（网络恢复、部署密钥加上之类），下一次推送会自动带上这些提交，你不需要重做。看原文判断要不要告诉对方：例如 Permission denied (publickey) 是部署密钥没有加到灵魂仓库，Host key verification failed 要对方核实服务器。`,
+  refused: "这是基座自己拒绝的同步（原因见上），不是你能自己修的事：不要在灵魂目录里运行 git，请告诉对方。",
   config: "灵魂仓库的配置有问题（地址或私钥）。请告诉对方到控制台「高级 · 同步」页检查。",
   rejected: "远端在推送期间又有了新的提交，合并后仍被拒绝。基座会在下一次改动时再试。",
-  other: "基座会在下一次改动时再试。",
 };
 
 function pushAlert(touches: Touch[], res: PushResult) {
   const files = describeFiles(touches.flatMap((t) => t.files));
-  const text = `灵魂仓库推送失败：${res.error || "原因不明"}\n你刚才改动的 ${files} 已经提交在这具身体上，但还没到达远端，其他身体暂时看不到。${ADVICE[res.kind ?? "other"]}`;
+  const text = `灵魂仓库推送失败：${res.error || "原因不明"}\n你刚才改动的 ${files} 已经提交在这具身体上，但还没到达远端，其他身体暂时看不到。${ADVICE[res.kind ?? "failed"]}`;
   log("soul", `推送失败（${res.kind}），提醒 ${touches.length} 次触碰所在的会话`);
   addTimeline("soul", `灵魂同步：推送失败（${files}）`, { kind: res.kind, error: res.error });
   bus.emit("soul.alert", { text, targets: [...new Map(touches.map((t) => [t.session?.id ?? "", t.session])).values()] } satisfies SoulAlert);

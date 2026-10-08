@@ -8,7 +8,7 @@ import path from "node:path";
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-soul-status-"));
 process.env.QUETZAL_HOME = path.join(tmp, "home");
 process.env.SOUL_ALLOW_LOCAL_REMOTE = "1";
-const { SoulRepo, friendlyGitError } = await import("../src/memory/soul-repo.ts");
+const { SoulRepo } = await import("../src/memory/soul-repo.ts");
 const { sshKeyFor } = await import("../src/memory/soul-sync.ts");
 
 test("同步状态落盘：新建实例读回上一次的 lastPull / lastError", () => {
@@ -21,12 +21,6 @@ test("同步状态落盘：新建实例读回上一次的 lastPull / lastError",
   assert.equal(b.status.lastPull, 1234); assert.equal(b.status.lastError, "x");
   b.status.lastError = "";
   assert.equal(new SoulRepo(opts).status.lastError, "");
-});
-
-test("git 报错翻译成人话，并保留原文", () => {
-  assert.match(friendlyGitError("git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository."), /Deploy keys.*原文：git@github.com: Permission denied/);
-  assert.match(friendlyGitError("ssh: Could not resolve hostname github-personal: Name or service not known"), /连不上.*原文：/);
-  assert.equal(friendlyGitError("  something else \n"), "something else");
 });
 
 test("访问方式决定钥匙：deploy 用本机部署密钥，custom 用指定路径（支持 ~），system 不指定", () => {

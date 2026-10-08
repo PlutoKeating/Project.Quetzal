@@ -24,8 +24,8 @@ export function deviceUuid(raw: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-/** 适配器给的标识能不能用：至少 8 个字符、不是同一个字符重复（有的设备返回全 0）。 */
-const usable = (raw: unknown): raw is string => typeof raw === "string" && raw.trim().length >= 8 && raw.trim().length <= 512 && !/^(.)\1*$/.test(raw.trim());
+/** 适配器给的标识能不能用：有内容（格式由各适配器按自己平台的标识核对，见 adapters/*；这里不按长短去猜）。512 字符是读取上限。 */
+const usable = (raw: unknown): raw is string => typeof raw === "string" && raw.trim().length > 0 && raw.trim().length <= 512;
 
 const file = () => path.join(paths.state, "body-uuid");
 /** manual：部署者手动指定的（例如同一台设备上两份运行基座撞了 uuid 时给其中一份换一个），和设备派生的一样不再变。 */

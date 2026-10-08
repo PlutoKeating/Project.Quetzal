@@ -49,36 +49,20 @@ export interface ToolContext { session?: Session; fetched?: Fetched[] }
 /** onBody：属于这具身体的工具（适配器的设备工具、hands、自造工具）：多具身体时，它返回的文件路径要注明是哪具身体上的。 */
 /** bodyParams：多具身体时才出现的其他参数（例如 shell 的 files）。 */
 /** bodyFiles：哪些参数是要读的文件路径（字符串或字符串数组）：多具身体时这个工具多一个 body 参数，带上时这些路径指那具身体上的文件（body-files.ts）。 */
-export interface Tool extends ToolDef { permission: string; also?: string[]; onBody?: boolean; bodyFiles?: string[]; bodyParams?: Record<string, unknown>; handler: (a: Record<string, any>, ctx: ToolContext) => Promise<string> }
+export interface Tool extends ToolDef { permission: string; also?: string[]; onBody?: boolean; bodyFiles?: string[]; bodyParams?: Record<string, unknown>; handler: (a: Record<string, any>, ctx: ToolContext) => Promise<string | ToolFailure> }
+
+/**
+ * 工具执行了、但没有做成（命令非零退出、参数不对、那边出错、没有执行）：文字照常交给她，卡片标为失败（红叉），上下文里也写明失败。
+ * 抛出的异常同样算失败。不能只返回一句说明文字：那样一律显示成功，她看到「成功」就容易原样重试（2026-10-09 同一条失败的命令连跑了二十多次）。
+ */
+export class ToolFailure { readonly text: string; constructor(text: string) { this.text = text; } }
+export const failed = (text: string) => new ToolFailure(text);
 
 // 造工具（写会被执行的代码）单独一个能力类别，缺省「每次询问」（config.ts）。标签放进闸门的表里，控制台与飞书的权限页才列得出来。
 
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties: props, required });
 const str = (description: string) => ({ type: "string", description });
 
-
-/**
- * 灵魂目录由基座管理：命令里同时出现 git 与灵魂目录，就不执行。这只是提示（换个写法就绕得过去），不是边界：
- * 真正的保护在 soul-repo.ts（推送只用配置里的地址、忽略 .git/config 里的改写、禁用钩子）与沙箱（灵魂目录的 .git 在沙箱里只读）。
- * 起因：一次 agent 自己在灵魂目录里改 origin、reset、push，把记忆推进了一个公开的代码仓库，又把代码历史并进了灵魂仓库。
- */
-export function soulGitBlock(command: string): string | undefined {
-  if (!/(^|[^\w-])git([^\w-]|$)/.test(command)) return undefined;
-  const soul = paths.soul.replace(/[\\/]+$/, "");
-  const touches = command.includes(soul) || (isWindows && command.toLowerCase().includes(soul.toLowerCase())) || /quetzal[\\/]+(home[\\/]+)?soul\b|QUETZAL_HOME\}?[\\/]soul\b|(^|[\s;&|(])cd\s+soul\b|-C\s+soul\b/i.test(command);
-  if (!touches) return undefined;
-  return "没有执行：灵魂目录（你的人格与记忆所在的仓库）由基座全自动同步，不能在里面运行 git——改远端、reset、push、把它的内容提交到别的仓库，都可能把记忆推到错的地方、或把别的历史混进来。你改动灵魂目录里的文件，基座会立即提交并推送；同步出了问题会提醒你，需要人处理的事告诉对方。";
-}
-
-/**
- * 基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥、飞书与语音的密钥）不给 agent 碰：读到账户令牌就能删掉整个账户。
- * 这只是提示，不是边界：边界是沙箱（sandbox.ts，密钥目录在 agent 的命令里不存在）与读文件工具的真实路径检查（protectedPath）。
- */
-export function secretsBlock(text: string): string | undefined {
-  const dir = paths.secrets.replace(/[\\/]+$/, "");
-  const touches = text.includes(dir) || (isWindows && text.toLowerCase().includes(dir.toLowerCase())) || /quetzal[\\/]+(home[\\/]+)?secrets\b|QUETZAL_HOME\}?[\\/]secrets\b|(^|[\s;&|(])cd\s+secrets\b|sync-account\.json|(^|[\s/])sync\.json\b|master\.key|gateway\.token|mesh_ed25519|soul_ed25519|feishu_secret|azure_speech_key/.test(text);
-  return touches ? "没有执行：基座的密钥目录（模型 Key 的主密钥、网关令牌、同步服务的身体令牌与账户令牌、部署私钥）不能读取、复制或使用。需要这些能力的事由基座或对方在控制台里做。" : undefined;
-}
 
 /** 多具身体时，属于这具身体的工具返回的文件路径注明在哪具身体上（另一具身体上同一个路径不存在），以及在别处怎么用（带 body 的 uuid）。 */
 const ABS_PATH = /(?:^|[\s：:（(「"'])(\/[^\s，。；、（）()」"']+|[A-Za-z]:\\[^\s，。；、（）()」"']+)/;
@@ -172,7 +156,7 @@ const core: Tool[] = [
   },
   {
     name: "web_search", permission: "network",
-    description: "搜索网页，返回标题、链接和摘要。默认依次尝试 360 搜索、必应（英文为主的查询用国际版）、百度，拿到结果即止；也可以指定引擎。需要全文时用 web_fetch 打开链接。",
+    description: "搜索网页，返回标题、链接和摘要。默认依次尝试 360 搜索、百度、必应，拿到结果即止（结果相不相关由你判断，不理想就换说法或换引擎）；英文资料可以指定必应国际版 bing-intl。需要全文时用 web_fetch 打开链接。",
     parameters: obj({ query: str("搜索词"), count: { type: "number", description: "结果条数（1–10，默认 8）" }, engine: { type: "string", enum: ["so", "bing-cn", "bing-intl", "baidu"], description: "可选：指定引擎" } }, ["query"]),
     handler: async (a) => webSearch(String(a.query), { count: a.count, engine: a.engine }),
   },
@@ -246,17 +230,20 @@ const core: Tool[] = [
     bodyParams: { files: { type: "array", items: { type: "string" }, description: "只和 body 一起用：先从那具身体取来的文件（照那边的路径写）。命令仍在这具身体上执行，命令里出现的这些路径会换成取来后的本地路径；要在那具身体上执行命令用 body_call" } },
     handler: async (a, ctx) => {
       if (ctx.fetched?.length) a = { ...a, command: substitutePaths(String(a.command ?? ""), ctx.fetched) };
-      const blocked = soulGitBlock(String(a.command ?? "")) ?? secretsBlock(String(a.command ?? ""));
-      if (blocked) return blocked;
-      const host = hostConv(ctx), signal = host ? touchHost(host) : undefined;
+      if (String(a.command ?? "").includes("‹secret:")) return failed("没有执行：命令里有 ‹secret:…›。那是基座在输出里遮住保密值时换上的占位符，不是真实的值，写进命令一定会失败。要用保密库里的值，在命令里按路径引用（\"$(cat 路径)\"）；要用输出里被遮住的值，让它只在命令内部传递（例如 OWNER=$(gh api user --jq .login)），不要从输出里抄。");
+      const host = hostConv(ctx);
+      // 这一轮被对方停止时命令随之结束；真实环境另有自己的中止（退出、闲置、急停）
+      const stops = [host ? touchHost(host) : undefined, ctx.session?.signal].filter((x): x is AbortSignal => !!x);
+      const signal = stops.length > 1 ? AbortSignal.any(stops) : stops[0];
       const where = host ? "（真实环境：不经沙箱）" : "";
-      if (a.background) { let j; try { j = await startJob(a.command, { host }); } catch (e) { return (e as Error).message; } return `已在后台运行${where}，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
+      if (a.background) { let j; try { j = await startJob(a.command, { host }); } catch (e) { return failed((e as Error).message); } return `已在后台运行${where}，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
       const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000, { host: !!host, signal });
       const out = (r.out + r.err).slice(0, 8000);
       // 输出为空而命令丢弃了 stderr：报错可能被吞了，看起来像"没有结果"，不能据此下结论（非零退出时 run 会补一句 Command failed，不算输出）
       const real = r.out + r.err.replace(/^Command failed: [^\n]*\n?/, "");
       const note = !real.trim() && /2>\s*\/dev\/null|2>&-/.test(String(a.command)) ? "\n（输出为空，而命令把 stderr 丢弃了：可能是命令报错被吞掉，不等于「没有」。去掉 2>/dev/null 再看，或换别的来源核实，比如 processes。）" : "";
-      return `exit ${r.code}${where}\n${out}${note}`;
+      const text = `exit ${r.code}${where}\n${out}${note}`;
+      return r.code === 0 ? text : failed(text); // 非零退出算失败（grep 没找到也是 1：她看得到退出码与输出，自己判断）
     },
   },
   {
@@ -265,9 +252,9 @@ const core: Tool[] = [
     parameters: obj({ action: { type: "string", enum: ["request", "exit"] }, reason: str("request 用：理由，会显示给对方") }, ["action"]),
     handler: async (a, ctx) => {
       const s = ctx.session;
-      if (s?.origin !== "chat" || !s.conv) return "真实环境只能在对话中使用：需要对方在场决定。";
+      if (s?.origin !== "chat" || !s.conv) return failed("真实环境只能在对话中使用：需要对方在场决定。");
       if (a.action === "exit") return exitHost(s.conv, "agent", "她做完了") ? "已退出真实环境，之后的命令回到沙箱里执行。" : "这个会话本来就不在真实环境里。";
-      if (a.action !== "request") return "action 只能是 request 或 exit";
+      if (a.action !== "request") return failed("action 只能是 request 或 exit");
       return requestHost(s.conv, String(a.reason ?? ""), (text) => { void adapter.notify?.(displayName(), text).catch(() => {}); });
     },
   },
@@ -281,8 +268,8 @@ const core: Tool[] = [
     name: "shell_jobs", permission: "shell", description: "管理后台命令：list 列出全部任务；output 查看某个任务最近的输出；stop 停止某个任务（连同它启动的子进程）。你可以按自己的判断，或根据对方的要求随时停止。",
     parameters: obj({ action: { type: "string", enum: ["list", "output", "stop"] }, id: str("任务 id") }, ["action"]),
     handler: async (a) => {
-      if (a.action === "stop") return stopJob(String(a.id));
-      if (a.action === "output") { const j = getJob(String(a.id)); return j ? `${j.ended ? `已结束（退出码 ${j.code}）` : "运行中"}\n${j.out.slice(-8000) || "（还没有输出）"}` : `没有这个任务：${a.id}`; }
+      if (a.action === "stop") { const r = stopJob(String(a.id)); return r.ok ? r.text : failed(r.text); }
+      if (a.action === "output") { const j = getJob(String(a.id)); return j ? `${j.ended ? `已结束（退出码 ${j.code}）` : "运行中"}\n${j.out.slice(-8000) || "（还没有输出）"}` : failed(`没有这个任务：${a.id}`); }
       const l = listJobs();
       return l.map((j) => `${j.id}  ${j.ended ? `已结束（${j.code}）` : `运行中 ${Math.round((Date.now() - j.started) / 1000)}s`}  ${j.command.slice(0, 80)}`).join("\n") || "没有后台任务";
     },
@@ -363,7 +350,7 @@ const core: Tool[] = [
     }, ["purpose", "items"]),
     handler: async (a, ctx) => {
       const s = ctx.session;
-      if (s?.origin !== "chat" || !s.conv) return "pass_secret 只能在对话中调用：需要对方在场，在这个对话里输入。先发消息约对方，等对方回复后在对话里再用。";
+      if (s?.origin !== "chat" || !s.conv) return failed("pass_secret 只能在对话中调用：需要对方在场，在这个对话里输入。先发消息约对方，等对方回复后在对话里再用。");
       return requestSecrets(s.conv, s.channel, String(a.purpose ?? ""), a.items);
     },
   },
@@ -447,7 +434,7 @@ const core: Tool[] = [
     parameters: obj({ title: str("新会话的标题（可选，不写则由第一句话决定）"), handoff: str("交接要点（可选，Markdown）") }),
     handler: async (a, ctx) => {
       const s = ctx.session;
-      if (s?.origin !== "chat" || !s.conv) return "session_new 只能在对话中调用";
+      if (s?.origin !== "chat" || !s.conv) return failed("session_new 只能在对话中调用");
       if (s.switchTo) return `这一轮已经切到新会话 ${s.switchTo} 了`;
       const conv = s.channel === "飞书" ? `feishu-${Date.now().toString(36)}` : crypto.randomUUID();
       const title = String(a.title ?? "").trim() || "新的对话";
@@ -469,7 +456,7 @@ const core: Tool[] = [
       const s = ctx.session;
       const me = s ? { body: config.body, holder: s.origin === "chat" && s.conv ? s.conv : s.id } : undefined;
       if (a.action === "list") { const l = claims.active(); return l.length ? l.map((c) => `- ${claims.describe(c, me)}`).join("\n") : "此刻没有认领"; }
-      if (!s || !me) return "claim 只能在会话里调用";
+      if (!s || !me) return failed("claim 只能在会话里调用");
       if (typeof a.key !== "string" || !a.key.trim()) return "需要 key：这件事的名字";
       const where = s.origin === "chat" ? `会话「${getSession(s.conv)?.title ?? s.conv}」` : s.origin === "dream" ? "做梦" : s.origin === "agent" ? "子 agent" : "醒来思考";
       const req = { key: a.key, note: a.note, minutes: a.minutes, force: a.force === true, where, ...me };
@@ -489,7 +476,7 @@ const core: Tool[] = [
     parameters: obj({ summary: str("摘要（可选，Markdown）：对方的要求与偏好、做完的事与结论、没做完的事、关键事实与约定") }),
     handler: async (a, ctx) => {
       const s = ctx.session;
-      if (s?.origin !== "chat" || !s.conv) return "session_compact 只能在对话中调用";
+      if (s?.origin !== "chat" || !s.conv) return failed("session_compact 只能在对话中调用");
       const { summarizeConv } = await import("./brain.ts");
       const summary = typeof a.summary === "string" && a.summary.trim() ? a.summary.trim() : await summarizeConv(s.conv);
       addMessage("ambient", "摘要", summary, { session: s.conv });
@@ -534,8 +521,8 @@ const core: Tool[] = [
   },
   {
     name: "hearing_config", permission: "self_modify",
-    description: "查看或修改你的听觉（控制台 App 常驻用麦克风听，基座识别后交给你判断要不要回应）。action=get 查看状态；set 修改：enabled 开关、windowMin（最近会话多少分钟内有更新就并入它）、sensitivity（1 迟钝 / 2 适中 / 3 灵敏）、language（识别语言，如 zh-CN）、minChars（短于此字数当没听清）。开关需要对方在 App 里授予过麦克风权限才真正生效。",
-    parameters: obj({ action: { type: "string", enum: ["get", "set"] }, enabled: { type: "boolean" }, windowMin: { type: "number" }, sensitivity: { type: "number" }, language: str(""), minChars: { type: "number" } }, ["action"]),
+    description: "查看或修改你的听觉（控制台 App 常驻用麦克风听，基座识别后交给你判断要不要回应）。action=get 查看状态；set 修改：enabled 开关、windowMin（最近会话多少分钟内有更新就并入它）、sensitivity（1 迟钝 / 2 适中 / 3 灵敏）、language（识别语言，如 zh-CN）。开关需要对方在 App 里授予过麦克风权限才真正生效。",
+    parameters: obj({ action: { type: "string", enum: ["get", "set"] }, enabled: { type: "boolean" }, windowMin: { type: "number" }, sensitivity: { type: "number" }, language: str("") }, ["action"]),
     handler: async (a) => {
       if (a.action === "set") { const { action, ...patch } = a; return JSON.stringify(hearing.setHearing(patch)); }
       return JSON.stringify(hearing.hearingStatus());
@@ -589,10 +576,10 @@ function bodyTools(): Tool[] {
       parameters: obj({ body: str("那具身体的 uuid"), tool: str("那具身体上的工具名"), args: { type: "object", description: "工具参数（与那个工具的参数一致）" } }, ["body", "tool"]),
       handler: async (a, ctx) => {
         const h = bodiesHooks(), b = other(a.body);
-        if (typeof b === "string") return b;
-        if (!h) return `${b.body} 不在线`;
+        if (typeof b === "string") return failed(b);
+        if (!h) return failed(`${b.body} 不在线`);
         const r = await h.call(b.body, String(a.tool), (a.args && typeof a.args === "object" ? a.args : {}) as Record<string, unknown>, ctx.session ? `${ctx.session.origin} ${ctx.session.conv}` : "");
-        return r.status === "ok" ? r.text : `（${b.body} 上的 ${a.tool}${r.status === "denied" ? "没有被允许" : "出错了"}）${r.text}`;
+        return r.status === "ok" ? r.text : failed(`（${b.body} 上的 ${a.tool}${r.status === "denied" ? "没有被允许" : "出错了"}）${r.text}`);
       },
     },
     {
@@ -601,11 +588,11 @@ function bodyTools(): Tool[] {
       parameters: obj({ body: str("那具身体的 uuid"), note: str("交接：要接着做什么、做到哪了") }, ["body"]),
       handler: async (a, ctx) => {
         const s = ctx.session, h = bodiesHooks();
-        if (!s || !h) return "move_to 只能在对话或醒来时调用";
+        if (!s || !h) return failed("move_to 只能在对话或醒来时调用");
         const b = other(a.body);
-        if (typeof b === "string") return b;
-        if (s.movedTo) return `这一轮已经在换到 ${s.movedTo} 了`;
-        if (s.origin === "chat" && !s.conv) return "这一轮没有会话，没法换过去";
+        if (typeof b === "string") return failed(b);
+        if (s.movedTo) return failed(`这一轮已经在换到 ${s.movedTo} 了`);
+        if (s.origin === "chat" && !s.conv) return failed("这一轮没有会话，没法换过去");
         s.movedTo = b.body;
         s.moveResult = h.move(b.body, { origin: s.origin, conv: s.switchTo ?? s.conv, channel: s.channel, note: String(a.note ?? "").trim(), reason: "换身体" });
         return `好，接下来在 ${b.body} 上继续，这里的一轮到此结束。`;
@@ -648,9 +635,10 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
       ({ args: a, note } = l); ctx = { ...ctx, fetched: l.fetched };
     }
     const raw = await t.handler(a, ctx);
-    const out = redactSecrets(`${note ? `${note}\n\n` : ""}${t.onBody ? notePaths(raw) : raw}`); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计
-    audit("agent", name, reason, safe, out.slice(0, 500));
-    return { text: out, status: "ok" };
+    const bad = raw instanceof ToolFailure, text = bad ? raw.text : raw;
+    const out = redactSecrets(`${note ? `${note}\n\n` : ""}${t.onBody ? notePaths(text) : text}`); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计
+    audit("agent", name, reason, safe, `${bad ? "error: " : ""}${out}`.slice(0, 500));
+    return { text: out, status: bad ? "error" : "ok" };
   } catch (e: any) {
     const msg = redactSecrets(String(e.message));
     audit("agent", name, reason, safe, `error: ${msg}`);
@@ -677,7 +665,7 @@ function timeRange(from: unknown, to: unknown): { from?: number; to?: number; la
   return { from: f, to: t, label: `${f !== undefined ? dayText(f) : "最早"} 至 ${t !== undefined ? `${dayText(t)}（不含）` : "现在"}` };
 }
 
-function reminderTool(a: Record<string, any>, conv?: string): string {
+function reminderTool(a: Record<string, any>, conv?: string): string | ToolFailure {
   const tz = config.timezone, now = Date.now();
   const line = (r: reminders.Reminder) => `[${r.id}] ${reminders.describe(r)}：${r.text}${r.step ? `（先做：${r.step}）` : ""}`;
   const timeOf = (): number | string | undefined => {
@@ -696,12 +684,12 @@ function reminderTool(a: Record<string, any>, conv?: string): string {
     }
     if (a.action === "cancel") { const r = reminders.cancel(String(a.id ?? "")); return `已取消：${r.text}`; }
     const at = timeOf(), until = untilOf();
-    if (typeof at === "string") return at;
-    if (typeof until === "string") return until;
+    if (typeof at === "string") return failed(at);
+    if (typeof until === "string") return failed(until);
     const span = typeof a.window === "string" && a.window.trim() ? parseDuration(a.window) : undefined;
-    if (typeof a.window === "string" && a.window.trim() && span === undefined) return `window 的写法不对：「${a.window}」。用 2d、6h 这样的写法`;
+    if (typeof a.window === "string" && a.window.trim() && span === undefined) return failed(`window 的写法不对：「${a.window}」。用 2d、6h 这样的写法`);
     if (a.action === "snooze") {
-      if (at === undefined) return "推迟到什么时候：给 in（如 2h）或 at（当地时刻）";
+      if (at === undefined) return failed("推迟到什么时候：给 in（如 2h）或 at（当地时刻）");
       const r = reminders.snooze(String(a.id ?? ""), at);
       return `已推迟 ${line(r)}`;
     }
@@ -714,11 +702,11 @@ function reminderTool(a: Record<string, any>, conv?: string): string {
       });
       return `已改好 ${line(r)}`;
     }
-    if (a.action !== "add") return "action 只能是 add / list / cancel / snooze / update";
+    if (a.action !== "add") return failed("action 只能是 add / list / cancel / snooze / update");
     const cron = typeof a.cron === "string" && a.cron.trim() ? a.cron : undefined;
-    if (at === undefined && !cron && !span) return "没有给时间：用 at（当地时刻）、in（多久之后）、cron（重复规则），不急的事可以只给 window";
+    if (at === undefined && !cron && !span) return failed("没有给时间：用 at（当地时刻）、in（多久之后）、cron（重复规则），不急的事可以只给 window");
     const r = reminders.add({ text: String(a.text ?? ""), at: at ?? (span ? now : undefined), cron, until, span, step: typeof a.step === "string" ? a.step : undefined, conv, by: "agent" }, now);
     const next = reminders.upcoming(r, 3).map((t) => reminders.when(t, tz));
     return `已设好 [${r.id}] ${reminders.describe(r)}：${r.text}${r.cron ? `\n接下来：${next.join("、")}` : ""}\n（请核对时间是否就是对方说的，不对就用 update 改）`;
-  } catch (e) { return `没有设好：${(e as Error).message}`; }
+  } catch (e) { return failed(`没有设好：${(e as Error).message}`); }
 }

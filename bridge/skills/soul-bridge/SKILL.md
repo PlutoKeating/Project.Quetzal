@@ -92,7 +92,7 @@ $SB doctor --agent <短名>
 
 输出 JSON：`ok` 表示是否全部通过，`checks[]` 里每一项有 `name`、`ok`、`detail` 和 `fix`。把每个未通过的项按 `fix` 修好，再运行一次 doctor，最多循环 3 轮。常见修复：
 
-- **仓库访问**失败或**访问方式**不规范：重新执行第 3 步（`connect`）。
+- **仓库访问**失败：重新执行第 3 步（`connect`）。
 - **后台守护**未运行：执行 `$SB attach --agent <短名>`。
 - **钩子**未安装：执行 `$SB attach --agent <短名>`；OpenClaw 另见第 4 步。
 - **最近同步**有错误：执行 `$SB sync --agent <短名>` 看具体原因。

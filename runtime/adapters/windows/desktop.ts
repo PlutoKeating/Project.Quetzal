@@ -8,6 +8,9 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { PsHost, runOnce, psq } from "./ps.ts";
 
+/** 做不成：抛出错误，经身体助手传回运行基座，那次调用标为失败（只返回一句说明会被当成成功）。 */
+const fail = (msg: string): never => { throw new Error(msg); };
+
 export const ps = new PsHost();
 const home = () => process.env.QUETZAL_HOME ?? path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "Quetzal", "home");
 export const mediaDir = () => { const d = path.join(home(), "data", "media"); fs.mkdirSync(d, { recursive: true }); return d; };
@@ -51,7 +54,7 @@ $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
 $bmp.Save(${psq(f)}, [System.Drawing.Imaging.ImageFormat]::Png)
 $g.Dispose(); $bmp.Dispose()
 `, 30_000);
-  return fs.existsSync(f) ? `已截图：${f}（${sizeKB(f)} KB）` : "截图失败";
+  return fs.existsSync(f) ? `已截图：${f}（${sizeKB(f)} KB）` : fail("截图失败");
 }
 
 export async function clipboard(text?: string): Promise<string> {
@@ -74,7 +77,7 @@ export function openable(target: string): string | undefined {
 }
 export async function open(target: string): Promise<string> {
   const bad = openable(target);
-  if (bad) return bad;
+  if (bad) return fail(bad);
   await ps.run(`Start-Process -FilePath ${psq(target)}`);
   return `已打开：${target}`;
 }
@@ -121,7 +124,7 @@ $mc.Dispose()
     const ok = await new Promise<boolean>((resolve) => execFile("ffmpeg", ["-y", "-loglevel", "error", "-f", "dshow", "-i", `video=${dev}`, "-frames:v", "1", f], { timeout: 30_000, windowsHide: true }, (e) => resolve(!e)));
     if (ok && fs.existsSync(f)) return `已拍摄：${f}（${sizeKB(f)} KB）`;
   }
-  return `拍照失败：${r.out.trim().split("\n").pop()?.slice(0, 200) || "没有摄像头，或「设置 → 隐私和安全性 → 相机」里没有允许桌面应用使用相机"}`;
+  return fail(`拍照失败：${r.out.trim().split("\n").pop()?.slice(0, 200) || "没有摄像头，或「设置 → 隐私和安全性 → 相机」里没有允许桌面应用使用相机"}`);
 }
 function ffmpegCamera(): Promise<string | undefined> {
   return new Promise((resolve) => execFile("ffmpeg", ["-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"], { timeout: 15_000, windowsHide: true }, (_e, out, err) => {
@@ -146,7 +149,7 @@ try {
   Mci ('save qrec "' + ${psq(f)} + '"')
 } finally { [QuetzalMci]::mciSendString('close qrec', $null, 0, [IntPtr]::Zero) | Out-Null }
 `, (s + 30) * 1000);
-  return fs.existsSync(f) && fs.statSync(f).size > 44 ? `已录制 ${s} 秒：${f}` : `录音失败：${r.out.trim().split("\n").pop()?.slice(0, 200) || "没有麦克风，或「设置 → 隐私和安全性 → 麦克风」里没有允许桌面应用使用麦克风"}`;
+  return fs.existsSync(f) && fs.statSync(f).size > 44 ? `已录制 ${s} 秒：${f}` : fail(`录音失败：${r.out.trim().split("\n").pop()?.slice(0, 200) || "没有麦克风，或「设置 → 隐私和安全性 → 麦克风」里没有允许桌面应用使用麦克风"}`);
 }
 
 /** 身体助手与适配器共用的操作表（body.ts 的 POST /call 按 op 分派到这里）。 */

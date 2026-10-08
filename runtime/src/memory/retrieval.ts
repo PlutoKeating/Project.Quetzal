@@ -17,10 +17,10 @@ const CJK = /[㐀-鿿豈-﫿]+/g;
 /** ICU 的中文分词（Node 带完整 ICU 时可用；安卓 App 内置的 Node 用系统 ICU）。没有就只用二字组。 */
 const seg = (() => { try { return new Intl.Segmenter("zh", { granularity: "word" }); } catch { return undefined; } })();
 
-/** 分词：英文词（至少 2 个字符）+ 中文二字组（召回；单字的中文串保留单字）+ ICU 分出的三字以上的中文词（精度，如「小笼包」）。 */
+/** 分词：英文词（一个字母也算：C、R 这类名字照样能搜到，权重由 IDF 决定）+ 中文二字组（召回；单字的中文串保留单字）+ ICU 分出的三字以上的中文词（精度，如「小笼包」）。 */
 export function tokens(s: string): string[] {
   const low = s.toLowerCase(), out: string[] = [];
-  for (const m of low.match(ASCII) ?? []) if (m.length >= 2) out.push(m);
+  for (const m of low.match(ASCII) ?? []) out.push(m);
   for (const run of low.match(CJK) ?? []) {
     if (run.length === 1) out.push(run);
     for (let i = 0; i + 1 < run.length; i++) out.push(run.slice(i, i + 2));

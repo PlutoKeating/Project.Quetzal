@@ -56,8 +56,8 @@ When it really needs to, the agent can ask to enter the **real environment** and
 
 - **What it can do**: everything you can read and write, including the key directory, the vault and the runtime's configuration.
 - **Scope**: this one chat on this one device. Commands from the agent's own wake-ups, from sub-agents, or called from another device still run in the sandbox.
-- **Visible**: while it is on, a red bar shows at the top of the chat and at the top of the app. Every command is in the activity log, marked as run in the real environment.
-- **Leaving**: tap **Exit** on the red bar, or send `/sandbox` in Feishu; the agent also leaves when it is done. Thirty minutes without a command, the emergency stop, or a runtime restart all bring it back to the sandbox.
+- **Visible**: while it is on, a light red bar shows under the chat's title; when another chat is in the real environment, a bar also shows at the top of the app. Every command is in the activity log, marked as run in the real environment.
+- **Leaving**: tap **Exit** on the bar, or send `/sandbox` in Feishu; the agent also leaves when it is done. Thirty minutes without a command, the emergency stop, or a runtime restart all bring it back to the sandbox.
 
 If only a token is needed, a safer way is to have the agent ask you for a token with as few permissions as possible through [secret passing](/docs/guide/secrets), so commands stay in the sandbox.
 
@@ -79,6 +79,10 @@ The agent adjusts its own personality parameters within set limits (`adjust_self
 **Control → Advanced → Budget** sets a daily token cap, a daily cost cap, a minimum battery level and a maximum temperature. The defaults are 2,000,000 tokens / 5 USD / 15% / 45 °C.
 
 Going past these limits **lowers how often it wakes on its own**: budget spent ×0.05, overheating ×0.1, low battery and not charging ×0.2, offline ×0.5. It goes very quiet, but it still answers when you talk to it, because the budget does not limit conversations.
+
+## Stopping a turn
+
+While the agent is working in a chat and the input box is empty, the send button becomes a stop button. Pressing it stops this turn, and any command that is running ends with it. On a computer you can also press Esc twice (the first press shows a hint). It only stops this turn in this chat; other chats are not affected.
 
 ## Emergency stop
 

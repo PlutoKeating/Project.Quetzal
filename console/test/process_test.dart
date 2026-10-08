@@ -32,6 +32,8 @@ void main() {
     final items = itemsFromSteps([{'tool': 'shell', 'args': {'command': 'uptime'}, 'result': '\n 1:00 up 2 days\nload'}]);
     expect(items.single['summary'], 'uptime');
     expect(items.single['result'], ' 1:00 up 2 days');
+    expect(items.single['status'], 'unknown', reason: '旧记录没有存成败：不画对钩');
+    expect(itemsFromSteps([{'tool': 'shell', 'args': {}, 'result': 'exit 1', 'status': 'error'}]).single['status'], 'error');
     expect(summarizeArgs({'a': 1, 'query': 'x' * 120}).length, 101);
   });
 }

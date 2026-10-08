@@ -8,7 +8,6 @@
 import crypto from "node:crypto";
 import { config } from "../config.ts";
 import { bus, type Activity } from "../bus.ts";
-import { Runaway } from "./runaway.ts";
 
 export const SESSION_IDLE_MS = 120_000;
 export const HEARTBEAT_MS = 15_000;
@@ -23,6 +22,11 @@ export interface Incoming {
   id: number; text: string; mode: "steer" | "interrupt"; attachments: unknown[];
   via?: string; // 多具身体时：这句话从哪具身体进来（只在需要标注时给出）
   notice?: string; // 不是对方说的话，而是基座或子 agent 送来的提醒（通道名，如「灵魂同步」「子agent」）：按提醒的口吻并入
+}
+
+/** 对方停止了这一轮（控制台的停止按钮 / 连按两次 Esc）：中止模型输出与正在执行的命令，这一轮就此结束。 */
+export class Stopped extends Error {
+  constructor() { super("对方停止了这一轮"); this.name = "Stopped"; }
 }
 
 export class SessionTimeout extends Error {
@@ -144,7 +148,7 @@ export class Session {
     try { return await f(); } finally { this.holds--; this.touch(); }
   }
 
-  /** 外部中止整个会话（停止子 agent）。 */
+  /** 外部中止整个会话（停止子 agent、对方停止这一轮）。 */
   abort(reason: Error) { this.ac.abort(reason); this.llm?.abort(reason); }
 
   /** 若已被时间墙中止，抛出原因。 */
@@ -155,8 +159,6 @@ export class Session {
   endLLM() { this.llm = undefined; }
   /** 打断正在进行的模型输出；此刻没有模型调用（例如正在执行工具）时返回 false，消息会在工具结束后立即处理。 */
   interrupt(): boolean { if (!this.llm) return false; this.llm.abort(new Interrupted()); return true; }
-  /** 截停陷入复读的模型输出（见 runaway.ts）。 */
-  stopRunaway() { this.llm?.abort(new Runaway()); }
 
   /** 模型流式输出的文字，合并后每 200ms 广播一次。 */
   delta(text: string) {

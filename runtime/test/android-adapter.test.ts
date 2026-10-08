@@ -59,7 +59,7 @@ test("采样、描述与守护：经身体接口，带令牌", async () => {
   assert.deepEqual(await adapter.supervision!.status(), { available: true, kind: "loop", enabled: true, detail: "Quetzal App 的前台服务：开机自启，退出后自动重启" });
 });
 
-test("工具：参数被约束、输出落在家目录、失败原因交给她", async () => {
+test("工具：参数被约束、输出落在家目录；做不成时抛错（核心标为失败，原因交给她）", async () => {
   writeBody(TOKEN);
   const tool = (n: string) => adapter.tools!.find((t) => t.name === n)!;
   seen.length = 0;
@@ -69,7 +69,7 @@ test("工具：参数被约束、输出落在家目录、失败原因交给她",
   const photo = seen.find((r) => r.url === "/v1/photo")!;
   assert.equal(photo.body.camera, 1);
   assert.ok(photo.body.file.startsWith(path.join(home, "data", "media") + path.sep));
-  assert.match(await tool("location").handler({}), /失败：没有定位权限/);
+  await assert.rejects(tool("location").handler({}), /没有定位权限/);
 });
 
 test("定位：定不到新位置时退回最近的已知位置，并说明是多久以前的", async () => {
@@ -84,7 +84,7 @@ test("定位：定不到新位置时退回最近的已知位置，并说明是�
 
 test("令牌不对：报错而不是静默成功", async () => {
   writeBody("x".repeat(64));
-  assert.match(await adapter.tools!.find((t) => t.name === "torch")!.handler({ on: true }), /失败：令牌不对/);
+  await assert.rejects(adapter.tools!.find((t) => t.name === "torch")!.handler({ on: true }), /令牌不对/);
   await assert.rejects(adapter.notify!("标题", "内容"), /令牌不对/);
   writeBody("short");
   assert.deepEqual(await adapter.sample(), {});

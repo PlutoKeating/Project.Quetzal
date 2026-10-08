@@ -69,7 +69,6 @@ export function setHearing(patch: Partial<HearingConfig>) {
   if (patch.windowMin != null && Number.isFinite(Number(patch.windowMin))) clean.windowMin = Math.max(0, Math.min(1440, Number(patch.windowMin)));
   if (patch.sensitivity != null && Number.isFinite(Number(patch.sensitivity))) clean.sensitivity = Math.max(1, Math.min(3, Math.round(Number(patch.sensitivity))));
   if (typeof patch.language === "string") clean.language = patch.language.trim();
-  if (patch.minChars != null && Number.isFinite(Number(patch.minChars))) clean.minChars = Math.max(0, Math.min(50, Math.round(Number(patch.minChars))));
   saveConfig({ hearing: clean });
   return hearingStatus();
 }
@@ -91,29 +90,31 @@ const emit = (e: HearingEvent) => bus.emit("hearing", e);
  * 多具身体（mesh/channels.ts 设置）：dedupe——几只耳朵同时听到同一句话时只留一只（返回 false 表示交给别的身体处理）；
  * heard——这只耳朵听到的话进了哪个会话（她用 voice_speak 回话时从这具身体说出来）。
  */
-let meshHooks: { dedupe: (u: { id: string; text: string; at: number }) => Promise<boolean>; heard: (conv: string) => void } | undefined;
+/** 一句话在这只耳朵上的起止（运行基座的时钟，毫秒）。 */
+export interface Span { start: number; end: number }
+let meshHooks: { dedupe: (u: { id: string; text: string } & Span) => Promise<boolean>; heard: (conv: string) => void } | undefined;
 export const setHearingMesh = (h: typeof meshHooks) => { meshHooks = h; };
 /** 测试用：按多具身体的规则判断一句话这只耳朵要不要留，并登记进了哪个会话。 */
-export async function meshHeard(text: string, conv: string, at = Date.now()) {
-  const keep = await (meshHooks?.dedupe({ id: newId(), text, at }) ?? Promise.resolve(true));
+export async function meshHeard(text: string, conv: string, start = Date.now(), end = start + 1500) {
+  const keep = await (meshHooks?.dedupe({ id: newId(), text, start, end }) ?? Promise.resolve(true));
   if (keep) meshHooks?.heard(conv);
   return keep;
 }
 const newId = () => crypto.randomBytes(6).toString("hex");
 
 /**
- * 识别出文字之后：太短的不打扰她；否则挑会话、交给她判断，并把她的取舍（kept / ignored）推给控制台。
+ * 识别出文字之后：没识别出文字的不打扰她；有文字（一个字也算：「停」「好」都是完整的话）就挑会话、交给她判断，并把她的取舍（kept / ignored）推给控制台。
  * bargeIn：这句话打断了她的播放（App 回报的插嘴），以「打断」并入她当前的工作。
  */
-async function deliver(id: string, r: { text: string; status: string }, wait: boolean, bargeIn = false): Promise<HeardResult> {
+async function deliver(id: string, r: { text: string; status: string }, wait: boolean, bargeIn: boolean, span: Span): Promise<HeardResult> {
   last = { ts: Date.now(), text: r.text, status: r.status };
-  if (!r.text || r.text.length < config.hearing.minChars) {
-    const dropped = r.text ? "太短" : `没听清（${r.status}）`;
+  if (!r.text.trim()) {
+    const dropped = `没听清（${r.status}）`;
     emit({ id, status: "dropped", text: r.text, reason: dropped });
     return { ok: true, id, text: r.text, dropped };
   }
   bargeIn = bargeIn || isBargeIn(id);
-  if (meshHooks && !bargeIn && !(await meshHooks.dedupe({ id, text: r.text, at: Date.now() }).catch(() => true))) {
+  if (meshHooks && !bargeIn && !(await meshHooks.dedupe({ id, text: r.text, ...span }).catch(() => true))) {
     emit({ id, status: "dropped", text: r.text, reason: "另一具身体也听到了这句话，由那边交给她" });
     return { ok: true, id, text: r.text, dropped: "另一具身体也听到了" };
   }
@@ -141,8 +142,9 @@ export async function hear(wav: Buffer, _startedAt: number, wait = false): Promi
   const id = newId();
   const g = gate(id);
   if (g) return g;
-  if (wav.length < 44 + 16000 * 2 * 0.3) { emit({ id, status: "dropped", text: "", reason: "太短" }); return { ok: true, id, text: "", dropped: "太短" }; } // 不到 0.3 秒
-  return deliver(id, await recognize(wav, hearingStatus().language), wait);
+  if (wav.length <= 44) { emit({ id, status: "dropped", text: "", reason: "没有声音" }); return { ok: true, id, text: "", dropped: "没有声音" }; } // 只有 WAV 头，没有一个采样（多短都交给识别：有没有话由识别结果说了算）
+  const end = Date.now(), start = end - Math.round((wav.length - 44) / 32); // 16 kHz、16 位单声道：每毫秒 32 字节
+  return deliver(id, await recognize(wav, hearingStatus().language), wait, false, { start, end });
 }
 
 const WAV_HEADER = (pcmBytes: number) => {
@@ -179,12 +181,12 @@ export async function hearStream(chunks: AsyncIterable<Buffer>, _startedAt: numb
   try { rec = streamFactory(language, onPartial); }
   catch (e: any) { log("hearing", `流式识别不可用，改用一次识别：${e.message}`); }
   for await (const c of chunks) { all.push(c); try { rec?.push(c); } catch {} }
-  const pcm = Buffer.concat(all);
-  if (pcm.length < 16000 * 2 * 0.3) { emit({ id, status: "dropped", text: "", reason: "太短" }); return { ok: true, id, text: "", dropped: "太短" }; }
+  const pcm = Buffer.concat(all), end = Date.now(), start = end - Math.round(pcm.length / 32); // 最后一段到达时这句话结束；按采样数往前推出开始
+  if (!pcm.length) { emit({ id, status: "dropped", text: "", reason: "没有声音" }); return { ok: true, id, text: "", dropped: "没有声音" }; }
   let r: { text: string; status: string } | undefined;
   if (rec) { try { r = await rec.end(); } catch (e: any) { log("hearing", `流式识别失败，改用一次识别：${e.message}`); } }
   if (!r || (!r.text && r.status !== "NoMatch")) r = await recognizeLong(pcm, language);
-  return deliver(id, r, wait, bargeIn);
+  return deliver(id, r, wait, bargeIn, { start, end });
 }
 
 /** 她听到了但没有回应：留一条时间线，让心流里看得到。 */

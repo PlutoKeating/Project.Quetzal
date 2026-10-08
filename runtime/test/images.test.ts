@@ -58,7 +58,7 @@ test("小图原样读取；大图缩小到长边 1600 像素", async (t) => {
 test("目录里的「能否看图」只看输入模态", () => {
   assert.equal(visionOf({ modalities: { input: ["text", "image"] }, attachment: true }), true);
   assert.equal(visionOf({ modalities: { input: ["text"] }, attachment: true }), false); // 能收文件 ≠ 能看图
-  assert.equal(visionOf({ attachment: true }), true); // 没有模态信息时才参考 attachment
+  assert.equal(visionOf({ attachment: true }), undefined); // 没有模态信息就是不知道（不按 attachment 猜）
 });
 
 test("view_image：下一次模型调用带上图片，并只发给能看图的模型", async () => {

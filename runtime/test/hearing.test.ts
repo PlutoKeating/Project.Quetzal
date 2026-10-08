@@ -67,22 +67,21 @@ test("没开听觉或未配置语音时不听；配置后 listening 为真", asy
   const d = await hearing.hear(wav("你好"), Date.now());
   assert.deepEqual([d.ok, d.text, d.dropped], [false, "", "未开启、Azure 语音未配置"]);
   voice.setSpeech({ endpoint: azureBase, key: "k-123456" } as any);
-  const st = hearing.setHearing({ enabled: true, windowMin: 10, sensitivity: 9, minChars: 2 });
+  const st = hearing.setHearing({ enabled: true, windowMin: 10, sensitivity: 9 });
   assert.equal(st.listening, true);
   assert.equal(st.sensitivity, 3); // 有界
   assert.equal(st.language, "zh-CN"); // 取她的偏好语言
   assert.match(systemPrompt(), /## 听觉\n你的耳朵开着/);
 });
 
-test("识别：WAV 直接 POST，没听清与太短的不打扰她", async () => {
+test("识别：WAV 直接 POST，没听清的、没有声音的不打扰她（不按字数、时长丢弃）", async () => {
   const r = await hearing.hear(wav("noise"), Date.now());
   assert.equal(r.text, "");
   assert.match(r.dropped!, /没听清（NoMatch）/);
   assert.equal(sttHeaders["content-type"], "audio/wav; codecs=audio/pcm; samplerate=16000");
   assert.equal(sttHeaders["ocp-apim-subscription-key"], "k-123456");
   assert.match(sttUrl, /language=zh-CN&format=simple/);
-  assert.match((await hearing.hear(wav("嗯"), Date.now())).dropped!, /太短/);
-  assert.match((await hearing.hear(Buffer.alloc(100), Date.now())).dropped!, /太短/);
+  assert.match((await hearing.hear(Buffer.alloc(44), Date.now())).dropped!, /没有声音/);
   assert.equal(store.listSessions().length, 0, "没听清的不建会话");
 });
 
@@ -189,8 +188,8 @@ test("流式识别失败或没结果时，用已收到的音频走一次 REST �
   assert.equal(sttHeaders["content-type"], "audio/wav; codecs=audio/pcm; samplerate=16000");
   hearing.setStreamFactory(() => { throw new Error("SDK 不可用"); }); // 连识别器都建不出来：同样兜底
   assert.equal((await hearing.hearStream(pcm(), Date.now() + 5000, "s4", true)).text, "薰在吗兜底");
-  async function* short() { yield Buffer.alloc(1000); }
-  assert.match((await hearing.hearStream(short(), Date.now() + 5000, "s5")).dropped!, /太短/);
+  async function* none() { /* 一个采样也没有 */ }
+  assert.match((await hearing.hearStream(none(), Date.now() + 5000, "s5")).dropped!, /没有声音/);
 });
 
 test("收尾", () => { azure.close(); llm.close(); });

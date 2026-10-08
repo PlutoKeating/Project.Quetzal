@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { paths } from "../config.ts";
 import { bus, type SecretEvent } from "../bus.ts";
 import { identity } from "../memory/identity.ts";
-import { baseSecrets } from "../secret-values.ts";
+import { baseSecrets, pemValues } from "../secret-values.ts";
 
 /** 在命令里怎么引用保密库里的值：Windows 的 PowerShell 没有 < 重定向。 */
 export const USAGE = () => process.platform === "win32"
@@ -66,8 +66,7 @@ export function deleteSecret(name: string): boolean {
   return true;
 }
 
-// ---------- 兜底：工具输出里出现的保密值一律替换。目录变化（增删文件）或经由本模块写入后重新读取。
-const MIN_REDACT = 4, MIN_LINE = 12; // 太短的值不替换，否则会把无关输出改得面目全非；多行的值另外逐行替换（防止只输出其中几行）
+// ---------- 兜底：工具输出里出现的保密值一律替换（保密库的每一项、基座自己的密钥，见 secret-values.ts）。目录变化（增删文件）或经由本模块写入后重新读取。
 let cache: { stamp: number; list: [value: string, name: string][] } | undefined;
 function needles(): [string, string][] {
   let stamp: number;
@@ -75,9 +74,9 @@ function needles(): [string, string][] {
   if (cache?.stamp !== stamp) {
     const list: [string, string][] = [];
     for (const name of names()) {
+      // 存进保密库的就是保密值：整个值替换，不看长短；PEM 块（私钥）另外逐行替换正文（只输出其中几行也认得出）
       const v = fs.readFileSync(file(name), "utf8").trim();
-      if (v.length >= MIN_REDACT) list.push([v, name]);
-      if (v.includes("\n")) for (const l of v.split("\n").map((x) => x.trim())) if (l.length >= MIN_LINE) list.push([l, name]);
+      for (const x of pemValues(v) ?? (v ? [v] : [])) list.push([x, name]);
     }
     cache = { stamp, list: list.sort((a, b) => b[0].length - a[0].length) };
   }

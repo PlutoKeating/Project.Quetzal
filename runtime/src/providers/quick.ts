@@ -8,16 +8,18 @@ import type { Provider, ProviderModel } from "./types.ts";
 
 /** 留下几个通的（第一个是主力，其余在它失败时接上）；最多试几个。 */
 const KEEP = 2, TRIES = 6, TEST_TIMEOUT_MS = 30_000;
-/** 名字里带这些的先不选：实验版、预览版、非对话用途。都不行时才退回去试它们。 */
-const UNSTABLE = /(^|[-_.:/])(exp|experimental|preview|beta|alpha|test)([-_.:/]|$)/i;
-const NOT_CHAT = /embed|rerank|tts|whisper|transcri|audio|realtime|image|moderation|speech|ocr/i;
+/** 目录标的状态：正式的在前，alpha / beta 其次，已弃用的最后（不按模型名猜「预览版」）。 */
+const STATUS_RANK = (s?: string) => (s === "deprecated" ? 2 : s ? 1 : 0);
 
-/** 候选的先后：稳定的在前；再按发布日期从新到旧；同一天的按输出价格从高到低（同代里更强的那个）。 */
+/**
+ * 候选的先后：按目录标的状态；再按发布日期从新到旧；同一天的按输出价格从高到低（同代里更强的那个）。
+ * 只选目录里写明能调工具、输出里有文字（能对话）的；目录没写输出模态的不排除。
+ */
 export function rankCandidates(models: CatalogModel[], remote: string[]): CatalogModel[] {
   const have = new Set(remote);
-  const pool = models.filter((m) => m.toolCall && !NOT_CHAT.test(m.id) && (!remote.length || have.has(m.id)));
+  const pool = models.filter((m) => m.toolCall && m.text !== false && (!remote.length || have.has(m.id)));
   return pool.sort((a, b) =>
-    Number(UNSTABLE.test(a.id)) - Number(UNSTABLE.test(b.id))
+    STATUS_RANK(a.status) - STATUS_RANK(b.status)
     || (b.released ?? "").localeCompare(a.released ?? "")
     || (b.cost?.output ?? 0) - (a.cost?.output ?? 0));
 }
@@ -71,7 +73,7 @@ export async function quickSetup(a: { catalogId: string; key: string }, actor: s
     if (r.ok) { kept.push(m); continue; }
     last = r.message;
     if (!existing) edit((q) => { q.models = q.models.filter((x) => x.id !== id); });
-    if (/鉴权失败|Key 无效/.test(r.message)) break; // Key 不对，换哪个模型都一样
+    if (r.status === 401) break; // Key 不对（HTTP 401），换哪个模型都一样
   }
 
   if (!kept.length) { // 撤回：去掉这把新 Key，恢复原来的启用状态；新建的空供应商整个去掉

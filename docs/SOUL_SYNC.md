@@ -77,12 +77,12 @@ sequenceDiagram
   T-->>S: 工具结束
   S->>S: git status：灵魂目录变了？→ 立即提交「note_save：笔记 身体/硬件（honor9）」
   S->>S: 3 秒去抖（一轮结束时立即）
-  S->>R: push（被拒 → 拉取合并后重推）
-  alt 网络类失败
+  S->>R: push --porcelain（引用被拒 → 拉取合并后重推）
+  alt git 失败（网络、钥匙、主机密钥……不按报错文字猜是哪一种）
     S->>S: 静默退避重试 5 次（约 4 分钟）
   end
-  alt 仍失败 / 其他原因（密钥被拒、主机密钥不符、仓库不存在、身份不符）
-    S-->>A: 插话「基座提醒（灵魂同步）」：失败原因、哪些改动还在本机、建议
+  alt 仍失败 / 基座自己拒绝同步（身份不符、不是灵魂仓库、混进了别的历史）/ 配置不对
+    S-->>A: 插话「基座提醒（灵魂同步）」：git 的原文、哪些改动还在本机、建议
   end
 ```
 
@@ -92,7 +92,7 @@ sequenceDiagram
 - 控制台触发的操作（改身份、撤销、立即同步）推送失败时不插话，失败原因显示在「高级 · 同步」页。
 - **只推到配置的地址**：推送与拉取直接使用配置里的灵魂仓库地址（`git push <地址> HEAD:refs/heads/<分支>`、`git fetch <地址> …`），不经 `origin`；`origin` 仍按配置校正（有人改了就改回并记日志），但它被改了也不影响推到哪里。系统提示也告诉 agent 不要自己在灵魂目录里运行 git。
 - **不执行灵魂目录里的东西**（规范 §5.2）：每次执行 git 都带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.symlinks=false -c protocol.ext.allow=never -c protocol.file.allow=never`，环境 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=/dev/null`；每次提交、拉取、推送前删掉 `.git/config` 白名单以外的键（`url.*.insteadOf` / `pushInsteadOf`、`core.sshCommand`、`filter.*`、`include.*` 等）。私钥路径必须是绝对路径，在 `GIT_SSH_COMMAND` 里加单引号。
-- **GitHub 的 22 端口不通时改走 443**：远端是 `git@github.com:…` / `ssh://git@github.com/…` 时，clone、fetch、push、ls-remote 遇到连接层面的失败（连接被断开、超时、连不上；ssh 连接超时 20 秒），自动用 `-o HostName=ssh.github.com -o Port=443 -o HostKeyAlias=github.com` 再试一次（GitHub 官方的 443 端口 SSH，同一把钥匙，按 github.com 的主机密钥核对）；走通的那条路在这个进程里记下来，之后先走它。不少网络（以及 VPN、代理）只拦 22 端口。`~/.ssh/config` 里的 Host 别名不改。报错里「连接被断开」不再误报成部署公钥被拒（git 末尾通用的 `Could not read from remote repository` 不作为判据）。
+- **GitHub 的 22 端口不通时改走 443**：远端是 `git@github.com:…` / `ssh://git@github.com/…` 时，clone、fetch、push、ls-remote 遇到连接层面的失败（连接被断开、超时、连不上；ssh 连接超时 20 秒），（以及其他任何失败，推送被拒除外：被拒是远端的回答，换端口也一样；不按报错文字猜是不是网络问题）自动用 `-o HostName=ssh.github.com -o Port=443 -o HostKeyAlias=github.com` 再试一次（GitHub 官方的 443 端口 SSH，同一把钥匙，按 github.com 的主机密钥核对）；走通的那条路在这个进程里记下来，之后先走它。不少网络（以及 VPN、代理）只拦 22 端口。`~/.ssh/config` 里的 Host 别名不改。报错一律照 git / ssh 的原文给出（太长时留最后 600 字），不翻译成猜出来的原因。远端还是空仓库（没有这个分支）由 `git ls-remote --heads` 判断，不看报错文字。
 - **不收符号链接**：暂存区里的符号链接不提交（记日志）；远端分支里有符号链接时拒绝合并，`lastError` 写明，交给人处理。
 - **内容不做检查**（规范 v11 §6）：提交前不检查改动里有没有密钥或其他敏感值，她写什么就提交什么（v10 的密钥检查把身体名之类并不保密的值也当成密钥、挡住同步，已取消）。灵魂桥复用 `soul-repo.ts`，前几条同样生效。
 - **Windows 身体**（规范 v13 §3.13、§5.2 第 6 条）：钩子目录与全局配置指向家目录 `state\git-empty\` 里的空目录与空文件，打开长路径，优先用系统自带的 OpenSSH；仓库里在 Windows 上放不下的路径（保留名、结尾的点或空格、只差大小写）照常克隆、合并与推送，只是用 sparse-checkout 不写进工作区（`windowsExclude`；为此关掉 `core.protectNTFS`，`.git` 的别名与流名一并排除），同步结果的 `skipped` 列出它们，她收到一次提醒，在别的身体上改名后自动出现。写入端（笔记路径段、技能名）从源头避开这些名字（`memory/portable-path.ts`）。

@@ -69,7 +69,7 @@ Sync runs when something happens. There is no sync on a timer:
 
 - **Sync on every change**: after each tool call the agent makes (saving a note, editing memory, changing files directly with the shell…), the runtime checks the soul directory. It commits any change at once and pushes 3 seconds later, and the end of a turn pushes at once. Commit messages say what changed (for example "note_save: note body/hardware"), so the history is easy to read.
 - Before the agent wakes and before conversations, the runtime pulls changes from other bodies.
-- **Push failures**: for network problems, the runtime retries quietly a few times over about 4 minutes. If that still fails, or the key was rejected or the repository is missing, the runtime adds a "runtime notice" to the turn that changed the memory. If that turn has ended, it starts a new turn in the same conversation. The changes stay in local commits and go out with the next successful push.
+- **Push failures**: the runtime first retries quietly a few times over about 4 minutes. If that still fails (or the runtime itself refused to sync, for example because the repository belongs to another agent), it adds a "runtime notice" with git's own error text to the turn that changed the memory. If that turn has ended, it starts a new turn in the same conversation. The changes stay in local commits and go out with the next successful push.
 
 ## How conflicts are resolved
 

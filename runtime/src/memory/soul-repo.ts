@@ -104,37 +104,20 @@ export interface PullResult {
   skipped?: { path: string; why: string }[];
 }
 
-/** 推送的结果。kind：失败的类别——network（网络，值得静默重试）、auth（部署密钥被拒）、hostkey、notfound、identity（远端属于另一个 agent）、config（地址或私钥配置有误）、rejected（拉取合并后仍被拒）、other。 */
-export interface PushResult { ok: boolean; pushed: boolean; kind?: "network" | "auth" | "hostkey" | "notfound" | "identity" | "config" | "rejected" | "other"; error?: string }
+/**
+ * 推送的结果。kind 只按确定的事实分：rejected（git push --porcelain 报告引用被拒：远端有新提交，拉取合并后仍被拒）、
+ * refused（基座自己拒绝同步：远端属于另一个 agent、不是灵魂仓库、混进了别的历史、有符号链接，见 status.refused）、
+ * config（地址或私钥配置有误）、failed（git 失败，原因见 error 里 git / ssh 的原文：网络、钥匙、主机密钥……不按报错文字去猜是哪一种）。
+ */
+export interface PushResult { ok: boolean; pushed: boolean; kind?: "rejected" | "refused" | "config" | "failed"; error?: string }
 
-// 连接层面的失败（还没走到验证钥匙）。git 末尾那句通用的「Could not read from remote repository」不算：网络断了、钥匙被拒都会有它
-const NETWORK = /Could not resolve hostname|Network is unreachable|Connection timed out|Connection refused|Connection reset|Operation timed out|timed out|Temporary failure in name resolution|kex_exchange_identification|Connection closed by|early EOF|The remote end hung up|Broken pipe|No route to host/i;
-// 连接被对端直接断开 / 重置：多半是所在网络（或 VPN、代理）拦了 SSH
-const CUT = /Connection closed by|Connection reset|kex_exchange_identification|Broken pipe/i;
-
-export function gitErrorKind(err: string): NonNullable<PushResult["kind"]> {
-  if (/Permission denied \(publickey\)|Authentication failed|ERROR: .*(key|access)/i.test(err)) return "auth";
-  if (NETWORK.test(err)) return "network";
-  if (/Host key verification failed/i.test(err)) return "hostkey";
-  if (/Repository not found|does not appear to be a git repository/i.test(err)) return "notfound";
-  if (/\[rejected\]|non-fast-forward|fetch first|failed to push some refs/i.test(err)) return "rejected";
-  return "other";
-}
+/** git / ssh 的原文报错：去掉首尾空白，太长时只留最后几行（真正的原因在末尾）。 */
+export const gitError = (err: string) => { const t = err.trim(); return t.length > 600 ? `…${t.slice(-600)}` : t || "git 失败（没有输出）"; };
+/** git push --porcelain 的输出里有被拒的引用（以 ! 开头的行）。 */
+export const pushRejected = (out: string) => /^!\t/m.test(out);
 
 /** 冲突时落选版本的副本路径：x.md → x.incoming.md（规范 §3.3 的 .gitignore 忽略 *.incoming*.md，不会被提交）。非 .md 文件不另存。 */
 export const incomingPath = (file: string) => (file.endsWith(".md") ? `${file.slice(0, -3)}.incoming.md` : undefined);
-
-/** 把 git / ssh 的原始报错翻译成使用者看得懂的一句话（原文截断附在后面，便于排查）。 */
-export function friendlyGitError(err: string): string {
-  const raw = err.trim().replace(/\s+/g, " ").slice(0, 200);
-  if (/Permission denied \(publickey\)/i.test(err)) return `远端拒绝了本机的部署公钥：请把「本机的访问密钥」里的公钥添加到灵魂仓库的 Deploy keys（勾选允许写入）。原文：${raw}`;
-  if (CUT.test(err)) return `连接灵魂仓库的服务器时被断开了：多半是当前网络（或 VPN、代理）拦了 SSH，不是钥匙的问题。换个网络或关掉 VPN 再同步。原文：${raw}`;
-  if (NETWORK.test(err)) return `连不上灵魂仓库所在的服务器（网络或地址问题）。原文：${raw}`;
-  if (/Host key verification failed/i.test(err)) return `服务器的主机密钥与之前记录的不一致，已拒绝连接（known_hosts）。原文：${raw}`;
-  if (/Repository not found|does not appear to be a git repository/i.test(err)) return `远端没有这个仓库，或这把部署密钥没有它的访问权。原文：${raw}`;
-  if (/Could not read from remote repository/i.test(err)) return `没能访问灵魂仓库（钥匙没有权限、仓库不存在或网络中断）。原文：${raw}`;
-  return raw;
-}
 
 /** GitHub 官方的 443 端口 SSH：同一套主机密钥，所以按 github.com 核对（HostKeyAlias）。 */
 const VIA_443 = "-o HostName=ssh.github.com -o Port=443 -o HostKeyAlias=github.com";
@@ -144,7 +127,7 @@ let githubVia443 = false; // 这个进程里 GitHub 的 22 端口不通、已经
 
 export class SoulRepo {
   // 同步状态落在 statusFile（有的话），重启后页面上的「上次拉取 / 上次推送」不会归零；任何字段一改就写盘
-  status: { lastPull: number; lastPush: number; lastError: string; skipped?: { path: string; why: string }[] };
+  status: { lastPull: number; lastPush: number; lastError: string; skipped?: { path: string; why: string }[]; refused?: "foreign" | "not-soul" | "identity" | "symlink" }; // refused：基座自己拒绝了同步（原因写在 lastError）
   o: SoulRepoOptions;
   constructor(o: SoulRepoOptions) {
     this.o = o;
@@ -170,7 +153,8 @@ export class SoulRepo {
     const verb = args.find((a) => !a.startsWith("-"));
     if (!verb || !["clone", "fetch", "push", "ls-remote"].includes(verb) || !isGithubSsh(this.o.remote)) return this.run(args, false);
     const first = await this.run(args, githubVia443);
-    if (first.code === 0 || gitErrorKind(first.err) !== "network") return first;
+    if (first.code === 0 || pushRejected(first.out)) return first; // 推送被拒是远端的回答，换端口也一样
+    // 失败了就换另一条路试一次（不按报错文字猜是不是网络问题）；两条都不通时报第一条的原因
     const second = await this.run(args, !githubVia443);
     if (second.code === 0) { githubVia443 = !githubVia443; this.o.log?.(githubVia443 ? "GitHub 的 22 端口连不上，改走 ssh.github.com:443" : "GitHub 的 22 端口又能连上了，改回默认"); return second; }
     return first; // 两条路都不通：报第一条的原因
@@ -367,6 +351,7 @@ export class SoulRepo {
       const top = (await this.git("ls-tree", "--name-only", this.ref())).out.split("\n").filter(Boolean);
       const foreign = top.filter((n) => !SOUL_TOP.has(n));
       if (!foreign.length) return true;
+      this.status.refused = "not-soul";
       this.status.lastError = `远端不是灵魂仓库（没有 agent.json，却有 ${foreign.slice(0, 3).join("、")}${foreign.length > 3 ? " 等" : ""}），已拒绝合并：请检查灵魂仓库地址`;
       this.o.log?.(this.status.lastError);
       return false;
@@ -376,6 +361,7 @@ export class SoulRepo {
     const mine = this.readJson("agent.json");
     if (!mine?.id || !theirs.id || theirs.id === mine.id) return true;
     if (mine.seed) { fs.writeFileSync(this.p("agent.json"), r.out); await this.commit("采用灵魂仓库中的身份"); return true; }
+    this.status.refused = "identity";
     this.status.lastError = `灵魂仓库属于另一个 agent（${theirs.id.slice(0, 8)}），与本地（${String(mine.id).slice(0, 8)}）不同，已拒绝同步`;
     this.o.log?.(this.status.lastError);
     return false;
@@ -414,14 +400,14 @@ export class SoulRepo {
     return `灵魂仓库的历史里混进了别的仓库（陌生的根提交 ${foreign.map((f) => f.slice(0, 7)).join("、")}），已停止同步：不合并、不推送。可能有人在灵魂目录里手动操作了 git，或远端被推入了别的历史；需要人检查（干净的做法是重新克隆灵魂仓库）`;
   }
 
-  /** 不经过已知根提交的那些提交（陌生历史本身）是不是都只含灵魂仓库的顶层条目（规范 §1）。太多或没有时不认。 */
+  /** 不经过已知根提交的那些提交（陌生历史本身）是不是都只含灵魂仓库的顶层条目（规范 §1）：逐个检查，没有时不认。 */
   private async soulShaped(revs: string[], known: string[]): Promise<boolean> {
     const list = async (...a: string[]) => (await this.git("rev-list", ...a)).out.split("\n").filter(Boolean);
     const all = await list(...revs);
     const linked = new Set(known);
     for (const k of known) for (const rev of revs) for (const c of await list("--ancestry-path", `${k}..${rev}`)) linked.add(c);
     const only = all.filter((c) => !linked.has(c));
-    if (!only.length || only.length > 200) return false;
+    if (!only.length) return false;
     for (const c of only) {
       const top = (await this.git("ls-tree", "--name-only", c)).out.split("\n").filter(Boolean);
       if (top.some((n) => !SOUL_TOP.has(n))) return false;
@@ -437,15 +423,17 @@ export class SoulRepo {
     // 直接用配置里的地址，不经 origin（.git/config 被改过也不会从别处拉）
     const f = await this.git("fetch", "--no-tags", this.o.remote, `+refs/heads/${this.o.branch}:refs/remotes/origin/${this.o.branch}`);
     if (f.code !== 0) {
-      if (/couldn't find remote ref/i.test(f.err)) return none; // 远端还是空仓库
-      this.status.lastError = friendlyGitError(f.err); return none;
+      // 远端还是空仓库（没有这个分支）：问 ls-remote，它对不存在的分支正常退出、什么也不输出
+      const heads = await this.git("ls-remote", "--heads", this.o.remote, `refs/heads/${this.o.branch}`);
+      if (heads.code === 0 && !heads.out.trim()) return none;
+      this.status.lastError = gitError(f.err); return none;
     }
     const foreign = await this.foreignHistory(["HEAD", this.ref()]);
-    if (foreign) { this.status.lastError = foreign; this.o.log?.(foreign); return none; }
+    if (foreign) { this.status.refused = "foreign"; this.status.lastError = foreign; this.o.log?.(foreign); return none; }
     const behind = await this.git("rev-list", "--count", `HEAD..${this.ref()}`);
     if (behind.code === 0 && behind.out.trim() === "0") {
       if (!this.known()) await this.recordRoots(["HEAD", this.ref()]);
-      this.status.lastPull = Date.now(); this.status.lastError = ""; return none;
+      this.status.lastPull = Date.now(); this.status.lastError = ""; this.status.refused = undefined; return none;
     }
     return this.locked(() => this.mergeIn());
   }
@@ -457,7 +445,7 @@ export class SoulRepo {
     const none: PullResult = { merged: false, incoming: [], resolved: [] };
     await this.commit("拉取前保存");
     const links = (await this.git("ls-tree", "-r", "-z", this.ref())).out.split("\0").filter((l) => l.startsWith("120000 ")).map((l) => l.slice(l.indexOf("\t") + 1));
-    if (links.length) { this.status.lastError = `远端的灵魂仓库里有符号链接（${links.slice(0, 3).join("、")}），已拒绝合并：灵魂仓库只放普通文件（规范 §5.2）`; this.o.log?.(this.status.lastError); return none; }
+    if (links.length) { this.status.refused = "symlink"; this.status.lastError = `远端的灵魂仓库里有符号链接（${links.slice(0, 3).join("、")}），已拒绝合并：灵魂仓库只放普通文件（规范 §5.2）`; this.o.log?.(this.status.lastError); return none; }
     if (!(await this.guardIdentity())) return none;
     const skipped = await this.windowsExclude(["HEAD", this.ref()]); // Windows：放不下的路径不写进工作区（规范 v13 §3.13）
     // 本地与远端没有共同的历史：这具身体接入时没克隆成，先在本地建了仓库。合并后只保留远端的历史（见下面的 flatten），
@@ -495,7 +483,7 @@ export class SoulRepo {
       }
       await this.commit("合并来自其他身体的记忆");
     }
-    this.status.lastPull = Date.now(); this.status.lastError = "";
+    this.status.lastPull = Date.now(); this.status.lastError = ""; this.status.refused = undefined;
     if (unrelated) await this.flatten();
     return { merged: true, incoming, resolved, ...(skipped.length ? { skipped } : {}) };
   }
@@ -516,16 +504,16 @@ export class SoulRepo {
     if (!this.remoteReady()) return { ok: false, pushed: false, kind: "config", error: this.status.lastError };
     await this.ensureOrigin();
     const foreign = await this.foreignHistory(["HEAD"]);
-    if (foreign) { this.status.lastError = foreign; this.o.log?.(foreign); return { ok: false, pushed: false, kind: "identity", error: foreign }; }
-    let r = await this.git("push", this.o.remote, `HEAD:refs/heads/${this.o.branch}`);
-    if (r.code !== 0 && gitErrorKind(r.err) === "rejected") {
+    if (foreign) { this.status.refused = "foreign"; this.status.lastError = foreign; this.o.log?.(foreign); return { ok: false, pushed: false, kind: "refused", error: foreign }; }
+    let r = await this.git("push", "--porcelain", this.o.remote, `HEAD:refs/heads/${this.o.branch}`);
+    if (r.code !== 0 && pushRejected(r.out)) {
       const pulled = await this.pull();
-      if (!pulled.merged && this.status.lastError) return { ok: false, pushed: false, kind: /另一个 agent|不是灵魂仓库|混进了别的仓库/.test(this.status.lastError) ? "identity" : gitErrorKind(this.status.lastError), error: this.status.lastError };
-      r = await this.git("push", this.o.remote, `HEAD:refs/heads/${this.o.branch}`);
+      if (!pulled.merged && this.status.lastError) return { ok: false, pushed: false, kind: this.status.refused ? "refused" : "failed", error: this.status.lastError };
+      r = await this.git("push", "--porcelain", this.o.remote, `HEAD:refs/heads/${this.o.branch}`);
     }
-    if (r.code !== 0) { this.status.lastError = friendlyGitError(r.err); return { ok: false, pushed: false, kind: gitErrorKind(r.err), error: this.status.lastError }; }
+    if (r.code !== 0) { this.status.lastError = gitError(r.err); return { ok: false, pushed: false, kind: pushRejected(r.out) ? "rejected" : "failed", error: this.status.lastError }; }
     await this.git("update-ref", `refs/remotes/${this.ref()}`, "HEAD"); // 直接按地址推送不会更新跟踪引用，手动记下远端现在的位置
-    this.status.lastPush = Date.now(); this.status.lastError = "";
+    this.status.lastPush = Date.now(); this.status.lastError = ""; this.status.refused = undefined;
     return { ok: true, pushed: true };
   }
 

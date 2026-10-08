@@ -39,16 +39,19 @@ function acOnline(): boolean {
   return listSys(POWER, ["type", "online"]).some((e) => (e.type === "Mains" || e.type === "USB") && e.online === "1");
 }
 
+/** 做不成：抛出错误，核心把这次调用标为失败（只返回一句说明会被当成成功）。 */
+const fail = (msg: string): never => { throw new Error(msg); };
+
 const tools: AdapterTool[] = [
   {
     name: "take_photo", permission: "camera", description: "用这台电脑的摄像头拍一张照片，返回文件路径。",
     parameters: obj({}),
     handler: async () => {
-      if (!camera) return "这台电脑没有摄像头";
-      if (!have("ffmpeg")) return "拍照需要 ffmpeg（请安装后再试）";
+      if (!camera) return fail("这台电脑没有摄像头");
+      if (!have("ffmpeg")) return fail("拍照需要 ffmpeg（请安装后再试）");
       const f = media(`photo-${stamp()}.jpg`);
       const r = await run("ffmpeg", ["-y", "-loglevel", "error", "-f", "v4l2", "-i", camera, "-frames:v", "1", f], 30_000);
-      return r.code === 0 && fs.existsSync(f) ? `已拍摄：${f}（${sizeKB(f)} KB）` : "拍照失败（摄像头被占用或不可用）";
+      return r.code === 0 && fs.existsSync(f) ? `已拍摄：${f}（${sizeKB(f)} KB）` : fail("拍照失败（摄像头被占用或不可用）");
     },
   },
   {
@@ -58,32 +61,32 @@ const tools: AdapterTool[] = [
       const s = Math.max(1, Math.min(120, Number(a.seconds) || 5));
       const f = media(`audio-${stamp()}.wav`);
       const c = recordCommand(f, s);
-      if (!c) return "录音需要 arecord、pw-record、parecord 或 ffmpeg 之一";
+      if (!c) return fail("录音需要 arecord、pw-record、parecord 或 ffmpeg 之一");
       if (c.limited) await run(c.cmd, c.args, (s + 10) * 1000);
       else { const p = start(c.cmd, c.args); await new Promise((r) => setTimeout(r, s * 1000)); p.kill("SIGINT"); await new Promise((r) => p.once("exit", r)); }
-      return fs.existsSync(f) && fs.statSync(f).size > 44 ? `已录制 ${s} 秒：${f}` : "录音失败（没有麦克风或音频服务没有运行）";
+      return fs.existsSync(f) && fs.statSync(f).size > 44 ? `已录制 ${s} 秒：${f}` : fail("录音失败（没有麦克风或音频服务没有运行）");
     },
   },
   {
     name: "screenshot", permission: "hands", description: "截取这台电脑当前的屏幕，返回图片路径（之后可以用 view_image 看）。",
     parameters: obj({}),
     handler: async () => {
-      if (!desktop()) return "这台电脑没有图形界面";
+      if (!desktop()) return fail("这台电脑没有图形界面");
       const f = media(`screen-${stamp()}.png`);
       const c = screenshotCommand(f, wayland());
-      if (!c) return `截图需要 ${wayland() ? "grim、gnome-screenshot 或 spectacle" : "scrot、gnome-screenshot、spectacle 或 ImageMagick"} 之一`;
+      if (!c) return fail(`截图需要 ${wayland() ? "grim、gnome-screenshot 或 spectacle" : "scrot、gnome-screenshot、spectacle 或 ImageMagick"} 之一`);
       const r = await run(c[0], c[1], 30_000);
-      return r.code === 0 && fs.existsSync(f) ? `已截图：${f}（${sizeKB(f)} KB）` : `截图失败：${r.out.trim().slice(0, 200)}`;
+      return r.code === 0 && fs.existsSync(f) ? `已截图：${f}（${sizeKB(f)} KB）` : fail(`截图失败：${r.out.trim().slice(0, 200)}`);
     },
   },
   {
     name: "clipboard", permission: "device", description: "读取（不给 text）或写入这台电脑的剪贴板。",
     parameters: obj({ text: { type: "string" } }),
     handler: async (a) => {
-      if (!desktop()) return "这台电脑没有图形界面，没有剪贴板";
+      if (!desktop()) return fail("这台电脑没有图形界面，没有剪贴板");
       const c = clipboardCommand(a.text != null, wayland());
-      if (!c) return "剪贴板需要 wl-clipboard、xclip 或 xsel 之一";
-      if (a.text != null) return (await run(c[0], c[1], 10_000, String(a.text))).code === 0 ? "已写入剪贴板" : "写入失败";
+      if (!c) return fail("剪贴板需要 wl-clipboard、xclip 或 xsel 之一");
+      if (a.text != null) return (await run(c[0], c[1], 10_000, String(a.text))).code === 0 ? "已写入剪贴板" : fail("写入失败");
       const r = await run(c[0], c[1], 10_000);
       return r.code === 0 ? r.out || "（剪贴板为空）" : "（剪贴板为空）";
     },
@@ -92,9 +95,9 @@ const tools: AdapterTool[] = [
     name: "open", permission: "device", description: "用这台电脑的默认程序打开一个网址或本地文件（会在桌面上弹出窗口）。",
     parameters: obj({ target: { type: "string" } }, ["target"]),
     handler: async (a) => {
-      if (!desktop()) return "这台电脑没有图形界面";
-      if (!have("xdg-open")) return "需要 xdg-open（xdg-utils）";
-      return (await run("xdg-open", [String(a.target)], 15_000)).code === 0 ? `已打开：${a.target}` : "打开失败";
+      if (!desktop()) return fail("这台电脑没有图形界面");
+      if (!have("xdg-open")) return fail("需要 xdg-open（xdg-utils）");
+      return (await run("xdg-open", [String(a.target)], 15_000)).code === 0 ? `已打开：${a.target}` : fail("打开失败");
     },
   },
 ];

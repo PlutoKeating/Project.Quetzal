@@ -12,16 +12,16 @@ openStore();
 const reg = await import("../src/providers/registry.ts");
 const { quickSetup, rankCandidates } = await import("../src/providers/quick.ts");
 
-const m = (id: string, released: string, output = 1, toolCall = true) => ({ id, name: id, context: 64000, output: 8192, toolCall, released, cost: { input: 0.1, output } });
+const m = (id: string, released: string, output = 1, toolCall = true, extra: Record<string, unknown> = {}) => ({ id, name: id, context: 64000, output: 8192, toolCall, released, cost: { input: 0.1, output }, text: true, ...extra });
 fs.mkdirSync(paths.data, { recursive: true });
 fs.writeFileSync(path.join(paths.data, "catalog.json"), JSON.stringify({ fetchedAt: Date.now(), providers: [
   { id: "acme", name: "Acme", api: "https://api.acme.example/v1", protocol: "openai-completions", models: [
-    m("acme-old", "2024-01-01", 2), m("acme-new", "2026-05-01", 4), m("acme-new-mini", "2026-05-01", 1), m("acme-next-preview", "2026-09-01", 9),
-    m("acme-embed-3", "2026-06-01", 0), m("acme-notools", "2026-07-01", 3, false),
+    m("acme-old", "2024-01-01", 2), m("acme-new", "2026-05-01", 4), m("acme-new-mini", "2026-05-01", 1), m("acme-next-preview", "2026-09-01", 9, true, { status: "beta" }),
+    m("acme-embed-3", "2026-06-01", 0, true, { text: false }), m("acme-notools", "2026-07-01", 3, false),
   ] },
 ] }));
 
-test("候选：稳定的在前，新的在前，同一天的贵的在前；不能调工具的、非对话的不选；供应商列出的才选", () => {
+test("候选：按目录标的状态（不按名字猜预览版）、新的在前、同一天的贵的在前；不能调工具的、输出没有文字的不选；供应商列出的才选", () => {
   const ids = (r: { id: string }[]) => r.map((x) => x.id);
   const all = JSON.parse(fs.readFileSync(path.join(paths.data, "catalog.json"), "utf8")).providers[0].models;
   assert.deepEqual(ids(rankCandidates(all, [])), ["acme-new", "acme-new-mini", "acme-old", "acme-next-preview"]);
@@ -48,7 +48,7 @@ test("一个 Key 接好：不通的跳过、留下两个试通的，比主力便
 test("Key 不对：试一次就停，原来能用的 Key 与模型原样保留", async () => {
   const before = JSON.stringify(reg.publicView());
   let n = 0;
-  const r = await quickSetup({ catalogId: "acme", key: "sk-wrong-000000" }, "test", { remote: async () => [], test: async () => { n++; return { ok: false, latencyMs: 1, message: "鉴权失败：Key 无效：401" }; } });
+  const r = await quickSetup({ catalogId: "acme", key: "sk-wrong-000000" }, "test", { remote: async () => [], test: async () => { n++; return { ok: false, latencyMs: 1, message: "鉴权失败：Key 无效：401", status: 401 }; } });
   assert.equal(r.ok, false);
   assert.match(r.message, /鉴权失败/);
   assert.equal(n, 1);

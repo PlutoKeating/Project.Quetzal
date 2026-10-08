@@ -20,5 +20,5 @@ test("没有 Termux:API 的机器上：采样为空、描述仍然成立", async
   assert.match(adapter.describe, /安卓手机/);
   assert.deepEqual(await adapter.sample(), { battery: undefined, lux: undefined, motion: undefined, extra: undefined });
   const sensor = adapter.tools!.find((t) => t.name === "read_sensor")!;
-  assert.match(await sensor.handler({}), /没有读到传感器列表/);
+  await assert.rejects(sensor.handler({}), /没有读到传感器列表/);
 });
