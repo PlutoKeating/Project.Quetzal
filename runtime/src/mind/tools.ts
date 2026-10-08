@@ -353,16 +353,27 @@ const core: Tool[] = [
   },
   {
     name: "send_message", permission: "message",
-    description: "给和你一起生活的人发一条消息。在对话中调用时，这段话出现在当前这个对话里（对方正看着这个对话；一般直接回复即可，不必用它）；在自己醒来思考时调用，才作为主动消息发出（控制台的「主动消息」会话、飞书、系统通知）。",
-    parameters: obj({ text: str("消息内容") }, ["text"]),
+    description: "给和你一起生活的人发一条消息。在对话中调用时，这段话出现在当前这个对话里（对方正看着这个对话；一般直接回复即可，不必用它；session / new_session 不起作用）；在自己醒来思考时调用，才作为主动消息发出（控制台的会话、飞书、系统通知）。主动消息放进哪个会话由你选：session 填一个已有会话的 id（系统提示「各个会话的近况」里列着），接着那段对话说；new_session 填标题，开一个新会话；都不填时，这次醒来第一条消息开一个新会话（标题取消息开头），之后几条接着放在同一个会话里。",
+    parameters: obj({ text: str("消息内容"), session: str("醒来时用：发到这个已有会话（会话 id）"), new_session: str("醒来时用：开一个新会话，这是它的标题") }, ["text"]),
     handler: async (a, ctx) => {
-      const s = ctx.session;
+      const s = ctx.session, text = String(a.text);
       if (s?.origin === "chat") { // 当前会话：只出现在这个对话里，不外发到其他会话或通道
-        s.emit({ kind: "text", text: String(a.text), final: false });
+        s.emit({ kind: "text", text, final: false });
         return "已在当前对话里说了（对方正看着这个对话）";
       }
-      bus.emit("say", String(a.text));
-      return "已作为主动消息发出";
+      const want = typeof a.session === "string" ? a.session.trim() : "", fresh = typeof a.new_session === "string" ? a.new_session.trim() : "";
+      let to: { conv: string; title: string };
+      if (want) {
+        const x = getSession(want);
+        if (!x) return `没有发出：没有 id 为「${want}」的会话。已有会话见系统提示「各个会话的近况」；也可以用 new_session 开一个新会话，或都不填。`;
+        to = { conv: x.id, title: x.title };
+      } else if (fresh || !s?.sayTo || !getSession(s.sayTo)) {
+        to = { conv: crypto.randomUUID(), title: fresh.slice(0, 60) || text.replace(/\s+/g, " ").trim().slice(0, 20) || "主动消息" };
+        ensureSession(to.conv, to.title, "主动");
+      } else to = { conv: s.sayTo, title: getSession(s.sayTo)!.title };
+      if (s) s.sayTo = to.conv;
+      bus.emit("say", text, to);
+      return `已作为主动消息发到会话「${to.title}」（${to.conv}）`;
     },
   },
   {

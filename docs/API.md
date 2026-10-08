@@ -49,7 +49,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `state` | 与 `status` 相同的完整状态（去抖 500ms） |
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
 | `approval` | 审批 `{id, action, reason, args, status}` |
-| `say` | Quetzal 主动说的话（字符串） |
+| `say` | Quetzal 主动说的话（字符串）。推送时已入库：醒来时的主动消息在她选的会话或新开的会话里（通道「主动」），基座发的提醒在 `inbox`（「主动消息」）；推送里不带会话，控制台收到后刷新会话列表与打开的会话页 |
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, body, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），`body` 为这一轮在哪具身体上（多具身体时，其他身体上进行的轮次也经同一事件推送），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（太短、没听清、没在听；多具身体时另一只耳朵也听到了同一句话、由那边交给她）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |

@@ -56,6 +56,15 @@ test("对话历史：每条带时间，回复前附过程记录，插话有标�
   assert.ok(!h.some((m) => m.content.includes("现在这句")));
 });
 
+test("对话历史：醒来时主动发来的消息标明是主动发的，不当成对上一句的回复（#9）", () => {
+  store.ensureSession("pro", "晚霞");
+  store.addMessage("agent", "主动", "今天的晚霞很好看", { session: "pro" });
+  const self = store.addMessage("user", "控制台", "真的！我也看到了", { session: "pro" });
+  const h = history("pro", self);
+  assert.match(h[0].content, /^\[基座附注，不是对方的话｜\d\d\/\d\d \d\d:\d\d 你自己醒来时主动发了下一条消息\]$/);
+  assert.deepEqual([h[1].role, h[1].content], ["assistant", "今天的晚霞很好看"]);
+});
+
 test("同一张图不重复发送：随消息附带过的、view_image 看过的", async () => {
   const s = new Session("chat", "控制台", "t-img", "c-img");
   const m = await userMessage("看图", [attachment], "回复", s.seen);
@@ -109,6 +118,8 @@ test("对话里：上一轮的工具过程进入下一轮的上下文", async ()
   await converse("你", "你刚才做了什么", "控制台", { conv: "cv" });
   const msgs = seen.at(-1).messages, i = msgs.findIndex((m: any) => m.role === "assistant");
   assert.equal(msgs[i].content, "好了"); // 她的回复只留原文
+  assert.equal(msgs.filter((m: any) => typeof m.content === "string" && m.content.includes("好了")).length, 1); // 上一轮的回复在上下文里只出现一次（#10：上下文没有把同一段话插两次）
+  assert.ok(!msgs.some((m: any) => m.role === "assistant" && m.content.includes("我先记一下"))); // 中途的话只在附注的过程记录里，不另作一条回复
   assert.equal(msgs[i - 1].role, "user");
   assert.match(msgs[i - 1].content, /^\[基座附注，不是对方的话｜\d\d\/\d\d \d\d:\d\d 你回复了下一条；这一轮的过程记录：说：「我先记一下」；open_loop\(装 CLI\) ✓ → 已记下，现在有 \d+ 件\]$/);
   assert.match(seen.at(-1).messages[0].content, /关于「我做过什么」/);

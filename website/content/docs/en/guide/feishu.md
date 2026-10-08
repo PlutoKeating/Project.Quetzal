@@ -10,7 +10,7 @@ Once Feishu is connected, the agent can talk to you in Feishu too. You do everyt
 - The direct chat receives a **"Now" card** with its state, its drives and a thought it wants to share.
 - To chat, message the bot. If the agent is working, your message joins the current turn as an interjection by default.
 - The card buttons for approvals, permissions, pause and emergency stop do the same as the matching actions in the app.
-- Messages it sends after waking on its own are marked "💭 proactive".
+- Messages it sends after waking on its own are marked "💭 proactive" and name the conversation they were put in. A reply you send in Feishu goes to the current Feishu conversation.
 
 ## One-tap setup
 

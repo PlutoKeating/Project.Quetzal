@@ -197,6 +197,15 @@ test("模型某一步什么也没输出：提醒她再来，不留空回复", as
   assert.equal(n, 4);
   assert.match(r, /做了 1 步，但最后没能把结果说出来/);
   assert.equal(store.sessionMessages("blank-2").at(-1)!.text, r);
+  // 中途说过话、最后一步却是空的：回复不拿中途的话顶替（#10：否则同一段话在过程里和回复里各出现一次）
+  const narrate = { finish_reason: "tool_calls", message: { content: "我先查一下时间", tool_calls: tool.message.tool_calls } };
+  n = 0;
+  script = () => (++n === 1 ? narrate : blank);
+  const r3 = await converse("测试者", "空白测试三", "控制台", { conv: "blank-3" });
+  assert.match(r3, /做了 1 步，但最后没能把结果说出来/);
+  const last = store.sessionMessages("blank-3").at(-1)!;
+  assert.equal(last.text, r3);
+  assert.deepEqual((last.process as any[]).filter((x) => x.type === "text").map((x) => x.text), ["我先查一下时间"]); // 中途的话只在过程里出现一次
   script = undefined;
   server.close();
 });
@@ -220,4 +229,44 @@ test("当前会话：对话中的 send_message 只进入当前对话；醒来时
   assert.deepEqual(said, ["我自己醒了"]);
   think.close();
   bus.off("say", on);
+});
+
+test("醒来时的主动消息：不指定就一次醒来一个新会话，可以指定已有会话或开新会话（#9）", async () => {
+  const { callTool } = await import("../src/mind/tools.ts");
+  const { bus } = await import("../src/bus.ts");
+  const { systemPrompt } = await import("../src/mind/prompt.ts");
+  const said: [string, { conv: string; title: string } | undefined][] = [];
+  const on = (t: string, to?: { conv: string; title: string }) => said.push([t, to]);
+  bus.on("say", on);
+  const think = new Session("think");
+  await callTool("send_message", { text: "今天的晚霞很好看，像橘子汽水" }, "光线变化", { session: think });
+  await callTool("send_message", { text: "拍了一张给你" }, "光线变化", { session: think });
+  const first = said[0][1]!;
+  assert.equal(first.title, "今天的晚霞很好看，像橘子汽水");
+  assert.notEqual(first.conv, "inbox");
+  assert.equal(store.getSession(first.conv)!.channel, "主动");
+  assert.deepEqual(said[1][1], first); // 同一次醒来接着放在同一个会话里
+  think.close();
+  // 另一次醒来：默认又是一个新会话，不和上一次的混在一起
+  const again = new Session("think");
+  await callTool("send_message", { text: "早上好" }, "清晨", { session: again });
+  assert.notEqual(said[2][1]!.conv, first.conv);
+  // 指定已有会话：接着那段对话说
+  store.ensureSession("plan-trip", "周末去哪");
+  store.addMessage("user", "控制台", "周末想出去走走", { session: "plan-trip" });
+  const r = await callTool("send_message", { text: "我查到那家店周末开门", session: "plan-trip" }, "清晨", { session: again });
+  assert.match(r.text, /周末去哪/);
+  assert.deepEqual(said[3][1], { conv: "plan-trip", title: "周末去哪" });
+  // 开新会话（带标题）
+  await callTool("send_message", { text: "想跟你聊聊读书的事", new_session: "读书" }, "清晨", { session: again });
+  assert.equal(said[4][1]!.title, "读书");
+  assert.ok(store.getSession(said[4][1]!.conv));
+  // 不存在的会话：不发，告诉她
+  const bad = await callTool("send_message", { text: "喂", session: "no-such" }, "清晨", { session: again });
+  assert.match(bad.text, /没有发出/);
+  assert.equal(said.length, 5);
+  again.close();
+  bus.off("say", on);
+  // 醒来时的系统提示列出会话的 id，她才能选
+  assert.match(systemPrompt("醒来"), /会话「周末去哪」（id：plan-trip，/);
 });

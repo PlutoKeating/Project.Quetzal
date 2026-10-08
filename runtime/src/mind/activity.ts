@@ -106,6 +106,8 @@ export class Session {
   /** move_to：她决定换到另一具身体继续。这一轮在这里结束，结果（对话为那边的回复）在 moveResult 里。 */
   movedTo?: string;
   moveResult?: Promise<string>;
+  /** 醒来时 send_message 发到的会话：这次醒来之后再发、没有另外指定时接着发到这里（一次醒来的话放在一起）。 */
+  sayTo?: string;
 
   readonly conv: string;
 

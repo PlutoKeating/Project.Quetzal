@@ -59,7 +59,7 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
 
 /**
  * 工具循环。由 agent 自己决定节奏：每一步由模型选择继续调用工具（可边做边说），或给出不带工具调用的文字作为这次的回复。
- * 基座不限制步数；防止失控的是「无进展」会话时间墙与急停（每一步开始前检查）。返回最终文本、finish 参数、步骤与 token 消耗。
+ * 基座不限制步数；防止失控的是「无进展」会话时间墙与急停（每一步开始前检查）。返回最终文本（结束这一轮的那一步的文字，可能为空）、finish 参数、步骤与 token 消耗。
  * 对方在她工作时发来的消息：每次调用模型前并入；「打断」会中止正在进行的模型输出（保留已输出的部分），但不会打断正在执行的工具。
  */
 /** 模型某一步什么也没输出时的提醒（基座的话，不是对方说的）。 */
@@ -112,10 +112,10 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
       continue;
     }
     s.emit({ kind: "text", step: i + 1, text: r.text, final: !r.toolCalls.length });
-    text = r.text || text;
     messages.push({ role: "assistant", content: r.text, toolCalls: r.toolCalls });
     if (!r.toolCalls.length) {
-      if (!s.inbox.length && !s.images.length) break;
+      // 回复只取结束这一轮的那一步：之前各步的文字已作为中途的话进了过程记录，拿来顶替空的最后一步，同一段话就会在过程与回复里各出现一次
+      if (!s.inbox.length && !s.images.length) { text = r.text; break; }
       // 本想结束，但对方刚补充了消息：这段话留作过程中的叙述，接着处理新消息
       if (r.text.trim()) s.emit({ kind: "text", step: i + 1, text: r.text, final: false });
       continue;
@@ -335,7 +335,10 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
     } else {
       const proc = describeProcess(m.process, replies++ < FULL_PROCESS);
       const where = entryBody(m.body); // 多具身体时：这一轮在哪具身体上做的（那一轮拍的照片、写的文件在那具身体上）
-      const note = `[基座附注，不是对方的话｜${stamp(m.ts)} 你${where ? `在 ${where} 上` : ""}回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
+      const on = where ? `在 ${where} 上` : "";
+      const note = m.channel === "主动" // 醒来时主动发来的（或基座替她发的提醒），不是对上一句的回复
+        ? `[基座附注，不是对方的话｜${stamp(m.ts)} 你${on}自己醒来时主动发了下一条消息]`
+        : `[基座附注，不是对方的话｜${stamp(m.ts)} 你${on}回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
       if (used + note.length + m.text.length > budget) break;
       used += note.length + m.text.length;
       out.unshift({ role: "user", content: note }, { role: "assistant", content: m.text });
@@ -436,7 +439,7 @@ export function converse(from: string, text: string, channel: string, o: Convers
           : o.ambient
           ? await userMessage(`你听到附近有人说${shown ? `（${shown} 这具身体的耳朵听到的）` : ""}：\n${text}`, [], AMBIENT_PROMPT, s.seen)
           : await userMessage(`${from} 通过${channel}对你说${shown ? `（经 ${shown} 这具身体）` : ""}：\n${text}`, o.attachments ?? [],
-            "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。", s.seen),
+            "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。之前回复里说过的段落对方都看得到，除非对方要你再说一遍，不要原样再贴。", s.seen),
       ];
       let r = await loop(messages, `回应${from}`, false, s);
       while (s.inbox.length) { // 最后一步刚结束时又来了消息：继续处理
