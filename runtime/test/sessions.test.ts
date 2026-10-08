@@ -80,9 +80,8 @@ test("多个会话并行，且每个会话都能看到其他会话", async () =>
   store.ensureSession("a", "新的对话"); store.ensureSession("b", "新的对话");
   store.addMessage("user", "控制台", "上周聊过的咖啡豆", { session: "b" });
   seen.length = 0;
-  const t0 = Date.now();
+  // 是否并行不靠总耗时判断（CI 机器忙时会超过阈值）：下面「会话甲的系统提示里看得到会话乙【进行中】」直接证明两轮同时在进行
   const [ra, rb] = await Promise.all([converse("你", "会话甲的问题", "控制台", { conv: "a" }), converse("你", "会话乙的问题", "控制台", { conv: "b" })]);
-  if (process.platform !== "win32") assert.ok(Date.now() - t0 < 1500, "两个会话应当并行"); // Windows runner 上每轮的 git 与进程启动慢，计时不可比；并行逻辑与平台无关
   assert.equal(ra, "收到：会话甲的问题");
   assert.equal(rb, "收到：会话乙的问题");
   assert.deepEqual(store.sessionMessages("a").map((m) => m.role), ["user", "agent"]);
