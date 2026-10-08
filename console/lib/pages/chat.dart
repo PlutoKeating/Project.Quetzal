@@ -98,7 +98,7 @@ class _ChatViewState extends State<ChatView> {
     super.initState();
     scroll.addListener(_onScroll);
     subs.add(api.events.where((e) => e.name == 'activity').listen(_onActivity));
-    subs.add(api.events.where((e) => e.name == 'say').listen((_) { if (widget.conv == 'inbox') _resync(); }));
+    subs.add(api.events.where((e) => e.name == 'say').listen((_) => _resync())); // 主动消息：醒来时她可以发到任何会话（也可能新开一个），推送里没有会话，打开的会话页都重取一次
     subs.add(api.events.where((e) => e.name == 'replica' && (((e.data as Map)['convs'] as List?) ?? const []).contains(widget.conv)).listen((_) => _resync())); // 其他身体上的对话复制过来了
     subs.add(api.events.where((e) => e.name == 'secret').listen(_onSecret));
     subs.add(api.events.where((e) => e.name == 'hearing').listen(_onHearing));
