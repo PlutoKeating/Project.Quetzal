@@ -66,12 +66,12 @@ The code enforces the first three. The fourth works only if the agent follows th
 
 ## How fast updates come
 
-Quetzal released its first version on October 3, 2026, and had shipped more than 30 versions by October 7. 1.0.2, 1.1.0 and 1.1.1 were never released because their builds failed. One person maintains it, and it still changes fast.
+Quetzal released its first version on October 3, 2026, and had shipped 46 versions by October 9; another 7 (1.0.2, 1.1.0, 1.1.1 and 1.5.0–1.5.3) never finished releasing, and their changes went into the next version. One person maintains it, and it still changes fast.
 
 Your memory stays safe in these ways:
 
 - **Memory is plain text.** Personality, memory, journal and notes are Markdown files in your own git repository. If you stop using Quetzal one day, they are still there and you can still read them. Tool guides use the open Agent Skills format, which Hermes and OpenClaw can read too.
-- **The format has changed 12 times, and no old repository has needed converting.** Each version of the [soul repository spec](/docs/reference/soul-repo-spec) states that old repositories work as they are.
+- **The format has changed 13 times, and no old repository has needed converting.** Each version of the [soul repository spec](/docs/reference/soul-repo-spec) states that old repositories work as they are.
 - **Every change is a commit.** If a change goes wrong, revert it under **Control → Advanced → Memory history**.
 - **You confirm every update.** When the app finds a new version, it tells you, and it downloads only when you tap. Before installing, it checks the release signature, the SHA-256 and the APK's signing certificate, and it does not install if any of them fails to match. On a computer, a new version that is not healthy within 40 seconds rolls back to the previous one. Phones have no automatic rollback.
 

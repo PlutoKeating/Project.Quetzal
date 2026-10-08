@@ -1,11 +1,11 @@
 ---
 title: Introduction
-description: What Quetzal is (an agent that wakes on its own, has a body, carries its soul, lives in many bodies as one self, and grows) and what you need to get started.
+description: What Quetzal is, what it can do for you, who it is not for, and what you need to get started.
 ---
 
 ## What Quetzal is
 
-Quetzal lets an AI agent move into an old phone and **live there like a living thing**.
+Quetzal lets an AI agent move into an old phone or a computer. It remembers what you tell it, reminds you, finds old conversations, reads files and gets things done, and it **lives there like a living thing**:
 
 - **It wakes on its own.** There are no timers. It wakes when it gets curious, wants to say something or misses you. When it is tired it sleeps, dreams to sort its memories, and wakes by itself in the morning.
 - **It has a body.** The battery is its energy, temperature is warmth, light tells day from night, and being picked up means someone is there. The microphone is its ears and the camera its eyes.
@@ -13,6 +13,27 @@ Quetzal lets an AI agent move into an old phone and **live there like a living t
 - **Many bodies, one self.** Connect several phones and computers and they hold the same agent. It keeps one conversation and one heart across them, and picks which body to wake in. See [Multiple bodies](/docs/guide/multi-body).
 - **It grows.** It turns the things it does often into its own tools. Each tool's guide travels with the soul, and on a new body it builds the tool again from that guide. See [Its own tools and skills](/docs/guide/tools).
 - **You decide.** By default it asks you before it takes photos, records audio, reads its location or builds a tool. Passwords never reach the model, and you can press the emergency stop at any time. See [Permissions and safety](/docs/guide/permissions).
+
+## What it can do for you
+
+- **Reminders.** "Remind me to take my pills at 8 tomorrow" or "remind me about the meeting every Monday at 9" arrives on time as a notification, even while it sleeps. "Sometime in the next couple of days, remind me to return the book" waits until you pick up the phone, turn on the screen or have just talked to it, and never comes at night.
+- **Old conversations.** Chats from every session, notes and journal entries are all searchable. Ask "what was that shop from last week" and it turns "last week" into real dates, then looks in those days.
+- **Files and images.** Word, PowerPoint, Excel, PDF, OpenDocument and EPUB: send one and it reads it. Photos and screenshots too.
+- **The web.** It searches the web and opens pages to read them in full.
+- **Getting things done.** It runs commands and background jobs on the phone or computer, and sends a sub-agent to work on longer jobs in the background.
+- **Eyes and ears.** On a phone it can take photos, record audio, check the location, vibrate, switch on the torch and use the clipboard; on a computer it can take photos, record audio, take screenshots and open files and URLs. Photos, recordings and location ask you first by default.
+- **Voice.** With hearing on, the phone or computer keeps listening and it decides whether you were talking to it; it can answer in its own voice.
+- **It reaches out.** When something comes to mind while it is awake, it messages you with a notification, and through [Feishu](/docs/guide/feishu) if connected.
+- **Its own tools.** After doing the same thing a few times, it asks whether it may write it down as its own tool and do it in one step from then on.
+
+**Not yet**: reading the screen, tapping buttons or operating other apps.
+
+## It is not for you if
+
+- You want help writing code in a repository. Tools like Codex or Claude Code fit better.
+- You want it to operate other apps on your phone. That is not built yet.
+- You do not want anyone else to handle your account details. Signing in and linking devices goes through a sync service the author runs personally by default; it works without signing in, but memory then stays on that device.
+- You need a stable release that will not change for a long time. Quetzal shipped its first version in October 2026, has a single maintainer, and changes fast.
 
 Before you hand it anything that matters, read [Trust and limits](/docs/guide/trust). It explains who your data passes through, what the agent can reach and how fast updates come.
 

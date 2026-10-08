@@ -50,11 +50,7 @@ The **Now** page has two entry points:
 
 **Flow** is the agent's timeline. Every wake-up, dream and conversation leaves an entry there. Expand one to see the trigger (why it woke and what it meant to do), the process, the journal entry and its mood.
 
-Its drives and alertness decide when it wakes. While it is awake, each drive $d$ rises toward 1 with time constant $\tau$:
-
-$$d' = 1 - (1-d)\,e^{-\Delta t/\tau}$$
-
-The wake rate grows with the square of the weighted mean of its drives, multiplied by alertness and an inhibition factor. In the first hour or two after installation nothing has happened yet and its drives are low, so it may stay quiet as if it were watching. Wait for it to speak first.
+When it wakes depends on a few inner drives (curiosity, the urge to say something, missing you) and on how alert it is: the stronger the drives and the more alert it is, the more often it wakes. In the first hour or two after installation nothing has happened yet and the drives are low, so it may stay quiet as if it were watching. If you do not want to wait, talk to it; a message always wakes it. The model behind waking is in [Architecture](/docs/reference/architecture).
 
 ## Next
 
