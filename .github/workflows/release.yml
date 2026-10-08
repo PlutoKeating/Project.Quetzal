@@ -479,9 +479,24 @@ jobs:
           V: ${{ needs.prepare.outputs.version }}
         run: |
           PRE=(); case "$GITHUB_REF_NAME" in *-*) PRE=(--prerelease);; esac
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "Quetzal $V" --notes "$(cat "$RUNNER_TEMP/NOTES.md")" --generate-notes "${PRE[@]}" \
-            out/quetzal-*.apk out/quetzal-*.tar.gz out/quetzal-*.exe out/SHA256SUMS out/SHA256SUMS.sig
+          ASSETS=(out/quetzal-*.apk out/quetzal-*.tar.gz out/quetzal-*.exe out/SHA256SUMS out/SHA256SUMS.sig)
+          if ! gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Quetzal $V" --notes "$(cat "$RUNNER_TEMP/NOTES.md")" --generate-notes "${PRE[@]}" "${ASSETS[@]}"; then
+            # 1.7.0 发版时 Release 已经发布、资产齐全，gh 最后一次请求却返回 HTTP 422，npm 因此没有发布。
+            # 报错后核对一次：已发布（不是草稿）、每个资产都已上传且大小一致，就算成功；否则照样失败。
+            sleep 5
+            gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft,assets > "$RUNNER_TEMP/rel.json"
+            node -e '
+              const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+              if (r.isDraft) { console.error("Release 仍是草稿"); process.exit(1); }
+              const up = new Map(r.assets.filter((a) => a.state === "uploaded").map((a) => [a.name, a.size]));
+              for (const f of process.argv.slice(2)) {
+                const n = require("path").basename(f), s = require("fs").statSync(f).size;
+                if (up.get(n) !== s) { console.error(`资产不全或大小不符：${n}`); process.exit(1); }
+              }
+              console.log("::warning::gh release create 报错，但 Release 已发布且资产齐全，按成功继续");
+            ' "$RUNNER_TEMP/rel.json" "${ASSETS[@]}"
+          fi
 
   # npm 包：Release 成功之后才发布。只下载构建好的 tgz，不检出、不构建；两个 registry 各用一份独立的 npm 用户配置
   # （带作用域的包按 @作用域:registry 决定发到哪、用哪条凭据，--registry 参数不改变凭据查找）。
