@@ -123,3 +123,32 @@ test("回复开头被模型仿写出来的「[时间｜这一轮的过程记录�
   assert.equal(stripStamp("好的 [1] 和 [2]"), "好的 [1] 和 [2]");
   assert.equal(stripStamp("[参考] 这是正文"), "[参考] 这是正文");
 });
+
+test("消息从哪具身体进来：只有一具身体时不标；多具身体时历史与这一句都标明；旧消息没记就不标；复制来的 via 要像身体名", async () => {
+  const { setBodies } = await import("../src/mind/bodies.ts");
+  const { config } = await import("../src/config.ts");
+  const { entryBody } = await import("../src/mind/brain.ts");
+  store.ensureSession("via", "来源");
+  store.addMessage("user", "控制台", "旧消息", { session: "via" });
+  store.addMessage("user", "控制台", "这里说的", { session: "via", via: config.body });
+  store.addMessage("user", "控制台", "别处说的", { session: "via", via: "pc", mode: "steer" });
+  store.addMessage("ambient", "语音", "别处听到的", { session: "via", via: "pc" });
+  const lines = () => history("via", Number.MAX_SAFE_INTEGER).map((m) => String(m.content));
+  // 一具身体：这里进来的不标；从别处转来的（via 不是这具身体）照样标
+  assert.deepEqual(lines().slice(0, 2).map((l) => l.includes("经")), [false, false]);
+  assert.match(lines()[2], /^\[\d\d\/\d\d \d\d:\d\d，插话｜经 pc 发来\] 别处说的$/);
+  assert.match(lines()[3], /环境声音：pc 这具身体的麦克风听到并识别的话/);
+  assert.equal(entryBody(config.body), undefined);
+  setBodies({ list: () => [{ body: "pc", describe: "", tools: [] }], call: async () => ({ text: "", status: "ok" }), move: async () => "" });
+  try {
+    assert.ok(!lines()[0].includes("经"), "旧消息没记来源，不猜");
+    assert.match(lines()[1], new RegExp(`｜经 ${config.body} 发来\\] 这里说的$`));
+    assert.equal(entryBody(config.body), config.body);
+  } finally { setBodies(undefined); }
+  // 复制来的行：via 不像身体名就整行丢弃，合格的照样写入
+  const id = store.idPrefixOf("pc") * store.ID_RANGE + 7;
+  const row = { id, ts: Date.now(), role: "user", channel: "控制台", text: "复制来的", session: "via", body: "pc" };
+  assert.equal(store.applyRemote("messages", [{ ...row, via: "../x" }], { from: "pc" }).rejected, 1);
+  assert.equal(store.applyRemote("messages", [{ ...row, via: "phone" }], { from: "pc" }).changed.length, 1);
+  assert.equal(store.sessionMessages("via").find((m) => m.text === "复制来的")!.via, "phone");
+});

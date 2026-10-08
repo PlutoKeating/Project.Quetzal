@@ -80,7 +80,8 @@ export function installPresence(mesh: Mesh): () => void {
     const channel = typeof p?.channel === "string" && FORWARD_CHANNELS.has(p.channel) ? p.channel : "控制台";
     const o = forwardOptions(p?.o, channel);
     log("mesh", `${from} 转来一句话（会话 ${clip(o.conv ?? "", 40)}）`);
-    return converse(clip(p?.from, 40) || "你", typeof p?.text === "string" ? p.text.slice(0, 100_000) : "", channel, { ...o, attachments: attachments.length ? attachments : undefined });
+    // 这句话是从发来的那具身体进来的：via 取网状层认证过的对端，不取对方自报的
+    return converse(clip(p?.from, 40) || "你", typeof p?.text === "string" ? p.text.slice(0, 100_000) : "", channel, { ...o, via: from, attachments: attachments.length ? attachments : undefined });
   });
 
   setConverseRouter((conv, from, text, channel, o) => {

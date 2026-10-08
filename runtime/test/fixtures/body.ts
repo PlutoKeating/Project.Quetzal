@@ -31,9 +31,12 @@ const http = await import("node:http");
 // 模拟的模型：回复里带上身体名（看得出是哪具身体在回答），可以设置延迟（制造「正在进行的一轮」）
 let llmDelay = 0, llmWhere: string[] | undefined;
 const llmScript: any[] = []; // 按顺序回放的模型回复（例如工具调用），放完了回到缺省回复
+const llmSeen: string[] = []; // 模型收到过的每条消息的文字（测试据此核对基座给她看了什么），只留最近 200 条
 const llm = http.createServer((req, res) => {
   let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
-    const j = JSON.parse(body); const last = j.messages.at(-1); const text = typeof last.content === "string" ? last.content : last.content?.find((c: any) => c.type === "text")?.text ?? "";
+    const j = JSON.parse(body); const last = j.messages.at(-1);
+    for (const m of j.messages) llmSeen.push(typeof m.content === "string" ? m.content : (m.content ?? []).map((c: any) => c.text ?? "").join(""));
+    llmSeen.splice(0, Math.max(0, llmSeen.length - 200)); const text = typeof last.content === "string" ? last.content : last.content?.find((c: any) => c.type === "text")?.text ?? "";
     const content = /先别急着做事/.test(text) && llmWhere ? JSON.stringify({ engage: true, intent: "测试的意图", where: llmWhere }) : `${process.env.BODY} 的回复`;
     const message = !/先别急着做事/.test(text) && llmScript.length ? llmScript.shift() : { content };
     setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); }, llmDelay);
@@ -105,6 +108,7 @@ const cmds: Record<string, (a: any) => unknown> = {
   llmWhere: (a) => { llmWhere = a.where; return true; },
   wake: (a) => wake(a.kind ?? "think", a.reason ?? "测试"),
   llmDelay: (a) => { llmDelay = a.ms; return true; },
+  llmSeen: () => llmSeen,
   converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode }),
   digest: () => digest(),
   live: () => liveTurns().map((t) => ({ conv: t.conv, body: t.body, origin: t.origin, status: t.status })),

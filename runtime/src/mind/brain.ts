@@ -22,6 +22,7 @@ import { intake, redactArgs } from "./secrets.ts";
 import { noteSilence } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
 import { bus } from "../bus.ts";
+import { remoteBodies } from "./bodies.ts";
 
 const FINISH: ToolDef = {
   name: "finish",
@@ -50,7 +51,7 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
   if (!s.inbox.length) return false;
   for (const m of s.inbox.splice(0)) {
     if (m.notice) { messages.push({ role: "user", content: `${NOTICE[m.notice] ?? `提醒（${m.notice}）`}：\n${m.text}` }); continue; }
-    messages.push(await userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}：\n${m.text}`, m.attachments as Attachment[],
+    messages.push(await userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}${m.via ? `（经 ${m.via} 这具身体）` : ""}：\n${m.text}`, m.attachments as Attachment[],
       m.mode === "interrupt" ? "请优先回应这条消息，再决定之前的工作是否继续。" : "请注意这条新消息，据此调整：之前的工作可以继续，也可以按新消息改变计划。", s.seen));
   }
   return true;
@@ -266,6 +267,14 @@ const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim()
 export function stripStamp(text: string): string {
   return text.replace(/^\s*\[(?:\d{1,2}\/\d{1,2} \d{1,2}:\d{2}(?:[｜|][^\n]*)?|基座附注[^\n]*)\]\s*/u, "");
 }
+/**
+ * 多具身体时，对方的话（与耳朵听到的话）从哪具身体进来：控制台连的网关、飞书长连接的持有者、听到的耳朵。
+ * 只有一具身体时不标（没有别的可能，徒增噪声）；有别的身体在线、或这句话本来就是从别的身体进来的，才标出来。
+ * 旧消息没有记（via 为空）就不标：处理它的身体（body）不一定是它进来的身体。
+ */
+export function entryBody(via: string | null | undefined): string | undefined {
+  return via && (via !== config.body || remoteBodies().length > 0) ? via : undefined;
+}
 const stamp = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 
 /**
@@ -316,10 +325,12 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
     } else if (m.role === "ambient" && m.channel === "子agent") {
       text = `[${stamp(m.ts)}｜你派出的子 agent 送回的报告] ${m.text}`;
     } else if (m.role === "ambient") {
-      text = `[${stamp(m.ts)}｜环境声音：麦克风听到并识别的话${m.mode === "ignored" ? "；你当时判断不是对你说的，没有回应" : "，不一定是对你说的"}] ${m.text}`;
+      const ear = entryBody(m.via);
+      text = `[${stamp(m.ts)}｜环境声音：${ear ? `${ear} 这具身体的` : ""}麦克风听到并识别的话${m.mode === "ignored" ? "；你当时判断不是对你说的，没有回应" : "，不一定是对你说的"}] ${m.text}`;
     } else if (m.role === "user") {
       const files = m.attachments?.length ? `\n[${stamp(m.ts)} 随这条消息发来的附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片当时已附在消息里，现在只剩路径，想再看用 view_image" : ""}]` : "";
-      text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}] ${m.text}${files}`;
+      const via = entryBody(m.via);
+      text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}${via ? `｜经 ${via} 发来` : ""}] ${m.text}${files}`;
     } else {
       const proc = describeProcess(m.process, replies++ < FULL_PROCESS);
       const note = `[基座附注，不是对方的话｜${stamp(m.ts)} 你回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
@@ -368,7 +379,7 @@ export function spawnAgent(spec: agents.AgentSpec, parent: { conv: string; chann
  * ambient：这句话是麦克风听到的环境声音（听觉），以第三种消息类型入库，由她判断是否回应。
  * 排队等待期间视为在工作，不计入会话时间墙。
  */
-export type ConverseOptions = { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt"; ambient?: boolean; local?: boolean }; // local：就在这具身体上处理，不经路由（move_to 接手的一轮）
+export type ConverseOptions = { conv?: string; turn?: string; attachments?: Attachment[]; mode?: "steer" | "queue" | "interrupt"; ambient?: boolean; local?: boolean; via?: string }; // local：就在这具身体上处理，不经路由（move_to 接手的一轮）；via：这句话从哪具身体进来（别处转来时由网状层填发来的身体，缺省为这具身体）
 /** 多具身体时的路由（mesh/presence.ts 设置）：这个会话正在另一具身体上进行，就把这句话转过去（作为那一轮的插话 / 打断），返回那边的回执或回复。 */
 let router: ((conv: string, from: string, text: string, channel: string, o: ConverseOptions) => Promise<string> | undefined) | undefined;
 export function setConverseRouter(r: typeof router) { router = r; }
@@ -383,12 +394,14 @@ export function converse(from: string, text: string, channel: string, o: Convers
   if (ack !== undefined) return Promise.resolve(ack);
   ensureSession(conv, conv === "feishu" ? "飞书" : "新的对话", channel);
   const role = o.ambient ? "ambient" : "user";
+  // 对方的话（与耳朵听到的话）记下从哪具身体进来；基座、子 agent、交接这些不是从某个入口进来的，不记
+  const via = !o.ambient || !NOTICE[channel] ? o.via ?? config.body : undefined, shown = via ? entryBody(via) : undefined;
   // 她正在这个会话里工作时：默认「插话」（这次模型调用结束后并入）；「打断」立即中止当前模型输出（不打断工具）；「排队」作为下一轮
   const cur = running.get(conv), mode = o.mode ?? "steer";
   if (cur && mode !== "queue") {
-    const id = addMessage(role, channel, text, { session: conv, attachments: o.attachments, mode });
+    const id = addMessage(role, channel, text, { session: conv, attachments: o.attachments, mode, via });
     const notice = o.ambient && NOTICE[channel] ? channel : undefined;
-    cur.inbox.push({ id, text: notice || !o.ambient ? text : `（环境声音，麦克风听到的，不一定是对你说的）${text}`, mode, attachments: o.attachments ?? [], notice });
+    cur.inbox.push({ id, text: notice || !o.ambient ? text : `（环境声音，${shown ? `${shown} 这具身体的` : ""}麦克风听到的，不一定是对你说的）${text}`, mode, attachments: o.attachments ?? [], notice, via: !o.ambient ? shown : undefined });
     cur.emit({ kind: "steer", text, msg: id, mode, ambient: o.ambient });
     cur.touch();
     const cut = mode === "interrupt" && cur.interrupt();
@@ -397,7 +410,7 @@ export function converse(from: string, text: string, channel: string, o: Convers
   nudge(`${from}在说话`, { social: 0.2 }, { wake: true });
   const s = new Session("chat", channel, o.turn, conv);
   // 收到就入库：记录的顺序即发送顺序，客户端随时从后端取回都一致；start 带上消息 id，进行中的卡片挂在它下面
-  const id = addMessage(role, channel, text, { session: conv, attachments: o.attachments });
+  const id = addMessage(role, channel, text, { session: conv, attachments: o.attachments, via });
   if (getSession(conv)?.title === "新的对话") updateSession(conv, { title: text.replace(/\s+/g, " ").trim().slice(0, 20) || (o.attachments?.[0]?.name ?? "新的对话") });
   s.emit({ kind: "start", text, msg: id, ambient: o.ambient });
   const n = waiting.get(conv) ?? 0;
@@ -419,8 +432,8 @@ export function converse(from: string, text: string, channel: string, o: Convers
           : o.ambient && channel === "换身体"
           ? await userMessage(`${NOTICE[channel]}：\n${text}`, [], MOVE_PROMPT, s.seen)
           : o.ambient
-          ? await userMessage(`你听到附近有人说：\n${text}`, [], AMBIENT_PROMPT, s.seen)
-          : await userMessage(`${from} 通过${channel}对你说：\n${text}`, o.attachments ?? [],
+          ? await userMessage(`你听到附近有人说${shown ? `（${shown} 这具身体的耳朵听到的）` : ""}：\n${text}`, [], AMBIENT_PROMPT, s.seen)
+          : await userMessage(`${from} 通过${channel}对你说${shown ? `（经 ${shown} 这具身体）` : ""}：\n${text}`, o.attachments ?? [],
             "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。", s.seen),
       ];
       let r = await loop(messages, `回应${from}`, false, s);

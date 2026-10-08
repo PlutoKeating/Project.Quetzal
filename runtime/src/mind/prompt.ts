@@ -46,7 +46,7 @@ function othersBlock(): string {
   const bodies = remoteBodies();
   if (!bodies.length) return "";
   const busy = (b: string) => liveTurns().filter((t) => t.body === b).length;
-  return `## 其他身体（此刻在线，都是你）\n${bodies.map((b) => `- ${b.body}：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}`).join("\n")}\n用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对话、会话、记忆、心脏都是同一份；保密库与自造工具的实现属于各自的身体。`;
+  return `## 其他身体（此刻在线，都是你）\n${bodies.map((b) => `- ${b.body}：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}`).join("\n")}\n用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对方的话标着是经哪具身体发来的（对方的控制台连着哪具身体、飞书由哪具身体收、哪具身体的耳朵听到）。对话、会话、记忆、心脏都是同一份；保密库与自造工具的实现属于各自的身体。`;
 }
 
 /** 技能与自造工具：本机可用的、缺依赖的、只有文档没有实现的。 */
