@@ -36,6 +36,12 @@ on:
         description: "版本号（与 runtime/package.json 等一致，例如 1.0.3）"
         required: true
 
+# 同一个标签的发版串行（不取消进行中的那次）：1.7.0 的一次标签推送被 GitHub 触发了两次，两次运行同时创建同一个 Release，
+# 后到的那次拿到 HTTP 422。串行后第二次在「创建 Release」一步发现已经发布、资产齐全，按成功继续。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -482,7 +488,7 @@ jobs:
           ASSETS=(out/quetzal-*.apk out/quetzal-*.tar.gz out/quetzal-*.exe out/SHA256SUMS out/SHA256SUMS.sig)
           if ! gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "Quetzal $V" --notes "$(cat "$RUNNER_TEMP/NOTES.md")" --generate-notes "${PRE[@]}" "${ASSETS[@]}"; then
-            # 1.7.0 发版时 Release 已经发布、资产齐全，gh 最后一次请求却返回 HTTP 422，npm 因此没有发布。
+            # 同一个标签被触发两次时（1.7.0 出现过），后一次会撞上已经发布的 Release。
             # 报错后核对一次：已发布（不是草稿）、每个资产都已上传且大小一致，就算成功；否则照样失败。
             sleep 5
             gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft,assets > "$RUNNER_TEMP/rel.json"

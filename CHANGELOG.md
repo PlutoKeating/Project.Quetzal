@@ -4,9 +4,9 @@
 
 ## 1.7.1
 
-- 1.7.0 的 npm 包没有发布出来（发版时 GitHub 在最后一步返回了错误），这一版补上；内容与 1.7.0 相同，见下一节。
+- 内容与 1.7.0 相同，只改了发版流程。1.7.0 发版时一次运行报错，当时以为 npm 包没有发布出来，就发了这一版；其实同一个标签被触发了两次，另一次已经把 1.7.0 完整发布，包括 npm。
 
-- The 1.7.0 npm package was not published (GitHub returned an error at the last release step); this release adds it. The contents are the same as 1.7.0, listed below.
+- Same contents as 1.7.0; only the release process changed. One of the 1.7.0 release runs failed and the npm package looked unpublished, so this release was made. In fact the tag had triggered two runs and the other one had already published 1.7.0 completely, npm included.
 
 ## 1.7.0
 
