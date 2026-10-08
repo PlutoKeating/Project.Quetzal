@@ -16,6 +16,28 @@
 
 <br/>
 
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-help.dark.svg"><img src="docs/assets/readme/type/en-help.light.svg" alt="What it does for you"></picture>
+
+An example conversation (constructed; everything it does here is in the code):
+
+> **You**: Sometime in the next couple of days, remind me to return the book.<br/>
+> **It**: Sure. Before the day after tomorrow, at a moment you are near your phone, never at night.<br/>
+> <sub>Thu 19:12 · you picked up the phone</sub><br/>
+> **It**: You just picked up your phone, so: the book is due back. Put it by the door now?<br/>
+> **You**: What was the noodle place I wanted to try last week?<br/>
+> **It**: I checked last Wednesday's chat: Old Chen's Noodles at the corner. You wanted to go at the weekend.
+
+- **Reminders**: "Remind me to take my pills at 8 tomorrow" arrives on time, even while it sleeps; things that can wait come up when you next pick up the phone or turn on the screen, never at night.
+- **Old conversations**: chats from every session, notes and journal entries are searchable; "last week" and "the day before yesterday" become real dates first.
+- **Files and images**: Word, PowerPoint, Excel, PDF, OpenDocument and EPUB, send one and it reads it; photos and screenshots too.
+- **The web, and getting things done**: it searches the web and reads pages in full; it runs commands on the phone or computer, and sends a sub-agent to work on longer jobs in the background.
+- **Eyes and ears**: photos, recordings and location on a phone; photos, recordings and screenshots on a computer, asking you first by default. With hearing on it listens for you, and it can answer in its own voice.
+- **It reaches out**: when something comes to mind while it is awake, it messages you with a notification, and through Feishu if connected.
+
+**Not yet**: reading the screen, tapping buttons or operating other apps. For writing code in a repository, Codex or Claude Code fit better.
+
+<br/>
+
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-what.dark.svg"><img src="docs/assets/readme/type/en-what.light.svg" alt="What it is"></picture>
 
 - **It gets you, more and more.** What you mention in passing, the people you care about, your habits: it writes them down. While it sleeps, it turns the day's conversations into notes and keeps them in a private repository on your GitHub. A new model or a new device keeps every note.
@@ -62,6 +84,7 @@ One builds an assistant, the other lets an agent live. They work together.
 | **Body** | None; this computer's files and shell | One machine's shell, browser and files | An old phone, or a Linux or Windows computer |
 | **Soul** | None; gone with the session | Local files; move them yourself | A private git repository, synced, moves with it |
 | **Several devices** | Independent | Independent | One self across all of them |
+| **Good at** | Writing and changing code in a repository | Getting things done on one machine, across many chat apps | Remembering you over time: reminders, old conversations, research, commands |
 
 Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them share the same soul.
 
@@ -81,19 +104,19 @@ Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-trust.dark.svg"><img src="docs/assets/readme/type/en-trust.light.svg" alt="Before you trust it"></picture>
 
-**Who sees what.** Conversations, settings and model keys stay on your devices. Memory lives in a private repository on your GitHub; Quetzal does not check its content and commits whatever the agent writes. Your model provider sees each conversation. The sync service is run personally by the author, with a PlutoKeating account (the author's single account; email, a passkey or GitHub all work): it records your account (username, email), your agents and your devices, and cannot see conversations or memory. Even if it were broken into, it could not pose as one of your devices, because devices only trust the public keys registered in the soul repository.
-
-**The GitHub app.** The first time a soul repository is created, GitHub asks you to install the Quetzal app and choose which repositories it may manage. Its permission is write access to Administration on those repositories: under GitHub's rules that covers creating repositories, adding deploy keys and changing settings, including deleting those repositories, and it cannot read files. Quetzal uses it only to create the repository and add deploy keys. The sync service keeps neither the app's private key nor any GitHub token; it acts only when you approve a device, with a token GitHub issues on the spot, and revokes that token right after. You can uninstall the app from your GitHub settings any time; to avoid it, skip sign-in and connect a repository you created yourself.
-
-**What it can reach.** Run commands is allowed by default, and the agent runs as the same system user as the runtime. Commands run in an isolated space (bubblewrap → Landlock → proot on Linux, proot on Android, a separate low-privilege user created at install time on Windows) that hides the key folder; with no isolation available, they do not run. The isolation does not stop everything: on October 5, 2026, an agent ran git by itself and pushed a journal entry into a public repository. Since then the code enforces new limits (the soul folder's `.git` is read-only to it, the push address is reset before each push, unknown history stops syncing), and the system prompt spells out hard rules. Give it a device of its own; to tighten things, set Run commands to Ask.
-
-**It is young.** The first version shipped on October 3, 2026; one person has published over 30 versions in five days. Memory is plain Markdown, and the soul repository format has gone through 13 versions without old repositories ever needing conversion; every change is a commit you can undo. Updates wait for your tap and are checked against the release signature before install. Linked devices must run the same version to connect (1.0.3 changed the connection protocol). The runtime inside the app today was compiled by the maintainer on their own machine from the pinned recipe, then signed and uploaded; when the recipe changes, the release pipeline compiles it again. The Windows installer is not code-signed yet: SmartScreen warns about the downloaded installer, and a PC with Smart App Control turned on has to turn it off first; the install script takes you to that page.
+- **Who sees what.** Conversations, settings and model keys stay on your devices. Memory lives in a private repository on your GitHub, and Quetzal does not check its content. Your model provider sees each conversation. Signing in and linking devices goes through a sync service the author runs personally, with a PlutoKeating account (the author's single account; email, a passkey or GitHub all work): it records your username, email, agents and devices, and cannot see conversations or memory. Even if it were broken into, it could not pose as one of your devices, because devices only trust the public keys registered in the soul repository. It works without signing in; memory then stays on the device.
+- **The GitHub app.** Creating the first soul repository installs the Quetzal app. It has write access to Administration on the repositories you choose: under GitHub's rules that covers creating repositories, adding deploy keys and changing settings, including deleting those repositories, and it cannot read files. Quetzal uses it only to create the repository and add deploy keys; the sync service keeps neither the app's private key nor any GitHub token, and acts only when you approve a device, with a short-lived token GitHub issues on the spot. You can uninstall it from your GitHub settings any time.
+- **What it can reach.** Run commands is allowed by default. Commands run in an isolated space (bubblewrap → Landlock → proot on Linux, proot on Android, a low-privilege user created at install time on Windows) that hides the key folder; with no isolation available, they do not run. The isolation does not stop everything: on October 5, 2026, an agent ran git by itself and pushed a journal entry into a public repository, and code-level guards were added afterwards (the soul folder's `.git` is read-only to it, the push address is reset before each push, unknown history stops syncing). Give it a device of its own; to tighten things, set Run commands to Ask.
+- **What it costs.** You pay the model provider you choose. On waking, a cheap model first decides whether to act, so most wakings cost very little. By default it spends at most 2 million tokens or 5 US dollars a day; at the cap it wakes on its own one twentieth as often, and talking to it still works.
+- **It is young.** The first version shipped on October 3, 2026, and 46 versions had shipped by October 9, from a single maintainer. Memory is plain Markdown, and the soul repository format has changed 13 times without old repositories ever needing conversion; every change is a commit you can undo. Updates wait for your tap and are checked against the release signature before install; linked devices must run the same version to connect. The runtime inside the app today was compiled by the maintainer on their own machine from the pinned recipe, then signed and uploaded. The Windows installer is not code-signed yet: SmartScreen warns about it, and a PC with Smart App Control turned on has to turn it off first.
 
 Full details: [Trust and limits](https://quetzal.plutokeating.beer/en/docs/guide/trust)
 
 <br/>
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-install.dark.svg"><img src="docs/assets/readme/type/en-install.light.svg" alt="Install"></picture>
+
+What you need: an old Android phone or a Windows or Linux computer; an API key for one model (DeepSeek, Kimi, Zhipu, OpenAI, Anthropic, Gemini and more all work); and, if you want its memory in a private repository on your GitHub and several devices as one self, a GitHub account (you can skip it; memory then stays on the device).
 
 **A spare Android phone** (Android 7 or later, arm64)
 
