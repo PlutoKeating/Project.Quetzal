@@ -45,3 +45,30 @@ test("想分享的一句话：写入、规范化空白、空内容不覆盖", as
   assert.match(mem.setThought("   "), /内容为空/);
   assert.equal(mem.thought()!.text, "最近在想： 记忆 是不是 一种 地图？");
 });
+
+test("想分享的一句话：别处来的按写下的时刻后写胜，不合格的不收；本机更新时通知网状层", async () => {
+  const { bus } = await import("../src/bus.ts");
+  const sent: string[][] = [];
+  const on = (s: string[]) => sent.push(s);
+  bus.on("shared", on);
+  mem.setThought("本机的一句");
+  bus.off("shared", on);
+  assert.deepEqual(sent, [["thought"]]);
+  const mine = mem.thought()!;
+  assert.equal(mem.mergeThought({ text: "更旧的", ts: mine.ts - 1000 }), false);
+  assert.equal(mem.thought()!.text, "本机的一句");
+  assert.equal(mem.mergeThought({ text: "别处的\u0000  新一句", ts: mine.ts + 1000 }), true);
+  assert.deepEqual(mem.thought(), { text: "别处的 新一句", ts: mine.ts + 1000 });
+  assert.equal(mem.mergeThought({ text: "别处的 新一句", ts: mine.ts + 1000 }), false); // 同一句不算变化
+  // 相同时刻按文字比较：两边各自采用后收敛到同一句
+  assert.equal(mem.mergeThought({ text: "别处的 新一句A", ts: mine.ts + 1000 }), true);
+  assert.equal(mem.mergeThought({ text: "别处的", ts: mine.ts + 1000 }), false);
+  // 不合格：时刻在未来、不是数字、文字为空或不是文字
+  assert.equal(mem.mergeThought({ text: "未来的", ts: Date.now() + 3_600_000 }), false);
+  assert.equal(mem.mergeThought({ text: "没有时刻" }), false);
+  assert.equal(mem.mergeThought({ text: "   ", ts: Date.now() }), false);
+  assert.equal(mem.mergeThought({ text: 42, ts: Date.now() }), false);
+  assert.equal(mem.mergeThought(null), false);
+  assert.equal(mem.mergeThought({ text: "x".repeat(500), ts: Date.now() + 60_000 }), true);
+  assert.equal(mem.thought()!.text.length, 120);
+});

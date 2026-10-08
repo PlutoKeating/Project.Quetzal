@@ -1,4 +1,4 @@
-// 全网共用：设置分区（较新的修改生效）、模型供应商连同 Key（接收方用自己的主密钥重新加密）、急停（全网 / 只停这具身体）、审批（在哪里批准都行）、每日用量合计。
+// 全网共用：设置分区（较新的修改生效）、模型供应商连同 Key（接收方用自己的主密钥重新加密）、急停（全网 / 只停这具身体）、审批（在哪里批准都行）、每日用量合计、想分享的一句话（后写胜，离线的身体上线后补上）。
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -36,7 +36,7 @@ let step = "";
 const until = async (f: () => Promise<boolean>, ms = 20_000) => { const t = Date.now(); while (!(await f())) { if (Date.now() - t > ms) throw new Error(`等待超时：${step}`); await new Promise((r) => setTimeout(r, 50)); } };
 after(() => { for (const p of procs) p.kill(); sync.close(); });
 
-test("设置、Key、急停、审批、用量：一处改了，所有身体跟着改", { skip }, async () => {
+test("设置、Key、急停、审批、用量、想分享的一句话：一处改了，所有身体跟着改", { skip }, async () => {
   const phone = spawnBody("phone"), pc = spawnBody("pc");
   await Promise.all([phone.ready, pc.ready]);
   step = "连上";
@@ -84,4 +84,22 @@ test("设置、Key、急停、审批、用量：一处改了，所有身体跟�
   await phone.call("addUsage", { input: 1000, output: 500, cost: 0.5 });
   await pc.call("addUsage", { input: 200, output: 100, cost: 0.25 });
   await until(async () => (await phone.call<any>("usageToday")).tokens === 1800 && (await pc.call<any>("usageToday")).tokens === 1800);
+
+  // 想分享的一句话：任一具身体更新，其他身体跟着换（后写胜）；旧的不会覆盖新的；离线的身体上线后补上
+  step = "想分享的一句话";
+  await phone.call("setThought", { text: "手机上写的一句" });
+  await until(async () => (await pc.call<any>("thought"))?.text === "手机上写的一句");
+  await pc.call("setThought", { text: "电脑上写的一句" });
+  await until(async () => (await phone.call<any>("thought"))?.text === "电脑上写的一句");
+  const latest = await phone.call<any>("thought");
+  await pc.call("emit", { name: "settings", data: { thought: { rev: 0, value: { text: "过时的一句", ts: latest.ts - 60_000 } } } });
+  await new Promise((r) => setTimeout(r, 500));
+  assert.deepEqual(await phone.call("thought"), latest);
+  step = "离线后补上";
+  await pc.call("stop");
+  await until(async () => !(await phone.call<string[]>("connected")).includes("pc"));
+  await phone.call("setThought", { text: "电脑离线时写的一句" });
+  const pc2 = spawnBody("pc");
+  await pc2.ready;
+  await until(async () => (await pc2.call<any>("thought"))?.text === "电脑离线时写的一句");
 });
