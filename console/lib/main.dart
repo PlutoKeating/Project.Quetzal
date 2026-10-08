@@ -19,6 +19,7 @@ import 'pages/setup.dart';
 import 'installer.dart';
 import 'updater.dart';
 import 'hearing.dart';
+import 'host_mode.dart';
 import 'platform/caps.dart';
 import 'platform/fonts.dart' as fonts;
 import 'platform/location.dart' as loc;
@@ -170,6 +171,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           ),
           body: Column(children: [
             if (api.conn != Conn.online) const OfflineBanner(),
+            const HostModeBanner(),
             if (api.safeMode) Banner0(text: '${api.name}反复出错，暂停了醒来', color: Colors.orange),
             if (ru != null && ru.running)
               Banner0(text: '正在更新到 $bundled…', color: Colors.blueGrey, action: const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))

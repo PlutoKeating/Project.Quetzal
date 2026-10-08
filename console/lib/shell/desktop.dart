@@ -12,6 +12,7 @@ import '../api.dart';
 import '../widgets.dart';
 import '../platform/tray.dart';
 import '../hearing.dart';
+import '../host_mode.dart';
 import '../platform/location.dart' as loc;
 import '../pages/agents.dart';
 import '../pages/chat.dart';
@@ -82,6 +83,7 @@ class _DesktopShellState extends State<DesktopShell> {
       builder: (context, _) => Scaffold(
         body: Column(children: [
           if (api.conn != Conn.online) const OfflineBanner(),
+          const HostModeBanner(),
           if (api.safeMode) Banner0(text: '${api.name}反复出错，暂停了醒来', color: Colors.orange),
           ValueListenableBuilder<bool>(valueListenable: consoleStale, builder: (_, stale, _) => !stale ? const SizedBox.shrink()
               : Banner0(text: '新版本已装好', color: Colors.blueGrey, action: FilledButton.tonal(onPressed: relaunchConsole, child: const Text('重新打开')))),
@@ -351,6 +353,7 @@ class _ChatPaneState extends State<_ChatPane> {
             final s = await act(context, () => api.call<Map>('sessions.create'));
             if (s != null) nav.go('chat', id: '${s['id']}');
           }),
+          HostModeButton(conv: widget.conv, size: 20),
         ],
         body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 820), child: ChatView(
           conv: widget.conv,
