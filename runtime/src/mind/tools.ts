@@ -225,8 +225,8 @@ const core: Tool[] = [
     name: "shell", permission: "shell", bodyFiles: ["files"],
     description: (isWindows
       ? `在这具身体（Windows）上执行一条 PowerShell 命令（不是 bash：变量写 $env:NAME，路径用 C:\\…，Windows PowerShell 5.1 不支持 &&，用 ; 或 if ($?) { }）。命令在沙箱里以低权限的沙箱用户运行：工作目录是 ${workDir()}（对方也能在这里放文件、取结果），只能写工作区、data 与灵魂目录，读不到对方主目录里别的文件和基座的密钥；联网经代理，连不到这台机器自己的端口。被超时或停止结束的命令退出码是 1，不是命令本身出错。`
-      : "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。") + "这个会话处在真实环境里时（系统提示会写明），命令不经沙箱，直接在主机上执行。默认等待结果（timeout 秒，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
-    parameters: obj({ command: str("命令"), timeout: { type: "number", description: "等待秒数（前台）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
+      : "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。") + "这个会话处在真实环境里时（系统提示会写明），命令不经沙箱，直接在主机上执行。默认等待结果；timeout 是多少秒没有任何输出就结束它（有输出就重新计时，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
+    parameters: obj({ command: str("命令"), timeout: { type: "number", description: "前台：多少秒没有任何输出就结束（有输出就重新计时）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
     bodyParams: { files: { type: "array", items: { type: "string" }, description: "只和 body 一起用：先从那具身体取来的文件（照那边的路径写）。命令仍在这具身体上执行，命令里出现的这些路径会换成取来后的本地路径；要在那具身体上执行命令用 body_call" } },
     handler: async (a, ctx) => {
       if (ctx.fetched?.length) a = { ...a, command: substitutePaths(String(a.command ?? ""), ctx.fetched) };
@@ -393,7 +393,7 @@ const core: Tool[] = [
       permission: str(`能力类别，缺省 shell。可选：${Object.keys(PERMISSION_LABELS).join("、")}`),
       runtime: { type: "string", enum: runtimesHere(), description: `这具身体能用的：${runtimesHere().join(" / ")}` },
       source: str("实现源码"),
-      timeout: { type: "number", description: "超时秒数，缺省 60，最多 600" },
+      timeout: { type: "number", description: "多少秒没有任何输出就终止（有输出就重新计时），缺省 60，最多 600" },
       requires: { type: "array", items: { type: "string" }, description: "依赖的命令名，如 ffmpeg；本机缺少时工具不挂载并说明" },
       skill: str(`意图文档（Markdown）：用途、参数、实现思路、依赖、怎么验证、坑。可直接写正文，也可带 Agent Skills 规范的 YAML 头（${SKILL_SPEC_URL}）`),
     }, ["name"]),

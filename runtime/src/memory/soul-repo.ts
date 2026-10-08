@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mergeEntries } from "./entries.ts";
 import { windowsUnfit } from "./portable-path.ts";
 
@@ -119,6 +119,9 @@ export const pushRejected = (out: string) => /^!\t/m.test(out);
 /** 冲突时落选版本的副本路径：x.md → x.incoming.md（规范 §3.3 的 .gitignore 忽略 *.incoming*.md，不会被提交）。非 .md 文件不另存。 */
 export const incomingPath = (file: string) => (file.endsWith(".md") ? `${file.slice(0, -3)}.incoming.md` : undefined);
 
+/** git 多久没有任何输出就结束（网络操作带 --progress，传输期间一直有输出）。 */
+const GIT_IDLE_MS = 120_000;
+
 /** GitHub 官方的 443 端口 SSH：同一套主机密钥，所以按 github.com 核对（HostKeyAlias）。 */
 const VIA_443 = "-o HostName=ssh.github.com -o Port=443 -o HostKeyAlias=github.com";
 /** 远端是不是 GitHub 的 SSH 地址（git@github.com:… 或 ssh://git@github.com[:22]/…）；~/.ssh/config 里的 Host 别名不算（端口与主机由那里决定）。 */
@@ -188,8 +191,19 @@ export class SoulRepo {
         // 它挡的 .git 别名（git~1、.git. 等）与带冒号的流名由 windowsExclude 一并排除，不会写到磁盘上
         "-c", "core.protectNTFS=false", "-c", "core.sparseCheckout=true"] : [])];
     if (WIN && this.exists && !fs.existsSync(this.p(".git", "info", "sparse-checkout"))) { try { fs.mkdirSync(this.p(".git", "info"), { recursive: true }); fs.writeFileSync(this.p(".git", "info", "sparse-checkout"), "/*\n"); } catch { /* 下次 */ } }
-    return new Promise((resolve) => execFile("git", [...safety, "-C", this.o.dir, ...args], { env, timeout: 120_000, maxBuffer: 16 << 20, windowsHide: true }, (e: any, out, err) =>
-      resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: String(out), err: String(err || e?.message || "") })));
+    // 时间墙按「无输出」计：clone / fetch / push 带 --progress，传输期间 git 一直在 stderr 报进度，还在传的不会被砍掉；GIT_IDLE_MS 没有任何输出才结束
+    const verb = args.findIndex((a) => !a.startsWith("-"));
+    const argv = verb >= 0 && ["clone", "fetch", "push"].includes(args[verb]) ? [...args.slice(0, verb + 1), "--progress", ...args.slice(verb + 1)] : args;
+    return new Promise((resolve) => {
+      const p = spawn("git", [...safety, "-C", this.o.dir, ...argv], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      let out = "", err = "", note = "", t: NodeJS.Timeout | undefined;
+      const arm = () => { clearTimeout(t); t = setTimeout(() => { note = `\n（${GIT_IDLE_MS / 1000} 秒没有任何输出，已结束）`; p.kill("SIGKILL"); }, GIT_IDLE_MS); };
+      p.stdout!.on("data", (b: Buffer) => { arm(); if (out.length < 16 << 20) out += b.toString(); });
+      p.stderr!.on("data", (b: Buffer) => { arm(); err = (err + b.toString()).slice(-(1 << 20)); });
+      p.on("error", (e) => { clearTimeout(t); resolve({ code: 127, out, err: err + e.message }); });
+      p.on("close", (code, sig) => { clearTimeout(t); resolve({ code: code ?? (sig ? 128 : 1), out, err: err + note }); });
+      arm();
+    });
   }
 
   get exists() { return fs.existsSync(this.p(".git")); }
@@ -533,6 +547,12 @@ export class SoulRepo {
       if ((await this.git("push", this.o.remote, `HEAD:refs/heads/${this.o.branch}`)).code === 0) return true;
     }
     return false;
+  }
+  /** 还在整理（做梦的这一轮仍有进展）：把租约往后续一个 LEASE_MS 并推送，别的身体不会以为它过期了而接着整理。 */
+  async renewLease(): Promise<boolean> {
+    if (!this.remoteReady() || this.lease()?.body !== this.o.body) return false;
+    fs.writeFileSync(this.p("locks", "consolidation.json"), JSON.stringify({ body: this.o.body, until: Date.now() + LEASE_MS }) + "\n");
+    return (await this.push("续租整理记忆的租约")).ok;
   }
   async releaseLease() { if (this.lease()?.body === this.o.body) fs.rmSync(this.p("locks", "consolidation.json"), { force: true }); }
 

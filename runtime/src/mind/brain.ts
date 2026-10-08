@@ -236,6 +236,9 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
   let r: Awaited<ReturnType<typeof loop>>;
   // 执行过程（工具卡片与中途叙述）在 done / error 之后就从快照里移除，所以先取出来，随时间线条目保存：控制台据此只读回放这次醒来
   let process: Record<string, unknown>[] = [];
+  // 做梦期间续租：这一轮还在进行（会话的时间墙按无进展计时，停滞两分钟就会中止），就每 10 分钟把整理租约往后续，不让它在 30 分钟时过期
+  const renew = kind === "dream" ? setInterval(() => { void soul.renewLease().catch(() => {}); }, 10 * 60_000) : undefined;
+  renew?.unref?.();
   try { r = await loop(messages, reason, true, s); process = s.process(); s.emit({ kind: "done" }); }
   catch (e: any) {
     process = s.process();
@@ -244,7 +247,7 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
     if (kind === "dream") await soul.releaseLease().catch(() => {});
     throw e;
   }
-  finally { s.close(); }
+  finally { s.close(); clearInterval(renew); }
   const f = r.finish ?? { title: kind === "dream" ? "一个模糊的梦" : "醒来了一会儿", journal: r.text || "（没有留下文字）" };
   if (typeof f.thought === "string" && f.thought.trim()) mem.setThought(f.thought);
   mem.writeJournal(`${kind === "dream" ? "梦 · " : ""}${f.title}`, `${f.journal}${f.feeling ? `\n\n心情：${f.feeling}` : ""}`);

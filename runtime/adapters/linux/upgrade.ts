@@ -16,7 +16,7 @@ export const INSTALL_URL = "https://quetzal.plutokeating.beer/install";
 const home = () => process.env.QUETZAL_HOME ?? path.join(os.homedir(), ".quetzal");
 
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/;
-const STALL_MS = 15 * 60_000; // 超过这么久还没结束：当作卡住（不再挡着下一次升级）
+const STALL_MS = 15 * 60_000; // 日志这么久没有新的内容、又还没结束：当作卡住（不再挡着下一次升级）；还在写日志的不算
 
 /** 要执行的 shell 命令：下载脚本并以 --no-open（和指定的版本）运行，日志追加到 logs/upgrade.log，开始与结束带上这次升级的编号。 */
 export function upgradeShell(logFile: string, url = INSTALL_URL, version?: string, id = String(Date.now())): string {
@@ -27,8 +27,8 @@ export function upgradeShell(logFile: string, url = INSTALL_URL, version?: strin
 
 export interface UpgradeStatus { running: boolean; id?: string; startedAt?: number; target?: string; exitCode?: number; step?: string; stalled?: boolean }
 
-/** 从日志读最近一次升级的状态：有开始没结束为进行中（超过 15 分钟算卡住）；结束的带退出码；step 为它最后一步在做什么。 */
-export function parseUpgradeLog(text: string, now = Date.now()): UpgradeStatus {
+/** 从日志读最近一次升级的状态：有开始没结束为进行中（日志 15 分钟没有新内容才算卡住；lastWrite 为日志最后写入的时刻）；结束的带退出码；step 为它最后一步在做什么。 */
+export function parseUpgradeLog(text: string, now = Date.now(), lastWrite?: number): UpgradeStatus {
   const starts = [...text.matchAll(/^== 升级 (\d+) 开始[^\n]*?(?:（目标 ([^）]+)）)?$/gm)];
   const last = starts.at(-1);
   if (!last) return { running: false };
@@ -39,12 +39,12 @@ export function parseUpgradeLog(text: string, now = Date.now()): UpgradeStatus {
   const lines = body.slice(0, end?.index ?? body.length).split("\n").map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trim()).filter(Boolean);
   const step = [...lines].reverse().find((l) => /^[▸✓!✗·]|error|failed|curl:|npm ERR|E[A-Z]+:/i.test(l))?.replace(/^[▸✓!✗·]\s*/, "").slice(0, 200);
   if (end) return { running: false, id, startedAt, target, exitCode: Number(end[1]), step };
-  const stalled = now - startedAt > STALL_MS;
+  const stalled = now - Math.max(startedAt, lastWrite ?? 0) > STALL_MS;
   return { running: !stalled, id, startedAt, target, step, ...(stalled ? { stalled: true } : {}) };
 }
 
 export function upgradeStatus(): UpgradeStatus {
-  try { return parseUpgradeLog(fs.readFileSync(path.join(home(), "logs", "upgrade.log"), "utf8")); } catch { return { running: false }; }
+  try { const f = path.join(home(), "logs", "upgrade.log"); return parseUpgradeLog(fs.readFileSync(f, "utf8"), Date.now(), fs.statSync(f).mtimeMs); } catch { return { running: false }; }
 }
 
 /** 怎么脱离当前进程运行：有 systemd 用户实例用 systemd-run（临时单元，不在 quetzal 服务的 cgroup 里），否则 setsid + nohup。 */

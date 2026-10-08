@@ -6,7 +6,8 @@
 //   GET  /pair/info              → { ok, fingerprint, short, body, version, tls }（无需令牌：证书指纹，控制台配对时显示与核对）
 //   POST /pair/start | /pair/finish → 配对码（8 位，冷却、失败锁定与退避）；加密监听上 /pair/finish 只收配对证明 {proof}（与证书指纹绑定），回环上另收 {code}
 //   GET  /…                      → 网页控制台的静态文件（current/web/ 存在时），见 web.ts
-//   WS   /rpc                    → 令牌在第一条消息 {"auth": "<令牌>"}（5 秒内）或旧式的 ?token=；之后 请求 {id, method, params} / 响应 {id, result | error} / 推送 {event, data}
+//   WS   /rpc                    → 令牌在第一条消息 {"auth": "<令牌>"}（5 秒内）或旧式的 ?token=；之后 请求 {id, method, params} / 响应 {id, result | error} / 推送 {event, data}；
+//                                   处理一个请求期间每 10 秒推送 {event: "rpc.progress", data: {id}}，控制台据此重新计时
 //   HTTP 接口的令牌：Authorization: Bearer <令牌>、X-Quetzal-Token 头，或旧式的 ?token=（兼容旧控制台）
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -200,8 +201,13 @@ export function startGateway(safeMode: boolean): GatewayHandle {
       if (!authed(req)) return json(res, 401, { ok: false, message: "未授权" });
       const q = new URL(req.url, "http://x").searchParams;
       if (q.get("stream") === "1") {
-        try { return json(res, 200, await hearStream(req, Number(q.get("started")) || 0, str64(q.get("id")), false, q.get("bargein") === "1")); }
-        catch (e: any) { return json(res, 500, { ok: false, message: e.message }); }
+        // 说完（请求体结束）之后识别还要一会儿（长句分段识别）：先回响应头，之后每 10 秒写一个空白（JSON 前面的空白合法），
+        // 客户端按「多久没收到任何字节」计时，还在识别就不会等到超时；结果（含出错时的 {ok: false}）跟在后面
+        let alive: NodeJS.Timeout | undefined;
+        req.once("end", () => { if (!res.headersSent) res.writeHead(200, { "content-type": "application/json; charset=utf-8" }); alive = setInterval(() => res.write(" "), 10_000); });
+        const finish = (status: number, body: unknown) => { clearInterval(alive); if (!res.headersSent) return json(res, status, body); res.end(JSON.stringify(body)); };
+        try { return finish(200, await hearStream(req, Number(q.get("started")) || 0, str64(q.get("id")), false, q.get("bargein") === "1")); }
+        catch (e: any) { return finish(500, { ok: false, message: e.message }); }
       }
       const chunks: Buffer[] = []; let n = 0, over = false;
       req.on("data", (c: Buffer) => { n += c.length; if (n > 4 << 20) over = true; else chunks.push(c); });
@@ -261,12 +267,15 @@ export function startGateway(safeMode: boolean): GatewayHandle {
         return;
       }
       if (!clients.has(ws)) return;
-      let id: unknown;
+      let id: unknown, alive: NodeJS.Timeout | undefined;
       try {
         const m = JSON.parse(String(raw)); id = m.id;
+        // 还在处理（快速接入逐个试模型、立即同步、试通模型……）：每 10 秒告诉控制台一声，它据此重新计时，不在处理中途判超时
+        alive = setInterval(() => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ event: "rpc.progress", data: { id } })); }, 10_000);
         const result = extra[m.method] ? await extra[m.method](m.params ?? {}, ws) : await invoke(m.method, m.params, "控制台");
         ws.send(JSON.stringify({ id, result }));
       } catch (e: any) { ws.send(JSON.stringify({ id, error: { code: e.code ?? "ERROR", message: e.message } })); }
+      finally { clearInterval(alive); }
     });
   });
 

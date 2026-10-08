@@ -2,6 +2,7 @@
 //   配置在 config.speech（区域或自定义端点、音色、风格、语速、音调、音量、输出格式），密钥在 secrets/azure_speech_key。
 //   用户在控制台设置，agent 也可以用 voice_config 工具自己选音色、改配置（端点除外）。端点只接受 Azure 的 HTTPS 域名（config.ts 的 speechEndpointOk）：密钥随每次请求发往它。
 import fs from "node:fs";
+import { fetchIdle } from "../idle-fetch.ts";
 import path from "node:path";
 import { config, saveConfig, paths, readSecret, writeSecret, markShared, speechEndpointOk, speechRegionOk } from "../config.ts";
 import * as sdk from "microsoft-cognitiveservices-speech-sdk";
@@ -84,17 +85,17 @@ function need(c: SpeechConfig) {
 export async function synthesize(text: string, override: Partial<SpeechConfig> = {}): Promise<string> {
   const c = { ...config.speech, ...Object.fromEntries(Object.entries(override).filter(([, v]) => typeof v === "string" && v)) } as SpeechConfig;
   const key = need(c);
-  const res = await fetch(`${base(c)}/cognitiveservices/v1`, {
+  const { res, body: audio } = await fetchIdle(`${base(c)}/cognitiveservices/v1`, { // 60 秒没有收到任何数据才放弃（长段的音频还在传就不砍）
     method: "POST",
     headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": c.format || "audio-24khz-48kbitrate-mono-mp3", "User-Agent": "quetzal" },
-    body: ssml(text, c), signal: AbortSignal.timeout(60_000),
-  });
-  if (!res.ok) throw new Error(`Azure 语音合成失败：HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 200)}`);
+    body: ssml(text, c),
+  }, 60_000);
+  if (!res.ok) throw new Error(`Azure 语音合成失败：HTTP ${res.status} ${audio.toString("utf8").slice(0, 200)}`);
   const ext = /mp3/.test(c.format) ? "mp3" : /ogg|opus/.test(c.format) ? "ogg" : /webm/.test(c.format) ? "webm" : "wav";
   const dir = path.join(paths.data, "media");
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `voice-${Date.now()}.${ext}`);
-  fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+  fs.writeFileSync(file, audio);
   // 只保留最近 50 段
   const old = fs.readdirSync(dir).filter((f) => f.startsWith("voice-")).sort().slice(0, -50);
   for (const f of old) fs.rmSync(path.join(dir, f), { force: true });
@@ -161,14 +162,17 @@ export function recognizeStream(language: string, onPartial: (text: string) => v
     else if (error) reject(new Error(`Azure 流式识别失败：${error}`));
     else resolve({ text: "", status: "NoMatch" });
   };
-  rec.recognizing = (_, e) => { if (e.result.text) onPartial(finals.join("") + e.result.text); };
-  rec.recognized = (_, e) => { if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text) finals.push(e.result.text.trim()); };
+  // 送完音频以后：服务还在送中间结果或定稿就重新计时，15 秒没有任何结果才用已有的收尾
+  let ended = false, tail: NodeJS.Timeout | undefined;
+  const wait = () => { if (!ended) return; clearTimeout(tail); tail = setTimeout(finish, 15_000); tail.unref?.(); };
+  rec.recognizing = (_, e) => { wait(); if (e.result.text) onPartial(finals.join("") + e.result.text); };
+  rec.recognized = (_, e) => { wait(); if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text) finals.push(e.result.text.trim()); };
   rec.canceled = (_, e) => { if (e.reason === sdk.CancellationReason.Error) { error = e.errorDetails || String(e.errorCode); finish(); } }; // EndOfStream 不在这里收尾：最后一段的定稿可能还在后面
   rec.sessionStopped = () => finish(); // 服务把送完的音频全部识别完、最后一段也定稿之后才到这里
   rec.startContinuousRecognitionAsync(undefined, (err) => { error = String(err); finish(); });
   return {
     push: (pcm) => push.write(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) as ArrayBuffer),
-    end: () => { push.close(); setTimeout(finish, 15_000).unref(); return done; }, // 15 秒内服务没说结束就用已有的结果
+    end: () => { push.close(); ended = true; wait(); return done; }, // 15 秒没有新的结果、服务也没说结束，就用已有的结果
   };
 }
 

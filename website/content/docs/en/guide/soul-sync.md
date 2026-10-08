@@ -80,7 +80,7 @@ Sync runs when something happens. There is no sync on a timer:
 | `SOUL.md`, notes, skill documents | The newer version is used first so sync never stalls. When **both sides changed** the file, the other version is saved next to it as `<name>.incoming.md` (a conflict copy, not synced), and the agent is asked to decide. To keep the current version, it deletes the copy; to use the other version or combine the two, it edits the original and then deletes the copy. The version not chosen also stays in git history |
 | Journals, body registry | Each body writes only its own path, so they never conflict |
 
-Dreaming rewrites resident memory. To keep two bodies from sorting memory at the same time, a body takes a 30-minute **consolidation lease** in the repository before dreaming. If it cannot get the lease, it only naps.
+Dreaming rewrites resident memory. To keep two bodies from sorting memory at the same time, a body takes a 30-minute **consolidation lease** in the repository before dreaming and renews it every 10 minutes while it is still sorting. If it cannot get the lease, it only naps.
 
 ## It perceives it
 

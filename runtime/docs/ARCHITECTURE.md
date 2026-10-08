@@ -12,9 +12,10 @@ src/
 ├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event / reminders.changed / claims.changed 等）
 ├── store.ts              SQLite：kv、timeline、sessions、messages（会话、执行过程、附件、插话方式、写入它的身体 body、对方的话经哪具身体进来 via；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote：编号段与作者、实时只收对方自己的行、字段类型与长度、时间范围；段尾 2^24 不收，本机的下一个编号不会越段）；用量只收对方自己的行；1.0 前编号的一次性迁移
 ├── log.ts                日志（stdout，写出前脱敏）
-├── sh.ts                 外部命令执行（超时、输出上限，子进程不弹窗口）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树；真实环境里的命令不经沙箱（hostScript），前台命令自成进程组，超时或退出真实环境时整棵结束
+├── sh.ts                 外部命令执行（超时按「多久没有任何输出」计、输出上限，子进程不弹窗口）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树；真实环境里的命令不经沙箱（hostScript），前台命令自成进程组，超时或退出真实环境时整棵结束
 ├── host-mode.ts          真实环境模式：某个对话会话里她的 shell 不经沙箱、以基座的系统用户直接在主机上执行。她用 host_mode 带理由请求（每次都生成审批，不看能力类别的档位，并发系统通知）或对方在控制台打开（ops host.enter）；按会话、只在这具身体上、只在内存里（重启即回到沙箱）；30 分钟没有真实环境命令、急停、退出（她自己、控制台、飞书 /sandbox）时结束进行中的真实环境命令与后台任务；进出写审计与时间线（kind host），每条命令的审计参数带 realEnv
 ├── sandbox.ts            agent 命令的沙箱：Linux 用 bwrap（密钥目录为空 tmpfs、QUETZAL_HOME 只读、浏览器配置与用户启动文件保护、独立 pid 命名空间）或 Landlock，安卓用 proot（遮住密钥、配置、版本目录、runit 与开机脚本，以及 `QUETZAL_HIDE_PATHS` 指定的目录），Windows 用 sandbox-runtime 的 srt-win（沙箱用户 srt-sandbox、按会话授权的 ACL、WFP 拦直连、代理拒绝连回本机；库单独打包为 srt.mjs），都没有时 kind=none 并提醒一次；包装接口 wrapScript / wrapArgv（异步）；真实环境用的 hostScript / hostEnv（不经沙箱；基座自己的 QUETZAL_* 不传，其余原样传）；读文件工具的真实路径检查（protectedPath：Windows 上取系统的真实路径、不分大小写，不收 UNC、设备路径与流名）
+├── idle-fetch.ts         按「无进展」计时的 HTTP 请求：多久没收到任何东西才放弃（合成语音、模型目录的下载）
 ├── secret-values.ts      基座自己的密钥值，按结构认定、不按长短猜（私钥整段与正文每一行、JSON 文件只认凭据字段 token、其余文件整个内容、模型供应商的 Key；公钥与证书不算），按修改时间缓存：给脱敏用
 ├── voice/
 │   ├── azure.ts          语音：Azure 文本转语音（SSML、合成、音色列表、配置与密钥）与语音识别（官方 SDK 推流的连续流式识别 recognizeStream，各段拼成一段话；短语音 REST 的 recognize 兜底，长音频分段）
@@ -76,7 +77,7 @@ src/
 ├── guard/guard.ts        能力授权、审批队列（ask：不看档位、直接生成审批，真实环境的请求用它）、急停、审计
 ├── providers/
 │   ├── types.ts          统一消息/工具/结果类型
-│   ├── adapters.ts       四种协议的 HTTP 适配（流式 SSE；模型调用时间墙：90 秒无数据）
+│   ├── adapters.ts       四种协议的 HTTP 适配（流式 SSE；模型调用时间墙：90 秒无数据、180 秒无内容，没有绝对上限）
 │   ├── catalog.ts        models.dev 公共目录
 │   ├── registry.ts       草稿保存、版本号、Key 加密；从其他身体导入（逐个校验，API 地址只收 HTTPS 与本机回环，不合格的保留本机原来的，全部整理完才替换）
 │   ├── router.ts         全局顺序路由、Key 轮换、故障转移（只看 HTTP 状态码）、连通性测试；能否看图只认手动设置与公共目录，查不到就当不能

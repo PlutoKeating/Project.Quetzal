@@ -18,7 +18,7 @@ const CHUNK = 48 * 1024;           // 单条 SCTP 消息上限之内
 const MAX_MESSAGE = 32 << 20;      // 重组后的单条消息上限
 const RAW_MAX = 2 * CHUNK + 1024;  // 不分块的单条（含分块的外壳：JSON 转义最多让内容翻倍）
 const MAX_INFLIGHT = 64 << 20;     // 正在重组的分块合计上限
-const REASSEMBLY_MS = 60_000;      // 一条分块消息要在这么久内收齐
+const REASSEMBLY_MS = 60_000;      // 一条分块消息这么久没有新的分块到达就丢掉（还在陆续到达的不丢）
 const MAX_PARALLEL = 16;           // 同时在重组的消息条数
 const PING_MS = 15_000;
 const DEAD_MS = 45_000;            // 这么久收不到任何东西就算断了
@@ -65,7 +65,7 @@ export const sdpFingerprint = (sdp: string | undefined) => (sdp?.match(/a=finger
 const binding = (agent: string, signer: string, verifier: string, nonce: string, signerFp: string, verifierFp: string) => `quetzal-mesh-auth/${MESH_PROTOCOL}|${agent}|${signer}|${verifier}|${nonce}|${signerFp}|${verifierFp}`;
 
 /**
- * 事件：open（认证通过、可以收发）、message（对象）、close（原因）、path（{local, remote, rtt}）、retry（一次尝试失败，lastError 是原因）。
+ * 事件：open（认证通过、可以收发）、message（对象）、close（原因）、path（{local, remote, rtt}）、retry（一次尝试失败，lastError 是原因）、chunk（大消息的一个分块到了）。
  * 名字字典序较小的一方发起（发 offer），另一方应答；任何一方都可以请求重连（hello）。gen 区分每一次连接尝试，过期的信令直接丢弃。
  */
 export class Link extends EventEmitter {
@@ -342,13 +342,14 @@ export class Link extends EventEmitter {
       c = { parts: new Array(nn), got: 0, size: 0, at: Date.now() }; this.chunks.set(id, c);
     }
     if (c.parts.length !== nn || c.parts[ni] !== undefined) return this.violate("分块重复或前后不一致");
-    c.parts[ni] = d; c.got++; c.size += d.length; this.inflight += d.length;
+    c.parts[ni] = d; c.got++; c.size += d.length; this.inflight += d.length; c.at = Date.now();
+    this.emit("chunk"); // 大消息正在陆续到达：网状层据此给等这具身体回应的请求重新计时
     if (c.size > limit) return this.violate("消息过大");
     if (this.inflight > MAX_INFLIGHT) return this.violate("分块占用的内存过多");
     if (c.got === nn) { this.chunks.delete(id); this.inflight -= c.size; this.receive(c.parts.join(""), true); }
   }
 
-  /** 超时没收齐的分块消息丢掉。 */
+  /** 太久没有新分块的消息丢掉。 */
   private prune() {
     const now = Date.now();
     for (const [id, c] of this.chunks) if (now - c.at > REASSEMBLY_MS) { this.chunks.delete(id); this.inflight -= c.size; }

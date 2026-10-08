@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fakeSync } from "./fixtures/fake-sync.ts";
-import { Mesh } from "../src/mesh/mesh.ts";
+import { Mesh, meshTimings } from "../src/mesh/mesh.ts";
 import { loadNodeKey, sign, type NodeKey } from "../src/mesh/identity.ts";
 import { watchNetwork, routeLocal, localAddresses } from "../src/mesh/netwatch.ts";
 import { Link } from "../src/mesh/link.ts";
@@ -156,4 +156,17 @@ test("经第三具身体中转：alpha 与 gamma 直连不通、都连得上 bet
   b.stop();
   await until(() => !a.connected().includes("gamma") && !g.connected().includes("alpha"), 15_000);
   await stopAll();
+});
+
+test("跨身体请求按「无进展」计时：对方还在处理（每隔一会儿回 prog）就不超时；对方不再有动静才算没有回应", { skip }, async () => {
+  meshTimings.progMs = 200; meshTimings.progIdleMs = 1000;
+  try {
+    const a = body("alpha"), b = body("beta");
+    await until(() => a.connected().includes("beta") && b.connected().includes("alpha"));
+    b.handle("slow", async () => { await sleep(2500); return "做完了"; });
+    assert.equal(await a.request("beta", "slow", {}, 500), "做完了", "超过调用方给的 0.5 秒，但对方一直在报进展");
+    b.handle("hang", () => new Promise(() => {}));
+    (b as any).dispatch = () => {}; // beta 收到请求后再也没有任何动静
+    await assert.rejects(a.request("beta", "hang", {}, 300), /没有回应/);
+  } finally { meshTimings.progMs = 10_000; meshTimings.progIdleMs = 60_000; await stopAll(); }
 });

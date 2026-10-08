@@ -5,7 +5,7 @@
 ```
 lib/
 ├── main.dart          主题、外壳模式（按宽度：手机 / 桌面）、手机外壳（顶部连接状态 + 急停，底部 4 个 Tab）；App 更新后运行基座落后时在后台自动重启成内置版本（不进向导，失败才给「重试」）
-├── api.dart           网关客户端（连接档案 Profile 带钉住的证书指纹 fp；加密配对 pairInfo / pairFinish）：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=）、推送事件、断线重连退避、探活、配对、本机登录（网页版问 /auth/local；桌面版先读家目录里的 secrets/gateway.token、核对后才用）、点火；HTTP 令牌放请求头 X-Quetzal-Token
+├── api.dart           网关客户端（连接档案 Profile 带钉住的证书指纹 fp；加密配对 pairInfo / pairFinish）：WebSocket RPC（连上后第一条消息认证，旧版运行基座退回 ?token=；超时按「无进展」计：基座处理期间每 10 秒推 rpc.progress，90 秒什么都没收到才判超时）、推送事件、断线重连退避、探活、配对、本机登录（网页版问 /auth/local；桌面版先读家目录里的 secrets/gateway.token、核对后才用）、点火；HTTP 令牌放请求头 X-Quetzal-Token
 ├── pins.dart          加密连接：网关证书指纹的钉住与配对时的捕获（Pins）、配对证明（PBKDF2，后台 isolate）、网关地址的写法（只填地址时别的机器用 https:7789）、旧的明文局域网档案的识别
 ├── links.dart         打开外部链接的唯一入口：只放行 https（http 只限本机回环地址）
 ├── zoom.dart          界面字号（原生桌面版）：MaterialApp 外层 MediaQuery 的 textScaler 乘上 80%–160%；Ctrl + = / + 放大、Ctrl + - 缩小、Ctrl + 0 还原（HardwareKeyboard 全局处理，输入框有焦点时也生效）；记在本机 shared_preferences 的 ui.scale

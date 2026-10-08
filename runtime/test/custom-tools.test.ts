@@ -71,7 +71,7 @@ test("node 工具：默认导出 async (args) => string，改写后重新加载�
   const t0 = Date.now();
   const out = await callTool("slow", {}, "测试");
   assert.equal(out.status, "error");
-  assert.match(out.text, /超过 1 秒/);
+  assert.match(out.text, /1 秒没有任何输出/, "没有输出才终止（有输出就重新计时）");
   assert.ok(Date.now() - t0 < 3000);
   await ct.writeTool({ name: "fail_sh", description: "失败", runtime: RT, source: SRC.fail, skill: "总是失败" }, reserved);
   assert.match((await callTool("fail_sh", {}, "测试")).text, /退出码 3：oops/);

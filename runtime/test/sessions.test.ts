@@ -148,6 +148,16 @@ test("工作中发消息：排队则作为下一轮", async () => {
   assert.equal(store.sessionMessages("qu").filter((m) => m.role === "agent").length, 2);
 });
 
+test("前台命令按「无输出」计时：一直有输出就不结束；没有输出才结束", { skip: process.platform === "win32" && "用 sh 写的命令" }, async () => {
+  const sh = await import("../src/sh.ts");
+  const busy = await sh.run("sh", ["-c", "for i in 1 2 3 4 5 6; do echo $i; sleep 0.3; done"], 1000);
+  assert.equal(busy.code, 0, "总共约 1.8 秒，超过 1 秒的时限，但一直在输出");
+  assert.match(busy.out, /6/);
+  const quiet = await sh.run("sh", ["-c", "sleep 3; echo late"], 500);
+  assert.notEqual(quiet.code, 0);
+  assert.match(quiet.err, /没有任何输出，已结束/);
+});
+
 test("后台命令可以随时停止", async () => {
   const sh = await import("../src/sh.ts");
   const j = await sh.startJob("echo 开始; sleep 30; echo 不该出现");

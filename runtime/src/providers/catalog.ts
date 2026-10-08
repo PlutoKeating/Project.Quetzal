@@ -1,5 +1,6 @@
 // 公共模型目录：来自 models.dev（与 GoGoGo 相同），缓存在 data/catalog.json。用于"添加供应商"时选择供应商与模型。
 import fs from "node:fs";
+import { fetchIdle } from "../idle-fetch.ts";
 import path from "node:path";
 import { paths } from "../config.ts";
 import type { Protocol } from "./types.ts";
@@ -25,9 +26,9 @@ function protocolOf(npm = ""): Protocol {
 export const visionOf = (m: any): boolean | undefined => (Array.isArray(m.modalities?.input) ? m.modalities.input.includes("image") : undefined);
 
 export async function refreshCatalog(): Promise<CatalogProvider[]> {
-  const res = await fetch("https://models.dev/api.json", { signal: AbortSignal.timeout(20_000) });
+  const { res, body } = await fetchIdle("https://models.dev/api.json", {}, 20_000); // 目录有几 MB：20 秒没有收到任何数据才放弃
   if (!res.ok) throw new Error(`models.dev HTTP ${res.status}`);
-  const raw: Record<string, any> = await res.json();
+  const raw: Record<string, any> = JSON.parse(body.toString("utf8"));
   const list: CatalogProvider[] = Object.values(raw).map((p: any) => ({
     id: p.id, name: p.name ?? p.id, api: DEFAULT_BASE[p.id] ?? p.api ?? "", protocol: protocolOf(p.npm),
     models: Object.values(p.models ?? {}).map((m: any) => ({

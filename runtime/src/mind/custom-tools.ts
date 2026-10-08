@@ -167,7 +167,7 @@ export async function writeTool(spec: ToolSpec, reserved: Set<string>): Promise<
   if (skill.trim()) writeSkill(name, description, skill, requires);
   forgetRequires();
   const missing = missingRequires(requires);
-  return `${prev ? "已更新" : "已创建"}工具 ${name}（${runtime}，${PERMISSION_LABELS[permission]}，超时 ${timeout} 秒）${skill.trim() ? "，技能文档已写入灵魂仓库" : ""}${missing.length ? `。注意：本机缺少 ${missing.join("、")}，装好前它不会出现在工具表里` : "。现在就可以调用它"}`;
+  return `${prev ? "已更新" : "已创建"}工具 ${name}（${runtime}，${PERMISSION_LABELS[permission]}，${timeout} 秒没有输出就终止）${skill.trim() ? "，技能文档已写入灵魂仓库" : ""}${missing.length ? `。注意：本机缺少 ${missing.join("、")}，装好前它不会出现在工具表里` : "。现在就可以调用它"}`;
 }
 
 /** 技能文档：Agent Skills 规范的 SKILL.md。她给的正文如果已带 YAML 头，以她的为准（只校正 name）。 */
@@ -258,9 +258,12 @@ export async function runTool(m: ToolManifest, args: Record<string, any>): Promi
     const p = spawn(w.cmd, w.args, { cwd: w.cwd, env: w.env, stdio: ["pipe", "pipe", "pipe"], detached: !isWindows, windowsHide: true });
     let out = "", err = "";
     const cap = (s: string, b: Buffer) => (s + b.toString()).slice(-(4 << 20));
-    p.stdout.on("data", (b) => (out = cap(out, b))); p.stderr.on("data", (b) => (err = cap(err, b)));
+    // timeout 是多少秒没有任何输出就终止：工具还在输出（进度、日志）就重新计时
+    let t: NodeJS.Timeout | undefined;
     const kill = () => killTree(p.pid, "SIGKILL");
-    const t = setTimeout(() => { kill(); reject(new Error(`超过 ${m.timeout} 秒没有${m.runtime === "node" ? "返回" : "结束"}，已终止`)); }, m.timeout * 1000);
+    const arm = () => { clearTimeout(t); t = setTimeout(() => { kill(); reject(new Error(`${m.timeout} 秒没有任何输出，已终止`)); }, m.timeout * 1000); };
+    p.stdout.on("data", (b) => { arm(); out = cap(out, b); }); p.stderr.on("data", (b) => { arm(); err = cap(err, b); });
+    arm();
     p.on("error", (e) => { clearTimeout(t); if (argsFile) fs.rmSync(argsFile, { force: true }); reject(e); });
     p.on("close", (code) => {
       clearTimeout(t);

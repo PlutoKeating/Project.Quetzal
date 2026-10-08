@@ -1,11 +1,13 @@
 // 协议适配器：把统一的 ChatRequest 翻译成各家 HTTP 接口（流式 SSE），并把响应翻译回来。
-// 模型调用时间墙按「无数据」计时：每收到一个数据块就重置，LLM_IDLE_MS 内没有任何数据才中止；
-// 另有 LLM_MAX_MS 绝对上限防止只发心跳不出内容的死流。供应商不支持流式、直接返回 JSON 时按非流式解析。
+// 模型调用的时间墙都按「无进展」计时，没有绝对上限（还在输出的长回答不会被中途砍掉）：
+//   - LLM_IDLE_MS：没有收到任何数据（连接层面），每个数据块重置；
+//   - LLM_CONTENT_IDLE_MS：没有收到任何内容事件（SSE 里的 data 事件，不算 Anthropic 的 ping 事件与注释行），防止只发保活不出内容的死流。
+// 供应商不支持流式、直接返回 JSON 时按非流式解析。
 import crypto from "node:crypto";
 import { ProviderError, type ChatRequest, type ChatResult, type Msg, type Protocol, type ToolCall } from "./types.ts";
 
 export const LLM_IDLE_MS = 90_000;
-export const LLM_MAX_MS = 15 * 60_000;
+export const LLM_CONTENT_IDLE_MS = 180_000;
 
 export interface Target { protocol: Protocol; baseUrl: string; apiKey: string; model: string; headers?: Record<string, string>; maxTokens: number }
 
@@ -22,15 +24,16 @@ async function sse(url: string, headers: Record<string, string>, body: unknown, 
   let why = "";
   const kill = (w: string) => { if (!why) { why = w; ac.abort(); } };
   let idle = setTimeout(() => kill("idle"), LLM_IDLE_MS);
-  const hard = setTimeout(() => kill("max"), LLM_MAX_MS);
+  let quiet = setTimeout(() => kill("content"), LLM_CONTENT_IDLE_MS);
   const touch = () => { clearTimeout(idle); idle = setTimeout(() => kill("idle"), LLM_IDLE_MS); r.onChunk?.(); };
+  const progressed = () => { clearTimeout(quiet); quiet = setTimeout(() => kill("content"), LLM_CONTENT_IDLE_MS); };
   const outer = () => kill("session");
   if (r.signal?.aborted) kill("session"); else r.signal?.addEventListener("abort", outer, { once: true });
   const fail = (e: any): never => {
     if (e instanceof ProviderError) throw e;
     if (why === "session") throw new ProviderError("会话已中止", 0, true);
     if (why === "idle") throw new ProviderError(`网络错误：超时（${LLM_IDLE_MS / 1000} 秒没有收到任何数据）`);
-    if (why === "max") throw new ProviderError(`网络错误：超时（单次调用超过 ${LLM_MAX_MS / 60_000} 分钟）`);
+    if (why === "content") throw new ProviderError(`网络错误：超时（${LLM_CONTENT_IDLE_MS / 1000} 秒只收到保活、没有任何内容）`);
     const msg = String(e?.message ?? e);
     if (/ByteString/.test(msg)) throw new ProviderError("请求头含有非 ASCII 字符（多半是 API Key 粘错了：请到模型页重新添加 Key）");
     throw new ProviderError(`网络错误：${msg}`);
@@ -56,7 +59,7 @@ async function sse(url: string, headers: Record<string, string>, body: unknown, 
     const dispatch = () => {
       if (data.length) {
         const s = data.join("\n");
-        if (s !== "[DONE]") { let j: any; try { j = JSON.parse(s); } catch { j = undefined; } if (j !== undefined) onEvent(j, event); }
+        if (s !== "[DONE]") { let j: any; try { j = JSON.parse(s); } catch { j = undefined; } if (j !== undefined) { if (event !== "ping" && j?.type !== "ping") progressed(); onEvent(j, event); } }
       }
       event = ""; data = [];
     };
@@ -78,7 +81,7 @@ async function sse(url: string, headers: Record<string, string>, body: unknown, 
     dispatch();
     return undefined;
   } finally {
-    clearTimeout(idle); clearTimeout(hard);
+    clearTimeout(idle); clearTimeout(quiet);
     r.signal?.removeEventListener("abort", outer);
   }
 }

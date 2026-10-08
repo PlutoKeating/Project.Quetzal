@@ -214,6 +214,7 @@ export function pendingCopies(): string[] {
 export const idle = () => serial(async () => {});
 export const acquireLease = () => serial(() => r().acquireLease());
 export const releaseLease = () => serial(() => r().releaseLease());
+export const renewLease = () => serial(() => r().renewLease());
 export const history = (limit = 50) => r().history(limit);
 export const show = (hash: string) => r().show(hash);
 export const revert = (hash: string) => serial(() => r().revert(hash));

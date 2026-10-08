@@ -42,7 +42,7 @@ flowchart TB
 
 - Rate limits, timeouts and 5xx errors: try another key;
 - 400/401/403/404, which mean the model or configuration is wrong: move to the next model;
-- A streaming response that sends no data for 90 seconds counts as failed, and no call may run longer than 15 minutes.
+- A streaming response that sends no data for 90 seconds, or only keep-alives with no content for 180 seconds, counts as failed. An answer that is still streaming has no time limit.
 
 ## Introspection model
 

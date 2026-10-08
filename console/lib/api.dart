@@ -311,6 +311,7 @@ class Api extends ChangeNotifier {
       return;
     }
     final ev = GatewayEvent(m['event'] as String, m['data']);
+    if (ev.name == 'rpc.progress' && ev.data is Map) { _alive[(ev.data as Map)['id']]?.call(); return; } // 基座还在处理这个请求：重新计时
     if (ev.name == 'state') { status = Map<String, dynamic>.from(ev.data as Map); _rememberName(); notifyListeners(); }
     if (ev.name == 'mesh' && ev.data is Map) { status['mesh'] = ev.data; notifyListeners(); } // 网状层的状态单独推送（绑定进展、各身体的连接）
     if (ev.name == 'account' && ev.data is Map) { status['account'] = ev.data; notifyListeners(); } // 账户的控制台登录状态（申请码、批准、退出、令牌失效）
@@ -324,9 +325,22 @@ class Api extends ChangeNotifier {
     final id = ++_seq;
     final c = Completer<dynamic>();
     _pending[id] = c;
+    // 「无进展」超时：基座处理期间每 10 秒推 rpc.progress，收到就重新计时；90 秒什么都没收到才判超时（旧版基座不推，就是 90 秒）
+    Timer? t;
+    void arm() {
+      t?.cancel();
+      t = Timer(const Duration(seconds: 90), () {
+        if (c.isCompleted) return;
+        _pending.remove(id); _alive.remove(id);
+        c.completeError(RpcError('TIMEOUT', '90 秒没有收到任何进展'));
+      });
+    }
+    _alive[id] = arm;
+    arm();
     ws.sink.add(jsonEncode({'id': id, 'method': method, 'params': params ?? {}}));
-    return c.future.timeout(const Duration(seconds: 90)).then((v) => v as T);
+    return c.future.whenComplete(() { t?.cancel(); _alive.remove(id); }).then((v) => v as T);
   }
+  final _alive = <int, void Function()>{};
 
   /// 长时间运行的调用（如对话）：不设绝对超时，而是「无进展」超时——
   /// 每收到一个满足 isProgress 的推送（模型流式文字、工具执行、心跳……）就重新计时，idle 内毫无动静才判定超时。

@@ -178,7 +178,7 @@ export class Router {
     if (this.nonces.size > NONCES) this.nonces.delete(this.nonces.keys().next().value!);
     let inner: unknown;
     try { inner = JSON.parse(p); } catch { return this.drop(from, "内容不是 JSON"); }
-    if (!inner || typeof inner !== "object" || Array.isArray(inner) || !["req", "res", "ev"].includes((inner as { t?: unknown }).t as string)) return this.drop(from, "内容不对");
+    if (!inner || typeof inner !== "object" || Array.isArray(inner) || !["req", "res", "ev", "prog"].includes((inner as { t?: unknown }).t as string)) return this.drop(from, "内容不对");
     this.d.deliver(o, inner as Record<string, unknown>);
   }
 

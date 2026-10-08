@@ -199,7 +199,8 @@ class _Upload {
         req.bufferOutput = false; // 每帧（20 ms）到了就发
         await req.addStream(_body.stream.map((b) { sent += b.length; return b; }));
         final res = await req.close().timeout(const Duration(seconds: 60));
-        done(res.statusCode, await res.transform(utf8.decoder).join(), sent);
+        // 基座识别期间每 10 秒发一个空白：60 秒内没收到任何字节才算没有回应（还在识别的长句不会被砍掉）
+        done(res.statusCode, await res.timeout(const Duration(seconds: 60)).transform(utf8.decoder).join(), sent);
       } catch (e) {
         _dead = true;
         if (!_body.hasListener) _body.stream.listen((_) {}); // 连不上：后面的帧不再攒着
@@ -316,6 +317,7 @@ class DesktopEar {
       if (status >= 400) { _emit({'kind': 'error', 'message': '基座拒绝了这句话（HTTP $status）'}); return; }
       Map j = const {};
       try { j = jsonDecode(body) as Map; } catch (_) {}
+      if (j['ok'] == false) { _emit({'kind': 'error', 'message': '基座没能处理这句话：${j['message'] ?? ''}'}); return; }
       _emit({'kind': 'heard', 'text': '${j['text'] ?? ''}', 'dropped': j['dropped'], 'ms': sent ~/ 32});
     }, (e) => _emit({'kind': 'error', 'message': '送到基座失败：$e'}));
     _emit({'kind': 'speech', 'on': true});

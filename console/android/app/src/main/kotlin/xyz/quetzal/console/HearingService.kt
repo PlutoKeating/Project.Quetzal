@@ -263,7 +263,7 @@ class HearingService : Service() {
             try {
                 val url = URL("$base/hear?stream=1&started=$startedAt&id=$uid")
                 val c = open(url).apply {
-                    requestMethod = "POST"; doOutput = true; connectTimeout = 4000; readTimeout = 60_000
+                    requestMethod = "POST"; doOutput = true; connectTimeout = 4000; readTimeout = 60_000 // 每次读：基座识别期间每 10 秒发一个空白，60 秒没有任何字节才算没有回应
                     setChunkedStreamingMode(FRAME * 2)
                     setRequestProperty("Content-Type", "application/octet-stream")
                     auth(this)
@@ -277,7 +277,9 @@ class HearingService : Service() {
                 c.disconnect()
                 val text = Regex("\"text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(body)?.groupValues?.get(1)?.let { unescape(it) } ?: ""
                 val dropped = Regex("\"dropped\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(body)?.groupValues?.get(1)?.let { unescape(it) }
+                val failed = Regex("\"ok\"\\s*:\\s*false").containsMatchIn(body)
                 if (code >= 400) emit("error", mapOf("message" to "基座拒绝了这句话（HTTP $code）"))
+                else if (failed) emit("error", mapOf("message" to "基座没能处理这句话"))
                 else emit("heard", mapOf("text" to text, "dropped" to dropped, "ms" to sent / 32))
             } catch (e: Exception) {
                 while (q.poll() != null) { /* 丢掉没送出去的帧 */ }

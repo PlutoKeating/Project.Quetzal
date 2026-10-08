@@ -97,7 +97,8 @@ test("升级指定版本；日志里每次升级带编号，读得出进行中�
   assert.deepEqual(parseUpgradeLog(""), { running: false });
   const started = `== 升级 ${t0} 开始 Tue（目标 1.2.3）\n◆ Runtime\n  ▸ Downloading @plutokeating/quetzal@1.2.3\n`;
   assert.deepEqual(parseUpgradeLog(started, t0 + 1000), { running: true, id: String(t0), startedAt: t0, target: "1.2.3", step: "Downloading @plutokeating/quetzal@1.2.3" });
-  assert.equal(parseUpgradeLog(started, t0 + 16 * 60_000).stalled, true, "超过 15 分钟算卡住，不再挡着下一次");
+  assert.equal(parseUpgradeLog(started, t0 + 16 * 60_000).stalled, true, "日志 15 分钟没有新内容算卡住，不再挡着下一次");
+  assert.equal(parseUpgradeLog(started, t0 + 16 * 60_000, t0 + 10 * 60_000).running, true, "还在写日志（有进展）就不算卡住");
   const failed = `${started}curl: (35) TLS connect error\n== 升级 ${t0} 退出码 35\n`;
   assert.deepEqual(parseUpgradeLog(failed, t0), { running: false, id: String(t0), startedAt: t0, target: "1.2.3", exitCode: 35, step: "curl: (35) TLS connect error" });
   // 只看最近一次；旧格式的记录不影响

@@ -42,6 +42,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 - 请求：`{"id": 1, "method": "status", "params": {}}`
 - 响应：`{"id": 1, "result": …}` 或 `{"id": 1, "error": {"code", "message"}}`
 - 推送：`{"event": "<名称>", "data": …}`
+- 处理一个请求期间，每 10 秒推送一次 `{"event": "rpc.progress", "data": {"id": <请求的 id>}}`：客户端按「多久没有收到任何东西」判超时，收到它就重新计时（快速接入、立即同步这类要做一阵的请求不会被中途判超时）。
 
 | 推送事件 | 数据 |
 |---|---|
@@ -164,7 +165,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `gateway.rotateToken` | — → `{token}`：换一个新的网关令牌并保存，断开其他所有连接（关闭码 4001，它们手里的旧令牌作废），新令牌只返回给发起的这个连接；写审计 |
 | `selfUpdate` | `{version?}` | 让这具身体在后台重跑一键安装脚本，把运行基座、网页控制台与原生控制台升到 `version`（控制台看到的最新发布；不给时装 npm 的 latest，它可能晚于发布）并重启服务一次：`{started, message, status}`。同一时间只跑一个升级（进行中再调只返回说明）。由适配器的 `upgrade(version?)` 实现（Linux：`systemd-run --user` 起临时单元脱离服务的 cgroup，没有 systemd 用 `setsid`；日志 `logs/upgrade.log`，每次升级的开始与退出码带编号）；Windows：在后台脱离进程树重跑 `install.ps1`（环境变量 `QUETZAL_VERSION` / `QUETZAL_UPGRADE=1` / `QUETZAL_UPGRADE_ID`），有人登录时经身体助手在用户桌面里启动，以便需要提权时能弹 UAC，日志同样写 `logs\upgrade.log`；安卓没有（App 自己升级） |
 | `quit` | — | 退出（桌面托盘的「退出」）：这一次停掉后台服务，开机自启照旧。由适配器的 `quit()` 实现（Linux：systemd 用户服务 `stop --no-block`；守护循环放 `state/quit`，循环在运行基座退出后看到它就自己也退出；都没有直接结束进程）；没有的身体直接结束进程（安卓的前台服务会重新拉起） |
-| `selfUpdateStatus` | — | 最近一次升级：`{running, id?, startedAt?, target?, exitCode?, step?, stalled?}`（`step` 为安装脚本最后一步或报错；开始超过 15 分钟还没结束为 `stalled`）。控制台据此显示进度、失败原因与「重试」，重开控制台时接着显示进行中的升级 |
+| `selfUpdateStatus` | — | 最近一次升级：`{running, id?, startedAt?, target?, exitCode?, step?, stalled?}`（`step` 为安装脚本最后一步或报错；升级日志 15 分钟没有新内容、又还没结束为 `stalled`）。控制台据此显示进度、失败原因与「重试」，重开控制台时接着显示进行中的升级 |
 | `supervision` / `setSupervision` | — / `{enabled}` | 守护开关（开机自启 + 退出后自动重启，一个开关管两件事）：`{available, enabled, kind: systemd｜runit｜loop｜task｜none, detail}`。由身体适配器实现：Windows 是安装包注册的计划任务 `\Quetzal\Runtime-Boot` / `Runtime-Logon`（`kind: task`；关 = 标志文件 `state\supervise.off`，并试着停用两个任务），Linux 是 systemd 用户服务（关 = disable + 覆盖片段 `Restart=no`）或一键安装脚本的守护循环（关 = 标志文件 `state/supervise.off` + 删开机项），安卓（App 内置）是 App 前台服务的「开机与升级后自启、退出后重启」开关（`kind: loop`，经身体接口），旧的 Termux 安装是 runit `down` 文件 + Termux:Boot 开机脚本；`available` 为假（手动部署）时控制台不显示开关。关闭只影响之后：正在运行的进程不受影响 |
 
 **记忆**

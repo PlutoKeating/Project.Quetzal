@@ -6,7 +6,7 @@
 // 任何一步不满足都拒绝，程序目录保持原样。
 import crypto from "node:crypto";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /** 发布签名公钥（ed25519，32 字节原始公钥的 base64url）。私钥只在 GitHub Actions 的发布流程里。 */
@@ -43,13 +43,29 @@ export function verifyRelease(sums: Uint8Array, sig: string, tag: string, public
 }
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
+/** 下载：IDLE_MS 内没有收到任何字节就放弃（还在收的不砍）。 */
+const IDLE_MS = 30_000;
 async function download(fetcher: Fetch, url: string): Promise<Uint8Array> {
-  const r = await fetcher(url, { signal: AbortSignal.timeout(30_000), redirect: "follow" });
-  if (!r.ok) throw new Error(`${url}：HTTP ${r.status}`);
-  if (Number(r.headers.get("content-length") ?? 0) > MAX_BYTES) throw new Error(`${url}：文件过大`);
-  const b = new Uint8Array(await r.arrayBuffer());
-  if (b.length > MAX_BYTES) throw new Error(`${url}：文件过大`);
-  return b;
+  const ac = new AbortController();
+  let t = setTimeout(() => ac.abort(), IDLE_MS);
+  const arm = () => { clearTimeout(t); t = setTimeout(() => ac.abort(), IDLE_MS); };
+  try {
+    const r = await fetcher(url, { signal: ac.signal, redirect: "follow" });
+    if (!r.ok) throw new Error(`${url}：HTTP ${r.status}`);
+    if (Number(r.headers.get("content-length") ?? 0) > MAX_BYTES) throw new Error(`${url}：文件过大`);
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    const reader = r.body?.getReader();
+    if (reader) for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      arm(); size += value.length; parts.push(value);
+      if (size > MAX_BYTES) throw new Error(`${url}：文件过大`);
+    }
+    const b = new Uint8Array(size);
+    let o = 0; for (const x of parts) { b.set(x, o); o += x.length; }
+    return b;
+  } finally { clearTimeout(t); }
 }
 
 /** 依次尝试各个来源，返回第一份签名有效的发布记录对应的提交。 */
@@ -64,8 +80,17 @@ export async function fetchVerifiedCommit(tag: string, fetcher: Fetch = fetch, p
   throw new Error(`拿不到 ${tag} 的有效发布签名：${errors.join("；")}`);
 }
 
-const git = (cwd: string, args: string[]) => new Promise<string>((resolve, reject) =>
-  execFile("git", args, { cwd, timeout: 120_000, maxBuffer: 8 << 20 }, (e, out, err) => (e ? reject(new Error(`git ${args[0]}：${String(err || e.message).trim()}`)) : resolve(String(out).trim()))));
+/** git：120 秒没有任何输出才结束（fetch 带 --progress，传输期间一直有输出）。 */
+const git = (cwd: string, args: string[]) => new Promise<string>((resolve, reject) => {
+  const p = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  let out = "", err = "", t: NodeJS.Timeout | undefined;
+  const arm = () => { clearTimeout(t); t = setTimeout(() => { err += "（120 秒没有任何输出，已结束）"; p.kill("SIGKILL"); }, 120_000); };
+  p.stdout.on("data", (b: Buffer) => { arm(); out += b.toString(); });
+  p.stderr.on("data", (b: Buffer) => { arm(); err = (err + b.toString()).slice(-65536); });
+  p.on("error", (e) => { clearTimeout(t); reject(new Error(`git ${args[0]}：${e.message}`)); });
+  p.on("close", (code) => { clearTimeout(t); code === 0 ? resolve(out.trim()) : reject(new Error(`git ${args[0]}：${err.trim()}`)); });
+  arm();
+});
 
 export interface SelfUpdateResult { tag: string; commit: string; previous: string; changed: boolean }
 
@@ -74,7 +99,7 @@ export async function selfUpdate(o: { root?: string; fetcher?: Fetch; publicKey?
   const here = o.root ?? path.dirname(fileURLToPath(import.meta.url));
   const root = await git(here, ["rev-parse", "--show-toplevel"]);
   const shallow = (await git(root, ["rev-parse", "--is-shallow-repository"])) === "true";
-  await git(root, ["fetch", "--quiet", "--force", "--tags", ...(shallow ? ["--depth=1"] : []), "origin"]);
+  await git(root, ["fetch", "--progress", "--force", "--tags", ...(shallow ? ["--depth=1"] : []), "origin"]);
   const tag = latestStable((await git(root, ["tag", "--list", "v*"])).split("\n"));
   if (!tag) throw new Error("仓库里没有正式版标签（vX.Y.Z）");
   const commit = await fetchVerifiedCommit(tag, o.fetcher ?? fetch, o.publicKey ?? RELEASE_PUBLIC_KEY, (o.sources ?? releaseSources)(tag));

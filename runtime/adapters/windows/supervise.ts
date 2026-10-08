@@ -48,7 +48,7 @@ export async function quit(exit: () => void = () => process.exit(0)): Promise<vo
 }
 
 export function upgradeStatus(): UpgradeStatus {
-  try { return parseUpgradeLog(fs.readFileSync(path.join(home(), "logs", "upgrade.log"), "utf8")); } catch { return { running: false }; }
+  try { const f = path.join(home(), "logs", "upgrade.log"); return parseUpgradeLog(fs.readFileSync(f, "utf8"), Date.now(), fs.statSync(f).mtimeMs); } catch { return { running: false }; }
 }
 
 /** 在后台启动升级（脱离当前进程树）。在会话 0 里启动时，安装包需要提权的步骤弹不出 UAC，会如实失败；身体助手在用户桌面里启动则可以。 */

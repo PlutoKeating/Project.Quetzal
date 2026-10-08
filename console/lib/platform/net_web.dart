@@ -26,11 +26,14 @@ Future<HttpReply> request(String method, String url, {String? json, Map<String, 
   return _send(xhr, json?.toJS);
 }
 
+/// 上传：按「无进展」计时——上传或下载有进度就重新计时，60 秒没有任何进度才放弃（大文件还在传就不砍）。
 Future<HttpReply> upload(String url, Uint8List bytes, {Map<String, String> headers = const {}, void Function(double)? onProgress}) {
-  final xhr = web.XMLHttpRequest()..open('POST', url)..timeout = const Duration(minutes: 5).inMilliseconds;
+  final xhr = web.XMLHttpRequest()..open('POST', url);
   headers.forEach((k, v) => xhr.setRequestHeader(k, v));
-  if (onProgress != null) {
-    xhr.upload.addEventListener('progress', ((web.ProgressEvent e) { if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total); }).toJS);
-  }
-  return _send(xhr, bytes.toJS);
+  Timer? t;
+  void arm() { t?.cancel(); t = Timer(const Duration(seconds: 60), () => xhr.abort()); }
+  xhr.upload.addEventListener('progress', ((web.ProgressEvent e) { arm(); if (onProgress != null && e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total); }).toJS);
+  xhr.addEventListener('progress', ((web.Event _) => arm()).toJS);
+  arm();
+  return _send(xhr, bytes.toJS).whenComplete(() => t?.cancel());
 }

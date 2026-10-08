@@ -7,7 +7,7 @@ import { testModel, remoteModels } from "./router.ts";
 import type { Provider, ProviderModel } from "./types.ts";
 
 /** 留下几个通的（第一个是主力，其余在它失败时接上）；最多试几个。 */
-const KEEP = 2, TRIES = 6, TEST_TIMEOUT_MS = 30_000;
+const KEEP = 2, TRIES = 6;
 /** 目录标的状态：正式的在前，alpha / beta 其次，已弃用的最后（不按模型名猜「预览版」）。 */
 const STATUS_RANK = (s?: string) => (s === "deprecated" ? 2 : s ? 1 : 0);
 
@@ -69,7 +69,7 @@ export async function quickSetup(a: { catalogId: string; key: string }, actor: s
     const existing = loadProviders().providers.find((x) => x.id === pid)!.models.some((x) => x.name === m.id);
     const id = crypto.randomUUID();
     if (!existing) edit((q) => q.models.push({ id, name: m.id, enabled: true, context: m.context || 16000, maxTokens: Math.min(m.output || 4096, 16384), sortOrder: order(), ...(m.cost ? { cost: m.cost } : {}) } satisfies ProviderModel));
-    const r = await withTimeout(test(pid, m.id), TEST_TIMEOUT_MS, { ok: false, latencyMs: TEST_TIMEOUT_MS, message: "超时" });
+    const r: Awaited<ReturnType<typeof testModel>> = await test(pid, m.id); // 不另设总时限：模型调用本身按「没有数据 / 没有内容」计时（adapters.ts），还在输出的不会被砍掉
     if (r.ok) { kept.push(m); continue; }
     last = r.message;
     if (!existing) edit((q) => { q.models = q.models.filter((x) => x.id !== id); });

@@ -1,17 +1,37 @@
 // 执行外部命令（shell 工具、适配器等），带超时与输出上限。agent 的命令（shell、后台任务）一律经 sandbox.ts 包进沙箱。
 //   Windows 上她的命令是 PowerShell（sandbox.ts 的 wrapScript）；子进程一律不弹控制台窗口；超时与停止结束整棵进程树。
-import { execFile } from "node:child_process";
+//   超时一律按「多久没有任何输出」计：命令还在输出（下载进度、编译日志……）就重新计时，不在中途砍掉还在推进的命令。
+//   注意：有的程序输出到管道时会攒满一块才写出，看起来像没有动静；这种命令用 background 放到后台更合适。
 import { wrapScript, hostScript, SandboxUnavailable } from "./sandbox.ts";
 import { killTree, isWindows } from "./platform.ts";
 
-export function run(cmd: string, args: string[] = [], timeoutMs = 20_000, o: { cwd?: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}): Promise<{ code: number; out: string; err: string }> {
+const MAX_OUTPUT = 4 << 20;
+
+/** 执行一条命令。idleMs：这么久没有任何输出（stdout / stderr）就结束它；有输出就重新计时。signal 中止时结束。 */
+export function run(cmd: string, args: string[] = [], idleMs = 20_000, o: { cwd?: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
     if (o.signal?.aborted) return resolve({ code: 130, out: "", err: "没有执行：这一轮已经停止" });
-    const p = execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 4 << 20, cwd: o.cwd, env: o.env, windowsHide: true, killSignal: "SIGKILL", signal: o.signal }, (e: any, out, err) => {
-      const aborted = e?.name === "AbortError";
-      if ((e?.killed || aborted) && isWindows) killTree(p.pid); // 超时或停止：Windows 上 execFile 只杀直接子进程，孙进程（沙箱里的命令）一起结束
-      resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: String(out), err: aborted ? `${err}\n（这一轮被停止，命令已结束）` : String(err || e?.message || "") });
-    });
+    let p: ChildProcess;
+    try { p = spawn(cmd, args, { cwd: o.cwd, env: o.env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }); }
+    catch (e) { return resolve({ code: 127, out: "", err: `启动失败：${(e as Error).message}` }); }
+    let out = "", err = "", note = "", t: NodeJS.Timeout | undefined;
+    // Windows 上只杀直接子进程会留下孙进程（沙箱里的命令）：整棵结束
+    const kill = (why: string) => { if (note) return; note = why; if (isWindows) killTree(p.pid); else p.kill("SIGKILL"); };
+    const arm = () => { clearTimeout(t); t = setTimeout(() => kill(`\n（${Math.round(idleMs / 1000)} 秒没有任何输出，已结束）`), idleMs); };
+    const take = (b: Buffer, to: "out" | "err") => {
+      arm();
+      if (out.length + err.length > MAX_OUTPUT) return kill("\n（输出超过 4 MB，已结束）");
+      if (to === "out") out += b.toString(); else err += b.toString();
+    };
+    p.stdout!.on("data", (b: Buffer) => take(b, "out"));
+    p.stderr!.on("data", (b: Buffer) => take(b, "err"));
+    const onAbort = () => kill("\n（这一轮被停止，命令已结束）");
+    o.signal?.addEventListener("abort", onAbort, { once: true });
+    let settled = false;
+    const done = (code: number) => { if (settled) return; settled = true; clearTimeout(t); o.signal?.removeEventListener("abort", onAbort); resolve({ code: note && code === 0 ? 1 : code, out, err: err + note }); };
+    p.on("error", (e) => { err += `启动失败：${e.message}`; done(127); });
+    p.on("close", (code, sig) => done(code ?? (sig ? 128 : 1)));
+    arm();
   });
 }
 
@@ -36,7 +56,10 @@ function runTree(w: { cmd: string; args: string[]; cwd: string; env: NodeJS.Proc
     p.stdout!.on("data", (b: Buffer) => { if (out.length < MAX) out += b.toString(); });
     p.stderr!.on("data", (b: Buffer) => { if (err.length < MAX) err += b.toString(); });
     const kill = (why: string) => { note = why; killTree(p.pid, "SIGKILL"); };
-    const t = setTimeout(() => kill(`\n（${Math.round(timeoutMs / 1000)} 秒超时，已结束）`), timeoutMs);
+    let t: NodeJS.Timeout | undefined;
+    const arm = () => { clearTimeout(t); t = setTimeout(() => kill(`\n（${Math.round(timeoutMs / 1000)} 秒没有任何输出，已结束）`), timeoutMs); }; // 有输出就重新计时
+    p.stdout!.on("data", arm); p.stderr!.on("data", arm);
+    arm();
     const onAbort = () => kill("\n（真实环境已退出或这一轮被停止，命令已结束）");
     signal?.addEventListener("abort", onAbort, { once: true });
     const done = (code: number) => { clearTimeout(t); signal?.removeEventListener("abort", onAbort); resolve({ code, out, err: err + note }); };

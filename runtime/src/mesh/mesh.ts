@@ -65,6 +65,9 @@ export function filePins(file: string): PinStore {
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
+// 请求的时间墙按「无进展」计：对方处理请求期间每 progMs 回一个 {t:"prog", id}（还在做），收到它或对方发来的分块就重新计时，
+// progIdleMs 什么都没收到才算没有回应。对方从没回过 prog（1.9.0 之前的版本）时按调用方给的时限。
+export const meshTimings = { progMs: 10_000, progIdleMs: 60_000 }; // 测试可以改小
 const REFRESH_MIN_MS = 60_000;        // 因为没登记的身体而拉取灵魂仓库：最快一分钟一次
 const READER_MAX_MESSAGE = 256 << 10; // 只读成员发来的单条消息上限
 const KIND_CACHE_MS = 10_000;
@@ -106,7 +109,7 @@ export class Mesh extends EventEmitter {
   private readers = new Set<string>();    // 连着的只读成员
   private mismatch = new Set<string>();   // 公钥或类型与钉住的不符、等待确认的身体
   private sigErrors = new Map<string, string>(); // 最近一次拒绝某具身体的连接请求的原因（控制台显示；认证通过后清掉）
-  private pending = new Map<string, { body: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private pending = new Map<string, { body: string; method: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   private warned = new Recent(200);
   private warnTimes: number[] = [];
   private kinds = new Map<string, { kind: string | undefined; at: number }>();
@@ -326,6 +329,7 @@ export class Mesh extends EventEmitter {
     });
     l.on("path", () => this.emitPeer(body));
     l.on("retry", () => this.emitPeer(body));
+    l.on("chunk", () => { for (const [id, p] of this.pending) if (p.body === body) this.rearm(id); }); // 它发来的大消息正在陆续到达
     l.on("message", (m: Record<string, unknown>) => {
       try { this.onMessage(body, m); } catch (e) { this.o.log(`处理 ${body} 的消息出错（已丢弃）：${clip((e as Error)?.message, 200)}`); }
     });
@@ -386,9 +390,12 @@ export class Mesh extends EventEmitter {
         catch (e) { try { this.sendTo(from, { t: "res", id, ok: false, e: clip((e as Error).message, 200) }); } catch {} }
       };
       if (!h) return reply(false, reader && this.handlers.has(method) ? `只读成员不能调用 ${method}` : `没有这个方法：${clip(method, 100)}`);
-      Promise.resolve().then(() => h(m.p, from)).then((v) => reply(true, v ?? null), (e) => reply(false, (e as Error)?.message ?? e));
+      const prog = setInterval(() => { try { this.sendTo(from, { t: "prog", id }); } catch {} }, meshTimings.progMs); // 还在做：让对方重新计时
+      prog.unref?.();
+      Promise.resolve().then(() => h(m.p, from)).then((v) => { clearInterval(prog); reply(true, v ?? null); }, (e) => { clearInterval(prog); reply(false, (e as Error)?.message ?? e); });
       return;
     }
+    if (m.t === "prog" && typeof m.id === "string") { const p = this.pending.get(m.id); if (p && p.body === from) this.rearm(m.id); return; }
     if (m.t === "res" && typeof m.id === "string") {
       const p = this.pending.get(m.id);
       if (!p || p.body !== from) return; // 只认发给它的那具身体的回应
@@ -418,6 +425,15 @@ export class Mesh extends EventEmitter {
   private directMembers(): string[] { return [...this.links].filter(([b, l]) => l.state === "open" && !this.isReaderNow(b)).map(([b]) => b); }
 
   /** 调用另一具身体上的方法（对方必须在线且连上，直连或经中转；直连没连上会排队等待，直到超时）。 */
+  /** 对方还在处理（prog）或正在发来大消息（分块）：这个请求重新计时，progIdleMs 内没有任何进展才算没有回应。 */
+  private rearm(id: string) {
+    const p = this.pending.get(id);
+    if (!p) return;
+    clearTimeout(p.timer);
+    p.timer = setTimeout(() => { this.pending.delete(id); p.reject(new Error(`${p.body} 在 ${meshTimings.progIdleMs / 1000} 秒内没有任何进展（${p.method}）`)); }, meshTimings.progIdleMs);
+    p.timer.unref?.();
+  }
+
   request<T = unknown>(body: string, method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
     const l = this.links.get(body);
     if ((!l || l.state === "closed") && !(this.router?.via(body) && !this.isReaderNow(body))) return Promise.reject(new Error(`${body} 不在网上`));
@@ -425,7 +441,7 @@ export class Mesh extends EventEmitter {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${body} 在 ${Math.round(timeoutMs / 1000)} 秒内没有回应 ${method}`)); }, timeoutMs);
       timer.unref?.();
-      this.pending.set(id, { body, resolve: resolve as (v: unknown) => void, reject, timer });
+      this.pending.set(id, { body, method, resolve: resolve as (v: unknown) => void, reject, timer });
       let sent = false;
       try { sent = this.sendTo(body, { t: "req", id, m: method, p: params }); } catch (e) { this.pending.delete(id); clearTimeout(timer); return reject(e as Error); }
       if (!sent) { this.pending.delete(id); clearTimeout(timer); reject(new Error(`发给 ${body} 失败`)); }
