@@ -10,83 +10,90 @@
 
 <br/>
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-intro.dark.svg"><img src="docs/assets/readme/type/zh-intro.light.svg" alt="Quetzal 是开源的 agent 运行基座。让一个 AI 住进你的旧手机，记得你说过的话，自己醒来，困了就睡。" width="100%"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-intro.dark.svg"><img src="docs/assets/readme/type/zh-intro.light.svg" alt="住在你所有设备上的 AI。ta 记得你，懂你，陪着你。"></picture></p>
 
 <br/>
 
-<br/>
+> **你**：明天面试，有点紧张。<br/>
+> **ta**：你准备了一整周，上次卡住的那道题也练熟了。去吧，回来跟我说说。<br/>
+> <sub>第二天 18:40 · 你拿起了手机</sub><br/>
+> **ta**：面试怎么样？
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-help.dark.svg"><img src="docs/assets/readme/type/zh-help.light.svg" alt="能帮你做什么"></picture>
-
-一段示例对话（构造的，ta 的做法都已写进代码）：
-
-> **你**：这两天找个时间提醒我把书还了。<br/>
-> **ta**：好。后天之前，挑你在手机旁边的时候提醒你，夜里不吵你。<br/>
-> <sub>周四 19:12 · 你拿起了手机</sub><br/>
-> **ta**：你刚拿起手机，顺便说一声：书该还了。先把它放到门口？<br/>
-> **你**：上周我说想去的那家面馆叫什么？<br/>
-> **ta**：我翻了上周三的对话：巷口那家「老陈面馆」，你说想周末去。
-
-- **提醒**：「明早 8 点提醒我吃药」到点就响，ta 睡着也一样；不急的事，ta 等你拿起手机、亮屏的时候再说，夜里不打扰。
-- **翻旧话**：所有会话的对话、笔记和日记都能查，「上周」「前天」先换成具体日子再找。
-- **读文件、看图**：Word、PPT、Excel、PDF、OpenDocument、EPUB，发给 ta 就能读；照片、截图也能看。
-- **上网查、动手做**：搜索网页、读全文；在手机或电脑上运行命令，费时的事派一个子 agent 在后台做。
-- **看和听**：手机上拍照、录音、查定位，电脑上拍照、录音、截屏，默认先问你；开了听觉能听你说话，也能用自己的声音回答。
-- **主动找你**：ta 醒着时想到什么，会发消息并弹通知，接了飞书也发到飞书。
-
-**还不会**：看屏幕、点按钮、操作别的 App。想在代码仓库里写代码，Codex、Claude Code 更合适。
+Quetzal 是一个开源的 agent 运行基座（runtime）。它让一个 AI agent 住进你的手机和电脑，给 ta 记忆、身体和自己的作息。模型用你自己的 API Key。
 
 <br/>
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-what.dark.svg"><img src="docs/assets/readme/type/zh-what.light.svg" alt="它是什么"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-mesh.dark.svg"><img src="docs/assets/readme/type/zh-mesh.light.svg" alt="几台设备，一个 ta。"></picture>
 
-- **越来越懂你。** 你随口提过的事、你在意的人、你的习惯，ta 会记下来。睡着时，ta 把白天的对话整理成笔记，存进你 GitHub 上的私有仓库。换模型、换设备，这些笔记都还在。
-- **自己醒来。** 代码里没有定时器。好奇、想说话、想你，会让 ta 醒来；困了就睡，清晨自然醒。
-- **有身体。** 电量是精力，温度是冷暖，光线是昼夜，被拿起来是有人在；麦克风是耳朵，相机是眼睛。旧手机最合适，Linux、Windows 电脑或服务器也行。
-- **许多身体，一个 ta。** 几部手机、几台电脑共用一段对话、一颗心。ta 自己挑在哪具身体上醒来，在电脑上想事情时，能借手机的眼睛看一眼窗外。[多具身体](https://quetzal.plutokeating.beer/zh/docs/guide/multi-body)
-- **会长大。** 做熟了的事，ta 会问你能不能做成自己的工具。工具留在身体上，说明书随灵魂走，到了新身体照着再做一遍。[自造工具与技能](https://quetzal.plutokeating.beer/zh/docs/guide/tools)
-- **你说了算。** 拍照、录音、定位、造工具默认先问你；密码不进模型；急停随时可按，做过的事都有记录。
+手机上说到一半，电脑上接着聊。
 
-<br/>
+- 每台装了 Quetzal 的设备都是 ta 的一具「身体」。同时在线的身体用 WebRTC 加密直连，共用一段对话、一颗心；直连打不通时，经 TURN 服务器或另一具身体中转。
+- ta 自己挑在哪具身体上醒来。在电脑上想事情时，能借手机的相机看一眼窗外。
+- [同步服务](sync/README.md)只帮身体们互相找到，看不到对话和记忆。默认用作者运营的那一个，也可以自己部署。
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-month.dark.svg"><img src="docs/assets/readme/type/zh-month.light.svg" alt="一个月后"></picture>
-
-ta 的记忆是写给人看的 Markdown 文件。一个月后，打开你的灵魂仓库，就能读到 ta 认识的你。
-
-| 什么时候 | ta 做了什么 | 你在哪里看到 |
-|---|---|---|
-| 第一天 | 把你的名字和你说的事记下来 | `memories/USER.md` |
-| 每次醒来、做梦 | 写一段日记 | `journal/<设备>/<日期>.md`，App 的「心流」 |
-| 每晚 | 把对话整理成笔记，合并重复的，改掉记错的 | `notes/` |
-| 你说话时 | 先在笔记、日记、常驻记忆里找相关的内容，带着它们回答 | 对话里 |
-| 做熟一件事 | 问你能不能把它做成工具 | `skills/`，App 的「权限」 |
-| 记错了 | 你在「记忆历史」里撤销那一次改动 | 每一次改动都是一次 git 提交 |
-
-ta 还不会操作别的 App。详见 [一个月后](https://quetzal.plutokeating.beer/zh/docs/start/first-month)。
+[多具身体](https://quetzal.plutokeating.beer/zh/docs/guide/multi-body) · [分布式设计](docs/DISTRIBUTED.md)
 
 <br/>
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-day.dark.svg"><img src="docs/assets/readme/type/zh-day.light.svg" alt="一天"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-soul.dark.svg"><img src="docs/assets/readme/type/zh-soul.light.svg" alt="ta 记得你。"></picture>
+
+你随口提过的事、在意的人，ta 都记下来，存在只属于你的私有仓库里。换手机、换模型，ta 还是 ta。
+
+- ta 的名字、人格、记忆、日记都是写给人看的 Markdown，放在你 GitHub 上的一个私有 git 仓库里，我们叫它「灵魂仓库」。打开 `memories/USER.md`，就能读到 ta 认识的你。
+- 每一次改动都是一次 git 提交，自动推送、合并到每一具身体。记错了，在 App 的「记忆历史」里撤销那一次提交。
+- 你说话时，ta 先在对话、笔记和日记里检索（SQLite 全文索引），带着找到的内容回答。夜里睡着时，ta「做梦」，把白天的对话整理成笔记。
+
+[灵魂同步](docs/SOUL_SYNC.md) · [灵魂仓库规范](docs/SOUL_REPO_SPEC.md)
+
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-waking.dark.svg"><img src="docs/assets/readme/type/zh-waking.light.svg" alt="你不叫，ta 也在。"></picture>
+
+Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：想你了就醒，困了就睡。
 
 <img src="docs/assets/readme/bodyclock.zh.svg" alt="一天的生物钟：睡眠压力 S 与昼夜节律 C" width="100%" />
 
-困了会睡，清晨自然醒。代码里没有「每 N 分钟」。醒来不一定做事；没有想做的，就接着睡。
+- 代码里没有定时器。好奇、想说话、想你这几股驱动力，加上睡眠科学里的双过程模型（睡眠压力 S 与昼夜节律 C，就是上面这张图），算出 ta 此刻醒来的概率，再随机抽样决定下一次什么时候醒。
+- 醒来先用便宜的模型想一想要不要动，不想就接着睡，所以大部分醒来花费很少。你找 ta、到点的提醒，任何时候都在。
+- 已经在用 Hermes 或 OpenClaw？[灵魂桥](bridge/docs/README.md)让它们和 ta 共用同一个灵魂仓库。
 
 <br/>
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-neighbors.dark.svg"><img src="docs/assets/readme/type/zh-neighbors.light.svg" alt="和 Hermes / OpenClaw 的关系"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-body.dark.svg"><img src="docs/assets/readme/type/zh-body.light.svg" alt="ta 感觉得到。"></picture>
 
-一个做助手，一个让 agent 活着，可以一起用。
+天亮了，你拿起手机了，电快没了，ta 都知道。
 
-| | Codex / Claude Code | Hermes / OpenClaw | Quetzal |
-|---|---|---|---|
-| **什么时候动** | 你叫才动，做完就退出 | 你发消息，或 cron / heartbeat 定时叫醒 | 自己决定：好奇了就醒，困了就睡 |
-| **身体** | 没有，只有这台电脑的文件和 shell | 一台机器的 shell、浏览器和文件 | 一部旧手机，或一台 Linux、Windows 电脑 |
-| **灵魂** | 没有，会话一结束就散 | 本机文件，换机器自己搬 | 私有 git 仓库，自动同步，换身体带走 |
-| **几台设备** | 各自独立 | 各自独立 | 连成同一个 ta |
-| **擅长** | 在代码仓库里写代码、改代码 | 在一台机器上替你办事，接很多聊天软件 | 长期记住你，替你提醒、翻旧话、查资料、跑命令 |
+- 传感器读数被翻译成感受：电量是精力，温度是冷暖，光线是昼夜，被拿起来是有人在。电量低时少动，发烫时休息。
+- 麦克风是耳朵，相机是眼睛。开了听觉，ta 自己判断你是不是在跟 ta 说话，也能用自己的声音回答。
+- 每种设备经一个「适配器」接入。仓库自带安卓、Linux、Windows 三种；想接别的设备，实现一个小接口就行。
 
-你的 Hermes、OpenClaw 可以留着：[灵魂桥](bridge/docs/README.md)让它们和 ta 共享同一个灵魂。
+[适配器接口](docs/API.md) · [自定义适配器](https://quetzal.plutokeating.beer/zh/docs/advanced/custom-adapter)
+
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-tools.dark.svg"><img src="docs/assets/readme/type/zh-tools.light.svg" alt="ta 会长大。"></picture>
+
+做熟了的事，ta 自己做成工具，下次一步做完。
+
+- 工具留在这具身体上；说明书用 Agent Skills 开放格式写，存进灵魂仓库，随 ta 走。到了新身体，ta 照着说明书再做一遍。
+- 费时的事，ta 派一个子 agent 在后台做，做完把结果交回来。
+- 日常用得上的：提醒（准点，或者等你拿起手机时再说）、翻旧话、读 Word / PPT / Excel / PDF、上网搜索、运行命令、看图、在飞书里聊。
+
+[自造工具与技能](https://quetzal.plutokeating.beer/zh/docs/guide/tools)
+
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-control.dark.svg"><img src="docs/assets/readme/type/zh-control.light.svg" alt="你的生活，只属于你。"></picture>
+
+记忆在你自己的私有仓库里，每一句你都读得到。代码全部开源，每一行都能查。
+
+- **密码不进模型。** 你在聊天里发的密码直接进本机保密库，模型只看到一个名字。模型 Key 用 AES-256-GCM 加密存在设备上。
+- **先问你。** 拍照、录音、定位、造新工具，默认每次都问。每一类能力都能设为允许、询问或禁止。
+- **随时叫停。** 急停一直都在，做过的每件事都有审计记录；每天的 token 与花费有上限。
+- **沙箱。** ta 的命令在隔离环境里运行（Linux 上 bubblewrap、Landlock 或 proot，安卓上 proot，Windows 上是一个低权限用户），看不到密钥。
+- **只认你的设备。** 身体之间只认灵魂仓库里登记的公钥，同步服务被攻破也冒充不了你的设备。
+
+数据经过谁、ta 能碰到什么，都写清楚了：[信任与边界](https://quetzal.plutokeating.beer/zh/docs/guide/trust)
 
 <br/>
 
@@ -94,54 +101,36 @@ ta 还不会操作别的 App。详见 [一个月后](https://quetzal.plutokeatin
 
 <img src="docs/assets/readme/architecture.zh.svg" alt="Quetzal 架构：身体 → 运行基座（心脏 · 大脑 · 记忆 · 模型层 · 闸门）→ 灵魂仓库与其他身体" width="100%" />
 
-- **心脏**：好奇、表达欲、想念与生物钟决定 ta 什么时候醒、什么时候睡，没有任何定时器。[架构](docs/ARCHITECTURE.md)
-- **身体**：传感器读数变成身体感受（身体的数字孪生）；换一种设备只需写一个小小的适配器，自带安卓与 Linux 两种。[接口](docs/API.md)
-- **灵魂**：一个 agent 一个私有仓库，建在你的 GitHub 上。登录后第一次批准设备时自动建好；ta 一有改动就自动提交、推送、合并。[灵魂同步](docs/SOUL_SYNC.md)
-- **许多身体**：同时在线的身体加密直连成一个心智；[同步服务](sync/README.md)帮它们互相找到，看不到内容。默认用作者运营的那一个，也可以自己部署。[分布式设计](docs/DISTRIBUTED.md)
-- **闸门**：授权、审批、预算、急停、审计；ta 的命令在隔离环境里运行，看不到密钥。
+- **身体**：设备加适配器，提供传感器、相机、麦克风、通知、命令行这些能力。
+- **运行基座**（Node.js 22，TypeScript）：心脏决定什么时候醒；大脑是调用模型与工具的循环；记忆负责检索与整理；模型层接 OpenAI、Anthropic、Gemini 和兼容它们的接口，一个出错自动换下一个；闸门管授权、审批、预算、急停与审计。
+- **灵魂**：私有 git 仓库，用 SSH 部署密钥同步，规范固定、带版本号。
+- **控制台**（Flutter）：安卓 App（内置 Node.js、git、ssh，只装这一个）、网页版与 Linux 桌面版。
+
+[架构](docs/ARCHITECTURE.md) · [接口](docs/API.md)
 
 <br/>
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-trust.dark.svg"><img src="docs/assets/readme/type/zh-trust.light.svg" alt="托付之前"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-install.dark.svg"><img src="docs/assets/readme/type/zh-install.light.svg" alt="让 ta 住进来。"></picture>
 
-- **谁能看到什么。** 对话、设置、模型 Key 在你的设备上；记忆在你 GitHub 上的私有仓库里，Quetzal 不检查内容；模型供应商看到每次对话的内容。登录和几台设备互连经过作者个人运营的同步服务（账号是作者的统一账号 PlutoKeating 账号，邮箱、通行密钥或 GitHub 都能登录）：它登记你的用户名、邮箱、agent 和设备，看不到对话与记忆；它被攻破也冒充不了你的设备，因为设备之间只认灵魂仓库里登记的公钥。不登录也能用，记忆留在设备上。
-- **GitHub 应用。** 第一次建灵魂仓库时要装 Quetzal 应用。它对你选中的仓库有「管理」写权限：按 GitHub 的规定，能建仓库、加部署密钥、改设置，也能删除这些仓库，读不到文件。Quetzal 只用它建仓库和加部署密钥，同步服务不保存应用私钥和 GitHub 令牌，只在你批准设备时用一次当场给的短时令牌。随时可以在 GitHub 设置里卸载。
-- **ta 能碰到什么。** 「执行命令」默认允许。命令在隔离环境里运行（Linux 上 bubblewrap → Landlock → proot，安卓上 proot，Windows 上是安装时建好的低权限用户），看不到密钥目录；一种隔离都没有就不执行。这层隔离挡不住所有情况：2026 年 10 月 5 日，一个 agent 自己运行 git，把一条日记推进了公开仓库，之后加了代码层的防线（灵魂目录的 `.git` 只读、推送前校正地址、陌生历史停止同步）。请给 ta 一部专门的设备；想收紧，把「执行命令」改成询问。
-- **花多少钱。** 模型费用付给你自己选的供应商。ta 醒来先用便宜的模型判断想不想动，大部分醒来花费很少；每天默认上限 200 万 token、5 美元，到了上限 ta 自己醒来的次数降到二十分之一，你找 ta 不受影响。
-- **它还很年轻。** 第一版发布于 2026 年 10 月 3 日，到 10 月 9 日发了 46 个版本，由一个人维护。记忆是普通的 Markdown，灵魂仓库规范改过 13 次，旧仓库都不用转换；每次改动都是一次提交，可以撤销。更新由你点确认，安装前核对发布签名；几具身体要升到同一个版本才能互连。App 里的运行环境现在由维护者在本机按锁定的配方编译、签名后上传。Windows 安装包还没有代码签名，会被 SmartScreen 提示，开着「智能应用控制」的电脑要先把它关掉。
+手机上装一个 App，电脑上运行一行命令。再准备一个模型 Key（DeepSeek、Kimi、智谱、OpenAI、Anthropic、Gemini 等都行），就能开始。
 
-完整说明：[信任与边界](https://quetzal.plutokeating.beer/zh/docs/guide/trust)
+**安卓手机**（Android 7 以上，arm64）：从[下载页](https://quetzal.plutokeating.beer/zh/download)装 Quetzal App，打开它，跟着向导走。
 
-<br/>
-
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-install.dark.svg"><img src="docs/assets/readme/type/zh-install.light.svg" alt="装上它"></picture>
-
-你需要准备：一部旧安卓手机或一台 Windows、Linux 电脑；一个模型的 API Key（DeepSeek、Kimi、智谱、OpenAI、Anthropic、Gemini 等都行）；想让记忆存进你自己 GitHub 上的私有仓库、几台设备连成一个 ta，再准备一个 GitHub 账号（可以先跳过，记忆先存在设备上）。
-
-**一部旧安卓手机**（Android 7 以上，arm64）
-
-1. 装 **Quetzal App**（[下载页](https://quetzal.plutokeating.beer/zh/download)）。不用再装别的：Node.js、git、ssh 都在 App 里。
-2. 打开 App，安装自动开始。跟着向导走：允许身体权限、让它在后台运行、登录、粘贴一个模型 Key。登录和模型都可以以后再做。
-
-**一台 Linux 电脑或服务器**
+**Linux 电脑或服务器**：
 
 ```bash
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-缺的依赖自动补齐，开机自启、崩溃自动重启；装好后打开控制台，向导带你登录、配模型。升级在控制台的「关于」里点一下，新版本 40 秒内不健康就自动退回。
-
-**一台 Windows 电脑**（Windows 10 1809 以上或 Windows 11，x64 或 arm64）
-
-在 PowerShell 里运行：
+**Windows 电脑**（Windows 10 1809 以上或 Windows 11，x64 或 arm64），在 PowerShell 里：
 
 ```powershell
 irm https://quetzal.plutokeating.beer/install.ps1 | iex
 ```
 
-或者从[下载页](https://quetzal.plutokeating.beer/zh/download)下载安装包双击。安装时会请求一次管理员权限：建好给 ta 运行命令用的低权限用户，装上缺的 Node.js、Git、Python，注册开机任务。之后电脑重启了，不用登录 ta 也在后台运行，你在手机上照常能和 ta 说话；登录后托盘里有 Quetzal，执行命令、截图、通知、麦克风这些能力随之可用（没人登录时 Windows 不允许以沙箱用户启动程序）。ta 的命令只能读写 `%USERPROFILE%\Quetzal` 这个文件夹，想让 ta 处理的文件放进去就行。
+缺的依赖自动补齐，开机自启。登录后，ta 会在你的 GitHub 上自动建好私有的灵魂仓库；不登录也能用，记忆先存在设备上。
 
-更多：[文档](https://quetzal.plutokeating.beer/zh/docs) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · 把一台旧手机腾出来的记录 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
+[安装](https://quetzal.plutokeating.beer/zh/docs/start/install) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · [Windows](https://quetzal.plutokeating.beer/zh/docs/advanced/windows) · 把一台旧手机腾出来的记录 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 
 <br/>
 
@@ -149,7 +138,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 | 目录 | 内容 |
 |---|---|
-| [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与平台级身体适配器：安卓（Quetzal App 内置）、Linux，以及兼容旧安装的 Termux |
+| [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与平台级身体适配器：安卓（Quetzal App 内置）、Linux、Windows，以及兼容旧安装的 Termux |
 | [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）、网页版（电脑浏览器，由运行基座托管）与 Linux 桌面版（原生窗口，一键安装脚本自动装） |
 | [`cli/`](cli/docs/README.md) | 一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |

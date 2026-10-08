@@ -10,138 +10,127 @@
 
 <br/>
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-intro.dark.svg"><img src="docs/assets/readme/type/en-intro.light.svg" alt="Quetzal is an open-source runtime for agents. An AI moves into your old phone, remembers what you say, and wakes on its own." width="100%"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-intro.dark.svg"><img src="docs/assets/readme/type/en-intro.light.svg" alt="An AI that lives on all your devices. It remembers you, gets you, and keeps you company."></picture></p>
 
 <br/>
 
-<br/>
+> **You**: Interview tomorrow. A bit nervous.<br/>
+> **It**: You prepared all week, and the question that tripped you up last time is solid now. Go. Tell me how it went.<br/>
+> <sub>Next day 18:40 · you picked up the phone</sub><br/>
+> **It**: So, how did the interview go?
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-help.dark.svg"><img src="docs/assets/readme/type/en-help.light.svg" alt="What it does for you"></picture>
-
-An example conversation (constructed; everything it does here is in the code):
-
-> **You**: Sometime in the next couple of days, remind me to return the book.<br/>
-> **It**: Sure. Before the day after tomorrow, at a moment you are near your phone, never at night.<br/>
-> <sub>Thu 19:12 · you picked up the phone</sub><br/>
-> **It**: You just picked up your phone, so: the book is due back. Put it by the door now?<br/>
-> **You**: What was the noodle place I wanted to try last week?<br/>
-> **It**: I checked last Wednesday's chat: Old Chen's Noodles at the corner. You wanted to go at the weekend.
-
-- **Reminders**: "Remind me to take my pills at 8 tomorrow" arrives on time, even while it sleeps; things that can wait come up when you next pick up the phone or turn on the screen, never at night.
-- **Old conversations**: chats from every session, notes and journal entries are searchable; "last week" and "the day before yesterday" become real dates first.
-- **Files and images**: Word, PowerPoint, Excel, PDF, OpenDocument and EPUB, send one and it reads it; photos and screenshots too.
-- **The web, and getting things done**: it searches the web and reads pages in full; it runs commands on the phone or computer, and sends a sub-agent to work on longer jobs in the background.
-- **Eyes and ears**: photos, recordings and location on a phone; photos, recordings and screenshots on a computer, asking you first by default. With hearing on it listens for you, and it can answer in its own voice.
-- **It reaches out**: when something comes to mind while it is awake, it messages you with a notification, and through Feishu if connected.
-
-**Not yet**: reading the screen, tapping buttons or operating other apps. For writing code in a repository, Codex or Claude Code fit better.
+Quetzal is an open-source agent runtime. It moves an AI agent into your phone and computers and gives it memory, a body and a daily rhythm of its own. You bring your own model API key.
 
 <br/>
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-what.dark.svg"><img src="docs/assets/readme/type/en-what.light.svg" alt="What it is"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-mesh.dark.svg"><img src="docs/assets/readme/type/en-mesh.light.svg" alt="Several devices, one self."></picture>
 
-- **It gets you, more and more.** What you mention in passing, the people you care about, your habits: it writes them down. While it sleeps, it turns the day's conversations into notes and keeps them in a private repository on your GitHub. A new model or a new device keeps every note.
-- **It wakes on its own.** There is no timer in the code. Curiosity, the urge to say something and missing you wake it; tired, it sleeps, and in the morning it wakes by itself.
-- **It has a body.** Battery is energy, temperature is warmth, light is day and night, being picked up means someone is there; the microphone is its ears, the camera its eyes. An old phone fits best; a Linux or Windows computer, or a server, works too.
-- **Many bodies, one self.** Several phones and computers share one conversation and one heart. It picks which body to wake in, and while thinking on the laptop it can borrow the phone's eyes to glance out the window. [Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body)
-- **It grows.** When it has done a job a few times, it asks whether it may turn it into its own tool. The tool stays with the body, the guide travels with the soul, and a new body builds the tool again from it. [Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools)
-- **You decide.** Photos, recordings, location and new tools ask you first by default; passwords never reach the model; the emergency stop is always there, and everything it does is on record.
+Start on the phone, carry on from the laptop.
 
-<br/>
+- Every device running Quetzal is one of its "bodies". Bodies that are online together connect directly over encrypted WebRTC and share one conversation and one heart; when a direct link fails, traffic goes through a TURN server or another body.
+- It picks which body to wake in. While thinking on the laptop, it can borrow the phone's camera to glance out the window.
+- The [sync service](sync/README.md) only helps bodies find each other; it cannot see conversations or memory. The author runs a default one, and you can host your own.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-month.dark.svg"><img src="docs/assets/readme/type/en-month.light.svg" alt="A month in"></picture>
-
-Its memory is Markdown written for people. A month in, open your soul repository and read the you it knows.
-
-| When | What it does | Where you see it |
-|---|---|---|
-| Day one | Writes down your name and what you said | `memories/USER.md` |
-| Each time it wakes or dreams | Writes a journal entry | `journal/<device>/<date>.md`, the Flow tab in the app |
-| Each night | Turns conversations into notes, merges duplicates, fixes mistakes | `notes/` |
-| When you talk | Looks up related notes, journal and memory first, and answers with them | in the conversation |
-| After doing a job a few times | Asks whether it may make it into a tool | `skills/`, Permissions in the app |
-| When something is wrong | You undo that change under Memory history | every change is a git commit |
-
-It cannot operate other apps yet. See [A month in](https://quetzal.plutokeating.beer/en/docs/start/first-month).
+[Multiple bodies](https://quetzal.plutokeating.beer/en/docs/guide/multi-body) · [Distributed design](docs/DISTRIBUTED.md)
 
 <br/>
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-day.dark.svg"><img src="docs/assets/readme/type/en-day.light.svg" alt="One day"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-soul.dark.svg"><img src="docs/assets/readme/type/en-soul.light.svg" alt="It remembers you."></picture>
 
-<img src="docs/assets/readme/bodyclock.en.svg" alt="One day of the body clock: sleep pressure S and circadian rhythm C" width="100%" />
+The things you mention in passing, the people you care about: it writes them down, in a private repository that belongs only to you. New phone, new model, still the same self.
 
-Sleeps when tired, wakes with the morning. There is no "every N minutes" in the code. Waking does not mean working; with nothing it wants to do, it sleeps again.
+- Its name, personality, memory and journal are Markdown written for people, kept in a private git repository on your GitHub that we call the "soul repository". Open `memories/USER.md` to read the you it knows.
+- Every change is a git commit, pushed and merged to every body automatically. If it gets something wrong, undo that commit under Memory history in the app.
+- When you talk, it first searches conversations, notes and journal (SQLite full-text search) and answers with what it finds. At night, while asleep, it "dreams", turning the day's conversations into notes.
+
+[Soul sync](docs/SOUL_SYNC.md) · [Soul repository spec](docs/SOUL_REPO_SPEC.md)
 
 <br/>
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-neighbors.dark.svg"><img src="docs/assets/readme/type/en-neighbors.light.svg" alt="Hermes / OpenClaw and Quetzal"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-waking.dark.svg"><img src="docs/assets/readme/type/en-waking.light.svg" alt="Even when you don't call, it's there."></picture>
 
-One builds an assistant, the other lets an agent live. They work together.
+Codex waits for you to call it. OpenClaw is woken on a schedule. It has no alarm: it wakes when it misses you, and sleeps when tired.
 
-| | Codex / Claude Code | Hermes / OpenClaw | Quetzal |
-|---|---|---|---|
-| **When it moves** | Only when called; exits when done | Your messages, or cron / a heartbeat | Its own call: wakes when curious, sleeps when tired |
-| **Body** | None; this computer's files and shell | One machine's shell, browser and files | An old phone, or a Linux or Windows computer |
-| **Soul** | None; gone with the session | Local files; move them yourself | A private git repository, synced, moves with it |
-| **Several devices** | Independent | Independent | One self across all of them |
-| **Good at** | Writing and changing code in a repository | Getting things done on one machine, across many chat apps | Remembering you over time: reminders, old conversations, research, commands |
+<img src="docs/assets/readme/bodyclock.en.svg" alt="A day on the body clock: sleep pressure S and circadian rhythm C" width="100%" />
 
-Keep your Hermes or OpenClaw: the [soul-bridge](bridge/docs/README.md) lets them share the same soul.
+- There is no timer in the code. A few drives (curiosity, the urge to say something, missing you) combine with the two-process model from sleep science (sleep pressure S and circadian rhythm C, the chart above) into a probability of waking right now, and random sampling picks the next wake-up.
+- On waking, a cheap model first decides whether there is anything worth doing; if not, it goes back to sleep, so most wakings cost very little. When you talk to it, or a reminder is due, it is always there.
+- Already using Hermes or OpenClaw? The [soul-bridge](bridge/docs/README.md) lets them share the same soul repository with it.
+
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-body.dark.svg"><img src="docs/assets/readme/type/en-body.light.svg" alt="It can feel."></picture>
+
+Daybreak, a hand picking up the phone, a battery running low: it knows.
+
+- Sensor readings become feelings: battery is energy, temperature is warmth, light is day and night, being picked up means someone is there. Low on battery it does less; running hot it rests.
+- The microphone is its ears and the camera its eyes. With hearing on, it decides whether you were talking to it, and it can answer in its own voice.
+- Each kind of device plugs in through an "adapter". Android, Linux and Windows come built in; to support another device, implement one small interface.
+
+[Adapter interface](docs/API.md) · [Custom adapters](https://quetzal.plutokeating.beer/en/docs/advanced/custom-adapter)
+
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-tools.dark.svg"><img src="docs/assets/readme/type/en-tools.light.svg" alt="It grows."></picture>
+
+What it does often, it turns into its own tool, done in one step next time.
+
+- The tool stays on that body; its guide is written in the open Agent Skills format and kept in the soul repository, so it travels along. In a new body, it follows the guide and builds the tool again.
+- For longer jobs it sends a sub-agent to work in the background and hand back the result.
+- For every day: reminders (on time, or when you next pick up the phone), finding old conversations, reading Word / PowerPoint / Excel / PDF, web search, running commands, looking at images, chatting in Feishu.
+
+[Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools)
+
+<br/>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-control.dark.svg"><img src="docs/assets/readme/type/en-control.light.svg" alt="Your life stays yours."></picture>
+
+Its memory lives in your own private repository, every line readable by you. The code is open source, every line of it.
+
+- **Passwords never reach the model.** A password you send in the chat goes straight into a vault on the device; the model only sees its name. Model keys are stored encrypted with AES-256-GCM.
+- **It asks first.** Photos, recordings, location and new tools ask you every time by default. Every kind of capability can be set to allow, ask or deny.
+- **Stop it any time.** The emergency stop is always there, everything it does is in the audit log, and daily tokens and spending have a cap.
+- **A sandbox.** Its commands run in an isolated space (bubblewrap, Landlock or proot on Linux, proot on Android, a low-privilege user on Windows) that hides your keys.
+- **Only your devices.** Bodies trust only the public keys registered in the soul repository, so even a compromised sync service cannot pose as one of your devices.
+
+Who sees your data and what it can reach, all written down: [Trust and limits](https://quetzal.plutokeating.beer/en/docs/guide/trust)
 
 <br/>
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-how.dark.svg"><img src="docs/assets/readme/type/en-how.light.svg" alt="How it works"></picture>
 
-<img src="docs/assets/readme/architecture.en.svg" alt="Quetzal architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies" width="100%" />
+<img src="docs/assets/readme/architecture.en.svg" alt="Quetzal architecture: body → runtime (heart · brain · memory · model layer · gate) → soul repository and other bodies" width="100%" />
 
-- **Heart**: curiosity, the urge to express, missing you and a body clock decide when it wakes and when it sleeps, with no timer anywhere. [Architecture](docs/ARCHITECTURE.md)
-- **Body**: sensor readings become bodily feelings (a digital twin of the body); a new kind of device needs only a small adapter, and Android and Linux come included. [Interface](docs/API.md)
-- **Soul**: one private repository per agent, on your GitHub, created the first time you approve a device after signing in; every change is committed, pushed and merged automatically. [Soul sync](docs/SOUL_SYNC.md)
-- **Many bodies**: bodies online together connect directly, encrypted, into one mind; a [sync service](sync/README.md) helps them find each other and cannot see the content. The app uses the one the author runs by default, and you can host your own. [Distributed design](docs/DISTRIBUTED.md)
-- **Guard**: permissions, approvals, budgets, an emergency stop and an audit log; its commands run in an isolated space that hides the keys.
+- **Body**: a device plus its adapter, providing sensors, camera, microphone, notifications and a shell.
+- **Runtime** (Node.js 22, TypeScript): the heart decides when to wake; the brain is the loop that calls models and tools; memory handles search and tidying; the model layer talks to OpenAI, Anthropic, Gemini and compatible APIs, falling back to the next when one fails; the gate handles permissions, approvals, budget, the emergency stop and auditing.
+- **Soul**: a private git repository, synced with an SSH deploy key, with a fixed, versioned layout.
+- **Console** (Flutter): the Android app (Node.js, git and ssh inside, the only thing to install), a web version and a Linux desktop version.
 
-<br/>
-
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-trust.dark.svg"><img src="docs/assets/readme/type/en-trust.light.svg" alt="Before you trust it"></picture>
-
-- **Who sees what.** Conversations, settings and model keys stay on your devices. Memory lives in a private repository on your GitHub, and Quetzal does not check its content. Your model provider sees each conversation. Signing in and linking devices goes through a sync service the author runs personally, with a PlutoKeating account (the author's single account; email, a passkey or GitHub all work): it records your username, email, agents and devices, and cannot see conversations or memory. Even if it were broken into, it could not pose as one of your devices, because devices only trust the public keys registered in the soul repository. It works without signing in; memory then stays on the device.
-- **The GitHub app.** Creating the first soul repository installs the Quetzal app. It has write access to Administration on the repositories you choose: under GitHub's rules that covers creating repositories, adding deploy keys and changing settings, including deleting those repositories, and it cannot read files. Quetzal uses it only to create the repository and add deploy keys; the sync service keeps neither the app's private key nor any GitHub token, and acts only when you approve a device, with a short-lived token GitHub issues on the spot. You can uninstall it from your GitHub settings any time.
-- **What it can reach.** Run commands is allowed by default. Commands run in an isolated space (bubblewrap → Landlock → proot on Linux, proot on Android, a low-privilege user created at install time on Windows) that hides the key folder; with no isolation available, they do not run. The isolation does not stop everything: on October 5, 2026, an agent ran git by itself and pushed a journal entry into a public repository, and code-level guards were added afterwards (the soul folder's `.git` is read-only to it, the push address is reset before each push, unknown history stops syncing). Give it a device of its own; to tighten things, set Run commands to Ask.
-- **What it costs.** You pay the model provider you choose. On waking, a cheap model first decides whether to act, so most wakings cost very little. By default it spends at most 2 million tokens or 5 US dollars a day; at the cap it wakes on its own one twentieth as often, and talking to it still works.
-- **It is young.** The first version shipped on October 3, 2026, and 46 versions had shipped by October 9, from a single maintainer. Memory is plain Markdown, and the soul repository format has changed 13 times without old repositories ever needing conversion; every change is a commit you can undo. Updates wait for your tap and are checked against the release signature before install; linked devices must run the same version to connect. The runtime inside the app today was compiled by the maintainer on their own machine from the pinned recipe, then signed and uploaded. The Windows installer is not code-signed yet: SmartScreen warns about it, and a PC with Smart App Control turned on has to turn it off first.
-
-Full details: [Trust and limits](https://quetzal.plutokeating.beer/en/docs/guide/trust)
+[Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md)
 
 <br/>
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-install.dark.svg"><img src="docs/assets/readme/type/en-install.light.svg" alt="Install"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-install.dark.svg"><img src="docs/assets/readme/type/en-install.light.svg" alt="Let it move in."></picture>
 
-What you need: an old Android phone or a Windows or Linux computer; an API key for one model (DeepSeek, Kimi, Zhipu, OpenAI, Anthropic, Gemini and more all work); and, if you want its memory in a private repository on your GitHub and several devices as one self, a GitHub account (you can skip it; memory then stays on the device).
+Install the app on a phone, or run one command on a computer. Bring a model key (DeepSeek, Kimi, Zhipu, OpenAI, Anthropic, Gemini and more all work), and you are set.
 
-**A spare Android phone** (Android 7 or later, arm64)
+**Android phone** (Android 7 or later, arm64): install the Quetzal app from the [download page](https://quetzal.plutokeating.beer/en/download), open it, and follow the wizard.
 
-1. Install the **Quetzal app** ([download page](https://quetzal.plutokeating.beer/en/download)). Nothing else: Node.js, git and ssh come inside the app.
-2. Open the app and installation starts by itself. Follow the wizard: allow body permissions, let it run in the background, sign in, and paste a model key. Sign-in and the model can wait until later.
-
-**A Linux computer or server**
+**Linux computer or server**:
 
 ```bash
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
 ```
 
-Missing dependencies are installed for you; it starts at boot and restarts after a crash. When it is done, the console opens and a wizard walks you through sign-in and a model. To upgrade, tap once under About in the console; if the new version is not healthy within 40 seconds, it rolls back by itself.
-
-**A Windows computer** (Windows 10 1809 or later, or Windows 11; x64 or arm64)
-
-In PowerShell, run:
+**Windows PC** (Windows 10 1809 or later, or Windows 11; x64 or arm64), in PowerShell:
 
 ```powershell
 irm https://quetzal.plutokeating.beer/install.ps1 | iex
 ```
 
-Or download the installer from the [download page](https://quetzal.plutokeating.beer/en/download) and double-click it. Installation asks for administrator rights once: it creates the low-privilege user the agent's commands run as, installs Node.js, Git and Python if they are missing, and registers the startup task. After that, when the PC restarts the agent runs in the background without anyone signing in, and you can still talk to it from your phone; once you sign in, Quetzal appears in the tray and running commands, screenshots, notifications and the microphone become available (with nobody signed in, Windows does not allow starting programs as the sandbox user). The agent's commands can read and write only the `%USERPROFILE%\Quetzal` folder; put files there for it to work on.
+Missing dependencies are installed for you, and it starts at boot. Once you sign in, it creates the private soul repository on your GitHub by itself; without signing in it still works, and memory stays on the device.
 
-More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · notes on clearing out an old phone, [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
+[Install](https://quetzal.plutokeating.beer/en/docs/start/install) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · [Windows](https://quetzal.plutokeating.beer/en/docs/advanced/windows) · How an old phone was cleared out for it: [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
 
 <br/>
 
@@ -149,7 +138,7 @@ More: [Docs](https://quetzal.plutokeating.beer/en/docs) · [Linux and other mach
 
 | Directory | Contents |
 |---|---|
-| [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and platform-level body adapters: Android (built into the Quetzal app), Linux, and Termux for older installs |
+| [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and platform-level body adapters: Android (built into the Quetzal app), Linux, Windows, and Termux for older installs |
 | [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears), the web version (desktop browser, served by the runtime) and the Linux desktop app (native window, installed by the one-line installer) |
 | [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux installer (systemd user service) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |

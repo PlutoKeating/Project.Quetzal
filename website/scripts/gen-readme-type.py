@@ -49,13 +49,13 @@ def svg(name, lines, font, size, leading, align="left", rule=False):
         OUT.mkdir(parents=True, exist_ok=True)
         (OUT / f"{name}.{scheme}.svg").write_text(doc)
 
-# 定义行：两行，居中，衬线
-svg("zh-intro", ["Quetzal 是开源的 agent 运行基座。", "让一个 AI 住进你的旧手机，记得你说过的话，自己醒来，困了就睡。"], SERIF, 28, 44, "center")
-svg("en-intro", ["Quetzal is an open-source runtime for agents.", "An AI moves into your old phone, remembers what you say, and wakes on its own."], SERIF, 28, 44, "center")
-# 小节标题：衬线，左侧一段琥珀线
+# 定义行：两行，居中，衬线（与官网 hero 的引言同一句）
+svg("zh-intro", ["住在你所有设备上的 AI。", "ta 记得你，懂你，陪着你。"], SERIF, 28, 44, "center")
+svg("en-intro", ["An AI that lives on all your devices.", "It remembers you, gets you, and keeps you company."], SERIF, 28, 44, "center")
+# 小节标题：衬线，左侧一个琥珀点；顺序与官网首页一致
 HEADINGS = {
-  "zh": {"help": "能帮你做什么", "what": "它是什么", "month": "一个月后", "day": "一天", "neighbors": "和 Hermes / OpenClaw 的关系", "how": "它是怎么做到的", "trust": "托付之前", "install": "装上它", "deeper": "看得更深"},
-  "en": {"help": "What it does for you", "what": "What it is", "month": "A month in", "day": "One day", "neighbors": "Hermes / OpenClaw and Quetzal", "how": "How it works", "trust": "Before you trust it", "install": "Install", "deeper": "Go deeper"},
+  "zh": {"mesh": "几台设备，一个 ta。", "soul": "ta 记得你。", "waking": "你不叫，ta 也在。", "body": "ta 感觉得到。", "tools": "ta 会长大。", "control": "你的生活，只属于你。", "how": "它是怎么做到的", "install": "让 ta 住进来。", "deeper": "看得更深"},
+  "en": {"mesh": "Several devices, one self.", "soul": "It remembers you.", "waking": "Even when you don't call, it's there.", "body": "It can feel.", "tools": "It grows.", "control": "Your life stays yours.", "how": "How it works", "install": "Let it move in.", "deeper": "Go deeper"},
 }
 for lang, hs in HEADINGS.items():
     for key, text in hs.items(): svg(f"{lang}-{key}", [text], SERIF, 26, 0, rule=True)
