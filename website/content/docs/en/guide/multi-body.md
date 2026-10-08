@@ -69,7 +69,7 @@ Files belong to the body they are on: a photo taken on the phone has no path on 
 
 Wherever the agent names a body — `body_call`, `move_to`, the `body` of the file tools, and choosing where to wake — it uses that body's uuid, not its name (given a name, it is told which uuid to use). The system prompt lists the uuid of every online body, and paths returned by device tools end with "these files are on body X (body: …)".
 
-The uuid is tied to the device. The runtime derives it from the device's own identifier (only a hash is used; the raw identifier never leaves the device and is not written to logs or the soul repository), stores it in `state/body-uuid` the first time, and uses that file from then on. If the home directory is gone (Quetzal reinstalled), the same identifier gives the same uuid again. Whether it survives a reinstall depends on the platform:
+The uuid is tied to the device. The runtime derives it from the device's own identifier (only a hash is used; the raw identifier never leaves the device and is not written to logs or the soul repository), and stores it in `state/body-uuid`; once a value derived from the device is stored, it never changes. If the home directory is gone (Quetzal reinstalled), the same identifier gives the same uuid again. Whether it survives a reinstall depends on the platform:
 
 | Platform | Device identifier | Reinstall Quetzal | Factory reset / reinstall the OS |
 |---|---|---|---|
@@ -78,9 +78,9 @@ The uuid is tied to the device. The runtime derives it from the device's own ide
 | Android (Quetzal App) | `ANDROID_ID` | unchanged | changes after a factory reset, or if the App's signing key changes |
 | Android (Termux) | tries `ANDROID_ID`; most phones do not allow it | changes if it could not be read | changes |
 
-If no device identifier is available, the runtime generates a random uuid, which stays the same only as long as the home directory exists.
+If the device identifier is not available yet (for example the App's body interface has not started), the runtime uses a random uuid for now and tries again at every start and a few times shortly after; once it gets the identifier, it switches to the derived value and keeps it from then on (the soul repository registry is updated). Where it is never available (most Termux installs), the random uuid stays the same only as long as the home directory exists.
 
-Each body registers its uuid in the soul repository's body registry. When resolving `body`, other bodies go by the registry and check that the body reports the same uuid itself; a mismatch is refused. **If two bodies are registered with the same uuid** (for example the App and Termux both running a runtime on the same phone, which derive the same value), the runtime refuses that uuid and says why, without picking one for you. To fix it, keep only one runtime, or on one of the bodies replace `QUETZAL_HOME/state/body-uuid` with a new random UUID (for example `cat /proc/sys/kernel/random/uuid`) and restart; that body keeps the new value from then on.
+Each body registers its uuid in the soul repository's body registry. When resolving `body`, other bodies go by the registry and check that the body reports the same uuid itself; a mismatch is refused. **If two bodies are registered with the same uuid** (for example the App and Termux both running a runtime on the same phone, which derive the same value), the runtime refuses that uuid and says why, without picking one for you. To fix it, keep only one runtime, or on one of the bodies change `QUETZAL_HOME/state/body-uuid` to `{"uuid": "<a new random UUID>", "source": "manual"}` (for example from `cat /proc/sys/kernel/random/uuid`) and restart; that body keeps the new value from then on.
 
 ## When disconnected
 

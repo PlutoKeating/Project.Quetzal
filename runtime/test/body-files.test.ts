@@ -46,7 +46,8 @@ test("身体的 uuid：由设备标识派生，稳定、RFC 9562 version 8 格�
 
   // 启动时已经定下的：存在 state/body-uuid，不含原始标识
   const file = path.join(paths.state, "body-uuid");
-  assert.equal(fs.readFileSync(file, "utf8").trim(), uuid.deviceUuid("self-machine-id-0001"));
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { uuid: uuid.deviceUuid("self-machine-id-0001"), source: "device" });
+  assert.ok(!fs.readFileSync(file, "utf8").includes("self-machine-id"), "不存原始标识");
   // 存过的为准：设备标识变了（或者能取到了）也不换
   uuid.resetBodyUuid();
   assert.deepEqual(await uuid.ensureBodyUuid(async () => "another-device-id-xyz"), { uuid: SELF, source: "stored" });
@@ -60,7 +61,47 @@ test("身体的 uuid：由设备标识派生，稳定、RFC 9562 version 8 格�
     assert.equal(r.source, "random"); assert.match(r.uuid, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     uuid.resetBodyUuid(); assert.equal(uuid.bodyUuid(), r.uuid);
   }
+  // 随机的只是暂用：设备标识能取到之后换成设备派生的值并固定下来
+  const tmpId = (await uuid.ensureBodyUuid(async () => undefined)).uuid;
+  assert.deepEqual(await uuid.ensureBodyUuid(async () => "self-machine-id-0001"), { uuid: SELF, source: "device" }, "随机 → 设备派生");
+  assert.notEqual(tmpId, SELF);
+  uuid.resetBodyUuid();
+  assert.deepEqual(await uuid.ensureBodyUuid(async () => "another-device-id-xyz"), { uuid: SELF, source: "stored" }, "设备派生的不再变");
+  assert.deepEqual(await uuid.ensureBodyUuid(async () => undefined), { uuid: SELF, source: "stored" });
+  // 早先的纯文本格式：v8 当作设备派生（不再变），v4 当作随机（之后还会换）
   fs.writeFileSync(file, SELF + "\n"); uuid.resetBodyUuid();
+  assert.equal(uuid.bodyUuid(), SELF);
+  assert.equal((await uuid.ensureBodyUuid(async () => "another-device-id-xyz")).source, "stored");
+  fs.writeFileSync(file, tmpId + "\n"); uuid.resetBodyUuid();
+  assert.deepEqual(await uuid.ensureBodyUuid(async () => "self-machine-id-0001"), { uuid: SELF, source: "device" });
+  // 部署者手动指定的（解决同一台设备上撞了 uuid）：设备标识取得到也不换回去
+  const manual = crypto.randomUUID();
+  fs.writeFileSync(file, JSON.stringify({ uuid: manual, source: "manual" })); uuid.resetBodyUuid();
+  assert.deepEqual(await uuid.ensureBodyUuid(async () => "self-machine-id-0001"), { uuid: manual, source: "stored" });
+  fs.writeFileSync(file, JSON.stringify({ uuid: SELF, source: "device" })); uuid.resetBodyUuid();
+});
+
+test("启动时取不到设备标识（身体接口还没起来）：先用随机值，稍后重试取到后换成设备派生的值，并通知灵魂同步更新登记", async () => {
+  const { loadAdapter, settleBodyUuid } = await import("../src/body/twin.ts");
+  const { bus } = await import("../src/bus.ts");
+  const file = path.join(paths.state, "body-uuid"), saved = fs.readFileSync(file, "utf8");
+  fs.rmSync(file); uuid.resetBodyUuid();
+  const mod = path.join(dir, "late-adapter.mjs");
+  fs.writeFileSync(mod, `let n = 0; export default { name: "late", describe: "测试", sample: async () => ({}), deviceId: async () => (++n >= 3 ? "late-device-id-0001" : undefined) };`);
+  const seen: string[] = [];
+  const on = (u: string) => seen.push(u);
+  bus.on("body.uuid", on);
+  try {
+    await loadAdapter(mod); // 第一次：取不到，随机
+    const first = uuid.bodyUuid()!;
+    assert.match(first, /-4[0-9a-f]{3}-/);
+    await settleBodyUuid([20, 20]); // 第二次还取不到，20 毫秒后第三次取到
+    const want = uuid.deviceUuid("late-device-id-0001");
+    for (let i = 0; i < 100 && uuid.bodyUuid() !== want; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(uuid.bodyUuid(), want);
+    assert.deepEqual(seen, [want], "换了值就通知一次");
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).source, "device");
+  } finally { bus.off("body.uuid", on); fs.writeFileSync(file, saved); uuid.resetBodyUuid(); }
   assert.equal(uuid.bodyUuid(), SELF);
 });
 

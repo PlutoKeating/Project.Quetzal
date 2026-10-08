@@ -18,7 +18,7 @@ data/from-bodies/<身体>/  多具身体时从别的身体取来的文件（工�
 data/runtime.log         安卓 App 内置时：运行基座与 App 服务的日志（超过 4 MB 轮转一次）
 soul/                    灵魂目录（git 仓库）
 state/starts.json        启动记录（熔断用）
-state/body-uuid          这具身体的 uuid（绑定到设备，只存哈希派生的值；见多具身体）
+state/body-uuid          这具身体的 uuid（JSON：uuid 与来源 device / random / manual；只存哈希派生的值，不存原始标识；见多具身体）
 STOP                     急停标志：存在即冻结一切行动
 ```
 

@@ -8,7 +8,7 @@ import { startHeart, isFollower, nudge } from "./heart/heart.ts";
 import { startReminders, when } from "./time/reminders.ts";
 import { backfillChat } from "./memory/index.ts";
 import { wake } from "./mind/brain.ts";
-import { ensureSoul } from "./memory/soul-sync.ts";
+import { ensureSoul, push as soulPush } from "./memory/soul-sync.ts";
 import { displayName } from "./memory/identity.ts";
 import { startGateway } from "./gateway.ts";
 import { ensureCatalogFresh } from "./providers/catalog.ts";
@@ -87,6 +87,7 @@ async function main() {
     return;
   }
   await ensureSoul().catch((e) => log("soul", `灵魂目录初始化失败：${e.message}`));
+  bus.on("body.uuid", () => void soulPush("身体 uuid 换成由设备标识派生的值").catch(() => {})); // 身体登记随之更新
   wireMesh();
   registerSoulLink(soulLink); // 一个链接接入：绑定时带部署公钥，批准后采用链接好的灵魂仓库
   await startMesh().catch((e) => log("mesh", `网状层启动失败：${e.message}`)); // 没有绑定或缺组件时只是不启动，身体之间仍用 git 同步

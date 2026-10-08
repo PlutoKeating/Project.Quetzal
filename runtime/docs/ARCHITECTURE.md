@@ -29,7 +29,7 @@ src/
 ├── body/
 │   ├── adapter.ts        身体适配器接口（与设备仓库的唯一边界）+ 通用适配器
 │   ├── twin.ts           身体数字孪生：采样、身体感受、sense 事件、感官循环；「身体」段落含她自己的进程 pid；加载适配器后定下身体 uuid
-│   └── uuid.ts           身体的 uuid：绑定到设备（适配器的 deviceId() 经 sha256 派生为 RFC 9562 v8，原始标识不外露），存在 state/body-uuid、之后以它为准；取不到设备标识时随机 v4
+│   └── uuid.ts           身体的 uuid：绑定到设备（适配器的 deviceId() 经 sha256 派生为 RFC 9562 v8，原始标识不外露），存在 state/body-uuid（{uuid, source}），设备派生的不再变；取不到设备标识时先用随机 v4，之后每次启动与启动后隔一会儿再试（twin.ts 的 settleBodyUuid），取到就换成设备派生的值
 ├── heart/
 │   ├── model.ts          纯数学：驱动力、双过程生物钟、醒来率、指数抽样（无副作用）
 │   └── heart.ts          状态机与稀疏化抽样调度；抑制；有界的性格修改；跟随模式（不抽样，操作转给协调者）与状态的导出 / 采用

@@ -68,7 +68,7 @@ interface BodyAdapter {
 - 适配器**只能 `import type`** 接口文件的类型，不得依赖核心的其他实现。
 - `tools[].permission` 必须是闸门已知的能力类别，否则按「允许」处理。
 - `notify` 是配对码与主动消息的本地出口；没有它，配对码只能从 `secrets/gateway.token` 读。
-- `deviceId()` 返回的是敏感信息：适配器自己也不得写进日志或工具结果；取不到就返回 `undefined`（运行基座随机生成 uuid）。见[多具身体 · 身体的 uuid](/docs/guide/multi-body)。
+- `deviceId()` 返回的是敏感信息：适配器自己也不得写进日志或工具结果；取不到就返回 `undefined`（运行基座先用随机 uuid，之后再试，取到就换成设备派生的值）。见[多具身体 · 身体的 uuid](/docs/guide/multi-body)。
 
 ## 采样如何使用
 

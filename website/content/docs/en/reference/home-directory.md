@@ -18,7 +18,7 @@ data/from-bodies/<body>/ files fetched from other bodies (tools called with body
 data/runtime.log         with the Android app: log of the runtime and the app service (rotated past 4 MB)
 soul/                    soul directory (a git repository)
 state/starts.json        start records (circuit breaker)
-state/body-uuid          this body's uuid (tied to the device; only the hashed value is stored; see Multiple bodies)
+state/body-uuid          this body's uuid (JSON: uuid and its source device / random / manual; only the derived value, never the raw identifier; see Multiple bodies)
 STOP                     emergency stop flag: if present, everything freezes
 ```
 

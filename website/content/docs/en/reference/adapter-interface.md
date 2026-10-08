@@ -68,7 +68,7 @@ interface BodyAdapter {
 - An adapter may **only `import type`** from the interface file and must not depend on any other part of the core.
 - `tools[].permission` must be a category the guard knows; otherwise it is treated as "allow".
 - `notify` is the local outlet for pairing codes and proactive messages; without it the pairing code can only be read from `secrets/gateway.token`.
-- `deviceId()` returns sensitive data: the adapter itself must not write it to logs or tool results either; return `undefined` when it is unavailable (the runtime then generates a random uuid). See [Multiple bodies · Body uuid](/docs/guide/multi-body).
+- `deviceId()` returns sensitive data: the adapter itself must not write it to logs or tool results either; return `undefined` when it is unavailable (the runtime then uses a random uuid for now and switches to the derived one once the identifier becomes available). See [Multiple bodies · Body uuid](/docs/guide/multi-body).
 
 ## How samples are used
 

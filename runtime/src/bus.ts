@@ -22,6 +22,7 @@ export interface Events {
   "soul.pushed": [e: { files: string[] }];
   mesh: [s: unknown];
   account: [s: unknown]; // 控制台登录的状态变了（申请码、批准、退出、令牌失效），控制台据此刷新账户页
+  "body.uuid": [uuid: string]; // 身体 uuid 从随机的暂用值换成了设备派生的值（灵魂同步据此推送身体登记）
   heart: []; // 心脏状态变了（协调者据此把状态广播给其他身体）
   shared: [sections: string[]]; // 本机改了全网共用的分区（设置分区，以及 memory.ts 的想分享的一句话 thought；网状层据此同步给其他身体）
   "shared.applied": [sections: string[]]; // 采用了其他身体较新的设置分区（相关模块据此生效，例如飞书持有者变了要重连）
