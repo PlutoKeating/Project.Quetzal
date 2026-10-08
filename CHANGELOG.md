@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。中英文都写：中文在前，英文在后。
 
+## 1.9.2
+
+- App 更新或重启后，会话列表、首页的「内在」状态条、记忆页会在连上之后自己加载，不用再切到别的页面再切回来。断线重连后，模型、工具、声音这几页也会重新加载。
+
+- After the app updates or restarts, the conversation list, the "inner" bars on the home page and the memory page now load by themselves once connected, with no need to switch pages and back. The models, tools and sound pages also reload after a reconnect.
+
 ## 1.9.1
 
 - 还在推进的工作不会再被一到点就打断：命令、自造工具一直有输出就一直等；模型还在输出的长回答不再限 15 分钟；跨身体的请求（转过去的对话、在另一具身体上醒来、调用另一具身体的工具、补齐对话）只要对方还在处理就一直等；灵魂仓库的克隆、拉取、推送还在传就不中断；说了很长一句话，识别还在进行就一直等结果。只有真的没有动静时才算超时。命令的 `timeout` 现在是「多少秒没有任何输出就结束」。
