@@ -53,7 +53,7 @@ cd Project.Quetzal/sync
 | `SYNC_ADMINS` | 管理员的账号邮箱（逗号分隔，身份服务确认过的邮箱）。管理员登录后打开 `https://<域名>/setup/github-app` 一键创建 GitHub App，它只用来建灵魂仓库、加部署密钥 |
 | `TURN_SECRET` | 自动生成；同步服务与 coturn 共用，用来签发有时效的 TURN 凭据 |
 | `TURN_MIN_PORT` / `TURN_MAX_PORT` | TURN 中转端口段，默认 49160–49250 |
-| `TURN_USER_QUOTA` / `TURN_TOTAL_QUOTA` | 每具身体同时最多几个中转分配（默认 4）、全服务器最多几个（默认 90；超过端口段的端口数时 `start.sh` 自动改小） |
+| `TURN_USER_QUOTA` / `TURN_TOTAL_QUOTA` | 每具身体同时最多几个中转分配（默认 16：每条连接都占一个，直连通了也占着）、全服务器最多几个（默认 90；超过端口段的端口数时 `start.sh` 自动改小） |
 | `TURN_MAX_BPS` / `TURN_BPS_CAPACITY` | 每个中转会话、全部会话合计的带宽上限（字节 / 秒，默认 625000 ≈ 5 Mbit/s 与 2500000 ≈ 20 Mbit/s；0 为不限），按服务器带宽调整 |
 | `SYNC_MAX_AGENTS_PER_USER` / `SYNC_MAX_BODIES_PER_AGENT` | 每个账户的 agent 上限（20）、每个 agent 的身体上限（16） |
 | `NODE_IMAGE` / `CADDY_IMAGE` / `COTURN_IMAGE` / `NPM_REGISTRY` | 镜像与 npm 源。镜像默认按 `tag@sha256:…` 固定；服务器拉不动 Docker Hub 或 npm 时改成可用的镜像源，镜像地址保留 `@sha256:…` 部分。仍是官方地址时 `start.sh` 会跟到本仓库当前固定的摘要 |
