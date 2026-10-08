@@ -1,7 +1,7 @@
 // 一轮的执行过程与消息气泡：对话页与「醒来记录」页共用，两边看到的是同一种东西。
 //   LiveTurn：进行中的一轮（后端快照 + 推送事件折叠而成，与 runtime mind/activity.ts 的 fold 一致）。
 //   ProcessView：工具卡片（执行中 / 完成 / 出错 / 被拒绝，点开看参数与结果）与她中途说的话（完整 Markdown）。
-//   Bubble：消息气泡，她的话与对方的话都按完整 Markdown 渲染。
+//   Bubble：消息气泡，她的话与对方的话都按完整 Markdown 渲染；整个气泡是一个选择区（拖选、Ctrl+A、右键 / 长按复制）。
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'markdown.dart';
@@ -57,6 +57,8 @@ List<({int? msg, List<Map> items})> splitAtSteer(List<Map> items) {
 }
 
 /// 消息气泡：她的话按完整 Markdown 渲染（表格、公式、Mermaid 图）；对方的话同样按 Markdown 渲染，用不同底色区分。
+/// 一个气泡是一个 SelectionArea：鼠标可以跨段落、跨代码块拖选，Ctrl+A 全选这个气泡，右键菜单与 Ctrl+C 复制；手机上长按选词、拖动手柄、工具条复制。
+/// 里面的 Markdown 用不可单独选择的文字（selectable: false），由外层的选择区统一管理；链接照常点开。
 class Bubble extends StatelessWidget {
   final String text;
   final bool me, live, pending;
@@ -73,7 +75,7 @@ class Bubble extends StatelessWidget {
         constraints: BoxConstraints(maxWidth: PaneWidth.of(context) * 0.8),
         decoration: BoxDecoration(color: me ? cs.primaryContainer : cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          RichMarkdown(text, live: live),
+          SelectionArea(child: RichMarkdown(text, live: live, selectable: false)),
           if (channel != null && channel != '控制台') Text('$channel', style: Theme.of(context).textTheme.labelSmall),
         ]),
       ),

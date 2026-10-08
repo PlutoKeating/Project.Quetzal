@@ -18,7 +18,7 @@ lib/
 ├── widgets.dart       外壳模式（ShellScope）、页面框架（PageFrame：手机是 Scaffold + AppBar，桌面是主区里的一行标题）、面板宽度（PaneWidth）、底部面板 / 对话框（showSheet）、光团、驱动力条、连接状态、急停、离线横幅、分节卡片、提示
 ├── markdown.dart      完整 Markdown 渲染：GFM（表格、任务列表、代码块…）、LaTeX 公式（行内与独立）、Mermaid 图（platform/mermaid.dart）；
 │                      RawOrMarkdown（工具输出：像 Markdown 才渲染，否则原样等宽）、plainPreview（一行预览去标记）
-├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble
+├── process.dart       一轮的执行过程与气泡（对话页与醒来记录页共用）：LiveTurn（进行中的一轮，快照 + 事件折叠）、ProcessView（工具卡片，点开看参数与结果）、Bubble（整个气泡一个 SelectionArea：拖选、Ctrl+A、右键 / 长按复制）
 ├── platform/          平台差异（条件导入，`*_io.dart` 安卓与 Linux / Windows 桌面 / `*_web.dart` 网页）：caps（hasBody 只有安卓为真；isDesktop：Linux / macOS / Windows 原生版，连本机网关免配对码）、
 │                      desktop（desktop_paths.dart 纯函数：家目录、网关令牌、Windows 的 ROOT 与 current.txt 指针、身体助手命令、退避；desktop_io.dart：读令牌并核对、Windows 身体助手的看护 BodyHelper）、
 │                      ear（桌面版耳朵 DesktopEar：采集 Linux parec / pw-record / arecord、Windows record_windows，断句，分块 POST /hear，播放 Linux pw-play / paplay / ffplay / mpv、Windows winmm）、fvad（libfvad 的 dart:ffi 绑定）、net（HTTP 与 WebSocket：dart:io / XMLHttpRequest）、pin（证书钉住：原生平台的 HttpOverrides，网页版什么都不做）、tray（桌面版右上角的托盘图标，以及换新版本：每分钟与运行基座重新连上时检查自己的可执行文件还是不是 console/current 那一个，不是了——窗口没开就以 --replace --background 悄悄换上新版本，窗口开着就在外壳顶部提示「新版本已装好 · 重新打开」；代表后台的运行基座：运行基座连得上就显示，连不上超过 20 秒收起，与控制台窗口开没开无关；菜单为打开 Quetzal（没有窗口就打开，有就提到最前）、急停 · 本机、急停 · 全部设备、退出（网关 quit：停掉后台服务，整个 Quetzal 退出；Windows 上连同身体助手）；控制台是单实例（linux/runner/my_application.cc；windows/runner/main.cpp 用命名互斥量 + 按窗口类名找到已在运行的那个：再次启动只把激活转给它，--background 只起托盘不开窗口，--replace 接管旧实例），登录桌面时由自启动项（Linux 桌面自启动项、Windows 的 HKCU Run）以 --background 拉起，关窗只是隐藏窗口；tray_manager 0.5.3 + window_manager，Linux 底层 libayatana-appindicator3，单击图标就是弹出菜单，不调 Linux 不支持的 setToolTip；Windows 用 .ico，左键打开窗口、右键菜单；换新版本的判断 Linux 按 console/current 符号链接与 /proc 的 (deleted)，Windows 按 console\current.txt 指针比较自己所在的版本目录（正在运行的 exe 删不掉）；网页版空实现）、
@@ -69,6 +69,7 @@ native/fvad/           libfvad（WebRTC VAD 的独立 C 库，BSD-3，锁定上�
 状态管理只用 `ChangeNotifier`（全局 `api`、跟踪进行中醒来的 `wakes`、桌面位置 `nav`）+ `ListenableBuilder`，不引入额外框架。**同一份页面在两种外壳里都成立**：二级页面一律用 `PageFrame`，手机上它是 Scaffold + AppBar，桌面主区里它是一行标题；弹出面板一律用 `showSheet`，手机是底部面板，桌面是居中对话框；气泡与过程卡片按 `PaneWidth`（所在面板的宽度）而不是窗口宽度限制自己。
 
 **凡是她写的文字都按完整 Markdown 渲染**：对话（她的与对方的气泡、中途叙述）、心流里的日记 / 回复、记忆页的人格 / 常驻记忆条目 / 未完成的念头 / 日记 / 笔记 / 搜索结果、首页她想分享的一句话（点开）、审批的理由、醒来记录页。
+消息气泡里的文字整段可选：一个气泡一个 `SelectionArea`，鼠标可跨段落、跨代码块拖选，Ctrl+A 全选这个气泡，右键菜单或 Ctrl+C 复制，手机上长按选择；链接、公式与 Mermaid 图照常可点。其余地方的 Markdown 每段各自可选（放在可点击的列表项里时不可选）。
 工具的参数与结果、审计日志的输出用 `RawOrMarkdown`：像 Markdown（笔记、说明）才渲染，shell 输出与 JSON 原样等宽显示。只能放一行的地方（会话列表、笔记摘要、首页折叠的一句话、通知条）用 `plainPreview` 去掉标记。
 
 ```mermaid

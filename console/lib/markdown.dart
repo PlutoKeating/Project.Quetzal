@@ -124,7 +124,8 @@ class RawOrMarkdown extends StatelessWidget {
 }
 
 /// 渲染一段 Markdown。live：正在流式输出时为真，此时 Mermaid 先按代码显示，结束后再渲染成图。
-/// selectable：默认可选中文字；放在可点击的列表项里时关掉，否则点击会被文字选择吃掉。
+/// selectable：默认每段文字各自可选（SelectableText）；放在可点击的列表项里，或外面已有 SelectionArea（消息气泡）时关掉，
+///   后者由选择区统一管理，才能跨段落拖选、Ctrl+A 全选。
 /// 单个换行按换行显示（softLineBreak）：她的日记、笔记与回复都是按行写的。
 class RichMarkdown extends StatelessWidget {
   final String text;
