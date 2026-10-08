@@ -45,6 +45,10 @@ On Windows 10 1809 or later or Windows 11 (x64 or arm64), run `irm https://quetz
 
 A computer body has fewer senses than a phone, which adds light and motion sensors to its camera and microphone. A Linux body also has no ears (hearing lives in the phone app).
 
+## Is it always listening?
+
+Hearing is off by default. Once on, microphone audio is sent for recognition only when speech is detected, using your own Azure key; the audio is not saved, and the recognized text is kept on the device like typed messages. See [Hearing and the microphone](/docs/guide/hearing).
+
 ## Do I have to use Feishu?
 
 No. The app is a complete console on its own. Feishu is an optional second entry point.

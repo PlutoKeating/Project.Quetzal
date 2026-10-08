@@ -67,7 +67,7 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 - 麦克风是耳朵，相机是眼睛。开了听觉，ta 自己判断你是不是在跟 ta 说话，也能用自己的声音回答。
 - 每种设备经一个「适配器」接入。仓库自带安卓、Linux、Windows 三种；想接别的设备，实现一个小接口就行。
 
-[适配器接口](docs/API.md) · [自定义适配器](https://quetzal.plutokeating.beer/zh/docs/advanced/custom-adapter)
+[适配器接口](docs/API.md) · [自定义适配器](https://quetzal.plutokeating.beer/zh/docs/advanced/custom-adapter) · [听觉与麦克风](https://quetzal.plutokeating.beer/zh/docs/guide/hearing)
 
 <br/>
 

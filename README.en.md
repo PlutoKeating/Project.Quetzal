@@ -67,7 +67,7 @@ Daybreak, a hand picking up the phone, a battery running low: it knows.
 - The microphone is its ears and the camera its eyes. With hearing on, it decides whether you were talking to it, and it can answer in its own voice.
 - Each kind of device plugs in through an "adapter". Android, Linux and Windows come built in; to support another device, implement one small interface.
 
-[Adapter interface](docs/API.md) · [Custom adapters](https://quetzal.plutokeating.beer/en/docs/advanced/custom-adapter)
+[Adapter interface](docs/API.md) · [Custom adapters](https://quetzal.plutokeating.beer/en/docs/advanced/custom-adapter) · [Hearing and the microphone](https://quetzal.plutokeating.beer/en/docs/guide/hearing)
 
 <br/>
 
