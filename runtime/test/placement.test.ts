@@ -56,7 +56,11 @@ test("她不表态时用推荐（对方刚在电脑上说过话 → 电脑）；
   assert.ok((await tl(phone)).some(([k, b, t]) => k === "place" && b === "phone" && /pc/.test(t)), "协调者记下了选在哪里");
   assert.ok(!(await tl(phone)).some(([k, b]) => k === "think" && b === "phone"), "这次没有在手机上做");
 
-  await phone.call("llmWhere", { where: ["phone", "pc"] });
+  // where 填 uuid：手机自己的，和灵魂仓库登记的电脑的（这里直接写进手机的灵魂目录）；身体名不算
+  const [phoneId, pcId] = [await phone.call<string>("uuid"), await pc.call<string>("uuid")];
+  fs.mkdirSync(path.join(tmp, "phone", "soul", "bodies"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "phone", "soul", "bodies", "pc.json"), JSON.stringify({ body: "pc", kind: "runtime", uuid: pcId }));
+  await phone.call("llmWhere", { where: [phoneId, pcId, "pc"] });
   await phone.call("wake", { kind: "think", reason: "想表达（0.90）" });
   await until(async () => (await tl(pc)).filter(([k, b]) => k === "think" && b === "phone").length >= 1 && (await tl(pc)).filter(([k, b]) => k === "think" && b === "pc").length >= 2);
 });

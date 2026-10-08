@@ -46,7 +46,7 @@ export type BodyTarget = { local: true } | { remote: RemoteBody } | { error: str
 const online = () => remoteBodies().map((b) => `${b.body}（${b.uuid ?? "还没有登记 uuid"}）`).join("、");
 
 /**
- * 解析 body 参数（身体的 uuid）：在灵魂仓库的身体登记里找到它对应的身体名，再找这个名字的、网状层认证过的连接；
+ * 解析 body 参数（身体的 uuid）。凡是她填写、指代一具身体的参数（读文件工具的 body、body_call / move_to 的 body、醒来时选的 where）都走这里：在灵魂仓库的身体登记里找到它对应的身体名，再找这个名字的、网状层认证过的连接；
  * 同时核对那具身体自报的 uuid 与登记一致。空或这具身体自己 → 本机。一个 uuid 被登记给多具身体（例如同一部手机上装了两份运行基座）时拒绝，不替人选。
  */
 export function resolveBody(arg: unknown): BodyTarget {
@@ -62,11 +62,11 @@ export function resolveBody(arg: unknown): BodyTarget {
   if (owners[0] === config.body) return v === self ? { local: true } : { error: `登记里 ${config.body} 的 uuid 与这具身体现在的不一致，等下一次同步更新登记后再试` };
   const b = remoteBodies().find((x) => x.body === owners[0]);
   if (!b) return { error: `${owners[0]} 不在线（在线的：${online() || "没有"}）` };
-  if (!b.claimed) return { error: `${b.body} 需要升级：它的版本还不能把文件交给别的身体` };
+  if (!b.claimed) return { error: `${b.body} 需要升级：它的版本还没有身体 uuid` };
   if (b.claimed !== v) {
-    log("mesh", `${b.body} 自报的 uuid（${b.claimed.replace(/[^0-9a-z-]/g, "?")}）与灵魂仓库的登记（${v}）不一致，拒绝跨身体取文件`);
-    audit("agent", "file.read", "解析 body", { body: b.body, uuid: v }, `denied: ${b.body} 自报的 uuid 与登记不一致`);
-    return { error: `${b.body} 自报的 uuid 与灵魂仓库的登记不一致，没有取文件` };
+    log("mesh", `${b.body} 自报的 uuid（${b.claimed.replace(/[^0-9a-z-]/g, "?")}）与灵魂仓库的登记（${v}）不一致，拒绝`);
+    audit("agent", "body", "解析 body", { body: b.body, uuid: v }, `denied: ${b.body} 自报的 uuid 与登记不一致`);
+    return { error: `${b.body} 自报的 uuid 与灵魂仓库的登记不一致，没有用它` };
   }
   return { remote: b };
 }

@@ -67,7 +67,7 @@ Files belong to the body they are on: a photo taken on the phone has no path on 
 
 ### Body uuid
 
-`body` takes the other body's uuid, not its name. The system prompt lists the uuid of every online body, and paths returned by device tools end with "these files are on body X (body: …)".
+Wherever the agent names a body — `body_call`, `move_to`, the `body` of the file tools, and choosing where to wake — it uses that body's uuid, not its name (given a name, it is told which uuid to use). The system prompt lists the uuid of every online body, and paths returned by device tools end with "these files are on body X (body: …)".
 
 The uuid is tied to the device. The runtime derives it from the device's own identifier (only a hash is used; the raw identifier never leaves the device and is not written to logs or the soul repository), stores it in `state/body-uuid` the first time, and uses that file from then on. If the home directory is gone (Quetzal reinstalled), the same identifier gives the same uuid again. Whether it survives a reinstall depends on the platform:
 

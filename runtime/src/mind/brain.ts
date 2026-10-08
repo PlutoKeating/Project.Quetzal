@@ -3,6 +3,7 @@
 //   做梦（dream）：整理最近的经历（包括其他身体的），更新常驻记忆与笔记，调和人格冲突
 //   对话（converse）：有人说话时立即回应，可以使用工具
 // 每次醒来 / 对话都是一个会话（mind/activity.ts）：进展实时广播，并受「无进展」会话时间墙约束。
+import { resolveBody } from "./body-files.ts";
 import crypto from "node:crypto";
 import { chat } from "../providers/router.ts";
 import type { Msg, ToolDef } from "../providers/types.ts";
@@ -149,23 +150,26 @@ const effortOf = (tokens: number, steps: number) => Math.min(0.15, tokens / 2_00
  * run 让另一具身体执行这次醒来（它跳过内省，直接按选好的意图做）。
  */
 export interface Placement {
-  survey(kind: WakeKind): Promise<{ text: string; bodies: string[]; recommend: string[] } | undefined>;
+  survey(kind: WakeKind): Promise<Survey | undefined>;
   run(body: string, kind: WakeKind, reason: string, intent: string): Promise<WakeResult>;
 }
 export type WakeResult = { satisfied?: Partial<Drives>; effort?: number };
+/** 醒来时各具身体的概况：text 给她看（每具身体标着 uuid），bodies / recommend 是身体名（基座内部用），recommendText 是给她看的推荐。 */
+export interface Survey { text: string; bodies: string[]; recommend: string[]; recommendText?: string }
 let placement: Placement | undefined;
 export function setPlacement(p: Placement | undefined) { placement = p; }
 
 /** 内省：用便宜的模型快速判断要不要投入这次醒来；有多具身体时顺便选在哪里做。 */
-async function introspect(kind: WakeKind, reason: string, where?: { text: string; bodies: string[]; recommend: string[] }): Promise<{ engage: boolean; intent: string; where: string[] }> {
+async function introspect(kind: WakeKind, reason: string, where?: Survey): Promise<{ engage: boolean; intent: string; where: string[] }> {
   if (kind === "dream" && !where) return { engage: true, intent: "整理记忆", where: [] };
   try {
     const ask = where
-      ? `你刚刚${kind === "dream" ? "进入梦境（整理记忆）" : `醒来（${reason}）`}。你此刻有几具身体在线：\n${where.text}\n基座推荐：${where.recommend.join("、")}。\n先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡", "where": ["在哪具身体上做，可以选一具或几具（几具会同时进行，都是你）"]}。${kind === "dream" ? "做梦只选一具。" : ""}`
+      ? `你刚刚${kind === "dream" ? "进入梦境（整理记忆）" : `醒来（${reason}）`}。你此刻有几具身体在线：\n${where.text}\n基座推荐：${where.recommendText ?? where.recommend.join("、")}。\n先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡", "where": ["在哪具身体上做：填身体的 uuid，可以选一具或几具（几具会同时进行，都是你）"]}。${kind === "dream" ? "做梦只选一具。" : ""}`
       : `你刚刚醒来（${reason}）。先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡"}。`;
     const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason) }, { role: "user", content: ask }], maxTokens: 300 }, { quick: true });
     const j = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
-    const picked = (Array.isArray(j.where) ? j.where : typeof j.where === "string" ? [j.where] : []).map(String).filter((b: string) => where?.bodies.includes(b));
+    // where 填的是 uuid：和身体参数一样经 resolveBody 解析成身体名（登记、认证过的连接、自报一致）；解析不了的不算
+    const picked = (Array.isArray(j.where) ? j.where : typeof j.where === "string" ? [j.where] : []).slice(0, 10).map((u: unknown) => { if (typeof u !== "string" || !u.trim()) return ""; const t = resolveBody(u); return "local" in t ? config.body : "remote" in t ? t.remote.body : ""; }).filter((b: string) => b && where?.bodies.includes(b));
     return { engage: kind === "dream" || j.engage !== false, intent: String(j.intent ?? (kind === "dream" ? "整理记忆" : "")), where: picked.length ? [...new Set(picked)] as string[] : where?.recommend ?? [] };
   } catch { return { engage: true, intent: kind === "dream" ? "整理记忆" : "", where: where?.recommend ?? [] }; }
 }

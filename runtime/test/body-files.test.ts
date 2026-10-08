@@ -77,7 +77,7 @@ test("body 参数的解析：空或自己 → 本机；登记过、在线、自�
     assert.match((bf.resolveBody(PC) as any).error, /这个 uuid 对应多具身体（pc、pc-termux）/);
     loopback(undefined, undefined, { claimed: OTHER });
     assert.match((bf.resolveBody(PC) as any).error, /pc 自报的 uuid 与灵魂仓库的登记不一致/);
-    assert.ok(store.listAudit(5, { action: "file.read" }).some((a) => a.result.includes("自报的 uuid 与登记不一致")), "记一笔");
+    assert.ok(store.listAudit(5, { action: "body" }).some((a) => a.result.includes("自报的 uuid 与登记不一致")), "记一笔");
     loopback(undefined, undefined, { claimed: undefined });
     assert.match((bf.resolveBody(PC) as any).error, /pc 需要升级/);
     loopback(undefined, undefined, { registry: [{ body: "tablet", uuid: PC }] });

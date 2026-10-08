@@ -50,7 +50,7 @@ function othersBlock(): string {
   if (!bodies.length) return "";
   const busy = (b: string) => liveTurns().filter((t) => t.body === b).length;
   const self = bodyUuid();
-  return `## 其他身体（此刻在线，都是你）\n${self ? `你此刻在 ${config.body}（body: ${self}）。\n` : ""}${bodies.map((b) => `- ${b.body}（body: ${b.uuid ?? "还没有登记 uuid"}）：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}`).join("\n")}\n用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对方的话标着是经哪具身体发来的（对方的控制台连着哪具身体、飞书由哪具身体收、哪具身体的耳朵听到）。对话、会话、记忆、心脏都是同一份；保密库、自造工具的实现与文件属于各自的身体：在那边拍的照片、录的音、写的文件，这里没有那个路径：view_image、read_document、shell 带上 body（那具身体的 uuid），路径照那边的写，基座先把文件取到这里再用（shell 把要取的文件列在 files 里，命令仍在这里执行）。`;
+  return `## 其他身体（此刻在线，都是你）\n${self ? `你此刻在 ${config.body}（body: ${self}）。\n` : ""}${bodies.map((b) => `- ${b.body}（body: ${b.uuid ?? "还没有登记 uuid"}）：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}`).join("\n")}\n凡是要指一具身体的地方（body_call、move_to、读文件工具的 body）都填它的 uuid（上面括号里的），不填名字。用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对方的话标着是经哪具身体发来的（对方的控制台连着哪具身体、飞书由哪具身体收、哪具身体的耳朵听到）。对话、会话、记忆、心脏都是同一份；保密库、自造工具的实现与文件属于各自的身体：在那边拍的照片、录的音、写的文件，这里没有那个路径：view_image、read_document、shell 带上 body（那具身体的 uuid），路径照那边的写，基座先把文件取到这里再用（shell 把要取的文件列在 files 里，命令仍在这里执行）。`;
 }
 
 /** 技能与自造工具：本机可用的、缺依赖的、只有文档没有实现的。 */

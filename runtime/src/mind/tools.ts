@@ -14,7 +14,7 @@ import { htmlToText, readDocument } from "./documents.ts";
 import { webSearch, BROWSER_HEADERS } from "./search.ts";
 import fs from "node:fs";
 import { loadImage } from "./images.ts";
-import { localize, withBodyParam, type Fetched } from "./body-files.ts";
+import { localize, withBodyParam, resolveBody, type Fetched } from "./body-files.ts";
 import { bodyUuid } from "../body/uuid.ts";
 import { describeProcesses } from "./processes.ts";
 import * as voice from "../voice/azure.ts";
@@ -35,7 +35,7 @@ import * as agents from "./agents.ts";
 import { ensureSession, getSession, kv } from "../store.ts";
 import crypto from "node:crypto";
 import { addTimeline, addMessage } from "../store.ts";
-import { remoteBodies, bodiesHooks, earOf } from "./bodies.ts";
+import { remoteBodies, bodiesHooks, earOf, type RemoteBody } from "./bodies.ts";
 import * as claims from "./claims.ts";
 import { hostActive, touchHost, requestHost, exitHost, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
 
@@ -209,7 +209,7 @@ const core: Tool[] = [
           ctx.session.seen.add(key);
           sent++;
           out.push(`✓ ${p}${note ? `：${note}` : ""}`);
-        } catch (e: any) { out.push(`✗ ${p}：${e.message}${remoteBodies().length && !fs.existsSync(p) ? `（如果这张图在另一具身体上，带上 body 再看）` : ""}`); }
+        } catch (e: any) { out.push(`✗ ${p}：${e.message}${remoteBodies().length && !fs.existsSync(p) ? `（如果这张图在另一具身体上，带上那具身体的 uuid（body）再看）` : ""}`); }
       }
       return `${out.join("\n")}${sent ? "\n图片会在你下一步思考时出现（会自动选用能看图的模型）。" : ""}`;
     },
@@ -570,36 +570,45 @@ function handsTools(): Tool[] {
   ];
 }
 
-/** 跨身体：有其他在线身体时才出现（多具身体时由 mesh/ 填入 mind/bodies.ts）。 */
+/** 跨身体：有其他在线身体时才出现（多具身体时由 mesh/ 填入 mind/bodies.ts）。body 参数一律是身体的 uuid，解析走 body-files.ts 的 resolveBody。 */
 function bodyTools(): Tool[] {
   const bodies = remoteBodies();
   if (!bodies.length) return [];
-  const names = bodies.map((b) => b.body);
+  const list = bodies.map((b) => `${b.body}（${b.uuid ?? "还没有登记 uuid"}）`).join("、");
+  /** 解析成另一具身体；本机或解析不了时返回说明。 */
+  const other = (arg: unknown): RemoteBody | string => {
+    const t = resolveBody(arg);
+    if ("error" in t) return t.error;
+    if ("local" in t) return arg ? "这就是你此刻所在的身体，不用跨身体" : `要填 body（另一具身体的 uuid；在线的：${list}）`;
+    return t.remote;
+  };
   return [
     {
       name: "body_call", permission: "body",
-      description: `在你的另一具身体上调用它的工具（例如用那部手机拍照、在那台电脑上执行命令、用那具身体说话）。在线的身体：${names.join("、")}；各自的工具见系统提示「其他身体」一节。那具身体的闸门按它自己的权限判断，需要批准时会在那边请求。`,
-      parameters: obj({ body: str(`身体名：${names.join(" / ")}`), tool: str("那具身体上的工具名"), args: { type: "object", description: "工具参数（与那个工具的参数一致）" } }, ["body", "tool"]),
+      description: `在你的另一具身体上调用它的工具（例如用那部手机拍照、在那台电脑上执行命令、用那具身体说话）。body 填那具身体的 uuid。在线的身体：${list}；各自的工具见系统提示「其他身体」一节。那具身体的闸门按它自己的权限判断，需要批准时会在那边请求。`,
+      parameters: obj({ body: str("那具身体的 uuid"), tool: str("那具身体上的工具名"), args: { type: "object", description: "工具参数（与那个工具的参数一致）" } }, ["body", "tool"]),
       handler: async (a, ctx) => {
-        const h = bodiesHooks();
-        if (!h || !names.includes(String(a.body))) return `${a.body} 不在线（在线的：${names.join("、")}）`;
-        const r = await h.call(String(a.body), String(a.tool), (a.args && typeof a.args === "object" ? a.args : {}) as Record<string, unknown>, ctx.session ? `${ctx.session.origin} ${ctx.session.conv}` : "");
-        return r.status === "ok" ? r.text : `（${a.body} 上的 ${a.tool}${r.status === "denied" ? "没有被允许" : "出错了"}）${r.text}`;
+        const h = bodiesHooks(), b = other(a.body);
+        if (typeof b === "string") return b;
+        if (!h) return `${b.body} 不在线`;
+        const r = await h.call(b.body, String(a.tool), (a.args && typeof a.args === "object" ? a.args : {}) as Record<string, unknown>, ctx.session ? `${ctx.session.origin} ${ctx.session.conv}` : "");
+        return r.status === "ok" ? r.text : `（${b.body} 上的 ${a.tool}${r.status === "denied" ? "没有被允许" : "出错了"}）${r.text}`;
       },
     },
     {
       name: "move_to", permission: "body",
-      description: `换到你的另一具身体上继续这一轮（对话或醒来）：这一轮在这里结束，那具身体在同一个会话里接着做（对话记录各具身体共用），回复照常回到对方那里。适合要用那具身体的东西连续做事、那具身体更合适（电量、性能、离对方近）的时候。note 是写给接手的自己的交接。在线的身体：${names.join("、")}。`,
-      parameters: obj({ body: str(`身体名：${names.join(" / ")}`), note: str("交接：要接着做什么、做到哪了") }, ["body"]),
+      description: `换到你的另一具身体上继续这一轮（对话或醒来）：这一轮在这里结束，那具身体在同一个会话里接着做（对话记录各具身体共用），回复照常回到对方那里。适合要用那具身体的东西连续做事、那具身体更合适（电量、性能、离对方近）的时候。body 填那具身体的 uuid；note 是写给接手的自己的交接。在线的身体：${list}。`,
+      parameters: obj({ body: str("那具身体的 uuid"), note: str("交接：要接着做什么、做到哪了") }, ["body"]),
       handler: async (a, ctx) => {
-        const s = ctx.session, h = bodiesHooks(), body = String(a.body ?? "");
+        const s = ctx.session, h = bodiesHooks();
         if (!s || !h) return "move_to 只能在对话或醒来时调用";
-        if (!names.includes(body)) return `${body} 不在线（在线的：${names.join("、")}）`;
+        const b = other(a.body);
+        if (typeof b === "string") return b;
         if (s.movedTo) return `这一轮已经在换到 ${s.movedTo} 了`;
         if (s.origin === "chat" && !s.conv) return "这一轮没有会话，没法换过去";
-        s.movedTo = body;
-        s.moveResult = h.move(body, { origin: s.origin, conv: s.switchTo ?? s.conv, channel: s.channel, note: String(a.note ?? "").trim(), reason: "换身体" });
-        return `好，接下来在 ${body} 上继续，这里的一轮到此结束。`;
+        s.movedTo = b.body;
+        s.moveResult = h.move(b.body, { origin: s.origin, conv: s.switchTo ?? s.conv, channel: s.channel, note: String(a.note ?? "").trim(), reason: "换身体" });
+        return `好，接下来在 ${b.body} 上继续，这里的一轮到此结束。`;
       },
     },
   ];
