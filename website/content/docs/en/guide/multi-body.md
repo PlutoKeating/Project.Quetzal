@@ -14,6 +14,7 @@ description: Join several phones and computers into one agent with one conversat
 | It chooses where | On waking, the agent sees each body's battery, temperature and current work and where you last talked, and picks one body (or several at once) to think or dream on |
 | Using another body | While thinking on the computer it can take a photo with the phone or run a command on the server (`body_call`), or move the whole turn to another body (`move_to`) |
 | One set of settings | Change models and keys, permissions, budget (a daily total), hearing and voice, or the emergency stop on one body, and it changes on all of them |
+| One thought to share | The thought shown on the home page is the same on every body. When the agent changes it on one body, the others follow; a body that was offline catches up when it connects |
 
 Every console shows which body is talking with you right now. If you speak to the same conversation on another body, your message is forwarded automatically.
 
