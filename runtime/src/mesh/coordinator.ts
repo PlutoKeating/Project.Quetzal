@@ -7,7 +7,8 @@ import type { Mesh, PeerStatus } from "./mesh.ts";
 import { bus } from "../bus.ts";
 import { config } from "../config.ts";
 import { body } from "../body/twin.ts";
-import { setFollower, applyHeartOp, heartState, adoptHeart } from "../heart/heart.ts";
+import { setFollower, heartState, adoptHeart } from "../heart/heart.ts";
+import { applyHeartOpRemote } from "./heart-op.ts";
 import { addTimeline } from "../store.ts";
 import { log } from "../log.ts";
 
@@ -16,7 +17,6 @@ export interface Candidacy { priority: number; powered: boolean; started: number
 const STARTED = Date.now();
 const ANNOUNCE_MS = 30_000;
 const STATE_MIN_INTERVAL_MS = 2000;
-const HEART_OPS = new Set(["nudge", "experience", "openLoops", "personality"]); // 跟随者可以转来的心脏操作
 
 export const myCandidacy = (): Candidacy => ({
   priority: Number(config.mesh.priority) || 0,
@@ -85,8 +85,9 @@ export function installCoordinator(mesh: Mesh): () => void {
       recompute();
     } else if (e.name === "heart.state" && e.from === current && !isCoordinator()) {
       adoptHeart(e.data, mergeNext); mergeNext = false;
-    } else if (e.name === "heart.op" && isCoordinator() && e.data && HEART_OPS.has(e.data.op)) {
-      applyHeartOp(e.data.op, Array.isArray(e.data.args) ? e.data.args.slice(0, 5) : []);
+    } else if (e.name === "heart.op" && isCoordinator()) {
+      // 别处转来的心脏操作：形状不合格的丢弃（heart-op.ts），不写坏这里的这颗心
+      applyHeartOpRemote(e.data?.op, Array.isArray(e.data?.args) ? e.data.args : []);
     }
   };
   const onHeart = () => sendState();
