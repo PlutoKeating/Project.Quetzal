@@ -2,6 +2,8 @@
 
 整体原理见仓库根目录的 [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)。本文列出每个文件的职责与约定。
 
+内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。
+
 执行核心入口为 `main.ts` → `mind/brain.ts`；上下文由 `mind/prompt.ts`、`brain.ts` 的 `history()` 与本轮工具消息组成。局部字符预算、下一轮生效的会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。当前没有 MCP 接入或交互式 TUI；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
 ```

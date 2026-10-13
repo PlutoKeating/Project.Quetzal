@@ -4,6 +4,8 @@
 
 核心是项目自建的 TypeScript / Node.js 运行时：`main.ts` 装配，`mind/brain.ts` 执行模型与工具循环，`mind/prompt.ts` 组装上下文，`memory/` 管理记忆，`providers/` 适配模型，`heart/` 调度自主活动。完整文件职责见 [runtime 模块地图](../runtime/docs/ARCHITECTURE.md)。`console/` 是交互客户端，`cli/` 是安装与运维入口；灵魂桥映射其他框架的记忆，不接管它们的执行循环。
 
+内核开发的专项现状记录见 [engine 文档](engine/README.md)：模块地图、执行调度、上下文预算与压缩、记忆分层与检索、工具 / 交互接口，以及基线验证与已知边界。这里继续维护全局概览。
+
 ## 1. 总体结构
 
 ```mermaid
@@ -504,7 +506,7 @@ flowchart LR
 ## 10. 进程与部署契约
 
 - 基座只负责自身逻辑，**进程守护交给外部**（runit、systemd 等）：进程退出即被重新拉起。
-- **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式（只开网关与飞书，不醒来、不调用模型），并主动告知。
+- **熔断**：10 分钟内启动超过 5 次视为反复崩溃，进入安全模式并主动告知。`main.ts` 在启动网关、飞书、提醒和索引补齐后提前返回，不启动正常路径中的灵魂初始化、网状层、心脏与感知循环；因此不自主醒来。但 `gateway.ts` 的 `chat.send` 仍进入 `converse()`，当前没有覆盖所有模型入口的安全模式门禁，不能保证安全模式下完全不调用模型（见 [内核基线](engine/BASELINE.md)）。
 - 部署者提供：Node.js 22.13+（`node:sqlite` 从这个版本起不需要标志）、`QUETZAL_HOME`、可选的 `QUETZAL_ADAPTER`（适配器模块路径）、进程守护者。
 - **Android 部署约定（Quetzal App 内置，只装一个 App）**：Node.js、git、openssh、proot 由 `console/tool/android-runtime/` 用 termux-packages 以 App 的前缀（`/data/data/xyz.quetzal.console/files/usr`）从源码重编，可执行文件以 `lib*.so` 放在 APK 的 jniLibs（安装时解压到 `nativeLibraryDir`，Android 10+ 唯一允许 App 执行的位置），其余文件与网状层原生组件打成 `rootfs.tar`。App 的前台服务 `RuntimeService` 解开运行环境（App 版本或 `nativeLibraryDir` 变了才重新解开）、在前缀里建指向 `lib*.so` 的链接、把 `main.cjs` 与 `android.mjs` 复制到 `files/runtime/<版本>/`、首次写入身体名字（机型）与时区，以 `QUETZAL_HOME=files/home/quetzal`、`QUETZAL_ADAPTER=android.mjs`、`QUETZAL_HIDE_PATHS` 等环境变量启动 node；进程退出后退避重启，开机与 App 升级后（`BOOT_COMPLETED`、`MY_PACKAGE_REPLACED`）自启；持唤醒锁。身体接口（`BodyServer`）在 127.0.0.1 的随机端口，令牌与端口写进 `secrets/body.json`。升级 App 即升级运行基座，没有自动回退。安装器重启前台服务、等 `/health`、从家目录读 `secrets/gateway.token`，同一台手机上不需要配对码。
 - **Android + Termux 部署约定（旧安装，兼容保留）**（1.0.x 的安装脚本 `install.sh` 已从 App 中移除）：软件包 `nodejs-lts termux-services termux-api git openssh proot`；版本目录 `~/quetzal/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/quetzal/current` → 运行中的版本，`~/quetzal/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/quetzal`（`run` 以 `QUETZAL_ADAPTER=$HOME/quetzal/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/quetzal/`；开机脚本 `~/.termux/boot/quetzal`（唤醒锁 + 启动 runit）。迁移到 App 内置：确认灵魂已推送，卸载 Termux 版，装新 App 后接入同一个灵魂仓库（接入前不改身份）。

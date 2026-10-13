@@ -107,7 +107,7 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 - **灵魂**：私有 git 仓库，用 SSH 部署密钥同步，规范固定、带版本号。
 - **控制台**（Flutter）：安卓 App（内置 Node.js、git、ssh，只装这一个）、网页版与 Linux 桌面版。
 
-[架构](docs/ARCHITECTURE.md) · [接口](docs/API.md)
+[架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [内核引擎开发文档](docs/engine/README.md)
 
 <br/>
 

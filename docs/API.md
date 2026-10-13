@@ -4,6 +4,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 网关使用项目自定义的 HTTP / WebSocket RPC；身体间协议见 [分布式设计](DISTRIBUTED.md)。当前没有 MCP 客户端 / 服务端或交互式 TUI。模型可调用的工具在 `runtime/src/mind/tools.ts` 注册，区别于控制台 RPC 方法；上下文与子 agent 的运行边界见 [架构 §5](ARCHITECTURE.md#5-大脑一次醒来)。
 
+各类接口的实现位置、工具扩展点与 MCP / TUI 的现状证据见 [内核工具与交互接口](engine/INTERFACES.md)。
+
 ## 1. 网关
 
 两个监听，共用同一套接口：
