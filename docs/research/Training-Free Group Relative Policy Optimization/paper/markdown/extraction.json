@@ -1,0 +1,123 @@
+{
+  "arxiv_id": "2510.08191",
+  "pdf_sha256": "1bac429e6186f5d9cfca0d086d708b7b9941297a0c10485a1e015d640d595919",
+  "pages": 23,
+  "dpi": 160,
+  "tools": {
+    "pymupdf": "1.28.2",
+    "pymupdf4llm": "1.28.2"
+  },
+  "layout": "legacy",
+  "human_reviewed": false,
+  "page_assets": [
+    {
+      "page": 1,
+      "snapshot": "assets/pages/page-001.png"
+    },
+    {
+      "page": 2,
+      "snapshot": "assets/pages/page-002.png"
+    },
+    {
+      "page": 3,
+      "snapshot": "assets/pages/page-003.png"
+    },
+    {
+      "page": 4,
+      "snapshot": "assets/pages/page-004.png"
+    },
+    {
+      "page": 5,
+      "snapshot": "assets/pages/page-005.png"
+    },
+    {
+      "page": 6,
+      "snapshot": "assets/pages/page-006.png"
+    },
+    {
+      "page": 7,
+      "snapshot": "assets/pages/page-007.png"
+    },
+    {
+      "page": 8,
+      "snapshot": "assets/pages/page-008.png"
+    },
+    {
+      "page": 9,
+      "snapshot": "assets/pages/page-009.png"
+    },
+    {
+      "page": 10,
+      "snapshot": "assets/pages/page-010.png"
+    },
+    {
+      "page": 11,
+      "snapshot": "assets/pages/page-011.png"
+    },
+    {
+      "page": 12,
+      "snapshot": "assets/pages/page-012.png"
+    },
+    {
+      "page": 13,
+      "snapshot": "assets/pages/page-013.png"
+    },
+    {
+      "page": 14,
+      "snapshot": "assets/pages/page-014.png"
+    },
+    {
+      "page": 15,
+      "snapshot": "assets/pages/page-015.png"
+    },
+    {
+      "page": 16,
+      "snapshot": "assets/pages/page-016.png"
+    },
+    {
+      "page": 17,
+      "snapshot": "assets/pages/page-017.png"
+    },
+    {
+      "page": 18,
+      "snapshot": "assets/pages/page-018.png"
+    },
+    {
+      "page": 19,
+      "snapshot": "assets/pages/page-019.png"
+    },
+    {
+      "page": 20,
+      "snapshot": "assets/pages/page-020.png"
+    },
+    {
+      "page": 21,
+      "snapshot": "assets/pages/page-021.png"
+    },
+    {
+      "page": 22,
+      "snapshot": "assets/pages/page-022.png"
+    },
+    {
+      "page": 23,
+      "snapshot": "assets/pages/page-023.png"
+    }
+  ],
+  "figure_assets": [
+    "assets/figures/2510.08191-0-0.png",
+    "assets/figures/2510.08191-14-0.png",
+    "assets/figures/2510.08191-15-0.png",
+    "assets/figures/2510.08191-17-0.png",
+    "assets/figures/2510.08191-18-0.png",
+    "assets/figures/2510.08191-19-0.png",
+    "assets/figures/2510.08191-19-1.png",
+    "assets/figures/2510.08191-19-2.png",
+    "assets/figures/2510.08191-20-0.png",
+    "assets/figures/2510.08191-21-0.png",
+    "assets/figures/2510.08191-22-0.png",
+    "assets/figures/2510.08191-3-0.png",
+    "assets/figures/2510.08191-4-0.png",
+    "assets/figures/2510.08191-5-0.png",
+    "assets/figures/2510.08191-5-1.png"
+  ]
+}

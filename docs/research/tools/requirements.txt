@@ -1,0 +1,12 @@
+flatbuffers==25.12.19
+networkx==3.7
+numpy==2.5.4
+onnxruntime==1.31.0
+packaging==26.3
+protobuf==7.36.2
+psutil==7.2.2
+pymupdf==1.28.2
+pymupdf-layout==1.28.2
+pymupdf4llm==1.28.2
+PyYAML==6.0.3
+tabulate==0.10.0

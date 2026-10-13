@@ -1,0 +1,7 @@
+[submodule "research-training-free-grpo"]
+	path = docs/research/Training-Free Group Relative Policy Optimization/source/upstream
+	url = https://github.com/TencentCloudADP/youtu-agent.git
+	branch = training_free_GRPO
+[submodule "research-openrlhf"]
+	path = docs/research/OpenRLHF： An Easy-to-use, Scalable and High-performance RLHF Framework/source/upstream
+	url = https://github.com/OpenRLHF/OpenRLHF.git

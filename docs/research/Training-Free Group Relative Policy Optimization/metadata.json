@@ -1,0 +1,16 @@
+{
+  "arxiv_id": "2510.08191",
+  "title": "Training-Free Group Relative Policy Optimization",
+  "directory": "Training-Free Group Relative Policy Optimization",
+  "pdf_version": "v1",
+  "pdf_url": "https://arxiv.org/pdf/2510.08191",
+  "downloaded_on": "2026-10-13",
+  "pdf_sha256": "1bac429e6186f5d9cfca0d086d708b7b9941297a0c10485a1e015d640d595919",
+  "source": {
+    "url": "https://github.com/TencentCloudADP/youtu-agent.git",
+    "branch": "training_free_GRPO",
+    "path": "source/upstream",
+    "commit": "7612f860a2314c015573adc742f82157b0d66a6f",
+    "status": "added"
+  }
+}

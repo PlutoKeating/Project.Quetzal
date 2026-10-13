@@ -1,0 +1,66 @@
+{
+  "arxiv_id": "2405.11143",
+  "pdf_sha256": "b9797d8cb971705064d2aec706671cf44457d90b860910b9aae4cf5839e8750c",
+  "pages": 12,
+  "dpi": 160,
+  "tools": {
+    "pymupdf": "1.28.2",
+    "pymupdf4llm": "1.28.2"
+  },
+  "layout": "legacy",
+  "human_reviewed": false,
+  "page_assets": [
+    {
+      "page": 1,
+      "snapshot": "assets/pages/page-001.png"
+    },
+    {
+      "page": 2,
+      "snapshot": "assets/pages/page-002.png"
+    },
+    {
+      "page": 3,
+      "snapshot": "assets/pages/page-003.png"
+    },
+    {
+      "page": 4,
+      "snapshot": "assets/pages/page-004.png"
+    },
+    {
+      "page": 5,
+      "snapshot": "assets/pages/page-005.png"
+    },
+    {
+      "page": 6,
+      "snapshot": "assets/pages/page-006.png"
+    },
+    {
+      "page": 7,
+      "snapshot": "assets/pages/page-007.png"
+    },
+    {
+      "page": 8,
+      "snapshot": "assets/pages/page-008.png"
+    },
+    {
+      "page": 9,
+      "snapshot": "assets/pages/page-009.png"
+    },
+    {
+      "page": 10,
+      "snapshot": "assets/pages/page-010.png"
+    },
+    {
+      "page": 11,
+      "snapshot": "assets/pages/page-011.png"
+    },
+    {
+      "page": 12,
+      "snapshot": "assets/pages/page-012.png"
+    }
+  ],
+  "figure_assets": [
+    "assets/figures/2405.11143-10-0.png",
+    "assets/figures/2405.11143-2-0.png"
+  ]
+}

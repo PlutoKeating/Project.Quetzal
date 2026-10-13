@@ -1,0 +1,106 @@
+{
+  "arxiv_id": "2604.07645",
+  "pdf_sha256": "5d356057cb376a818bd277da54fc4a582c253f597a50767dea255c98555150a3",
+  "pages": 17,
+  "dpi": 160,
+  "tools": {
+    "pymupdf": "1.28.2",
+    "pymupdf4llm": "1.28.2"
+  },
+  "layout": "legacy",
+  "human_reviewed": false,
+  "page_assets": [
+    {
+      "page": 1,
+      "snapshot": "assets/pages/page-001.png"
+    },
+    {
+      "page": 2,
+      "snapshot": "assets/pages/page-002.png"
+    },
+    {
+      "page": 3,
+      "snapshot": "assets/pages/page-003.png"
+    },
+    {
+      "page": 4,
+      "snapshot": "assets/pages/page-004.png"
+    },
+    {
+      "page": 5,
+      "snapshot": "assets/pages/page-005.png"
+    },
+    {
+      "page": 6,
+      "snapshot": "assets/pages/page-006.png"
+    },
+    {
+      "page": 7,
+      "snapshot": "assets/pages/page-007.png"
+    },
+    {
+      "page": 8,
+      "snapshot": "assets/pages/page-008.png"
+    },
+    {
+      "page": 9,
+      "snapshot": "assets/pages/page-009.png"
+    },
+    {
+      "page": 10,
+      "snapshot": "assets/pages/page-010.png"
+    },
+    {
+      "page": 11,
+      "snapshot": "assets/pages/page-011.png"
+    },
+    {
+      "page": 12,
+      "snapshot": "assets/pages/page-012.png"
+    },
+    {
+      "page": 13,
+      "snapshot": "assets/pages/page-013.png"
+    },
+    {
+      "page": 14,
+      "snapshot": "assets/pages/page-014.png"
+    },
+    {
+      "page": 15,
+      "snapshot": "assets/pages/page-015.png"
+    },
+    {
+      "page": 16,
+      "snapshot": "assets/pages/page-016.png"
+    },
+    {
+      "page": 17,
+      "snapshot": "assets/pages/page-017.png"
+    }
+  ],
+  "figure_assets": [
+    "assets/figures/2604.07645-12-0.png",
+    "assets/figures/2604.07645-13-0.png",
+    "assets/figures/2604.07645-14-0.png",
+    "assets/figures/2604.07645-15-0.png",
+    "assets/figures/2604.07645-15-1.png",
+    "assets/figures/2604.07645-16-0.png",
+    "assets/figures/2604.07645-16-1.png",
+    "assets/figures/2604.07645-16-2.png",
+    "assets/figures/2604.07645-16-3.png",
+    "assets/figures/2604.07645-16-4.png",
+    "assets/figures/2604.07645-16-5.png",
+    "assets/figures/2604.07645-2-0.png",
+    "assets/figures/2604.07645-2-1.png",
+    "assets/figures/2604.07645-2-2.png",
+    "assets/figures/2604.07645-2-3.png",
+    "assets/figures/2604.07645-2-4.png",
+    "assets/figures/2604.07645-2-5.png",
+    "assets/figures/2604.07645-3-0.png",
+    "assets/figures/2604.07645-3-1.png",
+    "assets/figures/2604.07645-8-0.png",
+    "assets/figures/2604.07645-8-1.png",
+    "assets/figures/2604.07645-8-2.png"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "arxiv_id": "2604.07645",
+  "title": "PRIME: Training Free Proactive Reasoning via Iterative Memory Evolution for User-Centric Agent",
+  "directory": "PRIME： Training Free Proactive Reasoning via Iterative Memory Evolution for User-Centric Agent",
+  "pdf_version": "v1",
+  "pdf_url": "https://arxiv.org/pdf/2604.07645",
+  "downloaded_on": "2026-10-13",
+  "pdf_sha256": "5d356057cb376a818bd277da54fc4a582c253f597a50767dea255c98555150a3",
+  "source": {
+    "url": null,
+    "branch": null,
+    "path": null,
+    "commit": null,
+    "status": "unconfirmed"
+  }
+}
