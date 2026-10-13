@@ -2,6 +2,8 @@
 
 Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用）和**身体适配器接口**（设备仓库实现）。
 
+网关使用项目自定义的 HTTP / WebSocket RPC；身体间协议见 [分布式设计](DISTRIBUTED.md)。当前没有 MCP 客户端 / 服务端或交互式 TUI。模型可调用的工具在 `runtime/src/mind/tools.ts` 注册，区别于控制台 RPC 方法；上下文与子 agent 的运行边界见 [架构 §5](ARCHITECTURE.md#5-大脑一次醒来)。
+
 ## 1. 网关
 
 两个监听，共用同一套接口：
@@ -51,7 +53,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
 | `approval` | 审批 `{id, action, reason, args, status, kind?}`（`kind: "host"` 为她请求进入真实环境，控制台据此放在那个对话的顶部） |
 | `say` | Quetzal 主动说的话（字符串）。推送时已入库：醒来时的主动消息在她选的会话或新开的会话里（通道「主动」），基座发的提醒在 `inbox`（「主动消息」）；推送里不带会话，控制台收到后刷新会话列表与打开的会话页 |
-| `activity` | 进展 `{session, conv, origin: chat｜think｜dream, channel, ts, body, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空），`body` 为这一轮在哪具身体上（多具身体时，其他身体上进行的轮次也经同一事件推送），见下表 |
+| `activity` | 进展 `{session, conv, origin: chat｜think｜dream｜agent, channel, ts, body, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空，子 agent 为派出它的会话），`body` 为这一轮在哪具身体上（多具身体时，其他身体上进行的轮次也经同一事件推送），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（没有声音、没识别出文字、没在听；不按字数或时长丢弃；多具身体时另一只耳朵也听到了同一句话、由那边交给她）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
 | `speaking` | `{until}`：她在说话（`voice_speak`、试听）到 `until`（毫秒时刻，按码率估计）为止；App 回报播完或被插嘴时 `until` 提前到现在再推一次。界面用它显示「她在说话」；桌面版的耳朵没有回声消除，这段时间不送音频 |
@@ -227,12 +229,14 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 供应商配置结构：
 
+模型的 `context` 是保存 / 展示的窗口元数据，目前不驱动输入 token 预算或自动压缩；`maxTokens` 是模型输出默认值，核心工具循环显式传入 `brain.maxOutputTokens` 时由后者覆盖。`vision` 为可选的看图能力设置，优先于公共目录。
+
 ```ts
 interface Provider {
   id: string; catalogId: string; name: string; baseUrl: string; enabled: boolean;
   protocol: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
   keys: { id: string; label: string; lastFour: string; enabled: boolean; secret?: string /* 仅新增时提交 */ }[];
-  models: { id: string; name: string; enabled: boolean; context: number; maxTokens: number; sortOrder: number; cost?: { input: number; output: number } }[];
+  models: { id: string; name: string; enabled: boolean; context: number; maxTokens: number; sortOrder: number; vision?: boolean; cost?: { input: number; output: number } }[];
 }
 interface ProviderConfig { providers: Provider[]; quickModelId?: string }
 ```
@@ -298,7 +302,7 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `adapter` | `""` | 适配器模块路径（安卓 App 与 Termux 部署用环境变量 `QUETZAL_ADAPTER` 指定） |
 | `timezone` | 系统时区（拿不到时 `Asia/Shanghai`） | 生物钟与日记使用的时区 |
 | `heart.activity` / `baseRatePerHour` / `paused` | 1 / 4 / false | 活跃度、饱和醒来率、暂停 |
-| `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日预算（多具身体时按全网合计）与身体限制 |
+| `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日 token / 花费预算（多具身体时按全网合计）用尽后，自主醒来倍率乘以 0.05；不是模型调用的硬上限。最低电量与最高温度用于自主活动抑制和听觉状态判断 |
 | `channels.feishuHolder` | "" | 多具身体时持有飞书长连接的身体（全网共用）；空为这具身体自己连 |
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
 | `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码）。一个工具按它所属类别中最严的一个检查：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；想真正收紧，先把 `shell` 改成 `ask`。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求每次都要对方同意 |

@@ -65,7 +65,7 @@ const localHour = (now: number) => {
 const persist = () => { kv.set("heart", state); kv.set("personality", personality); bus.emit("heart"); };
 export const stopped = () => fs.existsSync(paths.stop);
 
-/** 身体与闸门的抑制系数。 */
+/** 身体、急停与预算的自主醒来抑制系数。预算用尽只降低概率，不是模型调用入口的硬门禁。 */
 function inhibition(): { k: number; why: string[] } {
   const why: string[] = [];
   let k = config.heart.activity;
@@ -118,6 +118,7 @@ export function snapshot() {
 }
 
 let started = false;
+/** 用定时器等待抽样候选时刻，到点重新计算并接受 / 拒绝；自主醒来没有固定周期。 */
 function schedule() {
   clearTimeout(timer);
   if (busy || !started || follower) return;

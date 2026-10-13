@@ -1,5 +1,6 @@
 // 系统提示的组装：人格 → 自我认知与处境 → 常驻记忆 → 记忆目录 → 自动检索到的相关记忆 → 身体 → 内在状态 → 最近的经历。
-// 记忆可以无限增长，上下文保持有界：常驻记忆按相关性展开、笔记只给目录索引、其余靠检索（见 memory/retrieval.ts）。
+// 记忆按局部字符预算展开、笔记只给目录索引、自动检索只取笔记与日记（见 memory/retrieval.ts）。
+// 每轮开始时生成一次，工具循环内不刷新；这些局部预算不等于完整请求的 token 上限。
 import { config, paths } from "../config.ts";
 import * as mem from "../memory/memory.ts";
 import { identity } from "../memory/identity.ts";

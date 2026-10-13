@@ -2,7 +2,8 @@
 //   分词：英文与数字按词，中文按相邻二字（bigram）；打分：BM25 风格的词频饱和 × IDF，标题 / 路径命中加权，较新的略加分，
 //   再乘以查询词覆盖率，避免只命中一个常见字的结果排到前面。
 //   文档：笔记目录树里的每一篇、日记里的每一段经历（## 小节）、常驻记忆的每一条。
-//   recall 工具与控制台搜索走持久的 FTS5 索引（index.ts，含对话）；这里的逐篇打分留给常驻记忆的展开（coreView）与 FTS5 不可用时。
+//   recall 工具与控制台搜索走持久的 FTS5 索引（index.ts，含对话）；自动注入块只检索笔记与日记。
+//   逐篇打分用于常驻记忆展开（coreView）与 FTS5 不可用时（对话退回时间段内最近的 3000 条）。预算按字符串字符数计，不是 token 数。
 import * as mem from "./memory.ts";
 import { config } from "../config.ts";
 import { epoch } from "../time/zone.ts";
@@ -89,7 +90,7 @@ function excerpt(text: string, q: string[], idf: (t: string) => number): string 
   return `${from > 0 ? "…" : ""}${text.slice(from, from + 500).trim()}${from + 500 < text.length ? "…" : ""}`;
 }
 
-/** 检索（recall 工具、控制台搜索、自动检索块）：走 FTS5 索引（含对话）；FTS5 不可用时逐篇打分（不含对话）。from / to：只看这个时间段。 */
+/** 检索：走 FTS5 索引；不可用时文档逐篇打分，对话取时间段内最近的 3000 条。自动检索块只请求笔记 / 日记。from / to：只看这个时间段。 */
 export type Found = Omit<Hit, "kind"> & { kind: idx.Kind; session?: string; ref?: string };
 export function retrieve(query: string, o: { limit?: number; kinds?: idx.Kind[]; from?: number; to?: number } = {}): Found[] {
   const kinds = o.kinds ?? ["chat", "note", "journal", "memory", "user"];

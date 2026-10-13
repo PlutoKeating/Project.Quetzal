@@ -1,5 +1,6 @@
 // 闸门：能力授权（允许 / 每次询问 / 禁止）、审批队列、急停、审计。
-// 所有工具调用都经过 guard.check；默认全部允许，你可以在控制台或飞书里随时收紧。
+// 普通工具调用经过 guard.check；相机、麦克风、定位、操作屏幕、造工具默认询问，其余默认允许（config.ts）。
+// 每日预算由心脏调低自主醒来概率，这里不执行消费硬门禁；finish 由 brain.ts 的循环直接处理。
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { config, paths, saveConfig, markShared, type Level } from "../config.ts";

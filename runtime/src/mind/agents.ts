@@ -2,6 +2,7 @@
 //   每个子 agent 是一个独立的工具循环（与醒来共用 loop），有自己的系统提示（不是她的人格），能用除会话 / 子 agent 管理之外的全部工具；
 //   进展作为 origin 为 agent 的轮次实时广播（控制台首页与心流里能看到，并可只读地看完整过程）；她用 agent_status 查看、agent_message 对话、agent_stop 停止。
 //   完成后把报告以「环境输入」（ambient，通道「子agent」）送回她派出它的那个会话，由她决定怎么用。
+//   与主 agent 共用同一个 Node.js 进程和工具权限，不自动继承其历史 / 人格，但可以调用共享记忆工具；重启后未完成任务标为中断。
 import crypto from "node:crypto";
 import type { Msg } from "../providers/types.ts";
 import { Session } from "./activity.ts";
@@ -11,6 +12,7 @@ import { config, paths } from "../config.ts";
 import { identity } from "../memory/identity.ts";
 import { log } from "../log.ts";
 
+/** maxSteps 目前仅写入提示词，没有工具循环的强制计数终止。 */
 export interface AgentSpec { name: string; goal: string; persona?: string; scope?: string; background?: string; context?: string; maxSteps?: number }
 export interface SubAgent extends AgentSpec {
   id: string; parentConv: string; parentChannel: string; status: "running" | "done" | "stopped" | "error";

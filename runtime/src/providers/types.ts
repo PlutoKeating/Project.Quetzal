@@ -4,6 +4,7 @@ export const PROTOCOLS: Protocol[] = ["openai-completions", "openai-responses", 
 
 export interface ProviderKey { id: string; label: string; lastFour: string; enabled: boolean; ciphertext?: string; secret?: string }
 export interface ProviderModel {
+  // context 是窗口元数据，不驱动自动裁剪 / 压缩；maxTokens 是输出默认值，请求显式给 maxTokens 时覆盖它。
   id: string; name: string; enabled: boolean; context: number; maxTokens: number; sortOrder: number;
   cost?: { input: number; output: number }; // 美元 / 百万 token
   vision?: boolean; // 能否看图；未设置时按公共目录里的输入模态，查不到就当不能（见 router.ts 的 canSee）
