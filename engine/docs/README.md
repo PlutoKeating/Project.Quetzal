@@ -1,6 +1,6 @@
 # engine · Agent 核心执行引擎
 
-根级 `engine/` 是独立的模型与工具执行模块，不导入 `runtime/`，没有运行时第三方依赖。现阶段提取真实工具循环与模型协议类型，保留已有行为；轮次生命周期、上下文组装、供应商实现和记忆仍由宿主提供。
+根级 `engine/` 是独立的模型与工具执行模块，不导入 `runtime/`，没有运行时第三方依赖。现阶段包含真实工具循环、模型协议类型、纯上下文 / 检索策略，以及独立环境的受限研究运行器；生产轮次生命周期、上下文组装、供应商实现与记忆存储仍由宿主提供。
 
 运行基座的对话（App / 网关 / 飞书 / 听觉）、自主思考、做梦和子 agent，均经 `runtime/src/mind/brain.ts` 装配本引擎。TUI 或其他宿主可通过同一接口提供模型、工具、上下文和事件处理；本模块本身不实现终端 UI 或 MCP 协议。
 
@@ -9,6 +9,8 @@
 | [src/index.ts](../src/index.ts) | 公共入口与类型导出 |
 | [src/types.ts](../src/types.ts) | Msg、图片、工具定义/调用、ChatRequest、ChatResult |
 | [src/loop.ts](../src/loop.ts) | runTurn、TurnControl、EnginePorts 与结果/记录类型 |
+| [src/context.ts](../src/context.ts) / [src/retrieval.ts](../src/retrieval.ts) | 字符预算选择、分词、评分与摘录纯策略 |
+| [src/research.ts](../src/research.ts) | 每样本独立环境、有界执行、轨迹及独立评分 |
 | [test/boundary.test.ts](../test/boundary.test.ts) | 静态源码依赖图不得越过引擎边界 |
 | [test/loop.test.ts](../test/loop.test.ts) | 假模型/工具的独立执行、取消、插话、失败、finish、交接测试 |
 

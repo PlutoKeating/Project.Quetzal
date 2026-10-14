@@ -19,7 +19,7 @@
 | cleanText / redactArgs / summarize | 宿主历史附注清理、参数脱敏与工具卡片摘要 |
 | recordTool / warning | 完整工具记录保存及非致命记录错误 |
 
-FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供 finishTool 时模型自行返回 finish，仍按旧循环识别并结束，不交给普通工具端口。finish 的 schema 由宿主定义；引擎只返回参数，不写日记或改变驱动力。MCP 是宿主工具来源之一，需要宿主管理连接/发现/权限，再以 ToolDef 与 execute 接入；界面和通道则调用宿主的对话入口。当前切片没有新增 MCP 或 TUI。
+FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供 finishTool 时模型自行返回 finish，仍按旧循环识别并结束，不交给普通工具端口。finish 的 schema 由宿主定义；引擎只返回参数，不写日记或改变驱动力。MCP 是宿主工具来源之一，需要宿主管理连接/发现/权限，再以 ToolDef 与 execute 接入；界面和通道则调用宿主的对话入口。宿主已提供 stdio MCP 工具来源，CLI 已提供本机 TUI；二者不进入 engine 的协议实现或依赖树。
 
 ## 兼容行为
 
@@ -28,6 +28,12 @@ FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供
 取消判定由宿主注入：现有普通 Stopped 能提前结束正在等待的工具，子 agent 的普通 Error 保持已有差异。工具本身的取消和副作用仍由宿主管理。迁移不增加总步数、总消费或绝对时长上限，也不实施自动压缩；既有 maxSteps 提示词限制不变。
 
 模型类型由 engine 维护，`runtime/src/providers/types.ts` 重导出兼容旧导入路径，供应商配置、Key 与 ProviderError 留在 runtime。
+
+## 纯策略与离线研究
+
+`context.ts` 与 `retrieval.ts` 只接收文本、文档、字符预算及显式当前时间；runtime 保留文件读取、日记时间转换、SQLite、灵魂同步与旧路径包装。默认输出通过旧算法对照验证，不改变压缩或检索策略。
+
+`research.ts` 的 `runResearchGroup` 为每个样本建立独立环境并直接调用 `runTurn`；步数、调用数、报告用量、总超时和独立评分仅作用于研究运行。合成示例与真实模型实验不同，轨迹也不自动成为可公开的脱敏数据。完整接口及限制见 [研究运行器](../../docs/engine/RESEARCH_RUNNER.md)。
 
 ## 后续切片
 
