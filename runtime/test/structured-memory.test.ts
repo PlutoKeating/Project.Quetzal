@@ -50,7 +50,8 @@ test("legacy只读映射未核实材料，损坏结构化文件不以legacy旁�
   mem.editMemory("user", "add", "旧USER原文不改");
   mem.saveNote("旧材料", "旧笔记原文");
   const original = mem.readNote("旧材料");
-  mem.saveNote("QuetzalMemory/broken", "候选内容不得旁路");
+  // 可信测试夹具直接注入损坏文件；普通note入口禁止写受管目录。
+  fs.writeFileSync(path.join(paths.soul, "notes", "QuetzalMemory", "broken.md"), "# 损坏记录\n候选内容不得旁路\n");
   const records = host.readLegacyRecords(scope);
   assert.ok(records.some((r) => r.text.includes("旧USER原文不改") && r.kind === "episode" && r.zone === "warning"));
   assert.ok(!records.some((r) => r.text.includes("候选内容不得旁路")));

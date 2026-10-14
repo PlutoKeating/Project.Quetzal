@@ -15,7 +15,32 @@ import { identity } from "./identity.ts";
 export type Target = "memory" | "user";
 const p = (...a: string[]) => path.join(paths.soul, ...a);
 const read = (f: string) => { try { return fs.readFileSync(f, "utf8"); } catch { return ""; } };
-const write = (f: string, s: string) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, s); };
+/** 普通灵魂写入口不能修改受管记录，也不能经已有链接或目录改名绕过宿主确认。只检查路径，不检查正文。 */
+function unmanagedWritePath(file: string) {
+  const root = path.resolve(paths.soul), target = path.resolve(file), rel = path.relative(root, target);
+  if (!rel || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) throw new Error("普通记忆写入必须位于灵魂目录内");
+  const segments = rel.split(path.sep);
+  if (segments[0].toLowerCase() === "notes" && segments[1]?.toLowerCase().replace(/\.md$/, "") === "quetzalmemory") {
+    throw new Error("QuetzalMemory 是受管记忆目录，请通过宿主候选、确认或归档接口修改");
+  }
+  const managed = path.join(root, "notes", "QuetzalMemory");
+  const resolvedManaged = fs.existsSync(managed) ? fs.realpathSync.native(managed).toLowerCase() : undefined;
+  let current = root;
+  for (const segment of ["", ...segments]) {
+    if (segment) current = path.join(current, segment);
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(current); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") break; throw error; }
+    if (stat.isSymbolicLink()) throw new Error("普通记忆写入不能经过符号链接或目录链接");
+    // NTFS 短名等文件系统别名不是 symlink；已有祖先的真实路径也必须过受管门禁。
+    const resolved = fs.realpathSync.native(current).toLowerCase();
+    if (resolvedManaged && (resolved === resolvedManaged || resolved.startsWith(resolvedManaged + path.sep))) {
+      throw new Error("普通记忆写入的真实路径属于 QuetzalMemory 受管目录");
+    }
+    if (current === target && (!stat.isFile() || stat.nlink > 1)) throw new Error("普通记忆写入只允许没有硬链接别名的笔记文件");
+  }
+}
+const write = (f: string, s: string) => { unmanagedWritePath(f); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, s); };
 
 /** 种子人格：灵魂目录里还没有 SOUL.md 时使用，名字来自 agent 身份。 */
 export const seedSoul = (name: string) => `# ${name}
@@ -76,6 +101,7 @@ const timeOf = (ts = Date.now()) => new Date(ts).toLocaleTimeString("zh-CN", { t
 
 export function writeJournal(title: string, text: string, ts = Date.now()) {
   const f = p("journal", config.body, `${dayOf(ts)}.md`);
+  unmanagedWritePath(f);
   const head = fs.existsSync(f) ? "" : `# ${dayOf(ts)} · ${config.body}\n`;
   fs.mkdirSync(path.dirname(f), { recursive: true });
   fs.appendFileSync(f, `${head}\n## ${timeOf(ts)} ${title}\n\n${text.trim()}\n`);
@@ -122,6 +148,7 @@ const leaf = (title: string) => title.split("/").map((x) => x.trim()).filter(Boo
 /** 保存笔记。title 可带分类路径；summary 为一句话摘要，写在标题下方的引用行，进入记忆目录。 */
 export function saveNote(title: string, body: string, append = false, summary = "") {
   const rel = notePath(title), f = noteFile(rel);
+  unmanagedWritePath(f);
   fs.mkdirSync(path.dirname(f), { recursive: true });
   if (append && fs.existsSync(f)) fs.appendFileSync(f, `\n\n${body.trim()}\n`);
   else write(f, `# ${leaf(title)}\n${summary.trim() ? `\n> ${summary.trim().replace(/\n+/g, " ")}\n` : ""}\n${body.trim()}\n`);
@@ -160,6 +187,7 @@ export const readNote = (name: string) => read(noteFile(name));
 /** 移动 / 改名笔记（整理目录树用）。 */
 export function moveNote(from: string, to: string): string {
   const a = noteFile(from), b = noteFile(to);
+  unmanagedWritePath(a); unmanagedWritePath(b);
   if (!fs.existsSync(a)) return `没有这篇笔记：${notePath(from)}`;
   if (fs.existsSync(b)) return `目标已存在：${notePath(to)}`;
   fs.mkdirSync(path.dirname(b), { recursive: true });
@@ -169,6 +197,7 @@ export function moveNote(from: string, to: string): string {
 }
 export function deleteNote(name: string): string {
   const f = noteFile(name);
+  unmanagedWritePath(f);
   if (!fs.existsSync(f)) return `没有这篇笔记：${notePath(name)}`;
   fs.rmSync(f); pruneEmpty(path.dirname(f));
   return `已删除：${notePath(name)}（历史中仍可找回）`;
