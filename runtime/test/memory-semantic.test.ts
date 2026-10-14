@@ -115,3 +115,23 @@ test('缓存跨validUntil边界后重新门禁，过期偏好不能返回', asyn
   assert.deepEqual(await selectContextMemory({ ...q, now: until }, undefined, model), []);
   assert.equal(calls, 2);
 });
+
+test('配置100ms超时终止不合作模型等待，并回退到已过scope门禁的词面候选', { timeout: 2000 }, async () => {
+  saveConfig({ brain: { memorySemantic: true, memorySelectionTimeoutMs: 100 } });
+  let requestSignal: AbortSignal | undefined;
+  // AbortSignal.timeout的计时器不保活；保留显式测试句柄以验证真正超时，而非进程退出取消测试。
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    const selected = await selectContextMemory(query('乌龙茶 timeout fallback'), undefined, async (request) => {
+      requestSignal = request.signal;
+      return new Promise<ChatResult>(() => {});
+    });
+    assert.equal(requestSignal?.aborted, true);
+    assert.equal(requestSignal?.reason?.name, 'TimeoutError');
+    assert.ok(selected.some((r) => r.id === 'known_tea'));
+    assert.ok(selected.every((r) => r.state === 'active' && r.scope.agentId === scope.agentId && (!r.scope.userId || r.scope.userId === scope.userId)));
+  } finally {
+    clearInterval(keepAlive);
+    saveConfig({ brain: { memorySelectionTimeoutMs: 5000 } });
+  }
+});

@@ -26,7 +26,7 @@ export async function selectContextMemory(query: MemoryQuery, signal?: AbortSign
   const stopped = new AbortController();
   const stop = () => { if (fs.existsSync(paths.stop)) stopped.abort(new Error('急停中，停止记忆选择')); };
   bus.on('state', stop); stop();
-  const timed = AbortSignal.any([stopped.signal, ...(signal ? [signal] : []), AbortSignal.timeout(5000)]);
+  const timed = AbortSignal.any([stopped.signal, ...(signal ? [signal] : []), AbortSignal.timeout(config.brain.memorySelectionTimeoutMs)]);
   try {
     const selected = await retrieveMemory(records, query, { select: async ({ candidates }) => {
       if (!candidates.length) return [];

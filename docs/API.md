@@ -320,7 +320,9 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `brain.maxOutputTokens` | 4096 | 请求输出上限；实际候选还受模型 maxTokens 与窗口四分之一限制，生产步数仍不设硬上限 |
 | `brain.contextWindow` | 65536 | 模型没有有效 context 配置时的窗口缺省值；范围1024–2000000，实际候选按自己的 context 重算 |
 | `brain.contextSummaryTokens` | 1024 | 动态摘要正文预算，范围128–4096；按UTF-8字节保守估计限制，不是真tokenizer |
+| `brain.contextSummaryTimeoutMs` | 10000 | 自动摘要硬等待预算，范围100–60000毫秒；超时仍按原文引用门禁退路处理 |
 | `brain.memorySemantic` | true | 每步使用有界 quick 模型选择合格记忆；失败/超时/预算不足时退回词面门禁检索，关闭后直接词面选择 |
+| `brain.memorySelectionTimeoutMs` | 5000 | 语义选择硬等待预算，范围100–60000毫秒；慢quick模型可调高，超时退回词面选择 |
 | `brain.memoryLearning` | true | 轮次收尾及做梦的后台 PRIME 学习/演化；关闭不删除已有记忆，也不把候选变为事实 |
 | `brain.memoryLearningTokens` | 1200 | 后台学习请求输出上限，配置范围128–4096；学习器另有自己的预算与上限 |
 | `brain.memoryLearningTimeoutMs` | 15000 | 轮次后台学习有界等待，配置范围100–60000毫秒；默认不是前台对话绝对超时 |
