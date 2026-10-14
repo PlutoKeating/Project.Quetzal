@@ -38,7 +38,7 @@ test("沙箱：有 bwrap 时密钥目录在命令里不存在，QUETZAL_HOME 只
   assert.equal((await shell(`cat ${v}`)).out, "vault-value-123456", "保密库在沙箱里可读（pass_secret 的用法）");
   const ro = await shell(`touch ${path.join(paths.config, "x")} 2>&1; echo rc=$?`);
   assert.match(ro.out, /rc=1/, "配置目录只读");
-  assert.match((await shell(`touch ${path.join(paths.data, "ok")} && echo ok`)).out, /ok/, "data/ 可写");
+  assert.notEqual((await shell(`touch ${path.join(paths.data, "ok")}`)).code, 0, "运行data只读，不能伪造SQLite来源");
   assert.equal((await shell("echo hello; pwd")).out, `hello\n${os.homedir()}\n`, "工作目录是用户主目录");
   // 后台任务同样在沙箱里
   const j = await startJob(`cat ${path.join(paths.secrets, "gateway.token")} || echo hidden`);
@@ -96,7 +96,7 @@ test("探针：一个其实不隔离的「沙箱」（例如内核不支持 Land
 });
 
 const landrunBin = process.env.QUETZAL_TEST_LANDRUN;
-test("沙箱：Landlock（landrun）里密钥目录不可读、QUETZAL_HOME 只读、data/ 可写、网络照常", { skip: !landrunBin && "没有设置 QUETZAL_TEST_LANDRUN（landrun 的路径）" }, async () => {
+test("沙箱：Landlock（landrun）里密钥目录不可读、QUETZAL_HOME与data只读、网络照常", { skip: !landrunBin && "没有设置 QUETZAL_TEST_LANDRUN（landrun 的路径）" }, async () => {
   process.env.QUETZAL_SANDBOX = "landlock"; process.env.QUETZAL_LANDRUN = landrunBin;
   try {
     sandbox.resetSandbox();
@@ -105,7 +105,7 @@ test("沙箱：Landlock（landrun）里密钥目录不可读、QUETZAL_HOME 只�
     assert.match(r.out, /rc=1/);
     assert.doesNotMatch(r.out, new RegExp(Buffer.alloc(32, 7).toString("base64").slice(0, 20)));
     assert.match((await shell(`touch ${path.join(paths.config, "x")} 2>&1; echo rc=$?`)).out, /rc=1/, "配置目录只读");
-    assert.match((await shell(`touch ${path.join(paths.data, "ll-ok")} && echo ok`)).out, /ok/, "data/ 可写");
+    assert.notEqual((await shell(`touch ${path.join(paths.data, "ll-ok")}`)).code, 0, "data只读");
     assert.equal((await shell("echo $HOME")).out.trim(), os.homedir(), "环境变量传进去了");
     const v = saveSecret("ll_token", "ll-vault-value");
     assert.equal((await shell(`cat ${v}`)).out, "ll-vault-value", "保密库可读");

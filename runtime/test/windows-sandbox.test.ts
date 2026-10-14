@@ -1,5 +1,5 @@
 // Windows 的命令沙箱（sandbox-runtime 的 srt-win）真机测试：只在 CI 的 windows runner 上、windows-install 之后跑（QUETZAL_TEST_SRT=1）。
-//   她的命令以 srt-sandbox 用户运行：密钥目录与配置读不到、工作区与 data 可写、灵魂目录的 .git 不可写、保密库可读，
+//   她的命令以 srt-sandbox 用户运行：密钥目录与配置读不到、工作区可写、data与整个灵魂目录只读、保密库可读，
 //   中文输出不乱码，连不到本机的网关（回环），公网照常经代理。
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -35,7 +35,7 @@ test("沙箱就绪：kind 为 srt", { skip }, async () => {
   assert.equal(st.kind, "srt", st.note);
 });
 
-test("密钥与配置读不到，工作区与 data 可写，.git 不可写，保密库可读，中文不乱码", { skip }, async () => {
+test("密钥与配置读不到，工作区可写、data与灵魂只读，保密库可读，中文不乱码", { skip }, async () => {
   const { config, sh } = await setup();
   const { paths } = config;
   const r = await sh.shell(`try { Get-Content -LiteralPath '${path.join(paths.secrets, "gateway.token")}' -ErrorAction Stop; 'LEAK' } catch { 'denied' }`);
@@ -44,8 +44,9 @@ test("密钥与配置读不到，工作区与 data 可写，.git 不可写，保
   const ws = process.env.QUETZAL_WORKSPACE!;
   const w = await sh.shell(`"pwd=$PWD"; Set-Content -LiteralPath '${path.join(ws, "a.txt")}' -Value ok; Get-Content -LiteralPath '${path.join(ws, "a.txt")}'`);
   assert.match(w.out, /ok/, `工作区可写：${w.out}${w.err}`);
-  const d = await sh.shell(`Set-Content -LiteralPath '${path.join(paths.data, "b.txt")}' -Value ok; 'wrote'`);
-  assert.match(d.out, /wrote/, d.out + d.err);
+  const d = await sh.shell(`try { Set-Content -LiteralPath '${path.join(paths.data, "b.txt")}' -Value ok -ErrorAction Stop; 'LEAK' } catch { 'denied' }`);
+  assert.match(d.out, /denied/); assert.doesNotMatch(d.out, /LEAK/);
+  assert.match((await sh.shell(`try { Set-Content -LiteralPath '${path.join(paths.soul, "forged.md")}' -Value x -ErrorAction Stop; 'LEAK' } catch { 'denied' }`)).out, /denied/);
   assert.match((await sh.shell(`try { Set-Content -LiteralPath '${path.join(paths.soul, ".git", "x")}' -Value x -ErrorAction Stop; 'LEAK' } catch { 'denied' }`)).out, /denied/);
   const { saveSecret } = await import("../src/mind/secrets.ts");
   const v = saveSecret("demo_token", "vault-value-123456");

@@ -37,7 +37,7 @@
 
 宿主只注入基础运行环境与明确配置的变量，不传整个 `process.env`。官方 SDK 另合并其固定基础变量白名单：POSIX 为 HOME、LOGNAME、PATH、SHELL、TERM、USER；Windows 为系统路径、用户目录与 TEMP 等基础变量，不包含任意 token。合成子进程测试验证无关秘密环境变量未继承。
 
-`sandbox` 默认 true，POSIX 复用现有 `wrapArgv()`，由 SDK 对沙箱后的 command / args 建立双向 stdio。**隔离范围与现有 agent 命令完全相同**：保护基座密钥目录，但现有沙箱允许访问部分数据、灵魂与保密库；不是 MCP 独有的最小文件授权，也不保证第三方服务读不到私有灵魂。仅配置可信来源。缺沙箱时遵循既有 `sandbox.allowUnsandboxed` 策略，默认拒绝；如果部署者已显式允许全局无沙箱运行，MCP 也继承该放行。
+`sandbox` 默认 true，POSIX 复用现有 `wrapArgv()`，由 SDK 对沙箱后的 command / args 建立双向 stdio。**隔离范围与现有 agent 命令完全相同**：保护基座密钥目录，运行 data 与整个灵魂只读（proot 中遮蔽），保密库可读；不是 MCP 独有的最小文件授权，也不保证第三方服务读不到私有灵魂。仅配置可信来源。缺沙箱时遵循既有 `sandbox.allowUnsandboxed` 策略，默认拒绝；如果部署者已显式允许全局无沙箱运行，MCP 也继承该放行。
 
 首期 Windows 未验证沙箱启动器双向 stdio，默认 sandbox:true 明确拒绝。部署者可显式选择 sandbox:false 并批准启动，此时进程具有宿主用户文件权限，能读取密钥、灵魂与保密库；不能称为隔离。此次合成测试只在当前 POSIX 环境直接运行可信 fixture，未完成安卓、Windows或真实部署沙箱验证。
 

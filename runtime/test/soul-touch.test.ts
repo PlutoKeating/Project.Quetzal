@@ -37,11 +37,14 @@ test("准备：本机接入，另一具身体克隆同一个仓库", async () =>
   assert.ok(fs.existsSync(path.join(other, "SOUL.md")));
 });
 
-test("shell 直接改灵魂目录：工具一结束就提交，提交信息说明改了什么；推送后对方可见", async () => {
-  const out = await callTool("shell", { command: `mkdir -p "${paths.soul}/notes/身体" && printf '# 硬件\\n' > "${paths.soul}/notes/身体/硬件.md"` }, "测试");
+test("灵魂只经宿主笔记工具写入：shell拒写，工具一结束就提交且推送后对方可见", async () => {
+  const denied = await callTool("shell", { command: `mkdir -p "${paths.soul}/notes/身体" && printf '# 硬件\\n' > "${paths.soul}/notes/身体/硬件.md"` }, "测试");
+  assert.equal(denied.status, "error");
+  assert.equal(fs.existsSync(path.join(paths.soul, "notes/身体/硬件.md")), false);
+  const out = await callTool("note_save", { title: "身体/硬件", body: "合成的硬件笔记" }, "测试");
   assert.equal(out.status, "ok", out.text);
   await soul.idle();
-  assert.match(head(), /^shell：笔记 身体\/硬件（default）$/);
+  assert.match(head(), /^note_save：笔记 身体\/硬件（default）$/);
   assert.equal(soul.syncStatus().unpushed, 1);
   await soul.push("对话");
   assert.equal(soul.syncStatus().unpushed, 0);

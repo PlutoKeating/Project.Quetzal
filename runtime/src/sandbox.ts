@@ -1,7 +1,7 @@
 // 沙箱：agent 能运行的一切命令（shell 工具、后台任务、自造工具 sh 与 node）都经这里包一层，让基座的密钥目录（QUETZAL_HOME/secrets）在里面不存在。
 //   agent 与基座是同一个系统用户，边界在这里（不按命令文字拦截：那种拦截换个写法就绕过去，还会误伤无关的命令）。
 //   - Linux：有 bubblewrap（bwrap）就用它。整个文件系统按主机原样挂进来（网络照常），然后：
-//       secrets/ 换成空的 tmpfs；QUETZAL_HOME 其余部分只读（data/ 与灵魂目录的工作区可写，灵魂目录的 .git 只读）；
+//       secrets/ 换成空的 tmpfs；QUETZAL_HOME 整体只读（含 data/ 与整个灵魂，写入经宿主工具）；
 //       用户的 shell 启动文件、systemd 用户单元、自启动项、~/.ssh 只读，浏览器配置目录（里面有网页控制台的令牌与各网站的 Cookie）换成空的；
 //       会话 D-Bus 与 systemd 用户实例的套接字不可用（否则 systemd-run 能在沙箱外起进程）；新的 pid 命名空间（看不到也碰不到沙箱外的进程，
 //       /proc/<pid>/root 走不出去），基座退出时沙箱里的一切随之结束。
@@ -10,12 +10,12 @@
 //   - Linux 上 bwrap 用不了（内核或系统禁止了非特权用户命名空间、容器里）：用 Landlock（内核 5.13 起的访问控制，不需要用户命名空间），
 //       启动器是 landrun（MIT，随发布资产分发、签名核对，安装器放在 QUETZAL_HOME/bin/landrun）。Landlock 只能授权、不能排除，
 //       所以从根目录往下展开：含有特殊路径的那几层目录逐项授权其子项，其余整块授权；密钥目录、浏览器配置不授权（不可见），
-//       QUETZAL_HOME 除 data/ 与灵魂工作区外、用户的启动文件等只读。代价：被展开的那几层目录本身（/、/home、主目录、QUETZAL_HOME、~/.config）
+//       QUETZAL_HOME 整体、用户的启动文件等只读。代价：被展开的那几层目录本身（/、/home、主目录、QUETZAL_HOME、~/.config）
 //       不能列出、不能直接在里面新建文件，里面已有的东西照常可用。网络不限制；IPC 按 Landlock 的作用域限制（不能给沙箱外的进程发信号）。
-//   - Termux（安卓）：有 proot 就用它，把 secrets/、config/、releases/、runit 服务目录与开机脚本目录绑定成空目录（proot 不能只读绑定）。
+//   - Termux（安卓）：有 proot 就用它，把 secrets/、config/、data/、soul/、releases/、runit 服务目录与开机脚本目录绑定成空目录（proot 不能只读绑定）。
 //       proot 基于 ptrace，是尽力而为：它挡得住普通的读文件，挡不住经 Android 的 intent（RUN_COMMAND）让 Termux 在沙箱外执行命令。
 //   - Windows：用 sandbox-runtime（Anthropic，Apache-2.0）的 Windows 后端与它自带的 srt-win.exe（kind = "srt"）。她的命令以安装时建好的
-//       低权限本地用户 srt-sandbox 运行：它对本用户的文件本来没有任何权限，只授权工作区（%USERPROFILE%\Quetzal）、data\、灵魂目录（.git 拒写）、
+//       低权限本地用户 srt-sandbox 运行：它对本用户的文件本来没有任何权限，仅工作区与安全share可写；data\与整个灵魂只读、QUETZAL_HOME拒写，
 //       保密库与自造工具（只读）、Node 所在目录（只读）；secrets\、config\ 不授权即不可见，另外显式拒读。网络：WFP 拦下这个用户的一切直连，
 //       只能经运行基座进程里的代理出去；代理拒绝回环、未指定、链路本地、元数据地址与这台机器自己的地址（连不到本机网关），局域网照常（与 Linux 一致）。
 //       安装时要一次 UAC（建用户、装 WFP 规则，见 cli/windows）；没装好就 fail-closed。
@@ -86,19 +86,30 @@ function browserDirs(): string[] {
     "snap/firefox", "snap/chromium", ".var/app"].map((x) => path.join(h, x)).filter((p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } });
 }
 
-/** QUETZAL_HOME 里沙箱中可写的目录：data/（媒体、附件、下载）与灵魂目录的工作区。 */
-const writable = () => [paths.data, paths.soul];
+/** shell不能改写灵魂元数据或SQLite来源；宿主工具仍可写入。 */
+const runtimeReadonly = () => [paths.data, paths.soul];
+const overlaps = (a: string, b: string) => {
+  const fold = (p: string) => isWindows ? real(p).toLowerCase() : real(p);
+  const x = fold(a), y = fold(b);
+  return x === y || x.startsWith(y.endsWith(path.sep) ? y : y + path.sep) || y.startsWith(x.endsWith(path.sep) ? x : x + path.sep);
+};
+function specialWorkspace(home: string): string | undefined {
+  if (home !== real(os.homedir()) && home !== path.parse(home).root) return undefined;
+  const dir = workspace();
+  if ([paths.config, paths.state, paths.tools, paths.vault, paths.secrets, ...runtimeReadonly()].some((p) => overlaps(dir, p))) throw new Error("命令工作区不能覆盖运行数据、灵魂或受保护目录");
+  fs.mkdirSync(dir, { recursive: true });
+  return real(dir);
+}
 
 function bwrapArgs(pidns: boolean): string[] {
   const a = ["--dev-bind", "/", "/"];
-  if (pidns) a.push("--unshare-pid", "--proc", "/proc");
+  if (pidns) a.push("--unshare-pid");
   const home = real(paths.home);
-  // 家目录就是用户主目录（或根目录）时不能整个只读，只把 config/ 与 state/ 只读
-  if (home !== real(os.homedir()) && home !== "/") a.push("--ro-bind", home, home);
-  else for (const d of [paths.config, paths.state, paths.tools, paths.vault]) if (exists(d)) a.push("--ro-bind", real(d), real(d));
-  for (const d of writable()) if (exists(d)) a.push("--bind", real(d), real(d));
-  const git = path.join(paths.soul, ".git");
-  if (exists(git)) a.push("--ro-bind", real(git), real(git));
+  // 整个HOME只读，不能靠rename父目录替换data/soul；特殊HOME仅重新开放独立工作区。
+  const output = specialWorkspace(home);
+  a.push("--ro-bind", home, home);
+  if (output) a.push("--bind", output, output);
+  for (const d of runtimeReadonly()) if (exists(d)) a.push("--ro-bind", real(d), real(d));
   for (const p of userReadonly()) a.push("--ro-bind", real(p), real(p));
   for (const p of browserDirs()) a.push("--tmpfs", real(p));
   const run = `/run/user/${process.getuid?.() ?? 0}`;
@@ -106,19 +117,19 @@ function bwrapArgs(pidns: boolean): string[] {
   if (exists(path.join(run, "systemd"))) a.push("--tmpfs", path.join(run, "systemd"));
   a.push("--unsetenv", "DBUS_SESSION_BUS_ADDRESS");
   if (exists(paths.secrets)) a.push("--tmpfs", real(paths.secrets)); // 最后挂：盖住前面任何把它带回来的绑定
+  if (pidns) a.push("--proc", "/proc");
   a.push("--die-with-parent");
   return a;
 }
 
-/** Landlock 的特殊路径：密钥目录与浏览器配置不授权（不可见），其余与 bwrap 一致（QUETZAL_HOME 只读、data/ 与灵魂工作区可写、启动文件只读）。 */
+/** Landlock 的特殊路径：密钥目录与浏览器配置不授权（不可见），其余与 bwrap 一致（QUETZAL_HOME 整体只读、启动文件只读）。 */
 function landlockRules(): Map<string, Mode> {
   const m = new Map<string, Mode>();
   const home = real(paths.home);
-  if (home !== real(os.homedir()) && home !== "/") m.set(home, "ro");
-  else for (const d of [paths.config, paths.state, paths.tools, paths.vault]) if (exists(d)) m.set(real(d), "ro");
-  for (const d of writable()) if (exists(d)) m.set(real(d), "rw");
-  const git = path.join(paths.soul, ".git");
-  if (exists(git)) m.set(real(git), "ro");
+  m.set(home, "ro");
+  const output = specialWorkspace(home);
+  if (output) m.set(output, "rw");
+  for (const d of runtimeReadonly()) if (exists(d)) m.set(real(d), "ro");
   for (const p of userReadonly()) m.set(real(p), "ro");
   for (const p of browserDirs()) m.set(real(p), "hide");
   const run = `/run/user/${process.getuid?.() ?? 0}`;
@@ -154,9 +165,11 @@ function landrunArgs(env: NodeJS.ProcessEnv = process.env): string[] {
 /** proot 遮住的目录：密钥、配置（含灵魂仓库地址与权限）、运行基座的版本目录、runit 服务与开机脚本（改了会在沙箱外执行），
  *  以及启动者用 QUETZAL_HIDE_PATHS（冒号分隔）指定的目录——App 内置的运行基座与控制台是同一个系统用户，App 自己的私有数据（存着网关令牌的设置等）要遮住。 */
 function prootHidden(): string[] {
+  // 占住未创建的路径，不能让命令先造出一个未被遮蔽的data/soul。
+  for (const d of runtimeReadonly()) fs.mkdirSync(d, { recursive: true });
   const prefix = process.env.PREFIX ?? "";
   const extra = (process.env.QUETZAL_HIDE_PATHS ?? "").split(":").filter((p) => path.isAbsolute(p));
-  return [paths.secrets, paths.config, path.join(paths.home, "releases"),
+  return [paths.secrets, paths.config, paths.data, paths.soul, path.join(paths.home, "releases"),
     ...(prefix ? [path.join(prefix, "var", "service", "quetzal")] : []), path.join(os.homedir(), ".termux", "boot"), ...extra].filter(exists);
 }
 function prootArgs(): string[] {
@@ -209,7 +222,7 @@ function current(): Probe {
 /** 测试用：重新探测。 */
 export function resetSandbox() { probed = undefined; warned = false; if (srtState !== "ready") { srtState = "idle"; srtPreparing = undefined; } }
 
-/** agent 的命令默认在哪个目录里运行：用户主目录（QUETZAL_HOME 在沙箱里大多只读，运行基座的版本目录也不该被改）。
+/** agent 的命令默认在哪个目录里运行：用户主目录（QUETZAL_HOME 在沙箱里整体只读，运行基座的版本目录也不该被改）。
  *  Windows：沙箱用户碰不到本用户的主目录，她的工作区是 %USERPROFILE%\Quetzal（对方也看得到、能放文件进去）。 */
 export const workDir = () => isWindows ? workspace() : os.homedir();
 const workspace = () => process.env.QUETZAL_WORKSPACE || path.join(os.homedir(), "Quetzal");
@@ -279,9 +292,9 @@ export function srtFilesystem() {
   for (const d of [workspace(), paths.data, paths.soul, paths.tools, paths.vault]) { try { fs.mkdirSync(d, { recursive: true }); } catch { /* 下面授权时缺的会被跳过 */ } }
   return {
     denyRead: [paths.secrets, paths.config, path.join(paths.home, "state")],
-    allowRead: [paths.vault, paths.tools, nodeDir, mainDir()],
-    allowWrite: [workspace(), paths.data, paths.soul, ...share],
-    denyWrite: [path.join(paths.soul, ".git")],
+    allowRead: [paths.vault, paths.tools, paths.data, paths.soul, nodeDir, mainDir()],
+    allowWrite: [workspace(), ...share].filter((p) => !overlaps(p, paths.home) && !runtimeReadonly().some((d) => overlaps(p, d))),
+    denyWrite: [...new Set([paths.home, real(paths.home), ...runtimeReadonly().flatMap((d) => [d, real(d)])])],
   };
 }
 
@@ -388,7 +401,7 @@ export function sandboxStatus(): SandboxStatus {
   const p = current(), allow = allowUnsandboxed();
   if (p.kind === "bwrap") return { kind: "bwrap", hidden: [paths.secrets, ...browserDirs()], readonly: [paths.home, ...userReadonly()], note: p.pidns ? "" : "没有独立的 pid 命名空间", allowUnsandboxed: allow };
   if (p.kind === "landlock") return { kind: "landlock", hidden: [paths.secrets, ...browserDirs()], readonly: [paths.home, ...userReadonly()], note: "Landlock：/、/home、主目录、QUETZAL_HOME 等被展开的目录本身不能列出、不能直接在里面新建文件", allowUnsandboxed: allow };
-  if (p.kind === "proot") return { kind: "proot", hidden: prootHidden(), readonly: [], note: "proot 是尽力而为的隔离", allowUnsandboxed: allow };
+  if (p.kind === "proot") return { kind: "proot", hidden: prootHidden(), readonly: [], note: "proot 是尽力而为的隔离；运行数据与灵魂已遮蔽，请经宿主记忆／笔记工具读写", allowUnsandboxed: allow };
   if (p.kind === "srt") { const f = srtFilesystem(); return { kind: "srt", hidden: f.denyRead, readonly: [...f.allowRead, ...f.denyWrite], note: `她的命令以沙箱用户 srt-sandbox 运行，只能写 ${f.allowWrite.join("、")}；网络经代理，连不到这台机器自己`, allowUnsandboxed: allow }; }
   if (isWindows && srtState === "preparing") return { kind: "none", hidden: [], readonly: [], note: "正在准备 Windows 沙箱", allowUnsandboxed: allow };
   return { kind: "none", hidden: [], readonly: [], note: allow ? "没有沙箱，已允许不隔离运行：她的命令能读到密钥目录" : `没有沙箱：她的命令一律不执行（${isWindows && srtError ? srtError + "；" : ""}重新运行安装补上沙箱，或在控制台明确允许不隔离运行）`, allowUnsandboxed: allow };
