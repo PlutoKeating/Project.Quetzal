@@ -25,6 +25,7 @@ export interface TurnControl {
 }
 export interface EnginePorts {
   chat(request: ChatRequest): Promise<ChatResult>;
+  prepareContext?(request: ChatRequest): Promise<ChatRequest>;
   execute(call: ToolCall): Promise<ToolResult>;
   drain(messages: Msg[]): Promise<void>;
   pending(): boolean;
@@ -78,10 +79,14 @@ export async function runTurn(options: RunOptions, ports: EnginePorts): Promise<
     s.emit({ kind: "step", step: i + 1 });
     let r: ChatResult;
     try {
-      r = await ports.chat({
+      const signal = s.beginLLM();
+      let request: ChatRequest = {
         messages, tools: definitions, maxTokens: typeof maxOutputTokens === "function" ? maxOutputTokens() : maxOutputTokens, session: s.id,
-        signal: s.beginLLM(), onChunk: () => s.touch(), onText: (t) => s.delta(t),
-      });
+        signal, onChunk: () => s.touch(), onText: (t) => s.delta(t),
+      };
+      if (ports.prepareContext) request = await ports.prepareContext(request);
+      signal.throwIfAborted();
+      r = await ports.chat({ ...request, signal });
     } catch (e) {
       if (!ports.interrupted(e) || s.signal.aborted) throw e;
       s.flush(); // 被打断：保留已经说出的部分，下一步带着对方的新消息继续
