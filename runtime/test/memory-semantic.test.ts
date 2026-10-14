@@ -17,7 +17,7 @@ const { selectContextMemory } = await import('../src/memory/semantic.ts');
 const { emergencyStop, releaseStop } = await import('../src/guard/guard.ts');
 const { memoryKey } = await import('../../engine/src/memory.ts');
 const scope = { agentId: identity().id, userId: 'owner' };
-after(() => fs.rmSync(home, { recursive: true, force: true }));
+after(async () => { (await import('../src/store.ts')).db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 const reply = (keys: string[]): ChatResult => ({ text: JSON.stringify({ keys }), toolCalls: [], model: 'synthetic-semantic', usage: { input: 2, output: 3 } });
 const query = (text: string): MemoryQuery => ({ scope, text, now: Date.now(), stage: 'exploration', tags: [], tools: [], limit: 6 });
 const views = (request: ChatRequest): Array<{ key: string; text: string }> => JSON.parse(String(request.messages.at(-1)!.content)).candidates;

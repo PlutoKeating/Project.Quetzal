@@ -17,7 +17,7 @@ openStore();
 const { parseServers, startMcp, closeMcp, launchFor } = await import("../src/mcp/runtime.ts");
 const { allTools, callTool } = await import("../src/mind/tools.ts");
 const { level, approvals, decide, emergencyStop, releaseStop } = await import("../src/guard/guard.ts");
-after(async () => { await closeMcp(); fs.rmSync(home, { recursive: true, force: true }); });
+after(async () => { await closeMcp(); (await import("../src/store.ts")).db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
 // 只使用合成协议服务，不读取真实账号、网络或部署者数据。
 const fixture = path.join(home, "server.mjs");

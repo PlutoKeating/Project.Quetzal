@@ -16,7 +16,7 @@ await (await import("../src/memory/soul-sync.ts")).ensureSoul();
 const host = await import("../src/memory/prime.ts");
 const records = await import("../src/memory/structured.ts");
 const scope = { agentId: (await import("../src/memory/identity.ts")).identity().id, userId: "owner" };
-after(() => fs.rmSync(home, { recursive: true, force: true }));
+after(async () => { (await import("../src/store.ts")).db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 const result = (value: unknown): ChatResult => ({ text: JSON.stringify(value), toolCalls: [], model: "synthetic", usage: { input: 100, output: 50 } });
 const episode = (id: string, text = "我喜欢红茶"): EpisodeInput => {
   ensureSession(id, "合成任务", "test");

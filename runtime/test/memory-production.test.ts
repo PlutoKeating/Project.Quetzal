@@ -46,7 +46,7 @@ const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 registry.saveProviders({ quickModelId: "quick", providers: [{ id: "fixture", catalogId: "custom", name: "合成供应商", baseUrl,
   protocol: "openai-completions", enabled: true, keys: [{ id: "fixture-key", label: "合成", lastFour: "", enabled: true, secret: "synthetic-test-key" }],
   models: ["main", "quick"].map((id, sortOrder) => ({ id, name: id, enabled: true, context: 131072, maxTokens: 4096, sortOrder })) }] }, registry.configVersion());
-after(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); fs.rmSync(home, { recursive: true, force: true }); });
+after(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); store.db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 async function eventually(check: () => boolean) {
   const deadline = Date.now() + 5000;
   while (!check()) { if (Date.now() > deadline) throw new Error("后台学习未在预算内完成"); await new Promise((resolve) => setTimeout(resolve, 20)); }

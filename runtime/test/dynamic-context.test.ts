@@ -47,7 +47,7 @@ function configure(models: { id: string; context: number; maxTokens?: number }[]
 }
 const joined = (request: any) => request.messages.map((message: any) => String(message.content ?? "")).join("\n");
 const toolCall = (name: string, args: Record<string, unknown>, id = name) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
-after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); fs.rmSync(home, { recursive: true, force: true }); });
+after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); store.db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
 test("实际 converse 每步重新检索：可信宿主激活的新记忆与本轮 note_save 在下一步注入", async () => {
   configure([{ id: "large", context: 131072 }]); seen.length = 0;

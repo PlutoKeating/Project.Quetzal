@@ -19,7 +19,7 @@ const { createMemoryCandidate } = await import("../../engine/src/memory.ts");
 const scope = { agentId: "synthetic-agent", userId: "one" };
 const evidence = (id: string, text = "原文事实"): MemoryEvidence => ({ id, ref: `message:${id}`, origin: "user", observedAt: 1, summary: text, verified: true });
 const draft = (id: string, text = "原文事实"): MemoryDraft => ({ id, kind: "fact", text, scope, conditions: { requiredTags: [], excludedTags: [], tools: [] }, stage: "any", zone: "golden", evidenceIds: [id] });
-after(() => fs.rmSync(home, { recursive: true, force: true }));
+after(async () => { (await import("../src/store.ts")).db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
 test("候选不能进入默认检索，独立验证后读取真实 Markdown 和引擎 record", async () => {
   const candidate = await host.recordMemory(draft("first"), [evidence("first")]);
