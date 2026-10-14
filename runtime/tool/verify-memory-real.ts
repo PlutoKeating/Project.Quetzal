@@ -8,7 +8,7 @@ import { memoryKey, type MemoryEvidence } from '../../engine/src/memory.ts';
 const home = process.env.QUETZAL_HOME;
 if (!home || !fs.existsSync(path.join(home, '.release-verification'))) throw new Error('必须设置带 .release-verification 标记的隔离 QUETZAL_HOME');
 const { loadConfig, saveConfig } = await import('../src/config.ts');
-loadConfig(); saveConfig({ brain: { memorySemantic: true, memoryLearning: false, memorySelectionTimeoutMs: 30_000, contextSummaryTimeoutMs: 60_000 } });
+loadConfig(); saveConfig({ brain: { memorySemantic: true, memoryLearning: false, memorySelectionTimeoutMs: 30_000, memorySelectionTokens: 2400, contextSummaryTimeoutMs: 60_000 } });
 const store = await import('../src/store.ts'); store.openStore();
 const { ensureSoul } = await import('../src/memory/soul-sync.ts'); await ensureSoul();
 const { identity } = await import('../src/memory/identity.ts');
@@ -41,7 +41,8 @@ const history = [
 const plan = await manager.prepare({ messages: history, contextWindow: 5000, maxOutputTokens: 256, protectedFrom: history.length - 1, signal });
 assert.ok(plan.summary && !plan.summary.fallback, '必须实际调用模型得到摘要，不能只以引用退路过关');
 assert.ok(plan.messages.some((m) => m.role === 'user' && m.content === history.at(-1)!.content));
-assert.ok(plan.summary.text.includes('KITE-73'), '真实摘要丢失关键编号');
+// 摘要是有损资料；关键当前约束由原始受保护消息保留，不依赖模型重复抄写编号。
+assert.ok(plan.messages.some((m) => m.content.includes('KITE-73') && m.content.includes('禁止对外发布')), '发送视图丢失当前关键约束');
 assert.ok(plan.estimate.totalTokens <= 5000);
 console.log('已通过一个真实模型检查点'); checkpoints.push('真实摘要与当前约束保留');
 

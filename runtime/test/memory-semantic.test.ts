@@ -9,7 +9,7 @@ import type { MemoryQuery, MemoryScope, MemoryConditions, MemoryStage } from '..
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-memory-semantic-'));
 process.env.QUETZAL_HOME = home;
 const { loadConfig, saveConfig } = await import('../src/config.ts'); loadConfig();
-const { openStore } = await import('../src/store.ts'); openStore();
+const { openStore, kv } = await import('../src/store.ts'); openStore();
 await (await import('../src/memory/soul-sync.ts')).ensureSoul();
 const { identity } = await import('../src/memory/identity.ts');
 const structured = await import('../src/memory/structured.ts');
@@ -134,4 +134,36 @@ test('配置100ms超时终止不合作模型等待，并回退到已过scope门�
     clearInterval(keepAlive);
     saveConfig({ brain: { memorySelectionTimeoutMs: 5000 } });
   }
+});
+
+test('配置输出预算传入模型、预留含配置上限，并按实际usage计账且不越scope', async () => {
+  saveConfig({ brain: { memorySelectionTokens: 1600 } });
+  try {
+    const own = structured.readStructuredRecords().find((r) => r.id === 'known_tea')!;
+    const foreign = structured.readStructuredRecords().find((r) => r.id === 'foreign_choice')!;
+    const before = kv.get('memory.selection.budget', { day: new Date().toISOString().slice(0, 10), tokens: 0 }).tokens;
+    const selected = await selectContextMemory(query('output allowance selection fixture'), undefined, async (request) => {
+      assert.equal(request.maxTokens, 1600);
+      assert.ok(views(request).some((r) => r.key === memoryKey(own)));
+      assert.ok(!views(request).some((r) => r.key === memoryKey(foreign)));
+      const reserve = Buffer.byteLength(String(request.messages.at(-1)!.content)) + 1600 + 768;
+      assert.equal(kv.get('memory.selection.budget', { day: '', tokens: 0 }).tokens, before + reserve);
+      return { ...reply([memoryKey(foreign), memoryKey(own)]), usage: { input: 11, output: 900 } };
+    });
+    assert.deepEqual(selected.map(memoryKey), [memoryKey(own)]);
+    assert.equal(kv.get('memory.selection.budget', { day: '', tokens: 0 }).tokens - before, 911);
+  } finally { saveConfig({ brain: { memorySelectionTokens: 256 } }); }
+});
+
+test('输出预算被推理耗尽而正文为空时按usage计账，alias降级词面零命中', async () => {
+  const before = kv.get('memory.selection.budget', { day: '', tokens: 0 }).tokens;
+  let calls = 0;
+  const selected = await selectContextMemory(query('empty reasoning output alias'), undefined, async (request) => {
+    calls++;
+    assert.equal(request.maxTokens, 256);
+    return { ...reply([]), text: '', usage: { input: 7, output: 256 } };
+  });
+  assert.equal(calls, 1);
+  assert.deepEqual(selected, []);
+  assert.equal(kv.get('memory.selection.budget', { day: '', tokens: 0 }).tokens - before, 263);
 });

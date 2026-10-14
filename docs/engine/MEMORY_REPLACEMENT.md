@@ -43,6 +43,7 @@ PRIME rewrite／generalize／combine 已具有真实提案、验证、父版本�
 | contextSummaryTokens | 1024 | 自动摘要输出预算 |
 | contextSummaryTimeoutMs | 10000 | 自动摘要有界等待，可配置100–60000毫秒 |
 | memorySemantic | true | 有界 quick 语义选择；关闭后走资格门禁＋词面选择 |
+| memorySelectionTokens | 256 | 选择输出预算，可配置128–2400，计入日预算预留 |
 | memorySelectionTimeoutMs | 5000 | 语义选择有界等待，可配置100–60000毫秒 |
 | memoryLearning | true | 对话／醒来／子 Agent 完成后自动学习 |
 | memoryLearningTokens | 1200 | 后台蒸馏／评价每次输出预算 |
