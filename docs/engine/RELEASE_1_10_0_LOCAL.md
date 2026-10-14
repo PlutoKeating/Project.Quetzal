@@ -66,3 +66,9 @@ npm install --prefix "$acceptance_dir/npm-install" --ignore-scripts --no-audit -
 当前生产接口明确使用「命令行子串匹配或精确 PID 匹配」。日志中本测试进程的 PID 同时出现在另一个进程的命令参数里，因此返回两项符合接口，而不是 ARM 平台的运行时异常。修复只调整测试：过滤结果必须包含自身；新增携带父进程 PID 参数的合成 Node 子进程，验证两者同时命中、报告计数与输出行数一致，并在 finally 中结束子进程。没有更改生产过滤逻辑、没有跳过该测试，也没有降低发布门禁。
 
 修复后的本机 `test/processes.test.ts` 为 5/5 通过，runtime 类型检查通过。Windows ARM 的修复验收仍需后续 CI 实际重新执行，本机 Linux 结果不能代替它。此修改仅涉及测试与记录，不改变上文生产包的代码基线和指纹。
+
+## 正式发行结果（2026-10-14）
+
+v1.10.0 对应源码提交 `1c0e89542c5105330ddf9f9ea61ab83dc352309d`。正式[发布流水线](https://github.com/PlutoKeating/Project.Quetzal/actions/runs/38565086192)全部成功，约北京时间 20:55 完成；未达到当天 20:40 上线目标。Android 正式签名 APK、Linux 双架构控制台、Windows 双架构安装包及 Landrun 资产已在 [GitHub Release](https://github.com/PlutoKeating/Project.Quetzal/releases/tag/v1.10.0)公开。Windows 双架构静默安装、登录接管、健康版本与 srt 状态、卸载残留检查均通过。下载后的 SHA256SUMS Ed25519 签名与源码提交行再次核对通过。
+
+GitHub Packages 与 npmjs 发布步骤均成功，npm provenance 已提交；npm 提示新版本仍需处理数分钟。独立 test 流水线的 Linux runtime、Linux/Windows CLI 已通过，记录时 Windows runtime 双架构全量回归仍在运行，不视作通过。按发布收敛要求不再重复发版预演、升级回滚或额外官网安装冒烟。
