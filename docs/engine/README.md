@@ -1,10 +1,10 @@
 # Agent 内核引擎开发文档
 
-这里专门维护 Quetzal Agent 运行时内核的实现事实、接口边界、验证证据与后续开发记录。第一阶段记录现状，不引入新框架，不改变运行行为。
+这里专门维护 Quetzal Agent 运行时内核的实现事实、接口边界、验证证据与后续开发记录。2026-10-13 的初始快照记录既有实现；2026-10-14 起在保持兼容的前提下逐步提取独立引擎。
 
 ## 当前结论
 
-Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。执行核心在 `runtime/src/mind/brain.ts`，由 `runtime/src/main.ts` 装配；上下文、记忆、模型协议、工具权限、自主调度和多身体协作共同组成引擎。目前没有独立的 `engine` 源码包，本文档目录也不是新的代码模块。
+Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。真实模型—工具循环已提取到根级 `engine/src/loop.ts`，通用协议在 `engine/src/types.ts`；`runtime/src/mind/brain.ts` 保留宿主编排，由 `runtime/src/main.ts` 装配。上下文、记忆、模型供应商、工具权限、自主调度和多身体协作仍由宿主提供。独立模块的使用与开发见 [engine 模块文档](../../engine/docs/README.md)。
 
 上下文采用局部字符预算与会话历史窗口；长期记忆采用 Markdown 灵魂仓库，运行记录采用 SQLite，检索采用文本分词与 FTS5。当前没有向量记忆、统一输入 token 预算、本轮自动压缩、MCP 客户端 / 服务端或交互式 TUI。已有交互入口是 Flutter 控制台与飞书；CLI 负责安装和运维。
 
@@ -12,6 +12,10 @@ Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。执行核�
 
 | 文档 | 记录范围 |
 |---|---|
+| [独立引擎设计](DESIGN.md) | 目标结构、实际切片、依赖方向与兼容契约 |
+| [开发路线图](ROADMAP.md) | 工作分解、依赖顺序、分工、验收与阶段状态 |
+| [MCP / TUI 适配计划](ADAPTERS_PLAN.md) | 工具来源和交互客户端的接口、协议与实施切片 |
+| [首次提取验证](EXTRACTION.md) | 本次代码变更与验证证据 |
 | [模块地图](MODULE_MAP.md) | 内核在哪里、入口与调用链、外围模块边界、依赖与构建 |
 | [执行与调度](EXECUTION.md) | 对话、醒来、做梦、工具循环、并发、子 agent、时间墙与停止 |
 | [上下文管理](CONTEXT.md) | 提示词顺序、历史重建、预算、压缩、附件和实际限制 |
@@ -19,7 +23,7 @@ Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。执行核�
 | [工具与交互接口](INTERFACES.md) | 模型工具、身体接口、网关、控制台、飞书、MCP / TUI 状态与权限 |
 | [基线与验证](BASELINE.md) | 检查版本、执行过的检查、文档差异、未实现能力与未验证范围 |
 
-这些文档相对于仓库根目录引用源码。基线提交与检查环境统一记录在 [BASELINE.md](BASELINE.md)，源码更新后应重新核对相关结论。
+这些文档相对于仓库根目录引用源码。基线提交与检查环境统一记录在 [BASELINE.md](BASELINE.md)，源码更新后应重新核对相关结论；[BASELINE.md](BASELINE.md) 保留初始快照，最新提取状态见 [EXTRACTION.md](EXTRACTION.md)。
 
 ## 维护约定
 
