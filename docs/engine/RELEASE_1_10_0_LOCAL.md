@@ -1,6 +1,6 @@
 # 1.10.0 本地 CLI 包验收
 
-日期：2026-10-14。最终运行代码基线：`8cc7599`。本记录描述本地构建与隔离安装证据，不等同于 npm / Release 发布、签名验收或跨平台实机验收。
+日期：2026-10-14。最终运行代码基线：`1c0e895`。本记录描述本地构建与隔离安装证据，不等同于 npm / Release 发布、签名验收或跨平台实机验收。
 
 ## 环境与产物
 
@@ -9,10 +9,10 @@
 | 项目 | 本次结果 |
 | --- | --- |
 | npm 包 | `@plutokeating/quetzal@1.10.0`，文件名 `plutokeating-quetzal-1.10.0.tgz` |
-| 包大小 | 12,405,532 字节；解包后 39,758,373 字节 |
+| 包大小 | 12,407,769 字节；解包后 39,761,858 字节 |
 | 内容 | 60 项，其中 52 项为 `dist/runtime/web/` 静态文件 |
-| tgz SHA-256 | `6982d65f82ec4359fdd3fff90c0c9889d6392b7d7183b36c7227c5f1dca52b7c` |
-| 包内 `dist/runtime/main.cjs` SHA-256 | `09f4d5a8c25f830a8d5fce7822be23542b40c9916005270779666c409bf0e24d` |
+| tgz SHA-256 | `684faf72d10fed845151f454b0a8dbdc628a9a2e6abda90ef2e2282d014de617` |
+| 包内 `dist/runtime/main.cjs` SHA-256 | `8da002e89ea1f989b7c36b8a464a0fdfd1cc0066fd6a041aa62172b6be3e45a7` |
 | 内置运行时版本 | `dist/runtime/VERSION` 为 `1.10.0` |
 
 以上指纹仅标识本次本地构建；不同构建环境的产物不应直接假定具有相同哈希。产物和合成运行数据保留在仓库外临时目录，未纳入 Git。
@@ -33,7 +33,7 @@ npm install --prefix "$acceptance_dir/npm-install" --ignore-scripts --no-audit -
 - CLI 测试共 47 项：45 项通过，2 项因本机没有 PowerShell 跳过。
 - 完整构建包含 Flutter Web；构建期间移动的 Android 运行时资源目录已恢复。
 - 实际 npm 安装后的 bin 命令输出 CLI 与内置运行时均为 `1.10.0`。
-- 解包后核对 `main.cjs` 内含 engine 执行循环、上下文管理器、结构化记忆与 PRIME 模块，也含最新 `memorySelectionTimeoutMs` / `memorySelectionTokens` 配置、选择请求的 `temperature: 0` 与 `summarizeContext` 实现；没有动态加载仓库 `engine/src` 的裸 `require` / `import`。
+- 解包后核对 `main.cjs` 内含 engine 执行循环、上下文管理器、结构化记忆与 PRIME 模块，也含最新 `memorySelectionTimeoutMs` / `memorySelectionTokens`、分开的 `contextSummaryModelTokens` 生成预算与保留预算、选择请求的 `temperature: 0`、`summarizeContext` 和 `unmanagedWritePath` 受管写入保护；没有动态加载仓库 `engine/src` 的裸 `require` / `import`。
 - 包中没有预期 `dist/` 和 npm 元数据之外的源码、测试、临时配置或运行数据。
 
 安装检查使用单独的 `QUETZAL_HOME`、`XDG_CONFIG_HOME` 和 `XDG_RUNTIME_DIR`；`PATH` 中的隔离 `systemctl` / `loginctl` 明确拒绝服务管理命令。仅设置前述目录或 D-Bus 地址不能保证隔离用户服务，不能省略这层保护。
@@ -42,9 +42,11 @@ npm install --prefix "$acceptance_dir/npm-install" --ignore-scripts --no-audit -
 
 另执行了生产语义选择器测试 `runtime/test/memory-semantic.test.ts`，11 项全部通过，包含配置 100 ms 时不配合 signal 的模型等待超时，并回退到已过 scope 门禁的词面候选；测试显式保活，未把 Node 提前退出当作超时通过。另核对配置 1600 的输出预算实际传入模型，预算预留包含配置上限，完成后按模型报告的 usage 计账，返回的跨用户键仍被拒绝；输出 usage 为 256 而正文为空时，alias 选择降级为词面零命中，没有被记作语义选择成功。runtime 类型检查通过。
 
+另有受管工具专项 7 项、记忆 / 上下文联合 38 项及 PRIME 宿主专项 12 项在前述源码修复阶段通过。最终重建仅再次核对包内标识、npm 入口与隔离健康 / 网页启动，没有重复完整升级回滚，也没有在最终验收中触碰真实用户服务。
+
 ## 升级与回退证据
 
-最终重打包之前已执行以下安装器流程；之后仅调整了宿主摘要、语义选择超时与输出预算，未调整 CLI 安装器，因此没有重复全部流程：
+最终重打包之前已执行以下安装器流程；之后调整了宿主摘要、语义选择超时与输出预算，以及受管写入 / 命令沙箱边界，未调整 CLI 安装器，因此没有重复全部流程：
 
 1. 现存的 **1.9.4 本地开发包** → 1.10.0 本地包 → 手动 `rollback` 到 1.9.4 → 再次 `rollback` 到 1.10.0。每次启动真实运行时，健康接口版本与当前指针一致，合成配置和灵魂笔记保留。该基线没有 Web，且不是从正式 Release 获取的签名资产。
 2. 在临时包中注入启动即退出的故障。独立服务模拟器只管理临时家目录中的子进程；新版本 40 秒不健康后，真实 CLI 安装器自动切回 1.9.4，并重新启动健康的旧版运行时。
