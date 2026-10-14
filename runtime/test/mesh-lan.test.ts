@@ -13,8 +13,13 @@ import { localAddresses } from "../src/mesh/netwatch.ts";
 
 let ndc: typeof import("node-datachannel") | undefined;
 try { ndc = (await import("node-datachannel")).default as any; } catch {}
-const hasLanAddr = [...(localAddresses() ?? [])].some((a) => privateAddr(a) && !a.startsWith("127."));
-const skip = !ndc ? "这台机器没有 node-datachannel（可选依赖）" : !hasLanAddr ? "这台机器没有私有网段的地址" : false;
+const lanAddr = [...(localAddresses() ?? [])].find((a) => privateAddr(a) && !a.startsWith("127."));
+const skip = !ndc ? "这台机器没有 node-datachannel（可选依赖）" : !lanAddr ? "这台机器没有私有网段的地址" : false;
+// 此用例验证 UDP4 私有地址回退。真实 ICE 在双栈主机可能优选 IPv6，不能只以“存在 IPv4”推断选中路径。
+// 仅在测试中配置原生 SDK bindAddress；保留真实 ICE、DTLS、认证与数据通道，不修改生产选路。
+const ipv4Ndc = ndc && { ...ndc, PeerConnection: new Proxy(ndc.PeerConnection, {
+  construct(target, args) { return Reflect.construct(target, [args[0], { ...args[1], bindAddress: lanAddr }]); },
+}) };
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-lan-"));
 const keys: Record<string, NodeKey> = { alpha: loadNodeKey(path.join(tmp, "a.key")), beta: loadNodeKey(path.join(tmp, "b.key")), mallory: loadNodeKey(path.join(tmp, "m.key")) };
@@ -69,7 +74,7 @@ test("同步服务连不上：记得局域网地址的身体照样连上；签�
   const ports = { alpha: pa, beta: pb } as Record<string, number>;
   const body = (me: string, server: string) => {
     const m = new Mesh({
-      me, key: keys[me], ndc: ndc!, binding: { server, token: me, agent: "x", body: me, account: "t" },
+      me, key: keys[me], ndc: ipv4Ndc!, binding: { server, token: me, agent: "x", body: me, account: "t" },
       keyOf: (b) => soul[b], kindOf: (b) => (soul[b] ? "runtime" : undefined), hello: () => ({ version: "t" }), log: () => {}, warn: () => {},
       lan: { port: ports[me], file: files[me as "alpha" | "beta"], kickMs: 300 }, watchNetwork: false,
     });
@@ -81,6 +86,8 @@ test("同步服务连不上：记得局域网地址的身体照样连上；签�
   await until(() => a.connected().includes("beta") && b.connected().includes("alpha"));
   await until(() => fs.existsSync(files.alpha) && fs.existsSync(files.beta), 5000);
   assert.ok(JSON.parse(fs.readFileSync(files.alpha, "utf8")).beta, "alpha 记下了 beta 的局域网地址");
+  assert.equal(JSON.parse(fs.readFileSync(files.alpha, "utf8")).beta.addr, lanAddr, "认证后的选中路径确实使用本机私有IPv4");
+  assert.equal(JSON.parse(fs.readFileSync(files.beta, "utf8")).alpha.addr, lanAddr);
   a.stop(); b.stop();
   // 同步服务连不上（地址指向一个没人监听的端口）：重启后经局域网连上
   const dead = `http://127.0.0.1:${await freePort()}`;
