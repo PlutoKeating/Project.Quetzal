@@ -34,6 +34,7 @@ import * as player from "../voice/player.ts";
 import * as agents from "./agents.ts";
 import { ensureSession, getSession, kv } from "../store.ts";
 import crypto from "node:crypto";
+import { mcpBindings, callMcp } from "../mcp/runtime.ts";
 import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf, type RemoteBody } from "./bodies.ts";
 import * as claims from "./claims.ts";
@@ -605,7 +606,15 @@ function bodyTools(): Tool[] {
 const bodyOwn = (): Tool[] => [...(adapter.tools ?? []), ...handsTools(), ...customTools()].map((t) => ({ ...t, onBody: true }));
 export function allTools(): Tool[] {
   const multi = remoteBodies().length > 0;
-  return [...(multi ? core.map((t) => (t.bodyFiles ? withBodyParam(t) : t)) : core), ...bodyOwn(), ...bodyTools()];
+  const existing = [...(multi ? core.map((t) => (t.bodyFiles ? withBodyParam(t) : t)) : core), ...bodyOwn(), ...bodyTools()];
+  return [...existing, ...mcpBindings().filter((t) => !existing.some((e) => e.name === t.name)).map((t): Tool => ({
+    name: t.name, description: t.description, parameters: t.parameters,
+    permission: `mcp.${t.source}.${t.name}`, handler: async (args, ctx) => {
+      ctx.session?.signal.throwIfAborted();
+      const result = await callMcp(t.name, args, ctx.session?.signal);
+      return result.failed ? failed(result.text) : result.text;
+    },
+  }))];
 }
 /** 可以被其他身体经 body_call 调用的工具：适配器的设备工具、hands、自造工具，以及属于这具身体的几个内置工具（见 bodies.ts）。 */
 export function limbTools(allowedCore: Set<string>): Tool[] {
@@ -622,6 +631,7 @@ export function strictest(perms: string[]): string {
 }
 
 export async function callTool(name: string, args: Record<string, any>, reason: string, ctx: ToolContext = {}): Promise<{ text: string; status: ToolStatus }> {
+  if (mcpBindings().some((b) => b.name === name) && [...core, ...bodyOwn(), ...bodyTools()].some((t) => t.name === name)) return { text: "MCP 工具名与本机工具冲突，未执行", status: "error" };
   const t = allTools().find((x) => x.name === name);
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };
   const real = name === "shell" && !!hostConv(ctx);

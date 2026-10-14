@@ -14,9 +14,17 @@ export const PERMISSION_LABELS: Record<string, string> = {
   network: "联网", shell: "执行命令", device: "设备功能", camera: "相机", microphone: "麦克风",
   location: "定位", message: "主动发消息", self_modify: "修改自身参数", memory: "改写记忆", hands: "操作屏幕与应用", secret: "索取保密信息",
   session: "会话与子 agent", body: "跨身体操作", tool_write: "造工具（写会被执行的代码）",
+  mcp: "MCP 工具", mcp_start: "启动 MCP 来源",
 };
 
-export function level(permission: string): Level { return config.permissions[permission] ?? "allow"; }
+export function level(permission: string): Level {
+  if (/^mcp(?:_start)?(?:\.|$)/.test(permission)) {
+    const parts = permission.split(".");
+    while (parts.length) { const l = config.permissions[parts.join(".")]; if (l) return l; parts.pop(); }
+    return "ask";
+  }
+  return config.permissions[permission] ?? "allow";
+}
 export function setLevel(permission: string, l: Level, actor: string) {
   saveConfig({ permissions: { [permission]: l } });
   audit(actor, "permission.set", "", { permission, level: l }, "ok");

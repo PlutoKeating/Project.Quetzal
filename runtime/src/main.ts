@@ -19,6 +19,7 @@ import { VERSION } from "./version.ts";
 import { restore as restoreAgents } from "./mind/agents.ts";
 import { startMesh, wireMesh, registerSoulLink, meshStatus } from "./mesh/runtime.ts";
 import { soulLink } from "./ops.ts";
+import { startMcp, closeMcp } from "./mcp/runtime.ts";
 
 /** 持心跳的身体还是 1.3.0 以前的版本（不认识提醒）：跟随者自己负责触发，免得一条也不响（几具新版本的跟随者可能各响一次；都升级后恢复只由持心跳的那具触发）。 */
 function coordinatorLacksReminders(): boolean {
@@ -87,6 +88,11 @@ async function main() {
     return;
   }
   await ensureSoul().catch((e) => log("soul", `灵魂目录初始化失败：${e.message}`));
+  void startMcp(); // 网关已就绪；启动审批不阻塞心脏与其他来源
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
+    const deadline = setTimeout(() => process.exit(0), 3000);
+    void closeMcp().finally(() => { clearTimeout(deadline); process.exit(0); });
+  });
   bus.on("body.uuid", () => void soulPush("身体 uuid 换成由设备标识派生的值").catch(() => {})); // 身体登记随之更新
   wireMesh();
   registerSoulLink(soulLink); // 一个链接接入：绑定时带部署公钥，批准后采用链接好的灵魂仓库

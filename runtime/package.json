@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.78",
     "@larksuiteoapi/node-sdk": "^1.74.0",
+    "@modelcontextprotocol/client": "2.3.1",
     "@peculiar/asn1-schema": "2.10.0",
     "@peculiar/asn1-x509": "2.10.0",
     "beautiful-mermaid": "1.1.3",

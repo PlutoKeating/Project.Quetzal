@@ -87,6 +87,7 @@ export const defaults: Config = {
     network: "allow", shell: "allow", device: "allow", camera: "ask", microphone: "ask",
     location: "ask", message: "allow", self_modify: "allow", memory: "allow", hands: "ask", secret: "allow", session: "allow", body: "allow",
     tool_write: "ask", // 造工具：写的是之后会被执行的代码（mind/tools.ts）
+    mcp: "ask", mcp_start: "ask", // 外部工具调用与启动来源分别授权
   },
   brain: { maxOutputTokens: 4096 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
