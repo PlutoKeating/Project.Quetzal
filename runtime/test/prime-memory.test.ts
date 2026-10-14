@@ -8,7 +8,8 @@ import type { EpisodeInput, LearningOptions } from "../src/memory/prime.ts";
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-prime-host-"));
 process.env.QUETZAL_HOME = home;
-const { loadConfig, paths } = await import("../src/config.ts");
+const configuration = await import("../src/config.ts");
+const { loadConfig, saveConfig, paths } = configuration;
 loadConfig();
 const { openStore, addMessage, ensureSession, saveToolCall, kv } = await import("../src/store.ts");
 openStore();
@@ -209,4 +210,44 @@ test("预算、硬超时与急停阻止学习继续，不影响既有记忆", as
   try { await assert.rejects(host.learnEpisode(stopped, { chat: factChat })); }
   finally { fs.rmSync(paths.stop); }
   assert.ok(kv.get("prime.budget", { tokens: 0 }).tokens > 0);
+});
+
+test("配置4096学习输出实际传到宿主chat，更大请求仍封顶4096且按实际usage计账", async () => {
+  saveConfig({ brain: { memoryLearningTokens: 4096 } });
+  try {
+    for (const [index, requested] of [configuration.config.brain.memoryLearningTokens, 16_384].entries()) {
+      let calls = 0;
+      const before = kv.get("prime.budget", { day: new Date().toISOString().slice(0, 10), tokens: 0 }).tokens;
+      const learned = await host.learnEpisode(episode(`output-cap-${index}`), { maxTokens: requested, chat: async (request) => {
+        calls++;
+        assert.equal(request.maxTokens, 4096);
+        const reserve = Buffer.byteLength(JSON.stringify(request.messages)) + 4096;
+        assert.equal(kv.get("prime.budget", { day: "", tokens: 0 }).tokens, before + reserve);
+        return result({ items: [] });
+      } });
+      assert.equal(learned.status, "learned", learned.reason);
+      assert.equal(calls, 1);
+      assert.equal(kv.get("prime.budget", { day: "", tokens: 0 }).tokens - before, 150);
+    }
+  } finally { saveConfig({ brain: { memoryLearningTokens: 1200 } }); }
+});
+
+test("学习输出上限提高到4096不绕过本轮和默认每日64k预算，超限前不调用模型", async () => {
+  const day = new Date().toISOString().slice(0, 10);
+  const original = kv.get("prime.budget", { day, tokens: 0 });
+  try {
+    for (const daily of [false, true]) {
+      const budget = { day, tokens: daily ? 64_000 - 4095 : 0 };
+      kv.set("prime.budget", budget);
+      let calls = 0;
+      const learned = await host.learnEpisode(episode(`output-cap-budget-${daily}`), {
+        maxTokens: 16_384, ...(!daily ? { maxTotalTokens: 4095 } : {}),
+        chat: async () => { calls++; return result({ items: [] }); },
+      });
+      assert.equal(learned.status, "failed");
+      assert.match(learned.reason ?? "", /学习 token 预算用尽/);
+      assert.equal(calls, 0);
+      assert.deepEqual(kv.get("prime.budget", { day: "", tokens: 0 }), budget);
+    }
+  } finally { kv.set("prime.budget", original); }
 });
