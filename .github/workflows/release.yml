@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: 校验版本号一致（标签 = runtime/package.json = console/pubspec.yaml = cli/package.json）
+      - name: 校验发行版本、运行时常数与 npm 锁文件一致
         id: ver
         env:
           INPUT_VERSION: ${{ inputs.version }}
@@ -69,8 +69,17 @@ jobs:
           RT=$(node -p "require('./runtime/package.json').version")
           APP=$(sed -n 's/^version: *\([0-9][0-9.]*\).*/\1/p' console/pubspec.yaml)
           CLI=$(node -p "require('./cli/package.json').version")
-          echo "tag=$TAG runtime=$RT app=$APP cli=$CLI"
-          [ "$TAG" = "$RT" ] && [ "$TAG" = "$APP" ] && [ "$TAG" = "$CLI" ] || { echo "版本号不一致"; exit 1; }
+          SRC=$(node -p 'require("node:fs").readFileSync("runtime/src/version.ts", "utf8").match(/export const VERSION = "([^"]+)"/)[1]')
+          echo "tag=$TAG runtime=$RT source=$SRC app=$APP cli=$CLI"
+          [ "$TAG" = "$RT" ] && [ "$TAG" = "$SRC" ] && [ "$TAG" = "$APP" ] && [ "$TAG" = "$CLI" ] || { echo "版本号不一致"; exit 1; }
+          node <<'NODE'
+          const fs = require('node:fs');
+          for (const dir of ['runtime', 'cli']) {
+            const pkg = JSON.parse(fs.readFileSync(`${dir}/package.json`, 'utf8'));
+            const lock = JSON.parse(fs.readFileSync(`${dir}/package-lock.json`, 'utf8'));
+            if (pkg.version !== lock.version || pkg.version !== lock.packages[''].version) throw new Error(`${dir} 的锁文件版本不一致`);
+          }
+          NODE
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
 
   # npm 包：内置运行基座、Linux 适配器与网页控制台（cli 的 build 会调用 console/tool/build-web.sh，需要 Flutter）

@@ -1,6 +1,6 @@
 {
   "name": "@plutokeating/quetzal",
-  "version": "1.9.4",
+  "version": "1.10.0",
   "type": "module",
   "license": "AGPL-3.0-only",
   "description": "Quetzal 安装与运维命令行，chat/tui 经本机网关与同一个 agent 对话；Linux 安装器与 Windows 运维入口，零运行时依赖",
