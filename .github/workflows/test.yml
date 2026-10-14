@@ -1,4 +1,4 @@
-# 测试：运行基座（runtime/）、独立引擎（engine/）或本文件变动时，在 Linux 与 Windows（x64、arm64）上验证两者。
+# 测试：runtime/、engine/、cli/ 或本文件变动时验证内核与宿主；CLI 单独在 Linux / Windows 验证。
 # 只改官网、文档、控制台、同步服务时不跑；runtime 构建会同时检查 engine 的独立类型契约。
 # Windows 上先用 sandbox-runtime 的 windows-install 建好沙箱用户与 WFP 规则（runner 是管理员、UAC 已关），沙箱的真机测试才有意义。
 name: test
@@ -6,9 +6,9 @@ name: test
 on:
   push:
     branches: [main, "feature/**"]
-    paths: ["runtime/**", "engine/**", ".github/workflows/test.yml"]
+    paths: ["runtime/**", "engine/**", "cli/**", ".github/workflows/test.yml"]
   pull_request:
-    paths: ["runtime/**", "engine/**", ".github/workflows/test.yml"]
+    paths: ["runtime/**", "engine/**", "cli/**", ".github/workflows/test.yml"]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +19,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, node: 22 }
+          - { os: windows-latest, node: 24 }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: cli
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+
   runtime:
     strategy:
       fail-fast: false

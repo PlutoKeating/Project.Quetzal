@@ -1,4 +1,4 @@
-// npm 包 @plutokeating/quetzal 的命令行入口：npx @plutokeating/quetzal 安装或升级；其余子命令只做部署运维，agent 的一切配置都在控制台 App 里完成。
+// npm 包 @plutokeating/quetzal 的命令行入口：npx @plutokeating/quetzal 安装或升级；chat/tui 通过网关提供终端对话，其余子命令负责部署运维。
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -9,6 +9,7 @@ import { health } from "./health.ts";
 import { install, placeRelease, bundled, gatewayPort, gatewayHost, consoleUrl, hasConsole } from "./install.ts";
 import { lanEnabled, lanPort, lanUrls, certFingerprint } from "./lan.ts";
 import * as win from "./windows.ts";
+import { runTui } from "./tui.ts";
 
 const isWin = process.platform === "win32";
 /** 版本：npm 包里读 ../package.json；Windows 安装包把本文件放在 runtime\<版本>\quetzal.mjs，旁边是 VERSION。 */
@@ -28,6 +29,7 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
   install            安装或升级到包里内置的版本，注册 systemd 用户服务并启动；失败自动切回上一版；有桌面时顺手打开网页控制台
   open               打开控制台：有原生控制台（一键安装脚本装的）就启动它，否则在浏览器里打开网页版（http://127.0.0.1:<端口>/）
   run                前台运行（没有 systemd 时用；Ctrl-C 退出）
+  chat | tui         终端对话（连接本机同一个 agent；--conv ID 选会话）
   status             版本、服务与健康状态
   logs [-f] [-n N]   服务日志（journald）；-f 持续输出
   start | stop | restart
@@ -38,6 +40,7 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
 选项：
   --home DIR         家目录（默认 $QUETZAL_HOME 或 ~/.quetzal；0.6.7 前的 ~/quetzal 会自动搬过来）
   --lan | --no-lan   网关对局域网开放（HTTPS，端口 7789；手机上的 App 直接连这台机器）/ 只监听本机（默认不改）
+  --conv ID          chat/tui 使用已有会话（不传则打开最近会话）
   --force            已是同一版本也重新安装
   --no-open          装完不自动打开浏览器
 
@@ -45,14 +48,15 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
 手机上的 Quetzal App 也能连：连接新的 agent → 填这台机器的地址 → 申请配对码（桌面通知弹出；没有桌面的机器从 quetzal logs 里看）。
 
 Windows：用安装包 setup.exe 或 PowerShell 里的 irm https://quetzal.plutokeating.beer/install.ps1 | iex 安装与升级；
-这个命令（安装后的 quetzal）提供 status、open、run、logs、start、stop、restart、rollback、uninstall，--home 默认 %LOCALAPPDATA%\\Quetzal\\home。`;
+这个命令（安装后的 quetzal）提供 chat/tui、status、open、run、logs、start、stop、restart、rollback、uninstall，--home 默认 %LOCALAPPDATA%\\Quetzal\\home。`;
 
 function parse(argv: string[]) {
-  const o: { cmd?: string; home: string; lan?: boolean; force: boolean; purge: boolean; follow: boolean; lines: number; open: boolean } =
+  const o: { cmd?: string; conv?: string; home: string; lan?: boolean; force: boolean; purge: boolean; follow: boolean; lines: number; open: boolean } =
     { home: isWin ? win.winLayout().home : defaultHome(), force: false, purge: false, follow: false, lines: 80, open: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--home") o.home = path.resolve(argv[++i] ?? "");
+    else if (a === "--conv") { const conv = argv[++i]; if (!conv || conv.startsWith("-")) throw new Error("--conv 需要会话 ID"); o.conv = conv; }
     else if (a === "--lan") o.lan = true;
     else if (a === "--no-lan") o.lan = false;
     else if (a === "--force") o.force = true;
@@ -126,6 +130,7 @@ async function main() {
   if (cmd === "help") return say(HELP);
   if (cmd === "version") return say(isWin ? `quetzal ${pkg.version}` : `quetzal ${pkg.version}（内置运行基座 ${bundled().version}）`);
   requireNode();
+  if (cmd === "chat" || cmd === "tui") return runTui(o.home, gatewayPort(layout(o.home)), o.conv);
   if (isWin) return winMain(cmd, o);
   const l = layout(o.home);
   switch (cmd) {

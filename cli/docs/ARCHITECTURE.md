@@ -4,7 +4,8 @@
 
 ```
 src/
-├── cli.ts        命令行入口：参数解析、子命令分发、status 输出（含局域网地址与证书指纹）、open（xdg-open 打开网页控制台；第一次安装后自动）、run（前台运行 current/main.cjs）、uninstall；Windows 上分派到 windows.ts（status / open / run / logs / start / stop / restart / rollback / uninstall）
+├── cli.ts        命令行入口：参数解析、chat/tui 的跨平台分发、status 输出（含局域网地址与证书指纹）、open（xdg-open 打开网页控制台；第一次安装后自动）、run（前台运行 current/main.cjs）、uninstall；Windows 上分派到 windows.ts（status / open / run / logs / start / stop / restart / rollback / uninstall）
+├── tui.ts        终端对话：Node 内置 WebSocket 首帧认证、RPC / 进展、会话、审批、停止、断线恢复、输入队列保护与保密输入拒绝；只连回环网关
 ├── install.ts    安装与升级流程：内置运行基座与网页控制台 → releases/<版本>/ → 切换 current → 网状层原生组件 → 缺省配置 → systemd → 健康检查 → 失败回滚 → 清理旧版本
 ├── mesh.ts       网状层的原生组件：识别平台（linux-<x64|arm64>-<gnu|musl>），按内置锁定文件下载核对 sha512 到 ~/.quetzal/mesh-modules/<版本>/，版本目录的 node_modules 为相对链接；失败不影响安装
 ├── lan.ts        局域网访问：开放判定（与运行基座一致）、https 地址（本机非回环 IPv4 + gateway.lanPort）、证书指纹（读 secrets/gateway-tls.crt）
@@ -13,6 +14,7 @@ src/
 ├── health.ts     /health 轮询（版本必须等于刚装的版本，防止读到旧进程）
 └── windows.ts    Windows 的运维：ROOT（%LOCALAPPDATA%\Quetzal）布局、current.txt / previous.txt 指针读写与回滚、控制台位置、计划任务状态与启停（state\quit）、日志末尾与跟随、打开卸载程序
 test/
+├── tui.test.ts           合成网关认证/RPC/断线、会话与审批、保密输入屏蔽、控制序列清理
 ├── windows.test.ts       Windows 的指针、回滚、控制台位置、schtasks CSV、日志末尾
 ├── windows-deps.test.ts  依赖锁的格式与官方地址、下载核对
 ├── windows-setup.test.ts 安装包构建的纯函数、装到用户机器上的脚本只含 ASCII、setup 辅助脚本的 PowerShell 测试（test/windows/setup.tests.ps1）
@@ -71,4 +73,8 @@ flowchart LR
 - 不碰运行基座的其他配置：模型、授权、飞书、灵魂仓库都在控制台里；这里只写 `body`（没有时）与 `gateway.host` + `gateway.lan`（显式 `--lan` 写 `0.0.0.0` 与 `true`，`--no-lan` 写 `127.0.0.1` 与 `false`）。局域网上运行基座只开 HTTPS / WSS（`gateway.lanPort`，默认 7789，自签名证书），明文 HTTP 只在 127.0.0.1；判定规则与运行基座一致（`lan` 为真或 `host` 不是回环地址）。
 - 服务不依赖 npx 缓存：运行的文件全部在 `~/.quetzal/releases/` 里，npx 缓存被清掉也不影响。
 - 没有 systemd 用户实例时不自造守护者：放好文件后提示 `quetzal run`，由容器编排或部署者自己的守护者负责重启。
-- 令牌永不打印；配对码（连同证书短指纹）由适配器通知与服务日志承载。`status` 打印局域网的 https 地址（本机非回环的 IPv4，`os.networkInterfaces()`）与证书指纹（读 `secrets/gateway-tls.crt` 算 SHA-256（DER），证书是公开的；运行基座第一次启动后才有），给人在 App 与浏览器里核对。本机浏览器的登录由网关自己判定（`GET /auth/local`），命令行不经手令牌。
+- 令牌永不打印；配对码（连同证书短指纹）由适配器通知与服务日志承载。`status` 打印局域网的 https 地址（本机非回环的 IPv4，`os.networkInterfaces()`）与证书指纹（读 `secrets/gateway-tls.crt` 算 SHA-256（DER），证书是公开的；运行基座第一次启动后才有），给人在 App 与浏览器里核对。本机浏览器的登录由网关自己判定（`GET /auth/local`）。chat/tui 优先只读家目录的 `secrets/gateway.token`，缺失时用回环 `/auth/local`；令牌仅作为 WebSocket 首帧认证发送，不进 URL 或终端。
+
+## 终端对话边界
+
+chat/tui 通过现有 `/rpc` 调用运行基座，不 import engine 或 runtime，不修改部署配置。Node 内置 WebSocket 与 readline 维持零运行时依赖。认证/消息协议和安全状态来自网关；完整命令见 [TUI.md](TUI.md)。默认同会话消息为 steer，可插话，停止使用 chat.stop，审批转送 body/id。重连只恢复会话、live、审批、保密输入和历史，不重发 chat.send 或任何修改操作。保密输入时关闭回显并清空未提交行，终端拒绝普通输入，要求去控制台完成或取消。
