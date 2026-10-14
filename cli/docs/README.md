@@ -100,7 +100,9 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex     # 首选：PowerShel
 
 `windows/deps.lock.json` 锁定 Node.js 24 LTS、Git for Windows、Python 3.14 的 x64 与 arm64 官方安装包（nodejs.org 的 `.msi`、github.com/git-for-windows 的 `.exe`、python.org 的 `.exe`）与 NSIS，写明下载地址、SHA-256、大小与哈希的出处。`node windows/fetch-deps.mjs <x64|arm64> <目录>`（`--tool nsis` 取 NSIS）只接受官方 https 主机，大小或哈希不符就失败。升级某一项：改 `version`、`file`、`url`、`sha256`、`size` 与 `source`，哈希从官方的 `SHASUMS256.txt` / 发布说明 / python.org 的发布文件记录取，再运行一次 `fetch-deps.mjs` 实际下载核对。
 
-`node windows/build-setup.mjs --version … --arch … --runtime <runtime/dist> --srt-win … --mesh … --web … --cli <quetzal.mjs> --console <解开的控制台> --deps … --makensis … --out …` 把各部分放进暂存目录（布局即安装后的布局），再 `makensis` 编译。发版工作流的 `windows` job 在 `windows-latest`（x64）与 `windows-11-arm`（arm64）上完成全部步骤，并静默装一遍、看状态、再卸载作为不阻断的冒烟测试。
+`node windows/build-setup.mjs --version … --arch … --runtime <runtime/dist> --srt-win … --mesh … --web … --cli <quetzal.mjs> --console <解开的控制台> --deps … --makensis … --out …` 把各部分放进暂存目录（布局即安装后的布局），再 `makensis` 编译。发版工作流的 `windows` job 在 `windows-latest`（x64）与 `windows-11-arm`（arm64）上完成全部步骤，并以静默安装、模拟交互登录接管、健康 / 版本 / windows 适配器 / srt 沙箱检查作为发版门禁。S4U 开机任务的健康响应不能替代交互会话里的沙箱就绪验证。
+
+冒烟测试失败也会先打印安装与运行日志，再独立执行静默卸载 `/S /PURGE`；等待 NSIS 临时卸载进程完成，核对退出码与 Quetzal 计划任务、进程、`srt-sandbox` 账户及安装根目录残留。该 runner 家目录是合成测试数据，才使用 PURGE；不删除仓库或其他服务，不额外强制清理掩盖卸载失败。未带 PURGE 的正常卸载仍按现有安装器行为保留 home 数据。CI runner 验收不等于所有 Windows 真机情境均已验证。
 
 安装包与其中的程序暂未做 Authenticode 代码签名：从下载页下载的 setup.exe 会被 SmartScreen 提示，开着智能应用控制的电脑会拦（install.ps1 下载的文件没有网络来源标记，SmartScreen 不拦）。
 

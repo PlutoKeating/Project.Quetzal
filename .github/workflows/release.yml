@@ -378,22 +378,84 @@ jobs:
             --mesh (Join-Path $t 'mesh') --web (Join-Path $t 'npm/package/dist/runtime/web') --cli (Join-Path $t 'npm/package/dist/quetzal.mjs') `
             --console (Join-Path $t 'console') --deps (Join-Path $t 'deps') --makensis (Join-Path $t 'tools/nsis-3.13/makensis.exe') `
             --stage (Join-Path $t 'stage') --out out @icon
-      # 冒烟测试：在这台用完即弃的 runner 上静默安装（runner 以管理员运行，不弹 UAC）、看健康检查、计划任务与状态，再静默卸载。
-      # 只作参考，失败不阻断发版：S4U、沙箱这些真机行为以 Windows 实机为准。
-      - name: 冒烟测试（静默安装 → 状态 → 卸载）
-        continue-on-error: true
+      # 在用完即弃的 runner 上验收安装与登录接管；S4U session 0 本身不证明交互沙箱可用。
+      # 卸载独立 always 执行，验证残留而不强制删除，以免掩盖安装器清理问题。
+      - name: 冒烟测试：静默安装
         timeout-minutes: 15
         run: |
+          $ErrorActionPreference = 'Stop'
           $exe = Get-ChildItem out -Filter "quetzal-$env:V-windows-$env:ARCH-setup.exe" | Select-Object -First 1
+          if (-not $exe) { throw 'setup artifact is missing' }
+          'QUETZAL_SMOKE_INSTALL_STARTED=true' >> $env:GITHUB_ENV
           $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S', '/CLOSEAPPS' -PassThru; $null = $p.Handle; $p.WaitForExit() # -Wait 会连常驻的守护进程一起等
           "setup.exe 退出码 $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "setup.exe failed: exit $($p.ExitCode)" }
+      - name: 冒烟测试：模拟登录接管与沙箱验收
+        timeout-minutes: 8
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
           $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
-          Get-Content -LiteralPath (Join-Path $root 'install.log') -ErrorAction SilentlyContinue
-          & (Join-Path $root 'bin/quetzal.cmd') status
-          Get-Content -LiteralPath (Join-Path $root 'home/logs/runtime.log') -Tail 40 -ErrorAction SilentlyContinue
-          $u = Start-Process -FilePath (Join-Path $root 'uninstall.exe') -ArgumentList '/S', '/PURGE' -PassThru; $null = $u.Handle; $u.WaitForExit()
+          $lock = Join-Path $root 'home\state\supervise.lock'
+          $before = (Get-Content $lock -Raw).Trim()
+          "boot-task supervisor: $before"
+          $env:SESSIONNAME = 'Console'
+          Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', (Join-Path $root 'bin\quetzal-supervise.ps1')
+          $taken = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep 2
+            $now = Get-Content $lock -Raw -ErrorAction SilentlyContinue
+            if ($now -and $now.Trim() -ne $before) { "logon-session supervisor took over: $($now.Trim())"; $taken = $true; break }
+          }
+          if (-not $taken) { throw 'logon-session supervisor did not take over within 2 minutes' }
+          $healthy = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            try {
+              $h = Invoke-RestMethod -UseBasicParsing http://127.0.0.1:7788/health
+              if ($h.ok -and $h.version -eq $env:V) { "health: $($h | ConvertTo-Json -Compress)"; $healthy = $true; break }
+            } catch { }
+            Start-Sleep 2
+          }
+          if (-not $healthy) { throw 'expected runtime version did not become healthy within 2 minutes' }
+          foreach ($name in @('Runtime-Boot', 'Runtime-Logon')) {
+            $task = Get-ScheduledTask -TaskPath '\Quetzal\' -TaskName $name -ErrorAction Stop
+            "scheduled task: $($task.TaskName) $($task.State)"
+          }
+          $node = (Get-Content (Join-Path $root 'node.txt')).Trim()
+          & $node .github/scripts/windows-status.mjs $env:V
+          if ($LASTEXITCODE -ne 0) { throw 'version / windows adapter / srt sandbox verification failed' }
+          & (Join-Path $root 'bin\quetzal.cmd') status
+          if ($LASTEXITCODE -ne 0) { throw 'quetzal status failed' }
+      - name: 冒烟测试：日志（失败也保留）
+        if: always() && env.QUETZAL_SMOKE_INSTALL_STARTED == 'true'
+        run: |
+          $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
+          foreach ($file in @('install.log', 'home\logs\runtime.log')) {
+            $p = Join-Path $root $file
+            if (Test-Path -LiteralPath $p) { "log: $file"; Get-Content -LiteralPath $p -Tail 200 -Encoding UTF8 }
+          }
+      - name: 冒烟测试：卸载并核对残留（失败也清理）
+        if: always() && env.QUETZAL_SMOKE_INSTALL_STARTED == 'true'
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:LOCALAPPDATA 'Quetzal'
+          $exe = Join-Path $root 'uninstall.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw 'uninstaller is missing after installation attempt; inspect smoke logs' }
+          # NSIS uninstaller may spawn its temporary copy: -Wait waits that tree, unlike only waiting the launcher handle.
+          $u = Start-Process -FilePath $exe -ArgumentList '/S', '/PURGE' -Wait -PassThru
           "uninstall.exe 退出码 $($u.ExitCode)"
-          if ($p.ExitCode -ne 0) { exit 1 }
+          if ($u.ExitCode -ne 0) { throw "uninstall.exe failed: exit $($u.ExitCode)" }
+          $tasks = @(Get-ScheduledTask -TaskPath '\Quetzal\' -ErrorAction SilentlyContinue)
+          $pattern = [regex]::Escape($root)
+          $processes = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$root\*" -or ($_.CommandLine -and $_.CommandLine -match $pattern) })
+          $account = Get-LocalUser -Name 'srt-sandbox' -ErrorAction SilentlyContinue
+          $remaining = Test-Path -LiteralPath $root
+          if ($tasks.Count) { $tasks | Format-Table TaskName, State -AutoSize | Out-String | Write-Host }
+          if ($processes.Count) { $processes | Select-Object ProcessId, Name, ExecutablePath | Format-Table -AutoSize | Out-String | Write-Host }
+          if ($remaining) { Get-ChildItem -LiteralPath $root -Force | Select-Object Name, Mode | Format-Table -AutoSize | Out-String | Write-Host }
+          "uninstall residuals: tasks=$($tasks.Count), processes=$($processes.Count), sandboxAccount=$([bool]$account), root=$remaining"
+          if ($tasks.Count -or $processes.Count -or $account -or $remaining) { throw 'uninstall left Quetzal resources; nothing was forcibly removed by the smoke test' }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-windows-${{ matrix.arch }}
