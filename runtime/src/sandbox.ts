@@ -93,8 +93,9 @@ const overlaps = (a: string, b: string) => {
   const x = fold(a), y = fold(b);
   return x === y || x.startsWith(y.endsWith(path.sep) ? y : y + path.sep) || y.startsWith(x.endsWith(path.sep) ? x : x + path.sep);
 };
+const specialHome = (home: string) => home === real(os.homedir()) || home === path.parse(home).root;
 function specialWorkspace(home: string): string | undefined {
-  if (home !== real(os.homedir()) && home !== path.parse(home).root) return undefined;
+  if (!specialHome(home)) return undefined;
   const dir = workspace();
   if ([paths.config, paths.state, paths.tools, paths.vault, paths.secrets, ...runtimeReadonly()].some((p) => overlaps(dir, p))) throw new Error("命令工作区不能覆盖运行数据、灵魂或受保护目录");
   fs.mkdirSync(dir, { recursive: true });
@@ -224,7 +225,7 @@ export function resetSandbox() { probed = undefined; warned = false; if (srtStat
 
 /** agent 的命令默认在哪个目录里运行：用户主目录（QUETZAL_HOME 在沙箱里整体只读，运行基座的版本目录也不该被改）。
  *  Windows：沙箱用户碰不到本用户的主目录，她的工作区是 %USERPROFILE%\Quetzal（对方也看得到、能放文件进去）。 */
-export const workDir = () => isWindows ? workspace() : os.homedir();
+export const workDir = () => isWindows || specialHome(real(paths.home)) ? workspace() : os.homedir();
 const workspace = () => process.env.QUETZAL_WORKSPACE || path.join(os.homedir(), "Quetzal");
 
 // ---------- Windows：sandbox-runtime（srt-win）

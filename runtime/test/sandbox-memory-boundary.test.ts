@@ -60,6 +60,10 @@ test('HOME等于用户HOME或根目录时不能替换运行数据祖先，但独
       assert.notEqual(denied.code, 0);
       const writable = await command("import fs from 'node:fs'; fs.writeFileSync(process.argv[1], 'special-output');", [path.join(output, `special-${rootHome}.txt`)]);
       assert.equal(writable.code, 0, writable.err);
+      assert.equal(sandbox.workDir(), output);
+      const relative = await shell(`printf default-output > relative-${rootHome}.txt`);
+      assert.equal(relative.code, 0, relative.err);
+      assert.equal(fs.readFileSync(path.join(output, `relative-${rootHome}.txt`), 'utf8'), 'default-output');
     }
   } finally { os.homedir = homedir; cfg.paths.home = runtimeHome; sandbox.resetSandbox(); }
 });
