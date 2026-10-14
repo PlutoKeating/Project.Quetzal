@@ -8,8 +8,10 @@ import path from "node:path";
 import http from "node:http";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-ctx-"));
-const { loadConfig } = await import("../src/config.ts");
+const { loadConfig, saveConfig } = await import("../src/config.ts");
 loadConfig();
+// 本用例验证交互协议；自动学习另由生产学习集成测试覆盖。
+saveConfig({ brain: { memoryLearning: false, memorySemantic: false } });
 const store = await import("../src/store.ts");
 store.openStore();
 const reg = await import("../src/providers/registry.ts");
@@ -111,7 +113,7 @@ test("对话里：上一轮的工具过程进入下一轮的上下文", async ()
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(server.address() as any).port}`;
   reg.saveProviders({ providers: [{ id: "p", catalogId: "custom", name: "Mock", baseUrl: base, protocol: "openai-completions" as const, enabled: true,
-    keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
+    keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
   store.ensureSession("cv", "对话");
   assert.equal(await converse("你", "帮我装 CLI", "控制台", { conv: "cv" }), "好了");
   assert.deepEqual(store.sessionMessages("cv").at(-1)!.process!.map((x: any) => [x.type, x.name ?? x.text]), [["text", "我先记一下"], ["tool", "open_loop"]]);

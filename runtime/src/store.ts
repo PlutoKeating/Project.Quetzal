@@ -44,8 +44,10 @@ export function openStore() {
     CREATE TABLE IF NOT EXISTS usage(day TEXT, model TEXT, input INTEGER, output INTEGER, cost REAL, PRIMARY KEY(day, model));
     CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, title TEXT, channel TEXT, created INTEGER, updated INTEGER, archived INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS tool_calls(call TEXT, session TEXT, ts INTEGER, tool TEXT, args TEXT, result TEXT, status TEXT, ms INTEGER, PRIMARY KEY(call, session));
+    CREATE TABLE IF NOT EXISTS context_sources(ref TEXT PRIMARY KEY, conv TEXT, ts INTEGER, content TEXT);
   `);
   db.exec("CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls(ts)");
+  db.exec("CREATE INDEX IF NOT EXISTS context_sources_ts ON context_sources(ts)");
   // 对话归属会话，并保存执行过程与附件（旧库补列；此前没有会话的对话归入「最初的对话」）
   const cols = (db.prepare("PRAGMA table_info(messages)").all() as any[]).map((c) => c.name);
   for (const [c, t] of [["session", "TEXT"], ["process", "TEXT"], ["attachments", "TEXT"], ["mode", "TEXT"]]) if (!cols.includes(c)) db.exec(`ALTER TABLE messages ADD COLUMN ${c} ${t}`);
@@ -113,6 +115,17 @@ export const kv = {
   },
   set(k: string, v: unknown) { db.prepare("INSERT OR REPLACE INTO kv VALUES(?,?)").run(k, JSON.stringify(v)); },
 };
+
+/** 本机上下文原文引用；不复制、不进灵魂。每条 256 KiB，最多 5000 条；过期必须明确报告。 */
+export function saveContextSource(ref: string, conv: string, content: string): boolean {
+  if (Buffer.byteLength(content) > 262_144) return false;
+  db.prepare("INSERT OR REPLACE INTO context_sources VALUES(?,?,?,?)").run(ref, conv, Date.now(), content);
+  db.exec("DELETE FROM context_sources WHERE ref IN (SELECT ref FROM context_sources ORDER BY ts DESC, ref LIMIT -1 OFFSET 5000)");
+  return true;
+}
+export function readContextSource(ref: string, conv: string): string | undefined {
+  return (db.prepare("SELECT content FROM context_sources WHERE ref=? AND conv=?").get(ref, conv) as { content: string } | undefined)?.content;
+}
 
 export function addTimeline(kind: string, title: string, detail: unknown = null): TimelineEntry {
   const ts = Date.now(), id = nextId("timeline"), text = JSON.stringify(detail);
@@ -190,6 +203,10 @@ export function recentMessages(limit = 20): MessageRow[] {
 export function sessionMessages(session: string, limit = 50, before = Number.MAX_SAFE_INTEGER): MessageRow[] {
   const [bts, bid] = cursor("messages", before);
   return (db.prepare("SELECT * FROM messages WHERE session=?1 AND (ts<?2 OR (ts=?2 AND id<?3)) ORDER BY ts DESC, id DESC LIMIT ?4").all(session, bts, bid, limit) as any[]).map(rowMessage).reverse();
+}
+export function getSessionMessage(id: number, session: string): MessageRow | undefined {
+  const row = db.prepare('SELECT * FROM messages WHERE id=? AND session=?').get(id, session);
+  return row ? rowMessage(row) : undefined;
 }
 
 // ---------- 复制（多具身体之间，见 mesh/replica.ts）。来自别处的行用这里写入：幂等，不再转发。
@@ -305,9 +322,10 @@ export function saveToolCall(r: Omit<ToolCallRow, "args"> & { args: unknown }) {
   if (Math.random() < 0.01) db.prepare("DELETE FROM tool_calls WHERE ts < (SELECT ts FROM tool_calls ORDER BY ts DESC LIMIT 1 OFFSET ?)").run(TOOL_CALLS_KEEP);
 }
 /** 一次工具调用的完整记录（同一个调用编号以最新的为准）；没有返回 undefined。 */
-export function getToolCall(call: string): ToolCallRow | undefined {
+export function getToolCall(call: string, session?: string): ToolCallRow | undefined {
   if (!call) return undefined;
-  const r = db.prepare("SELECT * FROM tool_calls WHERE call = ? ORDER BY ts DESC LIMIT 1").get(call) as any;
+  const r = (session ? db.prepare("SELECT * FROM tool_calls WHERE call = ? AND session = ?").get(call, session)
+    : db.prepare("SELECT * FROM tool_calls WHERE call = ? ORDER BY ts DESC LIMIT 1").get(call)) as any;
   if (!r) return undefined;
   let args: unknown = null; try { args = JSON.parse(r.args); } catch { args = r.args; }
   return { call: r.call, session: r.session, ts: r.ts, tool: r.tool, args, result: r.result, status: r.status, ms: r.ms };

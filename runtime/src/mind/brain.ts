@@ -8,9 +8,14 @@ import crypto from "node:crypto";
 import { chat } from "../providers/router.ts";
 import type { Msg } from "../providers/types.ts";
 import { runTurn, type Step, type FinishTool } from "../../../engine/src/index.ts";
+import { createTurnContext, registerHistorySource } from "./context.ts";
+import { learnEpisode, evolveMemory, type EpisodeInput } from "../memory/prime.ts";
+import { readStructuredRecords } from "../memory/structured.ts";
+import type { ToolRecord } from "../../../engine/src/loop.ts";
+import { identity } from "../memory/identity.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemPrompt } from "./prompt.ts";
-import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, type Attachment } from "../store.ts";
+import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, saveContextSource, type Attachment } from "../store.ts";
 import { userMessage } from "./attachments.ts";
 import { config } from "../config.ts";
 import * as mem from "../memory/memory.ts";
@@ -19,7 +24,7 @@ import { addExperience, setOpenLoops, markBusy, isBusy, nudge, stopped, type Wak
 import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
 import { Session, SessionTimeout, Interrupted, Stopped, summarize } from "./activity.ts";
-import { intake, redactArgs } from "./secrets.ts";
+import { intake, redactArgs, redactSecrets } from "./secrets.ts";
 import { noteSilence } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
 import { bus } from "../bus.ts";
@@ -58,17 +63,41 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
 /**
  * 工具循环。由 agent 自己决定节奏：每一步由模型选择继续调用工具（可边做边说），或给出不带工具调用的文字作为这次的回复。
  * 基座不限制步数；防止失控的是「无进展」会话时间墙与急停（每一步开始前检查）。返回最终文本（结束这一轮的那一步的文字，可能为空）、finish 参数、步骤与 token 消耗。
- * messages 在本轮持续追加，不做 token 计数或自动压缩；session_compact / session_new 影响后续轮次，不缩短当前数组。
- * 模型 context 元数据、每日预算与子 agent 的 maxSteps 不构成本循环的强制终止条件；有持续进展时，时间墙也不限制总时长。
+ * messages 保留本轮原始轨迹；每次请求按实际模型窗口做保守预算和自动摘要／节选，不改写原始数组。
+ * 模型 context 元数据限制本次输入视图；每日预算与子 agent 的 maxSteps 不构成本循环的步数终止条件；有持续进展时，时间墙也不限制总时长。
  * 对方在她工作时发来的消息：每次调用模型前并入；「打断」会中止正在进行的模型输出（保留已输出的部分），但不会打断正在执行的工具。
  */
+const learnedTurns = new WeakMap<Session, { records: ToolRecord[]; usedMemoryKeys: string[]; tags: string[]; phase: EpisodeInput['phase'] }>();
+let learningTail: Promise<unknown> = Promise.resolve(), learningPending = 0;
+/** 自动学习在独立有界队列运行；对话回复不等待蒸馏，STOP 不会恢复该任务。 */
+function learnTurn(s: Session, input: string, reply: string, userSourceRef?: string) {
+  if (!config.brain.memoryLearning || s.signal.aborted || stopped() || learningPending >= 16) return;
+  const data = learnedTurns.get(s);
+  const episode: EpisodeInput = { episodeId: s.id, session: s.conv || s.id, userInput: redactSecrets(input), reply: redactSecrets(reply), userSourceRef,
+    userOrigin: userSourceRef ? 'user' : 'agent', toolRecords: data?.records ?? [], phase: data?.phase ?? 'unknown', tags: data?.tags, usedMemoryKeys: data?.usedMemoryKeys,
+    scope: { agentId: identity().id, ...(userSourceRef ? { userId: 'owner' } : {}) }, signal: s.signal };
+  learningPending++;
+  const timer = setTimeout(() => {
+    learningTail = learningTail.catch(() => {}).then(async () => {
+      if (stopped() || episode.signal?.aborted) return;
+      const result = await learnEpisode(episode, { maxTokens: config.brain.memoryLearningTokens, timeoutMs: config.brain.memoryLearningTimeoutMs });
+      if (result.status === 'failed') log('memory', `本轮学习未完成：${result.reason}`);
+    }).catch((e) => log('memory', `学习未完成：${e.message}`)).finally(() => { learningPending--; });
+  }, 100);
+  timer.unref();
+}
+
 async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>) {
-  return runTurn({
+  const context = createTurnContext(s.id, s.conv, messages);
+  const tracked = learnedTurns.get(s) ?? { records: [], usedMemoryKeys: [], tags: [], phase: 'unknown' as const };
+  learnedTurns.set(s, tracked);
+  try { return await runTurn({
     messages, turn: s, maxOutputTokens: () => config.brain.maxOutputTokens,
     tools: allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })),
     finishTool: withFinish ? FINISH : undefined,
   }, {
     chat,
+    prepareContext: context.prepare,
     execute: (c) => callTool(c.name, c.args, reason, { session: s }),
     drain: async (context) => { await drain(context, s); },
     pending: () => !!(s.inbox.length || s.images.length),
@@ -78,9 +107,9 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
     stopToolWait: (reason) => reason instanceof Stopped,
     moved: () => s.movedTo ? { title: `换到 ${s.movedTo} 上继续`, journal: `这次醒来换到 ${s.movedTo} 上接着做。` } : undefined,
     cleanText: stripStamp, redactArgs, summarize,
-    recordTool: saveToolCall,
+    recordTool: (record) => { tracked.records.push(record); saveToolCall(record); },
     warning: (message) => log("brain", message),
-  });
+  }); } finally { const snapshot = context.snapshot(); tracked.phase = snapshot.phase; tracked.tags = snapshot.tags; tracked.usedMemoryKeys = snapshot.usedMemoryKeys; context.close(); }
 }
 
 const effortOf = (tokens: number, steps: number) => Math.min(0.15, tokens / 2_000_000 + steps * 0.004);
@@ -106,7 +135,7 @@ async function introspect(kind: WakeKind, reason: string, where?: Survey): Promi
     const ask = where
       ? `你刚刚${kind === "dream" ? "进入梦境（整理记忆）" : `醒来（${reason}）`}。你此刻有几具身体在线：\n${where.text}\n基座推荐：${where.recommendText ?? where.recommend.join("、")}。\n先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡", "where": ["在哪具身体上做：填身体的 uuid，可以选一具或几具（几具会同时进行，都是你）"]}。${kind === "dream" ? "做梦只选一具。" : ""}`
       : `你刚刚醒来（${reason}）。先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡"}。`;
-    const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason) }, { role: "user", content: ask }], maxTokens: 300 }, { quick: true });
+    const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason, { dynamic: true }) }, { role: "user", content: ask }], maxTokens: 300 }, { quick: true });
     const j = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
     // where 填的是 uuid：和身体参数一样经 resolveBody 解析成身体名（登记、认证过的连接、自报一致）；解析不了的不算
     const picked = (Array.isArray(j.where) ? j.where : typeof j.where === "string" ? [j.where] : []).slice(0, 10).map((u: unknown) => { if (typeof u !== "string" || !u.trim()) return ""; const t = resolveBody(u); return "local" in t ? config.body : "remote" in t ? t.remote.body : ""; }).filter((b: string) => b && where?.bodies.includes(b));
@@ -163,7 +192,7 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
 3. 回顾最近的工具调用（recent_actions）：反复出现、步骤稳定的 shell 流程，可以用 tool_write 沉淀成工具，并写好技能文档；灵魂仓库里有技能文档而本机没有实现的，也可以按文档实现。
 
 梦可以是跳跃的、联想的。结束时调用 finish，把这个梦写进日记。`;
-  const messages: Msg[] = [{ role: "system", content: systemPrompt(`${reason} ${gate.intent}`) }, { role: "user", content: task }];
+  const messages: Msg[] = [{ role: "system", content: systemPrompt(`${reason} ${gate.intent}`, { dynamic: true }) }, { role: "user", content: task }];
   const s = new Session(kind === "dream" ? "dream" : "think");
   s.emit({ kind: "start", text: reason });
   let r: Awaited<ReturnType<typeof loop>>;
@@ -182,6 +211,11 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
   }
   finally { s.close(); clearInterval(renew); }
   const f = r.finish ?? { title: kind === "dream" ? "一个模糊的梦" : "醒来了一会儿", journal: r.text || "（没有留下文字）" };
+  learnTurn(s, `${reason} ${gate.intent}`, String(f.journal ?? r.text));
+  if (kind === 'dream' && config.brain.memoryLearning && !stopped()) {
+    const parent = readStructuredRecords().find((record) => record.kind === 'experience' && record.state === 'active' && record.scope.agentId === identity().id && (!record.scope.userId || record.scope.userId === 'owner') && !record.scope.sessionId && !record.scope.taskType);
+    if (parent) void evolveMemory({ operation: 'rewrite', keys: [`${parent.id}@${parent.version}`] }, { maxTokens: config.brain.memoryLearningTokens, timeoutMs: config.brain.memoryLearningTimeoutMs }).catch((e) => log('memory', `经验提案未完成：${e.message}`));
+  }
   if (typeof f.thought === "string" && f.thought.trim()) mem.setThought(f.thought);
   mem.writeJournal(`${kind === "dream" ? "梦 · " : ""}${f.title}`, `${f.journal}${f.feeling ? `\n\n心情：${f.feeling}` : ""}`);
   addTimeline(kind, f.title, { reason, intent: gate.intent, journal: f.journal, feeling: f.feeling, thought: f.thought, process, steps: r.steps, tokens: r.tokens, model: r.model });
@@ -259,10 +293,10 @@ export function describeProcess(items: unknown[] | null | undefined, full: boole
  * 不是她说的话（对方的话、摘要、交接、子 agent 报告、环境声音）都在 user 一侧。
  */
 const FULL_PROCESS = 3;
-export function history(conv: string, self: number, budget = 16000): Msg[] {
+export function history(conv: string, self: number, budget = Infinity): Msg[] {
   const out: Msg[] = [];
   let used = 0, replies = 0;
-  const listed = sessionMessages(conv, 80), at = listed.findIndex((m) => m.id === self); // 按时间排序（多具身体的编号段之间没有先后）
+  const listed = sessionMessages(conv, 1000), at = listed.findIndex((m) => m.id === self); // 宿主读取有界原文，视图预算由engine逐次管理
   const all = listed.filter((m, i) => at < 0 || i < at || m.role === "agent");
   const cut = all.map((m, i) => (m.role === "ambient" && m.channel === "摘要" ? i : -1)).filter((i) => i >= 0).at(-1) ?? -1; // session_compact：摘要之前的历史不再进入上下文
   for (const m of all.slice(Math.max(0, cut)).reverse()) {
@@ -289,12 +323,12 @@ export function history(conv: string, self: number, budget = 16000): Msg[] {
         : `[基座附注，不是对方的话｜${stamp(m.ts)} 你${on}回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
       if (used + note.length + m.text.length > budget) break;
       used += note.length + m.text.length;
-      out.unshift({ role: "user", content: note }, { role: "assistant", content: m.text });
+      out.unshift(registerHistorySource({ role: "user", content: note }, m.id, conv), registerHistorySource({ role: "assistant", content: m.text }, m.id, conv));
       continue;
     }
     if (used + text.length > budget) break;
     used += text.length;
-    out.unshift({ role: "user", content: text });
+    out.unshift(registerHistorySource({ role: "user", content: text }, m.id, conv));
   }
   return out;
 }
@@ -323,7 +357,7 @@ export async function summarizeConv(conv: string): Promise<string> {
 
 /** 子 agent 跑的工具循环：自己的系统提示、不能再派子 agent 或切会话；报告送回派出它的会话（环境输入，通道「子agent」）。 */
 export function spawnAgent(spec: agents.AgentSpec, parent: { conv: string; channel: string }) {
-  return agents.spawn(spec, parent, (a, s, messages) => loop(messages, `子 agent ${a.name}`, true, s, agents.AGENT_TOOLS),
+  return agents.spawn(spec, parent, async (a, s, messages) => { const result = await loop(messages, `子 agent ${a.name}`, true, s, agents.AGENT_TOOLS); learnTurn(s, spec.goal, result.text || String(result.finish?.journal ?? '')); return result; },
     (a, report) => converse("子agent", report, "子agent", { conv: a.parentConv, ambient: true }));
 }
 
@@ -376,7 +410,7 @@ export function converse(from: string, text: string, channel: string, o: Convers
     try {
       await soul.pull().catch(() => {});
       const messages: Msg[] = [
-        { role: "system", content: systemPrompt(text, { conv }) },
+        { role: "system", content: systemPrompt(text, { conv, dynamic: true }) },
         ...history(conv, id),
         o.ambient && channel === "子agent"
           ? await userMessage(text, [], AGENT_REPORT_PROMPT, s.seen)
@@ -412,12 +446,14 @@ export function converse(from: string, text: string, channel: string, o: Convers
       // 提醒过仍没有一句话：说明这一轮没有回复，而不是留一个看不懂的空回复
       const reply = r.text.trim() || (r.steps.length ? `（我做了 ${r.steps.length} 步，但最后没能把结果说出来。你可以问我一句「结果呢」。）` : "（模型连着几次什么也没输出，我没能回复。你可以再说一次。）");
       const home = s.switchTo ?? conv; // session_new：回复放进新会话
-      addMessage("agent", channel, reply, { session: home, process });
+      const replyId = addMessage("agent", channel, reply, { session: home, process });
+      saveContextSource(`message-tools:${replyId}`, home, JSON.stringify((learnedTurns.get(s)?.records ?? []).map((record) => ({ call: record.call, turn: s.id }))));
       s.emit({ kind: "done", reply });
       if (s.switchTo) bus.emit("session.switch", { from: conv, to: s.switchTo, title: getSession(s.switchTo)?.title ?? "", done: true });
       addTimeline("chat", o.ambient ? (channel === "子agent" ? "收到子 agent 的报告，接着做了" : channel === "灵魂同步" ? "处理了基座关于灵魂同步的提醒" : "听到有人说话，回应了") : `和${from}说话`, { channel, conv: home, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
       nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
+      if (!o.ambient) learnTurn(s, text, reply, `message:${id}`);
       await soul.push("对话").catch(() => {});
       return reply;
     } catch (e: any) {

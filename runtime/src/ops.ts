@@ -3,7 +3,7 @@ import path from "node:path";
 import { ensureSshKeyFile } from "./ssh-key.ts";
 import fs from "node:fs";
 import { config, saveConfig, paths, type Level } from "./config.ts";
-import { getToolCall, type ToolCallRow, audit, listTimeline, listAudit, usageToday, recentMessages, listSessions, ensureSession, updateSession, sessionMessages } from "./store.ts";
+import { getToolCall, type ToolCallRow, audit, listTimeline, listAudit, usageToday, recentMessages, listSessions, ensureSession, updateSession, sessionMessages, addMessage } from "./store.ts";
 import { liveTurns } from "./mind/activity.ts";
 import * as voice from "./voice/azure.ts";
 import crypto from "node:crypto";
@@ -33,6 +33,11 @@ import { sandboxStatus, resetSandbox } from "./sandbox.ts";
 import { checkKeyPath } from "./memory/soul-repo.ts";
 import * as reminders from "./time/reminders.ts";
 import { hostModes, enterHost, exitHost } from "./host-mode.ts";
+import { readStructuredRecords, archiveRecord, rollbackRecord } from './memory/structured.ts';
+import { confirmPersonalMemory, evolveMemory, learnEpisode } from './memory/prime.ts';
+import type { MemoryEpisode } from '../../engine/src/prime.ts';
+import { memoryKey } from '../../engine/src/memory.ts';
+import { kv } from './store.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -150,6 +155,41 @@ export const ops = {
   setBudget: (a: Partial<typeof config.budget>, actor: string) => { saveConfig({ budget: a }); audit(actor, "budget", "", a, "ok"); return config.budget; },
 
   memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), loops: mem.openLoops() }),
+  'memory.records': (a: { state?: string; kind?: string }) => readStructuredRecords().filter((r) => r.scope.agentId === identity().id && (!a.state || r.state === a.state) && (!a.kind || r.kind === a.kind)),
+  'memory.confirm': async (a: { key: string }, actor: string) => {
+    if (!actor?.trim()) throw new Error('管理者身份不能为空');
+    const record = await confirmPersonalMemory(a.key, { actor });
+    audit(actor, 'memory.confirm', '确认个人语义', { key: a.key }, memoryKey(record)); return record;
+  },
+  'memory.feedback': async (a: { episodeId: string; status: 'success' | 'failure'; session?: string }, actor: string) => {
+    if (!actor?.trim()) throw new Error('管理者身份不能为空');
+    if (!a || !['success', 'failure'].includes(a.status) || typeof a.episodeId !== 'string') throw new Error('反馈必须指定已完成轨迹及整体任务成功或失败');
+    if (fs.existsSync(paths.stop)) throw new Error('急停中，不启动记忆评价');
+    const episode = kv.get<MemoryEpisode[]>('prime.episodes', []).find((e) => e.id === a.episodeId && e.scope.agentId === identity().id);
+    const origin = kv.get<Record<string, { session: string; ref?: string }>>('prime.origins', {})[a.episodeId];
+    if (!episode || !origin?.session || (a.session !== undefined && a.session !== origin.session)) throw new Error('轨迹不存在、不属于当前Agent或会话来源无法核对');
+    if (Date.now() < episode.endedAt) throw new Error('轨迹尚未完成，不能确认整体结果');
+    const text = `管理者明确确认已完成轨迹 ${episode.id} 的整个任务${a.status === 'success' ? '成功' : '失败'}（不是仅确认单次工具调用）。`;
+    const message = addMessage('user', actor, text, { session: origin.session });
+    const result = await learnEpisode({ episodeId: episode.id, session: origin.session, scope: episode.scope,
+      userInput: '', reply: '', feedback: { text, sourceRef: `message:${message}`, verified: true, status: a.status } },
+      { maxTokens: config.brain.memoryLearningTokens, timeoutMs: config.brain.memoryLearningTimeoutMs });
+    audit(actor, 'memory.feedback', '确认整体任务结果', { episodeId: episode.id, status: a.status, message }, result.status);
+    return result;
+  },
+  'memory.archive': async (a: { key: string }, actor: string) => {
+    if (!readStructuredRecords().some((r) => memoryKey(r) === a.key && r.scope.agentId === identity().id)) throw new Error('记忆不属于当前Agent');
+    await archiveRecord(a.key); audit(actor, 'memory.archive', '', { key: a.key }, 'ok'); return true;
+  },
+  'memory.rollback': async (a: { key: string }, actor: string) => {
+    if (!readStructuredRecords().some((r) => memoryKey(r) === a.key && r.scope.agentId === identity().id)) throw new Error('记忆不属于当前Agent');
+    await rollbackRecord(a.key); audit(actor, 'memory.rollback', '', { key: a.key }, 'ok'); return true;
+  },
+  'memory.evolve': async (a: { operation: 'rewrite' | 'generalize' | 'combine'; keys: string[] }, actor: string) => {
+    if (!Array.isArray(a.keys) || !a.keys.length || a.keys.length > 4 || a.keys.some((key) => !readStructuredRecords().some((r) => memoryKey(r) === key && r.scope.agentId === identity().id))) throw new Error('经验键不合法或不属于当前Agent');
+    const result = await evolveMemory(a); audit(actor, 'memory.evolve', '', { operation: a.operation, keys: a.keys }, result.status); return result;
+  },
+  'context.status': (a: { conv: string }) => kv.get(`context.plan.${a.conv}`, null),
   editMemory: async (a: { target: mem.Target; action: "add" | "replace" | "remove"; content?: string; oldText?: string }, actor: string) => {
     const r = await mem.exclusive(() => mem.editMemory(a.target, a.action, a.content, a.oldText));
     audit(actor, "memory.edit", "外部修改", a, r);

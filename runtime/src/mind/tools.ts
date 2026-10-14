@@ -34,6 +34,11 @@ import * as player from "../voice/player.ts";
 import * as agents from "./agents.ts";
 import { ensureSession, getSession, kv } from "../store.ts";
 import crypto from "node:crypto";
+import { taskState, contextRead } from './context.ts';
+import { readStructuredRecords, archiveRecord, rollbackRecord } from '../memory/structured.ts';
+import { evolveMemory } from '../memory/prime.ts';
+import { memoryKey } from '../../../engine/src/memory.ts';
+import type { MemoryRecord } from '../../../engine/src/memory.ts';
 import { mcpBindings, callMcp } from "../mcp/runtime.ts";
 import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf, type RemoteBody } from "./bodies.ts";
@@ -46,6 +51,10 @@ const hostConv = (ctx: ToolContext): string | undefined => ctx.session?.origin =
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 /** fetched：带 body 时从另一具身体取来的文件（远端路径 → 本地路径），见 body-files.ts。 */
 export interface ToolContext { session?: Session; fetched?: Fetched[] }
+function accessibleMemory(record: MemoryRecord, ctx: ToolContext): boolean {
+  return record.scope.agentId === identity().id && (!record.scope.userId || record.scope.userId === 'owner')
+    && (!record.scope.sessionId || record.scope.sessionId === ctx.session?.conv) && !record.scope.taskType;
+}
 /** also：除了 permission 还要满足的类别，闸门按其中最严的一个检查（自造工具一律加上 shell；tool_write 加上 tool_write）。 */
 /** onBody：属于这具身体的工具（适配器的设备工具、hands、自造工具）：多具身体时，它返回的文件路径要注明是哪具身体上的。 */
 /** bodyParams：多具身体时才出现的其他参数（例如 shell 的 files）。 */
@@ -83,6 +92,37 @@ export function substitutePaths(command: string, fetched: Fetched[]): string {
 }
 
 const core: Tool[] = [
+  {
+    name: 'task_state', permission: 'session', description: '读取或更新当前任务的工作状态：goal、constraints、openQuestions和阶段phase。保留真实用户约束；这些是你的工作计划，不是用户的新授权。证据由基座记录，不能自行伪造。',
+    parameters: obj({ goal: str('当前目标（可选）'), constraints: { type: 'array', items: { type: 'string' } }, openQuestions: { type: 'array', items: { type: 'string' } }, tags: { type: 'array', items: { type: 'string' }, description: '当前任务分类标签；只用于适用条件过滤，不改变权限' }, phase: { type: 'string', enum: ['exploration', 'verification', 'completion', 'unknown'] } }),
+    handler: async (a, ctx) => { if (!ctx.session) return failed('此工具需要当前运行轮次'); ctx.session.check(); return JSON.stringify(taskState(ctx.session.id, a)); },
+  },
+  {
+    name: 'context_read', permission: 'memory', description: '分页回查当前会话的上下文压缩原文。ref来自摘要或工具节选引用；不存在或过期会明确报错，用recall查持久历史。',
+    parameters: obj({ ref: str('摘要中给出的ref'), offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 8000 } }, ['ref']),
+    handler: async (a, ctx) => { if (!ctx.session) return failed('此工具需要当前运行轮次'); ctx.session.check(); return contextRead(ctx.session.id, String(a.ref), a.offset ?? 0, a.limit ?? 8000); },
+  },
+  {
+    name: 'memory_records', permission: 'memory', description: '查看结构化记忆及经验的版本、来源与验证状态；candidate尚未被验证，不能当作已知事实。可按kind/state筛选。',
+    parameters: obj({ kind: { type: 'string', enum: ['fact', 'preference', 'episode', 'experience'] }, state: { type: 'string', enum: ['candidate', 'active', 'superseded', 'archived'] } }),
+    handler: async (a, ctx) => JSON.stringify(readStructuredRecords().filter((r) => accessibleMemory(r, ctx) && (!a.kind || r.kind === a.kind) && (!a.state || r.state === a.state)).slice(-30).map((r) => ({ key: memoryKey(r), kind: r.kind, state: r.state, text: r.text, scope: r.scope, evidence: r.evidence, validation: r.validation }))),
+  },
+  {
+    name: 'memory_evolve', permission: 'memory', description: '为已验证经验提出改写、泛化或组合，独立评测不通过时只保留候选；也可归档或恢复已验证历史版本。不会改人格或USER原文件。keys为memory_records列出的版本键。',
+    parameters: obj({ operation: { type: 'string', enum: ['rewrite', 'generalize', 'combine', 'archive', 'rollback'] }, keys: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 4 } }, ['operation', 'keys']),
+    handler: async (a, ctx) => {
+      if (!Array.isArray(a.keys) || !a.keys.length || a.keys.length > 4 || a.keys.some((key: unknown) => typeof key !== 'string')) return failed('keys需为1至4项版本键');
+      ctx.session?.check();
+      const records = readStructuredRecords();
+      if (a.keys.some((key: string) => !records.some((r) => memoryKey(r) === key && accessibleMemory(r, ctx)))) return failed('记忆版本不属于当前Agent、用户或会话范围');
+      const signal = ctx.session?.signal;
+      if (a.operation === 'rollback') { if (a.keys.length !== 1) return failed('恢复一次只指定一个版本'); await rollbackRecord(a.keys[0], signal); return '已恢复已验证历史版本'; }
+      if (a.operation === 'archive') { for (const key of a.keys) await archiveRecord(key, signal); return '已归档，原版本及来源仍保留'; }
+      if (!['rewrite', 'generalize', 'combine'].includes(a.operation)) return failed('不支持的演化操作');
+      const result = await evolveMemory({ operation: a.operation, keys: a.keys, signal });
+      return result.status === 'failed' ? failed(result.reason ?? '经验提案未完成') : '经验提案与评估已完成；实际候选/激活状态用memory_records查看';
+    },
+  },
   {
     name: "memory", permission: "memory",
     description: "管理常驻记忆（每次醒来都会看到）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限，但每次只展开与当前话题相关、较新的条目：这里放最核心、最常用的认识；细节和长内容用 note_save 放进笔记目录。",

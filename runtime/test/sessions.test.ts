@@ -7,8 +7,10 @@ import path from "node:path";
 import http from "node:http";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-sessions-"));
-const { loadConfig } = await import("../src/config.ts");
+const { loadConfig, saveConfig } = await import("../src/config.ts");
 loadConfig();
+// 本用例验证交互协议；自动学习另由生产学习集成测试覆盖。
+saveConfig({ brain: { memoryLearning: false, memorySemantic: false } });
 const store = await import("../src/store.ts");
 store.openStore();
 const reg = await import("../src/providers/registry.ts");
@@ -76,7 +78,7 @@ test("进行中的轮次：进展折叠成快照，结束后移除", () => {
 });
 
 test("多个会话并行，且每个会话都能看到其他会话", async () => {
-  provider([{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }]);
+  provider([{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }]);
   store.ensureSession("a", "新的对话"); store.ensureSession("b", "新的对话");
   store.addMessage("user", "控制台", "上周聊过的咖啡豆", { session: "b" });
   seen.length = 0;
@@ -93,7 +95,7 @@ test("多个会话并行，且每个会话都能看到其他会话", async () =>
   // 会话自己的历史作为多轮上下文
   seen.length = 0;
   await converse("你", "接着说", "控制台", { conv: "a" });
-  const ctx = seen[0].messages.map((m: any) => m.role);
+  const ctx = seen[0].messages.filter((m: any) => !String(m.content).startsWith('当前任务工作状态')).map((m: any) => m.role);
   assert.deepEqual(ctx.slice(1), ["user", "user", "assistant", "user"]); // 她的回复前有一条基座附注（user 一侧）
 });
 
@@ -173,15 +175,15 @@ test("后台命令可以随时停止", async () => {
 
 test("图片只发给能看图的模型；没有时去掉图片并说明", async () => {
   provider([
-    { id: "m1", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 },
-    { id: "m2", name: "eye", enabled: true, context: 8000, maxTokens: 256, sortOrder: 1, vision: true },
+    { id: "m1", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 },
+    { id: "m2", name: "eye", enabled: true, context: 131072, maxTokens: 256, sortOrder: 1, vision: true },
   ]);
   const img = { role: "user" as const, content: "你 通过控制台对你说：\n看图", images: [{ mime: "image/png", data: "iVBORw0KGgo=" }] };
   seen.length = 0;
   const r = await router.chat({ messages: [img] });
   assert.equal(r.model, "Mock/eye");
   assert.deepEqual(seen[0].messages[0].content[1], { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } });
-  provider([{ id: "m1", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0, vision: false }]);
+  provider([{ id: "m1", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0, vision: false }]);
   seen.length = 0;
   await router.chat({ messages: [img] });
   assert.equal(typeof seen[0].messages[0].content, "string");
@@ -190,7 +192,7 @@ test("图片只发给能看图的模型；没有时去掉图片并说明", async
 });
 
 test("工具失败：上下文里写明失败；同样的调用失败多次时基座提醒不要原样重试", async () => {
-  provider([{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }]);
+  provider([{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }]);
   const call = (id: string) => ({ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id, type: "function", function: { name: "shell_jobs", arguments: JSON.stringify({ action: "output", id: "nope" }) } }] } });
   let n = 0;
   script = () => (++n <= 2 ? call(`c${n}`) : { finish_reason: "stop", message: { content: "换个做法" } });
@@ -215,7 +217,7 @@ test("工具失败：上下文里写明失败；同样的调用失败多次时�
 test("对方停止这一轮：正在等的工具不再等，这一轮以一句说明结束；没有进行中的一轮时返回 false", async () => {
   const { stopTurn } = await import("../src/mind/brain.ts");
   const guard = await import("../src/guard/guard.ts");
-  provider([{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }]);
+  provider([{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }]);
   // 一直等对方批准的工具（真实环境的请求）：停止后不等它
   script = () => ({ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "h1", type: "function", function: { name: "host_mode", arguments: JSON.stringify({ action: "request", reason: "测试" }) } }] } });
   const r = converse("测试者", "停止测试", "控制台", { conv: "stop-1" });
@@ -230,7 +232,7 @@ test("对方停止这一轮：正在等的工具不再等，这一轮以一句�
 });
 
 test("模型某一步什么也没输出：提醒她再来，不留空回复", async () => {
-  provider([{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }]);
+  provider([{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }]);
   const tool = { finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "clock", arguments: "{}" } }] } };
   const blank = { finish_reason: "length", message: { content: "" } };
   // 先调一次工具，再空一步（输出长度用完），被提醒后回复

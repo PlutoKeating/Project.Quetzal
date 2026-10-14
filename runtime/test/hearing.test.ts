@@ -9,8 +9,10 @@ import type { SpeechConfig } from "../src/voice/azure.ts";
 
 process.env.SPEECH_ALLOW_LOCAL_ENDPOINT = "1"; // 语音端点只接受 Azure 的域名；测试用本地模拟服务
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-hearing-"));
-const { loadConfig, config } = await import("../src/config.ts");
+const { loadConfig, config, saveConfig } = await import("../src/config.ts");
 loadConfig();
+// 识别／会话协议测试；记忆模型路由由生产闭环用例覆盖。
+saveConfig({ brain: { memorySemantic: false, memoryLearning: false } });
 const store = await import("../src/store.ts");
 store.openStore();
 const reg = await import("../src/providers/registry.ts");
@@ -48,7 +50,7 @@ const llm = http.createServer((req, res) => {
 });
 await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
 reg.saveProviders({ providers: [{ id: "p", catalogId: "custom", name: "Mock", baseUrl: `http://127.0.0.1:${(llm.address() as any).port}`, protocol: "openai-completions" as const, enabled: true,
-  keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
+  keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
 
 /** 一个只含标记文字的假 WAV（16 kHz 单声道 16 位，1 秒）。 */
 const wav = (tag: string) => { const b = Buffer.alloc(44 + 32000); b.write("RIFF", 0); b.write("WAVE", 8); b.write(tag, 44, "utf8"); return b; };

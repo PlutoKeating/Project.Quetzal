@@ -7,8 +7,10 @@ import path from "node:path";
 import http from "node:http";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-secrets-"));
-const { loadConfig, paths } = await import("../src/config.ts");
+const { loadConfig, saveConfig, paths } = await import("../src/config.ts");
 loadConfig();
+// 本用例验证交互协议；自动学习另由生产学习集成测试覆盖。
+saveConfig({ brain: { memoryLearning: false, memorySemantic: false } });
 const store = await import("../src/store.ts");
 store.openStore();
 const reg = await import("../src/providers/registry.ts");
@@ -159,7 +161,7 @@ test("端到端：她调用 pass_secret，对方在对话里发值与口令；�
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   reg.saveProviders({ providers: [{ id: "p", catalogId: "custom", name: "Mock", baseUrl: `http://127.0.0.1:${(server.address() as any).port}`, protocol: "openai-completions" as const, enabled: true,
-    keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
+    keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
 
   const NPM = "npm_S3cr3tV4lu3ThatMustNeverLeak";
   events.length = 0;

@@ -8,6 +8,8 @@ import { applyCompat, compatFor } from "./compat/index.ts";
 import { catalogVision } from "./catalog.ts";
 import crypto from "node:crypto";
 import { log } from "../log.ts";
+import { config } from "../config.ts";
+import { ContextOverflow } from "../../../engine/src/context-manager.ts";
 
 interface Route { provider: Provider; model: ProviderModel }
 const cursor = new Map<string, number>(); // provider id → 下一次使用的 key 下标（轮换）
@@ -58,7 +60,14 @@ export async function chat(req: ChatRequest, opts: { quick?: boolean } = {}): Pr
       cursor.set(r.provider.id, (start + i + 1) % keys.length);
       try {
         const t = target(r, key.id, session);
-        const res = await adapters[t.protocol](t, req);
+        // 每个候选模型分别从完整来源准备视图，故障转移不沿用上一模型的窗口。
+        const contextWindow = Number.isSafeInteger(r.model.context) && r.model.context > 0 ? r.model.context : config.brain.contextWindow;
+        const maxOutputTokens = Math.max(1, Math.min(req.maxTokens ?? r.model.maxTokens, r.model.maxTokens || 4096, Math.floor(contextWindow / 4)));
+        const prepared = req.prepareForModel ? await req.prepareForModel({ contextWindow, maxOutputTokens, model: `${r.provider.id}/${r.model.id}` }) : req;
+        req.signal?.throwIfAborted();
+        // prepare 回调可能返回完整图片来源；不能恢复原本因缺少看图模型而去掉的图片。
+        const view = forImages({ ...prepared, maxTokens: maxOutputTokens }, [r]).req;
+        const res = await adapters[t.protocol](t, view);
         const c = r.model.cost;
         addUsage(`${r.provider.name}/${r.model.name}`, res.usage.input, res.usage.output,
           c ? (res.usage.input * c.input + res.usage.output * c.output) / 1e6 : 0);
@@ -68,7 +77,7 @@ export async function chat(req: ChatRequest, opts: { quick?: boolean } = {}): Pr
         if (req.signal?.aborted) throw req.signal.reason ?? e; // 会话时间墙已中止：不再故障转移
         errors.push(`${r.provider.name}/${r.model.name}: ${e.message}`);
         log("router", `失败 ${r.provider.name}/${r.model.name}（key ${key.label}）：${e.message}`);
-        if (e instanceof ProviderError && e.immediate) break; // 直接换模型
+        if (e instanceof ContextOverflow || e instanceof ProviderError && e.immediate) break; // 窗口不够不能靠换 Key 修复
       }
     }
   }

@@ -5,7 +5,8 @@ process.env.QUETZAL_HOME ??= "";
 const cfg = await import("../../src/config.ts"); // 用命名空间读 config：它是会被整体替换的活绑定，解构出来会停在旧值
 const { loadConfig, saveConfig, paths } = cfg;
 loadConfig();
-saveConfig({ body: process.env.BODY, mesh: { priority: Number(process.env.PRIORITY ?? 0) } });
+// 网状协作协议夹具：不让后台记忆模型消费预设回复；学习闭环另有专项测试。
+saveConfig({ body: process.env.BODY, mesh: { priority: Number(process.env.PRIORITY ?? 0) }, brain: { memorySemantic: false, memoryLearning: false } });
 const store = await import("../../src/store.ts");
 store.openStore();
 const { ensureBodyUuid, bodyUuid } = await import("../../src/body/uuid.ts");
@@ -48,7 +49,7 @@ const llm = http.createServer((req, res) => {
 });
 await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
 reg.saveProviders({ providers: [{ id: "p", catalogId: "custom", name: "Mock", baseUrl: `http://127.0.0.1:${(llm.address() as any).port}`, protocol: "openai-completions" as const, enabled: true,
-  keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
+  keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
 // 每具测试身体的模拟模型在自己的进程里：供应商配置不参与身体之间的同步——各具身体的修改时刻记为同一个值 1，
 // 谁也不比谁新（严格更新的才会被采用），启动时的补修订号（mesh/shared.ts backfillRevs）也跳过它
 saveConfig({ sharedRev: { providers: 1 } }, { remote: true });

@@ -8,8 +8,10 @@ import http from "node:http";
 import { execFileSync } from "node:child_process";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-img-"));
-const { loadConfig } = await import("../src/config.ts");
+const { loadConfig, saveConfig } = await import("../src/config.ts");
 loadConfig();
+// 本用例验证交互协议；自动学习另由生产学习集成测试覆盖。
+saveConfig({ brain: { memoryLearning: false, memorySemantic: false } });
 const store = await import("../src/store.ts");
 store.openStore();
 const { imageMime, loadImage } = await import("../src/mind/images.ts");
@@ -79,8 +81,8 @@ test("view_image：下一次模型调用带上图片，并只发给能看图的�
   const base = `http://127.0.0.1:${(server.address() as any).port}`;
   reg.saveProviders({ providers: [{ id: "p", catalogId: "custom", name: "Mock", baseUrl: base, protocol: "openai-completions" as const, enabled: true,
     keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }],
-    models: [{ id: "a", name: "text-only", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0, vision: false },
-             { id: "b", name: "eyes", enabled: true, context: 8000, maxTokens: 256, sortOrder: 1, vision: true }] }] }, reg.configVersion());
+    models: [{ id: "a", name: "text-only", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0, vision: false },
+             { id: "b", name: "eyes", enabled: true, context: 131072, maxTokens: 256, sortOrder: 1, vision: true }] }] }, reg.configVersion());
   const reply = await converse("你", "看看你刚拍的照片", "控制台", { conv: "img" });
   server.close();
   assert.equal(reply, "看到了（模型 eyes）");

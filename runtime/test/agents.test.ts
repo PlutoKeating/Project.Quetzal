@@ -7,8 +7,10 @@ import path from "node:path";
 import http from "node:http";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-agents-"));
-const { loadConfig } = await import("../src/config.ts");
+const { loadConfig, saveConfig } = await import("../src/config.ts");
 loadConfig();
+// 本用例验证交互协议；自动学习另由生产学习集成测试覆盖。
+saveConfig({ brain: { memoryLearning: false, memorySemantic: false } });
 const store = await import("../src/store.ts");
 store.openStore();
 const reg = await import("../src/providers/registry.ts");
@@ -34,7 +36,7 @@ const llm = http.createServer((req, res) => {
 });
 await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
 reg.saveProviders({ providers: [{ id: "p", catalogId: "custom", name: "Mock", baseUrl: `http://127.0.0.1:${(llm.address() as any).port}`, protocol: "openai-completions" as const, enabled: true,
-  keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 8000, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
+  keys: [{ id: "k", label: "k", lastFour: "", enabled: true, secret: "sk-mock-000000" }], models: [{ id: "m", name: "plain", enabled: true, context: 131072, maxTokens: 256, sortOrder: 0 }] }] }, reg.configVersion());
 const lastText = (j: any) => { const m = j.messages.at(-1); return typeof m.content === "string" ? m.content : m.content.find((c: any) => c.type === "text")?.text ?? ""; };
 const sysOf = (j: any) => j.messages[0].content as string;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

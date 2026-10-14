@@ -39,7 +39,7 @@ export interface Config {
   };
   budget: { dailyTokens: number; dailyCostUsd: number; minBattery: number; maxTempC: number };
   permissions: Record<string, Level>;
-  brain: { maxOutputTokens: number };
+  brain: { maxOutputTokens: number; contextWindow: number; contextSummaryTokens: number; memorySemantic: boolean; memoryLearning: boolean; memoryLearningTokens: number; memoryLearningTimeoutMs: number };
   feishu: { enabled: boolean; appId: string; ownerOpenId: string; bindCode: string };
   // 灵魂仓库：sshMode 决定访问远端用哪把钥匙——deploy（默认，本机专属部署私钥 secrets/soul_ed25519）、custom（sshKeyPath 指定的私钥）、system（不传 -i，交给 ~/.ssh/config 与 ssh-agent）
   soul: { remote: string; branch: string; sshMode: "deploy" | "custom" | "system"; sshKeyPath: string };
@@ -89,7 +89,7 @@ export const defaults: Config = {
     tool_write: "ask", // 造工具：写的是之后会被执行的代码（mind/tools.ts）
     mcp: "ask", mcp_start: "ask", // 外部工具调用与启动来源分别授权
   },
-  brain: { maxOutputTokens: 4096 },
+  brain: { maxOutputTokens: 4096, contextWindow: 65536, contextSummaryTokens: 1024, memorySemantic: true, memoryLearning: true, memoryLearningTokens: 1200, memoryLearningTimeoutMs: 15_000 },
   feishu: { enabled: false, appId: "", ownerOpenId: "", bindCode: "" },
   soul: { remote: "", branch: "main", sshMode: "deploy", sshKeyPath: "" },
   gateway: { port: 7788, host: "127.0.0.1", lan: false, lanPort: 7789 },
@@ -149,6 +149,11 @@ export function speechEndpointOk(endpoint: string): boolean {
 }
 export const speechRegionOk = (region: string) => !region || /^[a-z0-9-]{1,40}$/i.test(region);
 function sanitize() {
+  for (const [key, min, max] of [['contextWindow', 1024, 2_000_000], ['contextSummaryTokens', 128, 4096], ['memoryLearningTokens', 128, 4096], ['memoryLearningTimeoutMs', 100, 60_000]] as const) {
+    if (!Number.isSafeInteger(config.brain[key]) || config.brain[key] < min || config.brain[key] > max) config.brain[key] = defaults.brain[key];
+  }
+  if (typeof config.brain.memoryLearning !== 'boolean') config.brain.memoryLearning = defaults.brain.memoryLearning;
+  if (typeof config.brain.memorySemantic !== 'boolean') config.brain.memorySemantic = defaults.brain.memorySemantic;
   if (!speechEndpointOk(config.speech.endpoint)) { log("config", `语音端点不是 Azure 的地址，已清空：${config.speech.endpoint.slice(0, 80)}`); config.speech.endpoint = ""; }
   if (!speechRegionOk(config.speech.region)) config.speech.region = "";
 }
