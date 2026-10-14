@@ -53,10 +53,17 @@ test("优先级高的身体持有心跳；跟随者的心脏操作转给它，�
 
   const before = (await server.call<any>("heart")).drives.social;
   await phone.call("nudge", { reason: "被拿起", drives: { social: 0.3 } }); // 手机上的感觉 → 转给 server 的心脏
+  // 明确覆盖两次操作落在不同广播中：先收到nudge，再转经历，后一条可能受广播限流影响。
+  await until(async () => (await phone.call<any>("heart")).drives.social > before + 0.2);
   await phone.call("experience", { n: 2 });
   await until(async () => (await server.call<any>("heart")).drives.social > before + 0.2);
   await until(async () => (await server.call<any>("heart")).unconsolidated >= 2);
-  await until(async () => Math.abs((await phone.call<any>("heart")).drives.social - (await server.call<any>("heart")).drives.social) < 0.01, 10_000); // 状态广播回手机
+  await until(async () => {
+    const follower = await phone.call<any>("heart"), leader = await server.call<any>("heart");
+    // 相同social可能来自前一条nudge广播；断开前必须确认经历更新也已采用。
+    return Math.abs(follower.drives.social - leader.drives.social) < 0.01
+      && follower.unconsolidated >= 2 && follower.unconsolidated === leader.unconsolidated;
+  }, 10_000);
 
   server.proc.kill();
   await until(async () => (await phone.call("coordinator")) === "phone", 60_000);
