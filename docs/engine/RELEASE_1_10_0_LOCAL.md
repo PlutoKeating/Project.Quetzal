@@ -56,3 +56,11 @@ npm install --prefix "$acceptance_dir/npm-install" --ignore-scripts --no-audit -
 首次安装试验只设置临时目录和一个不存在的 D-Bus 地址，`systemctl --user` 仍连接既有用户实例，导致原用户服务被重启。原服务单元、原家目录配置和灵魂数据没有被试验覆写；后续只读核对显示原服务为 active，ExecStart 仍使用原运行目录，健康接口可响应。临时单元已删除。之后的全部隔离检查使用明确的服务命令桩，没有再次操作真实服务。
 
 没有在本机执行 Windows x64 / arm64 安装、PowerShell、提权、计划任务、Android、Linux arm64 / musl、真实 systemd 升级回退或发布后的一行安装工作流。现有 `.github/workflows/install-smoke.yml` 需要 Windows runner 和真实发布资产，本次没有触发它，也没有执行外部发布。
+
+## Windows ARM CI 进程测试诊断
+
+[CI 作业 115801091247](https://github.com/PlutoKeating/Project.Quetzal/actions/runs/38548706862/job/115801091247) 的 Windows 11 ARM / Node 24 测试共 408 项，395 项通过、1 项失败、12 项跳过；失败导致该作业没有执行构建。唯一失败是 `runtime/test/processes.test.ts` 将数字 PID 过滤误认为只能命中一个进程。
+
+当前生产接口明确使用「命令行子串匹配或精确 PID 匹配」。日志中本测试进程的 PID 同时出现在另一个进程的命令参数里，因此返回两项符合接口，而不是 ARM 平台的运行时异常。修复只调整测试：过滤结果必须包含自身；新增携带父进程 PID 参数的合成 Node 子进程，验证两者同时命中、报告计数与输出行数一致，并在 finally 中结束子进程。没有更改生产过滤逻辑、没有跳过该测试，也没有降低发布门禁。
+
+修复后的本机 `test/processes.test.ts` 为 5/5 通过，runtime 类型检查通过。Windows ARM 的修复验收仍需后续 CI 实际重新执行，本机 Linux 结果不能代替它。此修改仅涉及测试与记录，不改变上文生产包的代码基线和指纹。
