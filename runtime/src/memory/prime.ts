@@ -122,7 +122,7 @@ function modelSession(options: LearningOptions, external?: AbortSignal) {
       signal.throwIfAborted();
       const content = redactSecrets(JSON.stringify(payload));
       if (Buffer.byteLength(content) > 24_000) throw new Error("学习输入超过本轮预算");
-      const maxTokens = Math.min(options.maxTokens ?? 1200, 2400);
+      const maxTokens = Math.min(options.maxTokens ?? 1200, 4096);
       const request: ChatRequest = { messages: [{ role: "system", content: instruction }, { role: "user", content }], maxTokens, temperature: 0, signal };
       // UTF-8 字节作保守输入预算；输出限制由供应商执行，实际用量另外记账。
       const reserve = Buffer.byteLength(JSON.stringify(request.messages)) + maxTokens;
