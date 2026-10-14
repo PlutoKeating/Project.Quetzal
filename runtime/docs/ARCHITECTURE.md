@@ -4,7 +4,7 @@
 
 内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。
 
-执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts`、`brain.ts` 的 `history()` 与本轮工具消息组成。局部字符预算、下一轮生效的会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。stdio MCP 客户端经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
+执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。stdio MCP 客户端经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
 ```
 src/
@@ -42,7 +42,8 @@ src/
 │   ├── zone.ts           Intl 时区换算、当地日期 / 时刻与时长解析；系统提示日历、检索时间范围与提醒共用
 │   └── reminders.ts      一次性 / cron / 软提醒，kv 持久化与墓碑合并；由持心跳的身体触发，不经模型直接发送
 ├── mind/
-│   ├── prompt.ts         系统提示组装（其他会话的近况带会话 id）
+│   ├── prompt.ts         政策、人格与处境提示；生产dynamic模式不固定注入常驻全文，兼容入口仍可用旧字符视图
+│   ├── context.ts        每轮工作状态/标签、动态记忆选择、实际模型窗口计划、稳定摘要与SQLite原文/历史过程/完整工具引用回查
 │   ├── fetch-guard.ts    web_fetch 的出站检查：每一跳解析 DNS、拒绝回环 / 私有 / 链路本地 / CGNAT / 元数据地址，连接时再查（防 DNS 重绑定），手动跟随重定向
 │   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write）；参数脱敏后才进审批与审计；read_document / view_image 的真实路径检查；多具身体时读文件的工具（view_image、read_document、shell）多一个 body 参数，交给 body-files.ts；不按命令文字拦截，边界是 sandbox.ts；工具返回 ToolFailure（failed()）或抛错就是失败（命令非零退出、参数不对、那边出错），卡片红叉、上下文里写明失败；shell 的命令里有 ‹secret:…› 占位符就不执行；这一轮被停止时 shell 的命令随之结束；每次调用结束后触发灵魂目录的触碰即同步
 │   ├── claims.ts         认领（claim 工具）：几个会话避免同时做同一件对外的事；按名字字面比较、带说明与期限；存 kv；多具身体时由协调者决定（setClaimRouter），记录按条目合并；系统提示「其他会话」里列出
@@ -64,6 +65,9 @@ src/
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头；写灵魂目录的进程内写锁（exclusive，与合并互斥）
 │   ├── index.ts          SQLite FTS5 本地检索索引：对话增量补齐，笔记 / 日记 / 常驻条目按来源与哈希更新，时间过滤、BM25 排序与对话前后文
 │   ├── retrieval.ts      记忆检索宿主：收集文件、FTS5 / 降级路径及时间；纯分词、打分、摘录与字符预算选择调用根级 engine
+│   ├── structured.ts     notes/QuetzalMemory版本读写、来源/状态校验、scope与条件门禁、旧材料标注映射、归档回滚，原私有正文不脱敏
+│   ├── semantic.ts       合格有界候选的quick语义选择，缓存/每日预留预算/取消/超时，失败退回词面检索
+│   ├── prime.ts          真实轨迹与用户来源、候选蒸馏/个人确认/独立结果评价/经验演化/反馈，预算与自动灵魂同步
 │   ├── portable-path.ts  灵魂仓库里的路径在每一种身体上都放得下（规范 v13 §3.13）：Windows 的保留名、结尾的点与空格、非法字符、只差大小写的路径
 │   ├── soul-repo.ts      灵魂仓库协议（与桥接共用，规范 v14）：克隆 / 补齐、提交、拉取合并（条目级三方合并、字段合并、冲突副本；改动工作区的那一段在调用方给的 exclusive 里执行）、推送结果（只按事实分：--porcelain 报告的被拒、基座自己拒绝同步 status.refused、配置不对、其余照 git 原文）、身份守卫、git 执行安全（不执行钩子、地址只来自配置、清理 .git/config、不收符号链接）、整理租约、历史与撤销；v11 起不再检查提交内容中的密钥
 │   └── soul-sync.ts      运行基座一侧的同步：触碰即同步（工具调用后 git status → 立即提交，3 秒去抖推送）、git 失败静默重试（不按报错文字分类）、推送失败（附 git 原文）、冲突副本与跳过路径的提醒（soul.alert 事件）、待裁决的副本
@@ -96,7 +100,7 @@ src/
 │   ├── catalog.ts        models.dev 公共目录
 │   ├── quick.ts          快速接入供应商：保存 Key、按目录筛选工具模型、试通与排序；没有通的模型时恢复原配置
 │   ├── registry.ts       草稿保存、版本号、Key 加密；从其他身体导入（逐个校验，API 地址只收 HTTPS 与本机回环，不合格的保留本机原来的，全部整理完才替换）
-│   ├── router.ts         全局顺序路由、Key 轮换、故障转移（只看 HTTP 状态码）、连通性测试；能否看图只认手动设置与公共目录，查不到就当不能
+│   ├── router.ts         全局顺序路由、Key轮换、按实际候选context重准备；HTTP故障或窗口不足时换候选，窗口不足不重复换Key、连通性测试；能否看图只认手动设置与公共目录，查不到就当不能
 │   └── compat/           供应商兼容层（仅对匹配的供应商自动生效）：index.ts 登记，opencode-go.ts
 └── channels/
     ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话；保密输入期间只回不含内容的回执）、主动消息（注明所在会话）、菜单与单聊事件、卡片回调、一键接入

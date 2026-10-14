@@ -18,7 +18,7 @@
 
 | 工具组 | 模型工具名 |
 |---|---|
-| 记忆 / 身份 | memory、note_save/read/list/move/delete、recall、open_loop、share_thought、rewrite_soul、edit_identity |
+| 记忆 / 身份 | memory_records、memory_evolve、memory、note_save/read/list/move/delete、recall、open_loop、share_thought、rewrite_soul、edit_identity |
 | 资料与观察 | web_search、web_fetch、view_image、read_document、recent_actions |
 | 命令 / 进程 | shell、shell_jobs、processes、host_mode |
 | 消息 / 提醒 / 语音 | send_message、reminder、voice_speak、voice_config、hearing_config、pass_secret |
@@ -74,6 +74,8 @@ STOP 文件阻止新循环步骤 / 工具审批，拒绝待处理审批并退出
 ## 6. 网关与观测契约
 
 HTTP 提供 `/health`、本机登录、配对、附件上传 / 下载、语音输入与音频下载；`/rpc` WebSocket 先认证，再使用 `{id,method,params}` 请求、`{id,result}` / error 响应和 `{event,data}` 推送。协议完整字段见 [API](../API.md)，本页不复制完整参数表。
+
+新增 `context.status` 与 `memory.records/confirm/feedback/archive/rollback/evolve` 管理 RPC；确认和整体结果反馈只接受管理入口，不作为 Agent 可自行证明事实的工具。`task_state` 与 `context_read` 是工作状态及原文回查工具。模型请求新增 `prepareForModel`，路由用实际窗口调用；执行端口新增 `prepareContext`。
 
 与引擎直接相关的方法有 chat.send/stop、sessions/messages/live、tool.detail、记忆读写 / 搜索、审批 / 急停、模型 / 预算配置。主要事件是 activity、state、timeline、approval、session.switch、secret、hearing、speak、mesh、replica；进行中快照用于断线恢复界面，完成过程写入 SQLite。
 

@@ -9,6 +9,8 @@
 | 进程装配 | [main.ts](../../runtime/src/main.ts) | `main()`：配置、数据库、适配器、网关、通道、灵魂、mesh、心脏与感知 |
 | 独立模型与工具循环 | [engine/src/loop.ts](../../engine/src/loop.ts)、[通用协议](../../engine/src/types.ts) | `runTurn()`；模型、工具、输入补充、轮次控制与记录通过宿主注入 |
 | 宿主心智编排 | [mind/brain.ts](../../runtime/src/mind/brain.ts) | `converse()`、`wake()`、`history()`、`spawnAgent()`；`loop()` 适配现有能力到引擎 |
+| 动态上下文 | [engine/context-manager.ts](../../engine/src/context-manager.ts)、[mind/context.ts](../../runtime/src/mind/context.ts) | 实际模型窗口预算、摘要、工作状态与全文引用 |
+| 结构化记忆 / PRIME | [engine/memory.ts](../../engine/src/memory.ts)、[engine/prime.ts](../../engine/src/prime.ts)、[runtime/memory/structured.ts](../../runtime/src/memory/structured.ts)、[prime.ts](../../runtime/src/memory/prime.ts)、[semantic.ts](../../runtime/src/memory/semantic.ts) | 资格门禁、语义选择、可信确认、蒸馏与版本演化 |
 | 纯上下文 / 检索策略 | [engine/context.ts](../../engine/src/context.ts)、[engine/retrieval.ts](../../engine/src/retrieval.ts) | 常驻条目 / 召回预算、分词、评分和摘录，无文件或数据库依赖 |
 | 受限研究运行器 | [engine/research.ts](../../engine/src/research.ts) | 独立样本环境、边界、轨迹与外部评分，仅研究使用 |
 | 上下文 | [mind/prompt.ts](../../runtime/src/mind/prompt.ts) | `systemPrompt()`、其他会话 / 身体 / 技能等提示块 |
@@ -63,7 +65,7 @@ flowchart TD
   Mesh --> Tools
 ```
 
-`engine.runTurn()` 是公开的通用执行接口；`brain.loop()` 保留为宿主适配函数，注入具体模型、工具、Session、输入补充与记录。引擎不依赖 runtime；当前尚无完整的会话服务实例化、插件容器或可替换的 ContextManager / MemoryBackend 抽象。
+`engine.runTurn()` 是公开的通用执行接口；`brain.loop()` 保留为宿主适配函数，注入具体模型、工具、Session、输入补充与记录。引擎不依赖 runtime；当前尚无完整的会话服务实例化、插件容器或统一实例化的 MemoryBackend 服务；ContextManager 与记忆策略已独立、模型与评估端口可注入，文件／数据库仍在宿主。
 
 ## 3. 装配生命周期
 

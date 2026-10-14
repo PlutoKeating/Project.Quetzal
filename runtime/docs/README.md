@@ -4,7 +4,7 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 
 | 命令 | 作用 |
 |---|---|
-| `npm test` | 单元与集成测试（心脏、记忆与 FTS5 检索、上下文、会话与子 agent、灵魂 git 合并、模型路由、安全、听觉、网关、网状层与平台适配器；具体范围见 `test/*.test.ts` 及 `../engine/test/*.test.ts`；独立引擎测试见 `../engine/test/*.test.ts`） |
+| `npm test` | 单元与集成测试（心脏、记忆与 FTS5 检索、上下文、会话与子 agent、灵魂 git 合并、模型路由、安全、听觉、网关、网状层与平台适配器；具体范围见 `test/*.test.ts` 及 `../engine/test/*.test.ts`） |
 | `npm run build` | engine 独立类型检查 + runtime 类型检查 + esbuild 打包：`dist/main.cjs`、`android.mjs`、`linux.mjs`、`termux.mjs`、`windows.mjs`、`windows-body.mjs`、`windows-supervise.mjs`、`mermaid.mjs`；最后由 `tool/build-srt.mjs` 打包 `dist/srt.mjs` |
 | `npm run dev` | 以 `./.dev` 为家目录直接运行源码 |
 
@@ -16,7 +16,9 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 
 `package.json` 还声明了 `croner`（提醒的 cron 时刻计算）、`beautiful-mermaid`（`dist/mermaid.mjs` 的 SVG 兜底渲染）与 `@anthropic-ai/sandbox-runtime`（Windows 命令沙箱，单独打包为 `dist/srt.mjs`，核心只在 Windows 上加载）。可选 WebRTC 与 Windows 沙箱的原生组件由安装 / 发布流程提供。依赖与构建产物以 `package.json` 和 `tool/build-srt.mjs` 为准。
 
-执行核心是独立 `../engine/` 的模型与工具循环（`engine/src/loop.ts`），由 `src/mind/brain.ts` 注入宿主能力并调用，上下文组装在 `prompt.ts` 与 `brain.ts` 的 `history()`；记忆使用 Markdown 与 SQLite FTS5。上下文预算按字符分块，当前没有统一 token 预算或本轮自动压缩；`session_compact` 下一轮生效。每日消费预算只减少自主醒来，子 agent 的 `maxSteps` 只写入提示词。`src/mcp/` 已提供 stdio MCP 工具来源，官方客户端 SDK 仅在宿主内使用；没有 MCP 服务端或 HTTP MCP。交互通过控制台、飞书与 CLI 的本机 `chat` / `tui`。MCP 配置、启动授权与隔离限制见 [MCP 文档](../../docs/engine/MCP.md)。详细边界见 [全局架构 §5](../../docs/ARCHITECTURE.md#5-大脑一次醒来)。
+执行核心是独立 `../engine/` 的真实循环、动态上下文与结构化记忆/PRIME 规则，由 `src/mind/brain.ts` 注入宿主能力。`mind/context.ts` 每步选择记忆并按实际候选模型窗口重新准备，包含Schema、输出与图片开销的UTF-8字节保守估计；不是真实tokenizer。旧历史与完整行动来源保留，摘要/工具节选可经context_read分页回查。结构化版本存在私有灵魂notes/QuetzalMemory，实际语义选择/后台学习在memory/semantic.ts与prime.ts；个人事实与偏好默认候选，只有可信确认后准入，经验演化需独立结果及基线。每日自主预算仍只减少醒来，子agent maxSteps仍只是提示要求。
+
+`src/mcp/` 提供 stdio MCP 工具来源，官方客户端SDK仅在宿主使用；没有MCP服务端或HTTP MCP。交互通过控制台、飞书与CLI本机chat/tui。专项见 [动态上下文](../../docs/engine/DYNAMIC_CONTEXT.md)、[结构化记忆](../../docs/engine/STRUCTURED_MEMORY.md)、[PRIME内核](../../docs/engine/PRIME_CORE.md)、[MCP](../../docs/engine/MCP.md)。
 
 环境变量：`QUETZAL_HOME`（家目录，默认 Termux `~/quetzal`、其他机器 `~/.quetzal`；Quetzal App 内置时由 App 设为它数据目录下的 `files/home/quetzal`）、`QUETZAL_ADAPTER`（身体适配器模块路径）、`QUETZAL_WEB_DIR`（网页控制台的静态文件目录，缺省为 `main.cjs` 旁边的 `web/`；`src/web.ts` 托管它并提供本机浏览器免配对码登录 `GET /auth/local`）、`QUETZAL_DEV_ORIGINS`（开发时允许领取本机登录令牌的额外页面源，逗号分隔）、`QUETZAL_GATEWAY_HOSTS`（局域网模式下配对接口额外接受的 Host 名，逗号分隔；局域网监听只走 HTTPS，见 [API §1](../../docs/API.md)）、`QUETZAL_SANDBOX=none`（强制不用沙箱，只供排查问题）、`QUETZAL_HIDE_PATHS`（proot 沙箱额外遮住的目录，冒号分隔；Quetzal App 用它遮住自己的私有数据）。
 

@@ -1,5 +1,8 @@
 # Agent 记忆分层、检索与同步
 
+
+> 当前主路径已改为结构化记忆、逐步语义选择与 PRIME 学习，详见 [结构化持久化](STRUCTURED_MEMORY.md)、[PRIME 内核](PRIME_CORE.md) 与 [交付记录](MEMORY_REPLACEMENT.md)。下文的旧文件、FTS5 和显式 recall 作为兼容数据源保留；旧常驻注入不是当前默认路径。
+
 这里的“分层”是现有数据职责的归纳，源码没有统一的 Memory 层级接口或可替换后端。纯分词、评分和摘录现位于 [engine 检索策略](../../engine/src/retrieval.ts)，宿主兼容包装仍位于 `runtime/src/memory/retrieval.ts`；文件、SQLite 和同步留在 runtime。基线见 [BASELINE.md](BASELINE.md)；格式契约见 [灵魂仓库规范 v14](../SOUL_REPO_SPEC.md)。
 
 ## 1. 记忆与状态分层
@@ -14,6 +17,8 @@
 | 原始对话与过程 | SQLite `messages`、`sessions`、`timeline` | 当前历史、其他会话近况、recall 对话、过程附注 | mesh 复制到在线身体，原始对话不进 Git |
 | 详细行动证据 | SQLite `audit`、`tool_calls` | recent_actions 查审计，tool.detail 给控制台 | 完整工具记录只在执行身体本机；非长期语义记忆 |
 | 工作状态 | `kv` 中 openLoops、thought、心脏、子 agent 等 | 对应提示块、状态界面与调度 | openLoops 属于本机 kv；thought 等部分状态有专门 mesh 共享策略 |
+| 结构化长期记忆 | `soul/notes/QuetzalMemory/<id>_v<version>.md` | fact / preference / episode / experience；范围、条件、阶段、来源与验证 | 私有灵魂 Markdown；写锁与自动 Git 同步，旧数据只读兼容 |
+| 上下文状态与引用 | SQLite `kv`、`context_sources` | 工作状态、摘要槽与原文分页回查 | 本机派生状态；不进入灵魂 Git |
 | 本轮工作上下文 | 内存 `Msg[]`、`Session.inbox/images/seen` | 直接传入模型循环 | 不作执行检查点持久化；重启消失 |
 | 检索派生索引 | SQLite `recall_chat`、`recall_chat_ids`、`recall_doc` | retrieve / recallBlock / recall 查询 | 从消息与文件派生，不是灵魂真相来源，不进 Git |
 
@@ -25,11 +30,11 @@
 
 笔记标题可带分类路径，路径段由 `portable-path.ts` 的规则规范化；`saveNote()` 写标题、可选引用行摘要与正文，支持追加。`noteMeta()` 从标题、引用行或正文首句得到摘要；目录只提供索引，全文由 `note_read` 读取。冲突副本 `.incoming*.md` 不作为普通笔记列举 / 检索。
 
-思考和做梦收尾通过 `writeJournal()` 按身体、日期追加一个 `## HH:MM` 小节。普通对话增加待整理经历计数，但没有无条件把每一轮对话自动转成长期 MEMORY 条目。长期提炼由模型使用记忆工具，或在做梦任务中完成。
+思考和做梦收尾通过 `writeJournal()` 按身体、日期追加一个 `## HH:MM` 小节。普通对话增加待整理经历计数，但没有无条件把每一轮对话自动转成长期 MEMORY 条目。当前还会在轮次完成后排队执行有预算的 PRIME 蒸馏；完整用户发言作为有语境的观察保存，个人事实／偏好默认候选，不能由引用子串自动升级。管理确认可启用个人语义；真实整体结果与第二次语义忠实度评审共同决定成功经验启用。
 
 未完成念头 `openLoops` 与想分享的话 `thought` 虽放在 memory 模块，实际在 SQLite kv。不能因模块名称就断言它们由灵魂 Git 同步。
 
-## 3. 两条检索路径
+## 3. 兼容检索路径（显式 recall 与旧模式）
 
 ```mermaid
 flowchart LR
@@ -48,7 +53,7 @@ flowchart LR
 
 自动注入与显式 recall 不等价：常驻条目单独展开，自动 `recallBlock()` 只请求 `note` / `journal`；显式 `retrieve()` 默认覆盖 `chat`、`note`、`journal`、`memory`、`user`。完整历史对话能被查到，不代表每轮已自动召回它。
 
-分词由 [engine/retrieval.ts](../../engine/src/retrieval.ts) 实现纯分词，宿主保留兼容导出：英文 / 数字转小写按词；中文二字组，单字串保留单字；可用时增加 `Intl.Segmenter` 分出的三字以上中文词。不调用 embedding 模型，没有向量库、语义相似度或独立 reranker。
+分词由 [engine/retrieval.ts](../../engine/src/retrieval.ts) 实现纯分词，宿主保留兼容导出：英文 / 数字转小写按词；中文二字组，单字串保留单字；可用时增加 `Intl.Segmenter` 分出的三字以上中文词。这条兼容路径不调用 embedding，没有向量库。当前默认路径另由 engine.retrieveMemory 门禁与宿主 quick 模型作有界语义选择，可选择零条，模型不能改写事实或越过范围。
 
 ## 4. FTS5 与降级的实际算法
 
@@ -62,9 +67,9 @@ FTS5 不可用时降级为 `rank()` 逐篇评分：词频饱和 × IDF、标题�
 
 时间区间为 `[from,to)`；工具将明确的当地日期时间解析为毫秒。对话用消息时间，日记小节从文件日期和 `HH:MM` 换算，笔记用 mtime；常驻条目没有真实时间，带时间筛选时不纳入。`around()` 给对话命中补同会话前后各一条非 ambient 消息；工具显示的是摘录和相邻消息，可再读取原文。
 
-## 5. 整理与记忆演化
+## 5. 做梦与结构化演化
 
-做梦是一次模型任务，提示要求回顾日记与对话、提炼核心认识、合并重复和修正过时条目、整理笔记、审查稳定工具流程。它不是强制执行的数据清洗算法，也没有自动事实验证、遗忘评分、知识图谱或无模型的记忆归并器。
+做梦是一次模型任务，提示要求回顾日记与对话、提炼核心认识、合并重复和修正过时条目、整理笔记、审查稳定工具流程。这段旧的工具整理流程仍保留。当前还尝试对当前 Agent 的适用经验作结构化 rewrite；重写、泛化、组合具有父版本和验证契约，缺少真实固定任务／基线评价时只保存候选。归档及回滚保留历史，不物理删除。语义忠实度评分不能冒充因果收益。
 
 做梦前尝试取得 `locks/consolidation.json` 租约（30 分钟），每 10 分钟续租，收尾释放；其他身体持有有效租约则浅睡。`wake()` 对 acquireLease 异常采用继续执行的降级路径，不能把租约描述为所有失败与离线条件下的绝对排他锁。
 

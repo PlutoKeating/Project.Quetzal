@@ -175,9 +175,17 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 **记忆**
 
-| 方法 | 参数 |
-|---|---|
+结构化版本键为 `id@version`。下列 dotted RPC 是认证管理者入口；个人确认和整体结果反馈不暴露为 agent 模型工具。模型侧 `memory_records` / `memory_evolve` 另按当前用户/会话/任务范围限制。
+
+| 方法 | 参数与返回 | 说明 |
+|---|---|---|
 | `memory` | — → `{soul, memory[], user[], loops[]}` |
+| `memory.records` | `{state?, kind?}` | 当前 agent 的结构化记忆全部版本；可过滤 candidate/active/superseded/archived 与 fact/preference/episode/experience；含 scope、来源、验证及父版本 |
+| `memory.confirm` | `{key}` | 管理者明确确认个人事实或偏好语义；核对真实用户来源，返回确认后的 MemoryRecord。模型工具不能调用此管理确认入口 |
+| `memory.feedback` | `{episodeId, status: success / failure, session?}` | 管理者确认已完成轨迹的整体任务结果；核对当前 agent 及 prime.origins 中原会话，可选 session 须一致；新增真实 user 消息作为晚到反馈，不重跑工具。按 brain 学习限额返回 `{episode, records, learned, status: learned / skipped / failed, reason?}` |
+| `memory.archive` / `memory.rollback` | `{key}` | 当前 agent 版本归档 / 从合格历史版本生成新活动版本，保留来源与历史；返回 true，修改经审计与自动灵魂同步 |
+| `memory.evolve` | `{operation, keys}` | rewrite/generalize/combine 的生产经验提案与独立评价；1–4个当前 agent 版本键，返回 `{records, status: evolved / failed, reason?}`；缺基线不自动替代原经验 |
+| `context.status` | `{conv}` | 本机最近一次该会话的准备计划或 null：turn/model、保守 estimate、selectedIds/skippedMemoryIds/compactedIds、projections、summary、state、at；不是原始秘密或真实tokenizer计数 |
 | `editMemory` | `{target: memory｜user, action: add｜replace｜remove, content?, oldText?}` |
 | `setSoul` | `{text}` |
 | `journalList` / `journal` | — / `{body, day}` |
@@ -231,7 +239,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 供应商配置结构：
 
-模型的 `context` 是保存 / 展示的窗口元数据，目前不驱动输入 token 预算或自动压缩；`maxTokens` 是模型输出默认值，核心工具循环显式传入 `brain.maxOutputTokens` 时由后者覆盖。`vision` 为可选的看图能力设置，优先于公共目录。
+模型的 `context` 用于带 `prepareForModel` 的生产工具循环请求，每个候选/故障转移重新从完整来源准备窗口视图；无有效 context 时使用 `brain.contextWindow`。文本采用UTF-8字节保守估计，不是真tokenizer。输出实际取请求上限、模型 `maxTokens` 与窗口四分之一中的较小值（至少1）。quick内省、摘要和记忆选择等直接chat请求不等于都经同一个动态上下文管理器。`vision` 为可选看图设置，优先于公共目录。
 
 ```ts
 interface Provider {
@@ -309,7 +317,13 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
 | `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` / `mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码）。一个工具按它所属类别中最严的一个检查：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；想真正收紧，先把 `shell` 改成 `ask`。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求每次都要对方同意 |
 | `permissions.mcp_start.<来源ID>` / `permissions.mcp.<来源ID>.<工具别名>` | 继承来源级 / 类别级，缺省 ask | MCP 进程启动与工具调用分别授权；来源配置与带点子类别属于本机，总类别 mcp / mcp_start 仍按现有权限分区共享；工具名映射与范围见 [MCP](engine/MCP.md) |
-| `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
+| `brain.maxOutputTokens` | 4096 | 请求输出上限；实际候选还受模型 maxTokens 与窗口四分之一限制，生产步数仍不设硬上限 |
+| `brain.contextWindow` | 65536 | 模型没有有效 context 配置时的窗口缺省值；范围1024–2000000，实际候选按自己的 context 重算 |
+| `brain.contextSummaryTokens` | 1024 | 动态摘要正文预算，范围128–4096；按UTF-8字节保守估计限制，不是真tokenizer |
+| `brain.memorySemantic` | true | 每步使用有界 quick 模型选择合格记忆；失败/超时/预算不足时退回词面门禁检索，关闭后直接词面选择 |
+| `brain.memoryLearning` | true | 轮次收尾及做梦的后台 PRIME 学习/演化；关闭不删除已有记忆，也不把候选变为事实 |
+| `brain.memoryLearningTokens` | 1200 | 后台学习请求输出上限，配置范围128–4096；学习器另有自己的预算与上限 |
+| `brain.memoryLearningTimeoutMs` | 15000 | 轮次后台学习有界等待，配置范围100–60000毫秒；默认不是前台对话绝对超时 |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
 | `gateway.port` / `gateway.host` / `gateway.lan` / `gateway.lanPort` | 7788 / `127.0.0.1` / false / 7789 | 网关（§1）：明文 HTTP 只监听本机回环的 `port`；`lan` 为真或 `host` 不是回环地址（旧配置的 `0.0.0.0`）时，在 `host`（回环时为 `0.0.0.0`）:`lanPort` 上另开 HTTPS / WSS（自签名证书，`secrets/gateway-tls.*`）。Linux 安装器的 `--lan` 写 `host: 0.0.0.0, lan: true`，`--no-lan` 写回 `127.0.0.1` 与 `false` |

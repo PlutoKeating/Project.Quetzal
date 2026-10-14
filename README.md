@@ -39,11 +39,11 @@ Quetzal 是一个开源的 agent 运行基座（runtime）。它让一个 AI age
 
 你随口提过的事、在意的人，ta 都记下来，存在只属于你的私有仓库里。换手机、换模型，ta 还是 ta。
 
-- ta 的名字、人格、记忆、日记都是写给人看的 Markdown，放在你 GitHub 上的一个私有 git 仓库里，我们叫它「灵魂仓库」。打开 `memories/USER.md`，就能读到 ta 认识的你。
+- ta 的名字、人格、记忆、日记存在你自己的私有 git「灵魂仓库」。原有 Markdown 认识保留，新认识在 `notes/QuetzalMemory/` 按来源、状态和版本记录，也能直接读到。
 - 每一次改动都是一次 git 提交，自动推送、合并到每一具身体。记错了，在 App 的「记忆历史」里撤销那一次提交。
-- 你说话时，ta 带着当前会话历史、按相关性展开的常驻记忆，以及自动检索到的笔记和日记回答；想翻更早的对话时，用 `recall` 查 SQLite 全文索引。睡着时，ta 有机会「做梦」，把最近的经历整理成笔记。
+- 对话和持续行动的每一步，ta 按当前目标、约束与适用条件选择记忆，并按候选模型的窗口重建上下文；较早内容可摘要，原对话和行动证据可回查。新认识先保留来源与候选状态，个人事实和明确偏好需确认；做梦与后台学习可提炼经验，缺独立结果的建议不会自动当作已验证策略。
 
-[灵魂同步](docs/SOUL_SYNC.md) · [灵魂仓库规范](docs/SOUL_REPO_SPEC.md)
+[灵魂同步](docs/SOUL_SYNC.md) · [灵魂仓库规范](docs/SOUL_REPO_SPEC.md) · [动态上下文](docs/engine/DYNAMIC_CONTEXT.md) · [结构化记忆](docs/engine/STRUCTURED_MEMORY.md)
 
 <br/>
 
