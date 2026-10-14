@@ -1,6 +1,6 @@
 # Agent 记忆分层、检索与同步
 
-这里的“分层”是现有数据职责的归纳，源码没有统一的 Memory 层级接口或可替换后端。基线见 [BASELINE.md](BASELINE.md)；格式契约见 [灵魂仓库规范 v14](../SOUL_REPO_SPEC.md)。
+这里的“分层”是现有数据职责的归纳，源码没有统一的 Memory 层级接口或可替换后端。纯分词、评分和摘录现位于 [engine 检索策略](../../engine/src/retrieval.ts)，宿主兼容包装仍位于 `runtime/src/memory/retrieval.ts`；文件、SQLite 和同步留在 runtime。基线见 [BASELINE.md](BASELINE.md)；格式契约见 [灵魂仓库规范 v14](../SOUL_REPO_SPEC.md)。
 
 ## 1. 记忆与状态分层
 
@@ -48,7 +48,7 @@ flowchart LR
 
 自动注入与显式 recall 不等价：常驻条目单独展开，自动 `recallBlock()` 只请求 `note` / `journal`；显式 `retrieve()` 默认覆盖 `chat`、`note`、`journal`、`memory`、`user`。完整历史对话能被查到，不代表每轮已自动召回它。
 
-分词由 [retrieval.ts](../../runtime/src/memory/retrieval.ts) 实现：英文 / 数字转小写按词；中文二字组，单字串保留单字；可用时增加 `Intl.Segmenter` 分出的三字以上中文词。不调用 embedding 模型，没有向量库、语义相似度或独立 reranker。
+分词由 [engine/retrieval.ts](../../engine/src/retrieval.ts) 实现纯分词，宿主保留兼容导出：英文 / 数字转小写按词；中文二字组，单字串保留单字；可用时增加 `Intl.Segmenter` 分出的三字以上中文词。不调用 embedding 模型，没有向量库、语义相似度或独立 reranker。
 
 ## 4. FTS5 与降级的实际算法
 

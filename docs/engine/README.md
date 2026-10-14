@@ -4,9 +4,9 @@
 
 ## 当前结论
 
-Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。真实模型—工具循环已提取到根级 `engine/src/loop.ts`，通用协议在 `engine/src/types.ts`；`runtime/src/mind/brain.ts` 保留宿主编排，由 `runtime/src/main.ts` 装配。上下文、记忆、模型供应商、工具权限、自主调度和多身体协作仍由宿主提供。独立模块的使用与开发见 [engine 模块文档](../../engine/docs/README.md)。
+Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。真实模型—工具循环已提取到根级 `engine/src/loop.ts`，通用协议在 `engine/src/types.ts`；`runtime/src/mind/brain.ts` 保留宿主编排，由 `runtime/src/main.ts` 装配。纯分词、评分、摘录和条目 / 片段预算选择已提取到 `engine/src/retrieval.ts` 与 `context.ts`；上下文装配、文件 / 数据库记忆、模型供应商、工具权限、自主调度和多身体协作仍由宿主提供。受限研究运行器独立调用同一循环，不接入生产状态。独立模块的使用与开发见 [engine 模块文档](../../engine/docs/README.md)。
 
-上下文采用局部字符预算与会话历史窗口；长期记忆采用 Markdown 灵魂仓库，运行记录采用 SQLite，检索采用文本分词与 FTS5。当前没有向量记忆、统一输入 token 预算、本轮自动压缩、MCP 客户端 / 服务端或交互式 TUI。已有交互入口是 Flutter 控制台与飞书；CLI 负责安装和运维。
+上下文采用局部字符预算与会话历史窗口；长期记忆采用 Markdown 灵魂仓库，运行记录采用 SQLite，检索采用文本分词与 FTS5。当前没有向量记忆、统一输入 token 预算或本轮自动压缩。已实现 stdio MCP 工具来源与本机 TUI 第一切片；HTTP MCP、MCP 服务端、远程 TUI 与论文算法实验仍待推进。交互入口是 Flutter 控制台、飞书和经同一网关接入的 CLI 终端聊天。
 
 ## 阅读顺序
 
@@ -15,6 +15,10 @@ Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。真实模�
 | [独立引擎设计](DESIGN.md) | 目标结构、实际切片、依赖方向与兼容契约 |
 | [开发路线图](ROADMAP.md) | 工作分解、依赖顺序、分工、验收与阶段状态 |
 | [MCP / TUI 适配计划](ADAPTERS_PLAN.md) | 工具来源和交互客户端的接口、协议与实施切片 |
+| [MCP 实现](MCP.md) | stdio 来源、权限、生命周期、配置和平台限制 |
+| [策略提取](CONTEXT_EXTRACTION.md) | 纯上下文 / 检索算法的实际迁移与兼容验证 |
+| [受限研究运行器](RESEARCH_RUNNER.md) | 独立环境、边界、轨迹、评分及合成示例 |
+| [后续切片验证](FOLLOWUP.md) | MCP、TUI、策略与研究运行器的整合证据 |
 | [首次提取验证](EXTRACTION.md) | 本次代码变更与验证证据 |
 | [模块地图](MODULE_MAP.md) | 内核在哪里、入口与调用链、外围模块边界、依赖与构建 |
 | [执行与调度](EXECUTION.md) | 对话、醒来、做梦、工具循环、并发、子 agent、时间墙与停止 |

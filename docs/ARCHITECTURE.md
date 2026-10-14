@@ -56,6 +56,7 @@ flowchart TB
 ```
 config/quetzal.json      运行配置（控制台可改）
 config/providers.json    模型供应商（Key 为密文）
+config/mcp.json          本机 stdio MCP 来源（默认禁用；启用后分别审批启动和调用，不随灵魂 / mesh 同步）
 secrets/                 0700：master.key（Key 加密主密钥；存在却损坏时报错，不重新生成）、gateway.token、gateway-tls.key / gateway-tls.crt（网关局域网 HTTPS 的自签名证书，损坏或过期时重新生成）、feishu_secret、azure_speech_key、soul_ed25519、mesh_ed25519（网状层的节点密钥）、sync.json（同步服务的绑定令牌）、sync-account.json（账户令牌）。每个文件先写临时文件、fsync 再改名，0600。agent 的命令在沙箱里看不到这个目录（§8.1）
 vault/                   0700：保密库。对方通过 pass_secret 交给 agent 的保密值，每项一个 0600 文件；index.json 记录说明（见 §5.1）
 data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
@@ -180,13 +181,13 @@ sequenceDiagram
 
 | 部分 | 默认预算 / 选择范围 | 实现 |
 |---|---|---|
-| 常驻记忆 MEMORY / USER | 4000 / 2000 字符 | `memory.ts` 的 `renderMemory`、`retrieval.ts` 的 `coreView` |
+| 常驻记忆 MEMORY / USER | 4000 / 2000 字符 | `memory.ts` 的 `renderMemory`、`retrieval.ts` 的 `coreView` → `engine/src/context.ts` |
 | 笔记目录 | 约 2500 字符，超出时折叠 / 截断 | `memory.ts` 的 `noteTree` |
 | 自动检索 | 最多取 12 个笔记 / 日记候选，片段合计不超过 3000 字符（不含分隔符） | `retrieval.ts` 的 `recallBlock` |
 | 最近日记 | 最近 6 个日记文件，正文摘录合计最多 3000 字符（不含来源标题），每个文件最多 1500 | `memory.ts` 的 `recentJournal` |
 | 其他会话近况 | 约 4000 字符，含认领、进行中的轮次与近期对话 | `prompt.ts` 的 `otherSessions` |
 | 当前会话历史 | 查询最近 80 条消息，从新到旧选取，默认 16000 字符 | `brain.ts` 的 `history` |
-| 单次工具结果 | 原文取前 12000 字符，失败标记与提醒另加 | `brain.ts` 的 `loop` |
+| 单次工具结果 | 原文取前 12000 字符，失败标记与提醒另加 | `engine/src/loop.ts`（根级路径） |
 
 这里按 JavaScript 字符串长度计数，不是模型 token 数，也不是整份请求的统一上限。人格、其他提示段、工具定义、当前输入和图片没有纳入同一个预算；模型配置的 `context` 目前只是元数据，没有参与窗口预算计算。循环内没有自动压缩或窗口超限后的压缩重试，长时间工作仍可能超过模型窗口。`session_compact` 和 `session_new` 由 agent 主动调用，生效时机见 §5.4。
 
@@ -499,9 +500,10 @@ flowchart LR
 | 桌面版控制台 | Linux / Windows 原生窗口 + 同一个 WebSocket；连本机网关时直接读 `secrets/gateway.token`（同一个系统用户，经一次带令牌的核对），读不到再走 `GET /auth/local` | 托盘、耳朵与播放器；Windows 上还看护身体助手（`windows-body.mjs`）。见 [console 文档](../console/docs/README.md) |
 | 网页控制台 | 网关托管的静态页面（`current/web/`）+ 同一个 WebSocket | 控制台的 Flutter Web 构建，为电脑横屏重新排布；同一台机器上打开网关自己托管的页面时经 `GET /auth/local` 免配对码登录（`web.ts`；Origin 必须是网关自己的源，安卓上不提供） |
 | 飞书 | 长连接（无需公网） | 单聊自动推送「此刻」卡片；机器人菜单事件；卡片按钮与表单直接调用操作层，原地刷新卡片 |
+| 终端聊天 | `quetzal chat` / `quetzal tui`，本机 WebSocket | 使用同一个 runtime，命令与限制见 [CLI](../cli/docs/README.md) |
 | 主机 | 端口转发到网关 | 与控制台同一套 API |
 
-`cli/` 提供安装、状态、日志、启停、升级与回滚，`run` 是前台运行服务，`open` 打开控制台；当前没有终端聊天或交互式 TUI。网关是项目自定义的 HTTP / WebSocket RPC，网状层是身体间协议；当前没有 MCP 客户端或服务端，工具扩展通过内置工具、身体适配器与自造工具完成，Agent Skills 文档也不等于 MCP 协议接入。
+`cli/` 提供安装、状态、日志、启停、升级与回滚，`run` 是前台运行服务，`open` 打开控制台；`chat` / `tui` 提供本机终端聊天，经同一网关使用现有会话，支持流式过程、审批和停止；断线不重发消息，保密输入转到控制台。网关是项目自定义的 HTTP / WebSocket RPC，网状层是身体间协议；`runtime/src/mcp/` 提供 stdio MCP 客户端，经部署者配置、启动审批和调用权限接入既有工具链；没有 MCP 服务端或 HTTP MCP，工具扩展还包括内置工具、身体适配器与自造工具，Agent Skills 文档也不等于 MCP 协议接入。
 
 ## 10. 进程与部署契约
 

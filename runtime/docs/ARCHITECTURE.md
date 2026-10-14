@@ -4,7 +4,7 @@
 
 内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。
 
-执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts`、`brain.ts` 的 `history()` 与本轮工具消息组成。局部字符预算、下一轮生效的会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。当前没有 MCP 接入或交互式 TUI；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
+执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts`、`brain.ts` 的 `history()` 与本轮工具消息组成。局部字符预算、下一轮生效的会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。stdio MCP 客户端经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
 ```
 src/
@@ -63,7 +63,7 @@ src/
 │   ├── entries.ts        § 条目解析、序列化、条目级三方合并与文本合并；运行基座和灵魂桥共用的纯函数
 │   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头；写灵魂目录的进程内写锁（exclusive，与合并互斥）
 │   ├── index.ts          SQLite FTS5 本地检索索引：对话增量补齐，笔记 / 日记 / 常驻条目按来源与哈希更新，时间过滤、BM25 排序与对话前后文
-│   ├── retrieval.ts      记忆检索（文本结构 RAG）：分词与打分、常驻记忆按预算展开、自动检索块
+│   ├── retrieval.ts      记忆检索宿主：收集文件、FTS5 / 降级路径及时间；纯分词、打分、摘录与字符预算选择调用根级 engine
 │   ├── portable-path.ts  灵魂仓库里的路径在每一种身体上都放得下（规范 v13 §3.13）：Windows 的保留名、结尾的点与空格、非法字符、只差大小写的路径
 │   ├── soul-repo.ts      灵魂仓库协议（与桥接共用，规范 v14）：克隆 / 补齐、提交、拉取合并（条目级三方合并、字段合并、冲突副本；改动工作区的那一段在调用方给的 exclusive 里执行）、推送结果（只按事实分：--porcelain 报告的被拒、基座自己拒绝同步 status.refused、配置不对、其余照 git 原文）、身份守卫、git 执行安全（不执行钩子、地址只来自配置、清理 .git/config、不收符号链接）、整理租约、历史与撤销；v11 起不再检查提交内容中的密钥
 │   └── soul-sync.ts      运行基座一侧的同步：触碰即同步（工具调用后 git status → 立即提交，3 秒去抖推送）、git 失败静默重试（不按报错文字分类）、推送失败（附 git 原文）、冲突副本与跳过路径的提醒（soul.alert 事件）、待裁决的副本
@@ -87,6 +87,9 @@ src/
 │   ├── account.ts        账户：控制台登录（身体令牌申请码 → 人在官网批准 → 账户令牌存 secrets/sync-account.json）与账户接口的代理；网关的 account.* 方法
 │   └── runtime.ts        绑定到运行时：配置、绑定令牌（secrets/sync.json）、钉住记录（data/mesh-pins.json）、局域网地址表（data/mesh-lan.json）、原生组件的按需加载、身体登记的公钥、soul.pushed → 其他身体立即拉取、拉取灵魂仓库后核对连接；网关的 mesh.* 方法（含 acceptPin）
 ├── guard/guard.ts        能力授权、审批队列（ask：不看档位、直接生成审批，真实环境的请求用它）、急停、审计
+├── mcp/                  stdio MCP 宿主工具来源（配置、权限及隔离见 docs/engine/MCP.md）
+│   ├── client.ts         官方 SDK 协商、发现、稳定别名、schema 校验、输出边界与调用取消
+│   └── runtime.ts        本机配置、启动授权、沙箱环境与凭据引用、连接及退出生命周期
 ├── providers/
 │   ├── types.ts          统一消息/工具/结果类型
 │   ├── adapters.ts       四种协议的 HTTP 适配（流式 SSE；模型调用时间墙：90 秒无数据、180 秒无内容，没有绝对上限）

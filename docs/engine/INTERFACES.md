@@ -1,6 +1,6 @@
 # 工具、模型协议与交互接口
 
-当前有四种不同接口：模型工具、身体能力、控制网关、身体间 mesh。名称相似不代表协议相同；MCP / TUI 状态见 §5。初始基线见 [BASELINE.md](BASELINE.md)，独立引擎接口见 [DESIGN.md](DESIGN.md)，MCP / TUI 的拟接入契约见 [ADAPTERS_PLAN.md](ADAPTERS_PLAN.md)。
+当前有四种不同接口：模型工具、身体能力、控制网关、身体间 mesh。名称相似不代表协议相同；MCP / TUI 状态见 §5。初始基线见 [BASELINE.md](BASELINE.md)，独立引擎接口见 [DESIGN.md](DESIGN.md)，MCP / TUI 的阶段设计见 [ADAPTERS_PLAN.md](ADAPTERS_PLAN.md)，实际范围见 [MCP](MCP.md) 与 [CLI](../../cli/docs/README.md)。
 
 ## 1. 模型协议与路由
 
@@ -14,7 +14,7 @@
 
 ## 2. 工具扩展点
 
-`Tool` 在 [tools.ts](../../runtime/src/mind/tools.ts) 中包含 `permission`、可选 `also`、JSON Schema 与异步 handler；`allTools()` 拼接内置工具、适配器工具、可用 hands、自造工具和在线时的跨身体工具。
+`Tool` 在 [tools.ts](../../runtime/src/mind/tools.ts) 中包含 `permission`、可选 `also`、JSON Schema 与异步 handler；`allTools()` 拼接内置工具、适配器工具、可用 hands、自造工具、在线时的跨身体工具和已连接 MCP 来源工具（名称冲突拒绝）。
 
 | 工具组 | 模型工具名 |
 |---|---|
@@ -26,6 +26,7 @@
 | 会话 / 协作 | session_new、session_compact、claim、agent_spawn/status/message/stop |
 | 多身体 | body_call、move_to；view_image / read_document / shell 可带 body 借用远端文件 |
 | 平台能力 | 由适配器声明；hands 接入后注册 screen_describe、screen_tap、screen_type、app_open |
+| MCP | `mcp_<来源ID>_<原始名哈希>` 稳定别名，经宿主来源映射调用 |
 | 循环专用 | finish，由 brain.loop 直接处理，不经过普通 callTool |
 
 hands 的 TypeScript 接口还包含截图和滑动方法，但工具注册不把每一个接口方法自动暴露为同名工具；是否能操作屏幕必须看适配器实际提供的能力。
@@ -46,7 +47,7 @@ hands 的 TypeScript 接口还包含截图和滑动方法，但工具注册不�
 
 [BodyAdapter](../../runtime/src/body/adapter.ts) 默认导出一个平台能力对象，核心通过 `body/twin.ts` 加载；提供 `sample`、可选通知 / 播放、tools、hands、守护、升级 / 退出、设备身份与网络变化回调。适配器只 import 核心类型；平台实现位于 `runtime/adapters/`。加载失败可退回通用适配器。
 
-[guard.ts](../../runtime/src/guard/guard.ts) 的能力档位为 allow / ask / deny，多类别采用最严格档位；未知类别默认 allow。相机、麦克风、定位、hands、tool_write 默认 ask，其余已配置类别默认 allow；审批 30 分钟未处理即拒绝。自造工具调用至少还检查 shell，tool_write 检查 self_modify 与 tool_write。
+[guard.ts](../../runtime/src/guard/guard.ts) 的能力档位为 allow / ask / deny，多类别采用最严格档位；普通未知类别默认 allow；`mcp` / `mcp_start` 及其来源 / 工具子类别缺省 ask，按工具级 → 来源级 → 类别级继承。相机、麦克风、定位、hands、tool_write 默认 ask，其余已配置类别默认 allow；审批 30 分钟未处理即拒绝。自造工具调用至少还检查 shell，tool_write 检查 self_modify 与 tool_write。
 
 [sandbox.ts](../../runtime/src/sandbox.ts) 对命令提供 Linux bwrap / Landlock / proot、Android proot、Windows sandbox-runtime；缺沙箱默认拒绝执行，部署者可显式允许不隔离。shell 默认允许时其他工具类别不能禁止同等 shell 能力。读文件工具另经真实路径保护，web_fetch 另有公网出站检查。提示红线不能替代操作系统隔离。
 
@@ -64,11 +65,11 @@ STOP 文件阻止新循环步骤 / 工具审批，拒绝待处理审批并退出
 | 听觉 | [hearing.ts](../../runtime/src/voice/hearing.ts)、azure / player 与控制台采集 | 识别为 ambient 输入，由模型选择回应 / 沉默，语音合成可调用工具 |
 | 运维 CLI | [cli.ts](../../cli/src/cli.ts)、[windows.ts](../../cli/src/windows.ts) | install、open、run、status、logs、start/stop/restart、rollback、uninstall；run 是服务前台运行 |
 | 身体间 RPC | [mesh.ts](../../runtime/src/mesh/mesh.ts)、limbs / presence / placement | 认证身体之间的工具调用、文件借用、交接、在场与调度 |
-| MCP 客户端 | 未实现 | 没有外部 MCP server 配置、会话管理、发现 tools/resources/prompts 或协议调用链 |
+| MCP 客户端 | [mcp/](../../runtime/src/mcp/) | stdio 配置、启动授权、工具发现和调用、取消；modern / legacy 兼容；未提供 HTTP、resources / prompts、OAuth 或自动列表刷新 |
 | MCP 服务端 | 未实现 | 网关和 mesh 没有提供 MCP 协议端点；`tool.list` 是内部身体协议方法 |
-| 交互式 TUI / 终端聊天 | 未实现 | CLI 的终端输出 / 颜色 / 安装进度不构成聊天 TUI；没有终端输入驱动 converse 的命令 |
+| 交互式 TUI / 终端聊天 | [tui.ts](../../cli/src/tui.ts) | `chat` / `tui` 通过同一回环网关支持会话、流式过程、审批、停止和手动恢复；无远程配对或终端保密值输入 |
 
-以上未实现判断来自生产源码、入口和 package 清单核对；研究目录或被桥接的外部框架能力不算 runtime 集成。可通过 shell 自行运行外部程序，不代表内核已经提供 MCP 生命周期管理或 TUI。
+状态基于实际生产入口、源码和依赖清单；MCP 与 TUI 的合成验证及未运行的平台 / 真实服务检查见 [后续切片](FOLLOWUP.md)。研究目录或外部框架能力不算 runtime 集成。
 
 ## 6. 网关与观测契约
 

@@ -10,12 +10,14 @@
 
 这是独立引擎的第一个可运行切片，不是所有状态、上下文、记忆和子 agent 管理都已完成实例化。长期会话队列、Session 生命周期、提示组装、FTS5 与持久化目前仍由 runtime 管理，后续按真实需求逐项提取。
 
+第一切片之后已继续实施纯上下文 / 检索策略提取、受限研究运行器、宿主 stdio MCP 与本机 TUI。实现与验证分别见 [后续切片](FOLLOWUP.md)，未迁移整体宿主状态。
+
 ## 2. 依赖方向
 
 ```mermaid
 flowchart TB
   App["App / Web / 桌面控制台"] --> Gateway["runtime 网关：认证与会话接口"]
-  TUI["TUI：规划中的客户端"] --> Gateway
+  TUI["TUI：本机网关客户端"] --> Gateway
   Channel["Channel：飞书 / 听觉 / 其他入口"] --> Host["runtime 宿主编排"]
   Gateway --> Host
   Heart["heart / 自主活动"] --> Host
@@ -25,7 +27,7 @@ flowchart TB
   ModelPort --> Providers["runtime providers：凭据 / 路由 / 协议"]
   ToolPort --> Guard["runtime guard：审批 / 审计 / 脱敏"]
   Guard --> Local["内置 / 身体 / 自造工具"]
-  Guard --> MCP["MCP 工具来源：规划中的适配器"]
+  Guard --> MCP["MCP：stdio 工具来源"]
   Host --> Memory["人格 / 记忆 / 灵魂同步 / mesh"]
 ```
 

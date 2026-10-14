@@ -43,6 +43,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall # 
 
 ```bash
 npx @plutokeating/quetzal            # 安装：内置的运行基座、Linux 身体适配器与网页控制台放进 ~/.quetzal（家目录，QUETZAL_HOME 可改），注册 systemd 用户服务并启动，健康检查失败自动切回上一版；有桌面时顺手打开浏览器
+npx @plutokeating/quetzal tui        # 本机终端聊天：会话、流式过程、审批和停止；保密输入请用控制台
 npx @plutokeating/quetzal open       # 再次打开网页控制台 http://127.0.0.1:7788/
 npx @plutokeating/quetzal --lan      # 让网关对局域网开放（加密的 HTTPS / WSS，端口 7789，明文仍只在本机）：手机上的 Quetzal App 也能直接填这台机器的地址连接
 npx @plutokeating/quetzal status     # 版本、服务、健康、网页控制台地址、局域网地址与证书指纹；logs -f 看日志；rollback 回滚；uninstall [--purge] 卸载
@@ -99,6 +100,8 @@ flutter build apk --release --target-platform android-arm64
 ```
 
 正式签名把密钥信息放在 `console/android/key.properties`（不入库，见 `build.gradle.kts`），没有时用 debug 签名。
+
+开发者可在 `QUETZAL_HOME/config/mcp.json` 配置本机 stdio MCP 工具来源；默认禁用，启用后启动与调用分别授权。配置、平台支持和隔离范围见 [MCP 文档](engine/MCP.md)。
 
 ## 5. 开发
 

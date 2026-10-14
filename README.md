@@ -139,10 +139,10 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 | 目录 | 内容 |
 |---|---|
-| [`engine/`](engine/docs/README.md) | 独立 Agent 模型—工具执行循环与通用协议；开发计划和研究接入见 [内核文档](docs/engine/README.md) |
+| [`engine/`](engine/docs/README.md) | 独立 Agent 执行循环、通用协议、上下文 / 检索策略及受限研究运行器；开发计划和研究接入见 [内核文档](docs/engine/README.md) |
 | [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与平台级身体适配器：安卓（Quetzal App 内置）、Linux、Windows，以及兼容旧安装的 Termux |
 | [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）、网页版（电脑浏览器，由运行基座托管）与 Linux 桌面版（原生窗口，一键安装脚本自动装） |
-| [`cli/`](cli/docs/README.md) | 一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
+| [`cli/`](cli/docs/README.md) | 本机终端聊天 `chat` / `tui`、一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |
 | [`sync/`](sync/README.md) | 同步服务：账户（OpenID Connect 登录）、自动建灵魂仓库与加部署密钥（GitHub 应用）、身体绑定、信令与 TURN 中转，让同一个 agent 的几具身体连成一张网；独立部署在一台服务器上，`./start.sh` 一行启动 |
 | [`website/`](website/docs/README.md) | 官网与文档站 |

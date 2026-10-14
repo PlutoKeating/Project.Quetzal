@@ -1,6 +1,6 @@
 # MCP 工具来源与 TUI 客户端接入计划
 
-状态：设计与调研，尚未实现 MCP 客户端或 TUI。核对日期：2026-10-14。本轮代码范围仅为独立 `engine/` 的循环与类型提取；本计划记录后续独立切片，不新增连接代码或依赖。
+状态：2026-10-14 的分阶段设计。stdio MCP 与本机 TUI 第一切片已实施，实际范围以 [MCP 实现](MCP.md)、[CLI 文档](../../cli/docs/README.md) 和 [整合验证](FOLLOWUP.md) 为准。本文的 HTTP、动态来源刷新、完整结构化结果留存、远程 TUI 等仍属于待实施设计，不能据本文宣称已支持。
 
 ## 1. 已确认的边界
 
@@ -9,7 +9,7 @@
 - App 与 TUI 通过运行时网关使用同一份 agent、会话、权限、记忆与执行状态。通道接入运行时的会话入口，再由 runtime 调用 engine。客户端不自行创建第二份 engine 或模型循环。
 - `runtime/src/mind/tools.ts` 当前的 `allTools()` / `callTool()` 是宿主工具装配与执行边界；`guard/guard.ts` 承担审批、急停与审计，`gateway.ts` / `ops.ts` 承担客户端控制。现有行为详见 [接口现状](INTERFACES.md)。
 
-本文的工具来源 port、结构化结果与 MCP 配置均为**后续提案**，不是本轮 `EnginePorts.execute()`、`ToolResult` 或网关已经提供的接口。
+本文的通用 ToolSource port 与完整结构化结果留存仍为**后续提案**。首期已使用宿主 stdio 来源，通过稳定别名与现有 `ToolResult` 文本投影接入；没有统一改写所有工具来源，也没有改变网关协议。
 
 ## 2. 官方版本核对
 

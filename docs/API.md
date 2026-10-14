@@ -2,9 +2,9 @@
 
 Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用）和**身体适配器接口**（设备仓库实现）。
 
-网关使用项目自定义的 HTTP / WebSocket RPC；身体间协议见 [分布式设计](DISTRIBUTED.md)。当前没有 MCP 客户端 / 服务端或交互式 TUI。模型可调用的工具在 `runtime/src/mind/tools.ts` 注册，区别于控制台 RPC 方法；上下文与子 agent 的运行边界见 [架构 §5](ARCHITECTURE.md#5-大脑一次醒来)。
+网关使用项目自定义的 HTTP / WebSocket RPC；身体间协议见 [分布式设计](DISTRIBUTED.md)。已提供 stdio MCP 客户端工具来源和本机 `chat` / `tui` 客户端；没有 MCP 服务端、HTTP MCP 或远程 TUI。模型可调用的工具在 `runtime/src/mind/tools.ts` 注册，区别于控制台 RPC 方法；上下文与子 agent 的运行边界见 [架构 §5](ARCHITECTURE.md#5-大脑一次醒来)。
 
-各类接口的实现位置、工具扩展点与 MCP / TUI 的现状证据见 [内核工具与交互接口](engine/INTERFACES.md)。独立引擎已从根级 `engine/` 提供模型—工具循环，runtime 保持现有网关协议；MCP 工具来源与 TUI 客户端的后续接入见 [适配计划](engine/ADAPTERS_PLAN.md)。
+各类接口的实现位置、工具扩展点与 MCP / TUI 的现状证据见 [内核工具与交互接口](engine/INTERFACES.md)。独立引擎已从根级 `engine/` 提供模型—工具循环，runtime 保持现有网关协议；MCP 实现与配置见 [MCP 工具来源](engine/MCP.md)，终端命令见 [CLI 文档](../cli/docs/README.md)，剩余接入范围见 [适配计划](engine/ADAPTERS_PLAN.md)。
 
 ## 1. 网关
 
@@ -307,7 +307,8 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日 token / 花费预算（多具身体时按全网合计）用尽后，自主醒来倍率乘以 0.05；不是模型调用的硬上限。最低电量与最高温度用于自主活动抑制和听觉状态判断 |
 | `channels.feishuHolder` | "" | 多具身体时持有飞书长连接的身体（全网共用）；空为这具身体自己连 |
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
-| `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码）。一个工具按它所属类别中最严的一个检查：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；想真正收紧，先把 `shell` 改成 `ask`。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求每次都要对方同意 |
+| `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` / `mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码）。一个工具按它所属类别中最严的一个检查：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；想真正收紧，先把 `shell` 改成 `ask`。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求每次都要对方同意 |
+| `permissions.mcp_start.<来源ID>` / `permissions.mcp.<来源ID>.<工具别名>` | 继承来源级 / 类别级，缺省 ask | MCP 进程启动与工具调用分别授权；来源配置与带点子类别属于本机，总类别 mcp / mcp_start 仍按现有权限分区共享；工具名映射与范围见 [MCP](engine/MCP.md) |
 | `brain.maxOutputTokens` | 4096 | 每次模型调用的输出上限（步数不设上限，由 agent 决定何时结束） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `branch` | "" / main | 灵魂仓库（常驻记忆 MEMORY / USER 没有长度上限） |
