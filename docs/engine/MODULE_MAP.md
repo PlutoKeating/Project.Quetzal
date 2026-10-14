@@ -1,13 +1,14 @@
 # 内核模块地图与装配边界
 
-本页记录基线源码，版本与验证范围见 [BASELINE.md](BASELINE.md)。
+本页在初始基线基础上同步首次引擎提取；初始版本见 [BASELINE.md](BASELINE.md)，本次变更与验证见 [EXTRACTION.md](EXTRACTION.md)。
 
 ## 1. 内核所在目录
 
 | 职责 | 源码入口 | 关键实现 |
 |---|---|---|
 | 进程装配 | [main.ts](../../runtime/src/main.ts) | `main()`：配置、数据库、适配器、网关、通道、灵魂、mesh、心脏与感知 |
-| 模型与工具循环 | [mind/brain.ts](../../runtime/src/mind/brain.ts) | `converse()`、`wake()`、`loop()`、`history()`、`spawnAgent()` |
+| 独立模型与工具循环 | [engine/src/loop.ts](../../engine/src/loop.ts)、[通用协议](../../engine/src/types.ts) | `runTurn()`；模型、工具、输入补充、轮次控制与记录通过宿主注入 |
+| 宿主心智编排 | [mind/brain.ts](../../runtime/src/mind/brain.ts) | `converse()`、`wake()`、`history()`、`spawnAgent()`；`loop()` 适配现有能力到引擎 |
 | 上下文 | [mind/prompt.ts](../../runtime/src/mind/prompt.ts) | `systemPrompt()`、其他会话 / 身体 / 技能等提示块 |
 | 轮次状态与取消 | [mind/activity.ts](../../runtime/src/mind/activity.ts) | `Session`、收件箱、图片去重、流式事件、进行中快照 |
 | 子 agent 与协作 | [mind/agents.ts](../../runtime/src/mind/agents.ts)、[mind/claims.ts](../../runtime/src/mind/claims.ts) | 独立提示词后台循环、报告回送、认领 |
@@ -55,7 +56,7 @@ flowchart TD
   Mesh --> Tools
 ```
 
-`loop()` 是模块私有函数，不是公开的通用引擎 API；模块之间使用具体函数、注入回调与事件总线。当前没有统一的 Engine 接口、插件容器或可替换的 ContextManager / MemoryBackend 抽象。
+`engine.runTurn()` 是公开的通用执行接口；`brain.loop()` 保留为宿主适配函数，注入具体模型、工具、Session、输入补充与记录。引擎不依赖 runtime；当前尚无完整的会话服务实例化、插件容器或可替换的 ContextManager / MemoryBackend 抽象。
 
 ## 3. 装配生命周期
 
@@ -69,6 +70,7 @@ flowchart TD
 
 | 目录 | 与执行引擎的关系 |
 |---|---|
+| `engine/` | 独立的执行循环与通用协议，零运行时依赖；runtime 构建将其一起打包 |
 | `runtime/adapters/` | Android、Termux、Linux、Windows 平台级实现；经 `BodyAdapter` 接入，不承载模型循环 |
 | `console/` | Flutter 管理与对话客户端；Android 原生部分还提供身体能力和进程看护，桌面版提供耳朵 / 播放器 |
 | `cli/` | 安装、启停、健康检查、日志、升级 / 回滚；前台 `run` 启动打包后的 runtime |

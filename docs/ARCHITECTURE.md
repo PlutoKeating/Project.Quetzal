@@ -2,7 +2,7 @@
 
 本文用图文说明 Quetzal 运行基座的整体结构、每个部分的原理与实现方式。代码位置均相对于 `runtime/src/`。
 
-核心是项目自建的 TypeScript / Node.js 运行时：`main.ts` 装配，`mind/brain.ts` 执行模型与工具循环，`mind/prompt.ts` 组装上下文，`memory/` 管理记忆，`providers/` 适配模型，`heart/` 调度自主活动。完整文件职责见 [runtime 模块地图](../runtime/docs/ARCHITECTURE.md)。`console/` 是交互客户端，`cli/` 是安装与运维入口；灵魂桥映射其他框架的记忆，不接管它们的执行循环。
+核心是项目自建的 TypeScript / Node.js 运行时：`main.ts` 装配，`mind/brain.ts` 编排对话与醒来，调用独立的 `engine/src/loop.ts` 执行模型与工具循环（engine 路径相对于仓库根目录），`mind/prompt.ts` 组装上下文，`memory/` 管理记忆，`providers/` 适配模型，`heart/` 调度自主活动。完整文件职责见 [runtime 模块地图](../runtime/docs/ARCHITECTURE.md)。`console/` 是交互客户端，`cli/` 是安装与运维入口；灵魂桥映射其他框架的记忆，不接管它们的执行循环。
 
 内核开发的专项现状记录见 [engine 文档](engine/README.md)：模块地图、执行调度、上下文预算与压缩、记忆分层与检索、工具 / 交互接口，以及基线验证与已知边界。这里继续维护全局概览。
 

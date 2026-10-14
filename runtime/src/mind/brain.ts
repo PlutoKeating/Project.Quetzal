@@ -6,7 +6,8 @@
 import { resolveBody } from "./body-files.ts";
 import crypto from "node:crypto";
 import { chat } from "../providers/router.ts";
-import type { Msg, ToolDef } from "../providers/types.ts";
+import type { Msg } from "../providers/types.ts";
+import { runTurn, type Step, type FinishTool } from "../../../engine/src/index.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemPrompt } from "./prompt.ts";
 import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, type Attachment } from "../store.ts";
@@ -24,7 +25,7 @@ import * as agents from "./agents.ts";
 import { bus } from "../bus.ts";
 import { remoteBodies } from "./bodies.ts";
 
-const FINISH: ToolDef = {
+const FINISH: FinishTool = {
   name: "finish",
   description: "结束这次醒来。写下这段经历的日记，并如实报告各项驱动力现在的程度（0–1，满足了就降低）。",
   parameters: {
@@ -38,9 +39,6 @@ const FINISH: ToolDef = {
     },
   },
 };
-
-interface Step { tool: string; args: unknown; result: string; status: string } // status：ok / error / denied（与过程记录里的工具卡片一致）
-
 
 /** 把对方在她工作时发来的消息并入上下文（插话 / 打断），以及她用 view_image 请求查看的图片。 */
 async function drain(messages: Msg[], s: Session): Promise<boolean> {
@@ -64,93 +62,25 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
  * 模型 context 元数据、每日预算与子 agent 的 maxSteps 不构成本循环的强制终止条件；有持续进展时，时间墙也不限制总时长。
  * 对方在她工作时发来的消息：每次调用模型前并入；「打断」会中止正在进行的模型输出（保留已输出的部分），但不会打断正在执行的工具。
  */
-/** 模型某一步什么也没输出时的提醒（基座的话，不是对方说的）。 */
-const BLANK = "（基座提醒，不是对方说的话：你上一步什么也没有输出——没有调用工具，也没有文字。还要做事就接着调用工具；做完了就用文字回复对方：做了什么、发现了什么、结论或下一步。）";
-const BLANK_TRUNCATED = "（基座提醒，不是对方说的话：你上一步的输出到了长度上限，没有留下任何给对方的文字。不要再长篇思考，直接用文字回复对方：做了什么、发现了什么、结论或下一步。）";
-
-/** 等工具做完；对方停止了这一轮就不再等（shell 的命令随之结束；等批准、等保密输入这类工具留在后台自行超时）。 */
-function untilStopped<T>(p: Promise<T>, s: Session): Promise<T> {
-  if (s.signal.aborted) return Promise.reject(s.signal.reason);
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => { if (s.signal.reason instanceof Stopped) reject(s.signal.reason); };
-    s.signal.addEventListener("abort", onAbort, { once: true });
-    p.then((v) => { s.signal.removeEventListener("abort", onAbort); resolve(v); }, (e) => { s.signal.removeEventListener("abort", onAbort); reject(e); });
-  });
-}
-
 async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>) {
-  const tools: ToolDef[] = [...allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })), ...(withFinish ? [FINISH] : [])];
-  const steps: Step[] = [];
-  let tokens = 0, text = "", finish: Record<string, any> | undefined, model = "", blanks = 0;
-  const failures = new Map<string, number>(); // 这一轮里每个（工具, 参数）失败了几次
-  for (let i = 0; !finish; i++) {
-    s.check(); s.touch();
-    if (stopped()) throw new Error("急停中，已停下");
-    await drain(messages, s);
-    s.emit({ kind: "step", step: i + 1 });
-    let r: Awaited<ReturnType<typeof chat>>;
-    try {
-      r = await chat({
-        messages, tools, maxTokens: config.brain.maxOutputTokens, session: s.id,
-        signal: s.beginLLM(), onChunk: () => s.touch(), onText: (t) => s.delta(t),
-      });
-    } catch (e) {
-      if (!(e instanceof Interrupted) || s.signal.aborted) throw e;
-      s.flush(); // 被打断：保留已经说出的部分，下一步带着对方的新消息继续
-      const partial = stripStamp(s.stepText).trim();
-      if (partial) messages.push({ role: "assistant", content: `${partial}\n（输出被对方打断）` });
-      s.emit({ kind: "text", step: i + 1, text: partial ? `${partial}（被打断）` : "（被打断）", final: false });
-      continue;
-    } finally { s.endLLM(); }
-    s.flush();
-    r.text = stripStamp(r.text);
-    tokens += r.usage.input + r.usage.output; model = r.model;
-    // 一步什么也没给（没有工具调用、也没有文字）：多半是输出长度用完在思考上，或供应商回了空。对话里这不能算结束——
-    // 不把空的一步放进上下文，提醒她一句再来，最多两次；仍然是空的才结束（converse 会说明这一轮没有回复）
-    if (!withFinish && !r.toolCalls.length && !r.text.trim() && !s.inbox.length && blanks < 2) {
-      blanks++;
-      log("brain", `第 ${i + 1} 步模型没有输出${r.truncated ? "（到了输出长度上限）" : ""}，提醒后重试（${blanks}/2）`);
-      messages.push({ role: "user", content: r.truncated ? BLANK_TRUNCATED : BLANK });
-      continue;
-    }
-    s.emit({ kind: "text", step: i + 1, text: r.text, final: !r.toolCalls.length });
-    messages.push({ role: "assistant", content: r.text, toolCalls: r.toolCalls });
-    if (!r.toolCalls.length) {
-      // 回复只取结束这一轮的那一步：之前各步的文字已作为中途的话进了过程记录，拿来顶替空的最后一步，同一段话就会在过程与回复里各出现一次
-      if (!s.inbox.length && !s.images.length) { text = r.text; break; }
-      // 本想结束，但对方刚补充了消息：这段话留作过程中的叙述，接着处理新消息
-      if (r.text.trim()) s.emit({ kind: "text", step: i + 1, text: r.text, final: false });
-      continue;
-    }
-    for (const c of r.toolCalls) {
-      const card = { call: c.id, name: c.name, summary: c.name === "finish" ? String(c.args.title ?? "") : summarize(redactArgs(c.args)) }; // 参数里的保密值不进进展事件与过程记录
-      if (c.name === "finish") {
-        finish = c.args; messages.push({ role: "tool", toolCallId: c.id, name: c.name, content: "好的" });
-        s.emit({ kind: "tool", ...card, status: "ok", ms: 0 });
-        continue;
-      }
-      s.emit({ kind: "tool", ...card, status: "running" });
-      const t0 = Date.now();
-      const out = await s.hold(() => untilStopped(callTool(c.name, c.args, reason, { session: s }), s)); // 执行工具即在工作：暂停会话时间墙；对方停止时不等工具做完
-      s.emit({ kind: "tool", ...card, status: out.status, ms: Date.now() - t0, result: out.text.split("\n").find((l) => l.trim())?.slice(0, 120) ?? "" });
-      steps.push({ tool: c.name, args: redactArgs(c.args), result: out.text.slice(0, 1500), status: out.status });
-      try { saveToolCall({ call: c.id, session: s.id, ts: Date.now(), tool: c.name, args: redactArgs(c.args), result: out.text, status: out.status, ms: Date.now() - t0 }); } catch (e) { log("brain", `没能存下工具调用的完整记录：${(e as Error).message}`); }
-      // 失败（含被拒绝）写在结果的最前面：只给原文时，「exit 1」之类的结果她容易当成做成了
-      let content = out.text.slice(0, 12000);
-      if (out.status !== "ok") {
-        const same = JSON.stringify([c.name, c.args]);
-        const n = (failures.get(same) ?? 0) + 1;
-        failures.set(same, n);
-        content = `【这次调用${out.status === "denied" ? "没有被允许" : "失败了"}】\n${content}${n > 1 ? `\n（基座提醒，不是对方说的话：同样的调用、同样的参数，这一轮已经失败了 ${n} 次。原样重试不会有不同的结果：先看清失败的原因，换个做法，或者告诉对方卡在哪里。）` : ""}`;
-      }
-      messages.push({ role: "tool", toolCallId: c.id, name: c.name, content, ...(out.status !== "ok" ? { error: true } : {}) });
-    }
-    if (s.movedTo) { // move_to：换到另一具身体继续，这一轮在这里结束
-      if (withFinish && !finish) finish = { title: `换到 ${s.movedTo} 上继续`, journal: `这次醒来换到 ${s.movedTo} 上接着做。` };
-      break;
-    }
-  }
-  return { text, finish, steps, tokens, model };
+  return runTurn({
+    messages, turn: s, maxOutputTokens: () => config.brain.maxOutputTokens,
+    tools: allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })),
+    finishTool: withFinish ? FINISH : undefined,
+  }, {
+    chat,
+    execute: (c) => callTool(c.name, c.args, reason, { session: s }),
+    drain: async (context) => { await drain(context, s); },
+    pending: () => !!(s.inbox.length || s.images.length),
+    incoming: () => !!s.inbox.length,
+    check: () => { if (stopped()) throw new Error("急停中，已停下"); },
+    interrupted: (e) => e instanceof Interrupted,
+    stopToolWait: (reason) => reason instanceof Stopped,
+    moved: () => s.movedTo ? { title: `换到 ${s.movedTo} 上继续`, journal: `这次醒来换到 ${s.movedTo} 上接着做。` } : undefined,
+    cleanText: stripStamp, redactArgs, summarize,
+    recordTool: saveToolCall,
+    warning: (message) => log("brain", message),
+  });
 }
 
 const effortOf = (tokens: number, steps: number) => Math.min(0.15, tokens / 2_000_000 + steps * 0.004);

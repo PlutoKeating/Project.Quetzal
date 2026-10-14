@@ -1,10 +1,10 @@
 # 工具、模型协议与交互接口
 
-当前有四种不同接口：模型工具、身体能力、控制网关、身体间 mesh。名称相似不代表协议相同；MCP / TUI 状态见 §5。基线见 [BASELINE.md](BASELINE.md)。
+当前有四种不同接口：模型工具、身体能力、控制网关、身体间 mesh。名称相似不代表协议相同；MCP / TUI 状态见 §5。初始基线见 [BASELINE.md](BASELINE.md)，独立引擎接口见 [DESIGN.md](DESIGN.md)，MCP / TUI 的拟接入契约见 [ADAPTERS_PLAN.md](ADAPTERS_PLAN.md)。
 
 ## 1. 模型协议与路由
 
-[types.ts](../../runtime/src/providers/types.ts) 统一 `Msg`、`ToolDef`、`ToolCall`、`ChatRequest` 与 `ChatResult`。消息包含 system / user / assistant / tool，user 可带 base64 图片；工具定义是名称、描述与 JSON Schema；结果包含文字、工具调用、input / output 用量、模型和可选 `truncated`。
+[engine 通用类型](../../engine/src/types.ts) 定义消息与工具协议，[runtime types.ts](../../runtime/src/providers/types.ts) 兼容重导出并保留供应商配置类型。通用协议包含 `Msg`、`ToolDef`、`ToolCall`、`ChatRequest` 与 `ChatResult`。消息包含 system / user / assistant / tool，user 可带 base64 图片；工具定义是名称、描述与 JSON Schema；结果包含文字、工具调用、input / output 用量、模型和可选 `truncated`。
 
 [adapters.ts](../../runtime/src/providers/adapters.ts) 实现 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Generative AI 四种 HTTP 协议，负责消息变换、SSE 流与非流式 JSON、工具参数拼接和结果归一化。工具错误另映射为 Anthropic `is_error` / Gemini 错误内容，所有协议仍能看到失败文字标记。
 

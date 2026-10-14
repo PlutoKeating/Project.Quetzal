@@ -1,0 +1,14 @@
+{
+  "name": "quetzal-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "通用模型与工具执行引擎，不依赖运行宿主",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "node ../runtime/node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "build": "npm run typecheck && ../runtime/node_modules/.bin/esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --sourcemap --outfile=dist/index.mjs"
+  }
+}

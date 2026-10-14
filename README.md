@@ -139,6 +139,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 | 目录 | 内容 |
 |---|---|
+| [`engine/`](engine/docs/README.md) | 独立 Agent 模型—工具执行循环与通用协议；开发计划和研究接入见 [内核文档](docs/engine/README.md) |
 | [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与平台级身体适配器：安卓（Quetzal App 内置）、Linux、Windows，以及兼容旧安装的 Termux |
 | [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）、网页版（电脑浏览器，由运行基座托管）与 Linux 桌面版（原生窗口，一键安装脚本自动装） |
 | [`cli/`](cli/docs/README.md) | 一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |

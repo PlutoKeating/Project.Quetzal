@@ -1,6 +1,6 @@
 # 执行循环、自主调度与协作
 
-基线与证据范围见 [BASELINE.md](BASELINE.md)。主入口为 [brain.ts](../../runtime/src/mind/brain.ts)。
+基线与证据范围见 [BASELINE.md](BASELINE.md)。宿主编排入口为 [brain.ts](../../runtime/src/mind/brain.ts)，真实循环在 [engine/src/loop.ts](../../engine/src/loop.ts)。首次提取验证见 [EXTRACTION.md](EXTRACTION.md)。
 
 ## 1. 三条执行路径
 
@@ -14,7 +14,7 @@
 
 ## 2. 一轮工具循环
 
-`loop(messages, reason, withFinish, session, exclude)` 在入口取得工具定义快照，循环过程中持续复用同一个消息数组：
+`brain.loop(messages, reason, withFinish, session, exclude)` 取得工具定义快照并装配宿主 ports，随后委托 `engine.runTurn()` 执行；循环持续复用同一个消息数组：
 
 1. 检查 Session 取消状态和 `STOP`，读取收件箱及待查看图片，发送 `step`。
 2. 调用 `providers/router.chat()`，传入消息、工具、`brain.maxOutputTokens`（默认 4096）、轮次 id、取消信号与流回调。

@@ -1,6 +1,6 @@
 # 上下文组装、预算与压缩
 
-本页依据 [prompt.ts](../../runtime/src/mind/prompt.ts)、[brain.ts](../../runtime/src/mind/brain.ts)、[retrieval.ts](../../runtime/src/memory/retrieval.ts) 和 [attachments.ts](../../runtime/src/mind/attachments.ts)。基线见 [BASELINE.md](BASELINE.md)。
+本页依据 [prompt.ts](../../runtime/src/mind/prompt.ts)、[brain.ts](../../runtime/src/mind/brain.ts)、[retrieval.ts](../../runtime/src/memory/retrieval.ts) 和 [attachments.ts](../../runtime/src/mind/attachments.ts)。初始基线见 [BASELINE.md](BASELINE.md)；循环已提取至 [engine/src/loop.ts](../../engine/src/loop.ts)，本页的上下文策略仍由 runtime 组装，首次提取没有改变预算和压缩行为。
 
 ## 1. 请求由哪些部分组成
 

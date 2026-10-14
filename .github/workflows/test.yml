@@ -1,14 +1,14 @@
-# 测试：推送到 main 或 feature/* 分支、以及拉取请求里改到运行基座（runtime/）或本文件时，在 Linux 与 Windows（x64、arm64）上跑运行基座的测试。
-# 只改官网、文档、控制台、同步服务时不跑：这里只测 runtime/，它也不读仓库里别的目录。
+# 测试：运行基座（runtime/）、独立引擎（engine/）或本文件变动时，在 Linux 与 Windows（x64、arm64）上验证两者。
+# 只改官网、文档、控制台、同步服务时不跑；runtime 构建会同时检查 engine 的独立类型契约。
 # Windows 上先用 sandbox-runtime 的 windows-install 建好沙箱用户与 WFP 规则（runner 是管理员、UAC 已关），沙箱的真机测试才有意义。
 name: test
 
 on:
   push:
     branches: [main, "feature/**"]
-    paths: ["runtime/**", ".github/workflows/test.yml"]
+    paths: ["runtime/**", "engine/**", ".github/workflows/test.yml"]
   pull_request:
-    paths: ["runtime/**", ".github/workflows/test.yml"]
+    paths: ["runtime/**", "engine/**", ".github/workflows/test.yml"]
   workflow_dispatch:
 
 permissions:
@@ -57,6 +57,6 @@ jobs:
         if: runner.os == 'Windows'
         env:
           QUETZAL_TEST_SRT: "1"
-        run: node --experimental-strip-types --test --test-concurrency=1 test/*.test.ts
+        run: node --experimental-strip-types --test --test-concurrency=1 test/*.test.ts ../engine/test/*.test.ts
       - name: 构建
         run: npm run build
