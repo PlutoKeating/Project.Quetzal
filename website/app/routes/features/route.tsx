@@ -4,6 +4,7 @@ import { useMessages, isLang, DEFAULT_LANG, localized, useLang } from "~/i18n/co
 import { ButtonLink, Container, Eyebrow, Heading, Lead, Reveal, Section, cx } from "~/design-system/components";
 import { messages } from "./i18n";
 import { BodySenses, ControlPanel, MeshBodies, PhoneSteps, SkillTools, SoulGit, WakeTimeline } from "./illustrations";
+import { ArchitectureBlueprint } from "~/components/markdown/ArchitectureBlueprint";
 
 export const meta: Route.MetaFunction = ({ params }) => {
   const m = messages[isLang(params.lang) ? params.lang : DEFAULT_LANG];
@@ -54,6 +55,14 @@ export default function Features() {
           </Container>
         </Section>
       ))}
+
+      <Section id="blueprint" className="scroll-mt-(--ds-header-height) border-t border-border">
+        <Container width="wide">
+          <Reveal>
+            <ArchitectureBlueprint />
+          </Reveal>
+        </Container>
+      </Section>
 
       <Section>
         <Container className="flex flex-col gap-8">

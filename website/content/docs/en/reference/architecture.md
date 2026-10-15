@@ -1,15 +1,18 @@
 ---
 title: Architecture
-description: The runtime's overall structure, the heart's mathematics (drives, body clock, Poisson sampling), the body twin, one wake-up end to end, memory retrieval and the provider layer.
+description: Dual-layer kernel architecture (standalone engine/ + production runtime/), the heart's mathematics, the body twin, the model–tool loop, dynamic context management, 5-layer structured memory & PRIME loop, MCP / sandboxing, and TUI interactions.
 ---
 
-## Overall structure
+## Overall structure & end-to-end blueprint
 
-The runtime is a **single Node.js process** (`dist/main.cjs`). Modules talk through an in-process event bus, and all state is on disk (SQLite and the soul directory), so a restart is like a nap.
+Quetzal is built on a **dual-layer decoupled architecture** pairing a **standalone zero-dependency kernel (`engine/`)** with a **production host runtime (`runtime/`)**:
+
+- **`engine/` (pure kernel)**: houses the unified model protocol (`types.ts`), multi-step model–tool execution loop (`loop.ts` `runTurn`), dynamic context window manager (`context-manager.ts`), structured memory state machine (`memory.ts`), PRIME experience distillation and evolution rules (`prime.ts`), pure tokenization/BM25 ranking (`retrieval.ts`), and bounded research runner (`research.ts`). Zero runtime dependencies; never imports `runtime/`.
+- **`runtime/` (single-process Node.js 22+ host, `dist/main.cjs`)**: wires process bootstrap (`main.ts`), body digital twin (`body/`), heart autonomous scheduler (`heart/`), mind host orchestration and sub-agents (`mind/`), structured memory persistence and Soul Git sync (`memory/`), multi-provider routing (`providers/`), stdio MCP client (`mcp/`), capability guard and OS sandboxes (`guard/`, `sandbox.ts`), WebRTC multi-body mesh (`mesh/`), and Gateway/channels (`gateway.ts`, `ops.ts`, `cli/src/tui.ts`). All state is persisted on disk (SQLite and the private Soul Git repository), so a process restart is just like a nap.
 
 ![Quetzal architecture: body → runtime (heart · mind · memory · model layer · guard) → soul repository and other bodies](/img/architecture.en.svg)
 
-Design principles: **independent of the device** (the core knows only the adapter interface), **one operations layer for every control entry** (app and Feishu behave identically and both write to the audit log), and **no behaviour runs on a timer**.
+Design principles: **decoupled kernel and host** (`engine/` runs pure state and loop logic via injected `EnginePorts` and `TurnControl`), **independent of the device** (the core knows only `BodyAdapter`), **one operations layer (`ops.ts`) for every control entry** (App, Web, CLI TUI, and Feishu behave identically and write to the audit log), and **no autonomous behaviour runs on a fixed timer**.
 
 ## Heart: when to wake
 
@@ -100,24 +103,36 @@ sequenceDiagram
   end
 ```
 
-The system prompt is assembled in order: personality → situation → resident memory → memory index → auto-retrieved relevant memories → the thought it wants to share → body → inner state and open loops → soul-sync perception → recent journal → other sessions.
+Production conversations, waking thoughts, and dreams run in **dynamic context mode** (`mind/prompt.ts` + `mind/context.ts` + `engine/src/context-manager.ts`): the system prompt keeps personality (`SOUL.md`), identity and situation, calendar and reminders, safety redlines, vault paths, sandbox status, body feelings, online bodies, skills and custom tools, sub-agents, inner state, soul-sync perception, and other sessions' activity; instead of dumping all resident memories, the note tree, and recent journals into one static system snapshot, **a bounded view is rebuilt before every model request for the candidate model's actual window**:
 
-**It sets the pace**: there is no step limit. Two idle limits stop a run that makes no progress (model call 90 s, session 120 s), and the emergency stop ends everything.
+- **Per-model window rebuild (`withModelPreparation`)**: `runTurn` retains the full original messages for the turn, while the router rebuilds a fresh cloned view from full originals for each candidate or failover model—never re-trimming an already shrunk view.
+- **Conservative budget & atomic tool groups**: estimates UTF-8 bytes + framing + tool JSON schemas + heuristic image cost + output reserve + 5% safety margin; pairs `assistant.toolCalls` with their `tool` results as indivisible groups; throws `ContextOverflow` to fail over to a larger-window model rather than truncating system policy or current user constraints.
+- **Historical 'Base Notes' & source readback (`context_read`)**: prepends a separate user-side Base Note with past tool process records before each historical reply (preventing the model from hallucinating fake process logs); projects oversized tool outputs into head/tail excerpts with `context_read(ref)` pointers, chunks older history into a stable `context:summary` via the quick model, and lets the model page through full SQLite sources via `context_read`.
 
-**Sessions**: conversations belong to sessions; one session is processed in order, different sessions in parallel, and sessions can see each other (the system prompt includes other sessions' recent activity and turns in progress). A message sent while it works is an **interjection** by default, or can be **queued** or **interrupt**.
+**It sets the pace**: there is no step limit. Two progress-based idle walls stop a run that makes no progress (model call 90 s without data / 180 s without content, session 120 s without progress), and the emergency stop ends everything. Blank model steps trigger up to 2 base reminders, and repeating the exact same failing tool call ≥2 times appends a warning against blind retries.
 
-## Memory: unbounded storage, bounded context
+**Sessions & sub-agents**: conversations belong to sessions; one session is processed in order, different sessions in parallel and mutually visible (with `claim` coordination locks). A message sent while it works is an **interjection (`steer`)** by default, or can be **queued (`queue`)** or **interrupt (`interrupt`)**. Longer jobs can be delegated via `agent_spawn` to background sub-agents with isolated system prompts, reporting back as `ambient` input.
 
-Storage has no cap; only a small part enters the context each time. Retrieval works on the structure of the text and uses no vector model:
+## Layered memory & the PRIME loop
 
-| Layer | Storage | In context |
+Memory unites the **private Soul Git repository (long-term human-readable source of truth)** with **local SQLite (messages, tool details, FTS5 index, and derived state)** across five layers:
+
+| Layer | Storage & Format | Context Admission & Evolution |
 |---|---|---|
-| Resident memory | § entries, unlimited | Fully expanded within budget (4000 / 2000 chars); beyond that, topic-relevant entries first |
-| Notes | A tree up to 4 levels deep, each with a one-line summary | Index only (about 2500 chars) |
-| Journal | One file per body per day | Recent days' excerpts (about 3000 chars) |
-| Auto retrieval | All of the above | Current topic as query, scored like BM25, most relevant fragments (about 3000 chars) |
+| Legacy personality / notes | `SOUL.md`, `memories/MEMORY.md`, `USER.md`, `notes/**`, `journal/**` | `SOUL.md` stays in system prompt; legacy `MEMORY`, `USER`, notes, and journals remain intact and map into structured retrieval as `episode/warning` marked "unverified legacy reference" |
+| Structured versioned memory | `notes/QuetzalMemory/<id>_v<version>.md` (`quetzal-memory-v1` fenced JSON + body/sources) | Typed as `fact` / `preference` (`explicit`｜`inferred`) / `episode` / `experience`, in `candidate` / `active` / `superseded` / `archived` states, gated by `scope`, validity window, `stage`, and tag/tool conditions |
+| Full history & observations | SQLite `messages`, `tool_calls` + soul `obs_*` chunks | Real user messages are chunked (30,000 chars) into `active` episode observations before learning (verifying message existence without confirming personal claims); `recall` searches all chats and notes via FTS5 (or BM25 fallback) |
+| Bounded semantic selection | `engine/src/memory.ts` + `runtime/src/memory/semantic.ts` | After `eligibleMemory` hard gates, pre-selects up to 20 short views (split across personal facts/preferences and experiences/episodes) for the quick model to pick ≤6 keys within a 64k daily token budget (falling back to deterministic lexical rank on timeout) |
+| PRIME async distillation & evolution | `engine/src/prime.ts` + `runtime/src/memory/prime.ts` | Post-turn queue and dreaming distill candidates: personal facts/preferences default to `candidate` (revised by stable `slot` only after manager `memory.confirm`); verified single-tool errors become scoped `warning` records; `experience` activation requires independent outcome evidence (`memory.feedback`) + a 2nd quick semantic faithfulness review; evolution (`rewrite`/`generalize`/`combine`/`archive`) without baseline stays `candidate` |
 
-While dreaming it moves detail from resident memory into notes and tidies the note tree so things stay easy to find.
+Normal note tools (`note_save` / `note_move` / `note_delete`) enforce path normalization and realpath checks to block tampering with or symlink-bypassing `notes/QuetzalMemory/`. All memory writes run inside `memory.exclusive()` and trigger automatic Git commit, entry-level 3-way merge, and push.
+
+## Tool extensions, MCP, sandboxing & TUI
+
+- **Unified tool table (`mind/tools.ts`)**: `allTools()` combines built-in tools, platform adapter tools, self-made tools (code in `QUETZAL_HOME/tools/<name>`, Agent Skills guide in soul `skills/<name>/SKILL.md`), cross-body tools (`body_call` / `move_to`), and local **stdio MCP tools**.
+- **Local stdio MCP client (`runtime/src/mcp/`)**: loaded from local `config/mcp.json` (never synced via soul or mesh), using official `@modelcontextprotocol/client` with single-process auto protocol negotiation and stable `mcp_<id>_<sha256_24>` aliases (rejecting name collisions). Server launch and each tool call require separate `mcp_start.<id>` and `mcp.<id>.<tool>` guard approvals (both default to `ask`); secrets inject from `secrets/mcp_*`, and outputs pass through `redactSecrets` before truncation.
+- **Command sandbox & host mode (`sandbox.ts` / `host-mode.ts`)**: shell commands, custom tools, and POSIX MCP servers run inside OS sandboxes (Linux `bwrap` / `landlock`, Android `proot`, Windows `srt-win`), hiding `secrets/` and mounting `data/` and `soul/` read-only; per-session `host_mode` requires explicit approval every time.
+- **Local terminal TUI (`cli/src/tui.ts`)**: `quetzal tui` / `quetzal chat` connects as a zero-dependency thin client over loopback `ws://127.0.0.1:7788/rpc` to the same live Agent. All output passes through `terminalText()` to strip ANSI escapes and bidirectional controls; during `pass_secret` or disconnect, TUI mutes echo and `TerminalInputQueue` hard-blocks plain text, while timeouts never auto-replay requests.
 
 ## Provider layer
 
