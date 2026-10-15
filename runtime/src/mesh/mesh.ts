@@ -370,6 +370,7 @@ export class Mesh extends EventEmitter {
     });
     l.on("close", (why: string) => {
       this.o.log(`与 ${body} 断开：${why}`);
+      this.sigErrors.delete(body); // 断开后清掉拒绝原因：留着会让控制台一直显示旧错误（522 行读它）
       this.router?.recompute(); // 先算出能不能经别的身体中转：能的话对上层来说它一直连着，不闪断
       this.router?.topologyChanged();
       this.emitPeer(body);
