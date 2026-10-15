@@ -4,6 +4,8 @@ import { useMessages } from "~/i18n/core";
 import { archBlueprintMessages } from "./archBlueprintI18n";
 import { Lightbox } from "./Lightbox";
 
+type ViewMode = "turn" | "arch";
+type PhaseId = "p1" | "p2" | "p3" | "p4" | "p5" | "p6";
 type FlowId = "all" | "loop" | "context" | "memory" | "mcp" | "tui";
 type NodeId =
   | "clients"
@@ -35,6 +37,15 @@ const NODE_LAYOUT: Record<NodeId, { x: number; y: number; w: number; h: number }
   storage_mesh: { x: 48, y: 676, w: 1504, h: 112 },
 };
 
+const PHASE_LAYOUT: Record<PhaseId, { x: number; y: number; w: number; h: number }> = {
+  p1: { x: 36, y: 56, w: 1528, h: 112 },
+  p2: { x: 36, y: 196, w: 1528, h: 104 },
+  p3: { x: 64, y: 356, w: 1472, h: 116 },
+  p4: { x: 64, y: 500, w: 1472, h: 116 },
+  p5: { x: 64, y: 644, w: 1472, h: 116 },
+  p6: { x: 36, y: 816, w: 1528, h: 116 },
+};
+
 interface EdgeDef {
   id: string;
   d: string;
@@ -57,12 +68,15 @@ const EDGES: readonly EdgeDef[] = [
 
 export function ArchitectureBlueprint() {
   const t = useMessages(archBlueprintMessages);
+  const [viewMode, setViewMode] = useState<ViewMode>("turn");
+  const [selectedPhaseId, setSelectedPhaseId] = useState<PhaseId>("p3");
   const [activeFlow, setActiveFlow] = useState<FlowId>("all");
   const [selectedNodeId, setSelectedNodeId] = useState<NodeId>("engine_loop");
   const [zoomOpen, setZoomOpen] = useState(false);
 
   const activeFlowObj = t.flows.find((f) => f.id === activeFlow) ?? t.flows[0];
   const selectedNode = t.nodes.find((n) => n.id === selectedNodeId) ?? t.nodes[0];
+  const selectedPhase = t.turnView.phases.find((p) => p.id === selectedPhaseId) ?? t.turnView.phases[0];
   const highlightedNodes = new Set(FLOW_NODES[activeFlow]);
 
   const selectFlow = (id: FlowId) => {
@@ -73,7 +87,191 @@ export function ArchitectureBlueprint() {
     }
   };
 
-  const renderSvg = (interactive: boolean) => (
+  /** 视图 A：单轮会话 6 阶段 22 步全链路时序泳道 SVG */
+  const renderTurnSvg = (interactive: boolean) => (
+    <svg
+      viewBox="0 0 1600 960"
+      role="img"
+      aria-label={t.viewModes.turn}
+      className="block h-auto w-full select-none font-sans"
+    >
+      <defs>
+        <marker id="tl-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 1 L 9 5 L 0 9 z" className="fill-fg-muted" />
+        </marker>
+        <marker id="tl-arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 1 L 9 5 L 0 9 z" className="fill-accent" />
+        </marker>
+      </defs>
+
+      <rect width="1600" height="960" rx="20" className="fill-bg" />
+
+      {/* 顶部时间轴说明 */}
+      <text x="40" y="34" fontSize="14" className="fill-accent font-semibold tracking-wide">
+        {t.viewModes.turn}
+      </text>
+      <text x="1560" y="34" textAnchor="end" fontSize="12.5" className="fill-fg-subtle font-mono">
+        converse() / wake() → engine.runTurn() → learnTurn()
+      </text>
+
+      {/* 中央多步循环外框（包裹 Phase 3 / Phase 4 / Phase 5） */}
+      <rect
+        x="36"
+        y="322"
+        width="1528"
+        height="462"
+        rx="18"
+        strokeWidth="2"
+        strokeDasharray="8 5"
+        className="fill-bg-elevated stroke-accent"
+      />
+      <text x="64" y="344" fontSize="13" className="fill-accent font-semibold font-mono">
+        LOOP: engine/src/loop.ts · runTurn() — Step i = 1, 2, 3… ({t.turnView.svgLabels.loopBack})
+      </text>
+
+      {/* 阶段之间的主干流向箭头 */}
+      <line x1="480" y1="168" x2="480" y2="192" strokeWidth="2" markerEnd="url(#tl-arrow-accent)" className="stroke-accent" />
+      <line x1="480" y1="300" x2="480" y2="352" strokeWidth="2" markerEnd="url(#tl-arrow-accent)" className="stroke-accent" />
+      <line x1="480" y1="472" x2="480" y2="496" strokeWidth="2" markerEnd="url(#tl-arrow-accent)" className="stroke-accent" />
+      <line x1="480" y1="616" x2="480" y2="640" strokeWidth="2" markerEnd="url(#tl-arrow-accent)" className="stroke-accent" />
+      <line x1="480" y1="760" x2="480" y2="812" strokeWidth="2" markerEnd="url(#tl-arrow-accent)" className="stroke-accent" />
+
+      {/* 右侧回环线：Phase 5 (Step 18) 回到 Phase 3 (Step 08) */}
+      <path
+        d="M 1536 702 L 1554 702 L 1554 414 L 1540 414"
+        fill="none"
+        strokeWidth="2.5"
+        markerEnd="url(#tl-arrow-accent)"
+        className="stroke-accent"
+      />
+
+      {/* 六大阶段卡片与内部 22 步微节点 */}
+      {t.turnView.phases.map((phase) => {
+        const id = phase.id as PhaseId;
+        const box = PHASE_LAYOUT[id];
+        const isSelected = selectedPhaseId === id;
+
+        return (
+          <g
+            key={id}
+            role={interactive ? "button" : undefined}
+            tabIndex={interactive ? 0 : undefined}
+            aria-label={`${phase.badge} - ${phase.title}`}
+            onClick={interactive ? () => setSelectedPhaseId(id) : undefined}
+            onKeyDown={
+              interactive
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedPhaseId(id);
+                    }
+                  }
+                : undefined
+            }
+            className={cx(interactive && "cursor-pointer")}
+          >
+            <rect
+              x={box.x}
+              y={box.y}
+              width={box.w}
+              height={box.h}
+              rx="14"
+              strokeWidth={isSelected ? "2.5" : "1.5"}
+              className={cx(
+                isSelected ? "fill-surface-hover stroke-accent" : "fill-surface stroke-border",
+              )}
+            />
+
+            {/* 左侧阶段徽章与标题 */}
+            <rect
+              x={box.x + 16}
+              y={box.y + 14}
+              width="196"
+              height="22"
+              rx="11"
+              className={cx(isSelected ? "fill-accent-soft" : "fill-secondary-soft")}
+            />
+            <text
+              x={box.x + 28}
+              y={box.y + 29}
+              fontSize="11.5"
+              className={cx("font-semibold", isSelected ? "fill-accent" : "fill-secondary-fg")}
+            >
+              {phase.badge}
+            </text>
+            <text x={box.x + 224} y={box.y + 29} fontSize="11.5" className="fill-fg-subtle font-mono">
+              {phase.stepRange}
+            </text>
+
+            <text x={box.x + 16} y={box.y + 56} fontSize="16.5" className="fill-fg font-semibold">
+              {phase.title}
+            </text>
+            <text x={box.x + 16} y={box.y + 78} fontSize="12" className="fill-fg-muted font-mono">
+              {phase.sub}
+            </text>
+            <text x={box.x + 16} y={box.y + 98} fontSize="11.5" className="fill-fg-subtle">
+              {phase.summary.slice(0, 56)}…
+            </text>
+
+            {/* 右侧横向排列该阶段内的具体步骤胶囊 */}
+            {phase.fnList.map((fnText, idx) => {
+              const count = phase.fnList.length;
+              const startX = box.x + 540;
+              const availW = box.w - 556;
+              const gap = 10;
+              const stepW = Math.floor((availW - gap * (count - 1)) / count);
+              const sx = startX + idx * (stepW + gap);
+              const sy = box.y + 14;
+              const sh = box.h - 28;
+              const [head, body] = fnText.split("：");
+              return (
+                <g key={fnText}>
+                  <rect
+                    x={sx}
+                    y={sy}
+                    width={stepW}
+                    height={sh}
+                    rx="10"
+                    strokeWidth="1"
+                    className={cx(
+                      isSelected ? "fill-bg stroke-accent" : "fill-bg stroke-border-strong",
+                    )}
+                  />
+                  <text x={sx + 10} y={sy + 22} fontSize="11.5" className="fill-accent font-semibold font-mono">
+                    {head.slice(0, 26)}
+                  </text>
+                  {body && (
+                    <>
+                      <text x={sx + 10} y={sy + 44} fontSize="11" className="fill-fg-muted">
+                        {body.slice(0, 22)}
+                      </text>
+                      <text x={sx + 10} y={sy + 62} fontSize="10.5" className="fill-fg-subtle">
+                        {body.slice(22, 44)}
+                        {body.length > 44 ? "…" : ""}
+                      </text>
+                    </>
+                  )}
+                  {idx < count - 1 && (
+                    <line
+                      x1={sx + stepW}
+                      y1={sy + sh / 2}
+                      x2={sx + stepW + gap}
+                      y2={sy + sh / 2}
+                      strokeWidth="1.5"
+                      className="stroke-fg-muted"
+                    />
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        );
+      })}
+    </svg>
+  );
+
+  /** 视图 B：四层系统架构与模块映射 SVG */
+  const renderArchSvg = (interactive: boolean) => (
     <svg
       viewBox="0 0 1600 820"
       role="img"
@@ -89,18 +287,15 @@ export function ArchitectureBlueprint() {
         </marker>
       </defs>
 
-      {/* 背景 */}
       <rect width="1600" height="820" rx="20" className="fill-bg" />
 
       {/* 四大架构分层泳道 */}
       <g>
-        {/* Layer 1: Clients & Body */}
         <rect x="24" y="22" width="1552" height="168" rx="16" className="fill-bg-elevated stroke-border" strokeWidth="1.5" />
         <text x="48" y="48" fontSize="14" className="fill-fg-subtle font-semibold tracking-wide">
           {t.diagram.layers.clients}
         </text>
 
-        {/* Layer 2: Production Host runtime/src/ */}
         <rect x="24" y="206" width="1552" height="196" rx="16" className="fill-bg-elevated stroke-border" strokeWidth="1.5" />
         <text x="48" y="232" fontSize="14" className="fill-fg-subtle font-semibold tracking-wide">
           {t.diagram.layers.host}
@@ -109,7 +304,6 @@ export function ArchitectureBlueprint() {
           {t.diagram.badges.singleProc}
         </text>
 
-        {/* Layer 3: Standalone Kernel engine/src/ */}
         <rect x="24" y="424" width="1552" height="196" rx="16" className="fill-bg-elevated stroke-accent" strokeWidth="1.5" strokeDasharray="6 4" />
         <text x="48" y="450" fontSize="14" className="fill-accent font-semibold tracking-wide">
           {t.diagram.layers.engine}
@@ -118,7 +312,6 @@ export function ArchitectureBlueprint() {
           {t.diagram.badges.zeroDep}
         </text>
 
-        {/* Layer 4: Storage & Mesh */}
         <rect x="24" y="636" width="1552" height="164" rx="16" className="fill-bg-elevated stroke-border" strokeWidth="1.5" />
         <text x="48" y="662" fontSize="14" className="fill-fg-subtle font-semibold tracking-wide">
           {t.diagram.layers.storage}
@@ -139,19 +332,9 @@ export function ArchitectureBlueprint() {
                 fill="none"
                 strokeWidth={active && activeFlow !== "all" ? "2.5" : "1.75"}
                 markerEnd={active && activeFlow !== "all" ? "url(#bp-arrow-accent)" : "url(#bp-arrow)"}
-                className={cx(
-                  active && activeFlow !== "all" ? "stroke-accent" : "stroke-fg-muted",
-                )}
+                className={cx(active && activeFlow !== "all" ? "stroke-accent" : "stroke-fg-muted")}
               />
-              <rect
-                x={edge.lx - 110}
-                y={edge.ly - 13}
-                width="220"
-                height="20"
-                rx="6"
-                className="fill-bg stroke-border"
-                strokeWidth="1"
-              />
+              <rect x={edge.lx - 110} y={edge.ly - 13} width="220" height="20" rx="6" className="fill-bg stroke-border" strokeWidth="1" />
               <text
                 x={edge.lx}
                 y={edge.ly + 1}
@@ -192,10 +375,7 @@ export function ArchitectureBlueprint() {
                     }
                   : undefined
               }
-              className={cx(
-                interactive && "cursor-pointer",
-                !inFlow && "opacity-(--ds-opacity-disabled)",
-              )}
+              className={cx(interactive && "cursor-pointer", !inFlow && "opacity-(--ds-opacity-disabled)")}
             >
               <rect
                 x={box.x}
@@ -213,74 +393,40 @@ export function ArchitectureBlueprint() {
                 )}
               />
 
-              {/* 顶部标签 */}
               <rect
                 x={box.x + 18}
                 y={box.y + 14}
                 width={Math.min(200, box.w - 36)}
                 height="22"
                 rx="11"
-                className={cx(
-                  isSelected || isAliveCore ? "fill-accent-soft" : "fill-secondary-soft",
-                )}
+                className={cx(isSelected || isAliveCore ? "fill-accent-soft" : "fill-secondary-soft")}
               />
               {isAliveCore && (
-                <circle
-                  cx={box.x + 30}
-                  cy={box.y + 25}
-                  r="4.5"
-                  className="fill-accent animate-breath motion-reduce:animate-none"
-                />
+                <circle cx={box.x + 30} cy={box.y + 25} r="4.5" className="fill-accent animate-breath motion-reduce:animate-none" />
               )}
               <text
                 x={box.x + (isAliveCore ? 42 : 28)}
                 y={box.y + 29}
                 fontSize="11.5"
-                className={cx(
-                  "font-semibold",
-                  isSelected || isAliveCore ? "fill-accent" : "fill-secondary-fg",
-                )}
+                className={cx("font-semibold", isSelected || isAliveCore ? "fill-accent" : "fill-secondary-fg")}
               >
                 {node.badge}
               </text>
 
-              {/* 标题与副标题 */}
-              <text
-                x={box.x + 18}
-                y={box.y + 62}
-                fontSize="19"
-                className="fill-fg font-semibold"
-              >
+              <text x={box.x + 18} y={box.y + 62} fontSize="19" className="fill-fg font-semibold">
                 {node.title}
               </text>
-              <text
-                x={box.x + 18}
-                y={box.y + 86}
-                fontSize="13.5"
-                className="fill-fg-muted font-mono"
-              >
+              <text x={box.x + 18} y={box.y + 86} fontSize="13.5" className="fill-fg-muted font-mono">
                 {node.sub}
               </text>
 
-              {/* 在宽节点右侧展示首条关键源码路径提示 */}
               {box.h >= 130 && (
-                <text
-                  x={box.x + 18}
-                  y={box.y + 114}
-                  fontSize="12.5"
-                  className="fill-fg-subtle font-mono"
-                >
+                <text x={box.x + 18} y={box.y + 114} fontSize="12.5" className="fill-fg-subtle font-mono">
                   {node.files[0].split(" · ")[0]}
                 </text>
               )}
               {box.w > 1000 && (
-                <text
-                  x={box.x + box.w - 22}
-                  y={box.y + 62}
-                  textAnchor="end"
-                  fontSize="13"
-                  className="fill-fg-muted font-mono"
-                >
+                <text x={box.x + box.w - 22} y={box.y + 62} textAnchor="end" fontSize="13" className="fill-fg-muted font-mono">
                   QUETZAL_HOME: data/quetzal.db · soul/notes/QuetzalMemory/ · secrets/ · vault/
                 </text>
               )}
@@ -305,131 +451,261 @@ export function ArchitectureBlueprint() {
         </Button>
       </div>
 
-      {/* 业务流切换胶囊（HTML5 交互控制） */}
+      {/* 顶层视图模式切换：视图 A（单轮 6 阶段 22 步全链路） vs 视图 B（四层系统架构图） */}
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t.flowsLabel}</span>
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label={t.flowsLabel}>
-          {t.flows.map((flow) => {
-            const active = activeFlow === flow.id;
+        <span className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t.viewModeLabel}</span>
+        <div className="grid gap-2 sm:grid-cols-2" role="tablist" aria-label={t.viewModeLabel}>
+          {(["turn", "arch"] as const).map((mode) => {
+            const active = viewMode === mode;
             return (
               <button
-                key={flow.id}
+                key={mode}
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => selectFlow(flow.id as FlowId)}
+                onClick={() => setViewMode(mode)}
                 className={cx(
-                  "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors duration-(--ds-duration-fast)",
+                  "flex items-center justify-between rounded-xl border px-4 py-2.5 text-left text-xs font-semibold transition-colors duration-(--ds-duration-fast)",
                   active
                     ? "border-accent bg-accent-soft text-accent"
                     : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
                 )}
               >
-                {flow.label}
+                <span>{t.viewModes[mode]}</span>
+                <span aria-hidden className={cx("size-2 rounded-full", active ? "bg-accent" : "bg-border-strong")} />
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* 核心一体架构 + 业务流 SVG 画布 */}
-      <div className="overflow-x-auto rounded-xl border border-border bg-bg p-2 sm:p-3">
-        <div className="min-w-[44rem]">{renderSvg(true)}</div> {/* ds-allow：宽架构图在小屏保持可读最小宽度并支持横向滑动 */}
-      </div>
-
-      {/* 子系统快速切换条 */}
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t.modulesLabel}</span>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {t.nodes.map((node) => {
-            const id = node.id as NodeId;
-            const isSelected = selectedNodeId === id;
-            const inFlow = highlightedNodes.has(id);
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setSelectedNodeId(id)}
-                className={cx(
-                  "flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors duration-(--ds-duration-fast)",
-                  isSelected
-                    ? "border-accent bg-surface-hover text-fg"
-                    : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
-                  !inFlow && "opacity-(--ds-opacity-muted)",
-                )}
-              >
-                <span className="text-xs font-semibold text-accent">{node.badge}</span>
-                <span className="text-xs font-medium text-fg">{node.title}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 底部双栏详情面板：左侧为当前选中模块的代码映射与边界，右侧为当前激活业务流的端到端步骤 */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="flex flex-col gap-4 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <Badge tone="accent">{selectedNode.badge}</Badge>
-              <h4 className="mt-1.5 text-lg font-semibold text-fg">{selectedNode.title}</h4>
-            </div>
-            <code className="rounded-sm bg-code-bg px-2 py-0.5 font-mono text-xs text-code-fg">{selectedNode.sub}</code>
+      {viewMode === "turn" ? (
+        <>
+          {/* 视图 A：单轮 6 阶段 22 步全链路 SVG */}
+          <div className="overflow-x-auto rounded-xl border border-border bg-bg p-2 sm:p-3">
+            <div className="min-w-[48rem]">{renderTurnSvg(true)}</div> {/* ds-allow：时序泳道图在小屏保持可读最小宽度 */}
           </div>
-          <p className="text-sm text-fg-muted">{selectedNode.summary}</p>
 
-          <div className="flex flex-col gap-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{t.filesTitle}</p>
-            <ul className="flex flex-col gap-1.5">
-              {selectedNode.files.map((file) => {
-                const [pathPart, descPart] = file.split(" · ");
+          {/* 6 大阶段快速选择器 */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t.turnView.phasesLabel}</span>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              {t.turnView.phases.map((phase) => {
+                const id = phase.id as PhaseId;
+                const isSelected = selectedPhaseId === id;
                 return (
-                  <li key={file} className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs">
-                    <code className="font-mono font-semibold text-fg">{pathPart}</code>
-                    {descPart && <span className="text-fg-muted"> · {descPart}</span>}
-                  </li>
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setSelectedPhaseId(id)}
+                    className={cx(
+                      "flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors duration-(--ds-duration-fast)",
+                      isSelected
+                        ? "border-accent bg-surface-hover text-fg"
+                        : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                    )}
+                  >
+                    <span className="font-mono text-xs font-semibold text-accent">{phase.stepRange}</span>
+                    <span className="text-xs font-medium text-fg">{phase.badge.split(" · ")[1] ?? phase.badge}</span>
+                  </button>
                 );
               })}
-            </ul>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{t.highlightsTitle}</p>
-            <ul className="flex flex-col gap-1.5 text-xs text-fg-muted">
-              {selectedNode.highlights.map((item) => (
-                <li key={item} className="grid grid-cols-[0.65rem_1fr] gap-2">
-                  <span aria-hidden className="mt-1.5 inline-block size-1.5 rounded-full bg-accent" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Card>
+          {/* 选中阶段详情面板：左栏为该阶段精确执行函数步骤，右栏为条件分支与防故障机制 */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="flex flex-col gap-4 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Badge tone="accent">{selectedPhase.badge}</Badge>
+                  <h4 className="mt-1.5 text-lg font-semibold text-fg">{selectedPhase.title}</h4>
+                </div>
+                <code className="rounded-sm bg-code-bg px-2 py-0.5 font-mono text-xs text-code-fg">{selectedPhase.stepRange}</code>
+              </div>
+              <p className="text-sm text-fg-muted">{selectedPhase.summary}</p>
+              <code className="rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-xs text-secondary-fg">
+                {selectedPhase.sub}
+              </code>
+              <ol className="flex flex-col gap-2">
+                {selectedPhase.fnList.map((fn) => (
+                  <li key={fn} className="rounded-lg border border-border bg-bg p-3 text-xs leading-relaxed text-fg-muted">
+                    <span className="font-semibold text-fg">{fn.split("：")[0]}：</span>
+                    <span>{fn.split("：").slice(1).join("：")}</span>
+                  </li>
+                ))}
+              </ol>
+            </Card>
 
-        <Card className="flex flex-col gap-4 p-5">
-          <div className="flex flex-col gap-1">
-            <Badge tone="secondary">{activeFlowObj.label}</Badge>
-            <h4 className="mt-1 text-lg font-semibold text-fg">{t.flowStepsTitle}</h4>
-            <p className="text-sm text-fg-muted">{activeFlowObj.summary}</p>
+            <div className="flex flex-col gap-4">
+              <Card className="flex flex-col gap-3 p-5">
+                <Badge tone="secondary">{selectedPhase.stepRange}</Badge>
+                <h4 className="text-base font-semibold text-fg">{t.highlightsTitle}</h4>
+                <ul className="flex flex-col gap-2 text-xs text-fg-muted">
+                  {selectedPhase.branches.map((b) => (
+                    <li key={b} className="grid grid-cols-[0.65rem_1fr] gap-2 rounded-lg border border-border bg-bg p-3 leading-relaxed">
+                      <span aria-hidden className="mt-1.5 inline-block size-1.5 rounded-full bg-accent" />
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+
+              {/* 四种触发源对比表 */}
+              <Card className="flex flex-col gap-3 overflow-x-auto p-5">
+                <h4 className="text-sm font-semibold text-fg">{t.turnView.triggersTitle}</h4>
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-border text-fg-subtle">
+                      {t.turnView.triggersHeaders.map((h) => (
+                        <th key={h} className="py-1.5 pr-3 font-semibold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border text-fg-muted">
+                    {t.turnView.triggersRows.map((row) => (
+                      <tr key={row[0]}>
+                        <td className="py-2 pr-3 font-medium text-fg">{row[0]}</td>
+                        <td className="py-2 pr-3">{row[1]}</td>
+                        <td className="py-2 pr-3">{row[2]}</td>
+                        <td className="py-2 pr-3">{row[3]}</td>
+                        <td className="py-2">{row[4]}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            </div>
           </div>
-          <ol className="flex flex-col gap-2.5">
-            {activeFlowObj.steps.map((step, index) => (
-              <li key={step} className="grid grid-cols-[1.5rem_1fr] items-start gap-2.5 rounded-lg border border-border bg-bg p-3 text-xs text-fg">
-                <span className="inline-flex size-5 items-center justify-center rounded-full bg-accent-soft font-mono text-xs font-semibold text-accent tabular-nums">
-                  {index + 1}
-                </span>
-                <span className="leading-relaxed text-fg-muted">{step}</span>
-              </li>
-            ))}
-          </ol>
-        </Card>
-      </div>
+        </>
+      ) : (
+        <>
+          {/* 视图 B：业务流切换胶囊 */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t.flowsLabel}</span>
+            <div className="flex flex-wrap gap-2" role="tablist" aria-label={t.flowsLabel}>
+              {t.flows.map((flow) => {
+                const active = activeFlow === flow.id;
+                return (
+                  <button
+                    key={flow.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => selectFlow(flow.id as FlowId)}
+                    className={cx(
+                      "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors duration-(--ds-duration-fast)",
+                      active
+                        ? "border-accent bg-accent-soft text-accent"
+                        : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                    )}
+                  >
+                    {flow.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-border bg-bg p-2 sm:p-3">
+            <div className="min-w-[44rem]">{renderArchSvg(true)}</div> {/* ds-allow：宽架构图在小屏保持可读最小宽度 */}
+          </div>
+
+          {/* 子系统快速切换条 */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t.modulesLabel}</span>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {t.nodes.map((node) => {
+                const id = node.id as NodeId;
+                const isSelected = selectedNodeId === id;
+                const inFlow = highlightedNodes.has(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setSelectedNodeId(id)}
+                    className={cx(
+                      "flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors duration-(--ds-duration-fast)",
+                      isSelected
+                        ? "border-accent bg-surface-hover text-fg"
+                        : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                      !inFlow && "opacity-(--ds-opacity-muted)",
+                    )}
+                  >
+                    <span className="text-xs font-semibold text-accent">{node.badge}</span>
+                    <span className="text-xs font-medium text-fg">{node.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 底部双栏详情面板 */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="flex flex-col gap-4 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Badge tone="accent">{selectedNode.badge}</Badge>
+                  <h4 className="mt-1.5 text-lg font-semibold text-fg">{selectedNode.title}</h4>
+                </div>
+                <code className="rounded-sm bg-code-bg px-2 py-0.5 font-mono text-xs text-code-fg">{selectedNode.sub}</code>
+              </div>
+              <p className="text-sm text-fg-muted">{selectedNode.summary}</p>
+
+              <div className="flex flex-col gap-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{t.filesTitle}</p>
+                <ul className="flex flex-col gap-1.5">
+                  {selectedNode.files.map((file) => {
+                    const [pathPart, descPart] = file.split(" · ");
+                    return (
+                      <li key={file} className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-xs">
+                        <code className="font-mono font-semibold text-fg">{pathPart}</code>
+                        {descPart && <span className="text-fg-muted"> · {descPart}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{t.highlightsTitle}</p>
+                <ul className="flex flex-col gap-1.5 text-xs text-fg-muted">
+                  {selectedNode.highlights.map((item) => (
+                    <li key={item} className="grid grid-cols-[0.65rem_1fr] gap-2">
+                      <span aria-hidden className="mt-1.5 inline-block size-1.5 rounded-full bg-accent" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </Card>
+
+            <Card className="flex flex-col gap-4 p-5">
+              <div className="flex flex-col gap-1">
+                <Badge tone="secondary">{activeFlowObj.label}</Badge>
+                <h4 className="mt-1 text-lg font-semibold text-fg">{t.flowStepsTitle}</h4>
+                <p className="text-sm text-fg-muted">{activeFlowObj.summary}</p>
+              </div>
+              <ol className="flex flex-col gap-2.5">
+                {activeFlowObj.steps.map((step, index) => (
+                  <li key={step} className="grid grid-cols-[1.5rem_1fr] items-start gap-2.5 rounded-lg border border-border bg-bg p-3 text-xs text-fg">
+                    <span className="inline-flex size-5 items-center justify-center rounded-full bg-accent-soft font-mono text-xs font-semibold text-accent tabular-nums">
+                      {index + 1}
+                    </span>
+                    <span className="leading-relaxed text-fg-muted">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          </div>
+        </>
+      )}
 
       {zoomOpen && (
-        <Lightbox natural={{ w: 1600, h: 820 }} onClose={() => setZoomOpen(false)}>
+        <Lightbox natural={{ w: 1600, h: viewMode === "turn" ? 960 : 820 }} onClose={() => setZoomOpen(false)}>
           {(size) => (
             <div style={size} className="[&_svg]:block [&_svg]:h-full! [&_svg]:w-full!">
-              {renderSvg(true)}
+              {viewMode === "turn" ? renderTurnSvg(true) : renderArchSvg(true)}
             </div>
           )}
         </Lightbox>
