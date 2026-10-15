@@ -4,6 +4,7 @@
 
 - **React Router 8（framework mode）**，`ssr: false` + `prerender`：所有页面在构建时渲染成 HTML（`build/client/`），没有运行时服务端。
 - **Tailwind CSS 4**（`@tailwindcss/vite`），主题变量全部来自设计系统生成的 CSS。
+- **Remotion 4**（`remotion` + `@remotion/player`，精确锁定 `4.0.535`）：用于架构参考页与亮点页的交互式帧级架构与单轮会话全链路动画。
 - **TypeScript**、**Vite 8**、**wrangler 4**（本地预览与部署）。
 - Node 22（`.nvmrc`），包管理器 npm（`package-lock.json` 入库）。
 
