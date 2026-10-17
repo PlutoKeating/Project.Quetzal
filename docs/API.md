@@ -59,6 +59,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
 | `hearing` | 听觉 `{id, status: partial｜final｜dropped｜kept｜ignored, text, conv?, reason?}`：`partial` 识别中的文字（流式显示）；`final` 识别完成并进入会话 `conv`；`dropped` 没进会话（没有声音、没识别出文字、没在听；不按字数或时长丢弃；多具身体时另一只耳朵也听到了同一句话、由那边交给她）；`kept` 她回应了（保留显示）；`ignored` 她判断不是对她说的（这条消息的 `mode` 标为 `ignored`，控制台隐藏） |
 | `speaking` | `{until}`：她在说话（`voice_speak`、试听）到 `until`（毫秒时刻，按码率估计）为止；App 回报播完或被插嘴时 `until` 提前到现在再推一次。界面用它显示「她在说话」；桌面版的耳朵没有回声消除，这段时间不送音频 |
+| `projects` | 现存的项目（同 `projects` 方法不带参数的返回）：本机或其他身体改了项目时推送，控制台据此刷新项目与会话列表 |
 | `session.switch` | `{from, to, title, done?}`：她用 `session_new` 把对话切到了新会话；控制台把打开的会话页切过去；`done` 为真表示她这一轮的回复已放进新会话 |
 | `speak` | `{id, url, text, ms}`：让登记为播放器的控制台播放一段合成语音（`url` 为 `/media/<文件名>`；安卓 App 走通话音频路径，耳朵的回声消除以它为参考；桌面版下载到临时文件后用系统播放器放）；播完或被插嘴后调用 `player.done` |
 | `mesh` | 网状层状态（同 `mesh` 方法的返回），绑定进展、同步服务连接、各身体的连接与路径变化时推送 |
@@ -105,12 +106,26 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 |---|---|---|
 | `chat.send` | `{text, conv?, turn?, attachments?, mode?}` | 与她对话，返回她的回复。`conv` 为会话（缺省为「最初的对话」）；`turn` 由客户端生成，用于把 `activity` 事件对应到这句话；`attachments` 为 `/upload` 返回的附件（只按 `rel` 解析，最多 20 个）。她正在这个会话里工作时，`mode` 决定这句话怎么处理：`steer`（默认，插话：这次模型调用结束后并入）、`queue`（排队：作为下一轮）、`interrupt`（打断：立即中止当前模型输出并带着新消息继续，不打断正在执行的工具）；插话与打断立即返回。调用不设绝对超时，按「120 秒无进展」判定 |
 | `chat.stop` | `{conv?}` | 停止这个会话里她正在进行的一轮（控制台的停止键、桌面上连按两次 Esc）：中止模型输出与正在执行的 `shell` 命令，不再等其他工具（等批准、等保密输入），这一轮以「（这一轮被对方停止了）」结束；这一轮在另一具身体上时转过去停。返回是否停下了一轮（`false`：没有进行中的一轮） |
-| `sessions` | `{archived?}` | 会话列表 `[{id, title, channel, created, updated, archived, count, last}]`（按最近更新） |
-| `sessions.create` | `{title?}` | 新建会话（首条消息自动成为标题） |
+| `sessions` | `{archived?, channel?, live?, pinned?, project?, from?, to?, sort?, limit?}` | 会话列表 `[{id, title, channel, created, updated, archived, count, last, pinned, project}]`。置顶的（`pinned` 为置顶的时刻，0 为没置顶）总在最前，置顶之间新置顶的在上；其余按 `sort`：`updated`（缺省，最近更新）/ `created`（创建时间）/ `title`（标题）。筛选都可不给：`channel` 来源通道（`控制台`、`飞书`、`主动`、`语音`；`子agent` 为有子 agent 报告送回的会话），`live` 只看此刻有进行中一轮的，`pinned` 只看置顶的，`project` 只看某个项目（`none`：不属于任何项目），`from` / `to` 最近更新落在 `[from, to)`（毫秒）。`project` 为所属项目的 id 或 `null`（归属已删除项目的一律为 `null`）。旧版基座只认 `archived`，其余参数忽略 |
+| `sessions.create` | `{title?, project?}` | 新建会话（首条消息自动成为标题）；`project` 为项目 id 时放进这个项目（没有这个项目报错） |
 | `sessions.rename` / `sessions.archive` | `{id, title}` / `{id, archived}` | 重命名 / 归档与找回（有新消息的会话自动回到列表） |
-| `sessions.messages` | `{id, limit?, before?}` | 某个会话的对话 `[{id, ts, role, channel, text, session, process, attachments, mode, body, via}]`（按时间排列；`before` 为消息 id，取比它更早的；`body` 为这条消息发生在哪具身体上（写入它的那具）；`via` 为对方的话（`user`，以及通道 `语音` 的 `ambient`）从哪具身体进来：对方的控制台连着的、持有飞书长连接的、听到的耳朵所在的那具，转给另一具身体处理时仍是最初进来的那具，旧消息与其他环境输入为 `null`；消息 id 在所有身体上相同）；`role` 为 `user`（对方）、`agent`（她）或 `ambient`（环境输入，不是对方发的消息：通道 `语音` 为麦克风听到并识别的话（`mode` 为 `ignored` 表示她判断不是对她说的，控制台不显示）、`子agent` 为子 agent 送回的报告、`摘要` 为她用 `session_compact` 写下的上下文摘要（之前的历史不再进入上下文）、`交接` 为她用 `session_new` 切会话时写的交接）；`process` 里的 `{type: "steer", msg, text, mode, ambient}` 是插话 / 打断到达的那一刻（控制台据此把之前的过程截断在插话消息上方，之后的从它下面重新开出）；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
+| `sessions.pin` | `{id, pinned?}` | 置顶（`pinned` 缺省为真）/ 取消置顶，返回会话；写审计。全网同步 |
+| `sessions.move` | `{id, project}` | 把会话归到项目（一个会话至多一个项目；`project` 为 `null` 移出项目），返回会话；写审计。全网同步 |
+| `sessions.search` | `{query, limit?}` | 按标题与内容搜索会话（含归档的），每个会话一条：`[{session, title, titleMarks, matches, hit?}]`。`title` 为标题命中（排在前面，按最近更新），其余按内容命中的分数；内容用记忆检索的全文索引（与 `search` / `recall` 同一个对话索引，FTS5 不可用时逐条匹配），她判断不是对她说的环境声音不算。`hit` 为最好的一条命中 `{message, ts, role, snippet, marks}`：`message` 为消息 id（点开时交给 `sessions.messages` 的 `from` 定位），`snippet` 为命中处前后约 120 字，`marks` / `titleMarks` 为高亮位置 `[[起, 止], …]`；`matches` 为命中的消息数。`limit` 缺省 30，最多 100 |
+| `sessions.messages` | `{id, limit?, before?, from?}` | 某个会话的对话（`from` 为消息 id 时：从它前面 5 条起到最新，最多 1000 条，用于定位到搜索命中的消息） `[{id, ts, role, channel, text, session, process, attachments, mode, body, via}]`（按时间排列；`before` 为消息 id，取比它更早的；`body` 为这条消息发生在哪具身体上（写入它的那具）；`via` 为对方的话（`user`，以及通道 `语音` 的 `ambient`）从哪具身体进来：对方的控制台连着的、持有飞书长连接的、听到的耳朵所在的那具，转给另一具身体处理时仍是最初进来的那具，旧消息与其他环境输入为 `null`；消息 id 在所有身体上相同）；`role` 为 `user`（对方）、`agent`（她）或 `ambient`（环境输入，不是对方发的消息：通道 `语音` 为麦克风听到并识别的话（`mode` 为 `ignored` 表示她判断不是对她说的，控制台不显示）、`子agent` 为子 agent 送回的报告、`摘要` 为她用 `session_compact` 写下的上下文摘要（之前的历史不再进入上下文）、`交接` 为她用 `session_new` 切会话时写的交接）；`process` 里的 `{type: "steer", msg, text, mode, ambient}` 是插话 / 打断到达的那一刻（控制台据此把之前的过程截断在插话消息上方，之后的从它下面重新开出）；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
 | `sessions.live` | — | 进行中的轮次快照 `[{turn, conv, origin, body, text, msg, status, step, live, items}]`（含其他身体上进行中的轮次，`body` 为在哪具身体上） |
 | `poke` | `{note?}` | 戳一下：推高想念与好奇并立即重新抽样，不强制醒来 |
+
+**项目**（#30：把相关的会话组织在一起；全网同步，见 [分布式 §2.1](DISTRIBUTED.md)）
+
+项目 `{id, name, description, instructions, color?, icon?, created, updated, archived?}`：`id` 为 16 位十六进制；`name` 最长 60 字、不能重名（不分大小写）；`description` 简介最长 500 字；`instructions` 项目说明最长 8000 字，作为这个项目下所有会话的额外上下文注入系统提示；`color` 为 `#rrggbb`；`icon` 为控制台认得的图标名（小写字母与下划线）。
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `projects` | `{archived?}` | 项目列表（按名字；`archived` 为真只看归档的、为假只看没归档的、不给全都要） |
+| `projects.create` | `{name, description?, instructions?, color?, icon?}` | 新建，返回项目；写审计 |
+| `projects.update` | `{id, name?, description?, instructions?, color?, icon?, archived?}` | 修改（`color` / `icon` 给空字符串表示去掉；`archived` 归档与找回），返回项目；写审计 |
+| `projects.delete` | `{id}` | 删除（留墓碑，其他身体跟着删）：会话不删，只解除归属，返回 `{sessions}`（解除了几个）；写审计 |
 
 **保密库（`pass_secret`）**
 
