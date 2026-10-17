@@ -22,6 +22,8 @@ import { config, readSecret, writeSecret, saveConfig, isAndroid, randomCode } fr
 import { audit } from "./store.ts";
 import { bus } from "./bus.ts";
 import { invoke, status } from "./ops.ts";
+import { finishLogin } from "./mcp/runtime.ts";
+import { callbackPath } from "./mcp/oauth.ts";
 import { converse, stopTurn } from "./mind/brain.ts";
 import { feishuStatus, setFeishu, registerFeishu } from "./channels/feishu.ts";
 import { VERSION } from "./version.ts";
@@ -235,6 +237,16 @@ export function startGateway(safeMode: boolean): GatewayHandle {
       res.writeHead(200, { "content-type": a.kind === "image" ? a.mime : a.kind === "text" ? "text/plain; charset=utf-8" : "application/octet-stream", "content-length": a.size });
       return void fs.createReadStream(f).pipe(res);
     }
+    // 远程 MCP 的 OAuth 回调（redirect_uri 是本机回环地址）：凭 state 认出是哪一次登录，不需要网关令牌；只在明文回环监听上
+    if (req.method === "GET" && !secure && req.url?.startsWith(callbackPath)) {
+      const q = new URL(req.url, "http://x").searchParams;
+      let ok = true, text: string;
+      try { text = `${await finishLogin(q, "浏览器（OAuth 回调）")} 已登录，可以关掉这个页面，回到 Quetzal。`; }
+      catch (e) { ok = false; text = `没有登录成功：${(e as Error).message}`; }
+      const esc = text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+      res.writeHead(ok ? 200 : 400, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'" });
+      return res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Quetzal</title><p style="font:16px system-ui;margin:3em auto;max-width:30em">${esc}</p>`);
+    }
     if (req.url === "/health") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ ok: true, version: VERSION, safeMode, mode: safeMode ? "safe" : status().heart.mode }));
@@ -292,6 +304,8 @@ export function startGateway(safeMode: boolean): GatewayHandle {
   bus.on("session.switch", (e) => broadcast("session.switch", e));
   bus.on("mesh", (s) => broadcast("mesh", s));
   bus.on("account", (s) => broadcast("account", s));
+  let pluginsPending: NodeJS.Timeout | undefined; // 插件页：来源状态、插件、推荐变了（去抖 300ms），控制台收到后重新取 mcp.list / plugins
+  bus.on("plugins.changed", () => { pluginsPending ??= setTimeout(() => { pluginsPending = undefined; broadcast("plugins", {}); bus.emit("state"); }, 300); });
   bus.on("replica.applied", (e) => { if (e.table !== "timeline") broadcast("replica", { table: e.table, from: e.from, convs: [...new Set(e.rows.map((r) => r.session ?? r.id).filter(Boolean))].slice(0, 50) }); });
 
   // 明文只在回环：127.0.0.1（失败照旧抛出，由守护者处理），::1 尽力而为（没有 IPv6 的机器跳过）

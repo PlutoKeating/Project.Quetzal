@@ -7,6 +7,8 @@ export interface Events {
   poke: [note: string];
   "reminders.changed": []; // 提醒有改动（本机）：网状层同步给其他身体
   "claims.changed": []; // 认领有改动（本机）：网状层同步给其他身体（mind/claims.ts）
+  "mcp.changed": []; // 「多端同步」的 MCP 来源有改动（本机）：网状层同步给其他身体（mcp/runtime.ts）
+  "plugins.changed": []; // MCP 来源的状态、插件、推荐变了：控制台据此刷新「插件」页（plugins 事件）
   "vault.changed": []; // 保密库有改动（本机）：网状层把「多端同步」的各项同步给其他身体（mind/secrets.ts）
   "reminders.missed": [r: { id: string; text: string; at: number }, lateMs: number]; // 错过太久、没有发出的提醒
   timeline: [entry: TimelineEntry];
