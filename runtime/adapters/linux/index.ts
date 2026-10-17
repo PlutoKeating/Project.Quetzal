@@ -1,12 +1,14 @@
 // Quetzal 身体适配器：任意 Linux 电脑或服务器（笔记本、小主机、树莓派、云主机）。
 // 由 npm 包 `@plutokeating/quetzal`（cli/）随运行基座一起安装；只依赖 body/adapter.ts 的类型定义（构建时擦除）。
-// 一切靠探测：电池、温度读 /sys；桌面工具（通知、播放、截图、剪贴板、相机、录音）有什么用什么，没有时工具报错而不崩溃。
+// 一切靠探测：电池、温度读 /sys；桌面工具（通知、播放、剪贴板、相机、录音）有什么用什么，没有时工具报错而不崩溃。
+// 手（看屏幕、点击、输入、打开应用）见 hands.ts：有桌面会话时才提供。
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import type { BodyAdapter, AdapterTool, RawSample } from "../../src/body/adapter.ts";
-import { run, start, have, first, readText, prettyName, pickBattery, pickThermal, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "./linux.ts";
+import { run, start, have, readText, prettyName, pickBattery, pickThermal, playerCommand, clipboardCommand, recordCommand } from "./linux.ts";
+import { createHands, sessionEnv } from "./hands.ts";
 import * as supervise from "./supervise.ts";
 import { upgrade, upgradeStatus } from "./upgrade.ts";
 
@@ -68,18 +70,6 @@ const tools: AdapterTool[] = [
     },
   },
   {
-    name: "screenshot", permission: "hands", description: "截取这台电脑当前的屏幕，返回图片路径（之后可以用 view_image 看）。",
-    parameters: obj({}),
-    handler: async () => {
-      if (!desktop()) return fail("这台电脑没有图形界面");
-      const f = media(`screen-${stamp()}.png`);
-      const c = screenshotCommand(f, wayland());
-      if (!c) return fail(`截图需要 ${wayland() ? "grim、gnome-screenshot 或 spectacle" : "scrot、gnome-screenshot、spectacle 或 ImageMagick"} 之一`);
-      const r = await run(c[0], c[1], 30_000);
-      return r.code === 0 && fs.existsSync(f) ? `已截图：${f}（${sizeKB(f)} KB）` : fail(`截图失败：${r.out.trim().slice(0, 200)}`);
-    },
-  },
-  {
     name: "clipboard", permission: "device", description: "读取（不给 text）或写入这台电脑的剪贴板。",
     parameters: obj({ text: { type: "string" } }),
     handler: async (a) => {
@@ -108,11 +98,13 @@ export function machineId(read: (f: string) => string | undefined = readText): s
   return undefined;
 }
 
+const hands = createHands(media);
+
 const adapter: BodyAdapter = {
   name: "linux",
   get describe() {
     const parts = [`一台运行 ${distro} 的 Linux ${battery ? "笔记本电脑" : "电脑"}`];
-    parts.push(desktop() ? "有桌面环境（能截图、看剪贴板、打开网页）" : "没有图形界面，像服务器一样一直开着");
+    parts.push(desktop() || sessionEnv() ? "有桌面环境（能看屏幕、操作应用、看剪贴板、打开网页）" : "没有图形界面，像服务器一样一直开着");
     const has = [camera && "摄像头", sound && "扬声器与麦克风"].filter(Boolean);
     if (has.length) parts.push(`有${has.join("、")}`);
     return parts.join("，");
@@ -164,7 +156,8 @@ const adapter: BodyAdapter = {
   upgrade, // 从控制台升级：后台重跑一键安装脚本（systemd-run 脱离服务的 cgroup）
   upgradeStatus, // 读 logs/upgrade.log：进行中、退出码、最后一步
   // speak 不提供：与 Termux 适配器一致，说话统一由运行基座的 voice_speak 完成
-  // hands：看屏幕与操作其他应用——只提供 screenshot 工具；点击与输入待做
+  // 手：探测到桌面会话（X11 / Wayland）时才有；没有图形界面的机器不出现 screen_* 工具
+  get hands() { return sessionEnv() ? hands : undefined; },
 };
 
 export default adapter;
