@@ -111,9 +111,9 @@ test("未声明的工具不能调用执行端口，模型请求中止后的晚�
   } });
   assert.equal(executed, 0); assert.equal(denied.samples[0].trace.tools[0].status, "denied");
   const late = await runResearchGroup({ task: "late-chat", samples: 1, limits: { ...limits, timeoutMs: 10 }, factory: () => {
-    const env = environment(); env.chat = async () => { await new Promise((r) => setTimeout(r, 30)); return response(); }; return env;
+    const env = environment(); env.chat = async () => { await new Promise((r) => setTimeout(r, 400)); return response(); }; return env; // 远晚于 10ms 的时限：机器负载高时也不会先于时限返回
   } });
   const snapshot = structuredClone(late);
-  await new Promise((r) => setTimeout(r, 35));
+  await new Promise((r) => setTimeout(r, 450));
   assert.deepEqual(late, snapshot); assert.equal(late.totals.reportedTokens, 0); assert.equal(late.totals.incompleteUsage, 1);
 });
