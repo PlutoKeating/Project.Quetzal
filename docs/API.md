@@ -64,6 +64,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `mesh` | 网状层状态（同 `mesh` 方法的返回），绑定进展、同步服务连接、各身体的连接与路径变化时推送 |
 | `account` | 账户的控制台登录状态（同 `account` 方法的返回）：申请码、批准、退出、令牌失效时推送 |
 | `replica` | `{table: messages｜sessions｜message.mode, from, convs}`：从其他身体复制来的对话或会话已写入本机（`convs` 为涉及的会话），控制台据此刷新会话列表与打开的对话。时间线条目照常经 `timeline` 推送（带 `body`） |
+| `canvas.changed` | `{doc, conv, kind: created｜edited｜meta｜deleted｜comment｜run｜replica, author?: agent｜user, version?, comment?, run?, from?}`：一份 canvas 变了（`replica` 为从其他身体复制来的）；控制台的 Canvas 面板据此刷新，`author` 为 `agent` 时 Canvas 按钮加角标（见 ARCHITECTURE §5.5） |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
 `activity` 的 `kind`：
@@ -154,6 +155,29 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `tools.read` | `{name}` | `{manifest, source, skill}`；只有技能文档没有本机实现时 `manifest` 为 `null` |
 | `tools.toggle` | `{name, enabled}` | 停用 / 启用（写入她的日记） |
 | `tools.delete` | `{name, skill?}` | 删除实现；`skill` 为真时连技能文档一起删（灵魂仓库历史可找回） |
+
+**Canvas（对话旁边的编辑区，见 ARCHITECTURE §5.5）**
+
+`CanvasView` = `{id, conv, title, kind: markdown｜code, lang, created, changed, deleted, body, version, versionId, versions, updated, author, size, open, content, threads, runs}`：`version` 为第几版（从 1 起）、`versionId` 为版本 id、`author` 为这一版的作者（`agent` 她 / `user` 对方）、`open` 为未解决的评论数；`threads` 为评论串 `[{id, author, ts, text, quote, start, end, version, prefix, suffix, resolved, changed, suggestion, at: {start, end, status: exact｜moved｜stale, line, endLine}, replies: [...]}]`（`at` 为按当前内容重新定位的位置，`stale` 为原文已改掉）；`runs` 为最近 5 次运行 `[{id, doc, version, ts, by, body, lang, code, out, err, images: [{name, size, mime}], ms, dir, note}]`。修改类操作写审计。
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `canvas.list` | `{conv?}` | 一个会话的 canvas（不给 `conv` 为全部，不含已删除的），最近修改的在前：`CanvasView` 去掉 `content` / `threads` / `runs` |
+| `canvas.get` | `{id, version?}` | 一份 canvas 的完整视图；`version` 为版本号或版本 id（缺省当前版本） |
+| `canvas.versions` | `{id}` | 版本历史 `[{n, id, ts, author, body, note, size}]`（第 1 版在前） |
+| `canvas.create` | `{conv, title?, kind?, lang?, content?}` | 对方新建一份（`lang` 的别名合一：py → python、js → javascript……；给了代码语言就是代码） |
+| `canvas.edit` | `{id, content, base?, note?}` | 对方保存：整体替换为 `content`，存为新版本 → `{canvas, conflict, changed}`。`base` 为编辑时基于的版本 id；当前版本已不是它（她刚改过）时照样保存为最新，`conflict` 为真（她的那版在历史里）；内容没变时 `changed` 为假、不生成新版本 |
+| `canvas.update` | `{id, title?, lang?, kind?}` | 改标题 / 语言 / 类型（按较新的修改同步给其他身体） |
+| `canvas.delete` | `{id}` | 删除（标记，同步给其他身体；她也看不到了） |
+| `canvas.restore` | `{id, version}` | 恢复到某一版：把它的内容存为一个新版本 |
+| `canvas.run` | `{id, version?, timeout?}` | 运行代码（Python / JavaScript / TypeScript / shell / PowerShell）：按「执行命令」类别过闸门（询问时生成审批、等批准；禁止或急停时报错），在与她的命令同一个沙箱里执行，写审计 → 一次运行的记录（见上）。`timeout` 为多少秒没有任何输出就结束（默认 60，最多 600），总时长 15 分钟；解释器不存在时不执行，`code` 为 127、`err` 写明原因 |
+| `canvas.runImage` | `{run, name}` | 一次运行生成的图片 `{mime, data}`（`data` 为 base64）；运行发生在别的身体上（图片不复制）时为 `null` |
+| `canvas.comment` | `{id, text, start?, end?, send?}` | 对方加评论：`start` / `end` 为当前版本里选中的范围（不给是评论整份文档）。`send` 缺省为真：作为对方的一条消息发给她（进对话，带被评论的片段、行号与评论 id）；为假时只留在面板里 → 评论串 |
+| `canvas.reply` | `{thread, text, send?}` | 回复一条评论（`thread` 为评论或其中一条回复的 id；已解决的随之重新打开）；`send` 同上 |
+| `canvas.resolve` | `{thread, resolved?}` | 标为已解决（缺省）/ 重新打开 |
+| `canvas.apply` | `{thread}` | 采纳她的编辑建议：把评论定位到的原文换成建议的文字（新版本），评论标为已解决；原文已改掉（过时）时报错 |
+
+她自己用工具操作（不是这些方法）：`canvas_create` / `canvas_read` / `canvas_edit` / `canvas_list` / `canvas_comment`（会话与子 agent 类别）与 `canvas_run`（执行命令类别）。
 
 **调节与安全**
 

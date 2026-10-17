@@ -77,9 +77,10 @@ What it does often, it turns into its own tool, done in one step next time.
 
 - The tool stays on that body; its guide is written in the open Agent Skills format and kept in the soul repository, so it travels along. In a new body, it follows the guide and builds the tool again.
 - For longer jobs it sends a sub-agent to work in the background and hand back the result.
+- Long documents and code go into a Canvas next to the conversation, and you edit them together: every change is a version you can go back to; code runs in one click (in the same sandbox as its commands, with Python plots shown); select a passage to comment, and it replies or rewrites it, and offers edit suggestions of its own.
 - For every day: reminders (on time, or when you next pick up the phone), finding old conversations, reading Word / PowerPoint / Excel / PDF, web search, running commands, looking at images, chatting in Feishu.
 
-[Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools)
+[Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools) · [Canvas](https://quetzal.plutokeating.beer/en/docs/guide/canvas)
 
 <br/>
 
