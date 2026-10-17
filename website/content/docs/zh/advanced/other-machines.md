@@ -5,7 +5,7 @@ description: 一台 Linux 电脑或服务器一行 curl 命令就能成为身体
 
 ## 适用场景
 
-手机是最合适的身体，笔记本、家里的小主机、树莓派、云服务器也都能跑运行基座。Linux 机器用第 1 节的一行命令安装；Windows 10（1809 起）与 Windows 11 电脑用一行 PowerShell 或安装包，见 [Windows](/docs/advanced/windows)；别的系统按第 4 节手动部署。
+手机是最合适的身体，笔记本、家里的小主机、树莓派、云服务器也都能跑运行基座。Linux 机器用第 1 节的一行命令安装；Windows 10（1809 起）与 Windows 11 电脑用一行 PowerShell 或安装包，见 [Windows](/docs/advanced/windows)；Mac 用和 Linux 同一条命令，见 [macOS](/docs/advanced/macos)；别的系统按第 4 节手动部署。
 
 ## 1. Linux：一行命令
 

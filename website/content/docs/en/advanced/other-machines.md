@@ -5,7 +5,7 @@ description: A Linux computer or server becomes a body with one curl command: de
 
 ## When this applies
 
-A phone is the best body, but a laptop, a small home server, a Raspberry Pi or a cloud VM can run the runtime too. Linux machines have a one-line installer (this page). Windows PCs are covered in [Windows](/docs/advanced/windows). Other systems follow section 4 by hand.
+A phone is the best body, but a laptop, a small home server, a Raspberry Pi or a cloud VM can run the runtime too. Linux machines have a one-line installer (this page). Windows PCs are covered in [Windows](/docs/advanced/windows). Macs use the same command as Linux; see [macOS](/docs/advanced/macos). Other systems follow section 4 by hand.
 
 ## 1. Linux: one command
 

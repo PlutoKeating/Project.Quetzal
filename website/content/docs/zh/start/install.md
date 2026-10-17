@@ -7,7 +7,7 @@ description: 在一台闲置的安卓手机上只装一个 Quetzal App，跟着�
 
 在安卓手机上只装一个 App。运行基座、Node.js、git、ssh 都在 Quetzal App 里，不需要 Termux，也不需要命令行。
 
-装在电脑上：Linux 电脑或服务器运行一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`，见 [Linux 与其他机器](/docs/advanced/other-machines)；Windows 10（1809 起）或 Windows 11 电脑（x64 或 arm64）在 PowerShell 里运行 `irm https://quetzal.plutokeating.beer/install.ps1 | iex`，也可以从 [下载页](/download) 下载安装包，见 [Windows](/docs/advanced/windows)。
+装在电脑上：Linux 电脑或服务器运行一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`，见 [Linux 与其他机器](/docs/advanced/other-machines)；Mac（macOS 12 起，Intel 或 Apple 芯片）在终端里运行同一条命令，见 [macOS](/docs/advanced/macos)；Windows 10（1809 起）或 Windows 11 电脑（x64 或 arm64）在 PowerShell 里运行 `irm https://quetzal.plutokeating.beer/install.ps1 | iex`，也可以从 [下载页](/download) 下载安装包，见 [Windows](/docs/advanced/windows)。
 
 ```mermaid
 flowchart TB
