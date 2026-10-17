@@ -43,6 +43,9 @@ import { kv } from './store.ts';
 import * as ws from './mind/workspace.ts';
 import { sentinelView, setSentinel } from './guard/sentinel.ts';
 import { canvasOps } from './mind/canvas-ops.ts';
+import { pluginOps } from './plugins/ops.ts';
+import { listSources } from './mcp/runtime.ts';
+import { pendingRecommendations } from './plugins/index.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -55,7 +58,13 @@ export const status = () => ({
   sandbox: sandboxStatus(), // agent 命令的沙箱：kind 为 bwrap / proot / none（none 时控制台应提示安装）
   reminders: reminderView(), // 她答应的提醒（首页显示接下来的几条）
   host: hostModes(), // 此刻处在真实环境里（命令不经沙箱）的会话：控制台据此显示警示条
+  plugins: pluginSummary(), // 插件：她推荐、等对方安装的个数，要登录或出错的 MCP 来源个数（控制台「插件」菜单上的角标）
 });
+
+const pluginSummary = () => {
+  const { sources } = listSources();
+  return { recommended: pendingRecommendations(), auth: sources.filter((s) => s.state === "auth").length, error: sources.filter((s) => s.state === "error").length, online: sources.filter((s) => s.state === "online").length };
+};
 
 /** 控制台看到的提醒：下一次的说法、是否重复、内容。 */
 const reminderView = () => reminders.active().slice(0, 20).map((r) => ({ id: r.id, text: r.text, at: r.at, when: r.span ? reminders.describe({ ...r, cron: undefined }) : reminders.when(r.at, r.tz), repeat: r.cron ? reminders.cronText(r.cron) : "" }));
@@ -89,6 +98,7 @@ const pick = <T extends object>(o: T, keys: string[]) => Object.fromEntries(Obje
 
 export const ops = {
   ...canvasOps, // Canvas：对话旁边的编辑区（文档 / 代码、版本、运行、评论），见 mind/canvas-ops.ts
+  ...pluginOps, // 插件与 MCP 来源（plugins/ops.ts）
   // 提醒：控制台只看与取消；设提醒是对她说（reminder 工具）
   reminders: () => reminderView(),
   "reminders.cancel": (a: { id: string }, actor: string) => { const r = reminders.cancel(String(a?.id ?? "")); audit(actor, "reminders.cancel", "", { id: r.id }, "ok"); return reminderView(); },

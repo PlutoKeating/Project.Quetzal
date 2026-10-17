@@ -13,6 +13,7 @@ import 'agents.dart';
 import 'setup.dart';
 import 'about.dart';
 import 'tools.dart';
+import 'plugins.dart';
 import 'sound.dart';
 import 'mesh.dart';
 import 'account.dart';
@@ -47,9 +48,10 @@ List<ControlItem> controlItems() {
     ControlItem('voice', 'main', Icons.graphic_eq, '声音', () => hearing['listening'] == true ? '在听' : '', () => const SoundPage()),
     ControlItem('feishu', 'main', Icons.send_outlined, '飞书', _none, () => const FeishuPage()),
     ControlItem('mesh', 'main', Icons.devices_outlined, '设备', _meshStatus, () => const MeshPage()),
-    ControlItem('more', 'end', Icons.tune, '高级', _none, () => const MorePage()),
+    ControlItem('more', 'end', Icons.tune, '高级', _none, () => const MorePage(), badge: _pluginBadge),
     ControlItem('about', 'end', Icons.info_outline, '关于', _none, () => const AboutPage()),
     ControlItem('tools', 'more', Icons.handyman_outlined, '工具', _none, () => const ToolsPage()),
+    ControlItem('plugins', 'more', Icons.extension_outlined, '插件', _pluginStatus, () => const PluginsPage(), badge: _pluginBadge),
     ControlItem('secrets', 'more', Icons.key_outlined, '保密库', _none, () => const SecretsPage()),
     ControlItem('budget', 'more', Icons.savings_outlined, '预算', _none, () => const BudgetPage()),
     ControlItem('soul', 'more', Icons.cloud_sync_outlined, '同步', _none, () => const SoulPage()),
@@ -70,6 +72,10 @@ ControlItem controlItem(String? id) {
   final k = _aliases[id] ?? id;
   return items.where((it) => it.id == k).firstOrNull ?? items.first;
 }
+
+/// 插件的角标：她推荐、等你安装的，加上要登录的工具来源（运行基座的 status.plugins；旧版没有就是 0）。
+int _pluginBadge() { final p = (api.status['plugins'] as Map?) ?? {}; return ((p['recommended'] as num?) ?? 0).toInt() + ((p['auth'] as num?) ?? 0).toInt(); }
+String _pluginStatus() { final n = (((api.status['plugins'] as Map?) ?? {})['online'] as num?)?.toInt() ?? 0; return n == 0 ? '' : '$n 个在用'; }
 
 String _meshStatus() {
   final m = (api.status['mesh'] as Map?) ?? {};
@@ -134,7 +140,7 @@ class MorePage extends StatelessWidget {
         body: ListView(children: [
           for (final it in controlItems().where((it) => it.group == 'more'))
             ListTile(
-              leading: Icon(it.icon),
+              leading: Badge(isLabelVisible: (it.badge?.call() ?? 0) > 0, label: Text('${it.badge?.call() ?? 0}'), child: Icon(it.icon)),
               title: Text(it.title),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => ShellScope.isDesktop(context) ? nav.go('control', id: it.id) : Navigator.push(context, MaterialPageRoute(builder: (_) => it.page())),

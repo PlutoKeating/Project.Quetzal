@@ -23,8 +23,8 @@ function stamp(): string {
   return parts.join("|");
 }
 
-/** JSON 密钥文件里的凭据字段（sync.json、sync-account.json、body.json、desktop-body.json 都只有 token 是凭据）。 */
-const CREDENTIAL_FIELDS = new Set(["token"]);
+/** JSON 密钥文件里的凭据字段（sync.json、sync-account.json、body.json、desktop-body.json 只有 token 是凭据；远程 MCP 的 OAuth 文件 mcp-oauth-*.json 里是令牌与客户端密钥，嵌在 tokens / client 下）。 */
+const CREDENTIAL_FIELDS = new Set(["token", "access_token", "refresh_token", "id_token", "client_secret"]);
 
 /** PEM 块（私钥等，-----BEGIN …----- 包着的 base64）：整段与正文的每一行。 */
 export function pemValues(text: string): string[] | undefined {
@@ -43,7 +43,14 @@ export function valuesOf(text: string): string[] {
     let j: unknown;
     try { j = JSON.parse(t); } catch { return [t]; } // 不是 JSON：整个内容
     const out: string[] = [];
-    if (j && typeof j === "object" && !Array.isArray(j)) for (const [k, v] of Object.entries(j)) if (CREDENTIAL_FIELDS.has(k) && typeof v === "string" && v.trim()) out.push(v.trim());
+    const walk = (o: unknown, depth: number) => {
+      if (!o || typeof o !== "object" || Array.isArray(o) || depth > 3) return;
+      for (const [k, v] of Object.entries(o)) {
+        if (CREDENTIAL_FIELDS.has(k) && typeof v === "string" && v.trim()) out.push(v.trim());
+        else if (v && typeof v === "object") walk(v, depth + 1);
+      }
+    };
+    walk(j, 0);
     return out;
   }
   return [t];

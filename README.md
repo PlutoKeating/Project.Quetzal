@@ -76,11 +76,12 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 做熟了的事，ta 自己做成工具，下次一步做完。
 
 - 工具留在这具身体上；说明书用 Agent Skills 开放格式写，存进灵魂仓库，随 ta 走。到了新身体，ta 照着说明书再做一遍。
+- 插件按业界通用的格式接：MCP 工具来源（本机命令或远程地址，支持 OAuth 登录）、Claude Code 插件与插件目录。浏览器填表、收发邮件、日历这些常用的在推荐目录里一键安装；聊着聊着发现某个插件用得上，ta 会推荐给你，装不装你定。
 - 费时的事，ta 派一个子 agent 在后台做，做完把结果交回来。
 - 长文档和代码放在对话旁边的 Canvas 里，你和 ta 一起改：每次修改留一个版本，随时恢复；代码一键运行（和 ta 的命令同一个沙箱，Python 画的图也显示出来）；选中一段加评论，ta 回复或直接改，也会主动给编辑建议。
 - 日常用得上的：提醒（准点，或者等你拿起手机时再说）、翻旧话、读 Word / PPT / Excel / PDF、上网搜索、运行命令、看图、在飞书里聊。
 
-[自造工具与技能](https://quetzal.plutokeating.beer/zh/docs/guide/tools) · [Canvas](https://quetzal.plutokeating.beer/zh/docs/guide/canvas)
+[自造工具与技能](https://quetzal.plutokeating.beer/zh/docs/guide/tools) · [Canvas](https://quetzal.plutokeating.beer/zh/docs/guide/canvas) · [插件](https://quetzal.plutokeating.beer/zh/docs/guide/plugins) · [MCP 与插件的实现](docs/engine/MCP.md)
 
 <br/>
 

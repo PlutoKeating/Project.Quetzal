@@ -4,7 +4,7 @@
 
 内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。
 
-执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。stdio MCP 客户端经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
+执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
 ```
 src/
@@ -44,7 +44,7 @@ src/
 ├── mind/
 │   ├── prompt.ts         政策、人格与处境提示；生产dynamic模式不固定注入常驻全文，兼容入口仍可用旧字符视图
 │   ├── context.ts        每轮工作状态/标签、动态记忆选择、实际模型窗口计划、稳定摘要与SQLite原文/历史过程/完整工具引用回查
-│   ├── fetch-guard.ts    web_fetch 的出站检查：每一跳解析 DNS、拒绝回环 / 私有 / 链路本地 / CGNAT / 元数据地址，连接时再查（防 DNS 重绑定），手动跟随重定向
+│   ├── fetch-guard.ts    web_fetch 的出站检查（远程 MCP 的 net.ts 复用它的地址检查与 guardedLookup）：每一跳解析 DNS、拒绝回环 / 私有 / 链路本地 / CGNAT / 元数据地址，连接时再查（防 DNS 重绑定），手动跟随重定向
 │   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（sentinel.ts 的 gate；一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write；审核结论附在结果末尾，未通过的理由作为 denied 结果交给她）；参数脱敏后才进审核、审批与审计；read_document / view_image 的真实路径检查；多具身体时读文件的工具（view_image、read_document、shell）多一个 body 参数，交给 body-files.ts；不按命令文字拦截，边界是 sandbox.ts；工具返回 ToolFailure（failed()）或抛错就是失败（命令非零退出、参数不对、那边出错），卡片红叉、上下文里写明失败；shell 的命令里有 ‹secret:…› 占位符就不执行；这一轮被停止时 shell 的命令随之结束；每次调用结束后触发灵魂目录的触碰即同步
 │   ├── claims.ts         认领（claim 工具）：几个会话避免同时做同一件对外的事；按名字字面比较、带说明与期限；存 kv；多具身体时由协调者决定（setClaimRouter），记录按条目合并；系统提示「其他会话」里列出
 │   ├── projects.ts       项目（#30）：名字、简介、项目说明（注入这个项目下会话的系统提示）、颜色与图标、归档；存 kv，删除留墓碑、只解除会话归属；多具身体时按条目合并（mesh/shared.ts 的 projects 分区）；project 工具与控制台共用
@@ -93,7 +93,7 @@ src/
 │   ├── coordinator.ts    协调者：交换候选条件（优先级、电源、启动时刻）选出持有心跳的身体；跟随者的心脏操作转给它，它异步广播心脏状态（最快2秒一次，接班沿用已收到快照，未广播更新不保证复制）；分区重连时合并
 │   ├── placement.ts      运行位置：各身体的概况（body.overview）、打分推荐、她在内省时选 where；在选中的身体上执行醒来（mind.wake）
 │   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call；调用方取消时经网状层的 cancel 中止：命令结束、审批撤销；带 cwd 时在那个工作区目录里执行，命令看出的工作目录以 workdir 交回）、把这里的文件交给别处带 body 的工具（file.read，经 mind/body-files.ts 的 lendFile；灵魂桥调用不到）、灵魂仓库身体登记里的 uuid（soulRegistry）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
-│   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键；guard 分区按 sanitizeSentinel 校验）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）；项目（projects 分区，按条目合并、删除留墓碑）
+│   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键；guard 分区按 sanitizeSentinel 校验）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）、保密库与多端同步的 MCP 来源（mcp 分区，按条目合并，不含凭据与令牌）；项目（projects 分区，按条目合并、删除留墓碑）
 │   ├── workspace.ts      工作区在网状层上：工作区复制（workspace.pull 补齐、workspace 事件实时）、body.workspace（工作区概况；带 dir 时核对目录）、agent.run / agent.status / agent.message / agent.stop（子 agent 在这具身体上执行）；连上时取回其他身体的概况、5 分钟刷新
 │   ├── channels.ts       通道：飞书只由指定的身体持有（其他身体的主动消息转过去）；几只耳朵同时听到同一句话只留一只（起止时间重叠且识别出同样的字才算同一句，不按相似度猜）；记下哪只耳朵听到的（voice_speak 从那里说）
 │   ├── node-key.ts       这具身体的节点密钥（灵魂同步写身体登记时用，不依赖整个网状层）
@@ -102,9 +102,17 @@ src/
 ├── guard/
 │   ├── guard.ts          能力授权（allow / review / ask / deny）、审批队列（ask：不看档位、直接生成审批，真实环境配置为人工时用它）、急停、审计；review 档位交给登记的审核者（setReviewer）
 │   └── sentinel.ts       安全审核：独立的审核模型（固定的审核系统提示，只送这一次操作：工具、类别、脱敏参数、她这一步的说明、对方最近一两句话、身体与是否真实环境；结论 allow / revise / block + 风险 + 理由）；按能力类别与工具语义的风险分类（classify，不看命令文字）；工具调用的闸门 gate；超时 / 失败策略；进入真实环境的审核 approveHost；审计 sentinel.review；控制台配置 sentinelView / setSentinel；旧缺省「询问」的一次性迁移 migrateReviewDefaults
-├── mcp/                  stdio MCP 宿主工具来源（配置、权限及隔离见 docs/engine/MCP.md）
-│   ├── client.ts         官方 SDK 协商、发现、稳定别名（带来源声明的只读 / 破坏性注解，供审核分类）、schema 校验、输出边界与调用取消
-│   └── runtime.ts        本机配置、启动授权、沙箱环境与凭据引用、连接及退出生命周期
+├── mcp/                  MCP 宿主工具来源（配置、权限、隔离与同步见 docs/engine/MCP.md）
+│   ├── client.ts         官方 SDK：stdio / Streamable HTTP / 旧版 SSE 传输、协商、工具发现与稳定别名（带来源声明的只读 / 破坏性注解，供审核分类；资源与提示词工具标为只读）、资源与提示词（以基座加的工具交给她）、schema 校验、输出边界与调用取消
+│   ├── runtime.ts        config/mcp.json 的校验与读写、启动授权（mcp_start.<id>）、沙箱环境与凭据引用、即时启停（reconcile）、来源状态、控制台管理（增删改、登录）、多端同步的导出与按条目合并（exportMcp / mergeMcp）
+│   ├── oauth.ts          MCP 授权规范的 OAuth 2.1：OAuthClientProvider（令牌存 secrets/mcp-oauth-<来源>.json）、开始登录、回调（state 一次有效，PKCE 校验值只在内存）
+│   └── net.ts            远程来源的出站检查：只收 HTTPS（回环例外，且只在来源本身是回环时）、DNS 检查与连接时再查，给 SDK 的 fetch
+├── plugins/              插件（见 docs/engine/MCP.md §6–8）
+│   ├── package.ts        插件包解析：Claude Code 插件（plugin.json、skills/、.mcp.json、commands/、agents/，hooks 不执行）、Agent Skills 目录、插件市场 marketplace.json；只读文件，不跟随符号链接
+│   ├── index.ts          取来源（本地目录复制、git 浅克隆）、预览与安装（技能写进灵魂仓库 skills/、MCP 来源加入配置、凭据进 secrets/）、更新与卸载、插件目录、她的推荐（plugins/installed.json）
+│   ├── catalog.ts        推荐目录：精选的知名 MCP 服务器（名称、用途关键词、安装方式、维护者、许可与来源）与按关键词查找
+│   ├── tools.ts          她的工具 plugin_search / plugin_recommend / plugin_prompt 与系统提示的「插件」一节
+│   └── ops.ts            网关方法 mcp.* 与 plugins.*（并入 ops.ts）
 ├── providers/
 │   ├── types.ts          统一消息/工具/结果类型
 │   ├── adapters.ts       四种协议的 HTTP 适配（流式 SSE；模型调用时间墙：90 秒无数据、180 秒无内容，没有绝对上限）

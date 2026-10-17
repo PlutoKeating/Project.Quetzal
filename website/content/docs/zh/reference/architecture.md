@@ -134,8 +134,8 @@ sequenceDiagram
 
 ## 工具扩展、MCP、沙箱与 TUI 交互
 
-- **工具汇聚（`mind/tools.ts`）**：`allTools()` 统一挂载内置工具、平台适配器工具、Agent 自造工具（实现在 `QUETZAL_HOME/tools/<name>`，Agent Skills 说明书在灵魂仓库 `skills/<name>/SKILL.md`）、跨身体工具（`body_call` / `move_to`）以及本机 **stdio MCP 工具**。
-- **本机 stdio MCP 客户端（`runtime/src/mcp/`）**：从本机 `config/mcp.json` 加载（不随灵魂或网状层同步），使用官方 `@modelcontextprotocol/client` 在单进程连接上自动协商协议版本，暴露为稳定别名 `mcp_<id>_<sha256前24位>`（名称冲突直接拒绝）。启动与每次工具调用分别经过 `mcp_start.<id>` 与 `mcp.<id>.<tool>` 双重闸门审批（默认均为询问），凭据只从 `secrets/mcp_*` 注入子进程，输出先经 `redactSecrets` 脱敏再截断。
+- **工具汇聚（`mind/tools.ts`）**：`allTools()` 统一挂载内置工具、平台适配器工具、Agent 自造工具（实现在 `QUETZAL_HOME/tools/<name>`，Agent Skills 说明书在灵魂仓库 `skills/<name>/SKILL.md`）、跨身体工具（`body_call` / `move_to`）、插件工具（`plugin_search` / `plugin_recommend` / `plugin_prompt`）以及已连接的 **MCP 来源**提供的工具、资源与提示词。
+- **MCP 客户端（`runtime/src/mcp/`）与插件（`runtime/src/plugins/`）**：来源配置在本机 `config/mcp.json`，支持本机 stdio 命令与远程 Streamable HTTP / 旧版 HTTP+SSE（远程地址只收 HTTPS，回环除外，每个请求都经出站检查）；远程服务要求登录时按 MCP 授权规范走 OAuth 2.1（发现、动态注册、PKCE，回调经网关本机回环 `/mcp/oauth/callback`，令牌存 `secrets/mcp-oauth-<id>.json`）。使用官方 `@modelcontextprotocol/client` 自动协商协议版本，工具暴露为稳定别名 `mcp_<id>_<sha256前24位>`（名称冲突直接拒绝），resources 与 prompts 以基座加的列出 / 读取 / 取用工具交给 Agent。启动与每次调用分别经过 `mcp_start.<id>` 与 `mcp.<id>.<tool>` 闸门（默认均为询问），凭据只从 `secrets/mcp_*` 注入，输出先经 `redactSecrets` 脱敏再截断。远程来源缺省经网状层多端同步（不含令牌与凭据），stdio 来源缺省仅本机。插件包兼容 Claude Code 插件格式（`.claude-plugin/plugin.json`、`skills/`、`.mcp.json`、`commands/`、`agents/`）、Agent Skills 目录与插件市场 `marketplace.json`，先预览再经控制台确认安装：技能文档写进灵魂仓库 `skills/`，MCP 来源加入配置，hooks 不执行。
 - **命令沙箱与真实环境（`sandbox.ts` / `host-mode.ts`）**：Agent 的命令、自造工具与 POSIX MCP 默认在操作系统沙箱（Linux `bwrap` / `landlock`、Android `proot`、Windows `srt-win`）中运行，遮蔽 `secrets/` 并锁定 `data/` 与 `soul/` 只读；会话级 `host_mode` 每次请求均需用户单独审批。
 - **本机终端 TUI（`cli/src/tui.ts`）**：`quetzal tui` / `quetzal chat` 作为零外部依赖的瘦客户端连接本机回环网关 `ws://127.0.0.1:7788/rpc`，与控制台共用同一个 Agent。所有输出经 `terminalText()` 剥离 ANSI 控制序列与双向控制符；会话进入 `pass_secret` 保密输入或断线时，TUI 立即静音回显并由 `TerminalInputQueue` 硬拦截一切普通文本，且断线超时绝不自动重发请求。
 

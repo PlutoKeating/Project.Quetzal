@@ -101,7 +101,7 @@ flutter build apk --release --target-platform android-arm64
 
 正式签名把密钥信息放在 `console/android/key.properties`（不入库，见 `build.gradle.kts`），没有时用 debug 签名。
 
-开发者可在 `QUETZAL_HOME/config/mcp.json` 配置本机 stdio MCP 工具来源；默认禁用，启用后启动与调用分别授权。配置、平台支持和隔离范围见 [MCP 文档](engine/MCP.md)。
+插件与 MCP 工具来源在控制台「控制 → 高级 → 插件」页管理（本机命令或远程 HTTPS 地址、OAuth 登录、推荐目录一键安装、Claude Code 插件与插件目录），配置写在 `QUETZAL_HOME/config/mcp.json`；启动与调用分别授权，缺省每次询问。配置、平台支持和隔离范围见 [MCP 文档](engine/MCP.md)。
 
 ## 5. 开发
 

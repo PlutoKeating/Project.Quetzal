@@ -1,6 +1,6 @@
 # MCP 工具来源与 TUI 客户端接入计划
 
-状态：2026-10-14 的分阶段设计。stdio MCP 与本机 TUI 第一切片已实施，实际范围以 [MCP 实现](MCP.md)、[CLI 文档](../../cli/docs/README.md) 和 [整合验证](FOLLOWUP.md) 为准。本文的 HTTP、动态来源刷新、完整结构化结果留存、远程 TUI 等仍属于待实施设计，不能据本文宣称已支持。
+状态：2026-10-14 的分阶段设计。stdio MCP 与本机 TUI 第一切片已实施；2026-10-17 起远程 Streamable HTTP / SSE、OAuth 2.1、resources / prompts 与插件包也已实施。实际范围以 [MCP 与插件](MCP.md)、[CLI 文档](../../cli/docs/README.md) 和 [整合验证](FOLLOWUP.md) 为准。本文的动态来源刷新、完整结构化结果留存、远程 TUI 等仍属于待实施设计，不能据本文宣称已支持；下文「不隐式 npx 下载执行」的约束仍成立：npx / uvx 只在对方从控制台显式安装（推荐目录或插件包，安装前列出命令）后才出现在配置里。
 
 ## 1. 已确认的边界
 

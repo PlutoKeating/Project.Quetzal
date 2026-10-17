@@ -37,7 +37,7 @@ export function blockedIp(ip: string): boolean {
 }
 
 /** 连接时用的 lookup：解析后检查，有不能访问的地址就报错。 */
-const guardedLookup: net.LookupFunction = (host, opts, cb) => {
+export const guardedLookup: net.LookupFunction = (host, opts, cb) => {
   dns.lookup(host, { ...(opts as dns.LookupOptions), all: true }, (err, addrs) => {
     if (err) return (cb as any)(err);
     const list = addrs as dns.LookupAddress[];

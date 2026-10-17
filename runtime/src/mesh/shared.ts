@@ -27,11 +27,12 @@ import { thought, mergeThought } from "../memory/memory.ts";
 import * as claims from "../mind/claims.ts";
 import { exportVault, mergeVault } from "../mind/secrets.ts";
 import * as projects from "../mind/projects.ts";
+import { exportMcp, mergeMcp } from "../mcp/runtime.ts";
 import { coordinator, isCoordinator } from "./coordinator.ts";
 import { log } from "../log.ts";
 
-const SECTIONS = [...SHARED_SECTIONS, "providers", "speechKey", "stop", "reminders", "thought", "claims", "vault", "projects"] as const;
-const MERGED = new Set(["stop", "reminders", "thought", "claims", "vault", "projects"]); // 按内容合并、不看修改时刻的分区
+const SECTIONS = [...SHARED_SECTIONS, "providers", "speechKey", "stop", "reminders", "thought", "claims", "vault", "projects", "mcp"] as const;
+const MERGED = new Set(["stop", "reminders", "thought", "claims", "vault", "projects", "mcp"]); // 按内容合并、不看修改时刻的分区
 type Section = (typeof SECTIONS)[number];
 const FUTURE_MS = 5 * 60_000;
 const BODY_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -108,11 +109,12 @@ function read(section: Section): unknown {
   if (section === "claims") return claims.all();
   if (section === "vault") return exportVault();
   if (section === "projects") return projects.all();
+  if (section === "mcp") return exportMcp(); // 多端同步的 MCP 来源（远程来源的地址与公开请求头；令牌与凭据值不在其中）
   return (config as any)[section];
 }
 
 // ---------- 与每具身体对齐设置的结果（控制台「设备」页显示：哪些设置采用了对方的、失败的原因）
-const LABEL: Record<string, string> = { vault: "保密库", projects: "项目", reminders: "提醒", thought: "想分享的一句话", claims: "认领", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", guard: "安全审核", stop: "急停" };
+const LABEL: Record<string, string> = { vault: "保密库", projects: "项目", mcp: "插件来源", reminders: "提醒", thought: "想分享的一句话", claims: "认领", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", guard: "安全审核", stop: "急停" };
 export interface AlignStatus { at: number; took: string[]; error?: string }
 const aligned = new Map<string, AlignStatus>();
 const note = (body: string, took: string[], error?: string) => {
@@ -138,6 +140,7 @@ function write(section: Section, value: any, from: string): boolean {
   else if (section === "claims") return claims.merge(value);
   else if (section === "vault") return mergeVault(value);
   else if (section === "projects") return projects.merge(value);
+  else if (section === "mcp") return mergeMcp(value);
   else {
     const clean = sanitizeSection(section, value);
     if (!clean) throw new Error("格式不对");
@@ -257,11 +260,13 @@ export function installShared(mesh: Mesh): () => void {
   const onClaims = () => onShared(["claims"]);
   const onVault = () => onShared(["vault"]);
   const onProjects = () => onShared(["projects"]);
+  const onMcp = () => onShared(["mcp"]);
   bus.on("shared", onShared);
   bus.on("reminders.changed", onReminders);
   bus.on("claims.changed", onClaims);
   bus.on("vault.changed", onVault);
   bus.on("projects.changed", onProjects);
+  bus.on("mcp.changed", onMcp);
   bus.on("approval", onApproval);
   bus.on("usage", onUsage);
   mesh.on("event", onEvent);
@@ -269,7 +274,7 @@ export function installShared(mesh: Mesh): () => void {
   setApprovalRouter((body, id, approve, note) => mesh.request<boolean>(body, "approval.decide", { id, approve, note }, 15_000));
   claims.setClaimRouter((op, req) => (isCoordinator() || !mesh.connected().includes(coordinator()) ? undefined : mesh.request<claims.ClaimResult>(coordinator(), "claims.op", { op, req }, 15_000)));
   return () => {
-    bus.off("shared", onShared as any); bus.off("reminders.changed", onReminders); bus.off("claims.changed", onClaims); bus.off("vault.changed", onVault); bus.off("projects.changed", onProjects); claims.setClaimRouter(undefined); bus.off("approval", onApproval as any); bus.off("usage", onUsage as any);
+    bus.off("shared", onShared as any); bus.off("reminders.changed", onReminders); bus.off("claims.changed", onClaims); bus.off("vault.changed", onVault); bus.off("projects.changed", onProjects); bus.off("mcp.changed", onMcp); claims.setClaimRouter(undefined); bus.off("approval", onApproval as any); bus.off("usage", onUsage as any);
     mesh.off("event", onEvent); mesh.off("peer", onPeer); setApprovalRouter(undefined); remote.clear();
   };
 }

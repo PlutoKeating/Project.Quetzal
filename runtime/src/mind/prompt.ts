@@ -17,6 +17,7 @@ import { recallBlock } from "../memory/retrieval.ts";
 import { listSecrets } from "./secrets.ts";
 import { hostActive, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
 import { listCustomTools, listSkills } from "./custom-tools.ts";
+import { pluginsBlock } from "../plugins/tools.ts";
 import { hearingStatus } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
 import * as zone from "../time/zone.ts";
@@ -171,6 +172,7 @@ ${(() => { const l = reminders.active(); return l.length ? `你答应对方的�
     ...((c) => (c ? [c] : []))(canvasBlock(o.conv)), // 这个会话的 canvas：小的给全文，大的给概要；对方改过的、未解决的评论、最近一次运行
     ...(othersBlock() ? [othersBlock()] : []),
     `## 技能与自造工具\n${skillsBlock()}`,
+    `## 插件\n${pluginsBlock()}`,
     `## 会话与子 agent\n${sessionBlock()}`,
     ...(hearingBlock() ? [hearingBlock()] : []),
     `## 内在状态

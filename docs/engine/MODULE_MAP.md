@@ -95,7 +95,7 @@ flowchart TD
 | 依赖 | 用途 |
 |---|---|
 | `ws` | WebSocket 网关 |
-| `@modelcontextprotocol/client`（2.3.1） | 宿主 stdio MCP 官方客户端；不进入 engine |
+| `@modelcontextprotocol/client`（2.3.1） | 宿主 MCP 官方客户端（stdio、Streamable HTTP、SSE、OAuth）；不进入 engine |
 | `@larksuiteoapi/node-sdk` | 飞书通道 |
 | `jpeg-js` | JPEG 图片处理兜底 |
 | `microsoft-cognitiveservices-speech-sdk` | Azure 流式识别 |
