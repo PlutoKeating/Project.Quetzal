@@ -1,5 +1,5 @@
 // 控制：首屏只放常用的几项（模型 · 权限 · 节律 · 声音 · 飞书 · 设备），其余收进「高级」，最后是「关于」。
-// 审批的理由按 Markdown 渲染；操作记录点开看完整参数与输出。性格参数、语音与听觉的细节由她自己调（adjust_self / voice_config / hearing_config），不放在这里。
+// 审批的理由按 Markdown 渲染；操作记录点开看完整参数与输出，可以只看安全审核的结论。权限页的档位与「安全审核」一节见 sentinel.dart。性格参数、语音与听觉的细节由她自己调（adjust_self / voice_config / hearing_config），不放在这里。
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +16,7 @@ import 'tools.dart';
 import 'sound.dart';
 import 'mesh.dart';
 import 'account.dart';
+import 'sentinel.dart';
 import '../platform/caps.dart';
 import '../links.dart';
 import '../zoom.dart';
@@ -243,14 +244,19 @@ class _PermissionsPageState extends State<PermissionsPage> {
         title: '权限',
         body: ListenableBuilder(listenable: api, builder: (context, _) => ListView(padding: const EdgeInsets.only(bottom: 24), children: [
           for (final a in api.approvals) Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 0), child: ApprovalCard(a as Map)),
+          const Padding(padding: EdgeInsets.fromLTRB(12, 8, 12, 0), child: SentinelSection()),
+          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: Text('审核：交给审核模型判断（不打扰你）· 允许：直接做 · 询问：每次等你批准 · 禁止', style: Theme.of(context).textTheme.bodySmall)),
           for (final p in perms)
             ListTile(
               title: Text('${p['label']}'),
-              trailing: SegmentedButton<String>(
-                showSelectedIcon: false,
-                segments: const [ButtonSegment(value: 'allow', label: Text('允许')), ButtonSegment(value: 'ask', label: Text('询问')), ButtonSegment(value: 'deny', label: Text('禁止'))],
-                selected: {p['level'] as String},
-                onSelectionChanged: (v) async { await act(context, () => api.call('setPermission', {'id': p['id'], 'level': v.first})); _load(); },
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: SegmentedButton<String>(
+                  showSelectedIcon: false,
+                  segments: [for (final e in permissionLevels.entries) ButtonSegment(value: e.key, label: Text(e.value))],
+                  selected: {p['level'] as String},
+                  onSelectionChanged: (v) async { await act(context, () => api.call('setPermission', {'id': p['id'], 'level': v.first})); _load(); },
+                ),
               ),
             ),
         ])),
@@ -300,27 +306,46 @@ class _BudgetPageState extends State<BudgetPage> {
 }
 
 // ---------------------------------------------------------------- 操作记录（审计）
-String _actor(Object? a) => a == 'agent' ? api.name : '$a';
+String _actor(Object? a) => a == 'agent' ? api.name : a == 'sentinel' ? '审核模型' : '$a';
 
-class AuditPage extends StatelessWidget {
+/// 操作记录：reviews 为真时只看安全审核的结论（审计 action 为 sentinel.review）。
+class AuditPage extends StatefulWidget {
   const AuditPage({super.key});
+  @override
+  State<AuditPage> createState() => _AuditPageState();
+}
+
+class _AuditPageState extends State<AuditPage> {
+  bool reviews = false;
+  late Future<List> rows = _fetch();
+  Future<List> _fetch() => api.call<List>('audit', {'limit': 200, if (reviews) 'action': 'sentinel.review'});
   @override
   Widget build(BuildContext context) => PageFrame(
         title: '操作记录',
-        body: FutureBuilder<List>(
-          future: api.call<List>('audit', {'limit': 200}),
-          builder: (_, s) => !s.hasData
-              ? Center(child: s.hasError ? Text('${s.error}') : const CircularProgressIndicator())
-              : ListView(children: [
-                  for (final a in s.data!)
-                    ListTile(
-                      dense: true,
-                      title: Text('${_actor(a['actor'])} · ${a['action']}'),
-                      subtitle: Text('${hm(a['ts'])}  ${plainPreview('${a['result'] ?? ''}')}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => _AuditDetail(a as Map))),
-                    ),
-                ]),
-        ),
+        body: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Align(alignment: Alignment.centerLeft, child: FilterChip(
+              label: const Text('只看安全审核'),
+              selected: reviews,
+              onSelected: (v) => setState(() { reviews = v; rows = _fetch(); }),
+            )),
+          ),
+          Expanded(child: FutureBuilder<List>(
+            future: rows,
+            builder: (_, s) => !s.hasData
+                ? Center(child: s.hasError ? Text('${s.error}') : const CircularProgressIndicator())
+                : ListView(children: [
+                    for (final a in s.data!)
+                      ListTile(
+                        dense: true,
+                        title: Text('${_actor(a['actor'])} · ${a['action']}'),
+                        subtitle: Text('${hm(a['ts'])}  ${reviewSummary(a as Map) ?? plainPreview('${a['result'] ?? ''}')}', maxLines: 2, overflow: TextOverflow.ellipsis),
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => _AuditDetail(a))),
+                      ),
+                  ]),
+          )),
+        ]),
       );
 }
 
