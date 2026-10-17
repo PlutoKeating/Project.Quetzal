@@ -3,7 +3,7 @@
 // 一切靠探测：电量与充电读 pmset，电池温度与容量读 ioreg（AppleSmartBattery），设备标识读 ioreg 的 IOPlatformUUID；
 // 通知（osascript）、截图（screencapture）、剪贴板（pbcopy / pbpaste）、打开（open）、播放（afplay）用系统自带的程序；
 // 拍照与录音按可用程序探测（imagesnap 或 ffmpeg 的 avfoundation；录音 ffmpeg 或 SoX），没有就报错说明，不崩溃。
-// hands（看屏幕、点击、输入、窗口）见 hands.ts；网络变化用 scutil 监听系统配置的变化键。
+// hands（看屏幕、读无障碍树、点击、输入、窗口；截图也在这里，核心统一提供 screen_* 工具）见 hands.ts：有图形登录会话时才提供。网络变化用 scutil 监听系统配置的变化键。
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,7 +33,7 @@ const sizeKB = (f: string) => Math.round(fs.statSync(f).size / 1024);
 const fail = (msg: string): never => { throw new Error(msg); };
 const noGui = () => fail("这台 Mac 现在没有人登录图形界面（只有 ssh 会话），没有屏幕、通知与剪贴板可用");
 
-export const hands = createHands({ mediaFile: media });
+export const hands = createHands({ mediaFile: media, gui: () => gui });
 
 const tools: AdapterTool[] = [
   {
@@ -58,15 +58,6 @@ const tools: AdapterTool[] = [
       if (!c) return fail("录音需要 ffmpeg 或 SoX（brew install ffmpeg）");
       const r = await run(c.cmd, c.args, (s + 15) * 1000);
       return r.code === 0 && fs.existsSync(f) && fs.statSync(f).size > 44 ? `已录制 ${s} 秒：${f}` : fail(`录音失败（没有麦克风，或没有授权：系统设置 › 隐私与安全性 › 麦克风 里允许 ${process.execPath}）`);
-    },
-  },
-  {
-    name: "screenshot", permission: "hands", description: "截取这台 Mac 的主显示器，返回图片路径（之后可以用 view_image 看）。图片已缩放到与点击坐标相同的尺寸（点）。",
-    parameters: obj({}),
-    handler: async () => {
-      if (!gui) return noGui();
-      const f = await hands.screenshot();
-      return `已截图：${f}（${sizeKB(f)} KB）`;
     },
   },
   {
@@ -161,7 +152,7 @@ const adapter: BodyAdapter = {
   },
   async stopAudio() { playing?.kill("SIGTERM"); playing = undefined; },
   tools,
-  hands, // 计算机使用：screenshot / elements / click / doubleClick / rightClick / longPress / drag / scroll / type / key / openApp / windows / focusWindow（另有现有接口的 describeScreen / tap / swipe）
+  get hands() { return gui ? hands : undefined; }, // 计算机使用（status / screenshot / snapshot / click / drag / scroll / type / key / openApp / windows / focusWindow）：只在有图形登录会话时提供
   supervision: { status: supervise.status, set: supervise.set }, // 守护开关：launchd 用户代理
   quit: () => supervise.quit(), // 托盘的「退出」：这一次不再拉起
   upgrade, // 从控制台升级：后台重跑一键安装脚本（脱离 launchd 代理的进程组）

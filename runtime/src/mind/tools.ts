@@ -604,10 +604,11 @@ function handsTools(): Tool[] {
   if (!h) return [];
   const p = "hands";
   return [
-    { name: "screen_describe", permission: p, description: "描述当前屏幕内容。", parameters: obj({}), handler: () => h.describeScreen() },
-    { name: "screen_tap", permission: p, description: "点击屏幕坐标。", parameters: obj({ x: { type: "number" }, y: { type: "number" } }, ["x", "y"]), handler: async (a) => { await h.tap(a.x, a.y); return "ok"; } },
+    // 过渡：与新的 Hands 接口对齐的最小版本（完整的 screen_* 工具由 mind/hands.ts 提供，合并时替换这里）
+    { name: "screen_describe", permission: p, description: "列出当前屏幕上的元素（角色、名称、坐标）。", parameters: obj({}), handler: async () => { const s = await h.snapshot(); return [`屏幕 ${s.width}×${s.height}${s.app ? `，前台 ${s.app}` : ""}${s.window ? `「${s.window}」` : ""}`, s.note ?? "", ...s.elements.map((e, i) => `[${i + 1}] ${e.role}${e.name ? ` 「${e.name}」` : ""} 中心 (${Math.round(e.x + e.w / 2)}, ${Math.round(e.y + e.h / 2)})`)].filter(Boolean).join("\n"); } },
+    { name: "screen_tap", permission: p, description: "点击屏幕坐标（截图像素）。", parameters: obj({ x: { type: "number" }, y: { type: "number" } }, ["x", "y"]), handler: async (a) => { await h.click({ x: a.x, y: a.y }); return "ok"; } },
     { name: "screen_type", permission: p, description: "在当前输入框输入文字。", parameters: obj({ text: str("文字") }, ["text"]), handler: async (a) => { await h.type(a.text); return "ok"; } },
-    { name: "app_open", permission: p, description: "打开应用。", parameters: obj({ id: str("应用包名") }, ["id"]), handler: async (a) => { await h.openApp(a.id); return "ok"; } },
+    { name: "app_open", permission: p, description: "打开应用。", parameters: obj({ id: str("应用名或应用 ID") }, ["id"]), handler: async (a) => h.openApp(a.id) },
   ];
 }
 

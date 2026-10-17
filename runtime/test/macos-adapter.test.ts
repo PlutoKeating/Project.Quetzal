@@ -116,8 +116,8 @@ test("升级：bash 在新会话里运行（脱离 launchd 代理的进程组）
 test("适配器的工具与 hands 方法齐全", async () => {
   const { default: adapter } = await import("../adapters/macos/index.ts");
   assert.equal(adapter.name, "macos");
-  assert.deepEqual(adapter.tools!.map((t) => t.name), ["take_photo", "record_audio", "screenshot", "clipboard", "open"]);
+  assert.deepEqual(adapter.tools!.map((t) => t.name), ["take_photo", "record_audio", "clipboard", "open"], "截图由核心的 screen_capture 经 hands 提供");
   const h = adapter.hands as unknown as Record<string, unknown>;
-  for (const m of ["screenshot", "describeScreen", "tap", "swipe", "type", "openApp", "elements", "click", "doubleClick", "rightClick", "longPress", "drag", "scroll", "key", "windows", "focusWindow"]) assert.equal(typeof h[m], "function", m);
+  for (const m of ["status", "screenshot", "snapshot", "click", "drag", "scroll", "type", "key", "openApp", "windows", "focusWindow"]) assert.equal(typeof h[m], "function", m);
   assert.ok(adapter.supervision && adapter.upgrade && adapter.upgradeStatus && adapter.onNetworkChange && adapter.deviceId);
 });
