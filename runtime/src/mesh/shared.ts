@@ -16,7 +16,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { textOf, type Mesh, type PeerStatus } from "./mesh.ts";
 import { bus, type Approval } from "../bus.ts";
-import { config, saveConfig, paths, defaults, SHARED_SECTIONS } from "../config.ts";
+import { config, saveConfig, paths, defaults, SHARED_SECTIONS, LEVELS, sanitizeSentinel, type Level } from "../config.ts";
 import { exportProviders, importProviders } from "../providers/registry.ts";
 import { speechKey, setSpeechKeyRemote } from "../voice/azure.ts";
 import { emergencyStop, releaseStop, stopScope, decide as decideLocal, approvals as localApprovals } from "../guard/guard.ts";
@@ -76,14 +76,15 @@ function applyStop(v: unknown, from: string): boolean {
 }
 
 // ---------- 设置分区的校验
-/** 只留认得的键、类型与缺省值一致的值（数字为有限的非负数，文字最长 500）；权限只收 allow / ask / deny。不合格返回 undefined。 */
+/** 只留认得的键、类型与缺省值一致的值（数字为有限的非负数，文字最长 500）；权限只收 allow / review / ask / deny；guard（审核模型）按 sanitizeSentinel。不合格返回 undefined。 */
 export function sanitizeSection(section: string, v: unknown): Record<string, unknown> | undefined {
   if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
   const out: Record<string, unknown> = {};
   if (section === "permissions") {
-    for (const [k, l] of Object.entries(v).slice(0, 100)) if (/^[a-z_]{1,40}$/.test(k) && (l === "allow" || l === "ask" || l === "deny")) out[k] = l;
+    for (const [k, l] of Object.entries(v).slice(0, 100)) if (/^[a-z_]{1,40}$/.test(k) && LEVELS.includes(l as Level)) out[k] = l;
     return out;
   }
+  if (section === "guard") return { sentinel: sanitizeSentinel((v as Record<string, unknown>).sentinel) };
   const def = (defaults as unknown as Record<string, Record<string, unknown>>)[section];
   if (!def || typeof def !== "object") return undefined;
   for (const [k, d] of Object.entries(def)) {
@@ -108,7 +109,7 @@ function read(section: Section): unknown {
 }
 
 // ---------- 与每具身体对齐设置的结果（控制台「设备」页显示：哪些设置采用了对方的、失败的原因）
-const LABEL: Record<string, string> = { vault: "保密库", reminders: "提醒", thought: "想分享的一句话", claims: "认领", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
+const LABEL: Record<string, string> = { vault: "保密库", reminders: "提醒", thought: "想分享的一句话", claims: "认领", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", guard: "安全审核", stop: "急停" };
 export interface AlignStatus { at: number; took: string[]; error?: string }
 const aligned = new Map<string, AlignStatus>();
 const note = (body: string, took: string[], error?: string) => {

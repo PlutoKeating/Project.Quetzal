@@ -10,7 +10,7 @@ process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-sessio
 const { loadConfig, saveConfig } = await import("../src/config.ts");
 loadConfig();
 // 本用例验证交互协议；自动学习另由生产学习集成测试覆盖。
-saveConfig({ brain: { memoryLearning: false, memorySemantic: false } });
+saveConfig({ brain: { memoryLearning: false, memorySemantic: false }, guard: { sentinel: { hostMode: "ask" } } } as never); // 真实环境的请求走人工审批：这里测「停止时不再等审批」
 const store = await import("../src/store.ts");
 store.openStore();
 const reg = await import("../src/providers/registry.ts");

@@ -149,15 +149,15 @@ test("工具的成功与失败按事实判断：命令非零退出是失败；�
   assert.match(ph.text, /占位符/);
 });
 
-test("闸门：自造工具至少和 shell 一样严；造工具缺省每次询问", async () => {
-  assert.equal(config.permissions.tool_write, "ask");
+test("闸门：自造工具至少和 shell 一样严；造工具缺省交给审核模型", async () => {
+  assert.equal(config.permissions.tool_write, "review");
   saveConfig({ permissions: { shell: "deny", network: "allow" } });
   assert.equal(strictest(["network", "shell"]), "shell");
   await ct.writeTool({ name: "net_thing", description: "x", runtime: process.platform === "win32" ? "ps1" : "sh", permission: "network", skill: "x", source: "'ran'" }, new Set());
   assert.equal((await callTool("net_thing", {}, "测试")).status, "denied", "声明 network 也放不过 shell=deny");
   saveConfig({ permissions: { shell: "allow", tool_write: "deny" } });
   assert.equal((await callTool("tool_write", { name: "zz", description: "x", runtime: process.platform === "win32" ? "ps1" : "sh", source: "'x'", skill: "x" }, "测试")).status, "denied");
-  saveConfig({ permissions: { tool_write: "ask" } });
+  saveConfig({ permissions: { tool_write: "review" } });
 });
 
 test("web_fetch：拒绝本机、内网、链路本地、CGNAT 与元数据地址，重定向每一跳都检查", async () => {

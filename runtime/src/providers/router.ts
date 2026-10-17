@@ -44,11 +44,12 @@ function forImages(req: ChatRequest, list: Route[]): { req: ChatRequest; list: R
   };
 }
 
-export async function chat(req: ChatRequest, opts: { quick?: boolean } = {}): Promise<ChatResult> {
+/** quick：快速模型排在最前（内省、摘要等轻量调用）；prefer：指定的模型 id 排在最前（例如配置里的审核模型），优先于 quick。其余照全局顺序作为故障转移。 */
+export async function chat(req: ChatRequest, opts: { quick?: boolean; prefer?: string } = {}): Promise<ChatResult> {
   let list = routes();
   ({ req, list } = forImages(req, list));
-  const quickId = loadProviders().quickModelId;
-  if (opts.quick && quickId) list = [...list.filter((r) => r.model.id === quickId), ...list.filter((r) => r.model.id !== quickId)];
+  const first = opts.prefer || (opts.quick ? loadProviders().quickModelId : undefined);
+  if (first) list = [...list.filter((r) => r.model.id === first), ...list.filter((r) => r.model.id !== first)];
   if (!list.length) throw new ProviderError("尚未配置可用的模型：请在控制台「模型」页添加供应商、Key 和模型", 0, true);
   const errors: string[] = [];
   const session = req.session ?? crypto.randomUUID();

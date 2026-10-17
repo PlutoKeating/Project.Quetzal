@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadConfig, config, paths } from "./config.ts";
 import { openStore, addTimeline, addMessage, ensureSession } from "./store.ts";
+import { migrateReviewDefaults } from "./guard/sentinel.ts";
 import { loadAdapter, startSenses, sample, adapter } from "./body/twin.ts";
 import { startHeart, isFollower, nudge } from "./heart/heart.ts";
 import { startReminders, when } from "./time/reminders.ts";
@@ -46,6 +47,7 @@ function crashGuard(): boolean {
 async function main() {
   loadConfig();
   openStore();
+  migrateReviewDefaults(); // 旧配置里缺省「询问」的类别改为交给审核模型（对方明确选过「询问」的保留；只做一次）
   restoreAgents(); // 上次还在跑的子 agent 已随进程消失，标为中断
   const safeMode = crashGuard();
   log("main", `运行基座 ${VERSION} 启动（身体：${config.body}，家目录：${paths.home}）${safeMode ? " —— 安全模式" : ""}`);

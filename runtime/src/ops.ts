@@ -38,6 +38,7 @@ import { confirmPersonalMemory, evolveMemory, learnEpisode } from './memory/prim
 import type { MemoryEpisode } from '../../engine/src/prime.ts';
 import { memoryKey } from '../../engine/src/memory.ts';
 import { kv } from './store.ts';
+import { sentinelView, setSentinel } from './guard/sentinel.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -82,7 +83,7 @@ export const ops = {
   status,
   timeline: (a: { limit?: number; before?: number; kind?: string }) => listTimeline(a.limit ?? 50, a.before, a.kind),
   messages: (a: { limit?: number }) => recentMessages(a.limit ?? 50),
-  audit: (a: { limit?: number }) => listAudit(a.limit ?? 100),
+  audit: (a: { limit?: number; action?: string }) => listAudit(a?.limit ?? 100, typeof a?.action === "string" && a.action ? { action: a.action } : {}), // action：只看某个动作，例如 sentinel.review（审核结论）
 
   // 会话：多个会话可同时进行；归档的会话可以找回；进行中的轮次可随时取回快照（断线、切到后台后恢复界面）
   sessions: (a: { archived?: boolean }) => listSessions({ archived: !!a.archived }),
@@ -127,6 +128,9 @@ export const ops = {
 
   permissions: () => Object.entries(guard.PERMISSION_LABELS).map(([id, label]) => ({ id, label, level: guard.level(id) })),
   setPermission: (a: { id: string; level: Level }, actor: string) => { guard.setLevel(a.id, a.level, actor); return true; },
+  // 独立审核模型（guard/sentinel.ts）：开关、模型、送审类别、失败策略、真实环境的请求交给谁；全网共用
+  sentinel: () => sentinelView(),
+  setSentinel: (a: Record<string, unknown>, actor: string) => setSentinel(a as never, actor),
   // 没有可用沙箱时是否允许她的命令不隔离运行（不安全；缺省不允许）。只有持网关令牌的控制台能改：没有沙箱时她的命令本来就不执行，碰不到网关
   "sandbox.allowUnsandboxed": (a: { allow: boolean }, actor: string) => {
     saveConfig({ sandbox: { allowUnsandboxed: a.allow === true } }); resetSandbox();

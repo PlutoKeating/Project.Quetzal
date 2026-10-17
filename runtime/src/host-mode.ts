@@ -1,7 +1,8 @@
 // 真实环境模式：某个会话里，她的 shell 命令不经沙箱，直接以基座进程的系统用户在主机上执行。
 //   为什么有它：沙箱刻意让她碰不到主机上的登录凭据（系统钥匙串经会话 D-Bus，Windows 上沙箱是另一个用户），
 //   所以对方在终端里 gh auth login 之后，沙箱里的 gh 仍然用不了。挂载凭据目录或放开 D-Bus 等于默认把整串钥匙交出去；
-//   这里改为由对方逐次决定：她带着理由请求（host_mode 工具，每次都生成审批，不受「允许」档位影响），或对方在控制台里自己打开。
+//   这里改为逐次决定：她带着理由请求（host_mode 工具，不受「允许」档位影响）——缺省由独立的审核模型判断（理由充分即放行，guard/sentinel.ts），
+//   guard.sentinel.hostMode 为 ask 时每次人工审批；或对方在控制台里自己打开。
 //   边界：
 //   - 按会话：只对开启它的那个对话会话生效（醒来思考、做梦、子 agent、其他身体经 body_call 调用的命令一律仍在沙箱里）；
 //     只在这具身体上：状态只在这个进程的内存里，不同步给其他身体。
@@ -11,10 +12,10 @@
 //   - 基座自己的环境变量（QUETZAL_*）与名字像令牌、密钥的环境变量不传给她的命令（sandbox.ts 的 hostEnv）；但这只是不主动交出——
 //     真实环境里她能读写这个系统用户能读写的一切，包括密钥目录、保密库与网关令牌。
 import fs from "node:fs";
-import { paths } from "./config.ts";
+import { paths, config } from "./config.ts";
 import { bus } from "./bus.ts";
 import { audit, addTimeline, getSession } from "./store.ts";
-import { ask } from "./guard/guard.ts";
+import { approveHost } from "./guard/sentinel.ts";
 import { listJobs, stopJob } from "./sh.ts";
 import { log } from "./log.ts";
 
@@ -47,7 +48,7 @@ export function touchHost(conv: string): AbortSignal | undefined {
   return e.ac.signal;
 }
 
-/** 进入真实环境。by：agent（对方批准了她的请求）或 user（对方自己打开）。急停中不能进入。 */
+/** 进入真实环境。by：agent（她的请求被批准：审核模型或对方）或 user（对方自己打开）。急停中不能进入。 */
 export function enterHost(conv: string, by: "agent" | "user", reason: string, actor: string): HostMode {
   if (!conv) throw new Error("真实环境只能在一个对话会话里打开");
   if (fs.existsSync(paths.stop)) throw new Error("急停中，不能进入真实环境");
@@ -78,7 +79,7 @@ export function exitHost(conv: string, actor: string, why = ""): boolean {
 
 export function exitAllHost(actor: string, why: string) { for (const conv of [...active.keys()]) exitHost(conv, actor, why); }
 
-/** 她请求进入：每次都生成审批（不看能力类别的档位），并发系统通知（App 在后台时也看得到）。返回给她的结果。 */
+/** 她请求进入（不看能力类别的档位）：缺省交给审核模型，配置为人工时生成审批并发系统通知（App 在后台时也看得到）。返回给她的结果。 */
 export async function requestHost(conv: string, reason: string, notify?: (text: string) => void): Promise<string> {
   if (hostActive(conv)) return "已经在真实环境里了：这个会话里的 shell 命令直接在主机上执行。做完了用 host_mode 的 exit 回到沙箱。";
   if (asking.has(conv)) return "这个会话里已经有一个进入真实环境的请求在等对方决定。";
@@ -86,11 +87,13 @@ export async function requestHost(conv: string, reason: string, notify?: (text: 
   if (!why) return "请求要写明理由：为什么沙箱里做不到、要在主机上做什么。";
   asking.add(conv);
   try {
-    notify?.(`请求进入真实环境：${why}`);
-    const ok = await ask("进入真实环境（命令不经沙箱）", why, { conv }, "host");
-    if (!ok) return "对方没有同意（或超时、急停），仍在沙箱里。不要设法绕过沙箱；告诉对方你需要什么，或者换个做法。";
-    if (!hostActive(conv)) enterHost(conv, "agent", why, "对方");
-    return `已进入真实环境：从现在起这个会话里的 shell 命令不经沙箱，以基座的系统用户直接在主机上执行，能读写对方能读写的一切。只做对方同意的事；做完了用 host_mode 的 exit 回到沙箱（${IDLE_MS / 60_000} 分钟没有命令、基座重启或急停也会自动回到沙箱）。`;
+    const human = config.guard.sentinel.hostMode === "ask" || !config.guard.sentinel.enabled;
+    notify?.(`${human ? "请求" : "审核模型正在判断是否"}进入真实环境：${why}`);
+    const r = await approveHost(conv, why);
+    if (!r.ok) return `${r.by === "human" ? "对方没有同意（或超时、急停）" : r.text}\n仍在沙箱里。不要设法绕过沙箱；告诉对方你需要什么，或者换个做法。`;
+    if (fs.existsSync(paths.stop)) return "急停中，不能进入真实环境。";
+    if (!hostActive(conv)) enterHost(conv, "agent", why, r.by === "human" ? "对方" : "审核模型");
+    return `已进入真实环境：从现在起这个会话里的 shell 命令不经沙箱，以基座的系统用户直接在主机上执行，能读写对方能读写的一切。只做这次理由里说的事；做完了用 host_mode 的 exit 回到沙箱（${IDLE_MS / 60_000} 分钟没有命令、基座重启或急停也会自动回到沙箱）。${config.guard.sentinel.enabled && config.guard.sentinel.classes.includes("host_shell") ? "真实环境里的每条命令仍会先由审核模型过一遍。" : ""}${r.note ? `\n${r.note}` : ""}`;
   } finally { asking.delete(conv); }
 }
 

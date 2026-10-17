@@ -111,10 +111,10 @@ export const views: Record<string, () => object> = {
   },
 
   permissions: () => card(`${who()} · 能力授权`, "yellow", [
-    md("她调用每一类能力前都会经过这里。「询问」会给你发审批卡片。"),
+    md("她调用每一类能力前都会经过这里。「审核」交给独立的审核模型判断，不打扰你；「询问」会给你发审批卡片。"),
     ...ops.permissions().flatMap((p) => [
       md(`**${p.label}**`),
-      row(...(["allow", "ask", "deny"] as const).map((l) => button({ allow: "允许", ask: "询问", deny: "禁止" }[l], { op: "setPermission", args: { id: p.id, level: l }, view: "permissions" }, p.level === l ? "primary_filled" : "default"))),
+      row(...(["allow", "review", "ask", "deny"] as const).map((l) => button({ allow: "允许", review: "审核", ask: "询问", deny: "禁止" }[l], { op: "setPermission", args: { id: p.id, level: l }, view: "permissions" }, p.level === l ? "primary_filled" : "default"))),
     ]),
     row(button("← 返回控制", { view: "control" })),
   ]),

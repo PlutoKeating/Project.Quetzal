@@ -13,7 +13,7 @@ process.env.QUETZAL_SANDBOX = "none"; // 「沙箱」这一侧用部署者允许
 process.env.MY_SERVICE_API_TOKEN = "host-token-passes-through"; // 主机上的令牌类环境变量原样传给真实环境里的命令
 const { loadConfig, saveConfig, paths } = await import("../src/config.ts");
 loadConfig();
-saveConfig({ sandbox: { allowUnsandboxed: true }, permissions: { shell: "allow" } } as never);
+saveConfig({ sandbox: { allowUnsandboxed: true }, permissions: { shell: "allow" }, guard: { sentinel: { enabled: false } } } as never); // 审核关着：请求进入每次人工审批（审核模型的路径见 sentinel.test.ts）
 const store = await import("../src/store.ts");
 store.openStore();
 const host = await import("../src/host-mode.ts");
@@ -58,7 +58,7 @@ test("对方在控制台打开：只对这个会话生效，命令不经沙箱�
   } finally { s.close(); other.close(); host.resetHost(); }
 });
 
-test("她请求进入：每次都要对方批准（即使执行命令是「允许」）；拒绝不进入；理由必填；只能在对话中；可以自己退出", async () => {
+test("审核关着（或配置为人工）时她请求进入：每次都要对方批准（即使执行命令是「允许」）；拒绝不进入；理由必填；只能在对话中；可以自己退出", async () => {
   const s = chat("h3");
   try {
     assert.match((await callTool("host_mode", { action: "request", reason: " " }, "测试", { session: s })).text, /要写明理由/);

@@ -1,9 +1,10 @@
-// 闸门：能力授权（允许 / 每次询问 / 禁止）、审批队列、急停、审计。
-// 普通工具调用经过 guard.check；相机、麦克风、定位、操作屏幕、造工具默认询问，其余默认允许（config.ts）。
+// 闸门：能力授权（允许 / 交给审核模型 / 每次询问 / 禁止）、审批队列、急停、审计。
+// 普通工具调用经过 guard.check（工具调用另经 sentinel.ts 的 gate：送审类别与审核结论反馈给她）；
+// 相机、麦克风、定位、操作屏幕、造工具默认交给审核模型，其余默认允许（config.ts）。急停优先于一切，审核不影响急停。
 // 每日预算由心脏调低自主醒来概率，这里不执行消费硬门禁；finish 由 brain.ts 的循环直接处理。
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { config, paths, saveConfig, markShared, type Level } from "../config.ts";
+import { config, paths, saveConfig, markShared, LEVELS, type Level } from "../config.ts";
 import { bus, type Approval } from "../bus.ts";
 import { audit, addTimeline } from "../store.ts";
 
@@ -26,9 +27,15 @@ export function level(permission: string): Level {
   return config.permissions[permission] ?? "allow";
 }
 export function setLevel(permission: string, l: Level, actor: string) {
+  if (!LEVELS.includes(l)) throw new Error(`档位只能是 ${LEVELS.join(" / ")}`);
   saveConfig({ permissions: { [permission]: l } });
   audit(actor, "permission.set", "", { permission, level: l }, "ok");
 }
+
+/** 「交给审核模型」档位的判断者（sentinel.ts 加载时登记，避免循环依赖）；没有登记时退回人工审批。 */
+export type Reviewer = (o: { permission: string; action: string; reason: string; args: unknown; signal?: AbortSignal }) => Promise<boolean>;
+let reviewer: Reviewer | undefined;
+export function setReviewer(r: Reviewer | undefined) { reviewer = r; }
 
 /** signal：这次调用被停止（这一轮停了、或别处调来的那一次被取消）时不再等批准，审批撤销、视为拒绝。 */
 export async function check(permission: string, action: string, reason: string, args: unknown, signal?: AbortSignal): Promise<boolean> {
@@ -36,6 +43,7 @@ export async function check(permission: string, action: string, reason: string, 
   const l = level(permission);
   if (l === "allow") return true;
   if (l === "deny") { audit("agent", action, reason, args, "denied: policy"); return false; }
+  if (l === "review" && reviewer) return reviewer({ permission, action, reason, args, signal });
   return ask(action, reason, args, undefined, signal);
 }
 

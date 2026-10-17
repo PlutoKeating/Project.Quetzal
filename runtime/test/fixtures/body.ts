@@ -7,6 +7,7 @@ const { loadConfig, saveConfig, paths } = cfg;
 loadConfig();
 // 网状协作协议夹具：不让后台记忆模型消费预设回复；学习闭环另有专项测试。
 saveConfig({ body: process.env.BODY, mesh: { priority: Number(process.env.PRIORITY ?? 0) }, brain: { memorySemantic: false, memoryLearning: false } });
+saveConfig({ guard: { sentinel: { enabled: false } } }, { remote: true }); // 这里的假模型按脚本回答，不当审核模型（审核另见 sentinel.test.ts）；不标记共享修改时刻
 const store = await import("../../src/store.ts");
 store.openStore();
 const { ensureBodyUuid, bodyUuid } = await import("../../src/body/uuid.ts");

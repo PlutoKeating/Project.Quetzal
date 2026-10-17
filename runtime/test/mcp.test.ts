@@ -12,6 +12,7 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-mcp-"));
 process.env.QUETZAL_HOME = home;
 const { loadConfig, saveConfig, paths } = await import("../src/config.ts");
 loadConfig();
+saveConfig({ guard: { sentinel: { enabled: false } } } as never); // 这里测档位本身；审核模型另见 sentinel.test.ts
 const { openStore, listAudit } = await import("../src/store.ts");
 openStore();
 const { parseServers, startMcp, closeMcp, launchFor } = await import("../src/mcp/runtime.ts");
