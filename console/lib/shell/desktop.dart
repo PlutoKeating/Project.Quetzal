@@ -15,6 +15,7 @@ import '../hearing.dart';
 import '../host_mode.dart';
 import '../platform/location.dart' as loc;
 import '../pages/agents.dart';
+import '../pages/canvas.dart';
 import '../pages/chat.dart';
 import '../pages/control.dart';
 import '../pages/flow.dart';
@@ -353,15 +354,16 @@ class _ChatPaneState extends State<_ChatPane> {
             final s = await act(context, () => api.call<Map>('sessions.create'));
             if (s != null) nav.go('chat', id: '${s['id']}');
           }),
+          CanvasButton(conv: widget.conv, size: 20),
           HostModeButton(conv: widget.conv, size: 20),
         ],
         body: Column(children: [
           HostModeBar(conv: widget.conv), // 标题栏下面、占满对话栏的宽度
-          Expanded(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 820), child: ChatView(
+          Expanded(child: CanvasSplit(conv: widget.conv, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 820), child: ChatView( // Canvas 开着时在右侧分栏（pages/canvas.dart）
             conv: widget.conv,
             onTitle: (t) { if (t != title && mounted) setState(() => title = t); },
             onSwitch: (to, t) => nav.go('chat', id: to),
-          )))),
+          ))))),
         ]),
       );
 }
