@@ -60,7 +60,7 @@ node --experimental-strip-types --test \
 | 会话摘要 / 交接 | 已实现模型主动工具；下一轮生效 | tools.session_compact / session_new |
 | 本轮自动压缩 / 统一 token 预算 | 未实现；窗口过长仍可能失败 | brain.loop、ProviderModel.context |
 | 向量 / embedding / 知识图谱 | 未实现；没有对应后端调用链 | memory 模块与 package 清单 |
-| 后台子 agent | 已实现；同进程、共享权限、maxSteps 为提示要求 | agents、brain.spawnAgent |
+| 后台子 agent | 已实现；同进程、共享权限、maxSteps 由宿主强制计数 | agents、brain.spawnAgent |
 | 任务检查点 / 重启继续执行 | 未实现；恢复元数据并标中断 | agents.restore、Session |
 | 消费硬门禁 | 未实现；每日预算只抑制自主率 | heart.inhibition、router.chat |
 | MCP 客户端 / 服务端 | 未实现 | 生产入口、工具注册、网关与依赖清单 |

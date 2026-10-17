@@ -536,7 +536,7 @@ const core: Tool[] = [
       name: str("名字（给它的称呼）"), goal: str("目标：要它做成什么、交付什么"),
       persona: str("人设（可选）：它是谁、什么风格、什么立场"), scope: str("领域范围（可选）：只管什么、不管什么"),
       background: str("知识背景（可选）：它应当预先知道的事实、约束、术语"), context: str("上下文（可选）：相关材料、路径、对方说过的话"),
-      maxSteps: { type: "number", description: "最多多少步（可选，缺省不限，由会话时间墙与急停兜底）" },
+      maxSteps: { type: "number", description: "最多多少步（可选，缺省不限，由会话时间墙与急停兜底；给了就强制：到了最后一步基座提醒它写报告，再多 2 步仍没写就停下）" },
     }, ["name", "goal"]),
     handler: async (a, ctx) => {
       const s = ctx.session;

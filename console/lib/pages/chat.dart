@@ -616,7 +616,7 @@ class _ChatViewState extends State<ChatView> {
       );
 
   /// 环境输入：不是对方发的消息，也不是她的话——居中、安静地显示，她的回应（如果有）紧随其后。
-  /// 通道决定图标：语音（麦克风听到的）、子agent（送回的报告）、摘要（session_compact）、交接（session_new）。她判断不是对她说的环境声音（mode 为 ignored）不显示。
+  /// 通道决定图标：语音（麦克风听到的）、子agent（送回的报告：默认折叠，只显示一句完成了）、摘要（session_compact）、交接（session_new）。她判断不是对她说的环境声音（mode 为 ignored）不显示。
   Widget _ambient(BuildContext context, Map m, ColorScheme cs) {
     if (m['mode'] == 'ignored') return const SizedBox.shrink();
     final ch = '${m['channel']}';
@@ -627,9 +627,11 @@ class _ChatViewState extends State<ChatView> {
       child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Icon(icon, size: 14, color: cs.outline),
         const SizedBox(width: 6),
-        Flexible(child: long
+        Flexible(child: ch == '子agent'
+            ? AgentReport('${m['text']}')
+            : long
             ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(ch == '子agent' ? '子 agent 的报告' : ch == '摘要' ? '上下文已压缩，摘要' : '交接', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
+                Text(ch == '摘要' ? '上下文已压缩，摘要' : '交接', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
                 RichMarkdown('${m['text']}'),
               ])
             : Text('${m['text']}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
@@ -671,6 +673,44 @@ class _ChatViewState extends State<ChatView> {
         if (t.live.isNotEmpty) Bubble(t.live, live: true),
         if (t.hint.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(t.hint, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
       ]);
+}
+
+/// 子 agent 送回的报告：默认只显示一句「子 agent X 完成了（结论）」，点开才看完整报告（报告往往很长，她自己仍读到全文）。
+class AgentReport extends StatefulWidget {
+  final String text;
+  const AgentReport(this.text, {super.key});
+  /// 报告的第一段（「子 agent「X」完成了任务（结论）。」或「……中断了：原因」）作为摘要，其余是正文。
+  static (String, String) split(String text) {
+    final i = text.indexOf('报告：');
+    if (i >= 0) return (text.substring(0, i).trim().replaceAll(RegExp(r'。$'), ''), text.substring(i + 3).trim());
+    final n = text.indexOf('\n');
+    return n < 0 ? (text.trim(), '') : (text.substring(0, n).trim(), text.substring(n + 1).trim());
+  }
+  @override
+  State<AgentReport> createState() => _AgentReportState();
+}
+
+class _AgentReportState extends State<AgentReport> {
+  bool open = false;
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final (head, body) = AgentReport.split(widget.text);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      InkWell(
+        onTap: body.isEmpty ? null : () => setState(() => open = !open),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Flexible(child: Text(head, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant))),
+          if (body.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            Text(open ? '收起报告' : '查看报告', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.primary)),
+            Icon(open ? Icons.expand_less : Icons.expand_more, size: 16, color: cs.primary),
+          ],
+        ]),
+      ),
+      if (open && body.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: RichMarkdown(body)),
+    ]);
+  }
 }
 
 /// 覆盖输入框的粘贴动作：attach 把剪贴板里的文件或图片加入了附件就返回 true；否则交回输入框原本的粘贴（callingAction）粘贴文字。

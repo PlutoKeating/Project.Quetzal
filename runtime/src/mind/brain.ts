@@ -87,7 +87,9 @@ function learnTurn(s: Session, input: string, reply: string, userSourceRef?: str
   timer.unref();
 }
 
-async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>) {
+/** limit：最多多少步（子 agent 的 maxSteps）。到了最后一步先提醒她写报告，再给 2 步收尾，仍没结束就停下。 */
+async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>, limit?: number) {
+  let n = 0;
   const context = createTurnContext(s.id, s.conv, messages);
   const tracked = learnedTurns.get(s) ?? { records: [], usedMemoryKeys: [], tags: [], phase: 'unknown' as const };
   learnedTurns.set(s, tracked);
@@ -99,10 +101,13 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
     chat,
     prepareContext: context.prepare,
     execute: (c) => callTool(c.name, c.args, reason, { session: s }),
-    drain: async (context) => { await drain(context, s); },
+    drain: async (context) => {
+      if (limit && n === limit) context.push({ role: "user", content: `（基座提醒，不是对方说的话：这是第 ${n} 步，到了派出时给的 ${limit} 步上限。现在就调用 finish，把已有的结论、依据和没做完的事写进报告。）` });
+      await drain(context, s);
+    },
     pending: () => !!(s.inbox.length || s.images.length),
     incoming: () => !!s.inbox.length,
-    check: () => { if (stopped()) throw new Error("急停中，已停下"); },
+    check: () => { if (stopped()) throw new Error("急停中，已停下"); if (limit && ++n > limit + 2) throw new Error(`到了 ${limit} 步上限仍没有写报告，已停下`); },
     interrupted: (e) => e instanceof Interrupted,
     stopToolWait: (reason) => reason instanceof Stopped,
     moved: () => s.movedTo ? { title: `换到 ${s.movedTo} 上继续`, journal: `这次醒来换到 ${s.movedTo} 上接着做。` } : undefined,
@@ -357,7 +362,7 @@ export async function summarizeConv(conv: string): Promise<string> {
 
 /** 子 agent 跑的工具循环：自己的系统提示、不能再派子 agent 或切会话；报告送回派出它的会话（环境输入，通道「子agent」）。 */
 export function spawnAgent(spec: agents.AgentSpec, parent: { conv: string; channel: string }) {
-  return agents.spawn(spec, parent, async (a, s, messages) => { const result = await loop(messages, `子 agent ${a.name}`, true, s, agents.AGENT_TOOLS); learnTurn(s, spec.goal, result.text || String(result.finish?.journal ?? '')); return result; },
+  return agents.spawn(spec, parent, async (a, s, messages) => { const result = await loop(messages, `子 agent ${a.name}`, true, s, agents.AGENT_TOOLS, a.maxSteps && a.maxSteps > 0 ? Math.floor(a.maxSteps) : undefined); learnTurn(s, spec.goal, result.text || String(result.finish?.journal ?? '')); return result; },
     (a, report) => converse("子agent", report, "子agent", { conv: a.parentConv, ambient: true }));
 }
 

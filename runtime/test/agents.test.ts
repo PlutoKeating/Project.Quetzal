@@ -151,3 +151,25 @@ test("子 agent：可以被停止", async () => {
   s.close();
   llm.close();
 });
+
+test("子 agent 的步数上限真正生效：最后一步提醒写报告，再多 2 步仍没写就停下，报告交代它最后做了什么", async () => {
+  const s = new Session("chat", "控制台", undefined, "lim");
+  store.ensureSession("lim", "步数上限");
+  let n = 0;
+  scripted = (j) => {
+    if (!/你是「打转」/.test(sysOf(j))) return { content: "沉默" };
+    n++;
+    return { content: null, tool_calls: [{ id: `l${n}`, type: "function", function: { name: "recent_actions", arguments: "{}" } }] }; // 一直调工具、从不 finish
+  };
+  const id = (await callTool("agent_spawn", { name: "打转", goal: "转圈", maxSteps: 2 }, "测试", { session: s })).text.match(/id (\w+)/)![1];
+  for (let i = 0; i < 60 && agents.get(id)!.status === "running"; i++) await sleep(100);
+  const a = agents.get(id)!;
+  assert.equal(a.status, "error");
+  assert.match(a.error!, /到了 2 步上限仍没有写报告/);
+  assert.equal(n, 4, "上限 2 步，再给 2 步收尾");
+  assert.ok(seen.some((j) => /你是「打转」/.test(sysOf(j)) && j.messages.some((m: any) => /到了派出时给的 2 步上限/.test(typeof m.content === "string" ? m.content : ""))), "最后一步提醒写报告");
+  await sleep(300);
+  const report = store.sessionMessages("lim").find((m) => m.channel === "子agent")!;
+  assert.match(report.text, /中断了：到了 2 步上限[\s\S]*它中断前做的事：recent_actions/);
+  s.close();
+});

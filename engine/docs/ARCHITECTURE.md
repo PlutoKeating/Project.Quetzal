@@ -26,7 +26,7 @@ FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供
 
 工具定义在入口快照，工具执行串行；finish 不调用普通工具端口，同一响应中 finish 后的其他工具仍执行。最终 text 只取终止步骤，空对话最多提醒两次。interrupt 保留部分文字；pending 输入或图片使循环继续。模型侧工具结果截取 12000 字符，简短步骤记录截取 1500，完整记录由宿主保存。失败与 denied 注入错误标记，同参数重复失败追加提醒。
 
-取消判定由宿主注入：现有普通 Stopped 能提前结束正在等待的工具，子 agent 的普通 Error 保持已有差异。工具本身的取消和副作用仍由宿主管理。执行循环不增加总步数、总消费或绝对时长上限；自动压缩由新增 ContextManager 与宿主 prepareContext／prepareForModel 接线实施，既有 maxSteps 提示词限制不变。
+取消判定由宿主注入：现有普通 Stopped 能提前结束正在等待的工具，子 agent 的普通 Error 保持已有差异。工具本身的取消和副作用仍由宿主管理。执行循环不增加总步数、总消费或绝对时长上限；自动压缩由新增 ContextManager 与宿主 prepareContext／prepareForModel 接线实施，子 agent 的 maxSteps 由宿主经 check／drain 端口计数，引擎不感知。
 
 模型类型由 engine 维护，`runtime/src/providers/types.ts` 重导出兼容旧导入路径，供应商配置、Key 与 ProviderError 留在 runtime。
 

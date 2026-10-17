@@ -63,7 +63,7 @@
 
 完成报告来自 `finish.journal`，没有 finish 则采用最后文字；报告作为父会话的 `ambient` / `子agent` 输入送回 `converse()`，可能触发主 agent 继续处理。`agent_message` 进入收件箱，`agent_status` 读取元数据和 live 过程，`agent_stop` 取消 Session。最近 50 条元数据持久化到 kv；重启时未完成任务标为错误“基座重启，未完成”，没有执行检查点恢复。
 
-`AgentSpec.maxSteps` 只写入提示词，循环没有按它计数终止。`SubAgent.steps` 完成时取工具记录数，与轮次 `step` 的模型调用次数并非同一种计数。
+`AgentSpec.maxSteps` 由宿主（`brain.ts` 的 `loop`）经 `check` 与 `drain` 端口计数：第 maxSteps 步前提醒写报告，超过 maxSteps + 2 步抛错停下；引擎循环本身仍不设步数上限。`SubAgent.steps` 完成时取工具记录数，与轮次 `step` 的模型调用次数并非同一种计数。
 
 ## 6. 心脏、感知与提醒
 
