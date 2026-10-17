@@ -61,7 +61,8 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * 身体接口：App 把手机的身体能力（电池、传感器、通知、相机、麦克风、定位、振动、手电、剪贴板、播放音频）提供给 App 内置的运行基座。
+ * 身体接口：App 把手机的身体能力（电池、传感器、通知、相机、麦克风、定位、振动、手电、剪贴板、播放音频，
+ * 以及用户开启无障碍服务后的「手」：读屏、点击、滑动、输入、全局动作、打开应用、截图，见 HandsService）提供给 App 内置的运行基座。
  *  - 只监听 127.0.0.1 的随机端口；每次启动生成 256 位随机令牌，与端口一起写进 QUETZAL_HOME/secrets/body.json（0600）。
  *    运行基座的安卓适配器（runtime/adapters/android/）读它；agent 的命令在 proot 沙箱里看不到密钥目录，绕不过闸门直接调用身体。
  *  - 极简 HTTP/1.1：一个请求一个连接（Connection: close），请求体 JSON，最大 64 KiB；令牌定长比较。
@@ -157,6 +158,17 @@ class BodyServer(private val ctx: Context, private val quetzalHome: File) {
         "POST /v1/network" -> 200 to network(a.optInt("seq", -1))
         "GET /v1/supervision" -> 200 to JSONObject().put("ok", true).put("enabled", RuntimeService.autostart(ctx))
         "POST /v1/supervision" -> { RuntimeService.setAutostart(ctx, a.optBoolean("enabled", true)); 200 to ok() }
+        // 手（HandsService：用户在系统设置里开启的无障碍服务）：读当前界面、点击、滑动、输入、全局动作、打开应用、截图
+        "GET /v1/hands" -> 200 to JSONObject().put("ok", true).put("enabled", HandsService.enabled(ctx)).put("connected", HandsService.instance != null).put("screenshot", Build.VERSION.SDK_INT >= 30)
+        "POST /v1/hands/snapshot" -> 200 to HandsService.require().snapshot(a.optInt("limit", 600).coerceIn(1, 2000))
+        "POST /v1/hands/screenshot" -> 200 to HandsService.require().screenshot(inside(a.getString("file")), a.optInt("maxEdge", 0))
+        "POST /v1/hands/click" -> { HandsService.require().click(a); 200 to ok() }
+        "POST /v1/hands/drag" -> { HandsService.require().drag(a); 200 to ok() }
+        "POST /v1/hands/scroll" -> { HandsService.require().scroll(a); 200 to ok() }
+        "POST /v1/hands/type" -> { HandsService.require().type(a); 200 to ok() }
+        "POST /v1/hands/key" -> { HandsService.require().key(a); 200 to ok() }
+        "POST /v1/hands/open" -> 200 to HandsService.require().open(a.getString("id"))
+        "GET /v1/hands/windows" -> 200 to HandsService.require().windowList()
         else -> 404 to err("没有这个接口")
     }
 

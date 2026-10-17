@@ -17,6 +17,7 @@ import 'sound.dart';
 import 'mesh.dart';
 import 'account.dart';
 import '../platform/caps.dart';
+import '../igniter.dart';
 import '../links.dart';
 import '../zoom.dart';
 
@@ -243,6 +244,7 @@ class _PermissionsPageState extends State<PermissionsPage> {
         title: '权限',
         body: ListenableBuilder(listenable: api, builder: (context, _) => ListView(padding: const EdgeInsets.only(bottom: 24), children: [
           for (final a in api.approvals) Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 0), child: ApprovalCard(a as Map)),
+          if (hasBody) const Padding(padding: EdgeInsets.fromLTRB(12, 8, 12, 0), child: HandsSetupCard()),
           for (final p in perms)
             ListTile(
               title: Text('${p['label']}'),
@@ -255,6 +257,47 @@ class _PermissionsPageState extends State<PermissionsPage> {
             ),
         ])),
       );
+}
+
+/// 手机上的「操作屏幕」：App 的无障碍服务要用户自己在系统设置里开启。这里说明用途、显示状态、带去系统设置；从设置回来时重新检查。
+class HandsSetupCard extends StatefulWidget {
+  const HandsSetupCard({super.key});
+  @override
+  State<HandsSetupCard> createState() => _HandsSetupCardState();
+}
+
+class _HandsSetupCardState extends State<HandsSetupCard> with WidgetsBindingObserver {
+  Map<String, bool> s = {};
+  @override
+  void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); _load(); }
+  @override
+  void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState st) { if (st == AppLifecycleState.resumed) _load(); }
+  Future<void> _load() async { final r = await Igniter.handsStatus(); if (mounted) setState(() => s = r); }
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
+    final on = s['connected'] == true, enabled = s['enabled'] == true, restricted = !on && s['restricted'] == true;
+    return Section('操作屏幕', trailing: Icon(on ? Icons.check_circle : Icons.circle_outlined, size: 18, color: on ? Colors.green : null), [
+      Text(on
+          ? '已开启：ta 可以看这台手机的屏幕、点击、滑动、输入和打开应用${s['screenshot'] == true ? '' : '（系统低于安卓 11，不能截图，只能读屏幕上的文字与按钮）'}。每一次仍按下面「操作屏幕与应用」的设置问你。'
+          : enabled
+              ? '系统设置里已经开启，但服务还没有连上：在无障碍设置里把「Quetzal 操作屏幕」关掉再打开一次。'
+              : '让 ta 替你操作手机：读屏幕上的文字与按钮、点击、滑动、输入、打开应用。需要你在系统设置的「无障碍」里开启「Quetzal 操作屏幕」。每一次操作仍按下面「操作屏幕与应用」的设置问你，并记进操作记录。'),
+      if (restricted) ...[
+        const SizedBox(height: 6),
+        Text('如果开关是灰的、点不开（安卓 13 起，不是从应用商店装的 App 会这样）：先点「应用信息」，在右上角菜单里选「允许受限设置」，再回来开启。', style: muted),
+      ],
+      const SizedBox(height: 8),
+      Wrap(spacing: 8, children: [
+        if (on) TextButton(onPressed: () => Igniter.openHandsSettings().catchError((_) {}), child: const Text('系统设置'))
+        else FilledButton(onPressed: () => Igniter.openHandsSettings().catchError((_) {}), child: const Text('去开启')),
+        if (restricted) TextButton(onPressed: () => Igniter.openAppDetails().catchError((_) {}), child: const Text('应用信息')),
+      ]),
+    ]);
+  }
 }
 
 // ---------------------------------------------------------------- 预算

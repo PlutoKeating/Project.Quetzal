@@ -20,7 +20,7 @@ import io.flutter.plugin.common.MethodChannel
 /**
  * 运行基座桥（MethodChannel quetzal/runtime）：App 内置的运行基座（RuntimeService，只装一个 App）——
  *  启动 / 重启 / 停止、状态、网关令牌（同一个 App 直接读家目录）、身体权限（相机、麦克风、定位、通知），
- *  系统的电池优化 / 各厂商自启动管理页（保活引导）。装过内置运行基座的，打开 App 时若服务没在运行就拉起（App 升级后系统会停掉它）。
+ *  系统的电池优化 / 各厂商自启动管理页（保活引导），手（无障碍服务 HandsService）的开启状态与系统设置入口。装过内置运行基座的，打开 App 时若服务没在运行就拉起（App 升级后系统会停掉它）。
  * 听觉桥（MethodChannel quetzal/hearing + EventChannel quetzal/hearing/events）：启停耳朵（HearingService）、麦克风权限、服务事件。
  * 更新桥（MethodChannel quetzal/updater）：App 自身的更新——自己的版本号、缓存目录、是否允许安装未知应用、打开对应设置页、
  *  用 FileProvider 把下载好的 APK 交给系统安装器（Dart 侧 updater.dart 负责问 GitHub、下载与校验）。
@@ -127,6 +127,10 @@ class MainActivity : FlutterActivity() {
                 }
                 "ignoringBattery" -> result.success((getSystemService(POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName))
                 "openAutostart" -> { openAutostart(); result.success(null) }
+                // 手（无障碍服务 HandsService）：是否开启、打开系统的无障碍设置；Android 13+ 侧载的 App 要先在应用详情里「允许受限设置」
+                "handsStatus" -> result.success(mapOf("enabled" to HandsService.enabled(this), "connected" to (HandsService.instance != null), "screenshot" to (Build.VERSION.SDK_INT >= 30), "restricted" to (Build.VERSION.SDK_INT >= 33)))
+                "openHandsSettings" -> { openHandsSettings(); result.success(null) }
+                "openAppDetails" -> { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))); result.success(null) }
                 else -> result.notImplemented()
             }
         }
@@ -163,6 +167,16 @@ class MainActivity : FlutterActivity() {
     } catch (e: Exception) { "核对失败：${e.message}" }
 
     private fun version(pkg: String): String? = try { packageManager.getPackageInfo(pkg, 0).versionName } catch (e: Exception) { null }
+
+    /** 无障碍设置：先试直达本服务的详情页（Android 11+ 多数系统支持），不行再打开无障碍列表。 */
+    private fun openHandsSettings() {
+        if (Build.VERSION.SDK_INT >= 30) try {
+            val direct = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+                .putExtra(Intent.EXTRA_COMPONENT_NAME, ComponentName(this, HandsService::class.java).flattenToString()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (packageManager.resolveActivity(direct, 0) != null) { startActivity(direct); return }
+        } catch (_: Exception) {}
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
 
     /** 各厂商的自启动 / 后台运行管理页（尽力而为），都打不开时退回本应用的详情页。 */
     private fun openAutostart() {
