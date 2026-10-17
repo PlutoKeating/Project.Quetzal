@@ -13,7 +13,7 @@ src/
 ├── platform.ts           平台差异：命令查找（Windows 按 PATHEXT）、结束整棵进程树（POSIX 进程组 / Windows taskkill /T）、只给本用户的目录权限（chmod / icacls）、遇到占用时重试的改名
 ├── ssh-key.ts            OpenSSH 格式的 ed25519 部署密钥（Node 内置 crypto 生成，不依赖 ssh-keygen）
 ├── mermaid.ts            Mermaid 的兜底渲染（网关 mermaid.render，单独打包为 mermaid.mjs）：beautiful-mermaid 画 SVG，整理成 flutter_svg 能显示的静态 SVG
-├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event / reminders.changed / claims.changed 等）
+├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event / reminders.changed / claims.changed / goals.changed / taskStates.changed / agents.changed / turns.changed 等）
 ├── store.ts              SQLite：kv、timeline、sessions、tool_calls（每次工具调用的完整参数与完整结果，只在本机，不复制；控制台点开卡片时经 tool.detail 取）、messages（会话、执行过程、附件、插话方式、写入它的身体 body、对方的话经哪具身体进来 via；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote：编号段与作者、实时只收对方自己的行、字段类型与长度、时间范围；段尾 2^24 不收，本机的下一个编号不会越段）；用量只收对方自己的行；1.0 前编号的一次性迁移
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时按「多久没有任何输出」计、输出上限，子进程不弹窗口；前台命令自成进程组，超时或停止时整组结束，脱离进程组的进程占着输出时 5 秒后不再等）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树；真实环境里的命令不经沙箱（hostScript），前台命令自成进程组，超时或退出真实环境时整棵结束
@@ -43,15 +43,18 @@ src/
 │   └── reminders.ts      一次性 / cron / 软提醒，kv 持久化与墓碑合并；由持心跳的身体触发，不经模型直接发送
 ├── mind/
 │   ├── prompt.ts         政策、人格与处境提示；生产dynamic模式不固定注入常驻全文，兼容入口仍可用旧字符视图
-│   ├── context.ts        每轮工作状态/标签、动态记忆选择、实际模型窗口计划、稳定摘要与SQLite原文/历史过程/完整工具引用回查
+│   ├── context.ts        每轮工作状态/标签（真正的会话的经 task-states.ts 记下、全网同步）、动态记忆选择、实际模型窗口计划、稳定摘要与SQLite原文/历史过程/完整工具引用回查
 │   ├── fetch-guard.ts    web_fetch 的出站检查：每一跳解析 DNS、拒绝回环 / 私有 / 链路本地 / CGNAT / 元数据地址，连接时再查（防 DNS 重绑定），手动跟随重定向
 │   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write）；参数脱敏后才进审批与审计；read_document / view_image 的真实路径检查；多具身体时读文件的工具（view_image、read_document、shell）多一个 body 参数，交给 body-files.ts；不按命令文字拦截，边界是 sandbox.ts；工具返回 ToolFailure（failed()）或抛错就是失败（命令非零退出、参数不对、那边出错），卡片红叉、上下文里写明失败；shell 的命令里有 ‹secret:…› 占位符就不执行；这一轮被停止时 shell 的命令随之结束；每次调用结束后触发灵魂目录的触碰即同步
 │   ├── claims.ts         认领（claim 工具）：几个会话避免同时做同一件对外的事；按名字字面比较、带说明与期限；存 kv；多具身体时由协调者决定（setClaimRouter），记录按条目合并；系统提示「其他会话」里列出
 │   ├── bodies.ts         其他身体的登记（多具身体时由 mesh/ 填入，带灵魂仓库登记的 uuid 与对方自报的 uuid）：工具表的 body_call / move_to 与系统提示的「其他身体」一节读它；可跨身体调用的内置工具名单
 │   ├── body-files.ts     身体参数：解析 body（uuid → 登记里的身体名 → 认证过的连接，核对自报一致、拒绝一个 uuid 对多具身体）；file.read 的两端（那边 lendFile：闸门、真实路径挡密钥目录与保密库、只交普通文件、64 MB、分段；这边 fetchFile：闸门、核对大小与 sha256、文件名清洗、落到 data/from-bodies/<身体>/）；两边记审计
-│   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话）
+│   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话）；记录带所在身体、epoch 与每 15 秒的检查点，按条目合并（sanitize / merge：先比 epoch 再比修改时刻），被别处接手或停止时这里那一份停下；从检查点续做（resume）；对在别的身体上跑的说话、停止经 setAgentRemote 转过去
+│   ├── goals.ts          长期目标（#23）：goal 工具（add / update / step_done / close / list）、步骤与进度、最近推进的时刻、关联的会话；一变就按进行中的数目更新心脏的牵挂；旧 open_loop 与 kv openLoops 的迁移；按条目合并（关闭的留 30 天作墓碑）；系统提示的「进行中的目标」、控制台视图
+│   ├── task-states.ts    每个会话的工作状态（task_state 的目标、约束、未决问题、阶段、标签）：一个会话一条，按会话后写胜合并，旧的 context.state.<会话> 照旧读
+│   ├── continuity.ts     续做（#11）：本机进展折叠成轮次检查点（turns），基座重启后从检查点续做本机没做完的轮次与子 agent（对话以「续做」的交接在原会话里接着做），谁续做的决定（decideTake / take，多具身体时经协调者），续做次数与时限
 │   ├── custom-tools.ts   自造工具：QUETZAL_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（一律在子进程里、经沙箱：stdin JSON + ARG_ 环境变量 / 子进程里加载 ES 模块，超时整组杀掉）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
-│   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
+│   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、按标识找本机开着的会话（sessionById）、被别处接手的停止原因（HandedOver）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
 │   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick），供附件与 view_image 使用
 │   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
 │   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务
@@ -62,7 +65,7 @@ src/
 ├── memory/
 │   ├── identity.ts       agent.json 的种子身份、读取与字段更新；称呼、颜色与语言来自数据
 │   ├── entries.ts        § 条目解析、序列化、条目级三方合并与文本合并；运行基座和灵魂桥共用的纯函数
-│   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头；写灵魂目录的进程内写锁（exclusive，与合并互斥）
+│   ├── memory.ts         灵魂目录：人格、§ 条目记忆、日记、笔记目录树、未完成念头的旧接口（交给 mind/goals.ts）；写灵魂目录的进程内写锁（exclusive，与合并互斥）
 │   ├── index.ts          SQLite FTS5 本地检索索引：对话增量补齐，笔记 / 日记 / 常驻条目按来源与哈希更新，时间过滤、BM25 排序与对话前后文
 │   ├── retrieval.ts      记忆检索宿主：收集文件、FTS5 / 降级路径及时间；纯分词、打分、摘录与字符预算选择调用根级 engine
 │   ├── structured.ts     notes/QuetzalMemory版本读写、来源/状态校验、scope与条件门禁、旧材料标注映射、归档回滚，原私有正文不脱敏
@@ -85,7 +88,8 @@ src/
 │   ├── coordinator.ts    协调者：交换候选条件（优先级、电源、启动时刻）选出持有心跳的身体；跟随者的心脏操作转给它，它异步广播心脏状态（最快2秒一次，接班沿用已收到快照，未广播更新不保证复制）；分区重连时合并
 │   ├── placement.ts      运行位置：各身体的概况（body.overview）、打分推荐、她在内省时选 where；在选中的身体上执行醒来（mind.wake）
 │   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call；调用方取消时经网状层的 cancel 中止：命令结束、审批撤销）、把这里的文件交给别处带 body 的工具（file.read，经 mind/body-files.ts 的 lendFile；灵魂桥调用不到）、灵魂仓库身体登记里的 uuid（soulRegistry）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
-│   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）
+│   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）；进行中的工作：长期目标、会话的工作状态、子 agent 的记录、轮次的检查点（goals / taskStates / agents / turns 分区，按条目合并）
+│   ├── continuity.ts     协调层的续做：work.take（谁续做由协调者决定，记录的身体还连着就不给别人）、离线交接（离线超过宽限的身体手上没做完的事由协调者接着做）、agent.message / agent.stop 转给子 agent 所在的身体
 │   ├── channels.ts       通道：飞书只由指定的身体持有（其他身体的主动消息转过去）；几只耳朵同时听到同一句话只留一只（起止时间重叠且识别出同样的字才算同一句，不按相似度猜）；记下哪只耳朵听到的（voice_speak 从那里说）
 │   ├── node-key.ts       这具身体的节点密钥（灵魂同步写身体登记时用，不依赖整个网状层）
 │   ├── account.ts        账户：控制台登录（身体令牌申请码 → 人在官网批准 → 账户令牌存 secrets/sync-account.json）与账户接口的代理；网关的 account.* 方法

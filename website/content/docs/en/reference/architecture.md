@@ -23,7 +23,7 @@ Design principles: **decoupled kernel and host** (`engine/` runs pure state and 
 | Quantity | Range | Dynamics |
 |---|---|---|
 | Curiosity / expression / longing | 0–1 | While awake each approaches 1 with its own time constant $\tau$ (defaults 3 / 6 / 10 h); asleep they grow at 30% speed |
-| Open loops | 0–1 | Unfinished thoughts / 5 |
+| Open loops | 0–1 | Long-term goals in progress / 5 (an unfinished thought is a goal without steps) |
 | Sleep pressure $S$ | 0–1 | Approaches 1 while awake ($\tau = 16$ h), with extra build-up from work; decays exponentially while asleep ($\tau = 4$ h) |
 | Circadian rhythm $C$ | 0–1 | $C = 0.5 + 0.5\cos\!\big(2\pi\,(h-16)/24\big)$, most alert at 4 pm; bright light at night $+0.1$, darkness by day $-0.1$ |
 | Sleepiness | | $S - C$; fall asleep above $0.35$, wake naturally below $-0.15$ while asleep |
@@ -111,7 +111,7 @@ Production conversations, waking thoughts, and dreams run in **dynamic context m
 
 **It sets the pace**: there is no step limit. Two progress-based idle walls stop a run that makes no progress (model call 90 s without data / 180 s without content, session 120 s without progress), and the emergency stop ends everything. Blank model steps trigger up to 2 base reminders, and repeating the exact same failing tool call ≥2 times appends a warning against blind retries.
 
-**Sessions & sub-agents**: conversations belong to sessions; one session is processed in order, different sessions in parallel and mutually visible (with `claim` coordination locks). A message sent while it works is an **interjection (`steer`)** by default, or can be **queued (`queue`)** or **interrupt (`interrupt`)**. Longer jobs can be delegated via `agent_spawn` to background sub-agents with isolated system prompts, reporting back as `ambient` input.
+**Sessions & sub-agents**: conversations belong to sessions; one session is processed in order, different sessions in parallel and mutually visible (with `claim` coordination locks). A message sent while it works is an **interjection (`steer`)** by default, or can be **queued (`queue`)** or **interrupt (`interrupt`)**. Longer jobs can be delegated via `agent_spawn` to background sub-agents with isolated system prompts, reporting back as `ambient` input. Ongoing turns and sub-agents write checkpoints; after a restart, or when the body doing the work goes offline, they continue from the checkpoint on this or another online body (the coordinator decides which, so only one body continues). Long-term goals (`goal`: steps, progress, last progress time) replace open loops and are shared by every body.
 
 ## Layered memory & the PRIME loop
 
