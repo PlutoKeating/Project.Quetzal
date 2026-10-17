@@ -12,7 +12,7 @@ Quetzal lets an AI agent move into an old phone or a computer. It remembers what
 - **Its soul travels with it.** Its personality, memory and journal live in your own private git repository and sync automatically. On a new device it is still itself. See [Soul sync](/docs/guide/soul-sync).
 - **Many bodies, one self.** Connect several phones and computers and they hold the same agent. It keeps one conversation and one heart across them, and picks which body to wake in. See [Multiple bodies](/docs/guide/multi-body).
 - **It grows.** It turns the things it does often into its own tools. Each tool's guide travels with the soul, and on a new body it builds the tool again from that guide. See [Its own tools and skills](/docs/guide/tools).
-- **You decide.** By default it asks you before it takes photos, records audio, reads its location or builds a tool. Passwords never reach the model, and you can press the emergency stop at any time. See [Permissions and safety](/docs/guide/permissions).
+- **You decide.** By default, risky actions such as taking photos, recording audio, reading its location, operating the screen or building a tool are first checked by a separate review model; you can switch any of them to asking you every time. Passwords never reach the model, and you can press the emergency stop at any time. See [Permissions and safety](/docs/guide/permissions).
 
 ## What it can do for you
 
@@ -23,7 +23,7 @@ It shows best in what only an agent that is always there and remembers you can d
 - **Files and images.** Word, PowerPoint, Excel, PDF, OpenDocument and EPUB: send one and it reads it. Photos and screenshots too.
 - **The web.** It searches the web and opens pages to read them in full.
 - **Getting things done.** It runs commands and background jobs on the phone or computer, and sends a sub-agent to work on longer jobs in the background.
-- **Eyes and ears.** On a phone it can take photos, record audio, check the location, vibrate, switch on the torch and use the clipboard; on a computer it can take photos, record audio, take screenshots and open files and URLs. Photos, recordings and location ask you first by default.
+- **Eyes and ears.** On a phone it can take photos, record audio, check the location, vibrate, switch on the torch and use the clipboard; on a computer it can take photos, record audio, take screenshots and open files and URLs. Photos, recordings and location go through the review model by default.
 - **Voice.** With hearing on, the phone or computer keeps listening and it decides whether you were talking to it; it can answer in its own voice. Hearing is off by default; where the sound goes is in [Hearing and the microphone](/docs/guide/hearing).
 - **It reaches out.** When something comes to mind while it is awake, it messages you with a notification, and through [Feishu](/docs/guide/feishu) if connected.
 - **Its own tools.** After doing the same thing a few times, it asks whether it may write it down as its own tool and do it in one step from then on.
