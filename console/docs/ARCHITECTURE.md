@@ -9,7 +9,7 @@ lib/
 ├── pins.dart          加密连接：网关证书指纹的钉住与配对时的捕获（Pins）、配对证明（PBKDF2，后台 isolate）、网关地址的写法（只填地址时别的机器用 https:7789）、旧的明文局域网档案的识别
 ├── links.dart         打开外部链接的唯一入口：只放行 https（http 只限本机回环地址）
 ├── zoom.dart          界面字号（原生桌面版）：MaterialApp 外层 MediaQuery 的 textScaler 乘上 80%–160%；Ctrl + = / + 放大、Ctrl + - 缩小、Ctrl + 0 还原（HardwareKeyboard 全局处理，输入框有焦点时也生效）；记在本机 shared_preferences 的 ui.scale
-├── igniter.dart       运行基座桥（MethodChannel quetzal/runtime）：App 内置运行基座的启动 / 重启 / 停止、状态、网关令牌、身体权限、电池优化 / 自启动管理页（安卓）
+├── igniter.dart       运行基座桥（MethodChannel quetzal/runtime）：App 内置运行基座的启动 / 重启 / 停止、状态、网关令牌、身体权限、电池优化 / 自启动管理页、手（无障碍服务）的状态与系统设置入口（安卓）
 ├── hearing.dart       听觉：跟随基座 status.hearing.listening 启停本机的耳朵（只对本机的 agent）——安卓是原生的麦克风前台服务（HearingService，MethodChannel quetzal/hearing），
 │                      桌面版是控制台进程里的 DesktopEar（platform/ear_io.dart）；耳朵开着时登记为播放器、播放 speak；权限、事件、界面上的一句话（网页版只跟着状态显示）
 ├── ear/               桌面版耳朵的纯 Dart 部分：pcm.dart（任意采样率 / 声道 → 16 kHz 单声道 20 ms 帧）、segmenter.dart（VAD 迟滞、前置 300 ms、单段 120 秒，与安卓同参数）
@@ -54,9 +54,10 @@ tool/
 └── gen-cjk-font.py    网页版的中文字体子集（web/fonts/）
 web/                   网页版的壳：index.html、manifest、图标、fonts/
 android/app/src/main/kotlin/xyz/quetzal/console/
-├── MainActivity.kt    Flutter 桥：运行基座（quetzal/runtime）、听觉（quetzal/hearing）、App 自身更新（quetzal/updater）
+├── MainActivity.kt    Flutter 桥：运行基座（quetzal/runtime，含手的 handsStatus / openHandsSettings / openAppDetails）、听觉（quetzal/hearing）、App 自身更新（quetzal/updater）
 ├── RuntimeService.kt  运行基座的前台服务（解开运行环境、复制运行基座、写设备配置、启动 node、退避重启、唤醒锁）与 BootReceiver（开机、App 升级后自启）
-├── BodyServer.kt      身体接口：127.0.0.1 随机端口 + 256 位令牌（写进 QUETZAL_HOME/secrets/body.json），电池、传感器、通知、拍照、录音、定位、振动、手电、剪贴板、播放
+├── BodyServer.kt      身体接口：127.0.0.1 随机端口 + 256 位令牌（写进 QUETZAL_HOME/secrets/body.json），电池、传感器、通知、拍照、录音、定位、振动、手电、剪贴板、播放，手（/v1/hands/…，转给 HandsService）
+├── HandsService.kt    手：无障碍服务（用户在系统设置 → 无障碍里开启「Quetzal 操作屏幕」，res/xml/hands_accessibility.xml）——按需读当前界面的节点树（不监听事件、不记录）、节点动作与手势（点击、长按、滑动）、输入（在光标处设值，不成时粘贴）、全局动作（返回、主页、最近任务、通知栏）、按显示名或包名打开应用、截图（Android 11+ takeScreenshot）
 ├── Rootfs.kt          解开 rootfs.tar（GNU tar；路径限定在目标目录内）、在前缀里建指向 nativeLibraryDir/lib*.so 的链接、$PREFIX/bin/sh → /system/bin/sh；删目录一律用不跟随符号链接的 deleteTree（旧版本运行基座目录里的 node_modules 链接指向网状层组件，跟随链接删会把它们删光）；发现 node_modules 被删空就重新解压
 └── HearingService.kt  耳朵：麦克风前台服务
 linux/                 Linux 桌面版的运行壳（flutter create 生成，改了：BINARY_NAME quetzal-console、APPLICATION_ID xyz.quetzal.console（GTK 以它作 Wayland app_id 与 X11 WM_CLASS，桌面项按它配图标）、窗口标题 Quetzal、1280×800、背景 #202020、图标名 xyz.quetzal.console；
@@ -168,7 +169,7 @@ flowchart TB
 | 控制 · 高级 · 同步 | 记忆的拉取 / 推送时间与立即同步、灵魂仓库（地址、钥匙方式：部署密钥 / 指定私钥 / 系统 ssh）、同步服务地址（留空用官方）、心跳优先级、让 Hermes / OpenClaw 接入的一句话。设备登录时这些都自动配好，只有自己部署才来 |
 | 控制 · 设备 | 账户入口；没登录时「登录」（申请到码就打开浏览器，显示核对表情、码、链接，扫码折叠）；设备列表（这台、其他设备的连接与路径、心跳在哪、公钥变了时「信任」）；这台设备退出登录。多台设备时：会话与对话来自所有设备（别处的回复标出「在 X 上」），心流标出发生在哪台，审批可以批准别处的请求，急停可选「所有身体」或「只停这具身体」 |
 | 控制 · 高级 · 保密库 | 你通过保密输入交给她的值：名字、说明、时间、来源通道与大小，不显示内容；删除（二次确认） |
-| 控制 · 权限 / 高级 · 操作记录 | 权限：待批准（理由 Markdown，参数折叠）在上，每类能力 允许 / 询问 / 禁止 在下；操作记录：列表一行预览（agent 显示为她的名字），点开看完整参数与输出 |
+| 控制 · 权限 / 高级 · 操作记录 | 权限：待批准（理由 Markdown，参数折叠）在上；安卓 App 上接着是「操作屏幕」卡片（无障碍服务开没开、说明用途、「去开启」直达系统设置；安卓 13+ 开关是灰的时引导到「应用信息 → 允许受限设置」；从设置回来自动刷新）；每类能力 允许 / 询问 / 禁止 在下；操作记录：列表一行预览（agent 显示为她的名字），点开看完整参数与输出 |
 | 控制 · 高级 · 运行 | 连接、版本、设备与适配器、命令沙箱、系统资源；守护开关（开机自启，退出后自动重启）；重启、重装（安卓，进安装向导的升级模式）、重新配对。升级在「关于」里一键完成 |
 | 控制 · 高级 · 字号 | 只在原生桌面版（Linux / Windows）出现：一根滑杆（80%–160%，每格 10%）与快捷键说明一行，不是 100% 时有「还原」；与 Ctrl + = / - / 0 改的是同一个值，记在本机，重开仍生效。安卓跟随系统字号，网页版用浏览器的缩放 |
 | 安装向导 | 一次只展开一步，完成的收成一行：① 安装（打开即开始；端口被旧版 Termux 安装占着时提示迁移）② 权限（装好自动弹系统请求）③ 后台运行（能检测已允许，可跳过）④ 登录（设备码，可跳过）⑤ 模型；装好后随时可点「开始」。电脑上只有 ④ 登录与 ⑤ 模型 |

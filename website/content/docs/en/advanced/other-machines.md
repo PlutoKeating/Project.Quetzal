@@ -98,7 +98,7 @@ Common commands (after the one-line install, `npx @plutokeating/quetzal` can be 
 
 ### What this body can sense
 
-The Linux adapter detects what the machine has. A laptop reports battery level and charging, and CPU temperature goes into extra. With a desktop session it can show notifications, play sound, take screenshots, read the clipboard and open URLs. With a camera and microphone it can take photos and record. On a headless server those tools report that they are unavailable. Details in [Adapter interface](/docs/reference/adapter-interface).
+The Linux adapter detects what the machine has. A laptop reports battery level and charging, and CPU temperature goes into extra. With a desktop session it can show notifications, play sound, see and operate the screen (see [Operating the screen](/docs/guide/screen)), read the clipboard and open URLs. With a camera and microphone it can take photos and record. On a headless server those tools report that they are unavailable. Details in [Adapter interface](/docs/reference/adapter-interface).
 
 ## 2. The web console: usable as soon as it is installed, no phone needed
 

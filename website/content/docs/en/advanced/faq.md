@@ -31,7 +31,7 @@ It can run commands, and **Run commands** is set to allow by default. Commands r
 
 ## Can it operate the phone screen and other apps?
 
-**Not yet.** The `hands` interface (see the screen, tap, type, open apps) is reserved but no adapter implements it. Its permission defaults to "ask".
+**Yes.** On an Android phone, turn on the app's accessibility service; on Linux and Windows, someone must be signed in to the desktop. The agent reads the buttons and text on the screen, falls back to a screenshot when it cannot, then taps, swipes, types and opens apps. Its permission defaults to "ask". See [Operating the screen](/docs/guide/screen).
 
 ## Can I use it without a computer?
 

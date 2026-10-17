@@ -72,7 +72,7 @@ It tells you it "entered safe mode" when the runtime started more than five time
 - Installation is blocked and there is no "Run anyway": the PC has Smart App Control on. The one-line command opens Windows Security → App & browser control → Smart App Control and asks you to turn it off, then continues. For a SmartScreen warning on an installer downloaded in a browser, click More info → Run anyway.
 - The agent's commands never run: the sandbox is not set up, for example because the administrator prompt during installation was declined. Run the installation again as the console says.
 - The agent does not run after a restart until someone signs in: the account lacks the "Log on as a batch job" right, so the boot task was not registered and only the sign-in task exists. The installation log says so.
-- The agent says "someone needs to sign in to the desktop": screenshots, notifications, the clipboard, opening web pages, playing sounds, taking photos and recording need someone signed in to Windows, with Quetzal in the tray.
+- The agent says "someone needs to sign in to the desktop": screenshots and screen control, notifications, the clipboard, opening web pages, playing sounds, taking photos and recording need someone signed in to Windows, with Quetzal in the tray.
 - Logs: `quetzal logs` (`home\logs\runtime.log`); `quetzal status` shows the version and the supervision tasks.
 
 More in [Windows](/docs/advanced/windows).

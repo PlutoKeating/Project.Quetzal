@@ -52,7 +52,8 @@ src/
 │   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话）
 │   ├── custom-tools.ts   自造工具：QUETZAL_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（一律在子进程里、经沙箱：stdin JSON + ARG_ 环境变量 / 子进程里加载 ES 模块，超时整组杀掉）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
-│   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick），供附件与 view_image 使用
+│   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick / 内置 jpeg-js，长边可指定），供附件、view_image 与截图使用
+│   ├── hands.ts          手（计算机使用）：把适配器的 Hands 包装成 screen_read / screen_capture / screen_click / screen_drag / screen_scroll / screen_type / screen_key / app_open / window_list / window_focus；读屏结果过滤、编号、排版，视图坐标（截图缩到长边 1280）与屏幕像素换算，按编号取元素中心与 ref，键名规范；全部归 hands 类别
 │   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
 │   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，固定顺序、拿到结果即止（相不相关由她判断）；没有结果时照实说明，被转到别的网站就写出是哪里
@@ -106,6 +107,15 @@ src/
     ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话；保密输入期间只回不含内容的回执）、主动消息（注明所在会话）、菜单与单聊事件、卡片回调、一键接入
     ├── feishu-progress.ts 执行过程卡片：按插话分段——插话那一刻上面的卡片定格，新的一段回复插话消息在下面重新开出；发送 / 更新经注入的 sender，可测试
     └── feishu-cards.ts   卡片 JSON 2.0：此刻 / 心流 / 记忆 / 控制 / 模型 / 权限 / 预算 / 审批 / 保密输入
+```
+
+平台级适配器（`adapters/`，与 `src/` 平级，只 `import type` 接口）里「手」的实现：
+
+```
+adapters/
+├── android/index.ts      经 App 身体接口的 /v1/hands/…（App 的无障碍服务 HandsService）；控件类名 → 通用角色、键 → 全局动作 / 输入框编辑
+├── linux/hands.ts        桌面会话环境探测；xdotool（X11）/ ydotool、wtype（Wayland）的命令拼装；AT-SPI 脚本（python3 + gi Atspi）与解析；wmctrl；.desktop 查找；截图命令
+└── windows/hands.ts      常驻 PowerShell 里的 C# 帮手（SendInput、DPI、虚拟屏幕偏移）；UI Automation 读屏与窗口列表脚本及解析；开始菜单应用；hands.* 操作表（身体助手 body.ts 共用）
 ```
 
 约定：

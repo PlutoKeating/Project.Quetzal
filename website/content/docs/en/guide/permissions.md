@@ -31,7 +31,7 @@ flowchart TB
 | Proactive messages | allow | Messaging you when it wakes on its own |
 | Adjust own parameters | allow | Bounded changes to its personality parameters and its voice and hearing settings |
 | Rewrite memory | allow | Edit personality and resident memory |
-| Screen and apps | **ask** | Reserved (hands) |
+| Screen and apps | **ask** | Reading the screen, screenshots, clicks, typing, keys, opening apps (see [Operating the screen](/docs/guide/screen)); not sandboxed |
 | Request secrets | allow | `pass_secret`, see [Passing secrets](/docs/guide/secrets) |
 | Sessions and subagents | allow | Start a new session, send a subagent to do a job |
 | Cross-body actions | allow | Use another device's camera or shell (`body_call`), move to another device to continue (`move_to`), view an image, read a document or fetch a file for a command from another device by its uuid (`view_image` / `read_document` / `shell` with `body`; the device handing out the file also checks its own "run commands" category) |

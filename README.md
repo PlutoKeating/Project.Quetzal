@@ -65,9 +65,10 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 
 - 传感器读数被翻译成感受：电量是精力，温度是冷暖，光线是昼夜，被拿起来是有人在。电量低时少动，发烫时休息。
 - 麦克风是耳朵，相机是眼睛。开了听觉，ta 自己判断你是不是在跟 ta 说话，也能用自己的声音回答。
+- 屏幕是手。ta 读得懂屏幕上的按钮和文字，读不到就截图看，能点击、滑动、输入、打开应用，手机和电脑上都行。
 - 每种设备经一个「适配器」接入。仓库自带安卓、Linux、Windows 三种；想接别的设备，实现一个小接口就行。
 
-[适配器接口](docs/API.md) · [自定义适配器](https://quetzal.plutokeating.beer/zh/docs/advanced/custom-adapter) · [听觉与麦克风](https://quetzal.plutokeating.beer/zh/docs/guide/hearing)
+[适配器接口](docs/API.md) · [自定义适配器](https://quetzal.plutokeating.beer/zh/docs/advanced/custom-adapter) · [听觉与麦克风](https://quetzal.plutokeating.beer/zh/docs/guide/hearing) · [操作屏幕](https://quetzal.plutokeating.beer/zh/docs/guide/screen)
 
 <br/>
 
@@ -88,7 +89,7 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 记忆在你自己的私有仓库里，每一句你都读得到。代码全部开源，每一行都能查。
 
 - **密码不进模型。** 你在聊天里发的密码直接进本机保密库，模型只看到一个名字。模型 Key 用 AES-256-GCM 加密存在设备上。
-- **先问你。** 拍照、录音、定位、造新工具，默认每次都问。每一类能力都能设为允许、询问或禁止。
+- **先问你。** 拍照、录音、定位、操作屏幕、造新工具，默认每次都问。每一类能力都能设为允许、询问或禁止。
 - **随时叫停。** 急停一直都在，工具调用有审计记录；每日 token 与花费预算用尽时减少自主醒来，目前不是强制停止模型调用的硬上限。
 - **沙箱。** ta 的命令在隔离环境里运行（Linux 上 bubblewrap、Landlock 或 proot，安卓上 proot，Windows 上是一个低权限用户），看不到密钥。
 - **只认你的设备。** 身体之间只认灵魂仓库里登记的公钥，同步服务被攻破也冒充不了你的设备。
