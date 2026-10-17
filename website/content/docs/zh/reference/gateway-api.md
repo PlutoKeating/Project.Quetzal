@@ -64,8 +64,11 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | 方法 | 参数 | 说明 |
 |---|---|---|
 | `chat.send` | `{text, conv?, turn?, attachments?, mode?}` | `mode`：`steer`（默认，插话）/ `queue` / `interrupt` |
-| `sessions` / `sessions.create` / `sessions.rename` / `sessions.archive` | … | 会话管理 |
-| `sessions.messages` | `{id, limit?, before?}` | 某会话的对话（含过程记录） |
+| `sessions` / `sessions.create` / `sessions.rename` / `sessions.archive` | … | 会话管理；`sessions` 可按通道、进行中、置顶、项目、时间筛选，按最近更新、创建时间、标题排序（置顶的总在最前） |
+| `sessions.pin` / `sessions.move` | `{id, pinned?}` / `{id, project}` | 置顶与取消；把会话归到项目或移出 |
+| `sessions.search` | `{query, limit?}` | 按标题与内容搜索会话，每个会话一条最好的命中（片段与高亮位置、消息 id） |
+| `sessions.messages` | `{id, limit?, before?, from?}` | 某会话的对话（含过程记录）；`from` 为消息 id 时从那条消息附近取起（定位搜索结果） |
+| `projects` / `projects.create` / `projects.update` / `projects.delete` | … | 项目：名字、简介、项目说明（注入这个项目下会话的系统提示）、颜色与图标、归档；删除不删会话，只解除归属 |
 | `sessions.live` | — | 进行中轮次的快照 |
 | `poke` | `{note?}` | 戳一下 |
 

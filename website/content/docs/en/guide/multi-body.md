@@ -9,7 +9,7 @@ description: Join several phones and computers into one agent with one conversat
 
 | Shared | What it means |
 |---|---|
-| One conversation | Sessions, conversations and the flow are the same on every body. Start a topic on the phone and keep reading it in the computer's console. Replies given on another body are marked "on X" |
+| One conversation | Sessions, conversations and the flow are the same on every body (so are pins, projects and which project a session belongs to). Start a topic on the phone and keep reading it in the computer's console. Replies given on another body are marked "on X" |
 | One heart | Only one body (the coordinator) decides when the agent wakes. What the other bodies sense (picked up, plugged in…) is passed to it |
 | It chooses where | On waking, the agent sees each body's battery, temperature and current work and where you last talked, and picks one body (or several at once) to think or dream on |
 | Using another body | While thinking on the computer it can take a photo with the phone or run a command on the server (`body_call`), or move the whole turn to another body (`move_to`). Photos, recordings and files made on the phone can be used on the computer too: when viewing an image, reading a document or running a command, the agent adds that body's uuid and the runtime fetches the file first (see "Using files on another body" below) |
