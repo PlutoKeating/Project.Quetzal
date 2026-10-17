@@ -38,6 +38,7 @@ import { confirmPersonalMemory, evolveMemory, learnEpisode } from './memory/prim
 import type { MemoryEpisode } from '../../engine/src/prime.ts';
 import { memoryKey } from '../../engine/src/memory.ts';
 import { kv } from './store.ts';
+import { canvasOps } from './mind/canvas-ops.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -56,6 +57,7 @@ export const status = () => ({
 const reminderView = () => reminders.active().slice(0, 20).map((r) => ({ id: r.id, text: r.text, at: r.at, when: r.span ? reminders.describe({ ...r, cron: undefined }) : reminders.when(r.at, r.tz), repeat: r.cron ? reminders.cronText(r.cron) : "" }));
 
 export const ops = {
+  ...canvasOps, // Canvas：对话旁边的编辑区（文档 / 代码、版本、运行、评论），见 mind/canvas-ops.ts
   // 提醒：控制台只看与取消；设提醒是对她说（reminder 工具）
   reminders: () => reminderView(),
   "reminders.cancel": (a: { id: string }, actor: string) => { const r = reminders.cancel(String(a?.id ?? "")); audit(actor, "reminders.cancel", "", { id: r.id }, "ok"); return reminderView(); },

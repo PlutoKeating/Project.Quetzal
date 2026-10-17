@@ -21,6 +21,7 @@ import * as agents from "./agents.ts";
 import * as zone from "../time/zone.ts";
 import * as reminders from "../time/reminders.ts";
 import * as claims from "./claims.ts";
+import { canvasBlock } from "./canvas.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
 
@@ -159,6 +160,7 @@ ${(() => { const l = reminders.active(); return l.length ? `你答应对方的�
     `## 想分享的一句话\n${(() => { const t = mem.thought(); return t ? `对方的首页正显示着你之前写下的：「${t.text}」（${new Date(t.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}）。想法变了就用 share_thought 更新。` : "你还没有写下想分享的话。它会一直显示在对方的首页上——当你有正在想、愿意和对方分享的一句话或议题时，用 share_thought 写下来（一句话，最好不超过 50 字）。"; })()}`,
     `## 保密库\n需要对方给你密码、令牌、密钥等敏感信息时，用 pass_secret 让对方保密输入，不要让对方直接发在对话里。存进来的值你看不到明文，只在命令里按路径引用（${process.platform === "win32" ? "(Get-Content -Raw 路径).Trim()" : "\"$(cat 路径)\" 或 < 路径"}），不要输出。${(() => { const l = listSecrets(); return l.length ? `现有：\n${l.map((x) => `- ${x.name}${x.hint ? `：${x.hint}` : ""}（${x.path}；${x.sync ? "多端同步" : "仅本机"}）`).join("\n")}` : "现在是空的。"; })()}`,
     hostBlock(o.conv),
+    ...((c) => (c ? [c] : []))(canvasBlock(o.conv)), // 这个会话的 canvas：小的给全文，大的给概要；对方改过的、未解决的评论、最近一次运行
     `## 身体\n${describeBody()}`,
     ...(othersBlock() ? [othersBlock()] : []),
     `## 技能与自造工具\n${skillsBlock()}`,

@@ -22,6 +22,7 @@ import { Mesh, filePins } from "./mesh.ts";
 import { startBinding, pollBinding, unbind as unbindRemote, serverOrigin, type Binding } from "./directory.ts";
 import type { Ndc } from "./link.ts";
 import { installReplica } from "./replica.ts";
+import { installCanvasReplica } from "./canvas.ts";
 
 const BINDING = () => path.join(paths.secrets, "sync.json");
 const PINS = () => path.join(paths.data, "mesh-pins.json"); // 钉住的各身体公钥与类型（TOFU，见 mesh.ts；不是秘密）
@@ -84,7 +85,7 @@ export async function startMesh() {
   mesh.on("reader", changed);
   mesh.on("event", (e: { from: string; name: string; data: unknown }) => bus.emit("mesh.event", e));
   const socialNow = () => { const d = snapshot().drives; return d.social >= 0.6 || d.expression >= 0.6; };
-  const parts = [installReplica(mesh), installPresence(mesh), installCoordinator(mesh), installPlacement(mesh, VERSION, socialNow), installLimbs(mesh), installShared(mesh), installChannels(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
+  const parts = [installReplica(mesh), installPresence(mesh), installCoordinator(mesh), installPlacement(mesh, VERSION, socialNow), installLimbs(mesh), installShared(mesh), installChannels(mesh), installCanvasReplica(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
   uninstall = () => parts.forEach((u) => u());
   mesh.start();
   changed();
