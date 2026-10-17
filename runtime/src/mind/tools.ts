@@ -40,6 +40,7 @@ import { evolveMemory } from '../memory/prime.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
 import type { MemoryRecord } from '../../../engine/src/memory.ts';
 import { mcpBindings, callMcp } from "../mcp/runtime.ts";
+import { pluginTools } from "../plugins/tools.ts";
 import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf, type RemoteBody } from "./bodies.ts";
 import * as claims from "./claims.ts";
@@ -659,7 +660,7 @@ function bodyTools(): Tool[] {
 const bodyOwn = (): Tool[] => [...(adapter.tools ?? []), ...handsTools(), ...customTools()].map((t) => ({ ...t, onBody: true }));
 export function allTools(): Tool[] {
   const multi = remoteBodies().length > 0;
-  const existing = [...(multi ? core.map((t) => (t.bodyFiles ? withBodyParam(t) : t)) : core), ...bodyOwn(), ...bodyTools()];
+  const existing = [...(multi ? core.map((t) => (t.bodyFiles ? withBodyParam(t) : t)) : core), ...bodyOwn(), ...bodyTools(), ...pluginTools()];
   return [...existing, ...mcpBindings().filter((t) => !existing.some((e) => e.name === t.name)).map((t): Tool => ({
     name: t.name, description: t.description, parameters: t.parameters,
     permission: `mcp.${t.source}.${t.name}`, handler: async (args, ctx) => {
