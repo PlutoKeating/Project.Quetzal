@@ -127,7 +127,7 @@ const core: Tool[] = [
   },
   {
     name: "memory", permission: "memory",
-    description: "管理常驻记忆（每次醒来都会看到）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限，但每次只展开与当前话题相关、较新的条目：这里放最核心、最常用的认识；细节和长内容用 note_save 放进笔记目录。",
+    description: "管理常驻记忆：你对自己与对方最核心、长期的认识（不是每一轮都固定出现：基座每一步按当前任务挑选相关的条目放进上下文，需要时用 recall 回查）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限，但每次只展开与当前话题相关、较新的条目：这里放最核心、最常用的认识；细节和长内容用 note_save 放进笔记目录。",
     parameters: obj({ action: { type: "string", enum: ["add", "replace", "remove"] }, target: { type: "string", enum: ["memory", "user"] }, content: str("新的完整条目"), old_text: str("用于定位旧条目的唯一子串") }, ["action", "target"]),
     handler: async (a) => mem.exclusive(() => mem.editMemory(a.target, a.action, a.content, a.old_text)),
   },
