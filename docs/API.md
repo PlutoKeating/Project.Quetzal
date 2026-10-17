@@ -53,7 +53,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `hello` | `{version, safeMode}`，连接建立时 |
 | `state` | 与 `status` 相同的完整状态（去抖 500ms） |
 | `timeline` | 新的时间线条目 `{id, ts, kind, title, detail}`（`kind` 含 `soul`：灵魂同步知觉） |
-| `approval` | 审批 `{id, action, reason, args, status, kind?}`（`kind: "host"` 为她请求进入真实环境，控制台据此放在那个对话的顶部） |
+| `approval` | 审批 `{id, action, reason, args, status, kind?}`（`kind: "host"` 为她请求进入真实环境、且配置为人工审批时，控制台据此放在那个对话的顶部）。只有「每次询问」档位与配置为人工的情况才有审批；「交给审核模型」的由审核模型判断，不生成审批（ARCHITECTURE §8.0） |
 | `say` | Quetzal 主动说的话（字符串）。推送时已入库：醒来时的主动消息在她选的会话或新开的会话里（通道「主动」），基座发的提醒在 `inbox`（「主动消息」）；推送里不带会话，控制台收到后刷新会话列表与打开的会话页 |
 | `activity` | 进展 `{session, conv, origin: chat｜think｜dream｜agent, channel, ts, body, kind, …}`：`session` 为这一轮，`conv` 为所属会话（醒来为空，子 agent 为派出它的会话），`body` 为这一轮在哪具身体上（多具身体时，其他身体上进行的轮次也经同一事件推送），见下表 |
 | `secret` | 保密输入（`pass_secret`）的状态 `{id, conv, channel, status: open｜progress｜done｜cancelled｜expired, purpose, items: [{name, hint}], got, spell, expires}`：`got` 为已收到（结束时为已保存）的项数，`spell` 为结束口令；永远不含值 |
@@ -90,12 +90,12 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | 方法 | 参数 | 返回 |
 |---|---|---|
 | `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox, reminders, host}`；`reminders` 同 `reminders` 方法；`host` 同 `host` 方法；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜landlock｜proot｜srt｜none, hidden[], readonly[], note, allowUnsandboxed}`（`srt`：Windows 的沙箱用户，见 ARCHITECTURE §8.1；`note` 写明她能写哪些目录）（`none` 时她的命令缺省一律不执行，`allowUnsandboxed` 为真时才不隔离执行；控制台应提示重新运行安装命令补上沙箱，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护（醒来结束的 `finish` 也可顺带更新），更新时推送 `state`；多具身体时全网共用（按 `ts` 后写胜），任一具身体上更新后，其他身体采用时同样推送 `state` |
-| `host` / `host.enter` / `host.exit` | — / `{conv}` / `{conv}` | 真实环境（ARCHITECTURE §8.2）：此刻开着真实环境的会话 `[{conv, title, since, last, by: agent｜user, reason, until}]`（`until` 为按空闲时限自动退出的时刻，每条真实环境命令往后推）；`host.enter` 对方在这个会话里自己打开（急停中报错），返回该项；`host.exit` 退出，返回原本是否开着。只属于这具身体、只在内存里（重启即清空）；进出写审计与时间线（`kind` 为 `host`），变化时推送 `state`。她的请求不是单独的接口：是一条 `approval`（`action` 为「进入真实环境（命令不经沙箱）」，`args.conv` 指明会话），用 `decide` 同意或拒绝 |
+| `host` / `host.enter` / `host.exit` | — / `{conv}` / `{conv}` | 真实环境（ARCHITECTURE §8.2）：此刻开着真实环境的会话 `[{conv, title, since, last, by: agent｜user, reason, until}]`（`until` 为按空闲时限自动退出的时刻，每条真实环境命令往后推）；`host.enter` 对方在这个会话里自己打开（急停中报错），返回该项；`host.exit` 退出，返回原本是否开着。只属于这具身体、只在内存里（重启即清空）；进出写审计与时间线（`kind` 为 `host`），变化时推送 `state`。她的请求不是单独的接口：缺省（`guard.sentinel.hostMode: "review"`）由审核模型判断，放行时 `host.enter` 审计的执行者为「审核模型」；配置为 `ask` 时是一条 `approval`（`action` 为「进入真实环境（命令不经沙箱）」，`args.conv` 指明会话），用 `decide` 同意或拒绝 |
 | `sandbox.allowUnsandboxed` | `{allow}` | 没有可用沙箱时是否允许她的命令不隔离执行（不安全；缺省不允许）。只属于这具身体，不随多具身体同步；返回新的 `sandbox` 状态，记审计 |
 | `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `place`（多具身体时，这次醒来选在了哪具身体上 `{kind, reason, intent, where}`）、`mesh`（网状层的事：绑定、心跳交接、安全提醒）、`hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份）、`session`（切到新会话 / 压缩了上下文）、`agent`（派出 / 完成 / 停止子 agent，完成的条目带 `journal`、`process`、`steps`）、`sandbox`（没有可用的沙箱，启动时提醒一次）、`host`（进入 / 退出真实环境 `{conv, reason?}`））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数、结果（最多 1500 字）与 `status`（ok / error / denied；1.9.0 之前的记录没有，控制台画成「结果未记录」） |
 | `tool.detail` | `{call}` | 一张工具卡片的完整记录 `{call, session, ts, tool, args, result, status, ms, body}`（`call` 为卡片的 `call`；`args` 里的保密值已替换，`result` 为完整结果）或 `null`。完整记录只存在做那一轮的身体上（本机数据库，不复制给其他身体、不进灵魂仓库）：本机没有就经网状层问连着的其他身体，`body` 为在哪具身体上执行的。1.9.3 之前的调用没有完整记录 |
 | `messages` | `{limit?}` | 全部会话里最近的对话（正序） |
-| `audit` | `{limit?}` | 审计记录 |
+| `audit` | `{limit?, action?}` | 审计记录（从新到旧）；`action` 只看某个动作，例如 `sentinel.review`（审核结论：`actor` 为 `sentinel`，`args` 为 `{tool, category, label, decision: allow｜revise｜block｜error｜stopped, risk, reason, model, ms, error?, policy?, args}`，`result` 为「结论: 理由」） |
 
 `heart` 字段：`mode`（awake / asleep / active）、`S`、`C`、`sleepiness`、`alertness`、`drives{curiosity, expression, social, openLoops}`、`unconsolidated`、`ratePerHour`、`inhibitors[]`、`lastReason`、`nextCandidateAt`、`personality`。
 
@@ -163,7 +163,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `pause` | `{paused}` |
 | `personality` | `{changes: {"tau.curiosity": 2, …}}`（有界） |
 | `stop` / `unstop` | `{reason?, scope?: all｜body}` / —（多具身体时急停缺省全网生效；`scope: "body"` 只停这具身体，别处的解除清不掉它） |
-| `permissions` / `setPermission` | — / `{id, level: allow｜ask｜deny}`（见 §3 `permissions.*`：「执行命令」为允许时，其他类别挡不住她） |
+| `permissions` / `setPermission` | — / `{id, level: allow｜review｜ask｜deny}`（`review` 交给审核模型；见 §3 `permissions.*`：「执行命令」为允许时，其他类别挡不住她；档位不认得时报错） |
+| `sentinel` / `setSentinel` | — / `{enabled?, model?, timeoutMs?, classes?, onFailure?, hostMode?}` | 安全审核（ARCHITECTURE §8.0）：`{config, classes: [{id, label, risk: low｜high}], models: [{id, label}]}`；`config` 同 §3 `guard.sentinel.*`，`classes` 为可选的风险类别，`models` 为可选的审核模型（模型页里启用的）。`setSentinel` 只改给出的键，类别只收认得的，范围外的值取缺省；全网共用，写审计 `sentinel.config`，返回新的同一结构 |
 | `approvals` / `decide` | — / `{id, approve, note?, body?}`（多具身体时含其他身体上等待批准的，带 `body`；批准转给那具身体处理。`body` 取审批列表里的那一项：给了就只找那具身体上的；不给而编号在几具身体上都有时不处理，返回 `false`） |
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |
@@ -316,7 +317,13 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日 token / 花费预算（多具身体时按全网合计）用尽后，自主醒来倍率乘以 0.05；不是模型调用的硬上限。最低电量与最高温度用于自主活动抑制和听觉状态判断 |
 | `channels.feishuHolder` | "" | 多具身体时持有飞书长连接的身体（全网共用）；空为这具身体自己连 |
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
-| `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` / `mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码）。一个工具按它所属类别中最严的一个检查：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；想真正收紧，先把 `shell` 改成 `ask`。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求每次都要对方同意 |
+| `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` 为 `review`，`mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权，四档：`allow` 允许、`review` 交给审核模型（ARCHITECTURE §8.0）、`ask` 每次询问（人工审批）、`deny` 禁止（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码）。一个工具按它所属类别中最严的一个检查（`deny` > `ask` > `review` > `allow`）：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；`allow` 之下的风险类别（真实环境命令等）另由审核模型把关（`guard.sentinel.classes`）。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求按 `guard.sentinel.hostMode` 交给审核模型或对方。旧配置里前五类为 `ask` 的，升级后第一次启动改为 `review`，审计里对方明确设为 `ask` 的保留 |
+| `guard.sentinel.enabled` | true | 安全审核开关。关掉时 `review` 档位退回人工审批，`allow` 之下的风险类别不再审核 |
+| `guard.sentinel.model` | ""（快速模型） | 审核用的模型：模型页里的模型 id；空为快速模型（quick 路由），其余照全局顺序作为故障转移 |
+| `guard.sentinel.timeoutMs` | 20000 | 一次审核最多等多久，范围 1000–120000 毫秒 |
+| `guard.sentinel.classes` | `host_shell`、`remote_exec`、`outbound`、`mcp_write`、`destructive`、`credentials`、`tool_write`、`hands` | `allow` 档位之下也送审的风险类别（按工具语义，不看命令文字）：真实环境里的命令、经 `body_call` 到别的身体执行命令、醒来时对外发消息、MCP 工具里来源没声明只读的、删除找不回的数据（`tool_delete`、MCP 声明破坏性的）、账号与凭据（`secret_sync`、带新密钥的 `voice_config`）、造工具、操作屏幕与应用；另有 `sandbox_shell`（沙箱里的普通命令，缺省不审） |
+| `guard.sentinel.onFailure` | `by_risk` | 审核超时或失败：`by_risk` 低风险类放行、高风险类拦下并说明；`allow` 一律放行；`block` 一律拦下；`ask` 转人工审批 |
+| `guard.sentinel.hostMode` | `review` | 她请求进入真实环境：`review` 交给审核模型（理由充分即放行），`ask` 每次人工审批 |
 | `permissions.mcp_start.<来源ID>` / `permissions.mcp.<来源ID>.<工具别名>` | 继承来源级 / 类别级，缺省 ask | MCP 进程启动与工具调用分别授权；来源配置与带点子类别属于本机，总类别 mcp / mcp_start 仍按现有权限分区共享；工具名映射与范围见 [MCP](engine/MCP.md) |
 | `brain.maxOutputTokens` | 4096 | 请求输出上限；实际候选还受模型 maxTokens 与窗口四分之一限制，生产步数仍不设硬上限 |
 | `brain.contextWindow` | 65536 | 模型没有有效 context 配置时的窗口缺省值；范围1024–2000000，实际候选按自己的 context 重算 |

@@ -88,7 +88,7 @@ What it does often, it turns into its own tool, done in one step next time.
 Its memory lives in your own private repository, every line readable by you. The code is open source, every line of it.
 
 - **Passwords never reach the model.** A password you send in the chat goes straight into a vault on the device; the model only sees its name. Model keys are stored encrypted with AES-256-GCM.
-- **It asks first.** Photos, recordings, location and new tools ask you every time by default. Every kind of capability can be set to allow, ask or deny.
+- **Risky actions get a second opinion.** Photos, recordings, location, new tools and commands in the real environment go to an independent review model first by default. It sees only that one action, not the agent's prompt or the whole conversation; if it says no, the agent gets the reason and tries another way, and you do not approve things one by one. Every kind of capability can be set to review, allow, ask (every time) or deny.
 - **Stop it any time.** The emergency stop is always there, everything it does is in the audit log, and daily tokens and spending have a cap.
 - **A sandbox.** Its commands run in an isolated space (bubblewrap, Landlock or proot on Linux, proot on Android, a low-privilege user on Windows) that hides your keys.
 - **Only your devices.** Bodies trust only the public keys registered in the soul repository, so even a compromised sync service cannot pose as one of your devices.
@@ -103,7 +103,7 @@ Who sees your data and what it can reach, all written down: [Trust and limits](h
 <img src="docs/assets/readme/architecture.en.svg" alt="Quetzal architecture: body → runtime (heart · brain · memory · model layer · gate) → soul repository and other bodies" width="100%" />
 
 - **Body**: a device plus its adapter, providing sensors, camera, microphone, notifications and a shell.
-- **Runtime** (Node.js 22, TypeScript): the heart decides when to wake; the brain is the loop that calls models and tools; memory handles search and tidying; the model layer talks to OpenAI, Anthropic, Gemini and compatible APIs, falling back to the next when one fails; the gate handles permissions, approvals, budget, the emergency stop and auditing.
+- **Runtime** (Node.js 22, TypeScript): the heart decides when to wake; the brain is the loop that calls models and tools; memory handles search and tidying; the model layer talks to OpenAI, Anthropic, Gemini and compatible APIs, falling back to the next when one fails; the gate handles permissions, safety review, approvals, budget, the emergency stop and auditing.
 - **Soul**: a private git repository, synced with an SSH deploy key, with a fixed, versioned layout.
 - **Console** (Flutter): the Android app (Node.js, git and ssh inside, the only thing to install), a web version and a Linux desktop version.
 

@@ -41,7 +41,8 @@ STOP                     急停标志：存在即冻结一切行动
 | `budget.dailyCostUsd` | `5` | 每日费用（美元） |
 | `budget.minBattery` | `15` | 最低电量（%） |
 | `budget.maxTempC` | `45` | 最高温度 |
-| `permissions.*` | `camera` / `microphone` / `location` / `hands` 为 `ask`，其余 `allow` | 能力授权 |
+| `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` 为 `review`（交给审核模型），`mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权：`allow` / `review` / `ask` / `deny` |
+| `guard.sentinel.*` | 开启；快速模型；20 秒；按风险处理失败；真实环境的请求交给审核模型 | 安全审核：`enabled`、`model`、`timeoutMs`、`classes`（「允许」之下也送审的风险类别）、`onFailure`、`hostMode` |
 | `brain.maxOutputTokens` | `4096` | 每次模型调用的输出上限（步数不设上限） |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |
 | `soul.remote` / `soul.branch` | `""` / `main` | 灵魂仓库 SSH 地址与分支 |

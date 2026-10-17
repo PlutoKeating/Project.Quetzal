@@ -30,7 +30,7 @@ Guides use the open [Agent Skills](https://agentskills.io/specification) format,
 
 ## What you control
 
-- **By default it asks you every time before it makes a tool.** A tool is code that will run later, so creating or rewriting one waits for your approval. You can change this to allow or deny under **Control → Permissions**.
+- **By default every tool it makes is reviewed first.** A tool is code that will run later, so creating or rewriting one goes to an independent review model, and if it says no, the agent gets the reason. You can change this to allow, ask (wait for your approval every time) or deny under **Control → Permissions**.
 - **Running a tool is checked the same way as running a command.** The category a tool declares cannot loosen that check.
 - **It runs in a sandbox.** Like the agent's other commands, it cannot see the runtime's key directory. If it times out, its whole process group is stopped. Every call is written to the audit log.
 - **Control → Advanced → Tools** lists this body's tools. You can disable, enable or delete them, and delete the guide along with a tool. You cannot edit the code on the phone.
