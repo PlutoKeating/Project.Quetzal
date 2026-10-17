@@ -26,7 +26,19 @@ export const paths = {
   stop: path.join(HOME, "STOP"),
 };
 
-export type Level = "allow" | "ask" | "deny";
+/** 能力授权的档位：允许 / 交给审核模型（guard/sentinel.ts）/ 每次询问（人工审批）/ 禁止。 */
+export type Level = "allow" | "review" | "ask" | "deny";
+export const LEVELS: readonly Level[] = ["allow", "review", "ask", "deny"];
+
+/** 独立审核模型（guard/sentinel.ts）。全网共用（设置分区 guard）。 */
+export interface SentinelConfig {
+  enabled: boolean; // 关掉时：「交给审核模型」的类别退回人工审批，送审类别不再审核
+  model: string; // 审核用的模型（模型页里的模型 id）；空 = 快速模型（quick 路由）
+  timeoutMs: number; // 一次审核最多等多久
+  classes: string[]; // 「允许」档位之下也要送审的风险类别（sentinel.ts 的 RISK_CLASSES）
+  onFailure: "by_risk" | "allow" | "block" | "ask"; // 审核超时或失败时：按类别的风险（低放行、高拦下）/ 一律放行 / 一律拦下 / 转人工审批
+  hostMode: "review" | "ask"; // 她请求进入真实环境：交给审核模型（缺省）或每次人工审批
+}
 
 export interface Config {
   body: string; // 这具身体的名字，写入共享记忆时区分来源
@@ -58,6 +70,7 @@ export interface Config {
   // 语音（Azure 语音服务文本转语音）。密钥单独保存在 secrets/azure_speech_key
   speech: { region: string; endpoint: string; voice: string; style: string; rate: string; pitch: string; volume: string; format: string };
   // 听觉：控制台 App 当耳朵（采集、降噪、断句），基座识别（Azure，与语音合成同一把密钥）并交给她判断要不要回应
+  guard: { sentinel: SentinelConfig };
   hearing: {
     enabled: boolean;
     windowMin: number; // 最近一个会话在多少分钟内有更新就并入它，否则新开会话
@@ -80,13 +93,14 @@ export const defaults: Config = {
   timezone: systemTimezone(),
   heart: { activity: 1, baseRatePerHour: 4, paused: false },
   budget: { dailyTokens: 2_000_000, dailyCostUsd: 5, minBattery: 15, maxTempC: 45 },
-  // 相机、麦克风、定位、操作屏幕、造工具默认「每次询问」：新装的用户先看见她想做什么，再决定放开；其余默认允许。
+  // 相机、麦克风、定位、操作屏幕、造工具默认「交给审核模型」：每次由独立的审核模型判断（guard/sentinel.ts），不等人工；其余默认允许。
+  // 「每次询问」（人工审批）仍可按类别选。旧配置里这几类是「询问」的，升级时改为交给审核模型，对方明确选过「询问」的保留（sentinel.ts 的 migrateReviewDefaults）。
   // 注意：shell（执行命令）为「允许」时，其他类别的限制挡不住她——命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录）。
-  // 这是产品上的取舍（她要能干活），文档（docs/API.md §3）写明；要真正收紧，先把 shell 改成「每次询问」。
+  // 这是产品上的取舍（她要能干活），文档（docs/API.md §3）写明；真实环境里的命令另由审核模型把关（guard.sentinel.classes）。
   permissions: {
-    network: "allow", shell: "allow", device: "allow", camera: "ask", microphone: "ask",
-    location: "ask", message: "allow", self_modify: "allow", memory: "allow", hands: "ask", secret: "allow", session: "allow", body: "allow",
-    tool_write: "ask", // 造工具：写的是之后会被执行的代码（mind/tools.ts）
+    network: "allow", shell: "allow", device: "allow", camera: "review", microphone: "review",
+    location: "review", message: "allow", self_modify: "allow", memory: "allow", hands: "review", secret: "allow", session: "allow", body: "allow",
+    tool_write: "review", // 造工具：写的是之后会被执行的代码（mind/tools.ts）
     mcp: "ask", mcp_start: "ask", // 外部工具调用与启动来源分别授权
   },
   brain: { maxOutputTokens: 4096, contextWindow: 65536, contextSummaryTokens: 1024, contextSummaryTimeoutMs: 10_000, contextSummaryModelTokens: 1024, memorySemantic: true, memorySelectionTimeoutMs: 5000, memorySelectionTokens: 256, memoryLearning: true, memoryLearningTokens: 1200, memoryLearningTimeoutMs: 15_000 },
@@ -99,6 +113,7 @@ export const defaults: Config = {
   channels: { feishuHolder: "" },
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
   hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "" },
+  guard: { sentinel: { enabled: true, model: "", timeoutMs: 20_000, classes: ["host_shell", "remote_exec", "outbound", "mcp_write", "destructive", "credentials", "tool_write", "hands"], onFailure: "by_risk", hostMode: "review" } },
 };
 
 const file = () => path.join(paths.config, "quetzal.json");
@@ -156,10 +171,25 @@ function sanitize() {
   if (typeof config.brain.memorySemantic !== 'boolean') config.brain.memorySemantic = defaults.brain.memorySemantic;
   if (!speechEndpointOk(config.speech.endpoint)) { log("config", `语音端点不是 Azure 的地址，已清空：${config.speech.endpoint.slice(0, 80)}`); config.speech.endpoint = ""; }
   if (!speechRegionOk(config.speech.region)) config.speech.region = "";
+  config.guard = { sentinel: sanitizeSentinel(config.guard?.sentinel) };
+}
+
+/** 审核模型配置的校验（加载、保存、其他身体同步来的都经过它）：认不得的键丢掉，类型不对的取缺省；类别只收 sentinel.ts 认得的名字（这里只查形状）。 */
+export function sanitizeSentinel(v: unknown): SentinelConfig {
+  const d = defaults.guard.sentinel, x = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const pick = <T,>(ok: boolean, val: unknown, def: T): T => (ok ? val as T : def);
+  return {
+    enabled: pick(typeof x.enabled === "boolean", x.enabled, d.enabled),
+    model: pick(typeof x.model === "string" && x.model.length <= 200, x.model, d.model),
+    timeoutMs: pick(Number.isSafeInteger(x.timeoutMs) && (x.timeoutMs as number) >= 1000 && (x.timeoutMs as number) <= 120_000, x.timeoutMs, d.timeoutMs),
+    classes: Array.isArray(x.classes) ? [...new Set(x.classes.filter((c): c is string => typeof c === "string" && /^[a-z_]{1,40}$/.test(c)))].slice(0, 40) : [...d.classes],
+    onFailure: pick(["by_risk", "allow", "block", "ask"].includes(x.onFailure as string), x.onFailure, d.onFailure),
+    hostMode: pick(x.hostMode === "review" || x.hostMode === "ask", x.hostMode, d.hostMode),
+  };
 }
 
 /** 全网统一的设置分区（DISTRIBUTED.md C8）：一处改了，所有身体跟着改。身体名、时区、适配器、网关、飞书、同步服务地址等属于这具身体，不在其中。 */
-export const SHARED_SECTIONS = ["permissions", "budget", "heart", "hearing", "speech", "brain", "channels"] as const;
+export const SHARED_SECTIONS = ["permissions", "budget", "heart", "hearing", "speech", "brain", "channels", "guard"] as const;
 /** 记下某个共享分区被这具身体改了（设置分区、模型供应商、语音密钥、急停），并通知网状层。 */
 export function markShared(sections: string[]) {
   if (!sections.length) return;

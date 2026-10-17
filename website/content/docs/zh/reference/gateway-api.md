@@ -57,7 +57,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought}` |
 | `timeline` | `{limit?, before?, kind?}` | 时间线（倒序），`detail` 含过程与每步工具调用 |
 | `messages` | `{limit?}` | 最近对话 |
-| `audit` | `{limit?}` | 审计记录 |
+| `audit` | `{limit?, action?}` | 审计记录；`action: "sentinel.review"` 只看审核结论 |
 
 **交流**
 
@@ -84,7 +84,8 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `pause` | `{paused}` |
 | `personality` | `{changes: {"tau.curiosity": 2, …}}`（有界） |
 | `stop` / `unstop` | `{reason?}` / — |
-| `permissions` / `setPermission` | — / `{id, level: allow｜ask｜deny}` |
+| `permissions` / `setPermission` | — / `{id, level: allow｜review｜ask｜deny}` |
+| `sentinel` / `setSentinel` | — / `{enabled?, model?, timeoutMs?, classes?, onFailure?, hostMode?}`：安全审核的配置、可选的风险类别与审核模型 |
 | `approvals` / `decide` | — / `{id, approve, note?}` |
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |

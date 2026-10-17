@@ -30,7 +30,7 @@
 | 身体边界 | [body/adapter.ts](../../runtime/src/body/adapter.ts)、[body/twin.ts](../../runtime/src/body/twin.ts)、[body/uuid.ts](../../runtime/src/body/uuid.ts) | 能力接口、采样与感受、身体身份 |
 | 定时承诺 | [time/reminders.ts](../../runtime/src/time/reminders.ts)、[time/zone.ts](../../runtime/src/time/zone.ts) | 提醒独立于模型与自主抽样 |
 | 记录与事件 | [store.ts](../../runtime/src/store.ts)、[bus.ts](../../runtime/src/bus.ts) | SQLite 状态与记录、进程内事件总线 |
-| 执行权限 | [guard/guard.ts](../../runtime/src/guard/guard.ts)、[sandbox.ts](../../runtime/src/sandbox.ts)、[host-mode.ts](../../runtime/src/host-mode.ts)、[sh.ts](../../runtime/src/sh.ts) | 能力类别、审批、急停、沙箱、会话真实环境、子进程 |
+| 执行权限 | [guard/guard.ts](../../runtime/src/guard/guard.ts)、[guard/sentinel.ts](../../runtime/src/guard/sentinel.ts)、[sandbox.ts](../../runtime/src/sandbox.ts)、[host-mode.ts](../../runtime/src/host-mode.ts)、[sh.ts](../../runtime/src/sh.ts) | 能力类别、安全审核、审批、急停、沙箱、会话真实环境、子进程 |
 | 保密输入与脱敏 | [mind/secrets.ts](../../runtime/src/mind/secrets.ts)、[secret-values.ts](../../runtime/src/secret-values.ts)、[crypto.ts](../../runtime/src/crypto.ts) | 输入截取、保密库、输出替换、供应商 Key 加密 |
 | 控制与通道 | [ops.ts](../../runtime/src/ops.ts)、[gateway.ts](../../runtime/src/gateway.ts)、[web.ts](../../runtime/src/web.ts)、[channels/](../../runtime/src/channels/)、[voice/](../../runtime/src/voice/) | 管理操作、HTTP / WebSocket、控制台页面、飞书与语音 |
 | 多身体协作 | [mesh/](../../runtime/src/mesh/) | 连接认证、复制、在场、协调者、运行位置、工具与文件借用、设置共享 |

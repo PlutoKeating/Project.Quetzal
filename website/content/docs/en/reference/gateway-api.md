@@ -53,7 +53,7 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought}` |
 | `timeline` | `{limit?, before?, kind?}` | Timeline (newest first); `detail` includes the process and each tool step |
 | `messages` | `{limit?}` | Recent conversation |
-| `audit` | `{limit?}` | Audit records |
+| `audit` | `{limit?, action?}` | Audit records; `action: "sentinel.review"` lists only review verdicts |
 
 **Converse**
 
@@ -80,7 +80,8 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | `pause` | `{paused}` |
 | `personality` | `{changes: {"tau.curiosity": 2, …}}` (bounded) |
 | `stop` / `unstop` | `{reason?}` / — |
-| `permissions` / `setPermission` | — / `{id, level: allow｜ask｜deny}` |
+| `permissions` / `setPermission` | — / `{id, level: allow｜review｜ask｜deny}` |
+| `sentinel` / `setSentinel` | — / `{enabled?, model?, timeoutMs?, classes?, onFailure?, hostMode?}`: safety review settings, the available risk classes and review models |
 | `approvals` / `decide` | — / `{id, approve, note?}` |
 | `budget` / `setBudget` | — / `{dailyTokens?, dailyCostUsd?, minBattery?, maxTempC?}` |
 | `config` / `setConfig` | — / `{timezone?, brain?, heart?}` |

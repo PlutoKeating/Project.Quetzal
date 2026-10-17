@@ -49,7 +49,8 @@ The agent needs to run commands to look things up, sort files and build tools, s
 - On Android and Linux, the agent and the runtime are the same system user. The agent can do whatever a command can do: read and write files in your home directory, go online, run programs on the device.
 - Commands run in a **sandbox**. On a computer Quetzal tries bubblewrap, Landlock and proot in that order; on Android it uses proot. Inside the sandbox, the key directory and the console's login data cannot be seen. On a computer, the browser's sign-in data is hidden too, and commands cannot change autostart entries or ssh configuration. Before each kind of sandbox is used for the first time, Quetzal tests it to confirm the keys really are hidden. If no sandbox works, none of the agent's commands run.
 - On Windows, the agent's commands run as a low-privilege user created at install time. They can read and write only `%USERPROFILE%\Quetzal`, reach the network only through the runtime's proxy, and cannot connect to this PC's own ports or read other files in your user folder. The cost and the remaining risks are in section 3 of [Windows](/docs/advanced/windows).
-- When you let the agent into the [real environment](/docs/guide/permissions#real-environment), commands in that chat skip the sandbox and can read and write everything you can. Turn it on only when needed and leave when done.
+- When the agent enters the [real environment](/docs/guide/permissions#real-environment) (by default the review model lets it in on a sound reason; you can make it ask you every time instead), commands in that chat skip the sandbox and can read and write everything you can. Turn it on only when needed and leave when done.
+- Before a risky action runs, an independent [review model](/docs/guide/permissions#safety-review) decides. It sees only that one action, not the agent's prompt or the whole conversation; if it says no, the agent gets the reason and tries another way. The review model can be wrong too: it is a check, not a boundary.
 - This sandbox **does not stop everything**. On Android, proot blocks what it can, and some things get through. On a Linux computer, a command can get out if sshd is running locally and trusts a private key the agent can read, or if tmux or screen is running.
 
 **What happened**: on October 5, 2026, an agent failed to sync its memory, ran git on its own and pointed the soul repository's address at Quetzal's public source repository. As a result, one journal entry was pushed to the public repository. Later versions added these defenses:
@@ -64,8 +65,8 @@ The code enforces the first three. The fourth works only if the agent follows th
 ### What we recommend
 
 - **Give it a phone or computer of its own.** Do not sign in to your main accounts on that device, and keep files you care about off it. A separate device is the most reliable boundary.
-- **To tighten things, change Run commands first.** Set it to **Ask** under **Control → Permissions**, and the agent waits for your approval every time it runs a command. The other categories cannot hold back commands, so start here.
-- **Check the record.** **Control → Advanced → Activity log** lists every tool the agent has called. If you are worried, press the emergency stop, and every tool call is refused at once.
+- **To tighten things, change Run commands first.** Under **Control → Permissions**, set it to **Review** and the review model judges each command first; set it to **Ask** and the agent waits for your approval every time it runs a command. The other categories cannot hold back commands, so start here.
+- **Check the record.** **Control → Advanced → Activity log** lists every tool the agent has called and every review verdict. If you are worried, press the emergency stop, and every tool call is refused at once.
 
 ## How fast updates come
 

@@ -10,7 +10,8 @@ export interface StdioServer {
   timeoutMs: number; maxResultChars: number;
 }
 export interface Launch { command: string; args: string[]; cwd?: string; env: Record<string, string> }
-export interface McpBinding { name: string; source: string; remote: string; description: string; parameters: Record<string, unknown> }
+/** readOnly / destructive：来源在工具注解里自己声明的（MCP ToolAnnotations 的 readOnlyHint / destructiveHint）；没声明为 undefined。审核模型的风险分类用（guard/sentinel.ts）。 */
+export interface McpBinding { name: string; source: string; remote: string; description: string; parameters: Record<string, unknown>; readOnly?: boolean; destructive?: boolean }
 export const toolName = (source: string, remote: string) => `mcp_${source}_${crypto.createHash("sha256").update(remote).digest("hex").slice(0, 24)}`;
 
 // auto 对 SDK 基类会额外启动探测进程；本来源只启动一个已获授权的进程，在原连接上探测。
@@ -64,7 +65,9 @@ export class StdioSource {
         if (this.bindings.some((b) => b.name === name)) throw new Error("MCP 工具别名冲突");
         this.bindings.push({ name, source: this.server.id, remote: tool.name,
           description: this.sanitize(`[MCP ${this.server.id}/${tool.name}] ${tool.description ?? ""}`).slice(0, 2000),
-          parameters: JSON.parse(this.sanitize(JSON.stringify(tool.inputSchema))) });
+          parameters: JSON.parse(this.sanitize(JSON.stringify(tool.inputSchema))),
+          ...(typeof tool.annotations?.readOnlyHint === "boolean" ? { readOnly: tool.annotations.readOnlyHint } : {}),
+          ...(typeof tool.annotations?.destructiveHint === "boolean" ? { destructive: tool.annotations.destructiveHint } : {}) });
       }
       this.available = true;
     } catch (e) { await this.close(); throw e; }

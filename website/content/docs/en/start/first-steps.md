@@ -37,7 +37,7 @@ On **Control**, tap the agent's name at the top, then **Identity**. Set a displa
 
 ## 3. Permissions
 
-Under **Control → Permissions**, camera, microphone, location and building tools are set to "ask" by default. When the agent wants to use one, it sends you a request that appears at the top of this page, and it acts only after you approve. Once you trust it, switch them to "allow". See [Permissions and safety](/docs/guide/permissions).
+Under **Control → Permissions**, camera, microphone, location and building tools are set to "review" by default: before the agent uses one, an independent review model looks at that one action and lets it through or gives the agent a reason to try another way, without bothering you. If you want to decide yourself, switch a category to "ask": the request then appears at the top of this page, and the agent acts only after you approve. See [Permissions and safety](/docs/guide/permissions).
 
 ## 4. Poke it, chat a little
 

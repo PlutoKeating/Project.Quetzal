@@ -3,7 +3,8 @@
 import path from "node:path";
 import { bus } from "../bus.ts";
 import { audit, listAudit } from "../store.ts";
-import { check, level } from "../guard/guard.ts";
+import { level } from "../guard/guard.ts";
+import { gate } from "../guard/sentinel.ts";
 import { shell, startJob, stopJob, getJob, listJobs } from "../sh.ts";
 import * as mem from "../memory/memory.ts";
 import { adjustPersonality } from "../heart/heart.ts";
@@ -73,7 +74,7 @@ export interface Tool extends ToolDef { permission: string; also?: string[]; onB
 export class ToolFailure { readonly text: string; constructor(text: string) { this.text = text; } }
 export const failed = (text: string) => new ToolFailure(text);
 
-// 造工具（写会被执行的代码）单独一个能力类别，缺省「每次询问」（config.ts）。标签放进闸门的表里，控制台与飞书的权限页才列得出来。
+// 造工具（写会被执行的代码）单独一个能力类别，缺省「交给审核模型」（config.ts）。标签放进闸门的表里，控制台与飞书的权限页才列得出来。
 
 const obj = (props: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties: props, required });
 const str = (description: string) => ({ type: "string", description });
@@ -302,7 +303,7 @@ const core: Tool[] = [
   },
   {
     name: "host_mode", permission: "shell",
-    description: `真实环境：让这个会话里的 shell 命令不经沙箱、直接在主机上以基座的系统用户执行。沙箱刻意让你碰不到主机上的登录凭据与系统服务（例如对方在终端里 gh auth login 了，沙箱里的 gh 仍然报令牌无效；系统钥匙串、对方本人的配置都不可见），这类事确实需要主机环境时才用。action=request 带上理由（为什么沙箱里做不到、要做什么），对方在控制台或飞书里同意后才进入，等待期间你会一直停在这里；action=exit 做完就退出，回到沙箱。只能在对话中请求。模式按会话、只在这具身体上；${HOST_IDLE_MS / 60_000} 分钟没有命令、基座重启、急停都会自动回到沙箱，对方也随时可以手动退出。不要用真实环境去读基座的密钥或改基座的配置。`,
+    description: `真实环境：让这个会话里的 shell 命令不经沙箱、直接在主机上以基座的系统用户执行。沙箱刻意让你碰不到主机上的登录凭据与系统服务（例如对方在终端里 gh auth login 了，沙箱里的 gh 仍然报令牌无效；系统钥匙串、对方本人的配置都不可见），这类事确实需要主机环境时才用。action=request 带上理由（为什么沙箱里做不到、要做什么），批准后才进入：缺省由独立的审核模型按理由判断（理由要具体），配置为人工时等对方在控制台或飞书里同意，等待期间你会一直停在这里；action=exit 做完就退出，回到沙箱。只能在对话中请求。模式按会话、只在这具身体上；${HOST_IDLE_MS / 60_000} 分钟没有命令、基座重启、急停都会自动回到沙箱，对方也随时可以手动退出。不要用真实环境去读基座的密钥或改基座的配置。`,
     parameters: obj({ action: { type: "string", enum: ["request", "exit"] }, reason: str("request 用：理由，会显示给对方") }, ["action"]),
     handler: async (a, ctx) => {
       const s = ctx.session;
@@ -446,7 +447,7 @@ const core: Tool[] = [
     },
   },
   {
-    name: "tool_write", permission: "self_modify", also: ["tool_write"], // 写的是之后会被执行的代码：缺省每次询问
+    name: "tool_write", permission: "self_modify", also: ["tool_write"], // 写的是之后会被执行的代码：缺省交给审核模型
     description: `新建或改写一个你自己的工具。把做过多次、步骤稳定、以后还会用的流程写成工具，之后就能像内置工具一样直接调用（出现在工具表里，经闸门按 permission 检查）。实现只在这具身体上（QUETZAL_HOME/tools/<name>/）；意图文档 skill 随灵魂同步到其他身体，它们可以按文档自己实现，所以新工具必须写 skill。runtime=sh：source 是 shell 脚本，调用时参数以 JSON 从 stdin 传入，同时展开为环境变量 ARG_<参数名>（非字符串为 JSON），stdout 就是结果；runtime=ps1：source 是 PowerShell 脚本（Windows 身体用它，不能用 sh），参数 JSON 在 $env:ARGS_JSON（用 $env:ARGS_JSON | ConvertFrom-Json 取），也展开为 $env:ARG_<参数名>，输出就是结果；runtime=node：source 是 ES 模块，默认导出 async (args, {dir, home}) => string，可以 import Node 内置模块。改写时只传要改的字段（name 必传）。所有参数以后都可以按需再改。`,
     parameters: obj({
       name: str("工具名：小写字母开头，可含数字、下划线、连字符，最长 40"),
@@ -760,8 +761,8 @@ export { listCustomTools };
 
 export type ToolStatus = "ok" | "error" | "denied";
 
-const RANK = { allow: 0, ask: 1, deny: 2 } as const;
-/** 几个能力类别里最严的一个（禁止 > 询问 > 允许；一样严时取前面的）。 */
+const RANK = { allow: 0, review: 1, ask: 2, deny: 3 } as const;
+/** 几个能力类别里最严的一个（禁止 > 询问 > 交给审核模型 > 允许；一样严时取前面的）。 */
 export function strictest(perms: string[]): string {
   return perms.reduce((a, b) => (RANK[level(b)] > RANK[level(a)] ? b : a));
 }
@@ -772,7 +773,11 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };
   const real = name === "shell" && !!hostConv(ctx);
   const safe = real ? { ...redactArgs(args), realEnv: true } : redactArgs(args); // 参数里的保密值不进审批、时间线与审计；真实环境里的命令另外标记
-  if (!(await check(strictest([t.permission, ...(t.also ?? [])]), name, reason, safe, stopOf(ctx)))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
+  // 闸门：允许 / 交给审核模型 / 人工审批 / 禁止，「允许」之下的送审风险类别也由审核模型过一遍（guard/sentinel.ts）；审核结论附在结果里
+  const binding = t.permission.startsWith("mcp.") ? mcpBindings().find((b) => b.name === name) : undefined;
+  const g = await gate({ tool: name, permission: strictest([t.permission, ...(t.also ?? [])]), declared: t.permission, args: safe, reason, conv: ctx.session?.switchTo ?? ctx.session?.conv, turn: ctx.session?.id, origin: ctx.session?.origin ?? (ctx.signal ? "remote" : undefined), realEnv: real, signal: stopOf(ctx), ...(binding ? { mcp: { readOnly: binding.readOnly, destructive: binding.destructive } } : {}) });
+  if (!g.ok) return { text: g.text, status: "denied" };
+  const reviewed = g.note ? `\n\n${g.note}` : "";
   try {
     let a = t.bodyFiles && name !== "shell" ? ws.workspaceFiles(t.bodyFiles, args, ctx.session) : args, note = ""; // 相对路径从工作区算；工作区在另一具身体上时指那边的文件
     if (t.bodyFiles && a.body !== undefined) { // 带 body：先把路径参数指的文件从那具身体取来（闸门、检查与审计都在 body-files.ts）
@@ -782,7 +787,7 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
     }
     const raw = await t.handler(a, ctx);
     const bad = raw instanceof ToolFailure, text = bad ? raw.text : raw;
-    const out = redactSecrets(`${note ? `${note}\n\n` : ""}${t.onBody ? notePaths(text) : text}`); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计
+    const out = redactSecrets(`${note ? `${note}\n\n` : ""}${t.onBody ? notePaths(text) : text}${reviewed}`); // 兜底：输出里出现的保密值一律替换，再交给模型、写入审计
     audit("agent", name, reason, safe, `${bad ? "error: " : ""}${out}`.slice(0, 500));
     return { text: out, status: bad ? "error" : "ok" };
   } catch (e: any) {

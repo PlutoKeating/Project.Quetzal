@@ -41,7 +41,8 @@ STOP                     emergency stop flag: if present, everything freezes
 | `budget.dailyCostUsd` | `5` | Daily cost (USD) |
 | `budget.minBattery` | `15` | Minimum battery (%) |
 | `budget.maxTempC` | `45` | Maximum temperature |
-| `permissions.*` | `camera` / `microphone` / `location` / `hands` are `ask`, the rest `allow` | Permissions |
+| `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` are `review` (review model), `mcp` / `mcp_start` are `ask`, the rest `allow` | Permissions: `allow` / `review` / `ask` / `deny` |
+| `guard.sentinel.*` | on; quick model; 20 s; failures by risk; real-environment requests to the review model | Safety review: `enabled`, `model`, `timeoutMs`, `classes` (risk classes reviewed even under allow), `onFailure`, `hostMode` |
 | `brain.maxOutputTokens` | `4096` | Output cap per model call (no step cap) |
 | `feishu.*` | — | Feishu (secret in `secrets/`) |
 | `soul.remote` / `soul.branch` | `""` / `main` | Soul repository SSH address and branch |

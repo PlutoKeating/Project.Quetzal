@@ -31,7 +31,7 @@
 
 hands 的 TypeScript 接口还包含截图和滑动方法，但工具注册不把每一个接口方法自动暴露为同名工具；是否能操作屏幕必须看适配器实际提供的能力。
 
-调用链是 `callTool` → 取多能力类别最严格档位 → guard 检查 / 等审批 → 可选远端文件本地化 → handler → 输出脱敏 → 审计 → finally 触碰灵魂同步。返回 `ToolFailure` 或抛错标 error，闸门拒绝标 denied；只返回一段错误描述仍可被视为 ok。参数与输出在保存 / 广播前替换已知保密值。
+调用链是 `callTool` → 取多能力类别最严格档位 → [sentinel.ts](../../runtime/src/guard/sentinel.ts) 的 gate（审核模型 / guard 检查 / 等审批）→ 可选远端文件本地化 → handler → 输出脱敏 → 审计 → finally 触碰灵魂同步。返回 `ToolFailure` 或抛错标 error，闸门拒绝标 denied；只返回一段错误描述仍可被视为 ok。参数与输出在保存 / 广播前替换已知保密值。
 
 工具 Schema 用于传给模型，并非统一服务端 Schema 验证器；不同 handler 自行检查参数。这里没有可任意加载第三方 npm 插件到内核进程的注册协议。
 
@@ -47,11 +47,11 @@ hands 的 TypeScript 接口还包含截图和滑动方法，但工具注册不�
 
 [BodyAdapter](../../runtime/src/body/adapter.ts) 默认导出一个平台能力对象，核心通过 `body/twin.ts` 加载；提供 `sample`、可选通知 / 播放、tools、hands、守护、升级 / 退出、设备身份与网络变化回调。适配器只 import 核心类型；平台实现位于 `runtime/adapters/`。加载失败可退回通用适配器。
 
-[guard.ts](../../runtime/src/guard/guard.ts) 的能力档位为 allow / ask / deny，多类别采用最严格档位；普通未知类别默认 allow；`mcp` / `mcp_start` 及其来源 / 工具子类别缺省 ask，按工具级 → 来源级 → 类别级继承。相机、麦克风、定位、hands、tool_write 默认 ask，其余已配置类别默认 allow；审批 30 分钟未处理即拒绝。自造工具调用至少还检查 shell，tool_write 检查 self_modify 与 tool_write。
+[guard.ts](../../runtime/src/guard/guard.ts) 的能力档位为 allow / review / ask / deny（review 交给独立的审核模型，见 [ARCHITECTURE §8.0](../ARCHITECTURE.md)），多类别采用最严格档位；普通未知类别默认 allow；`mcp` / `mcp_start` 及其来源 / 工具子类别缺省 ask，按工具级 → 来源级 → 类别级继承。相机、麦克风、定位、hands、tool_write 默认 review，其余已配置类别默认 allow；allow 之下按工具语义的风险类别（真实环境命令、跨身体执行、醒来时对外发消息等）同样送审；审批 30 分钟未处理即拒绝。自造工具调用至少还检查 shell，tool_write 检查 self_modify 与 tool_write。
 
 [sandbox.ts](../../runtime/src/sandbox.ts) 对命令提供 Linux bwrap / Landlock / proot、Android proot、Windows sandbox-runtime；缺沙箱默认拒绝执行，部署者可显式允许不隔离。shell 默认允许时其他工具类别不能禁止同等 shell 能力。读文件工具另经真实路径保护，web_fetch 另有公网出站检查。提示红线不能替代操作系统隔离。
 
-[host-mode.ts](../../runtime/src/host-mode.ts) 为一个对话会话提供本机内存态真实环境：模型每次请求都审批，或用户从控制台直接开启；30 分钟无真实环境命令退出、重启清空。只影响该会话 shell，不影响子 agent、自造工具或远端 body_call。真实环境能使用宿主用户权限，不能描述为仍隔离基座密钥。
+[host-mode.ts](../../runtime/src/host-mode.ts) 为一个对话会话提供本机内存态真实环境：模型每次请求都经批准（缺省审核模型，可配置为人工审批），或用户从控制台直接开启；30 分钟无真实环境命令退出、重启清空。只影响该会话 shell，不影响子 agent、自造工具或远端 body_call。真实环境能使用宿主用户权限，不能描述为仍隔离基座密钥。
 
 STOP 文件阻止新循环步骤 / 工具审批，拒绝待处理审批并退出真实环境；不应把它等同于对所有在途模型、设备工具、网络请求与后台子进程的通用即时回滚。对话的 `chat.stop` 是另一种明确取消轮次的入口。
 

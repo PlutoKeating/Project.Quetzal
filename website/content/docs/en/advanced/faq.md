@@ -31,7 +31,7 @@ It can run commands, and **Run commands** is set to allow by default. Commands r
 
 ## Can it operate the phone screen and other apps?
 
-**Not yet.** The `hands` interface (see the screen, tap, type, open apps) is reserved but no adapter implements it. Its permission defaults to "ask".
+**Not yet.** The `hands` interface (see the screen, tap, type, open apps) is reserved but no adapter implements it. Its permission defaults to "review": an independent review model decides.
 
 ## Can I use it without a computer?
 

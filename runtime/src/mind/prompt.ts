@@ -124,8 +124,8 @@ function otherSessions(conv = "", budget = 4000): string {
 /** 命令在哪里执行：沙箱，或这个会话此刻处在真实环境里（host-mode.ts）。 */
 function hostBlock(conv?: string): string {
   const h = hostActive(conv);
-  if (h) return `## 真实环境（此刻开启）\n这个会话此刻处在真实环境里（${h.by === "user" ? "对方自己打开的" : "对方同意了你的请求"}，${new Date(h.since).toLocaleString("zh-CN", { timeZone: config.timezone })} 起）：你的 shell 命令不经沙箱，以基座的系统用户直接在主机上执行，能读写对方能读写的一切。上面的红线照旧（不碰密钥目录、网关与令牌）。只做对方同意的事，做完用 host_mode 的 exit 回到沙箱；${HOST_IDLE_MS / 60_000} 分钟没有命令也会自动回到沙箱。`;
-  return `## 命令在沙箱里\n你的 shell 命令在沙箱里执行：主机上的登录凭据（系统钥匙串、对方在终端里登录的 gh 等）在里面用不了。确实需要主机环境时，用 host_mode 带上理由请求进入真实环境，对方同意后才生效；只需要一个令牌时，也可以用 pass_secret 向对方要一个权限尽量小的令牌，在命令里引用（如 ${process.platform === "win32" ? "$env:GH_TOKEN = (Get-Content -Raw 路径).Trim(); gh …" : "GH_TOKEN=\"$(cat 路径)\" gh …"}）。`;
+  if (h) return `## 真实环境（此刻开启）\n这个会话此刻处在真实环境里（${h.by === "user" ? "对方自己打开的" : "你的请求被批准了"}，${new Date(h.since).toLocaleString("zh-CN", { timeZone: config.timezone })} 起）：你的 shell 命令不经沙箱，以基座的系统用户直接在主机上执行，能读写对方能读写的一切。上面的红线照旧（不碰密钥目录、网关与令牌）。只做对方同意的事，做完用 host_mode 的 exit 回到沙箱；${HOST_IDLE_MS / 60_000} 分钟没有命令也会自动回到沙箱。`;
+  return `## 命令在沙箱里\n你的 shell 命令在沙箱里执行：主机上的登录凭据（系统钥匙串、对方在终端里登录的 gh 等）在里面用不了。确实需要主机环境时，用 host_mode 带上理由请求进入真实环境，批准后才生效（缺省由独立的审核模型判断，理由要具体）；只需要一个令牌时，也可以用 pass_secret 向对方要一个权限尽量小的令牌，在命令里引用（如 ${process.platform === "win32" ? "$env:GH_TOKEN = (Get-Content -Raw 路径).Trim(); gh …" : "GH_TOKEN=\"$(cat 路径)\" gh …"}）。`;
 }
 
 /** 这个会话所属项目的简介与项目级说明（#30）；不属于项目（或醒来、做梦时没有会话）为空。 */
