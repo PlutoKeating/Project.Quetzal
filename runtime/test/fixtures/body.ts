@@ -45,7 +45,8 @@ const { execSync } = await import("node:child_process");
 
 // 模拟的模型：回复里带上身体名（看得出是哪具身体在回答），可以设置延迟（制造「正在进行的一轮」）
 let llmDelay = 0, llmWhere: string[] | undefined;
-const llmScript: any[] = []; // 按顺序回放的模型回复（例如工具调用），放完了回到缺省回复
+const llmScript: any[] = [];
+const llmTook: string[] = []; // 按顺序回放的模型回复（例如工具调用），放完了回到缺省回复
 const llmSeen: string[] = []; // 模型收到过的每条消息的文字（测试据此核对基座给她看了什么），只留最近 200 条
 const llm = http.createServer((req, res) => {
   let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
@@ -54,6 +55,7 @@ const llm = http.createServer((req, res) => {
     llmSeen.splice(0, Math.max(0, llmSeen.length - 200)); const text = typeof last.content === "string" ? last.content : last.content?.find((c: any) => c.type === "text")?.text ?? "";
     const content = /先别急着做事/.test(text) && llmWhere ? JSON.stringify({ engage: true, intent: "测试的意图", where: llmWhere }) : `${process.env.BODY} 的回复`;
     const item = !/先别急着做事/.test(text) && llmScript.length ? llmScript.shift() : { content };
+    if (item !== undefined && item.content !== content) llmTook.push(`${text.slice(0, 120)}｜${JSON.stringify(item).slice(0, 80)}`); // 调试：脚本被哪一次请求取走
     const message = item && typeof item === "object" && "message" in item ? item.message : item; // 脚本里可以写 {delay, message}：这一条单独延迟（制造做到一半的一轮）
     setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); }, item && typeof item === "object" && typeof item.delay === "number" ? item.delay : llmDelay);
   });
@@ -140,6 +142,7 @@ const cmds: Record<string, (a: any) => unknown> = {
   wake: (a) => wake(a.kind ?? "think", a.reason ?? "测试"),
   llmDelay: (a) => { llmDelay = a.ms; return true; },
   llmSeen: () => llmSeen,
+  llmTook: () => llmTook,
   converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode, ambient: a.ambient }),
   stopTurn: (a) => stopTurn(a.conv),
   saveSecret: async (a) => (await import("../../src/mind/secrets.ts")).saveSecret(a.name, a.value, a.hint ?? "", "测试", a.sync !== false),

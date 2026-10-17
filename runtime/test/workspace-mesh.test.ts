@@ -106,13 +106,15 @@ test("工作区跟着任务走：自动登记并复制、协调层把这一轮�
   assert.equal(await phone.call("converse", { text: "继续", conv: "m" }), "pc 的回复");
 
   // 子 agent：在会话 u 里派出、指定在电脑上的 proj 里做；它在电脑上跑，报告回到会话 u
+  await pc.call("llmDelay", { ms: 1500 }); // 子 agent 慢一点：报告要在派出它的这一轮结束之后才送回（否则这一轮会接着处理报告，回复不是「派出去了」）
   await phone.call("llmScript", { messages: [toolCall("agent_spawn", { name: "小助手", goal: "看看仓库状态", body: ids.pc, dir: "proj", maxSteps: 2 }), { content: "派出去了" }] });
-  assert.equal(await phone.call("converse", { text: "派个子 agent 去电脑上看", conv: "u" }), "派出去了");
+  { const r = await phone.call("converse", { text: "派个子 agent 去电脑上看", conv: "u" }); assert.equal(r, "派出去了", JSON.stringify(await phone.call("llmTook"))); }
   await until(async () => (await pc.call<any[]>("agents")).some((a) => a.name === "小助手" && a.parentConv === "u"));
   assert.ok(!(await phone.call<any[]>("agents")).some((a) => a.name === "小助手" && a.body !== "pc"), "子 agent 不在手机上（手机上只有同步来的记录，记着它在 pc 上）");
   const sub = (await pc.call<any[]>("agents")).find((a) => a.name === "小助手");
   assert.match((await phone.call<any>("callTool", { name: "agent_status", args: { id: sub.id } })).text, /^（在 pc 上）\[/);
   await until(async () => (await phone.call<any[]>("messages", { session: "u" })).some((m) => m.role === "ambient" && m.channel === "子agent" && /小助手/.test(m.text)), 30_000);
+  await pc.call("llmDelay", { ms: 0 });
   assert.ok((await pc.call<string[]>("llmSeen")).some((t) => t.includes(`## 工作区\n你的工作区在 pc（body: ${ids.pc}） 的 ${proj}`)), "子 agent 的系统提示里有工作区");
 
   // 电脑离线：会话 w 的这一轮在手机上执行，系统提示如实写明工作区在电脑、此刻不在线
