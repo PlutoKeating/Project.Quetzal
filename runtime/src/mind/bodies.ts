@@ -6,7 +6,8 @@ export interface RemoteBody { body: string; uuid?: string; claimed?: string; des
 export interface BodiesHooks {
   list: () => RemoteBody[];
   /** signal：这一轮被停止时不再等，并请那具身体中止正在做的（命令结束、等着的审批撤销）。 */
-  call: (body: string, tool: string, args: Record<string, unknown>, reason: string, signal?: AbortSignal) => Promise<{ text: string; status: "ok" | "error" | "denied" }>;
+  /** o.cwd：在那边的这个目录里执行（工作区，见 mind/workspace.ts）；返回的 workdir：那边看出这条命令让哪个目录成了工作的地方（git clone、cd）。 */
+  call: (body: string, tool: string, args: Record<string, unknown>, reason: string, signal?: AbortSignal, o?: { cwd?: string }) => Promise<{ text: string; status: "ok" | "error" | "denied"; workdir?: string }>;
   /** 换到另一具身体继续：对话 → 那具身体在同一个会话里接着做（返回它的回复）；醒来 → 那具身体按交接继续这次醒来。 */
   move: (body: string, ctx: { origin: string; conv: string; channel: string; note: string; reason: string }) => Promise<string>;
   /** 向另一具身体取文件的一段（网状层的 file.read，见 mind/body-files.ts）：第一次带 path，之后带 ticket 与 offset。 */

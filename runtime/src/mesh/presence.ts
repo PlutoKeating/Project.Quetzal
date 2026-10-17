@@ -1,7 +1,8 @@
 // 在场：同一个 agent 的各具身体知道「她此刻在哪具身体上、和谁在哪个会话里说话」。
 //   - 每一轮的进展（activity 事件）转发给其他身体：任何一端的控制台都能实时看到别处正在进行的一轮（带 body）。
 //   - 发给一个正在另一具身体上进行的会话的消息，转给那具身体（插话 / 打断 / 排队照常），附件随之传过去。
-//   - 新的一轮由收到消息的身体接（DISTRIBUTED.md C6）；她可以用 move_to 换到别的身体上继续。
+//   - 新的一轮由收到消息的身体接（DISTRIBUTED.md C6）；但会话绑定了工作区、工作区在另一具在线的身体上时，由协调层把这一轮放到那具身体上
+//     （mind/workspace.ts 的 routeBody，同一条 chat.forward；灵魂同步的提醒说的是收到它的这具身体，不跟着工作区走）。她也可以用 move_to 换到别的身体上继续。
 //   - 转来的话只取白名单里的字段（会话、并入方式、通道），并且就在接收的身体上处理（local），不会再转出去（不会来回转）。
 import fs from "node:fs";
 import type { Mesh, PeerStatus } from "./mesh.ts";
@@ -12,6 +13,7 @@ import { setConverseRouter, setStopRouter, stopTurn, converse, type ConverseOpti
 import { saveUpload, resolveUpload, MAX_FILE_BYTES } from "../mind/attachments.ts";
 import { listSessions, sessionMessages, type Attachment } from "../store.ts";
 import { log } from "../log.ts";
+import { routeBody } from "../mind/workspace.ts";
 import { clip } from "./mesh.ts";
 
 const FORWARD_FILES_BYTES = 24 << 20; // 随转发的消息一起传过去的附件总量上限
@@ -100,7 +102,7 @@ export function installPresence(mesh: Mesh): () => void {
   });
 
   setConverseRouter((conv, from, text, channel, o) => {
-    const owner = ownerOf(conv);
+    const owner = ownerOf(conv) ?? (channel === "灵魂同步" ? undefined : routeBody(conv)); // 正在别处进行的一轮优先；没有就跟着工作区走
     if (!owner || !mesh.connected().includes(owner)) return undefined;
     const files: Forward["files"] = [];
     let bytes = 0;

@@ -49,7 +49,9 @@ src/
 │   ├── claims.ts         认领（claim 工具）：几个会话避免同时做同一件对外的事；按名字字面比较、带说明与期限；存 kv；多具身体时由协调者决定（setClaimRouter），记录按条目合并；系统提示「其他会话」里列出
 │   ├── bodies.ts         其他身体的登记（多具身体时由 mesh/ 填入，带灵魂仓库登记的 uuid 与对方自报的 uuid）：工具表的 body_call / move_to 与系统提示的「其他身体」一节读它；可跨身体调用的内置工具名单
 │   ├── body-files.ts     身体参数：解析 body（uuid → 登记里的身体名 → 认证过的连接，核对自报一致、拒绝一个 uuid 对多具身体）；file.read 的两端（那边 lendFile：闸门、真实路径挡密钥目录与保密库、只交普通文件、64 MB、分段；这边 fetchFile：闸门、核对大小与 sha256、文件名清洗、落到 data/from-bodies/<身体>/）；两边记审计
-│   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话）
+│   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话；系统提示里带它的工作区）
+│   ├── workspace.ts      工作区跟着任务走（#38）：会话 / 子 agent 的工作区 {身体, 目录}（workspaces 表、复制来的行的检查与后写胜合并、墓碑）、从命令自动登记（git clone / init、cd）、对话的路由目标（routeBody）、shell / shell_jobs 放到工作区所在的身体（routeTool）与本机的工作区目录（localCwd）、读文件工具的路径（workspaceFiles）、子 agent 在哪里做（agentPlace、runAgentOn、remoteAgent）、系统提示的「工作区」一节、workspace 工具、网关的 workspace.*
+│   ├── repos.ts          身体的工作区概况（#37）：直接读 .git 列出工作目录下深度 2 以内的 git 仓库（路径、去掉凭据的远端、当前分支），上限 30 个、扫描时限、缓存；别处发来的概况的检查
 │   ├── custom-tools.ts   自造工具：QUETZAL_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（一律在子进程里、经沙箱：stdin JSON + ARG_ 环境变量 / 子进程里加载 ES 模块，超时整组杀掉）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
 │   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick），供附件与 view_image 使用
@@ -81,11 +83,12 @@ src/
 │   ├── route.ts          经其他身体中转：签名的拓扑（rt，链路状态洪泛、30 秒刷新、90 秒作废）、最短路的下一跳、发出者签名的转发信封（fwd，最多 8 跳，收件人验签与防重放）；只读成员不参与
 │   ├── mesh.ts           全连接管理：按在场建立 / 停止连接（同步服务说下线但直连通着就留着；停下的连接收到验过签名的连接请求就恢复；重新连上同步服务时没连上的立即重来）、网络变了时检查各条连接、直连不通时经中转收发、验签、请求 / 应答（回应只认被请求的身体；调用方可取消，cancel 只认发起请求的那具身体）、事件、状态（不含地址）；只读成员（灵魂桥）只能调用可读的方法；钉住各身体的公钥与类型（TOFU，acceptPin 确认变更）、灵魂仓库更新后核对现有连接（reverify）；由对方触发的回调都接住异常
 │   ├── replica.ts        一份对话：对话、会话与时间线在身体之间复制（连上时按版本向量补齐、分页续传，有总量上限；平时实时广播；收到的先经 store.applyRemote 逐字段检查再幂等写入）
-│   ├── presence.ts       在场：进展事件转发给其他身体（控制台看得到别处进行中的一轮）、刚连上时取回对方的进行中轮次、断开时清掉；发给别处进行中会话的话（含附件）转过去（接收方只取白名单字段、就地处理，via 记为发来的那具身体；子 agent 报告、灵魂同步提醒转过去仍是提醒）；给灵魂桥的近况（单行、截断、标明谁说的）
+│   ├── presence.ts       在场：进展事件转发给其他身体（控制台看得到别处进行中的一轮）、刚连上时取回对方的进行中轮次、断开时清掉；发给别处进行中会话的话（含附件）转过去，没有进行中的一轮而会话的工作区在另一具在线的身体上时也把这一轮转过去（mind/workspace.ts 的 routeBody）（接收方只取白名单字段、就地处理，via 记为发来的那具身体；子 agent 报告、灵魂同步提醒转过去仍是提醒）；给灵魂桥的近况（单行、截断、标明谁说的）
 │   ├── coordinator.ts    协调者：交换候选条件（优先级、电源、启动时刻）选出持有心跳的身体；跟随者的心脏操作转给它，它异步广播心脏状态（最快2秒一次，接班沿用已收到快照，未广播更新不保证复制）；分区重连时合并
 │   ├── placement.ts      运行位置：各身体的概况（body.overview）、打分推荐、她在内省时选 where；在选中的身体上执行醒来（mind.wake）
-│   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call；调用方取消时经网状层的 cancel 中止：命令结束、审批撤销）、把这里的文件交给别处带 body 的工具（file.read，经 mind/body-files.ts 的 lendFile；灵魂桥调用不到）、灵魂仓库身体登记里的 uuid（soulRegistry）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
+│   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call；调用方取消时经网状层的 cancel 中止：命令结束、审批撤销；带 cwd 时在那个工作区目录里执行，命令看出的工作目录以 workdir 交回）、把这里的文件交给别处带 body 的工具（file.read，经 mind/body-files.ts 的 lendFile；灵魂桥调用不到）、灵魂仓库身体登记里的 uuid（soulRegistry）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
 │   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）
+│   ├── workspace.ts      工作区在网状层上：工作区复制（workspace.pull 补齐、workspace 事件实时）、body.workspace（工作区概况；带 dir 时核对目录）、agent.run / agent.status / agent.message / agent.stop（子 agent 在这具身体上执行）；连上时取回其他身体的概况、5 分钟刷新
 │   ├── channels.ts       通道：飞书只由指定的身体持有（其他身体的主动消息转过去）；几只耳朵同时听到同一句话只留一只（起止时间重叠且识别出同样的字才算同一句，不按相似度猜）；记下哪只耳朵听到的（voice_speak 从那里说）
 │   ├── node-key.ts       这具身体的节点密钥（灵魂同步写身体登记时用，不依赖整个网状层）
 │   ├── account.ts        账户：控制台登录（身体令牌申请码 → 人在官网批准 → 账户令牌存 secrets/sync-account.json）与账户接口的代理；网关的 account.* 方法

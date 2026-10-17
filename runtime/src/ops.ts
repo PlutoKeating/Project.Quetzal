@@ -38,6 +38,7 @@ import { confirmPersonalMemory, evolveMemory, learnEpisode } from './memory/prim
 import type { MemoryEpisode } from '../../engine/src/prime.ts';
 import { memoryKey } from '../../engine/src/memory.ts';
 import { kv } from './store.ts';
+import * as ws from './mind/workspace.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -91,6 +92,10 @@ export const ops = {
   "sessions.archive": (a: { id: string; archived: boolean }) => updateSession(a.id, { archived: a.archived !== false }),
   "sessions.messages": (a: { id: string; limit?: number; before?: number }) => sessionMessages(a.id, a.limit ?? 60, a.before),
   "sessions.live": () => liveTurns(),
+  // 工作区：会话在哪具身体的哪个目录里做（mind/workspace.ts）；她通常由基座自动登记，对方也可以在控制台设定或清除
+  workspace: (a: { conv: string }) => ws.workspaceView(String(a?.conv ?? "")),
+  "workspace.set": async (a: { conv: string; body?: string; dir: string }, actor: string) => { const w = await ws.setByUser(String(a?.conv ?? ""), a?.body ? String(a.body) : undefined, String(a?.dir ?? "")); audit(actor, "workspace.set", "", { conv: a.conv, body: w.body, dir: w.dir }, "ok"); return ws.workspaceView(w.key); },
+  "workspace.clear": (a: { conv: string }, actor: string) => { const ok = ws.clearWorkspace(String(a?.conv ?? "")); audit(actor, "workspace.clear", "", { conv: a?.conv }, ok ? "ok" : "none"); return ws.workspaceView(String(a?.conv ?? "")); },
 
   // 语音（Azure）：密钥只返回末四位
   speech: () => voice.speechStatus(),
