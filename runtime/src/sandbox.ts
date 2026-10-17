@@ -372,8 +372,8 @@ export function hostEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv
 
 /** 真实环境模式：她的一条命令不经沙箱，直接以基座进程的系统用户在用户主目录里执行（POSIX 用 $SHELL -c；Windows 用 PowerShell，
  *  是安装用户本人而不是沙箱用户 srt-sandbox）。只有 host-mode.ts 判断当前会话处在真实环境里时才用它。 */
-export function hostScript(script: string): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
-  const env = hostEnv(), cwd = os.homedir();
+export function hostScript(script: string, dir?: string): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
+  const env = hostEnv(), cwd = dir ?? os.homedir();
   if (isWindows) return { cmd: powershellPath(), args: [...PS_FLAGS, PS_PREAMBLE + script], cwd, env };
   return { cmd: sh(), args: ["-c", script], cwd, env };
 }

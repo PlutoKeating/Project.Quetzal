@@ -43,10 +43,10 @@ export function run(cmd: string, args: string[] = [], idleMs = 20_000, o: { cwd?
 
 /** agent 的一条 shell 命令：在沙箱里、以工作目录（Linux 为用户主目录，Windows 为工作区）执行。signal 中止时（这一轮被停止）结束命令。
  *  host：真实环境模式（host-mode.ts）——不经沙箱，以基座的系统用户在用户主目录里执行；signal 中止时（退出真实环境、急停、这一轮被停止）结束整棵进程树。 */
-export async function shell(script: string, timeoutMs = 60_000, o: { host?: boolean; signal?: AbortSignal } = {}) {
+export async function shell(script: string, timeoutMs = 60_000, o: { host?: boolean; signal?: AbortSignal; cwd?: string } = {}) { // cwd：这一轮的工作区目录（mind/workspace.ts），缺省为工作目录
   let w: Awaited<ReturnType<typeof wrapScript>>;
-  if (o.host) w = hostScript(script);
-  else try { w = await wrapScript(script); }
+  if (o.host) w = hostScript(script, o.cwd);
+  else try { w = await wrapScript(script, o.cwd); }
   catch (e) { if (e instanceof SandboxUnavailable) return { code: 126, out: "", err: e.message }; throw e; } // 没有沙箱：不执行，说明交给她
   const r = o.host ? await runTree(w, timeoutMs, o.signal) : await run(w.cmd, w.args, timeoutMs, { cwd: w.cwd, env: w.env, signal: o.signal });
   return isWindows ? { ...r, out: r.out.replace(/\r\n/g, "\n"), err: r.err.replace(/\r\n/g, "\n") } : r; // PowerShell 的 CRLF：给她看的统一成 LF
@@ -80,8 +80,8 @@ export interface Job { id: string; command: string; started: number; ended?: num
 const jobs = new Map<string, Job>();
 const KEEP = 64 * 1024; // 每个任务保留最近 64 KiB 输出
 
-export async function startJob(command: string, o: { host?: string } = {}): Promise<Job> {
-  const w = o.host ? hostScript(command) : await wrapScript(command);
+export async function startJob(command: string, o: { host?: string; cwd?: string } = {}): Promise<Job> {
+  const w = o.host ? hostScript(command, o.cwd) : await wrapScript(command, o.cwd);
   const proc = spawn(w.cmd, w.args, { cwd: w.cwd, env: w.env, detached: !isWindows, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }); // Windows 上 detached 会弹出控制台窗口，进程树另用 taskkill 结束
   const job: Job = { id: Math.random().toString(36).slice(2, 8), command, started: Date.now(), code: null, out: "", proc, host: o.host };
   const add = (b: Buffer) => { job.out = (job.out + b.toString()).slice(-KEEP); };

@@ -44,12 +44,16 @@ export function installLimbs(mesh: Mesh, registry: () => { body: string; uuid: s
   const known = new Map<string, RemoteBody>();
   mesh.handle("tool.list", () => limbList());
   mesh.handle("tool.detail", (p: { call?: unknown }) => (typeof p?.call === "string" && p.call.length <= 200 ? getToolCall(p.call) ?? null : null)); // 别处的控制台点开这里做的那一轮里的工具卡片
-  mesh.handle("tool.call", async (p: { tool: string; args: Record<string, unknown>; reason: string }, from: string, signal: AbortSignal) => {
+  mesh.handle("tool.call", async (p: { tool: string; args: Record<string, unknown>; reason: string; cwd?: unknown }, from: string, signal: AbortSignal) => {
     const tool = String(p?.tool ?? "");
     if (!limbTools(REMOTE_CORE_TOOLS).some((t) => t.name === tool)) return { text: `${config.body} 上没有可以跨身体调用的工具 ${tool}`, status: "error" };
     log("mesh", `${from} 上的她调用这里的 ${tool}`);
     const { body: _body, ...args } = (p.args && typeof p.args === "object" ? p.args : {}) as Record<string, unknown>; // 别处调来的工具不再带 body 转到第三具身体
-    return callTool(tool, args, `来自 ${from}：${String(p.reason ?? "").slice(0, 200)}`, { signal }); // 那边停止了这一轮：命令结束、等着的审批撤销
+    // cwd：那边这一轮的工作区在这里（mind/workspace.ts），命令在这个目录里执行；这条命令让哪个目录成了工作的地方（git clone、cd）随结果交回去登记
+    const cwd = typeof p.cwd === "string" && p.cwd.length <= 1000 ? p.cwd : undefined;
+    let workdir: string | undefined;
+    const r = await callTool(tool, args, `来自 ${from}：${String(p.reason ?? "").slice(0, 200)}`, { signal, cwd, onWorkdir: (d) => { workdir = d; } }); // 那边停止了这一轮：命令结束、等着的审批撤销
+    return workdir ? { ...r, workdir } : r;
   });
   mesh.handle("file.read", async (p: unknown, from: string) => {
     if (p && typeof p === "object" && typeof (p as { path?: unknown }).path === "string") log("mesh", `${from} 上的她要取这里的一个文件`);
@@ -72,7 +76,10 @@ export function installLimbs(mesh: Mesh, registry: () => { body: string; uuid: s
     // uuid 以灵魂仓库的登记为准；对方自报的（tool.list 里的）另放在 claimed，解析 body 时两者一致才认
     list: () => { const reg = registry(); return mesh.connected().flatMap((b) => { const r = known.get(b); return r ? [{ ...r, body: b, uuid: reg.find((x) => x.body === b)?.uuid, claimed: typeof r.uuid === "string" ? r.uuid.toLowerCase().slice(0, 36) : undefined }] : []; }); },
     registry,
-    call: (body, tool, args, reason, signal) => mesh.request(body, "tool.call", { tool, args, reason }, 30 * 60_000, signal),
+    call: async (body, tool, args, reason, signal, o) => {
+      const r = await mesh.request<{ text: string; status: "ok" | "error" | "denied"; workdir?: unknown }>(body, "tool.call", { tool, args, reason, ...(o?.cwd ? { cwd: o.cwd } : {}) }, 30 * 60_000, signal);
+      return { text: String(r?.text ?? ""), status: r?.status === "ok" || r?.status === "denied" ? r.status : "error", ...(typeof r?.workdir === "string" && r.workdir.length <= 1000 ? { workdir: r.workdir } : {}) };
+    },
     file: (body, params, ms) => mesh.request(body, "file.read", params, ms),
     move: async (body, ctx) => {
       if (ctx.origin === "chat") return mesh.request<string>(body, "chat.continue", { conv: ctx.conv, channel: ctx.channel, note: ctx.note }, 60 * 60_000);

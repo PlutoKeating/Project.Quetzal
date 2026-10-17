@@ -22,6 +22,8 @@ const { installLimbs } = await import("../../src/mesh/limbs.ts");
 const { installShared, decideAnywhere, remoteApprovals, alignStatus } = await import("../../src/mesh/shared.ts");
 const guard = await import("../../src/guard/guard.ts");
 const { installChannels } = await import("../../src/mesh/channels.ts");
+const { installWorkspace } = await import("../../src/mesh/workspace.ts");
+const workspace = await import("../../src/mind/workspace.ts");
 const { meshHeard } = await import("../../src/voice/hearing.ts");
 const { earOf } = await import("../../src/mind/bodies.ts");
 const fs = await import("node:fs");
@@ -70,6 +72,7 @@ installPlacement(mesh, "t", () => false);
 installLimbs(mesh);
 installShared(mesh);
 installChannels(mesh);
+installWorkspace(mesh);
 mesh.start();
 
 const cmds: Record<string, (a: any) => unknown> = {
@@ -129,6 +132,11 @@ const cmds: Record<string, (a: any) => unknown> = {
   claim: (a) => claims.claim({ key: a.key, note: a.note, body: process.env.BODY!, holder: a.holder, where: a.where ?? "测试会话" }),
   unclaim: (a) => claims.unclaim({ key: a.key, body: process.env.BODY!, holder: a.holder, where: "", force: a.force }),
   claims: () => claims.active(),
+  workspace: (a) => workspace.getWorkspace(a.key) ?? null,
+  setWorkspace: (a) => workspace.setWorkspace(a.key, { body: a.body ?? process.env.BODY!, dir: a.dir, source: a.source ?? "user" }),
+  systemPrompt: async (a) => (await import("../../src/mind/prompt.ts")).systemPrompt("", { conv: a.conv, dynamic: true }),
+  callTool: async (a) => (await import("../../src/mind/tools.ts")).callTool(a.name, a.args ?? {}, "测试", {}),
+  agents: async () => (await import("../../src/mind/agents.ts")).list().map((x) => ({ id: x.id, name: x.name, status: x.status, parentConv: x.parentConv })),
   live: () => liveTurns().map((t) => ({ conv: t.conv, body: t.body, origin: t.origin, status: t.status })),
   stop: () => { mesh.stop(); setTimeout(() => { ndc.cleanup(); process.exit(0); }, 200); return true; },
 };

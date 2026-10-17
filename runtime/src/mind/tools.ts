@@ -43,6 +43,7 @@ import { mcpBindings, callMcp } from "../mcp/runtime.ts";
 import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf, type RemoteBody } from "./bodies.ts";
 import * as claims from "./claims.ts";
+import * as ws from "./workspace.ts";
 import { hostActive, touchHost, requestHost, exitHost, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
 
 /** 这一轮所在的、处在真实环境里的会话（只认对话；醒来、做梦、子 agent、其他身体的调用都没有）。 */
@@ -50,7 +51,8 @@ const hostConv = (ctx: ToolContext): string | undefined => ctx.session?.origin =
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 /** fetched：带 body 时从另一具身体取来的文件（远端路径 → 本地路径），见 body-files.ts。 */
-export interface ToolContext { session?: Session; fetched?: Fetched[]; signal?: AbortSignal } // signal：别的身体经 body_call 调来、那边停止了这一轮时中止（这里没有会话）
+export interface ToolContext { session?: Session; fetched?: Fetched[]; signal?: AbortSignal; cwd?: string; onWorkdir?: (dir: string) => void; pinned?: boolean } // signal：别的身体经 body_call 调来、那边停止了这一轮时中止（这里没有会话）
+// pinned：她明确带了 body（工具不再跟着工作区路由）；cwd：别的身体调来、那边这一轮的工作区在这具身体上时，shell 在这个目录里执行；onWorkdir：命令让哪个目录成了工作的地方（git clone、cd），交回调用方登记（mind/workspace.ts）
 /** 这次调用的停止信号：本机的一轮，或别处调来的那一次。 */
 const stopOf = (ctx: ToolContext): AbortSignal | undefined => ctx.signal ?? ctx.session?.signal;
 function accessibleMemory(record: MemoryRecord, ctx: ToolContext): boolean {
@@ -268,19 +270,25 @@ const core: Tool[] = [
     name: "shell", permission: "shell", bodyFiles: ["files"],
     description: (isWindows
       ? `在这具身体（Windows）上执行一条 PowerShell 命令（不是 bash：变量写 $env:NAME，路径用 C:\\…，Windows PowerShell 5.1 不支持 &&，用 ; 或 if ($?) { }）。命令在沙箱里以低权限的沙箱用户运行：工作目录是 ${workDir()}（对方也能在这里放文件、取结果），只能写工作区、data 与灵魂目录，读不到对方主目录里别的文件和基座的密钥；联网经代理，连不到这台机器自己的端口。被超时或停止结束的命令退出码是 1，不是命令本身出错。`
-      : "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。") + "这个会话处在真实环境里时（系统提示会写明），命令不经沙箱，直接在主机上执行。默认等待结果；timeout 是多少秒没有任何输出就结束它（有输出就重新计时，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
+      : "在这具身体上执行一条 shell 命令（在沙箱里运行，工作目录是用户主目录；基座的密钥目录在里面不存在，QUETZAL_HOME 的大部分只读）。") + "这个会话有工作区时（系统提示「工作区」一节），命令在工作区目录里执行；工作区在另一具身体上时，基座把命令放到那具身体上执行（带 body 填这具身体的 uuid 则就在这里执行）。这个会话处在真实环境里时（系统提示会写明），命令不经沙箱，直接在主机上执行。默认等待结果；timeout 是多少秒没有任何输出就结束它（有输出就重新计时，默认 60，最多 600）。耗时长、或可能需要中途停下的命令（播放、下载、服务、长任务）用 background=true 放到后台，立即返回任务 id，之后用 shell_jobs 查看输出或随时停止。看进程用 processes 工具，不要用 ps（有的沙箱里 ps 看不到进程或报错）。",
     parameters: obj({ command: str("命令"), timeout: { type: "number", description: "前台：多少秒没有任何输出就结束（有输出就重新计时）" }, background: { type: "boolean", description: "放到后台运行" } }, ["command"]),
     bodyParams: { files: { type: "array", items: { type: "string" }, description: "只和 body 一起用：先从那具身体取来的文件（照那边的路径写）。命令仍在这具身体上执行，命令里出现的这些路径会换成取来后的本地路径；要在那具身体上执行命令用 body_call" } },
     handler: async (a, ctx) => {
+      const routed = await ws.routeTool("shell", a, ctx); // 这一轮的工作区在另一具身体上：放到那边、工作区目录里执行
+      if (routed && "text" in routed) return routed.status === "ok" ? routed.text : failed(routed.text);
       if (ctx.fetched?.length) a = { ...a, command: substitutePaths(String(a.command ?? ""), ctx.fetched) };
       if (String(a.command ?? "").includes("‹secret:")) return failed("没有执行：命令里有 ‹secret:…›。那是基座在输出里遮住保密值时换上的占位符，不是真实的值，写进命令一定会失败。要用保密库里的值，在命令里按路径引用（\"$(cat 路径)\"）；要用输出里被遮住的值，让它只在命令内部传递（例如 OWNER=$(gh api user --jq .login)），不要从输出里抄。");
       const host = hostConv(ctx);
       // 这一轮被对方停止时命令随之结束；真实环境另有自己的中止（退出、闲置、急停）
       const stops = [host ? touchHost(host) : undefined, stopOf(ctx)].filter((x): x is AbortSignal => !!x);
       const signal = stops.length > 1 ? AbortSignal.any(stops) : stops[0];
-      const where = host ? "（真实环境：不经沙箱）" : "";
-      if (a.background) { let j; try { j = await startJob(a.command, { host }); } catch (e) { return failed((e as Error).message); } return `已在后台运行${where}，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
-      const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000, { host: !!host, signal });
+      const { cwd, note: dirNote } = ws.localCwd(ctx);
+      const where = `${routed?.note ?? ""}${dirNote}${host ? "（真实环境：不经沙箱）" : ""}`;
+      // 这条命令让哪个目录成了工作的地方（git clone、git init、cd）：登记为这一轮的工作区；别处调来的交回那边登记
+      const noteDir = () => { const d = ws.workdirHint(String(a.command ?? ""), cwd ?? workDir()); if (d) { if (ctx.onWorkdir) ctx.onWorkdir(d); else ws.noteWorkdir(ctx.session, config.body, d, String(a.command ?? "")); } };
+      if (a.background) { let j; try { j = await startJob(a.command, { host, cwd }); } catch (e) { return failed((e as Error).message); } noteDir(); return `已在后台运行${where}，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
+      const r = await shell(a.command, Math.min(600, Math.max(1, Number(a.timeout) || 60)) * 1000, { host: !!host, signal, cwd });
+      noteDir();
       const out = (r.out + r.err).slice(0, 8000);
       // 输出为空而命令丢弃了 stderr：报错可能被吞了，看起来像"没有结果"，不能据此下结论（非零退出时 run 会补一句 Command failed，不算输出）
       const real = r.out + r.err.replace(/^Command failed: [^\n]*\n?/, "");
@@ -312,7 +320,9 @@ const core: Tool[] = [
   {
     name: "shell_jobs", permission: "shell", description: "管理后台命令：list 列出全部任务；output 查看某个任务最近的输出；stop 停止某个任务（连同它启动的子进程）。你可以按自己的判断，或根据对方的要求随时停止。",
     parameters: obj({ action: { type: "string", enum: ["list", "output", "stop"] }, id: str("任务 id") }, ["action"]),
-    handler: async (a) => {
+    handler: async (a, ctx) => {
+      const routed = await ws.routeTool("shell_jobs", a, ctx); // 后台任务在工作区所在的身体上
+      if (routed && "text" in routed) return routed.status === "ok" ? routed.text : failed(routed.text);
       if (a.action === "stop") { const r = stopJob(String(a.id)); return r.ok ? r.text : failed(r.text); }
       if (a.action === "output") { const j = getJob(String(a.id)); return j ? `${j.ended ? `已结束（退出码 ${j.code}）` : "运行中"}\n${j.out.slice(-8000) || "（还没有输出）"}` : failed(`没有这个任务：${a.id}`); }
       const l = listJobs();
@@ -543,6 +553,7 @@ const core: Tool[] = [
       persona: str("人设（可选）：它是谁、什么风格、什么立场"), scope: str("领域范围（可选）：只管什么、不管什么"),
       background: str("知识背景（可选）：它应当预先知道的事实、约束、术语"), context: str("上下文（可选）：相关材料、路径、对方说过的话"),
       maxSteps: { type: "number", description: "最多多少步（可选，缺省不限，由会话时间墙与急停兜底；给了就强制：到了最后一步基座提醒它写报告，再多 2 步仍没写就停下）" },
+      body: str("在哪具身体上做（可选，那具身体的 uuid）：缺省跟着这一轮的工作区走，没有工作区就在这具身体上"), dir: str("它的工作区目录（可选）：缺省继承这一轮的工作区目录"),
     }, ["name", "goal"]),
     handler: async (a, ctx) => {
       const s = ctx.session;
@@ -550,29 +561,43 @@ const core: Tool[] = [
       const spec = { name: String(a.name).trim().slice(0, 40), goal: String(a.goal), persona: a.persona, scope: a.scope, background: a.background, context: a.context, maxSteps: a.maxSteps ? Number(a.maxSteps) : undefined };
       // 报告送回派出它的会话；醒来时派出的（没有会话）送回这次醒来主动发消息的会话，还没有就为它开一个，不落进不相干的默认会话（#38）
       let conv = s?.conv || (s?.sayTo && getSession(s.sayTo) ? s.sayTo : "");
+      // 在哪里做：她给的 body / dir，否则跟着这一轮的工作区走（工作区在另一具在线的身体上，就经网状层的 agent.run 在那边派出）
+      const place = ws.agentPlace(a, s, resolveBody);
+      if (typeof place === "string") return failed(place);
       if (!conv) { conv = crypto.randomUUID(); ensureSession(conv, `子 agent「${spec.name}」`, "主动"); }
-      const sub = spawnAgent(spec, { conv, channel: s?.channel || "控制台" });
-      return `已派出「${sub.name}」（id ${sub.id}），在后台开始了。用 agent_status 看进度，agent_message 跟它说话；做完后报告会送回${s?.conv ? "这个会话" : `会话「${getSession(conv)?.title ?? conv}」（${conv}）`}。`;
+      const back = s?.conv ? "这个会话" : `会话「${getSession(conv)?.title ?? conv}」（${conv}）`;
+      if (place.body !== config.body) {
+        const r = await ws.runAgentOn(place.body, { ...spec, dir: place.dir, parent: { conv, channel: s?.channel || "控制台" } });
+        return `已派出「${r.name}」（id ${r.id}），在 ${place.body} 上${r.dir ? `、${r.dir} 里` : ""}开始了。用 agent_status 看进度，agent_message 跟它说话；做完后报告会送回${back}。`;
+      }
+      const sub = spawnAgent({ ...spec, workspace: ws.agentWorkspaceText(config.body, place.dir) }, { conv, channel: s?.channel || "控制台" });
+      ws.bindAgent(agents.liveSession(sub.id), place.dir);
+      return `${place.note}已派出「${sub.name}」（id ${sub.id}），在后台开始了${place.dir ? `（工作区 ${place.dir}）` : ""}。用 agent_status 看进度，agent_message 跟它说话；做完后报告会送回${back}。`;
     },
   },
   {
     name: "agent_status", permission: "session",
     description: "查看子 agent 的进度与报告：不给 id 列出全部（含已完成的），给 id 看那一个的最近动作与完整报告。",
     parameters: obj({ id: str("子 agent 的 id（可选）") }),
-    handler: async (a) => agents.describe(a.id ? String(a.id) : undefined),
+    handler: async (a) => {
+      if (a.id) return (await ws.remoteAgent(String(a.id), "status", {})) ?? agents.describe(String(a.id)); // 在别的身体上派出的，去那边问
+      const there = await Promise.all(ws.remoteAgentList().map((r) => ws.remoteAgent(r.id, "status", {}).catch((e: Error) => `[${r.id}] ${r.name}（在 ${r.body} 上）：${e.message}`)));
+      return [agents.list().length || !there.length ? agents.describe() : "", ...there].filter(Boolean).join("\n\n");
+    },
   },
   {
     name: "agent_message", permission: "session",
     description: "跟进行中的子 agent 说话：补充要求、纠正方向、问它进展。它会在这一步结束后看到并回应（回应出现在它的过程里，用 agent_status 看）。",
     parameters: obj({ id: str("子 agent 的 id"), text: str("要说的话") }, ["id", "text"]),
-    handler: async (a) => agents.message(String(a.id), String(a.text)),
+    handler: async (a) => (await ws.remoteAgent(String(a.id), "message", { text: String(a.text) })) ?? agents.message(String(a.id), String(a.text)),
   },
   {
     name: "agent_stop", permission: "session",
     description: "停止一个进行中的子 agent（它不会再有报告）。",
     parameters: obj({ id: str("子 agent 的 id") }, ["id"]),
-    handler: async (a) => agents.stop(String(a.id)),
+    handler: async (a) => (await ws.remoteAgent(String(a.id), "stop", {})) ?? agents.stop(String(a.id)),
   },
+  { ...ws.WORKSPACE_TOOL, handler: (a, ctx) => ws.workspaceTool(a, ctx.session, resolveBody) },
   {
     name: "hearing_config", permission: "self_modify",
     description: "查看或修改你的听觉（控制台 App 常驻用麦克风听，基座识别后交给你判断要不要回应）。action=get 查看状态；set 修改：enabled 开关、windowMin（最近会话多少分钟内有更新就并入它）、sensitivity（1 迟钝 / 2 适中 / 3 灵敏）、language（识别语言，如 zh-CN）。开关需要对方在 App 里授予过麦克风权限才真正生效。",
@@ -633,6 +658,7 @@ function bodyTools(): Tool[] {
         if (typeof b === "string") return failed(b);
         if (!h) return failed(`${b.body} 不在线`);
         const r = await h.call(b.body, String(a.tool), (a.args && typeof a.args === "object" ? a.args : {}) as Record<string, unknown>, ctx.session ? `${ctx.session.origin} ${ctx.session.conv}` : "", stopOf(ctx)); // 这一轮被停止：不再等，并请那边中止
+        if (r.workdir) ws.noteWorkdir(ctx.session, b.body, r.workdir, String((a.args as Record<string, unknown> | undefined)?.command ?? "")); // 在那边 git clone、cd 进了一个目录：登记为这一轮的工作区
         return r.status === "ok" ? r.text : failed(`（${b.body} 上的 ${a.tool}${r.status === "denied" ? "没有被允许" : "出错了"}）${r.text}`);
       },
     },
@@ -691,11 +717,11 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
   const safe = real ? { ...redactArgs(args), realEnv: true } : redactArgs(args); // 参数里的保密值不进审批、时间线与审计；真实环境里的命令另外标记
   if (!(await check(strictest([t.permission, ...(t.also ?? [])]), name, reason, safe, stopOf(ctx)))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
-    let a = args, note = "";
-    if (t.bodyFiles && args.body !== undefined) { // 带 body：先把路径参数指的文件从那具身体取来（闸门、检查与审计都在 body-files.ts）
-      const l = await localize(name, t.bodyFiles, args, reason);
+    let a = t.bodyFiles && name !== "shell" ? ws.workspaceFiles(t.bodyFiles, args, ctx.session) : args, note = ""; // 相对路径从工作区算；工作区在另一具身体上时指那边的文件
+    if (t.bodyFiles && a.body !== undefined) { // 带 body：先把路径参数指的文件从那具身体取来（闸门、检查与审计都在 body-files.ts）
+      const l = await localize(name, t.bodyFiles, a, reason);
       if (typeof l === "string") { const text = redactSecrets(l); audit("agent", name, reason, safe, `error: ${text}`); return { text, status: "error" }; }
-      ({ args: a, note } = l); ctx = { ...ctx, fetched: l.fetched };
+      ({ args: a, note } = l); ctx = { ...ctx, fetched: l.fetched, pinned: true };
     }
     const raw = await t.handler(a, ctx);
     const bad = raw instanceof ToolFailure, text = bad ? raw.text : raw;

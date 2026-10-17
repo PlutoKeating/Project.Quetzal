@@ -21,6 +21,7 @@ import * as agents from "./agents.ts";
 import * as zone from "../time/zone.ts";
 import * as reminders from "../time/reminders.ts";
 import * as claims from "./claims.ts";
+import { workspaceBlock, workspaceNote, localReposText, remoteReposText } from "./workspace.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
 
@@ -51,7 +52,7 @@ function othersBlock(): string {
   if (!bodies.length) return "";
   const busy = (b: string) => liveTurns().filter((t) => t.body === b).length;
   const self = bodyUuid();
-  return `## 其他身体（此刻在线，都是你）\n${self ? `你此刻在 ${config.body}（body: ${self}）。\n` : ""}${bodies.map((b) => `- ${b.body}（body: ${b.uuid ?? "还没有登记 uuid"}）：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}`).join("\n")}\n凡是要指一具身体的地方（body_call、move_to、读文件工具的 body）都填它的 uuid（上面括号里的），不填名字。用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对方的话标着是经哪具身体发来的（对方的控制台连着哪具身体、飞书由哪具身体收、哪具身体的耳朵听到）：这只说明消息从哪具身体进来，不等于对方手里拿的就是那台设备（控制台可以连到别的身体上），也不决定活在哪里做——文件和仓库在哪具身体上，就在哪具身体上做。对话、会话、记忆、心脏都是同一份；保密库、自造工具的实现与文件属于各自的身体：在那边拍的照片、录的音、写的文件，这里没有那个路径：view_image、read_document、shell 带上 body（那具身体的 uuid），路径照那边的写，基座先把文件取到这里再用（shell 把要取的文件列在 files 里，命令仍在这里执行）。`;
+  return `## 其他身体（此刻在线，都是你）\n${self ? `你此刻在 ${config.body}（body: ${self}）。\n` : ""}${bodies.map((b) => `- ${b.body}（body: ${b.uuid ?? "还没有登记 uuid"}）：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}${remoteReposText(b.body)}`).join("\n")}\n凡是要指一具身体的地方（body_call、move_to、读文件工具的 body）都填它的 uuid（上面括号里的），不填名字。用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对方的话标着是经哪具身体发来的（对方的控制台连着哪具身体、飞书由哪具身体收、哪具身体的耳朵听到）：这只说明消息从哪具身体进来，不等于对方手里拿的就是那台设备（控制台可以连到别的身体上），也不决定活在哪里做——文件和仓库在哪具身体上，就在哪具身体上做：会话绑定了工作区时，基座自动把这个会话的每一轮放到工作区所在的身体上（见「工作区」一节），你不用自己换。对话、会话、记忆、心脏都是同一份；保密库、自造工具的实现与文件属于各自的身体：在那边拍的照片、录的音、写的文件，这里没有那个路径：view_image、read_document、shell 带上 body（那具身体的 uuid），路径照那边的写，基座先把文件取到这里再用（shell 把要取的文件列在 files 里，命令仍在这里执行）。`;
 }
 
 /** 技能与自造工具：本机可用的、缺依赖的、只有文档没有实现的。 */
@@ -112,7 +113,7 @@ function otherSessions(conv = "", budget = 4000): string {
   for (const s of listSessions({ limit: 8 }).filter((s) => s.id !== conv).slice(0, 5)) {
     const msgs = sessionMessages(s.id, 4);
     if (!msgs.length) continue;
-    lines.push(`- 会话「${s.title}」（id：${s.id}，${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}）：\n${msgs.map((m) => `    ${speaker(m)}：${clip(m.text, 160)}`).join("\n")}`);
+    lines.push(`- 会话「${s.title}」（id：${s.id}，${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}${workspaceNote(s.id)}）：\n${msgs.map((m) => `    ${speaker(m)}：${clip(m.text, 160)}`).join("\n")}`);
   }
   let out = lines.join("\n");
   if (out.length > budget) out = out.slice(0, budget) + "…";
@@ -159,7 +160,8 @@ ${(() => { const l = reminders.active(); return l.length ? `你答应对方的�
     `## 想分享的一句话\n${(() => { const t = mem.thought(); return t ? `对方的首页正显示着你之前写下的：「${t.text}」（${new Date(t.ts).toLocaleString("zh-CN", { timeZone: config.timezone })}）。想法变了就用 share_thought 更新。` : "你还没有写下想分享的话。它会一直显示在对方的首页上——当你有正在想、愿意和对方分享的一句话或议题时，用 share_thought 写下来（一句话，最好不超过 50 字）。"; })()}`,
     `## 保密库\n需要对方给你密码、令牌、密钥等敏感信息时，用 pass_secret 让对方保密输入，不要让对方直接发在对话里。存进来的值你看不到明文，只在命令里按路径引用（${process.platform === "win32" ? "(Get-Content -Raw 路径).Trim()" : "\"$(cat 路径)\" 或 < 路径"}），不要输出。${(() => { const l = listSecrets(); return l.length ? `现有：\n${l.map((x) => `- ${x.name}${x.hint ? `：${x.hint}` : ""}（${x.path}；${x.sync ? "多端同步" : "仅本机"}）`).join("\n")}` : "现在是空的。"; })()}`,
     hostBlock(o.conv),
-    `## 身体\n${describeBody()}`,
+    `## 身体\n${describeBody()}${localReposText()}`,
+    ...(workspaceBlock(o.conv) ? [workspaceBlock(o.conv)] : []),
     ...(othersBlock() ? [othersBlock()] : []),
     `## 技能与自造工具\n${skillsBlock()}`,
     `## 会话与子 agent\n${sessionBlock()}`,
