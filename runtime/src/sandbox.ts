@@ -19,6 +19,10 @@
 //       保密库与自造工具（只读）、Node 所在目录（只读）；secrets\、config\ 不授权即不可见，另外显式拒读。网络：WFP 拦下这个用户的一切直连，
 //       只能经运行基座进程里的代理出去；代理拒绝回环、未指定、链路本地、元数据地址与这台机器自己的地址（连不到本机网关），局域网照常（与 Linux 一致）。
 //       安装时要一次 UAC（建用户、装 WFP 规则，见 cli/windows）；没装好就 fail-closed。
+//   - macOS：同一个 sandbox-runtime 的 macOS 后端（kind = "srt"）：每条命令生成一份 Seatbelt 配置，经系统自带的 /usr/bin/sandbox-exec 运行。
+//       边界与 Linux 等价（sandbox-macos.ts）：secrets/ 与浏览器配置读不到，QUETZAL_HOME 整体只读，主目录与临时目录可写，启动文件与
+//       ~/Library/LaunchAgents 只读；不能发 Apple 事件（osascript 控制不了别的应用）。网络与 Windows 一样只能经运行基座里的代理，
+//       公网与局域网照常，连不到这台机器自己（本机网关在这里）。不需要安装任何东西；sandbox-exec 用不了就 fail-closed。
 //   - 都没有：默认拒绝执行她的命令（fail-closed，参考 DeepSeek Harness），status.sandbox.kind 为 "none"，时间线与日志各提醒一次；
 //       部署者可以在控制台「高级 · 运行」页明确选择「不隔离也运行」（config.sandbox.allowUnsandboxed，不安全）。安装器负责装上可用的沙箱。
 //   每种沙箱在第一次使用前都实际验证一次：密钥目录在里面确实看不到（有内容时），否则不用它。
@@ -34,7 +38,8 @@ import { pathToFileURL } from "node:url";
 import { paths, isAndroid, config } from "./config.ts";
 import { log } from "./log.ts";
 import { addTimeline } from "./store.ts";
-import { isWindows, which as whichCmd } from "./platform.ts";
+import { isWindows, isMac, which as whichCmd } from "./platform.ts";
+import { macFilesystem } from "./sandbox-macos.ts";
 
 export type SandboxKind = "bwrap" | "landlock" | "proot" | "srt" | "none";
 export interface SandboxStatus { kind: SandboxKind; hidden: string[]; readonly: string[]; note: string; allowUnsandboxed: boolean }
@@ -42,6 +47,8 @@ export interface SandboxStatus { kind: SandboxKind; hidden: string[]; readonly: 
 /** 安装器放置的专用 bwrap（root 所有，带允许 userns 的 AppArmor 配置）与 landrun 的位置。 */
 export const DEDICATED_BWRAP = "/usr/local/lib/quetzal/bwrap";
 const CANARY = ".sandbox-canary"; // 探测用的无害文件
+/** 用 sandbox-runtime 的平台：Windows（srt-win）与 macOS（Seatbelt）。 */
+const srtPlatform = isWindows || isMac;
 const landrunPath = () => process.env.QUETZAL_LANDRUN || path.join(paths.home, "bin", "landrun");
 
 /** 没有沙箱时是否仍然执行（部署者在控制台明确打开；缺省拒绝）。 */
@@ -49,7 +56,7 @@ const allowUnsandboxed = () => config.sandbox?.allowUnsandboxed === true;
 
 /** 没有可用沙箱、又没有允许不隔离运行时，wrap 抛出它：工具把说明交给她，命令不执行。 */
 export class SandboxUnavailable extends Error {
-  constructor() { super(`没有执行：这台机器上没有可用的命令沙箱（${isWindows ? "Windows 需要安装时建好的沙箱用户与网络规则" : "Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot"}），为了不让命令读到基座的密钥，基座拒绝执行。请告诉对方：重新运行一次安装即可补上；或者在控制台「高级 · 运行」页明确选择允许不隔离运行（不安全）。`); this.name = "SandboxUnavailable"; }
+  constructor() { super(`没有执行：这台机器上没有可用的命令沙箱（${isWindows ? "Windows 需要安装时建好的沙箱用户与网络规则" : isMac ? "macOS 需要系统自带的 sandbox-exec 与随运行基座安装的 srt.mjs" : "Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot"}），为了不让命令读到基座的密钥，基座拒绝执行。请告诉对方：重新运行一次安装即可补上；或者在控制台「高级 · 运行」页明确选择允许不隔离运行（不安全）。`); this.name = "SandboxUnavailable"; }
 }
 
 interface Probe { kind: SandboxKind; bin: string; pidns: boolean }
@@ -181,7 +188,7 @@ function prootArgs(): string[] {
 function probe(): Probe {
   const force = process.env.QUETZAL_SANDBOX;
   if (force === "none") return { kind: "none", bin: "", pidns: false };
-  if (isWindows) return srtState === "ready" ? { kind: "srt", bin: srtWinPath(), pidns: false } : { kind: "none", bin: "", pidns: false };
+  if (srtPlatform) return srtState === "ready" ? { kind: "srt", bin: isWindows ? srtWinPath() : SANDBOX_EXEC, pidns: false } : { kind: "none", bin: "", pidns: false };
   // 能跑，并且密钥目录在里面确实看不到：放一个无害的探针文件，沙箱里读得到（或目录列得出东西）就说明没隔离住
   try { fs.mkdirSync(paths.secrets, { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(paths.secrets, CANARY), "quetzal-sandbox-canary\n", { mode: 0o600 }); } catch { /* 写不了就只靠列目录判断 */ }
   const q = (p: string) => `'${p.replace(/'/g, "'\\''")}'`;
@@ -206,13 +213,13 @@ function probe(): Probe {
 }
 
 function current(): Probe {
-  if (isWindows && srtState === "idle") void prepareSandbox(); // 第一次用到时在后台准备；准备好之前按「没有沙箱」处理
-  if (!probed || (isWindows && probed.kind === "none" && srtState === "ready")) {
+  if (srtPlatform && srtState === "idle") void prepareSandbox(); // 第一次用到时在后台准备；准备好之前按「没有沙箱」处理
+  if (!probed || (srtPlatform && probed.kind === "none" && srtState === "ready")) {
     probed = probe();
-    if (probed.kind === "none" && !warned && !(isWindows && srtState === "preparing")) {
+    if (probed.kind === "none" && !warned && !(srtPlatform && srtState === "preparing")) {
       warned = true;
       const text = allowUnsandboxed() ? "没有可用的沙箱，而且部署者允许了不隔离运行：她的命令能读到基座的密钥目录。重新运行安装命令补上沙箱后重启基座即可"
-        : `没有可用的沙箱（${isWindows ? `Windows：${srtError || "沙箱用户或网络规则没装好"}` : "Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot"}）：她的命令一律不执行。重新运行安装补上沙箱后重启基座即可`;
+        : `没有可用的沙箱（${isWindows ? `Windows：${srtError || "沙箱用户或网络规则没装好"}` : isMac ? `macOS：${srtError || "sandbox-exec 不可用"}` : "Linux 需要 bubblewrap 或 Landlock，Termux 需要 proot"}）：她的命令一律不执行。重新运行安装补上沙箱后重启基座即可`;
       log("sandbox", text);
       try { addTimeline("sandbox", allowUnsandboxed() ? "命令没有隔离：缺少沙箱程序" : "命令不执行：缺少沙箱程序", { text }); } catch { /* 存储还没打开（测试） */ }
     } else if (probed.kind !== "none") log("sandbox", `agent 的命令在 ${probed.kind}${probed.pidns ? "（独立 pid 命名空间）" : ""} 里运行，密钥目录不可见`);
@@ -223,13 +230,16 @@ function current(): Probe {
 /** 测试用：重新探测。 */
 export function resetSandbox() { probed = undefined; warned = false; if (srtState !== "ready") { srtState = "idle"; srtPreparing = undefined; } }
 
+/** macOS 的 Seatbelt 启动器（系统自带）。 */
+export const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
+
 /** agent 的命令默认在哪个目录里运行：用户主目录（QUETZAL_HOME 在沙箱里整体只读，运行基座的版本目录也不该被改）。
  *  Windows：沙箱用户碰不到本用户的主目录，她的工作区是 %USERPROFILE%\Quetzal（对方也看得到、能放文件进去）。 */
 export const workDir = () => isWindows || specialHome(real(paths.home)) ? workspace() : os.homedir();
 const workspace = () => process.env.QUETZAL_WORKSPACE || path.join(os.homedir(), "Quetzal");
 
-// ---------- Windows：sandbox-runtime（srt-win）
-//   库打包成单独的 ESM 文件 srt.mjs（它要用 import.meta.url），放在 main.cjs 旁边，只在 Windows 上加载；srt-win.exe 在 srt-win\ 下。
+// ---------- Windows 与 macOS：sandbox-runtime（Windows 用 srt-win，macOS 用 Seatbelt）
+//   库打包成单独的 ESM 文件 srt.mjs（它要用 import.meta.url），放在 main.cjs 旁边，只在 Windows 与 macOS 上加载；srt-win.exe 在 srt-win\ 下。
 //   开发与测试时没有打包文件，直接加载 npm 包。
 type SrtManager = { initialize(cfg: unknown, ask?: (p: { host: string; port?: number }) => Promise<boolean>): Promise<void>; wrapWithSandboxArgv(command: string, binShell: unknown, customConfig?: unknown, abort?: AbortSignal, cwd?: string): Promise<{ argv: string[]; env: NodeJS.ProcessEnv }>; reset(): Promise<void> };
 let srtState: "idle" | "preparing" | "ready" | "failed" = "idle";
@@ -267,6 +277,8 @@ export function powershellPath(): string {
 /** PowerShell 的参数与 UTF-8 前导（中文 Windows 的控制台缺省是代码页 936，不设会乱码；做法同 MiMo Code）。 */
 export const PS_FLAGS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"];
 export const PS_PREAMBLE = "$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);$OutputEncoding=[Console]::OutputEncoding;";
+/** POSIX shell 单引号字符串。 */
+export const shq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 /** PowerShell 单引号字符串。 */
 export const psq = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
@@ -299,9 +311,21 @@ export function srtFilesystem() {
   };
 }
 
-/** Windows：初始化 sandbox-runtime 并验证（探针：沙箱里读不到 secrets\ 里的探针文件）。只做一次；失败就 fail-closed，原因记在 srtError。 */
+/** macOS：sandbox-runtime 的文件系统配置（见 sandbox-macos.ts）。特殊家目录（等于主目录或根目录）时只开放独立工作区。 */
+export function macSrtFilesystem() {
+  const home = real(paths.home);
+  const tmp = [...new Set(["/tmp", "/private/tmp", os.tmpdir(), real(os.tmpdir())])];
+  return macFilesystem({
+    home, homeRaw: paths.home, data: real(paths.data), soul: real(paths.soul), secrets: real(paths.secrets), userHome: real(os.homedir()),
+    workspace: specialWorkspace(home), tmp, share: (config.sandbox?.share ?? []).filter((p) => typeof p === "string"), exists,
+  });
+}
+
+/** Windows 与 macOS：初始化 sandbox-runtime 并验证（探针：沙箱里读不到 secrets/ 里的探针文件；macOS 另外确认写不进 QUETZAL_HOME）。
+ *  只做一次；失败就 fail-closed，原因记在 srtError。 */
 export function prepareSandbox(): Promise<void> {
-  if (!isWindows || process.env.QUETZAL_SANDBOX === "none") return Promise.resolve();
+  if (!srtPlatform || process.env.QUETZAL_SANDBOX === "none") return Promise.resolve();
+  if (isMac) return prepareMac();
   if (srtPreparing) return srtPreparing;
   srtState = "preparing";
   srtPreparing = (async () => {
@@ -334,7 +358,56 @@ export function prepareSandbox(): Promise<void> {
   return srtPreparing;
 }
 
+function prepareMac(): Promise<void> {
+  if (srtPreparing) return srtPreparing;
+  srtState = "preparing";
+  srtPreparing = (async () => {
+    try {
+      if (!fs.existsSync(SANDBOX_EXEC)) throw new Error(`缺少 ${SANDBOX_EXEC}`);
+      srtMgr = await loadSrt();
+      for (const d of [paths.data, paths.soul, paths.state]) { try { fs.mkdirSync(d, { recursive: true }); } catch { /* 下面的探针会发现 */ } }
+      await srtMgr.initialize({
+        network: { allowedDomains: [], deniedDomains: [] },
+        filesystem: macSrtFilesystem(),
+      }, async ({ host }) => !selfAddress(host)); // 没列在名单里的地址都来问：公网与局域网放行，这台机器自己不行
+      fs.mkdirSync(paths.secrets, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(paths.secrets, CANARY), "quetzal-sandbox-canary\n", { mode: 0o600 });
+      const probeFile = path.join(real(paths.state), ".sandbox-write-probe");
+      fs.rmSync(probeFile, { force: true });
+      const code = await runWrapped(await srtWrap(macProbeScript(real(paths.secrets), CANARY, probeFile), os.homedir()), 60_000);
+      fs.rmSync(probeFile, { force: true });
+      if (code === 3) throw new Error("沙箱里读得到密钥目录，不用它");
+      if (code === 4) throw new Error("沙箱里写得进 QUETZAL_HOME，不用它");
+      if (code !== 0) throw new Error(`沙箱探针没有通过（退出码 ${code}）`);
+      srtState = "ready";
+      process.once("exit", () => { void srtMgr?.reset().catch(() => {}); });
+      log("sandbox", "agent 的命令在 macOS 的 Seatbelt 沙箱（sandbox-exec，经 sandbox-runtime）里运行，密钥目录不可见、QUETZAL_HOME 只读，网络经代理且连不到本机");
+    } catch (e) {
+      srtState = "failed";
+      srtError = (e as Error).message.split("\n")[0].slice(0, 300);
+      log("sandbox", `macOS 沙箱不可用：${srtError}`);
+    }
+    probed = undefined; warned = false;
+  })();
+  return srtPreparing;
+}
+
+/** macOS：她的命令前面加的两句。sandbox-runtime 把 TMPDIR 设成可能不存在的 /tmp/claude，改回这个用户自己的临时目录（沙箱里可写）；
+ *  它的 NO_PROXY 列了局域网网段，命令会绕过代理直连，而 Seatbelt 只放行连代理——去掉它，局域网也经代理（代理放行局域网、拒绝本机）。 */
+export function macPrelude(tmp: string): string {
+  return `export TMPDIR=${shq(tmp)}; unset NO_PROXY no_proxy; `;
+}
+
+/** macOS 的探针：读得到密钥目录里的探针文件或列得出目录内容退出 3，写得进 QUETZAL_HOME（state/ 下的探针文件）退出 4，否则 0。 */
+export function macProbeScript(secrets: string, canary: string, writeProbe: string): string {
+  return `cat ${shq(path.join(secrets, canary))} >/dev/null 2>&1 && exit 3; ls -A ${shq(secrets)} 2>/dev/null | grep -q . && exit 3; ( : > ${shq(writeProbe)} ) 2>/dev/null && exit 4; exit 0`;
+}
+
 async function srtWrap(script: string, cwd: string): Promise<{ cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {
+  if (isMac) { // POSIX：sandbox-runtime 返回 [shell, -c, "env 代理变量… sandbox-exec -p <配置> shell -c <脚本>"]，环境原样继承
+    const r = await srtMgr!.wrapWithSandboxArgv(macPrelude(real(os.tmpdir())) + script, sh(), undefined, undefined, cwd);
+    return { cmd: r.argv[0], args: r.argv.slice(1), cwd, env: r.env };
+  }
   const r = await srtMgr!.wrapWithSandboxArgv(PS_PREAMBLE + script, { exe: powershellPath(), args: PS_FLAGS }, undefined, undefined, cwd);
   return { cmd: r.argv[0], args: r.argv.slice(1), cwd, env: r.env };
 }
@@ -350,6 +423,12 @@ function runWrapped(w: { cmd: string; args: string[]; cwd: string; env?: NodeJS.
 
 /** agent 的一条 shell 脚本包进沙箱：POSIX 用 $SHELL -c；Windows 用 PowerShell（UTF-8 前导）。env 为额外的环境变量（Windows 的沙箱用户拿到的是全新的环境，额外的变量写进脚本前面）。 */
 export async function wrapScript(script: string, cwd = workDir(), env: Record<string, string> = {}): Promise<{ cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {
+  if (isMac && process.env.QUETZAL_SANDBOX !== "none") {
+    if (srtState === "idle" || srtState === "preparing") await prepareSandbox();
+    if (current().kind === "srt") { const w = await srtWrap(script, cwd); return { ...w, env: { ...process.env, ...env } }; }
+    if (!allowUnsandboxed()) throw new SandboxUnavailable();
+    return { cmd: sh(), args: ["-c", script], cwd, env: { ...process.env, ...env } };
+  }
   if (isWindows) {
     if (srtState === "idle" || srtState === "preparing") await prepareSandbox();
     try { fs.mkdirSync(cwd, { recursive: true }); } catch { /* 下面启动时报错 */ }
@@ -381,6 +460,7 @@ export function hostScript(script: string): { cmd: string; args: string[]; cwd: 
 /** 一个程序与参数包进沙箱。Windows 上写成 PowerShell 的调用（& 程序 参数…，退出码照传）。 */
 export async function wrapArgv(cmd: string, args: string[], cwd = workDir(), env: Record<string, string> = {}): Promise<{ cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {
   if (isWindows) return wrapScript(`& ${[cmd, ...args].map(psq).join(" ")}; exit $LASTEXITCODE`, cwd, env);
+  if (isMac && process.env.QUETZAL_SANDBOX !== "none") return wrapScript(`exec ${[cmd, ...args].map(shq).join(" ")}`, cwd, env); // Seatbelt 包的是一条 shell 命令
   const w = wrap(cmd, args, cwd, { ...process.env, ...env });
   return { ...w, env: { ...process.env, ...env } };
 }
@@ -389,6 +469,7 @@ export async function wrapArgv(cmd: string, args: string[], cwd = workDir(), env
  *  没有可用沙箱且没有允许不隔离运行时抛出 SandboxUnavailable。 */
 export function wrap(cmd: string, args: string[], cwd = workDir(), env: NodeJS.ProcessEnv = process.env): { cmd: string; args: string[]; cwd: string } {
   if (isWindows) throw new Error("Windows 上用 wrapScript / wrapArgv（异步）");
+  if (isMac && process.env.QUETZAL_SANDBOX !== "none") throw new Error("macOS 上用 wrapScript / wrapArgv（异步）");
   const p = current();
   if (p.kind === "bwrap") return { cmd: p.bin, args: [...bwrapArgs(p.pidns), "--chdir", cwd, "--", cmd, ...args], cwd };
   if (p.kind === "landlock") return { cmd: p.bin, args: [...landrunArgs(env), "--", cmd, ...args], cwd };
@@ -403,9 +484,10 @@ export function sandboxStatus(): SandboxStatus {
   if (p.kind === "bwrap") return { kind: "bwrap", hidden: [paths.secrets, ...browserDirs()], readonly: [paths.home, ...userReadonly()], note: p.pidns ? "" : "没有独立的 pid 命名空间", allowUnsandboxed: allow };
   if (p.kind === "landlock") return { kind: "landlock", hidden: [paths.secrets, ...browserDirs()], readonly: [paths.home, ...userReadonly()], note: "Landlock：/、/home、主目录、QUETZAL_HOME 等被展开的目录本身不能列出、不能直接在里面新建文件", allowUnsandboxed: allow };
   if (p.kind === "proot") return { kind: "proot", hidden: prootHidden(), readonly: [], note: "proot 是尽力而为的隔离；运行数据与灵魂已遮蔽，请经宿主记忆／笔记工具读写", allowUnsandboxed: allow };
+  if (p.kind === "srt" && isMac) { const f = macSrtFilesystem(); return { kind: "srt", hidden: f.denyRead, readonly: f.denyWrite, note: `macOS 的 Seatbelt 沙箱（sandbox-exec，经 sandbox-runtime）：只能写 ${f.allowWrite.join("、")}（其中 QUETZAL_HOME 与启动项只读）；网络经代理，连不到这台机器自己`, allowUnsandboxed: allow }; }
   if (p.kind === "srt") { const f = srtFilesystem(); return { kind: "srt", hidden: f.denyRead, readonly: [...f.allowRead, ...f.denyWrite], note: `她的命令以沙箱用户 srt-sandbox 运行，只能写 ${f.allowWrite.join("、")}；网络经代理，连不到这台机器自己`, allowUnsandboxed: allow }; }
-  if (isWindows && srtState === "preparing") return { kind: "none", hidden: [], readonly: [], note: "正在准备 Windows 沙箱", allowUnsandboxed: allow };
-  return { kind: "none", hidden: [], readonly: [], note: allow ? "没有沙箱，已允许不隔离运行：她的命令能读到密钥目录" : `没有沙箱：她的命令一律不执行（${isWindows && srtError ? srtError + "；" : ""}重新运行安装补上沙箱，或在控制台明确允许不隔离运行）`, allowUnsandboxed: allow };
+  if (srtPlatform && srtState === "preparing") return { kind: "none", hidden: [], readonly: [], note: `正在准备 ${isWindows ? "Windows" : "macOS"} 沙箱`, allowUnsandboxed: allow };
+  return { kind: "none", hidden: [], readonly: [], note: allow ? "没有沙箱，已允许不隔离运行：她的命令能读到密钥目录" : `没有沙箱：她的命令一律不执行（${srtPlatform && srtError ? srtError + "；" : ""}重新运行安装补上沙箱，或在控制台明确允许不隔离运行）`, allowUnsandboxed: allow };
 }
 
 /**

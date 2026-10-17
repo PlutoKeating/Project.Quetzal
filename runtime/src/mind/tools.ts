@@ -305,7 +305,7 @@ const core: Tool[] = [
   },
   {
     name: "processes", permission: "shell",
-    description: "列出这具身体上你能看到的进程（Linux 直接读 /proc、Windows 读系统的进程表，不依赖 ps）：pid、父进程、状态、已运行时长、命令行，并标出你自己（运行基座）、你的父进程和你启动的后台任务。想知道某个程序有没有在跑，用它而不是 ps。",
+    description: "列出这具身体上你能看到的进程（Linux 直接读 /proc、Windows 读系统的进程表、macOS 用系统自带的 /bin/ps）：pid、父进程、状态、已运行时长、命令行，并标出你自己（运行基座）、你的父进程和你启动的后台任务。想知道某个程序有没有在跑，用它而不是 ps。",
     parameters: obj({ filter: str("可选：按命令行子串或 pid 过滤，如 node、dnsproxy") }),
     handler: async (a) => describeProcesses(a.filter ? String(a.filter) : ""),
   },

@@ -11,6 +11,7 @@
 //     安卓（Termux）上不提供：别的应用能连 127.0.0.1，而控制台 App 由安装器直接拿到令牌。
 //     Windows：原生桌面控制台直接读 secrets\gateway.token（同一个用户），这里只服务浏览器；子孙进程检查用 netstat 找出连接所属的进程，
 //     再沿 Win32_Process 的父进程往上找（fromDescendantWin，查不出来按「是」处理）。她的命令在沙箱用户里、连不到回环，这是第二道。
+//     macOS：没有 /proc，用 lsof 找连接所属的进程、ps 取父进程表（fromDescendantMac，同样查不出来按「是」处理）；她的命令在 Seatbelt 里连不到回环，这也是第二道。
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -148,6 +149,31 @@ export async function fromDescendantWin(req: Req, serverPort: number): Promise<b
     const parent = new Map(table.split(/\r?\n/).filter(Boolean).map((l) => l.trim().split(/\s+/).map(Number) as [number, number]));
     return isDescendant(owner, process.pid, parent);
   } catch { return true; }
+}
+/** macOS：发起这个连接的进程是不是运行基座的子孙。lsof 找连接的所属进程（没有 /proc），ps 取父进程表；任何一步失败都返回 true（拒绝）。
+ *  她的命令在 Seatbelt 沙箱里连不到回环（只能连代理，代理拒绝本机地址），这是第二道。 */
+export async function fromDescendantMac(req: Req, serverPort: number): Promise<boolean> {
+  const port = req.socket.remotePort;
+  if (!port) return true;
+  const exec = (cmd: string, args: string[]) => new Promise<string>((resolve, reject) => execFile(cmd, args, { timeout: 15_000, maxBuffer: 8 << 20 }, (e, out) => (e && !out ? reject(e) : resolve(String(out)))));
+  try {
+    const owner = lsofOwner(await exec("/usr/sbin/lsof", ["-nP", `-iTCP:${port}`, "-sTCP:ESTABLISHED", "-Fpn"]), port, serverPort);
+    if (owner === undefined) return true;
+    const parent = new Map((await exec("/bin/ps", ["-axo", "pid=,ppid="])).split("\n").map((l) => l.trim().split(/\s+/).map(Number) as [number, number]).filter(([p, pp]) => Number.isFinite(p) && Number.isFinite(pp)));
+    return owner === process.pid ? false : isDescendant(owner, process.pid, parent);
+  } catch { return true; }
+}
+/** lsof -Fpn 的输出（p<pid> 一行，随后 n<本地地址>-><对端地址>）里，本地端口为 port、对端端口为 serverPort 的那条连接的进程号。 */
+export function lsofOwner(text: string, port: number, serverPort: number): number | undefined {
+  let pid: number | undefined;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("p")) pid = Number(line.slice(1));
+    else if (line.startsWith("n") && pid !== undefined) {
+      const m = line.slice(1).match(/:(\d+)->.*:(\d+)$/);
+      if (m && Number(m[1]) === port && Number(m[2]) === serverPort) return pid;
+    }
+  }
+  return undefined;
 }
 /** netstat -ano 的输出里，本地端口为 port、对端端口为 serverPort 的那条连接的进程号。 */
 export function netstatOwner(text: string, port: number, serverPort: number): number | undefined {
