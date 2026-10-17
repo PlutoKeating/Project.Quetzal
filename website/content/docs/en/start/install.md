@@ -5,7 +5,7 @@ description: Install just one app, Quetzal, on a spare Android phone, and let th
 
 ## Overview
 
-You install one app. The runtime, Node.js, git and ssh all live inside the Quetzal app, so you need no Termux and no command line. (A computer takes a different path. On a Linux computer or server, run `curl -fsSL https://quetzal.plutokeating.beer/install | bash`; see [Linux and other machines](/docs/advanced/other-machines). On a Windows 10 (1809 or later) or Windows 11 PC, x64 or arm64, run `irm https://quetzal.plutokeating.beer/install.ps1 | iex` in PowerShell or use the installer from the [download page](/download); see [Windows](/docs/advanced/windows).)
+You install one app. The runtime, Node.js, git and ssh all live inside the Quetzal app, so you need no Termux and no command line. (A computer takes a different path. On a Linux computer or server, run `curl -fsSL https://quetzal.plutokeating.beer/install | bash`; see [Linux and other machines](/docs/advanced/other-machines). On a Mac (macOS 12 or later, Intel or Apple silicon), run the same command in Terminal; see [macOS](/docs/advanced/macos). On a Windows 10 (1809 or later) or Windows 11 PC, x64 or arm64, run `irm https://quetzal.plutokeating.beer/install.ps1 | iex` in PowerShell or use the installer from the [download page](/download); see [Windows](/docs/advanced/windows).)
 
 ```mermaid
 flowchart TB

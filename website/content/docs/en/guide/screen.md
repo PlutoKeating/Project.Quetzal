@@ -1,6 +1,6 @@
 ---
 title: Operating the screen
-description: How the agent reads the screen, taps, types and opens apps; what each of phone, Linux and Windows needs; and how to keep it in check.
+description: How the agent reads the screen, taps, types and opens apps; what each of phone, Linux, macOS and Windows needs; and how to keep it in check.
 ---
 
 The agent can use this device's screen the way you do: see what is on it, tap buttons, swipe, type, press shortcuts and open apps. This works on phones and computers, and the agent on another device can borrow this device's screen (see [Multiple bodies](/docs/guide/multi-body)).
@@ -57,6 +57,13 @@ Someone must be signed in to a graphical desktop. The runtime uses whatever prog
 - Under Wayland some apps report positions relative to their window; when a tap misses, the agent checks with a screenshot first.
 - Chromium and Electron apps expose elements only with accessibility turned on (for example the `--force-renderer-accessibility` flag); otherwise the agent looks at a screenshot.
 - Servers without a graphical session do not offer these actions.
+
+## macOS
+
+Nothing to install: `screencapture` takes screenshots, the Accessibility interface of System Events reads elements, presses keys and types, and system input events click, drag and scroll; plain clicks go through `cliclick` if it is installed. Someone must be signed in to the graphical desktop (an ssh session alone offers none of these actions).
+
+- Under System Settings › Privacy & Security, turn on **Accessibility** and **Screen & System Audio Recording** for the node the runtime uses, and allow it to control System Events the first time it reads a window. Until then the agent tells you what is missing and opens that page for you. See [macOS](/docs/advanced/macos).
+- It only sees the main display.
 
 ## Windows
 

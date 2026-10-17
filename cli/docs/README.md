@@ -1,8 +1,8 @@
 # cli · 安装、运维与终端对话
 
-把运行基座装到一台 Linux 机器上有两层：使用者看到的是一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`（本目录的 `install.sh`，见下文），它补齐依赖、注册守护、写桌面快捷方式，内部调用的是 npm 包 `npx @plutokeating/quetzal`。与 Quetzal App 的安装器（Android）对应：App 把内置的运行基座装进 Termux 交给 runit，这个包把内置的运行基座装进 `~/.quetzal` 交给 systemd 用户服务。版本目录、配置、健康检查与回滚的约定完全相同，所以同一套文档与控制台都适用。包里还带着**网页控制台**（控制台的 Flutter Web 构建），随运行基座放进版本目录，由网关托管，装完在浏览器里打开。
+把运行基座装到一台 Linux 机器（或 Mac，见下文「macOS」）上有两层：使用者看到的是一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`（本目录的 `install.sh`，见下文），它补齐依赖、注册守护、写桌面快捷方式，内部调用的是 npm 包 `npx @plutokeating/quetzal`。与 Quetzal App 的安装器（Android）对应：App 把内置的运行基座装进 Termux 交给 runit，这个包把内置的运行基座装进 `~/.quetzal` 交给 systemd 用户服务。版本目录、配置、健康检查与回滚的约定完全相同，所以同一套文档与控制台都适用。包里还带着**网页控制台**（控制台的 Flutter Web 构建），随运行基座放进版本目录，由网关托管，装完在浏览器里打开。
 
-TypeScript / Node.js 22.13+（内置 `node:sqlite` 不再需要标志），零运行时依赖：包里只有打包好的 `dist/quetzal.mjs`（命令行）与 `dist/runtime/`（运行基座 `main.cjs`、Linux 身体适配器 `linux.mjs`、`VERSION`、网页控制台 `web/`，约 25 MB）。`package.json` 声明 `os: ["linux", "win32"]`：Windows 上由安装包安装（见下文「Windows」），这个包的命令行在 Windows 上提供运维与终端对话。
+TypeScript / Node.js 22.13+（内置 `node:sqlite` 不再需要标志），零运行时依赖：包里只有打包好的 `dist/quetzal.mjs`（命令行）与 `dist/runtime/`（运行基座 `main.cjs`、Linux 身体适配器 `linux.mjs`、macOS 身体适配器 `macos.mjs` 与命令沙箱库 `srt.mjs`、`VERSION`、网页控制台 `web/`，约 25 MB）。`package.json` 声明 `os: ["linux", "darwin", "win32"]`：macOS 上与 Linux 同一套命令（见下文「macOS」）：Windows 上由安装包安装（见下文「Windows」），这个包的命令行在 Windows 上提供运维与终端对话。
 
 ## 使用者看到的
 
@@ -52,6 +52,21 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall # 
 都不可用时安装照常完成，但会醒目地提示：运行基座会拒绝执行她的命令，直到补上沙箱或在控制台明确允许不隔离运行。从控制台发起的升级在后台无终端运行，需要输密码的步骤会跳过（2 需要管理员权限），这时退到 Landlock。卸载时一并移除专用的 bwrap 与 AppArmor 配置。
 
 验证：`bash -n`、shellcheck（`docker run --rm -v "$PWD/install.sh:/s.sh:ro" koalaman/shellcheck:stable -s bash /s.sh`），以及在干净容器里以管道喂给 bash（`cat install.sh | docker run -i --rm debian:bookworm-slim bash -c 'cat >/tmp/i.sh; apt-get update -qq && apt-get install -y -qq curl ca-certificates; cat /tmp/i.sh | bash -s -- --no-open'`）跑通 debian-slim（root、无 git）、ubuntu（非 root + sudo + 假桌面）、fedora、archlinux、alpine（musl）、alpine + `QUETZAL_NODE_ARCH=x64-musl`（unofficial-builds 直接下载 Node 的路径，与龙芯共用）。systemd 与桌面集成只能在真机验证。
+
+## macOS
+
+macOS 12 起，Intel 与 Apple 芯片。装法与 Linux 相同：`curl -fsSL https://quetzal.plutokeating.beer/install | bash`（或已有 Node.js 22.13+ 时 `npx @plutokeating/quetzal`）。`install.sh` 在 Darwin 上走这几处分支（`detect_mac`、`ensure_tools_mac`、`ensure_sandbox_mac`、`ensure_service_mac`、`install_desktop_mac`），macOS 走到的代码只用系统自带的 bash 3.2 的语法（在 `bash:3.2` 容器里验证过）：
+
+| 步骤 | 做法 |
+|---|---|
+| 这台机器 | `uname -m` 只认 `x86_64` 与 `arm64`（Rosetta 里的 x86_64 终端只提示），`sw_vers` 要 12 以上，有没有图形登录会话看 `launchctl print gui/<uid>` |
+| 依赖 | curl、tar 系统自带；git 来自 Xcode 命令行工具：`git --version` 跑不起来又没有 CLT 时执行 `xcode-select --install`（系统弹出安装对话框，不需要 Xcode 本体），说明装好后重跑；Homebrew 的 git 也算。Node.js 同 Linux：PATH 或 nvm 里有就用，没有就装 nvm 再 `nvm install 22`（unofficial-builds 只用于 Linux） |
+| 命令沙箱 | 确认 `/usr/bin/sandbox-exec` 能跑；运行基座用随包的 `srt.mjs`（sandbox-runtime）为每条命令生成 Seatbelt 配置，不用装任何东西。用不了只提示（运行基座 fail-closed） |
+| 运行基座 | 同 Linux（`~/.quetzal/npm` 独立前缀，`~/.local/bin/quetzal` 垫片）；`~/.local/bin` 不在 PATH 时写进 `.zshrc`（没有就建：macOS 的缺省 shell 是 zsh）与已有的 `.bash_profile` / `.profile` |
+| 守护 | npm 包注册 launchd 用户代理 `~/Library/LaunchAgents/xyz.quetzal.runtime.plist`（`cli/src/launchd.ts`）：`/bin/sh` 包装脚本运行 `current/main.cjs`，日志 `~/.quetzal/logs/runtime.log`（超 10 MB 轮转），`RunAtLoad` + `KeepAlive {SuccessfulExit: false}` + `ThrottleInterval 3`；`state/quit`（托盘「退出」）或 `state/supervise.off`（控制台关了守护）在就以 0 退出、不再拉起。脚本确认代理已加载、`/health` 正常。用户代理跟着登录会话走：没人登录图形界面的 Mac 上不运行（只有 ssh 会话时注册在 `user/<uid>` 域，注销即停） |
+| 桌面 | 没有原生控制台（Flutter 的 macOS 桌面版不在这个包里）：控制台是网关托管的网页版，装完 `open http://127.0.0.1:<端口>/`。打印计算机使用要的两项权限：「系统设置 › 隐私与安全性」的辅助功能与屏幕与系统录音里加入运行基座的 node（打印出路径），再 `quetzal restart` |
+
+命令：`status`（服务一行写 launchd 用户代理）、`start`（没加载就 `bootstrap`，否则 `kickstart`）、`stop`（`bootout`；plist 留着，下次登录照常拉起）、`restart`（`kickstart -k`）、`logs [-f]`（`tail` 日志文件）、`rollback`、`open`、`run`（前台，适配器 `macos.mjs`）、`uninstall [--purge]`（`bootout` 并删 plist）。一键安装脚本的 `--uninstall` 另外删垫片与 `~/.quetzal/npm`。真机上的 launchd 行为（登录拉起、重启节流、TCC 授权给 node）没有在 CI 里验证。
 
 ## Windows（setup.exe、install.ps1、winget）
 
@@ -118,9 +133,9 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex     # 首选：PowerShel
 
 | 命令 | 作用 |
 |---|---|
-| `npm test` | 单元测试（版本目录布局、systemd 单元文件与路径转义；`install.sh` 的发版签名校验、sha256 核对、引用转义与 ELF 依赖检查——去掉最后一行后 `source` 进 bash 单独调用函数，这两组在 Windows 上跳过；Windows 的版本指针、schtasks 输出解析与日志；依赖锁与下载核对、安装包构建的纯函数、winget 清单；`install.ps1` 与源文件一致且纯 ASCII，有 `powershell.exe` 或 `pwsh` 时再跑 PowerShell 测试：Ed25519 的 RFC 8032 测试向量与发版签名格式、升级日志首尾行、setup 辅助脚本的纯逻辑） |
+| `npm test` | 单元测试（版本目录布局、systemd 单元文件与路径转义、launchd 的 plist 与包装脚本、网状层平台名；`install.sh` 的 macOS 分支（假的 Mac 命令）；`install.sh` 的发版签名校验、sha256 核对、引用转义与 ELF 依赖检查——去掉最后一行后 `source` 进 bash 单独调用函数，这两组在 Windows 上跳过；Windows 的版本指针、schtasks 输出解析与日志；依赖锁与下载核对、安装包构建的纯函数、winget 清单；`install.ps1` 与源文件一致且纯 ASCII，有 `powershell.exe` 或 `pwsh` 时再跑 PowerShell 测试：Ed25519 的 RFC 8032 测试向量与发版签名格式、升级日志首尾行、setup 辅助脚本的纯逻辑） |
 | `node windows/gen-install-ps1.mjs` | 改了 `windows/install.src.ps1` 之后重新生成 `install.ps1` |
-| `npm run build` | 类型检查 → `tool/bundle-runtime.sh`（构建 `../runtime` 并把 `main.cjs`、`linux.mjs`、版本号放进 `dist/runtime/`；再调用 `../console/tool/build-web.sh` 构建网页控制台放进 `dist/runtime/web/`，需要 Flutter，`FLUTTER=<路径>` 可指定，`QUETZAL_NO_WEB=1` 跳过）→ esbuild 打包 `dist/quetzal.mjs` |
+| `npm run build` | 类型检查 → `tool/bundle-runtime.sh`（构建 `../runtime` 并把 `main.cjs`、`linux.mjs`、`macos.mjs`、`srt.mjs`、版本号放进 `dist/runtime/`；再调用 `../console/tool/build-web.sh` 构建网页控制台放进 `dist/runtime/web/`，需要 Flutter，`FLUTTER=<路径>` 可指定，`QUETZAL_NO_WEB=1` 跳过）→ esbuild 打包 `dist/quetzal.mjs` |
 | `npm pack` | 本地打包验证：`npx ./quetzal-<版本>.tgz status` |
 
 版本号必须与 `runtime/package.json`、`console/pubspec.yaml` 一致，`tool/bundle-runtime.sh` 与发版工作流都会校验。发布由 `.github/workflows/release.yml` 在推送 `v<版本>` 标签时完成：npm 包在独立的 job 里构建，经 artifact 交给只做发布的 job，Release 创建成功后才发布（GitHub Packages 总是发布；npmjs.com 需要仓库 Secrets 里的 `NPM_TOKEN`，带 `--provenance`，缺少时跳过）。Release 的 `SHA256SUMS` 覆盖全部资产并带 `commit <提交> <标签>` 行，由仓库 Secret `RELEASE_SIGNING_KEY` 签名为 `SHA256SUMS.sig`。

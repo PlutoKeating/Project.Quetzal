@@ -1,10 +1,10 @@
-// 进程列表：Linux / 安卓直接读 /proc，不依赖 ps 命令；Windows 用 PowerShell 读 Win32_Process（CIM）。
+// 进程列表：Linux / 安卓直接读 /proc，不依赖 ps 命令；Windows 用 PowerShell 读 Win32_Process（CIM）；macOS 没有 /proc，用系统自带的 /bin/ps。
 //   有的沙箱里 ps 缺失、报错或看不到进程，而命令里的 2>/dev/null 会把报错吞掉，输出为空看起来就像"没有进程"，
 //   她据此断言"没有后台进程"——可她自己就跑在 node 进程里。这里给她一个不会撒谎的来源，并标出哪个是她自己。
 import fs from "node:fs";
 import { execFile } from "node:child_process";
 import { listJobs } from "../sh.ts";
-import { isWindows } from "../platform.ts";
+import { isWindows, isMac } from "../platform.ts";
 import { powershellPath, PS_PREAMBLE } from "../sandbox.ts";
 
 export interface Proc { pid: number; ppid: number; state: string; startedMs: number; cmd: string }
@@ -29,6 +29,7 @@ function bootTime(): number {
 /** 当前用户能看到的全部进程（Android 的 /proc 带 hidepid，只看得到自己这个用户的）。Windows 走 CIM；别的系统没有 /proc 时抛错。 */
 export async function listProcesses(): Promise<Proc[]> {
   if (isWindows) return listWindows();
+  if (isMac) return listMac();
   const boot = bootTime();
   const out: Proc[] = [];
   for (const d of fs.readdirSync("/proc")) {
@@ -55,6 +56,25 @@ function listWindows(): Promise<Proc[]> {
       return { pid: Number(pid), ppid: Number(ppid), state: "R", startedMs: Number(t) || NaN, cmd: cmd.join(" ") };
     }).filter((p) => Number.isFinite(p.pid)).sort((a, b) => a.pid - b.pid));
   }));
+}
+
+/** macOS：/bin/ps（系统自带，不受 PATH 影响）。etime 是已运行时长 [[天-]时:]分:秒。 */
+function listMac(): Promise<Proc[]> {
+  return new Promise((resolve, reject) => execFile("/bin/ps", ["-axww", "-o", "pid=,ppid=,state=,etime=,command="], { timeout: 30_000, maxBuffer: 16 << 20, env: { ...process.env, LC_ALL: "C" } }, (e, out) => {
+    if (e && !out) return reject(e);
+    resolve(parsePsMac(String(out)));
+  }));
+}
+/** `ps -axww -o pid=,ppid=,state=,etime=,command=` 的输出 → 进程表（now 为现在的时刻，测试用）。 */
+export function parsePsMac(text: string, now = Date.now()): Proc[] {
+  const out: Proc[] = [];
+  for (const line of text.split("\n")) {
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s+(.*)$/);
+    if (!m) continue;
+    const secs = Number(m[4] ?? 0) * 86400 + Number(m[5] ?? 0) * 3600 + Number(m[6]) * 60 + Number(m[7]);
+    out.push({ pid: Number(m[1]), ppid: Number(m[2]), state: m[3][0], startedMs: now - secs * 1000, cmd: m[8].trim() });
+  }
+  return out.sort((a, b) => a.pid - b.pid);
 }
 
 const ago = (ms: number) => { if (!Number.isFinite(ms)) return "?"; const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? `${s}秒` : s < 3600 ? `${Math.round(s / 60)}分` : `${(s / 3600).toFixed(1)}时`; };

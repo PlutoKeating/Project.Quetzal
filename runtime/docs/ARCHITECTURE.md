@@ -10,7 +10,7 @@
 src/
 ├── main.ts               装配各模块（打开数据库后做一次权限缺省档位的迁移，见 guard/sentinel.ts）；主动消息（say）入库到它带的会话，没带的进「主动消息」会话，并发系统通知；熔断（安全模式）；没人接住的同步异常记下后以非零退出（由守护者拉起）
 ├── config.ts             家目录布局（Windows 为 %LOCALAPPDATA%\Quetzal\home）、配置读写、密钥文件（改名遇到占用时重试）；密钥目录与保密库：POSIX 0700，Windows 用 ACL 只留本用户与 SYSTEM
-├── platform.ts           平台差异：命令查找（Windows 按 PATHEXT）、结束整棵进程树（POSIX 进程组 / Windows taskkill /T）、只给本用户的目录权限（chmod / icacls）、遇到占用时重试的改名
+├── platform.ts           平台差异（isWindows / isMac）：命令查找（Windows 按 PATHEXT）、结束整棵进程树（POSIX 进程组 / Windows taskkill /T）、只给本用户的目录权限（chmod / icacls）、遇到占用时重试的改名
 ├── ssh-key.ts            OpenSSH 格式的 ed25519 部署密钥（Node 内置 crypto 生成，不依赖 ssh-keygen）
 ├── mermaid.ts            Mermaid 的兜底渲染（网关 mermaid.render，单独打包为 mermaid.mjs）：beautiful-mermaid 画 SVG，整理成 flutter_svg 能显示的静态 SVG
 ├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event / reminders.changed / claims.changed / goals.changed / taskStates.changed / agents.changed / turns.changed / canvas.changed / canvas.replica 等）
@@ -18,7 +18,8 @@ src/
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时按「多久没有任何输出」计、输出上限，子进程不弹窗口；前台命令自成进程组，超时或停止时整组结束，脱离进程组的进程占着输出时 5 秒后不再等）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树；真实环境里的命令不经沙箱（hostScript），前台命令自成进程组，超时或退出真实环境时整棵结束
 ├── host-mode.ts          真实环境模式：某个对话会话里她的 shell 不经沙箱、以基座的系统用户直接在主机上执行。她用 host_mode 带理由请求（不看能力类别的档位：缺省交给审核模型 guard/sentinel.ts 的 approveHost，guard.sentinel.hostMode 为 ask 时每次生成审批；都发系统通知）或对方在控制台打开（ops host.enter）；按会话、只在这具身体上、只在内存里（重启即回到沙箱）；30 分钟没有真实环境命令、急停、退出（她自己、控制台、飞书 /sandbox）时结束进行中的真实环境命令与后台任务；进出写审计与时间线（kind host），每条命令的审计参数带 realEnv
-├── sandbox.ts            agent 命令的沙箱：Linux 用 bwrap（密钥目录为空 tmpfs、QUETZAL_HOME 整体只读（含 data / soul，阻止伪造记忆元数据与 SQLite 来源）、浏览器配置与用户启动文件保护、独立 pid 命名空间）或 Landlock，安卓用 proot（遮住密钥、配置、data / soul、版本目录、runit 与开机脚本，以及 `QUETZAL_HIDE_PATHS` 指定的目录），Windows 用 sandbox-runtime 的 srt-win（沙箱用户 srt-sandbox、按会话授权的 ACL、WFP 拦直连、代理拒绝连回本机；库单独打包为 srt.mjs），都没有时 kind=none 并提醒一次；包装接口 wrapScript / wrapArgv（异步）；真实环境用的 hostScript / hostEnv（不经沙箱；基座自己的 QUETZAL_* 不传，其余原样传）；读文件工具的真实路径检查（protectedPath：Windows 上取系统的真实路径、不分大小写，不收 UNC、设备路径与流名）
+├── sandbox-macos.ts      macOS 命令沙箱的边界（纯函数）：sandbox-runtime 的 filesystem 配置——密钥与浏览器配置拒读，QUETZAL_HOME 与启动项（含 ~/Library/LaunchAgents）拒写，主目录与临时目录可写
+├── sandbox.ts            agent 命令的沙箱（macOS：sandbox-runtime 的 Seatbelt 后端，探针验证、fail-closed）：Linux 用 bwrap（密钥目录为空 tmpfs、QUETZAL_HOME 整体只读（含 data / soul，阻止伪造记忆元数据与 SQLite 来源）、浏览器配置与用户启动文件保护、独立 pid 命名空间）或 Landlock，安卓用 proot（遮住密钥、配置、data / soul、版本目录、runit 与开机脚本，以及 `QUETZAL_HIDE_PATHS` 指定的目录），Windows 用 sandbox-runtime 的 srt-win（沙箱用户 srt-sandbox、按会话授权的 ACL、WFP 拦直连、代理拒绝连回本机；库单独打包为 srt.mjs），都没有时 kind=none 并提醒一次；包装接口 wrapScript / wrapArgv（异步）；真实环境用的 hostScript / hostEnv（不经沙箱；基座自己的 QUETZAL_* 不传，其余原样传）；读文件工具的真实路径检查（protectedPath：Windows 上取系统的真实路径、不分大小写，不收 UNC、设备路径与流名）
 ├── idle-fetch.ts         按「无进展」计时的 HTTP 请求：多久没收到任何东西才放弃（合成语音、模型目录的下载）
 ├── secret-values.ts      基座自己的密钥值，按结构认定、不按长短猜（私钥整段与正文每一行、JSON 文件只认凭据字段 token、其余文件整个内容、模型供应商的 Key；公钥与证书不算），按修改时间缓存：给脱敏用
 ├── voice/
@@ -30,7 +31,7 @@ src/
 ├── version.ts            版本号
 ├── ops.ts                统一操作层：网关与飞书共用，修改类操作全部审计
 ├── gateway.ts            网关：明文 HTTP 只监听本机回环（127.0.0.1 与 ::1），对局域网开放时另开 HTTPS / WSS（lanPort，同一套处理）；/health、/pair/info（证书指纹）、配对（8 位码、冷却、失败锁定与退避、Host 检查、请求体 16 KB 上限；HTTPS 上只收与证书指纹绑定的配对证明）、本机登录、令牌（Bearer / X-Quetzal-Token / WebSocket 第一条消息 / 旧的 ?token=）、gateway.rotateToken、WebSocket RPC 与推送、静态文件
-├── web.ts                网页控制台：托管 current/web/（QUETZAL_WEB_DIR 可覆盖，单页回退、ETag）；判定「同一台机器上打开着网页控制台的浏览器」（回环地址 + 本机 Host + Origin 正好是网关自己的源 / QUETZAL_DEV_ORIGINS）与「发起连接的是不是运行基座的子孙进程」（Linux 读 /proc，Windows 用 netstat 与 Win32_Process 的父进程表，查不出按拒绝）给 GET /auth/local；配对接口的 Host 检查
+├── web.ts                网页控制台：托管 current/web/（QUETZAL_WEB_DIR 可覆盖，单页回退、ETag）；判定「同一台机器上打开着网页控制台的浏览器」（回环地址 + 本机 Host + Origin 正好是网关自己的源 / QUETZAL_DEV_ORIGINS）与「发起连接的是不是运行基座的子孙进程」（Linux 读 /proc，Windows 用 netstat 与 Win32_Process 的父进程表，macOS 用 lsof 与 ps，查不出按拒绝）给 GET /auth/local；配对接口的 Host 检查
 ├── body/
 │   ├── adapter.ts        身体适配器接口（与设备仓库的唯一边界）+ 通用适配器
 │   ├── twin.ts           身体数字孪生：采样、身体感受、sense 事件、感官循环；「身体」段落含她自己的进程 pid；加载适配器后定下身体 uuid
@@ -65,7 +66,7 @@ src/
 │   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick / 内置 jpeg-js，长边可指定），供附件、view_image 与截图使用
 │   ├── hands.ts          手（计算机使用）：把适配器的 Hands 包装成 screen_read / screen_capture / screen_click / screen_drag / screen_scroll / screen_type / screen_key / app_open / window_list / window_focus；读屏结果过滤、编号、排版，视图坐标（截图缩到长边 1280）与屏幕像素换算，按编号取元素中心与 ref，键名规范；全部归 hands 类别（缺省交给审核模型；sentinel 的 hands 风险类别只算动作，读屏、截图、列窗口不算）
 │   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
-│   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务
+│   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务；Windows 读 Win32_Process，macOS 用系统自带的 /bin/ps
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，固定顺序、拿到结果即止（相不相关由她判断）；没有结果时照实说明，被转到别的网站就写出是哪里
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
 │   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（QUETZAL_HOME/vault；每项多端同步或仅本机，exportVault / mergeVault 供 mesh/shared.ts 按条目同步）、工具输出与参数里的保密值替换（连同基座自己的密钥，见 secret-values.ts）
@@ -138,6 +139,7 @@ src/
 adapters/
 ├── android/index.ts      经 App 身体接口的 /v1/hands/…（App 的无障碍服务 HandsService）；控件类名 → 通用角色、键 → 全局动作 / 输入框编辑
 ├── linux/hands.ts        桌面会话环境探测；xdotool（X11）/ ydotool、wtype（Wayland）的命令拼装；AT-SPI 脚本（python3 + gi Atspi）与解析；wmctrl；.desktop 查找；截图命令
+├── macos/hands.ts        JXA 脚本（权限预检、主显示器几何、CGEvent 鼠标、System Events 读元素 / 窗口 / 按键）；cliclick 参数；像素与点的换算；AX 角色映射；权限说明与系统设置链接；createHands
 └── windows/hands.ts      常驻 PowerShell 里的 C# 帮手（SendInput、DPI、虚拟屏幕偏移）；UI Automation 读屏与窗口列表脚本及解析；开始菜单应用；hands.* 操作表（身体助手 body.ts 共用）
 ```
 

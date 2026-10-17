@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Quetzal 一键安装（Linux）：curl -fsSL https://quetzal.plutokeating.beer/install | bash
+# Quetzal 一键安装（Linux 与 macOS）：curl -fsSL https://quetzal.plutokeating.beer/install | bash
+#
+# macOS（12 起，Intel 与 Apple 芯片）走同一条命令，差别只在这几处（见 detect_mac / ensure_tools_mac / ensure_sandbox_mac / ensure_service_mac）：
+#   git 来自 Xcode 命令行工具（没有就弹出系统的安装对话框，装好后重跑）；Node.js 22.13+ 没有就经 nvm 装；命令沙箱用系统自带的 sandbox-exec；
+#   守护是 npm 包注册的 launchd 用户代理 ~/Library/LaunchAgents/xyz.quetzal.runtime.plist（登录时拉起、退出自动重启）；
+#   控制台用网关托管的网页版（没有原生桌面版）；家目录同样缺省 ~/.quetzal。macOS 自带的 bash 是 3.2：macOS 走到的代码只用 3.2 的语法。
 #
 # 做什么（幂等，再跑一次就是升级）：
 #   1. 看清这台机器：发行版、架构、包管理器、有没有 systemd 用户实例、有没有桌面
@@ -43,6 +48,8 @@ NODE_MIN_MINOR=13
 PKG="@plutokeating/quetzal"
 SITE="https://quetzal.plutokeating.beer"
 DOCS="$SITE/zh/docs/advanced/other-machines"
+IS_MAC=0                          # 这台是 Mac（uname -s 为 Darwin）
+LAUNCHD_LABEL="xyz.quetzal.runtime"
 
 # ---------------------------------------------------------------- 文案（中英）
 ZH=0
@@ -113,7 +120,8 @@ orb_px() { # x y -> PX：SGR 颜色参数（不含前景/背景前缀），圆�
   fi
 }
 banner() {
-  local lines=("" "${B}${AMBER}Quetzal${R}" "${MUTE}$(t '活成一缕风。' 'Living like wind.')${R}" "" "${MUTE}$(t 'Linux 安装器' 'Linux installer')${R}" "${MUTE}${SITE#https://}${R}" "")
+  local kind; if (( IS_MAC )); then kind="$(t 'macOS 安装器' 'macOS installer')"; else kind="$(t 'Linux 安装器' 'Linux installer')"; fi
+  local lines=("" "${B}${AMBER}Quetzal${R}" "${MUTE}$(t '活成一缕风。' 'Living like wind.')${R}" "" "${MUTE}${kind}${R}" "${MUTE}${SITE#https://}${R}" "")
   say ""
   if (( COLOR && UNICODE )); then
     local row x top bot cell line
@@ -233,8 +241,27 @@ migrate_legacy_home() {
 
 # ---------------------------------------------------------------- 1. 这台机器
 OS_NAME=""; ARCH=""; PM=""; DISTRO_ID=""; LIBC=glibc; HAS_SYSTEMD=0; HAS_SESSION=0; HAS_DESKTOP=0; IS_WSL=0; IS_CONTAINER=0; USER_NAME=""
+detect_os() { [[ "$(uname -s 2>/dev/null)" == Darwin ]] && IS_MAC=1; [[ $IS_MAC == 1 ]] && DOCS="$SITE/zh/docs/advanced/macos"; return 0; }
+# macOS：架构只认 x86_64 与 arm64（Node.js 与网状层组件都只出这两种）；在 Rosetta 里跑的 x86_64 终端只提示；有没有图形登录会话看 launchd 的 gui 域
+ROSETTA=0
+detect_mac() {
+  USER_NAME=$(id -un 2>/dev/null || echo "${USER:-user}")
+  [[ -n "${HOME:-}" && -d "$HOME" ]] || die "$(t '找不到家目录（HOME 为空）。' 'Cannot determine the home directory (HOME is empty).')"
+  [[ -w "$HOME" ]] || die "$(t "家目录不可写：$HOME" "Home directory is not writable: $HOME")"
+  ARCH=$(uname -m 2>/dev/null || echo unknown)
+  case "$ARCH" in x86_64|arm64) ;; *) die "$(t "不支持这个处理器架构：$ARCH" "Unsupported CPU architecture: $ARCH")";; esac
+  [[ $ARCH == x86_64 && "$(sysctl -n sysctl.proc_translated 2>/dev/null)" == 1 ]] && ROSETTA=1
+  local v; v=$(sw_vers -productVersion 2>/dev/null || echo "")
+  OS_NAME="macOS${v:+ $v}"
+  local major=${v%%.*}
+  if [[ $major =~ ^[0-9]+$ ]] && (( major < 12 )); then die "$(t "需要 macOS 12 以上（当前 $v）。" "macOS 12 or later is required (found $v).")"; fi
+  if have brew; then PM=brew; else PM=none; fi
+  LIBC=darwin; HAS_SYSTEMD=0
+  if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then HAS_SESSION=1; HAS_DESKTOP=1; fi
+}
 detect_machine() {
-  [[ "$(uname -s 2>/dev/null)" == Linux ]] || die "$(t '这个安装器只支持 Linux。安卓手机请装 Quetzal App；其他系统见文档。' 'This installer supports Linux only. Use the Quetzal app on Android; see the docs for other systems.')"
+  if [[ "$(uname -s 2>/dev/null)" == Darwin ]]; then IS_MAC=1; detect_mac; return; fi
+  [[ "$(uname -s 2>/dev/null)" == Linux ]] || die "$(t '这个安装器只支持 Linux 与 macOS。安卓手机请装 Quetzal App，Windows 用 install.ps1；其他系统见文档。' 'This installer supports Linux and macOS. Use the Quetzal app on Android and install.ps1 on Windows; see the docs for other systems.')"
   (( BASH_VERSINFO[0] >= 4 )) || die "$(t "需要 bash 4 以上（当前 $BASH_VERSION）。" "bash 4 or later is required (found $BASH_VERSION).")"
   USER_NAME=$(id -un 2>/dev/null || echo "${USER:-user}")
   if [[ -z "${HOME:-}" || ! -d "$HOME" ]]; then
@@ -259,6 +286,14 @@ detect_machine() {
   if (( HAS_SESSION )) || [[ -n "${XDG_CURRENT_DESKTOP:-}" ]]; then HAS_DESKTOP=1; fi
 }
 describe_machine() {
+  if (( IS_MAC )); then
+    local mp="$OS_NAME $I_DOT $ARCH $I_DOT launchd"
+    if (( HAS_SESSION )); then mp+=" $I_DOT $(t '图形登录会话' 'GUI session')"; else mp+=" $I_DOT $(t '没有图形登录会话' 'no GUI session')"; fi
+    ok "$mp"
+    (( ROSETTA )) && warn "$(t '这个终端在 Rosetta 里运行（x86_64）：会装 Intel 版的 Node，能用但更慢。建议在原生的终端里重跑。' 'This terminal runs under Rosetta (x86_64): the Intel build of Node will be used; it works but is slower. Rerun from a native terminal if you can.')"
+    (( EUID == 0 )) && warn "$(t '正以 root 运行：launchd 用户代理会注册在 root 下。建议用日常账号安装。' 'Running as root: the launchd agent will belong to root. A regular account is recommended.')"
+    return 0
+  fi
   local parts="$OS_NAME $I_DOT $ARCH"
   [[ $LIBC == musl ]] && parts+=" $I_DOT musl"
   if (( HAS_SYSTEMD )); then parts+=" $I_DOT systemd"; else parts+=" $I_DOT $(t '无 systemd 用户实例' 'no systemd user instance')"; fi
@@ -392,7 +427,17 @@ EOF
   unlink "$strict" 2>/dev/null; unlink "$simple" 2>/dev/null
   return $rc
 }
+# macOS：命令沙箱是系统自带的 sandbox-exec（Seatbelt），由运行基座经 sandbox-runtime 为每条命令生成配置，什么都不用装；这里只确认它能用
+SANDBOX_EXEC=/usr/bin/sandbox-exec
+ensure_sandbox_mac() {
+  if [[ -x $SANDBOX_EXEC ]] && "$SANDBOX_EXEC" -p '(version 1)(allow default)' /usr/bin/true >/dev/null 2>&1; then
+    SANDBOX=srt; ok "$(t '命令沙箱可用（系统自带的 sandbox-exec，经 sandbox-runtime）' 'Command sandbox available (the built-in sandbox-exec, via sandbox-runtime)')"
+  else
+    warn "$(t "这台 Mac 上 $SANDBOX_EXEC 用不了：运行基座会拒绝执行她的命令（为了不让命令读到密钥）；可以在控制台「服务」页明确允许不隔离运行（不安全）" "$SANDBOX_EXEC does not work on this Mac: the runtime will refuse to run her commands (so they cannot read the secrets); you can explicitly allow unsandboxed commands on the console Service page (unsafe)")"
+  fi
+}
 ensure_sandbox() {
+  if (( IS_MAC )); then ensure_sandbox_mac; return; fi
   if [[ -x $QZ_BWRAP ]] && have bwrap && ! cmp -s "$QZ_BWRAP" "$(command -v bwrap)" && need_root_runner; then # 系统的 bwrap 升级过：专用副本跟着更新（安全修复）
     as_root install -m 755 "$(command -v bwrap)" "$QZ_BWRAP" >>"$LOG" 2>&1 || true
   fi
@@ -435,6 +480,7 @@ download_landrun() { # 版本 架构：landrun（Landlock 启动器，MIT）随 
 }
 ensure_landlock() { # 运行基座装好之后：bubblewrap 不可用时补上 Landlock，再不行补 proot
   [[ $SANDBOX == bwrap ]] && return 0
+  (( IS_MAC )) && return 0   # macOS 只有 sandbox-exec（ensure_sandbox_mac）
   local v; v=$(installed_version)
   local arch=""; case "$ARCH" in x86_64|amd64) arch=x64;; aarch64|arm64) arch=arm64;; esac
   if landlock_supported && [[ -n $arch && -n $v ]]; then
@@ -449,7 +495,17 @@ ensure_landlock() { # 运行基座装好之后：bubblewrap 不可用时补上 L
   if have proot; then SANDBOX=proot; ok "$(t '命令沙箱：proot（尽力而为的隔离）' 'Command sandbox: proot (best-effort isolation)')"; return; fi
   warn "$(t '没有可用的命令沙箱：运行基座会拒绝执行她的命令（为了不让命令读到密钥）。装上 bubblewrap 或 proot 后重新运行安装命令；或在控制台「服务」页明确允许不隔离运行（不安全）' 'No command sandbox is available: the runtime will refuse to run her commands (so they cannot read the secrets). Install bubblewrap or proot and rerun the installer, or explicitly allow unsandboxed commands on the console Service page (unsafe)')"
 }
+# macOS：curl 与 tar 是系统自带的；/usr/bin/git 只是 Xcode 命令行工具的占位程序，没装 CLT 时它不能用。
+# 没有就让系统弹出 CLT 的安装对话框（xcode-select --install，不需要 Xcode 本体），装好后重跑这条命令；Homebrew 的 git 也算
+ensure_tools_mac() {
+  if ! have curl || ! have tar; then die "$(t '这台 Mac 上找不到 curl 或 tar（系统自带的）。' 'curl or tar (built into macOS) is missing.')"; fi
+  if git --version >/dev/null 2>&1; then ok "$(t 'git、curl、tar 都在' 'git, curl and tar are present')"; return; fi
+  if xcode-select -p >/dev/null 2>&1; then die "$(t 'Xcode 命令行工具装着，git 却用不了：在终端里运行一次 git --version 看看原因（可能要先同意许可：sudo xcodebuild -license）。' 'The Xcode Command Line Tools are installed but git does not run: run git --version in a terminal to see why (you may need to accept the license: sudo xcodebuild -license).')"; fi
+  xcode-select --install >/dev/null 2>&1 || true
+  die "$(t '缺少 Xcode 命令行工具（git 在里面）：已弹出系统的安装对话框，点「安装」，装好后重新运行同一条命令。' 'The Xcode Command Line Tools (which include git) are missing: the system installer dialog has been opened; click Install, then rerun the same command.')"
+}
 ensure_tools() {
+  if (( IS_MAC )); then ensure_tools_mac; return; fi
   local missing=() tool
   for tool in git curl tar; do have "$tool" || missing+=("$tool"); done
   [[ -d /etc/ssl/certs || -f /etc/ssl/cert.pem || -f /etc/pki/tls/cert.pem ]] || missing+=(certs)
@@ -539,7 +595,7 @@ ensure_node() {
   # 之前直接下载过的（~/.quetzal/node/current）
   if [[ -z $NODE && -x "$HOME_DIR/node/current/bin/node" ]] && node_ok "$HOME_DIR/node/current/bin/node"; then NODE="$HOME_DIR/node/current/bin/node"; NODE_FROM="unofficial-builds"; fi
   if [[ -n $NODE ]] || find_node; then NPM="$(dirname "$NODE")/npm"; [[ -x $NPM ]] || NPM=$(command -v npm); ok "Node.js $NODE_VER $I_DOT $NODE_FROM"; return; fi
-  local direct; direct=$(node_direct_arch)
+  local direct=""; (( IS_MAC )) || direct=$(node_direct_arch)   # unofficial-builds 只有 Linux 的；macOS 的 x64 / arm64 官方都有，经 nvm 装
   if [[ -n $direct ]]; then
     # musl 版 Node 动态链接 libstdc++，Alpine 基础系统没有：先装上
     if [[ $PM == apk ]] && ! ls /usr/lib/libstdc++.so.6 >/dev/null 2>&1; then
@@ -616,9 +672,11 @@ exec $(sq "$NODE") $(sq "$QCLI") "\$@"
 EOF
   chmod 755 "$HOME/.local/bin/quetzal"
   case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *)
-    local rc line='export PATH="$HOME/.local/bin:$PATH"  # Quetzal'
-    for rc in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
-      [[ -f $rc ]] || [[ $rc == "$HOME/.profile" ]] || continue
+    # 第一个文件没有也要建：Linux 的登录 shell 读 .profile；macOS 的缺省 shell 是 zsh（不读 .profile），bash 的登录 shell 读 .bash_profile
+    local rc line='export PATH="$HOME/.local/bin:$PATH"  # Quetzal' rcs
+    if (( IS_MAC )); then rcs=("$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.profile"); else rcs=("$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"); fi
+    for rc in "${rcs[@]}"; do
+      [[ -f $rc ]] || [[ $rc == "${rcs[0]}" ]] || continue
       grep -qs '# Quetzal$' "$rc" || printf '\n%s\n' "$line" >>"$rc"
     done
     if [[ -d $HOME/.config/fish ]]; then mkdir -p "$HOME/.config/fish/conf.d"; printf 'fish_add_path -g ~/.local/bin  # Quetzal\n' >"$HOME/.config/fish/conf.d/quetzal.fish"; fi
@@ -642,7 +700,18 @@ ensure_linger() {
   fi
   return 1
 }
+# macOS：launchd 用户代理由 npm 包注册（cli/src/launchd.ts：登录时拉起，退出 3 秒后重启，守护开关与托盘「退出」靠 state/ 下的标志），这里确认它在、运行基座在响应
+launchd_domain() { if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then printf 'gui/%s' "$(id -u)"; else printf 'user/%s' "$(id -u)"; fi; }
+ensure_service_mac() {
+  launchctl print "$(launchd_domain)/$LAUNCHD_LABEL" >/dev/null 2>&1 || die "$(t 'launchd 用户代理没有注册成功' 'The launchd agent was not registered')"
+  wait_healthy 40 || die "$(t "运行基座没有响应（日志：$HOME_DIR/logs/runtime.log）" "The runtime did not respond (log: $HOME_DIR/logs/runtime.log)")"
+  ok "$(t "launchd 用户代理 $LAUNCHD_LABEL：登录时拉起，退出 3 秒后自动重启" "launchd agent $LAUNCHD_LABEL: starts at login, restarts 3 s after any exit")"
+  SERVICE_DESC="$(t 'launchd 用户代理 · 登录后自启 · 崩溃自动重启' 'launchd agent · starts at login · auto-restart')"
+  (( HAS_SESSION )) || warn "$(t '现在没有人登录这台 Mac 的图形界面：注销 ssh 后它会停，登录桌面后才一直运行（launchd 的用户代理跟着登录会话走）' 'Nobody is logged in to this Mac'"'"'s desktop: it stops when the ssh session ends and runs continuously once you log in (launchd agents follow the login session)')"
+  note "$(t "日志：$HOME_DIR/logs/runtime.log" "Log: $HOME_DIR/logs/runtime.log")"
+}
 ensure_service() {
+  if (( IS_MAC )); then ensure_service_mac; return; fi
   if (( HAS_SYSTEMD )); then
     systemctl --user is-enabled quetzal >/dev/null 2>&1 || die "$(t 'systemd 用户服务没有注册成功' 'The systemd user service was not registered')"
     wait_healthy 40 || die "$(t '运行基座没有响应' 'The runtime did not respond')"
@@ -822,8 +891,14 @@ install_native_console() {
   NATIVE="$base/current/quetzal-console"
   ok "$(t "原生控制台 $v 就位：应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标" "Native console $v in place: Quetzal's own icon in the app list, taskbar and Alt-Tab")"
 }
+# macOS：没有原生桌面控制台，控制台是网关托管的网页版（quetzal open 在默认浏览器里打开）。计算机使用要的两项权限只能由人在系统设置里给，这里说清给谁
+install_desktop_mac() {
+  ok "$(t "控制台是网页版：quetzal open，或在浏览器里打开 http://127.0.0.1:$(gateway_port_or_default)/" "The console is the web version: quetzal open, or open http://127.0.0.1:$(gateway_port_or_default)/ in a browser")"
+  note "$(t "要让 ta 看屏幕、点击和输入：系统设置 › 隐私与安全性 › 辅助功能 与 屏幕与系统录音，点「+」加入 $NODE（选择窗口里按 ⌘⇧G 粘贴这个路径），再 quetzal restart" "To let it see the screen, click and type: System Settings › Privacy & Security › Accessibility and Screen & System Audio Recording, click + and add $NODE (press ⌘⇧G in the file dialog to paste the path), then run quetzal restart")"
+}
 install_desktop() {
   (( HAS_DESKTOP && DESKTOP )) || return 0
+  if (( IS_MAC )); then install_desktop_mac; return; fi
   install_native_console
   local icon_src="$HOME_DIR/current/web/icons" apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications" icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" icon_name=xyz.quetzal.console size
   mkdir -p "$apps" "$HOME/.local/bin"
@@ -915,6 +990,7 @@ EOF
 open_console() {
   (( OPEN && HAS_SESSION )) || return 0
   local url; url="http://127.0.0.1:$(gateway_port_or_default)/"
+  if (( IS_MAC )); then open "$url" >/dev/null 2>&1 </dev/null && ok "$(t '已在浏览器里打开控制台' 'Console opened in the browser')"; return 0; fi
   if [[ -n $LAUNCHER && -x $LAUNCHER ]]; then ( "$LAUNCHER" >/dev/null 2>&1 </dev/null & ) && ok "$(t "已打开控制台$( [[ -n $NATIVE ]] && t '（原生窗口）' ' (native window)' )" "Console opened$( [[ -n $NATIVE ]] && printf ' (native window)' )")"
   elif have xdg-open; then ( xdg-open "$url" >/dev/null 2>&1 </dev/null & ) && ok "$(t '已在浏览器里打开控制台' 'Console opened in the browser')"; fi
 }
@@ -939,6 +1015,12 @@ summary() {
 uninstall() {
   hdr "$(t '卸载 Quetzal' 'Uninstalling Quetzal')"
   local did=0
+  local plist="$HOME/Library/LaunchAgents/$LAUNCHD_LABEL.plist"
+  if (( IS_MAC )) && [[ -f $plist ]]; then # macOS：卸下 launchd 用户代理（两个域都试），删 plist
+    launchctl bootout "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1 || true
+    launchctl bootout "user/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1 || true
+    rm -f "$plist"; ok "$(t 'launchd 用户代理已移除' 'launchd agent removed')"; did=1
+  fi
   if have systemctl && [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/quetzal.service" ]]; then
     systemctl --user disable --now quetzal >/dev/null 2>&1 || true
     rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/quetzal.service"; systemctl --user daemon-reload >/dev/null 2>&1 || true
@@ -970,7 +1052,7 @@ uninstall() {
 # ---------------------------------------------------------------- 主流程
 main() {
   parse_args "$@"
-  pick_lang; setup_term
+  pick_lang; setup_term; detect_os
   trap cleanup INT TERM
   [[ -n $HOME_DIR ]] || { HOME_DIR="$HOME/.quetzal"; DEFAULT_HOME=1; }
   case "$HOME_DIR" in /*) ;; *) HOME_DIR="$PWD/$HOME_DIR";; esac

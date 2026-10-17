@@ -1,4 +1,4 @@
-// 平台差异集中在这里：命令查找（Windows 按 PATHEXT）、结束整棵进程树、只给本用户的目录权限、遇到文件被占用时重试的改名。
+// 平台差异集中在这里（Windows、macOS 与其余 POSIX）：命令查找（Windows 按 PATHEXT）、结束整棵进程树、只给本用户的目录权限、遇到文件被占用时重试的改名。
 //   Windows 上 chmod 只改只读位，0600 / 0700 不起作用；目录权限用 icacls 去掉继承、只留本用户与 SYSTEM。
 //   Windows 上被杀毒软件、索引服务或编辑器短暂打开的文件，改名覆盖会报 EPERM / EBUSY / EACCES：有限次数重试（参考 DeepSeek Harness 的做法）。
 import fs from "node:fs";
@@ -7,6 +7,8 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 
 export const isWindows = process.platform === "win32";
+/** macOS：命令沙箱用 sandbox-runtime 的 Seatbelt 后端（sandbox.ts），进程树与权限沿用 POSIX 的做法。 */
+export const isMac = process.platform === "darwin";
 
 /** Windows 上运行基座的根目录 %LOCALAPPDATA%\Quetzal（家目录在 home\，版本在 runtime\，见 docs/WINDOWS_DECISIONS.md §4.1）。 */
 export function windowsRoot(): string {

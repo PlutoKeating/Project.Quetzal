@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 
 export const UNIT = "quetzal";
+export const NAME = `systemd 用户服务 ${UNIT}`;
 export const unitFile = () => path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "systemd", "user", `${UNIT}.service`);
 
 /** systemd 单元里的一个参数（ExecStart / Environment）：% 写成 %%；含空白、引号、反斜杠或 $ 时整体加双引号并转义（$ 写成 $$）。 */
@@ -76,7 +77,7 @@ export async function enableLinger(): Promise<boolean> {
 }
 
 /** 服务日志（journald）；follow 为真时持续输出直到 Ctrl-C。 */
-export function logs(lines = 80, follow = false): Promise<number> {
+export function logs(lines = 80, follow = false, _home?: string): Promise<number> { // _home：与 launchd.ts 同一签名（journald 不需要）
   const p = spawn("journalctl", ["--user", "-u", UNIT, "-n", String(lines), "--no-pager", "-o", "cat", ...(follow ? ["-f"] : [])], { stdio: "inherit" });
   return new Promise((r) => p.on("exit", (c) => r(c ?? 0)));
 }

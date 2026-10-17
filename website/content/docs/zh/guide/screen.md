@@ -1,6 +1,6 @@
 ---
 title: 操作屏幕
-description: ta 怎么看屏幕、点击、输入、打开应用；手机、Linux、Windows 上各要准备什么，以及怎么管住它。
+description: ta 怎么看屏幕、点击、输入、打开应用；手机、Linux、macOS、Windows 上各要准备什么，以及怎么管住它。
 ---
 
 ta 能像你一样用这台设备的屏幕：看上面有什么、点按钮、滑动、输入文字、按快捷键、打开应用。手机和电脑都行，另一台设备上的 ta 也能借这台设备的屏幕（见 [多具身体](/docs/guide/multi-body)）。
@@ -57,6 +57,13 @@ ta 能做的事：
 - Wayland 下有些应用报的坐标是相对窗口的，ta 点不准时会先截图核对。
 - Chromium、Electron 应用要打开无障碍支持（例如启动参数 `--force-renderer-accessibility`）才读得到元素，否则 ta 截图看。
 - 没有图形界面的服务器上没有这些动作。
+
+## macOS
+
+不用装任何东西：截图用 `screencapture`，读元素、按键和输入经「System Events」的辅助功能接口，点击、拖拽、滚动用系统的输入事件；装了 `cliclick` 时普通的点击交给它。需要有人登录图形界面（只有 ssh 会话时没有这些动作）。
+
+- 要在「系统设置 › 隐私与安全性」里给运行基座的 node 打开**辅助功能**与**屏幕与系统录音**，第一次读窗口时再允许它控制「System Events」。没给时 ta 会说明缺哪一项，并替你打开那一页。详见 [macOS](/docs/advanced/macos)。
+- 只看得到主显示器。
 
 ## Windows
 

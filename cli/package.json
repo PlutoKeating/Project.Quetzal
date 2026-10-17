@@ -3,7 +3,7 @@
   "version": "1.10.0",
   "type": "module",
   "license": "AGPL-3.0-only",
-  "description": "Quetzal 安装与运维命令行，chat/tui 经本机网关与同一个 agent 对话；Linux 安装器与 Windows 运维入口，零运行时依赖",
+  "description": "Quetzal 安装与运维命令行，chat/tui 经本机网关与同一个 agent 对话；Linux 与 macOS 安装器、Windows 运维入口，零运行时依赖",
   "homepage": "https://quetzal.plutokeating.beer",
   "repository": {
     "type": "git",
@@ -15,6 +15,7 @@
     "quetzal",
     "runtime",
     "linux",
+    "macos",
     "windows"
   ],
   "bin": {
@@ -25,6 +26,7 @@
   ],
   "os": [
     "linux",
+    "darwin",
     "win32"
   ],
   "engines": {
