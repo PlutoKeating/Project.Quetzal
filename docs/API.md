@@ -2,7 +2,7 @@
 
 Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用）和**身体适配器接口**（设备仓库实现）。
 
-网关使用项目自定义的 HTTP / WebSocket RPC；身体间协议见 [分布式设计](DISTRIBUTED.md)。已提供 stdio MCP 客户端工具来源和本机 `chat` / `tui` 客户端；没有 MCP 服务端、HTTP MCP 或远程 TUI。模型可调用的工具在 `runtime/src/mind/tools.ts` 注册，区别于控制台 RPC 方法；上下文与子 agent 的运行边界见 [架构 §5](ARCHITECTURE.md#5-大脑一次醒来)。
+网关使用项目自定义的 HTTP / WebSocket RPC；身体间协议见 [分布式设计](DISTRIBUTED.md)。已提供 MCP 客户端工具来源（本机 stdio、远程 Streamable HTTP 与旧版 SSE，OAuth 2.1，tools / resources / prompts）、插件包（Claude Code 插件格式与 Agent Skills）和本机 `chat` / `tui` 客户端；没有 MCP 服务端或远程 TUI。模型可调用的工具在 `runtime/src/mind/tools.ts` 注册，区别于控制台 RPC 方法；上下文与子 agent 的运行边界见 [架构 §5](ARCHITECTURE.md#5-大脑一次醒来)。
 
 各类接口的实现位置、工具扩展点与 MCP / TUI 的现状证据见 [内核工具与交互接口](engine/INTERFACES.md)。独立引擎已从根级 `engine/` 提供模型—工具循环，runtime 保持现有网关协议；MCP 实现与配置见 [MCP 工具来源](engine/MCP.md)，终端命令见 [CLI 文档](../cli/docs/README.md)，剩余接入范围见 [适配计划](engine/ADAPTERS_PLAN.md)。
 
@@ -38,6 +38,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | GET | `/media/<文件名>`（令牌见上） | 她的声音：控制台（安卓 App 或桌面版）取合成语音（`data/media/` 里的音频文件）来播放，见 `speak` 事件 |
 | POST | `/hear?started=<毫秒时刻>[&stream=1&id=<标识>&bargein=1]`（令牌见上） | 听觉。`bargein=1`：这句话打断了她的播放（App 本地已停播），以「打断」并入。`stream=1`：请求体为边说边送的 16 kHz 单声道 16 位 PCM（分块传输），基座用官方 SDK 流式识别，中间结果经 `hearing` 事件推送；否则请求体为一整句 WAV（最多 4 MiB）一次识别。→ `{ok, id, text, conv?, dropped?}`；`started` 为这句话开始的时刻（目前只随请求记下；她说话时的声音由耳朵一侧处理：安卓靠回声消除、以 `bargein=1` 送来的是插嘴，桌面版在她说话时不送音频）。识别后以「环境声音」进入会话，见 §1.3 听觉 |
 | POST | `/upload?name=<文件名>`（令牌见上） | 上传一个附件，请求体为文件内容（单个最多 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind: image｜text｜file}}`；保存在 `QUETZAL_HOME/data/uploads/<日期>/` |
+| GET | `/mcp/oauth/callback?code=…&state=…` | 远程 MCP 的 OAuth 回调（授权服务器把浏览器重定向到这里；redirect_uri 为 `http://127.0.0.1:<gateway.port>/mcp/oauth/callback`）。不需要网关令牌，凭 `state` 认出是哪一次登录（一次有效、10 分钟过期）；只在本机明文监听上。换到令牌后回一页「已登录，可以关掉」并重新连接该来源，失败回 400 与原因。见 [MCP §3](engine/MCP.md) |
 | GET | `/uploads/<rel>`（令牌见上） | 下载附件（控制台预览图片）；只能访问 uploads 目录内的文件：路径本身是符号链接的、跟随链接后出了 uploads 的都是 404 |
 
 ### 1.2 WebSocket `/rpc`
@@ -64,6 +65,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `mesh` | 网状层状态（同 `mesh` 方法的返回），绑定进展、同步服务连接、各身体的连接与路径变化时推送 |
 | `account` | 账户的控制台登录状态（同 `account` 方法的返回）：申请码、批准、退出、令牌失效时推送 |
 | `replica` | `{table: messages｜sessions｜message.mode, from, convs}`：从其他身体复制来的对话或会话已写入本机（`convs` 为涉及的会话），控制台据此刷新会话列表与打开的对话。时间线条目照常经 `timeline` 推送（带 `body`） |
+| `plugins` | `{}`：MCP 来源的状态、已装插件、插件目录或她的推荐变了（去抖 300ms）；控制台「插件」页据此重新取 `mcp.list` / `plugins` |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入流程 |
 
 `activity` 的 `kind`：
@@ -89,7 +91,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
-| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox, reminders, host}`；`reminders` 同 `reminders` 方法；`host` 同 `host` 方法；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜landlock｜proot｜srt｜none, hidden[], readonly[], note, allowUnsandboxed}`（`srt`：Windows 的沙箱用户，见 ARCHITECTURE §8.1；`note` 写明她能写哪些目录）（`none` 时她的命令缺省一律不执行，`allowUnsandboxed` 为真时才不隔离执行；控制台应提示重新运行安装命令补上沙箱，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护（醒来结束的 `finish` 也可顺带更新），更新时推送 `state`；多具身体时全网共用（按 `ts` 后写胜），任一具身体上更新后，其他身体采用时同样推送 `state` |
+| `status` | — | `{agent, version, body, adapter, heart, physical, stopped, paused, activity, usage, budget, approvals, soul, models, thought, hearing, mesh, sandbox, reminders, host, plugins}`；`plugins` 为 `{recommended, auth, error, online}`：她推荐、等对方安装的插件数，要登录、出错、已连接的 MCP 来源数（控制台菜单角标）；`reminders` 同 `reminders` 方法；`host` 同 `host` 方法；`sandbox` 为 agent 命令的沙箱 `{kind: bwrap｜landlock｜proot｜srt｜none, hidden[], readonly[], note, allowUnsandboxed}`（`srt`：Windows 的沙箱用户，见 ARCHITECTURE §8.1；`note` 写明她能写哪些目录）（`none` 时她的命令缺省一律不执行，`allowUnsandboxed` 为真时才不隔离执行；控制台应提示重新运行安装命令补上沙箱，见 ARCHITECTURE §8.1）；`thought` 为她想分享的一句话 `{text, ts}` 或 `null`，由她用 `share_thought` 维护（醒来结束的 `finish` 也可顺带更新），更新时推送 `state`；多具身体时全网共用（按 `ts` 后写胜），任一具身体上更新后，其他身体采用时同样推送 `state` |
 | `host` / `host.enter` / `host.exit` | — / `{conv}` / `{conv}` | 真实环境（ARCHITECTURE §8.2）：此刻开着真实环境的会话 `[{conv, title, since, last, by: agent｜user, reason, until}]`（`until` 为按空闲时限自动退出的时刻，每条真实环境命令往后推）；`host.enter` 对方在这个会话里自己打开（急停中报错），返回该项；`host.exit` 退出，返回原本是否开着。只属于这具身体、只在内存里（重启即清空）；进出写审计与时间线（`kind` 为 `host`），变化时推送 `state`。她的请求不是单独的接口：是一条 `approval`（`action` 为「进入真实环境（命令不经沙箱）」，`args.conv` 指明会话），用 `decide` 同意或拒绝 |
 | `sandbox.allowUnsandboxed` | `{allow}` | 没有可用沙箱时是否允许她的命令不隔离执行（不安全；缺省不允许）。只属于这具身体，不随多具身体同步；返回新的 `sandbox` 状态，记审计 |
 | `timeline` | `{limit?, before?, kind?}` | 时间线（倒序；`kind` 另有 `place`（多具身体时，这次醒来选在了哪具身体上 `{kind, reason, intent, where}`）、`mesh`（网状层的事：绑定、心跳交接、安全提醒）、`hear`（听到有人说话，没有回应）、`tool`（造了 / 改了 / 删了一个工具）、`identity`（她改了自己的身份）、`session`（切到新会话 / 压缩了上下文）、`agent`（派出 / 完成 / 停止子 agent，完成的条目带 `journal`、`process`、`steps`）、`sandbox`（没有可用的沙箱，启动时提醒一次）、`host`（进入 / 退出真实环境 `{conv, reason?}`））。`detail` 随 `kind` 而异：`think` / `dream` 为 `{reason, intent, journal, feeling, thought?, process, steps, tokens, model}`（中断时为 `{reason, intent, error, process}`），`chat` 为 `{channel, conv, text, reply, process, steps, tokens, model}`；`process` 是这一轮的执行过程（与 `sessions.messages` 的 `process` 同构：工具卡片与中途叙述），`steps` 是每次工具调用的完整参数、结果（最多 1500 字）与 `status`（ok / error / denied；1.9.0 之前的记录没有，控制台画成「结果未记录」） |
@@ -154,6 +156,30 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `tools.read` | `{name}` | `{manifest, source, skill}`；只有技能文档没有本机实现时 `manifest` 为 `null` |
 | `tools.toggle` | `{name, enabled}` | 停用 / 启用（写入她的日记） |
 | `tools.delete` | `{name, skill?}` | 删除实现；`skill` 为真时连技能文档一起删（灵魂仓库历史可找回） |
+
+**插件与 MCP 来源**（`plugins/ops.ts`；设计见 [MCP 与插件](engine/MCP.md)）
+
+只给持网关令牌的控制台；她的工具里只有 `plugin_search` / `plugin_recommend` / `plugin_prompt`。修改类操作写审计。
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `mcp.list` | — | `{sources: [SourceView], error, max}`：`error` 为 `config/mcp.json` 读不了的原因（此时当作没有来源，不覆盖文件），`max` 为来源上限（32）。`SourceView` = `{id, title, transport: stdio｜http｜sse, enabled, sync, plugin?, command?, args?, sandbox?, url?, oauth, loggedIn, loginPending, state: off｜starting｜auth｜online｜error｜denied, error?, protocol?, tools, resources, prompts, secrets[]}`：`state` 的 `auth` 为需要 OAuth 登录、`denied` 为启动没被闸门允许；`secrets` 为配置里引用了、这具身体上还没有值的凭据（多端同步来的来源常见） |
+| `mcp.detail` | `{id}` | `SourceView` 加 `permissions: {start, tools, perTool: [{tool, name, level}]}`（这具身体上 `mcp_start.<id>`、`mcp.<id>` 与每个工具 `mcp.<id>.<name>` 的档位，没单独设置的是继承来的；改用 `setPermission`）与 `contents: {tools: [{name, description}], resources: [{uri, name, description, mimeType?}], templates: [{uriTemplate, name, description}], prompts: [{name, description, arguments: [{name, required, description}]}]}`（连上之后才有）；没有这个来源为 `null` |
+| `mcp.add` | `{server, secrets?}` | 新增来源：`server` 同 `config/mcp.json` 的一项（`id` 可省，按 `title` 生成；见 MCP §1）；`secrets` 为要存进 `secrets/` 的凭据（stdio：环境变量名 → 值；远程：请求头名 → 值，如 `{"Authorization": "Bearer …"}`），写成 `secrets/mcp_<来源>_<名字>`（0600），配置里只留引用，任何接口都不再返回值。返回 `SourceView`；启用的立即尝试启动（经 `mcp_start.<id>`） |
+| `mcp.update` | `{id, enabled?, sync?}` | 启停、改同步方式（多端同步 / 仅本机；改成仅本机时其他身体上的副本删除）；即时启停 |
+| `mcp.remove` | `{id}` | 删除来源，连同 OAuth 令牌与为它保存的凭据；多端同步的其他身体一起删。返回是否存在 |
+| `mcp.restart` | `{id}` | 重新连接（登录之后、出错之后、手改配置之后） |
+| `mcp.login` | `{id}` | OAuth 登录：`{url}` 为要在系统浏览器里打开的授权地址（https；回调回到 `/mcp/oauth/callback`），或 `{authorized: true}`（已有可用令牌或刷新成功，已重新连接） |
+| `mcp.loginFinish` | `{url}` | 控制台不在运行基座那台设备上时：把浏览器最后停下的 `http://127.0.0.1:…/mcp/oauth/callback?…` 地址粘贴回来，与回调等价 → `{id}` |
+| `mcp.logout` | `{id}` | 删除这具身体上该来源的 OAuth 令牌，重新连接（之后显示需要登录） |
+| `plugins` | — | `{installed: [{name, version, description, source, catalog?, marketplace?, commit?, installedAt, mcp[], skills[], commands: [{name, description}], agents: [...]}], marketplaces: [{name, source, added, updated, description, owner, plugins: [{name, description, version, category, keywords, homepage, license, author, source, installed}], error?}], recommendations: [{id, name, reason, conv, ts}], catalog: [{id, name, description, category, license, source, maintainer, transport, installed, outward?}]}` |
+| `plugins.catalog` | `{query?}` | 推荐目录里与查询相关的条目（完整定义，含安装方式与要填的值） |
+| `plugins.preview` | `{source}` 或 `{catalog}` 或 `{marketplace, plugin}` | 预览：`source` 为本地目录的绝对路径、https git 地址或 GitHub 的 `owner/repo`。返回 `{plan, kind: plugin｜catalog, name, version, description, author, homepage, license, source, mcp: [{key, id, title, transport, command?, args?, url?, oauth, sync, inputs: [{key, label, target: env｜header｜arg, name?, secret?, required?, format?, placeholder?}], problem?}], skills: [{name, description, files[], skipped[], conflict?}], commands, agents, hooks, warnings[], installed?, outward?, setup?}`：`problem` 为这一项在这具身体上装不了的原因（找不到命令、地址不是 HTTPS），`conflict` 为灵魂仓库里已有同名技能（不覆盖），`installed` 为已装的版本（这次是更新），`outward` / `setup` 为推荐目录条目的对外操作提醒与首次设置说明。预览 30 分钟有效 |
+| `plugins.install` | `{plan, inputs?, skip?, enable?, replace?}` | 确认安装：`inputs` 为 `{来源 key: {输入 key: 值}}`（`secret` 的进 `secrets/`），`skip` 为 `{mcp?: [key], skills?: [名]}`，`enable` 缺省真（装好就启用，启动仍经闸门），`replace` 更新已装的同名插件（沿用来源 id、登录与凭据）。缺必填值时报错、什么都不写。技能写进灵魂仓库并推送，返回安装记录（同 `plugins` 的 `installed` 一项）；写时间线 `kind: plugin` 与她的日记 |
+| `plugins.cancel` | `{plan}` | 放弃一次预览（删暂存目录），返回是否存在 |
+| `plugins.uninstall` | `{name, keepSkills?}` | 卸载：去掉它加的来源（连同登录与凭据）、技能（`keepSkills` 为真时保留）与包，返回是否存在 |
+| `plugins.marketplace.add` / `.refresh` / `.remove` | `{source}` / `{name}` / `{name}` | 插件目录（Claude Code 插件市场的 `.claude-plugin/marketplace.json`）：`source` 为本地目录、https git 地址、`owner/repo`，或直接指向 marketplace.json 的 https 地址；返回 `{name, owner, description, plugins, warnings}`；去掉目录不影响已装的插件 |
+| `plugins.dismiss` | `{id}` | 不采纳她的一条推荐，返回是否存在 |
 
 **调节与安全**
 
@@ -317,7 +343,7 @@ Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/pow
 | `channels.feishuHolder` | "" | 多具身体时持有飞书长连接的身体（全网共用）；空为这具身体自己连 |
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
 | `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` / `mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码）。一个工具按它所属类别中最严的一个检查：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；想真正收紧，先把 `shell` 改成 `ask`。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求每次都要对方同意 |
-| `permissions.mcp_start.<来源ID>` / `permissions.mcp.<来源ID>.<工具别名>` | 继承来源级 / 类别级，缺省 ask | MCP 进程启动与工具调用分别授权；来源配置与带点子类别属于本机，总类别 mcp / mcp_start 仍按现有权限分区共享；工具名映射与范围见 [MCP](engine/MCP.md) |
+| `permissions.mcp_start.<来源ID>` / `permissions.mcp.<来源ID>.<工具别名>` | 继承来源级 / 类别级，缺省 ask | MCP 来源启动与工具调用（含资源与提示词）分别授权；带点子类别属于本机，总类别 mcp / mcp_start 仍按现有权限分区共享；来源配置在 `config/mcp.json`（远程来源缺省多端同步，见 [MCP §5](engine/MCP.md)）。`plugins`（她找插件、推荐、取用插件命令）缺省 allow |
 | `brain.maxOutputTokens` | 4096 | 请求输出上限；实际候选还受模型 maxTokens 与窗口四分之一限制，生产步数仍不设硬上限 |
 | `brain.contextWindow` | 65536 | 模型没有有效 context 配置时的窗口缺省值；范围1024–2000000，实际候选按自己的 context 重算 |
 | `brain.contextSummaryTokens` | 1024 | 动态摘要正文预算，范围128–4096；按UTF-8字节保守估计限制，不是真tokenizer |

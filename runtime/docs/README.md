@@ -10,7 +10,7 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 
 测试夹具清理临时 `QUETZAL_HOME` 前，须先结束模型服务 / MCP 连接并关闭 SQLite `store.db`，再删除目录。Windows 不允许删除仍由数据库打开的文件；清理失败同样属于测试失败，不能以忽略 EPERM 或跳过用例替代释放资源。
 
-新增运行时依赖 `@modelcontextprotocol/client`（锁定 2.3.1）：使用官方 MCP 协议与 stdio 传输实现，支持现代 / legacy 协商；没有引入服务端框架或将 SDK 放进 engine。
+运行时依赖 `@modelcontextprotocol/client`（锁定 2.3.1，Apache-2.0）：官方 MCP 协议实现，stdio、Streamable HTTP、旧版 SSE 传输与 OAuth 客户端（`auth()`）都来自它，支持现代 / legacy 协商；远程与插件没有新增依赖（出站检查用 Node 内置 http / https，git 仓库用系统的 git）；没有引入服务端框架或将 SDK 放进 engine。
 
 运行时依赖：`ws`（网关）、`@larksuiteoapi/node-sdk`（飞书长连接、交互卡片、一键创建机器人）、`jpeg-js`（纯 JS 的 JPEG 编解码：手机上没有 ffmpeg / ImageMagick 时也能把大照片缩小后交给模型）、`microsoft-cognitiveservices-speech-sdk`（听觉的流式识别：裸 WebSocket 协议的社区实现都已弃用，官方 SDK 是 Node 下的标准做法，打包后约 1 MB），以及 `@peculiar/asn1-x509` + `@peculiar/asn1-schema`（锁定精确版本，MIT，纯 JS）：网关局域网 HTTPS 的自签名证书（`src/tls.ts`）。Node 有 TLS 却没有生成 X.509 证书的接口，证书的 DER 编码不自己写，用 PeculiarVentures 维护的 ASN.1 结构定义（`@peculiar/x509` 的底层），签名用 `node:crypto`。没用更上层的 `@peculiar/x509`：它依赖 `tsyringe`，要求进程里装全局的 `reflect-metadata` 补丁；`selfsigned` 新版本建立在 `@peculiar/x509` 之上，旧版本基于 `node-forge` 只能生成 RSA。打包后 `main.cjs` 约多 0.4 MB，Node 22+ 与 Termux 的 Node 都只用到 `node:crypto` 的标准 EC 能力。
 
@@ -20,7 +20,7 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 
 执行核心是独立 `../engine/` 的真实循环、动态上下文与结构化记忆/PRIME 规则，由 `src/mind/brain.ts` 注入宿主能力。`mind/context.ts` 每步选择记忆并按实际候选模型窗口重新准备，包含Schema、输出与图片开销的UTF-8字节保守估计；不是真实tokenizer。旧历史与完整行动来源保留，摘要/工具节选可经context_read分页回查。结构化版本存在私有灵魂notes/QuetzalMemory，实际语义选择/后台学习在memory/semantic.ts与prime.ts；个人事实与偏好默认候选，只有可信确认后准入，经验演化需独立结果及基线。每日自主预算仍只减少醒来，子agent maxSteps由宿主强制计数（最后一步提醒写报告，再多2步停下）。
 
-`src/mcp/` 提供 stdio MCP 工具来源，官方客户端SDK仅在宿主使用；没有MCP服务端或HTTP MCP。交互通过控制台、飞书与CLI本机chat/tui。专项见 [动态上下文](../../docs/engine/DYNAMIC_CONTEXT.md)、[结构化记忆](../../docs/engine/STRUCTURED_MEMORY.md)、[PRIME内核](../../docs/engine/PRIME_CORE.md)、[MCP](../../docs/engine/MCP.md)。
+`src/mcp/` 提供 MCP 工具来源（本机 stdio、远程 Streamable HTTP / SSE、OAuth 2.1、tools / resources / prompts），`src/plugins/` 提供插件包（Claude Code 插件格式、Agent Skills）、插件目录与推荐目录；官方客户端 SDK 仅在宿主使用，没有 MCP 服务端。交互通过控制台、飞书与CLI本机chat/tui。专项见 [动态上下文](../../docs/engine/DYNAMIC_CONTEXT.md)、[结构化记忆](../../docs/engine/STRUCTURED_MEMORY.md)、[PRIME内核](../../docs/engine/PRIME_CORE.md)、[MCP](../../docs/engine/MCP.md)。
 
 环境变量：`QUETZAL_HOME`（家目录，默认 Termux `~/quetzal`、其他机器 `~/.quetzal`；Quetzal App 内置时由 App 设为它数据目录下的 `files/home/quetzal`）、`QUETZAL_ADAPTER`（身体适配器模块路径）、`QUETZAL_WEB_DIR`（网页控制台的静态文件目录，缺省为 `main.cjs` 旁边的 `web/`；`src/web.ts` 托管它并提供本机浏览器免配对码登录 `GET /auth/local`）、`QUETZAL_DEV_ORIGINS`（开发时允许领取本机登录令牌的额外页面源，逗号分隔）、`QUETZAL_GATEWAY_HOSTS`（局域网模式下配对接口额外接受的 Host 名，逗号分隔；局域网监听只走 HTTPS，见 [API §1](../../docs/API.md)）、`QUETZAL_SANDBOX=none`（强制不用沙箱，只供排查问题）、`QUETZAL_HIDE_PATHS`（proot 沙箱额外遮住的目录，冒号分隔；Quetzal App 用它遮住自己的私有数据）。
 

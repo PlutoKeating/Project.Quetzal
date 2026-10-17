@@ -56,8 +56,9 @@ flowchart TB
 ```
 config/quetzal.json      运行配置（控制台可改）
 config/providers.json    模型供应商（Key 为密文）
-config/mcp.json          本机 stdio MCP 来源（默认禁用；启用后分别审批启动和调用，不随灵魂 / mesh 同步）
-secrets/                 0700：master.key（Key 加密主密钥；存在却损坏时报错，不重新生成）、gateway.token、gateway-tls.key / gateway-tls.crt（网关局域网 HTTPS 的自签名证书，损坏或过期时重新生成）、feishu_secret、azure_speech_key、soul_ed25519、mesh_ed25519（网状层的节点密钥）、sync.json（同步服务的绑定令牌）、sync-account.json（账户令牌）。每个文件先写临时文件、fsync 再改名，0600。agent 的命令在沙箱里看不到这个目录（§8.1）
+config/mcp.json          MCP 工具来源：本机命令（stdio）与远程地址（Streamable HTTP / SSE）；启动与调用分别经闸门；远程来源缺省多端同步（不含凭据与令牌），stdio 缺省仅本机（§5.5）
+plugins/                 这具身体上装的插件包（plugins/<名>/：命令、子 agent 定义与包里自带的程序）、installed.json（已装插件、插件目录、她的推荐）、.marketplaces/（插件目录）、.staging/（预览的暂存）
+secrets/                 0700：master.key（Key 加密主密钥；存在却损坏时报错，不重新生成）、gateway.token、gateway-tls.key / gateway-tls.crt（网关局域网 HTTPS 的自签名证书，损坏或过期时重新生成）、feishu_secret、azure_speech_key、soul_ed25519、mesh_ed25519（网状层的节点密钥）、sync.json（同步服务的绑定令牌）、sync-account.json（账户令牌）、mcp-oauth-<来源>.json（远程 MCP 的 OAuth 令牌，不同步）、mcp_<来源>_<名字>（MCP 来源的凭据）。每个文件先写临时文件、fsync 再改名，0600。agent 的命令在沙箱里看不到这个目录（§8.1）
 vault/                   0700：保密库。对方通过 pass_secret 交给 agent 的保密值，每项一个 0600 文件；index.json 记录说明（见 §5.1）
 data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
@@ -310,6 +311,17 @@ sequenceDiagram
 
 子 agent 与主 agent 在同一个 Node.js 进程里运行，不是独立权限域；它不自动继承主 agent 的系统提示和历史，但仍能使用共享记忆工具，工具权限按同一具身体的配置检查。`maxSteps` 由工具循环强制计数：到了最后一步基座提醒它调用 finish 写报告，再多 2 步仍没结束就停下，送回的「中断了」里交代它最后做的几步；没给 `maxSteps` 时不限步数，无进展时间墙也不是总时长或消费上限。子 agent 结束时没写报告，送回的报告同样交代它最后做的几步，不只是一句「没有留下报告」。
 
+### 5.5 插件：MCP 工具来源、插件包与主动推荐（`mcp/`、`plugins/`）
+
+她的能力除了内置工具、身体适配器与自造工具，还可以从**插件**来——按业界现有共识做，不自造协议：
+
+- **MCP 工具来源**（`mcp/`，官方 `@modelcontextprotocol/client`）：本机命令（stdio，经沙箱）、远程 Streamable HTTP 与旧版 HTTP+SSE（只收 HTTPS，回环除外；每个请求含 OAuth 的发现与换令牌都经出站检查，挡住回环与内网）；按 MCP 授权规范的 OAuth 2.1（授权码 + PKCE + 动态注册，回调走网关本机回环 `/mcp/oauth/callback`，令牌存 `secrets/`）。工具、资源（列出 / 读取）与提示词（列出 / 取用）都以模型工具交给她，每个来源的启动（`mcp_start.<id>`）与每次调用（`mcp.<id>.<工具>`）缺省每次询问。
+- **插件包**（`plugins/`）：兼容 Claude Code 插件格式（`.claude-plugin/plugin.json`、`skills/`、`.mcp.json`、`commands/`、`agents/`）、Agent Skills 目录与 Claude Code 插件市场（`marketplace.json`）。从本地目录或 git 仓库安装，先预览（将加的来源、技能、命令、要填的值）再由人在控制台确认；技能只把文档写进灵魂仓库 `skills/`（随灵魂同步，脚本不进），MCP 来源加入 `config/mcp.json`，包与命令留在这具身体上；hooks 不执行。
+- **推荐目录与主动推荐**：基座内置一份精选的知名 MCP 服务器清单（浏览器与网页表单的 Playwright、邮件、日历、GitHub、Notion 等，注明许可与来源），控制台一键安装。系统提示告诉她：对话中发现某个插件能帮上忙、而它还没装时，用 `plugin_search` / `plugin_recommend` 推荐给对方，对方在控制台「插件」页一键安装（安装仍要人确认）。发邮件、改日历、提交表单这类对外操作先给对方过目，工具调用也经闸门。
+- **多端同步**：每个来源有「多端同步 / 仅本机」标记（同保密库），远程来源的配置经身体间加密通道按条目合并（`mesh/shared.ts` 的 `mcp` 分区），登录与凭据每台设备各自保管。
+
+细节、限制与验证见 [MCP 与插件](engine/MCP.md)。
+
 ## 6. 身份、记忆与灵魂同步
 
 ### 6.0 提醒（`time/reminders.ts`）
@@ -505,7 +517,7 @@ flowchart LR
 | 终端聊天 | `quetzal chat` / `quetzal tui`，本机 WebSocket | 使用同一个 runtime，命令与限制见 [CLI](../cli/docs/README.md) |
 | 主机 | 端口转发到网关 | 与控制台同一套 API |
 
-`cli/` 提供安装、状态、日志、启停、升级与回滚，`run` 是前台运行服务，`open` 打开控制台；`chat` / `tui` 提供本机终端聊天，经同一网关使用现有会话，支持流式过程、审批和停止；断线不重发消息，保密输入转到控制台。网关是项目自定义的 HTTP / WebSocket RPC，网状层是身体间协议；`runtime/src/mcp/` 提供 stdio MCP 客户端，经部署者配置、启动审批和调用权限接入既有工具链；没有 MCP 服务端或 HTTP MCP，工具扩展还包括内置工具、身体适配器与自造工具，Agent Skills 文档也不等于 MCP 协议接入。
+`cli/` 提供安装、状态、日志、启停、升级与回滚，`run` 是前台运行服务，`open` 打开控制台；`chat` / `tui` 提供本机终端聊天，经同一网关使用现有会话，支持流式过程、审批和停止；断线不重发消息，保密输入转到控制台。网关是项目自定义的 HTTP / WebSocket RPC，网状层是身体间协议；`runtime/src/mcp/` 提供 MCP 客户端（stdio、远程 Streamable HTTP / SSE、OAuth 2.1、tools / resources / prompts），`runtime/src/plugins/` 提供插件包、插件目录与推荐，经控制台「插件」页、启动审批和调用权限接入既有工具链（§5.5）；没有 MCP 服务端。工具扩展还包括内置工具、身体适配器与自造工具。
 
 ## 10. 进程与部署契约
 

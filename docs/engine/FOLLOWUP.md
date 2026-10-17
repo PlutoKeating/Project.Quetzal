@@ -43,7 +43,7 @@
 
 ## 未完成与限制
 
-- MCP 首期只支持 stdio tools，尚无 HTTP、OAuth、resources / prompts、多模态接入、动态列表刷新或自动重连。
+- MCP 已支持 stdio 与远程 Streamable HTTP / SSE、OAuth 2.1、tools / resources / prompts 与插件包（见 [MCP 与插件](MCP.md)）；尚无多模态结果、动态列表刷新、自动重连、sampling / elicitation，推荐目录里的真实服务与安卓 / Windows 上的 npx / uvx 启动未做端到端验证。
 - 默认 MCP 沙箱复用现有 agent 隔离，能访问部分灵魂与保密库；Windows 沙箱 stdio 明确拒绝。显式 sandbox:false 具有宿主用户权限；孙进程清理仅尽力处理。
 - TUI 首期只连回环网关，没有远程 TLS 配对、全屏布局、附件、语音或终端保密值采集；未做实际交互终端及 Windows 真机验证。
 - 研究运行器不包含 PRIME 演化、Training-Free GRPO 经验优化或 OpenRLHF 训练；尚未进行真实模型实验、GPU 训练或论文收益复现。轨迹不是自动脱敏的公开数据，报告用量不是精确费用硬上限。

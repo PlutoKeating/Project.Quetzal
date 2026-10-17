@@ -26,7 +26,8 @@
 | 会话 / 协作 | session_new、session_compact、claim、agent_spawn/status/message/stop |
 | 多身体 | body_call、move_to；view_image / read_document / shell 可带 body 借用远端文件 |
 | 平台能力 | 由适配器声明；hands 接入后注册 screen_describe、screen_tap、screen_type、app_open |
-| MCP | `mcp_<来源ID>_<原始名哈希>` 稳定别名，经宿主来源映射调用 |
+| MCP | `mcp_<来源ID>_<原始名哈希>` 稳定别名，经宿主来源映射调用；资源与提示词各两个基座加的工具（列出 / 读取、列出 / 取用） |
+| 插件 | plugin_search、plugin_recommend、plugin_prompt |
 | 循环专用 | finish，由 brain.loop 直接处理，不经过普通 callTool |
 
 hands 的 TypeScript 接口还包含截图和滑动方法，但工具注册不把每一个接口方法自动暴露为同名工具；是否能操作屏幕必须看适配器实际提供的能力。
@@ -65,7 +66,8 @@ STOP 文件阻止新循环步骤 / 工具审批，拒绝待处理审批并退出
 | 听觉 | [hearing.ts](../../runtime/src/voice/hearing.ts)、azure / player 与控制台采集 | 识别为 ambient 输入，由模型选择回应 / 沉默，语音合成可调用工具 |
 | 运维 CLI | [cli.ts](../../cli/src/cli.ts)、[windows.ts](../../cli/src/windows.ts) | install、open、run、status、logs、start/stop/restart、rollback、uninstall；run 是服务前台运行 |
 | 身体间 RPC | [mesh.ts](../../runtime/src/mesh/mesh.ts)、limbs / presence / placement | 认证身体之间的工具调用、文件借用、交接、在场与调度 |
-| MCP 客户端 | [mcp/](../../runtime/src/mcp/) | stdio 配置、启动授权、工具发现和调用、取消；modern / legacy 兼容；未提供 HTTP、resources / prompts、OAuth 或自动列表刷新 |
+| MCP 客户端 | [mcp/](../../runtime/src/mcp/) | stdio 与远程 Streamable HTTP / SSE、OAuth 2.1、启动授权、tools / resources / prompts 的发现和调用、取消、即时启停、多端同步标记；modern / legacy 兼容；没有自动列表刷新、自动重连与多模态结果 |
+| 插件 | [plugins/](../../runtime/src/plugins/)、控制台 [plugins.dart](../../console/lib/pages/plugins.dart) | Claude Code 插件格式与 Agent Skills 目录的预览 / 安装 / 卸载、插件市场 marketplace.json、推荐目录与她的推荐工具 |
 | MCP 服务端 | 未实现 | 网关和 mesh 没有提供 MCP 协议端点；`tool.list` 是内部身体协议方法 |
 | 交互式 TUI / 终端聊天 | [tui.ts](../../cli/src/tui.ts) | `chat` / `tui` 通过同一回环网关支持会话、流式过程、审批、停止和手动恢复；无远程配对或终端保密值输入 |
 
