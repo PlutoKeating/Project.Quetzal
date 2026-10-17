@@ -3,8 +3,9 @@
 //     只收发来的那具身体自己写的）；合并规则见 mind/workspace.ts 的 mergeWorkspaces。
 //   - body.workspace：这具身体的工作区概况（工作目录下的 git 仓库，mind/repos.ts）；带 dir 时核对这个目录在这里能不能用作工作区（workspace 工具设到别的身体上时用）。
 //     连上时取回、每 5 分钟刷新，放进系统提示「其他身体」一节。
-//   - agent.run / agent.status / agent.message / agent.stop：子 agent 在工作区所在的身体上执行。那边按自己的闸门（「会话」类别）派出、跑完整的工具循环，
-//     进展经在场（mesh/presence.ts）转回来，报告以通道「子agent」的提醒送回派出它的会话（经那边的对话路由，会话正在别处进行就转过去）。
+//   - agent.run：子 agent 在工作区所在的身体上执行。那边按自己的闸门（「会话」类别）派出、跑完整的工具循环，回传它的记录（派出它的身体立即并入，
+//     之后经 agents 分区同步，检查点、续做与离线接管见 mind/agents.ts、mesh/continuity.ts）；进展经在场（mesh/presence.ts）转回来，
+//     报告以通道「子agent」的提醒送回派出它的会话（经那边的对话路由，会话正在别处进行就转过去）。查看、说话、停止经 mesh/continuity.ts 的 agent.status / message / stop。
 //   - 对话的路由（工作区在另一具在线的身体上，就把这一轮放过去）在 mesh/presence.ts 里，和「这个会话正在别处进行」的路由走同一条 chat.forward。
 //   只读成员（灵魂桥）调用不到这里的任何方法。
 import path from "node:path";
@@ -15,7 +16,7 @@ import { check } from "../guard/guard.ts";
 import { log } from "../log.ts";
 import * as agents from "../mind/agents.ts";
 import { localOverview, cleanOverview, type Overview } from "../mind/repos.ts";
-import { allWorkspaces, mergeWorkspaces, onWorkspaceChange, setWorkspaceMesh, usableDir, bindAgent, agentWorkspaceText } from "../mind/workspace.ts";
+import { allWorkspaces, mergeWorkspaces, onWorkspaceChange, setWorkspaceMesh, usableDir, agentWorkspaceText } from "../mind/workspace.ts";
 import { clip } from "./mesh.ts";
 
 const CHANNELS = new Set(["控制台", "飞书", "语音", "主动", "子agent"]);
@@ -53,14 +54,9 @@ export function installWorkspace(mesh: Mesh): () => void {
     if (!(await check("session", "agent_spawn", `来自 ${from}：派出子 agent「${spec.name}」`, { name: spec.name, goal: clip(spec.goal, 200), dir: dir ?? null }))) throw new Error("这个动作没有被允许（闸门拒绝或急停中）");
     const { spawnAgent } = await import("../mind/brain.ts");
     log("mesh", `${from} 上的她请这里派出子 agent「${spec.name}」`);
-    const sub = spawnAgent({ ...spec, workspace: agentWorkspaceText(config.body, dir) }, { conv, channel });
-    bindAgent(agents.liveSession(sub.id), dir);
-    return { id: sub.id, name: sub.name, ...(dir ? { dir } : {}) };
+    const sub = spawnAgent({ ...spec, workspace: agentWorkspaceText(config.body, dir), dir }, { conv, channel });
+    return { id: sub.id, name: sub.name, ...(dir ? { dir } : {}), record: agents.get(sub.id) };
   });
-  const idOf = (p: { id?: unknown }) => { const id = str(p?.id, 40); if (!id) throw new Error("没有子 agent 的 id"); return id; };
-  mesh.handle("agent.status", (p: { id?: unknown }) => agents.describe(idOf(p)));
-  mesh.handle("agent.message", (p: { id?: unknown; text?: unknown }) => agents.message(idOf(p), str(p?.text, 50_000) ?? ""));
-  mesh.handle("agent.stop", (p: { id?: unknown }) => agents.stop(idOf(p)));
 
   const pull = (body: string) => {
     mesh.request<unknown>(body, "workspace.pull", {}, 30_000).then((rows) => {
@@ -93,11 +89,12 @@ export function installWorkspace(mesh: Mesh): () => void {
       return { dir: typeof r?.dir === "string" ? clip(r.dir, 1000) : dir, exists: r?.exists === true };
     },
     runAgent: async (body, p) => {
-      const r = await mesh.request<{ id?: unknown; name?: unknown; dir?: unknown }>(body, "agent.run", p, 31 * 60_000); // 那边的闸门可能要等批准
+      const r = await mesh.request<{ id?: unknown; name?: unknown; dir?: unknown; record?: unknown }>(body, "agent.run", p, 31 * 60_000); // 那边的闸门可能要等批准
       if (typeof r?.id !== "string" || !/^[0-9a-f]{1,40}$/.test(r.id)) throw new Error(`${body} 没有派出子 agent`);
+      const rec = agents.sanitize(r.record); // 那边的记录立即并入（不等 agents 分区的广播）：agent_status / message / stop 马上就能转过去
+      if (rec?.id === r.id && rec.body === body) agents.merge([rec]);
       return { id: r.id, name: typeof r.name === "string" ? clip(r.name, 40) : "子 agent", ...(typeof r.dir === "string" ? { dir: clip(r.dir, 1000) } : {}) };
     },
-    agent: async (body, op, p) => { const r = await mesh.request<unknown>(body, `agent.${op}`, p, 30_000); return typeof r === "string" ? r.slice(0, 20_000) : ""; },
   });
   return () => { clearInterval(timer); off(); mesh.off("peer", onPeer); mesh.off("event", onEvent); setWorkspaceMesh(undefined); };
 }

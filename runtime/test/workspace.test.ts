@@ -156,7 +156,7 @@ test("工作区在另一具身体上：shell / shell_jobs 经 body_call 的通�
     move: async () => "",
     file: async () => ({}),
   });
-  ws.setWorkspaceMesh({ online: (b) => up && b === "pc", overview: () => ({ root: "/home/u", repos: [{ path: "/home/u/proj", branch: "main" }], at: Date.now() }), probe: async (_b, d) => ({ dir: d, exists: true }), runAgent: async () => ({ id: "ab", name: "x" }), agent: async () => "" });
+  ws.setWorkspaceMesh({ online: (b) => up && b === "pc", overview: () => ({ root: "/home/u", repos: [{ path: "/home/u/proj", branch: "main" }], at: Date.now() }), probe: async (_b, d) => ({ dir: d, exists: true }), runAgent: async () => ({ id: "ab", name: "x" }) });
   const s = new Session("chat", "控制台", undefined, "c4");
   try {
     ws.setWorkspace("c4", { body: "pc", dir: "/home/u/proj", source: "user" });

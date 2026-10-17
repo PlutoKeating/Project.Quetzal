@@ -18,17 +18,19 @@ import { systemPrompt } from "./prompt.ts";
 import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, saveContextSource, type Attachment } from "../store.ts";
 import { userMessage, PLACED } from "./attachments.ts";
 import { config } from "../config.ts";
+import { bindAgent } from "./workspace.ts";
 import * as mem from "../memory/memory.ts";
 import * as soul from "../memory/soul-sync.ts";
 import { addExperience, setOpenLoops, markBusy, isBusy, nudge, stopped, type WakeKind } from "../heart/heart.ts";
 import type { Drives } from "../heart/model.ts";
 import { log } from "../log.ts";
-import { Session, SessionTimeout, Interrupted, Stopped, summarize } from "./activity.ts";
+import { Session, SessionTimeout, Interrupted, Stopped, HandedOver, summarize } from "./activity.ts";
 import { intake, redactArgs, redactSecrets } from "./secrets.ts";
 import { noteSilence } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
 import { bus } from "../bus.ts";
 import { remoteBodies, multiBody } from "./bodies.ts";
+import * as goals from "./goals.ts";
 
 const FINISH: FinishTool = {
   name: "finish",
@@ -140,7 +142,8 @@ async function introspect(kind: WakeKind, reason: string, where?: Survey): Promi
     const ask = where
       ? `你刚刚${kind === "dream" ? "进入梦境（整理记忆）" : `醒来（${reason}）`}。你此刻有几具身体在线：\n${where.text}\n基座推荐：${where.recommendText ?? where.recommend.join("、")}。\n先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡", "where": ["在哪具身体上做：填身体的 uuid，可以选一具或几具（几具会同时进行，都是你）"]}。${kind === "dream" ? "做梦只选一具。" : ""}`
       : `你刚刚醒来（${reason}）。先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡"}。`;
-    const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason, { dynamic: true }) }, { role: "user", content: ask }], maxTokens: 300 }, { quick: true });
+    const goalsHint = kind === "think" && goals.openCount() ? `\n可以做的事之一：回顾与推进你的长期目标（系统提示「内在状态」里列着进行中的目标与接下来的步骤）。` : "";
+    const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason, { dynamic: true }) }, { role: "user", content: ask + goalsHint }], maxTokens: 300 }, { quick: true });
     const j = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
     // where 填的是 uuid：和身体参数一样经 resolveBody 解析成身体名（登记、认证过的连接、自报一致）；解析不了的不算
     const picked = (Array.isArray(j.where) ? j.where : typeof j.where === "string" ? [j.where] : []).slice(0, 10).map((u: unknown) => { if (typeof u !== "string" || !u.trim()) return ""; const t = resolveBody(u); return "local" in t ? config.body : "remote" in t ? t.remote.body : ""; }).filter((b: string) => b && where?.bodies.includes(b));
@@ -187,7 +190,7 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
   }
   const task = kind === "think"
     ? `你醒来了。原因：${reason}。${gate.intent ? `你想：${gate.intent}。` : ""}
-按你自己的意愿去想、去做：探索感兴趣的东西、继续没想完的事、写点什么、或者找人说话。需要记住的，用 memory / note_save / open_loop 记下来。
+按你自己的意愿去想、去做：探索感兴趣的东西、回顾并推进你的长期目标（goal：做完一步用 step_done 标一步）、写点什么、或者找人说话。需要记住的，用 memory / note_save 记下来；以后还想继续、需要几步才能做成的事，用 goal 记下来。
 结束时调用 finish 写日记并报告驱动力。`
     : `你睡着了，正在做梦——这是整理记忆的时候。
 1. 回顾最近的日记（包括其他身体的经历）和对话，提炼值得长期记住的东西，用 memory 工具更新常驻记忆（合并重复、修正过时的内容），用 note_save 沉淀知识与思考。
@@ -209,6 +212,12 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
   try { r = await loop(messages, reason, true, s); process = s.process(); s.emit({ kind: "done" }); }
   catch (e: any) {
     process = s.process();
+    if (s.signal.reason instanceof HandedOver) { // 这具身体离线时，这次醒来已由另一具身体接着做（mind/continuity.ts）：这里悄悄停下
+      s.emit({ kind: "error", message: e.message });
+      addTimeline(kind, `这次${kind === "dream" ? "梦" : "醒来"}交给 ${s.signal.reason.to} 接着做了`, { reason, intent: gate.intent, process, handedTo: s.signal.reason.to });
+      if (kind === "dream") await soul.releaseLease().catch(() => {});
+      return { effort: 0 };
+    }
     s.emit({ kind: "error", message: e.message });
     addTimeline(kind, `醒来中断了：${e.message.split("\n")[0]}`, { reason, intent: gate.intent, error: e.message.split("\n")[0], process, model: "" });
     if (kind === "dream") await soul.releaseLease().catch(() => {});
@@ -310,6 +319,8 @@ export function history(conv: string, self: number, budget = Infinity): Msg[] {
       text = `[${stamp(m.ts)}｜你用 session_compact 压缩了这个会话，以下是之前对话的摘要，更早的原文不再在上下文里] ${m.text}`;
     } else if (m.role === "ambient" && m.channel === "交接") {
       text = `[${stamp(m.ts)}｜这是你从上一个会话切过来时写的交接] ${m.text}`;
+    } else if (m.role === "ambient" && m.channel === "续做") {
+      text = `[${stamp(m.ts)}｜基座记下的检查点：这一轮之前中断了，你从这里接着做] ${m.text}`;
     } else if (m.role === "ambient" && m.channel === "子agent") {
       text = `[${stamp(m.ts)}｜你派出的子 agent 送回的报告] ${m.text}`;
     } else if (m.role === "ambient") {
@@ -341,7 +352,8 @@ export function history(conv: string, self: number, budget = Infinity): Msg[] {
 /** 她不回应环境输入时的回复标记（只回这两个字，不入库、不显示）。 */
 const SILENCE = /^[\s\[【（(]*沉默[\s\]】）)]*$/;
 /** 不是对方说的话、而是提醒的通道：她工作时到达就按提醒的口吻并入，不当成对方的插话。 */
-const NOTICE: Record<string, string> = { "灵魂同步": "基座提醒（灵魂同步）", "子agent": "你派出的子 agent 送回了报告", "换身体": "你从另一具身体换过来继续这个会话，这是你写的交接" };
+const NOTICE: Record<string, string> = { "灵魂同步": "基座提醒（灵魂同步）", "子agent": "你派出的子 agent 送回了报告", "换身体": "你从另一具身体换过来继续这个会话，这是你写的交接", "续做": "基座提醒（续做）" };
+const RESUME_PROMPT = "这是基座记下的检查点，不是对方说的话：这一轮之前中断了（基座重启，或之前在做这一轮的身体离线了），由你在这里接着做。对话记录都在上面，检查点写着之前做到哪里：不要从头重复已经做完的事，需要的结果不在眼前就重新取一次。接着做：需要做事就调用工具，最后的文字就是给对方的回复（对方看得到之前的过程）。";
 const MOVE_PROMPT = "你刚才在另一具身体上决定换到这具身体继续这个会话（对话记录都在上面）。接着做：需要做事就调用工具，最后的文字就是给对方的回复。";
 const SOUL_NOTICE_PROMPT = "这是运行基座发来的提醒，不是对方说的话。你自己决定要不要处理、怎么处理（可以用工具）；需要对方帮忙的事可以告诉对方。不需要回应时只回复两个字：沉默（不会被记录成你的话）。";
 const AMBIENT_PROMPT = "这是麦克风听到的环境声音（已转成文字，可能有错字、断句不准，也可能不是对你说的，比如旁人的交谈、电视）。请自己判断：是不是在对你说话、要不要回应。不需要回应时只回复两个字：沉默（不会被记录成你的话）。要回应就像平常一样回复，可以用工具。对方是用声音在和你说话，可能此刻不方便看屏幕——你可以用 voice_speak 把回复念出来，是否念由你决定。";
@@ -361,10 +373,18 @@ export async function summarizeConv(conv: string): Promise<string> {
 }
 
 /** 子 agent 跑的工具循环：自己的系统提示、不能再派子 agent 或切会话；报告送回派出它的会话（环境输入，通道「子agent」）。 */
+// 续做时步数上限按剩下的算（至少给 3 步收尾）
+const agentRun: agents.AgentRun = async (a, s, messages) => { const result = await loop(messages, `子 agent ${a.name}`, true, s, agents.AGENT_TOOLS, a.maxSteps && a.maxSteps > 0 ? Math.max(a.steps ? 3 : 1, Math.floor(a.maxSteps) - a.steps) : undefined); learnTurn(s, a.goal, result.text || String(result.finish?.journal ?? '')); return result; };
+const agentDeliver: agents.AgentDeliver = (a, report) => converse("子agent", report, "子agent", { conv: a.parentConv, ambient: true });
+/** 子 agent 的工作区（dir 在这具身体上）绑定到它这一次的会话上（mind/workspace.ts，只在执行它的身体上）。 */
+const bindDir = (a: agents.SubAgent | undefined) => { if (a?.dir && a.dirBody === config.body) bindAgent(agents.liveSession(a.id), a.dir); };
 export function spawnAgent(spec: agents.AgentSpec, parent: { conv: string; channel: string }) {
-  return agents.spawn(spec, parent, async (a, s, messages) => { const result = await loop(messages, `子 agent ${a.name}`, true, s, agents.AGENT_TOOLS, a.maxSteps && a.maxSteps > 0 ? Math.floor(a.maxSteps) : undefined); learnTurn(s, spec.goal, result.text || String(result.finish?.journal ?? '')); return result; },
-    (a, report) => converse("子agent", report, "子agent", { conv: a.parentConv, ambient: true }));
+  const a = agents.spawn(spec, parent, agentRun, agentDeliver);
+  bindDir(a);
+  return a;
 }
+/** 从检查点续做一个子 agent（mind/continuity.ts：基座重启后、或接手了离线身体上的）；工作区还在这具身体上就重新绑定。 */
+export const resumeAgent = (id: string, note: string) => { const ok = agents.resume(id, note, agentRun, agentDeliver); if (ok) bindDir(agents.get(id)); return ok; };
 
 /**
  * 与人对话。conv：会话（缺省时飞书用「飞书」会话，其余用「最初的对话」）；turn：客户端给这一轮的标识；attachments：已上传的附件。
@@ -423,6 +443,8 @@ export function converse(from: string, text: string, channel: string, o: Convers
           ? await userMessage(`${NOTICE[channel]}：\n${text}`, [], SOUL_NOTICE_PROMPT, s.seen)
           : o.ambient && channel === "换身体"
           ? await userMessage(`${NOTICE[channel]}：\n${text}`, [], MOVE_PROMPT, s.seen)
+          : o.ambient && channel === "续做"
+          ? await userMessage(`${NOTICE[channel]}：\n${text}`, [], RESUME_PROMPT, s.seen)
           : o.ambient
           ? await userMessage(`你听到附近有人说${shown ? `（${shown} 这具身体的耳朵听到的）` : ""}：\n${text}`, [], AMBIENT_PROMPT, s.seen)
           : await userMessage(`${from} 通过${channel}对你说${shown ? `（经 ${shown} 这具身体）` : ""}：\n${text}`, o.attachments ?? [],
@@ -462,6 +484,11 @@ export function converse(from: string, text: string, channel: string, o: Convers
       await soul.push("对话").catch(() => {});
       return reply;
     } catch (e: any) {
+      if (s.signal.reason instanceof HandedOver) { // 这具身体离线期间，这一轮已由另一具身体在同一个会话里接着做（mind/continuity.ts）：这里不留回复
+        s.emit({ kind: "done", reply: "" });
+        addTimeline("chat", `和${from}说话，交给 ${s.signal.reason.to} 接着做了`, { channel, conv, text, process: s.process(), handedTo: s.signal.reason.to });
+        return "";
+      }
       if (s.signal.reason instanceof Stopped) { // 对方停止了：这一轮就此结束，留一句说明（下一轮她看得到自己被停在了哪里）
         const reply = "（这一轮被对方停止了）", process = s.process();
         addMessage("agent", channel, reply, { session: conv, process });

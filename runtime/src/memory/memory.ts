@@ -255,12 +255,13 @@ export function search(query: string, o: { limit?: number; from?: number; to?: n
 
 import { around, type Kind } from "./index.ts";
 
-// ---------- 未完成的念头
+// ---------- 未完成的念头：#23 起是没有步骤的长期目标（mind/goals.ts，全网同步）；这里保留旧接口
 import { kv } from "../store.ts";
-export interface OpenLoop { id: string; text: string; ts: number }
-export const openLoops = (): OpenLoop[] => kv.get("openLoops", []);
-export function addLoop(text: string) { const l = openLoops(); l.push({ id: Math.random().toString(36).slice(2, 8), text, ts: Date.now() }); kv.set("openLoops", l); return l.length; }
-export function closeLoop(id: string) { const l = openLoops().filter((x) => x.id !== id); kv.set("openLoops", l); return l.length; }
+import * as goals from "../mind/goals.ts";
+export type { OpenLoop } from "../mind/goals.ts";
+export const openLoops = goals.openLoops;
+export function addLoop(text: string, conv?: string) { goals.add({ title: text, conv }); return goals.openCount(); }
+export function closeLoop(id: string) { goals.close({ id }); return goals.openCount(); }
 
 // ---------- 想分享的一句话：她此刻正在想、并且乐于和对方分享的一句话或一个议题（控制台首页与飞书「此刻」卡片持续展示）
 // 属于心智（DISTRIBUTED.md §2.1）：多具身体时经网状层全网共用（mesh/shared.ts 的 thought 分区），按写下的时刻后写胜（mergeThought）。

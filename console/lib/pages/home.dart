@@ -1,5 +1,5 @@
-// 此刻：她现在怎么样。光团 + 状态 + 她想分享的一句话（Markdown）+ 她正在想什么（只读入口）+ 戳一下 / 聊天（首屏）+ 驱动力 + 身体。
-//   各块都是独立组件（PresenceHead、ThoughtLine、InnerSection、BodySection），手机首页与桌面的「她此刻」面板共用。
+// 此刻：她现在怎么样。光团 + 状态 + 她想分享的一句话（Markdown）+ 她正在想什么（只读入口）+ 戳一下 / 聊天（首屏）+ 提醒 + 目标 + 驱动力 + 身体。
+//   各块都是独立组件（PresenceHead、ThoughtLine、RemindersSection、GoalsSection、InnerSection、BodySection），手机首页与桌面的「她此刻」面板共用。
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../markdown.dart';
@@ -154,6 +154,79 @@ class RemindersSection extends ApiWidget {
   }
 }
 
+/// 她的长期目标（运行基座 status.goals，全网同步）：每个目标一行——标题、进度条与「做完几步 / 共几步」；点开看说明与每一步，
+/// 可以替她标为完成或放下（goals.close）。新建与推进是她自己的事（goal 工具），这里不新建。没有就不占位。
+/// 关闭目标：缺省调网关 goals.close 再刷新状态（测试里换成记录调用）。
+typedef GoalCloser = Future<void> Function(String id, String outcome);
+Future<void> closeGoal(String id, String outcome) => api.call('goals.close', {'id': id, 'outcome': outcome}).then((_) => api.refresh());
+
+class GoalsSection extends ApiWidget {
+  final bool compact;
+  final GoalCloser onClose;
+  const GoalsSection({super.key, this.compact = false, this.onClose = closeGoal});
+  @override
+  Widget view(BuildContext context) {
+    final list = ((api.status['goals'] as List?) ?? []).cast<Map>();
+    if (list.isEmpty) return const SizedBox.shrink();
+    final t = Theme.of(context).textTheme, n = compact ? 3 : 6;
+    final rows = [
+      for (final g in list.take(n))
+        ListTile(
+          dense: true, contentPadding: EdgeInsets.zero, minLeadingWidth: 0,
+          leading: Icon(Icons.flag_outlined, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          title: Text('${g['title']}', maxLines: 2, overflow: TextOverflow.ellipsis),
+          subtitle: goalProgress(context, g),
+          onTap: () => showGoal(context, g, onClose: onClose),
+        ),
+      if (list.length > n) Text('还有 ${list.length - n} 个', style: t.bodySmall),
+    ];
+    return compact ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows) : Section('目标', rows);
+  }
+}
+
+/// 进度：有步骤时是进度条与「2 / 5 步」，没有步骤时一句「没有分步骤」。
+Widget goalProgress(BuildContext context, Map g) {
+  final p = g['progress'] as Map?, t = Theme.of(context).textTheme;
+  if (p == null) return Text('没有分步骤', style: t.bodySmall);
+  return Row(children: [
+    Expanded(child: LinearProgressIndicator(value: _n(p['ratio']), minHeight: 4, borderRadius: BorderRadius.circular(2))),
+    const SizedBox(width: 8),
+    Text('${p['done']} / ${p['total']} 步', style: t.bodySmall),
+  ]);
+}
+
+/// 一个目标的详情：说明、每一步（做完、进行中、还没做、不做了），与「放下」「标为完成」。
+Future<void> showGoal(BuildContext context, Map g, {GoalCloser onClose = closeGoal}) => showSheet<void>(context, (c, scroll) {
+  final t = Theme.of(c).textTheme, cs = Theme.of(c).colorScheme;
+  const icons = {'done': Icons.check_circle, 'doing': Icons.timelapse, 'skipped': Icons.remove_circle_outline};
+  Future<void> close(String outcome) async {
+    final ok = await confirm(c, outcome == 'done' ? '标为完成' : '放下这个目标', '${g['title']}');
+    if (!ok || !c.mounted) return;
+    await act(c, () => onClose('${g['id']}', outcome));
+    if (c.mounted) Navigator.pop(c);
+  }
+  return ListView(controller: scroll, shrinkWrap: true, padding: const EdgeInsets.all(20), children: [
+    Text('${g['title']}', style: t.titleLarge),
+    const SizedBox(height: 8),
+    goalProgress(c, g),
+    if ('${g['detail'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: RichMarkdown('${g['detail']}')),
+    const SizedBox(height: 8),
+    for (final s in ((g['steps'] as List?) ?? []).cast<Map>())
+      ListTile(
+        dense: true, contentPadding: EdgeInsets.zero,
+        leading: Icon(icons[s['status']] ?? Icons.radio_button_unchecked, size: 20, color: s['status'] == 'done' ? cs.primary : cs.onSurfaceVariant),
+        title: Text('${s['text']}', style: s['status'] == 'skipped' ? t.bodyMedium?.copyWith(decoration: TextDecoration.lineThrough, color: cs.outline) : null),
+        subtitle: s['status'] == 'doing' ? const Text('进行中') : null,
+      ),
+    const SizedBox(height: 12),
+    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+      TextButton(onPressed: () => close('dropped'), child: const Text('放下')),
+      const SizedBox(width: 8),
+      FilledButton(onPressed: () => close('done'), child: const Text('标为完成')),
+    ]),
+  ]);
+});
+
 /// 手机首页。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -181,6 +254,7 @@ class HomePage extends StatelessWidget {
           ]),
         ),
         const RemindersSection(),
+        const GoalsSection(),
         const InnerSection(),
         const BodySection(),
       ]),

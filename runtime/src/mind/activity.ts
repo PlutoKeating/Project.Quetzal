@@ -29,6 +29,12 @@ export class Stopped extends Error {
   constructor() { super("对方停止了这一轮"); this.name = "Stopped"; }
 }
 
+/** 这一轮（或子 agent）被另一具身体接手了（mind/continuity.ts、mind/agents.ts）：这里悄悄停下，不留回复、不送报告。 */
+export class HandedOver extends Error {
+  readonly to: string;
+  constructor(to: string) { super(`交给 ${to} 接着做了`); this.name = "HandedOver"; this.to = to; }
+}
+
 export class SessionTimeout extends Error {
   constructor() { super(`会话 ${SESSION_IDLE_MS / 1000} 秒没有任何进展，已中止`); this.name = "SessionTimeout"; }
 }
@@ -89,6 +95,10 @@ export function dropBody(body: string) {
     bus.emit("activity", { session: t.turn, conv: t.conv, origin: t.origin, channel: t.channel, ts: Date.now(), body, kind: "error", message: `${body} 断开了，这一轮的进展暂时看不到` });
   }
 }
+/** 本机此刻还开着的会话（按这一轮的标识）：续做的接手据此停下这里的那一份。 */
+const open = new Map<string, Session>();
+export const sessionById = (id: string): Session | undefined => open.get(id);
+
 /** 本机进行中的轮次（给刚连上的身体）。 */
 export const localTurns = (me: string) => liveTurns().filter((t) => !t.body || t.body === me);
 
@@ -126,6 +136,7 @@ export class Session {
     this.id = id || crypto.randomUUID();
     this.beat = setInterval(() => { if (!this.signal.aborted) this.emit({ kind: "alive" }); }, HEARTBEAT_MS);
     this.beat.unref?.();
+    open.set(this.id, this);
     this.touch();
   }
 
@@ -180,7 +191,7 @@ export class Session {
 
   /** 这一轮已经结束（之后送来的提醒要开新的一轮）。 */
   closed = false;
-  close() { this.closed = true; this.flush(); clearTimeout(this.timer); clearInterval(this.beat); live.delete(this.id); }
+  close() { this.closed = true; this.flush(); clearTimeout(this.timer); clearInterval(this.beat); live.delete(this.id); if (open.get(this.id) === this) open.delete(this.id); }
 }
 
 /** 工具调用的一行摘要：优先取常见的主参数，否则取第一个字符串参数或字符串数组（如 view_image 的 paths）。 */

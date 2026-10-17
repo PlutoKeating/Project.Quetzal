@@ -18,6 +18,7 @@ import { bus } from "./bus.ts";
 import { log } from "./log.ts";
 import { VERSION } from "./version.ts";
 import { restore as restoreAgents } from "./mind/agents.ts";
+import { startContinuity } from "./mind/continuity.ts";
 import { startMesh, wireMesh, registerSoulLink, meshStatus } from "./mesh/runtime.ts";
 import { soulLink } from "./ops.ts";
 import { startMcp, closeMcp } from "./mcp/runtime.ts";
@@ -48,7 +49,7 @@ async function main() {
   loadConfig();
   openStore();
   migrateReviewDefaults(); // 旧配置里缺省「询问」的类别改为交给审核模型（对方明确选过「询问」的保留；只做一次）
-  restoreAgents(); // 上次还在跑的子 agent 已随进程消失，标为中断
+  restoreAgents(); // 读回子 agent 的记录：上次还在跑的由 startContinuity 从检查点续做
   const safeMode = crashGuard();
   log("main", `运行基座 ${VERSION} 启动（身体：${config.body}，家目录：${paths.home}）${safeMode ? " —— 安全模式" : ""}`);
   process.on("unhandledRejection", (e: any) => log("main", `未处理的异常：${e?.stack ?? e}`));
@@ -103,6 +104,7 @@ async function main() {
   addTimeline("boot", "苏醒：进程启动", { version: VERSION, body: config.body });
   ensureCatalogFresh(); // 模型目录缺少「能否看图」等信息时后台刷新（路由据此把图片只发给能看图的模型）
   startHeart(wake);
+  startContinuity(); // 进行中的轮次记检查点；稍后续做上次没做完的轮次与子 agent
   startSenses();
 }
 

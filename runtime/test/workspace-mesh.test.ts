@@ -109,7 +109,7 @@ test("工作区跟着任务走：自动登记并复制、协调层把这一轮�
   await phone.call("llmScript", { messages: [toolCall("agent_spawn", { name: "小助手", goal: "看看仓库状态", body: ids.pc, dir: "proj", maxSteps: 2 }), { content: "派出去了" }] });
   assert.equal(await phone.call("converse", { text: "派个子 agent 去电脑上看", conv: "u" }), "派出去了");
   await until(async () => (await pc.call<any[]>("agents")).some((a) => a.name === "小助手" && a.parentConv === "u"));
-  assert.ok(!(await phone.call<any[]>("agents")).some((a) => a.name === "小助手"), "子 agent 不在手机上");
+  assert.ok(!(await phone.call<any[]>("agents")).some((a) => a.name === "小助手" && a.body !== "pc"), "子 agent 不在手机上（手机上只有同步来的记录，记着它在 pc 上）");
   const sub = (await pc.call<any[]>("agents")).find((a) => a.name === "小助手");
   assert.match((await phone.call<any>("callTool", { name: "agent_status", args: { id: sub.id } })).text, /^（在 pc 上）\[/);
   await until(async () => (await phone.call<any[]>("messages", { session: "u" })).some((m) => m.role === "ambient" && m.channel === "子agent" && /小助手/.test(m.text)), 30_000);

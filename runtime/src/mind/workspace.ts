@@ -101,7 +101,6 @@ export interface WorkspaceMesh {
   overview: (body: string) => Overview | undefined;
   probe: (body: string, dir: string) => Promise<{ dir: string; exists: boolean }>;
   runAgent: (body: string, p: Record<string, unknown>) => Promise<{ id: string; name: string; dir?: string }>;
-  agent: (body: string, op: "status" | "message" | "stop", p: Record<string, unknown>) => Promise<string>;
 }
 let net: WorkspaceMesh | undefined;
 export const setWorkspaceMesh = (m: WorkspaceMesh | undefined) => { net = m; };
@@ -249,10 +248,8 @@ export function workspaceFiles(names: string[], args: Record<string, any>, s?: T
 }
 
 // ---------- 子 agent：在工作区所在的身体上执行
-/** 别的身体上派出的子 agent：id → 那具身体（agent_status / agent_message / agent_stop 转过去）。只在内存里。 */
-const remoteAgents = new Map<string, { body: string; name: string }>();
-export const remoteAgentOf = (id: string) => remoteAgents.get(id);
-export const remoteAgentList = () => [...remoteAgents].map(([id, a]) => ({ id, ...a }));
+// 在别的身体上派出的子 agent，记录由执行它的那具身体写、经 agents 分区同步（mind/agents.ts）：agent_status / agent_message / agent_stop
+// 按记录里它所在的身体转过去，续做与离线接管也按记录走（mind/continuity.ts）；这里不另记。
 
 /** 子 agent 在哪里做：她给了 body（uuid）就是那具身体；没给就继承派出它的这一轮的工作区；都没有就在这里。dir 不给时同一具身体上继承工作区目录。 */
 export function agentPlace(a: { body?: unknown; dir?: unknown }, s: Turn | undefined, resolve: (arg: unknown) => { local: true } | { remote: { body: string } } | { error: string }): { body: string; dir?: string; note: string } | string {
@@ -279,19 +276,10 @@ export function agentPlace(a: { body?: unknown; dir?: unknown }, s: Turn | undef
 export const agentWorkspaceText = (body: string, dir?: string) => dir ? `你的工作区在 ${label({ body, dir })}：shell 默认在这个目录下执行，相对路径从这里算。` : "";
 /** 在本机派出的子 agent：记下它的工作区（只在这具身体上）。 */
 export function bindAgent(s: Turn | undefined, dir?: string) { if (s && dir) setWorkspace(`agent:${s.id}`, { body: config.body, dir, source: "agent" }); }
-/** 在另一具身体上派出子 agent（网状层的 agent.run）；进展经在场转回来，报告送回派出它的会话。 */
+/** 在另一具身体上派出子 agent（网状层的 agent.run）；那边回传的记录立即并入本机（mesh/workspace.ts），进展经在场转回来，报告送回派出它的会话。 */
 export async function runAgentOn(body: string, p: Record<string, unknown>): Promise<{ id: string; name: string; dir?: string }> {
   if (!net) throw new Error(`${body} 不在线`);
-  const r = await net.runAgent(body, p);
-  remoteAgents.set(r.id, { body, name: r.name });
-  if (remoteAgents.size > 200) remoteAgents.delete(remoteAgents.keys().next().value!);
-  return r;
-}
-export async function remoteAgent(id: string, op: "status" | "message" | "stop", p: Record<string, unknown>): Promise<string | undefined> {
-  const a = remoteAgents.get(id);
-  if (!a) return undefined;
-  if (!net?.online(a.body)) return `子 agent「${a.name}」在 ${a.body} 上，那具身体此刻不在线`;
-  return `（在 ${a.body} 上）${await net.agent(a.body, op, { ...p, id })}`;
+  return net.runAgent(body, p);
 }
 
 // ---------- 给她看的

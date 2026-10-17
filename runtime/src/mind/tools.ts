@@ -47,6 +47,7 @@ import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf, type RemoteBody } from "./bodies.ts";
 import * as claims from "./claims.ts";
 import * as ws from "./workspace.ts";
+import { goalTool } from "./goals.ts";
 import { hostActive, touchHost, requestHost, exitHost, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
 import { canvasTools } from "./canvas-tools.ts";
 
@@ -199,9 +200,23 @@ const core: Tool[] = [
     handler: async (a, ctx) => reminderTool(a, ctx.session?.conv),
   },
   {
-    name: "open_loop", permission: "memory", description: "管理未完成的念头：add 记下一件以后还想继续的事；close 放下或完成一件（用 id）。",
+    name: "open_loop", permission: "memory", description: "管理未完成的念头（没有步骤的目标，和 goal 是同一份）：add 记下一件以后还想继续的事；close 放下或完成一件（用 id）。需要分步骤、记进度的用 goal。",
     parameters: obj({ action: { type: "string", enum: ["add", "close"] }, text: str("念头"), id: str("要关闭的 id") }, ["action"]),
-    handler: async (a) => a.action === "add" ? `已记下，现在有 ${mem.addLoop(a.text)} 件` : `已放下，还剩 ${mem.closeLoop(a.id)} 件`,
+    handler: async (a, ctx) => a.action === "add" ? `已记下，现在有 ${mem.addLoop(a.text, ctx.session?.origin === "chat" ? ctx.session.conv : undefined)} 件` : `已放下，还剩 ${mem.closeLoop(a.id)} 件`,
+  },
+  {
+    name: "goal", permission: "memory",
+    description: "管理你的长期目标：需要几步、可能跨好几次醒来和对话才能做成的事（学一样东西、帮对方办成一件事、自己的计划）。所有身体共用同一份。" +
+      "action=add：title 标题，可选 detail 说明、steps 步骤（字符串数组）。update：按 id 改 title / detail，steps 整份替换（同样文字的步骤保留状态），add_steps 追加。" +
+      "step_done：按 id 与 step（第几步，从 1 起）标记一步，status 缺省 done，也可以是 doing（正在做）、skipped（不做了）、todo（还没做）。close：做成了（outcome=done，缺省）或不做了（outcome=dropped），可写 note。list：列出全部。",
+    parameters: obj({
+      action: { type: "string", enum: ["add", "update", "step_done", "close", "list"] },
+      id: str("目标的 id（update / step_done / close 用）"), title: str("标题"), detail: str("说明（可选）"),
+      steps: { type: "array", items: { type: "string" }, description: "步骤（add / update 用）" }, add_steps: { type: "array", items: { type: "string" }, description: "追加的步骤（update 用）" },
+      step: { type: "number", description: "第几步（step_done 用，从 1 起）" }, status: { type: "string", enum: ["done", "doing", "skipped", "todo"] },
+      outcome: { type: "string", enum: ["done", "dropped"] }, note: str("关闭时的说明（可选）"),
+    }, ["action"]),
+    handler: async (a, ctx) => goalTool(a, ctx.session?.origin === "chat" ? ctx.session.conv : undefined),
   },
   {
     name: "web_search", permission: "network",
@@ -630,8 +645,7 @@ const core: Tool[] = [
         const r = await ws.runAgentOn(place.body, { ...spec, dir: place.dir, parent: { conv, channel: s?.channel || "控制台" } });
         return `已派出「${r.name}」（id ${r.id}），在 ${place.body} 上${r.dir ? `、${r.dir} 里` : ""}开始了。用 agent_status 看进度，agent_message 跟它说话；做完后报告会送回${back}。`;
       }
-      const sub = spawnAgent({ ...spec, workspace: ws.agentWorkspaceText(config.body, place.dir) }, { conv, channel: s?.channel || "控制台" });
-      ws.bindAgent(agents.liveSession(sub.id), place.dir);
+      const sub = spawnAgent({ ...spec, workspace: ws.agentWorkspaceText(config.body, place.dir), dir: place.dir }, { conv, channel: s?.channel || "控制台" });
       return `${place.note}已派出「${sub.name}」（id ${sub.id}），在后台开始了${place.dir ? `（工作区 ${place.dir}）` : ""}。用 agent_status 看进度，agent_message 跟它说话；做完后报告会送回${back}。`;
     },
   },
@@ -639,23 +653,19 @@ const core: Tool[] = [
     name: "agent_status", permission: "session",
     description: "查看子 agent 的进度与报告：不给 id 列出全部（含已完成的），给 id 看那一个的最近动作与完整报告。",
     parameters: obj({ id: str("子 agent 的 id（可选）") }),
-    handler: async (a) => {
-      if (a.id) return (await ws.remoteAgent(String(a.id), "status", {})) ?? agents.describe(String(a.id)); // 在别的身体上派出的，去那边问
-      const there = await Promise.all(ws.remoteAgentList().map((r) => ws.remoteAgent(r.id, "status", {}).catch((e: Error) => `[${r.id}] ${r.name}（在 ${r.body} 上）：${e.message}`)));
-      return [agents.list().length || !there.length ? agents.describe() : "", ...there].filter(Boolean).join("\n\n");
-    },
+    handler: (a) => agents.status(a.id ? String(a.id) : undefined), // 在别的身体上跑着的，去那边问（mind/agents.ts）
   },
   {
     name: "agent_message", permission: "session",
     description: "跟进行中的子 agent 说话：补充要求、纠正方向、问它进展。它会在这一步结束后看到并回应（回应出现在它的过程里，用 agent_status 看）。",
     parameters: obj({ id: str("子 agent 的 id"), text: str("要说的话") }, ["id", "text"]),
-    handler: async (a) => (await ws.remoteAgent(String(a.id), "message", { text: String(a.text) })) ?? agents.message(String(a.id), String(a.text)),
+    handler: (a) => agents.message(String(a.id), String(a.text)), // 在别的身体上跑着的转过去（mind/agents.ts）
   },
   {
     name: "agent_stop", permission: "session",
     description: "停止一个进行中的子 agent（它不会再有报告）。",
     parameters: obj({ id: str("子 agent 的 id") }, ["id"]),
-    handler: async (a) => (await ws.remoteAgent(String(a.id), "stop", {})) ?? agents.stop(String(a.id)),
+    handler: (a) => agents.stop(String(a.id)),
   },
   { ...ws.WORKSPACE_TOOL, handler: (a, ctx) => ws.workspaceTool(a, ctx.session, resolveBody) },
   {
