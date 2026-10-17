@@ -54,6 +54,10 @@ String pastedName([String mime = 'image/png']) {
   return 'pasted-${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}${two(t.second)}.$ext';
 }
 
+/// 要定位到的消息（会话列表的搜索结果点开时）：打开的 ChatView 是这个会话就从那条消息起重新取记录、滚过去并短暂标亮。
+/// 手机外壳与桌面外壳共用：先设它再打开会话（会话已经开着时也生效）。
+final chatFocus = ValueNotifier<({String conv, int msg})?>(null);
+
 /// 手机：一个会话一页。
 class ChatPage extends StatefulWidget {
   final String conv, title;
@@ -117,6 +121,9 @@ class _ChatViewState extends State<ChatView> {
   bool typed = false; // 输入框里有字：发送键是发送；没有字、她又在工作时，发送键变成停止键
   DateTime? escAt; // 第一次按 Esc 的时刻：几秒内再按一次就停止这一轮
   double lastExtent = 0;
+  int? focusFrom; // 从这条消息起取记录（搜索结果点开时），切换会话时清掉
+  bool flash = false; // 定位到的那条消息正在标亮
+  final focusKey = GlobalKey();
 
   @override
   void initState() {
@@ -137,15 +144,19 @@ class _ChatViewState extends State<ChatView> {
     wasOnline = api.conn == Conn.online; // 创建时还没连上：连上那一刻要重新取（只靠初值 true 会漏掉这一次）
     input.addListener(_onInput);
     life = AppLifecycleListener(onResume: () async { await api.ensureAlive(); _resync(); }); // 从后台切回：确认连接并从后端重建
+    chatFocus.addListener(_onFocus);
     _resync(first: true);
   }
+
+  /// 搜索结果要定位到这个会话里的一条消息。
+  void _onFocus() { final f = chatFocus.value; if (f != null && f.conv == widget.conv) _resync(first: true); }
 
   @override
   void didUpdateWidget(ChatView old) {
     super.didUpdateWidget(old);
     if (old.conv != widget.conv) { // 桌面外壳复用同一个 ChatView 切换会话
       msgs.clear(); turns.clear(); local.clear(); finished.clear(); files.clear();
-      secret = null; heard = null; loading = true; atBottom = true; unread = false;
+      secret = null; heard = null; loading = true; atBottom = true; unread = false; focusFrom = null; flash = false;
       setState(() {});
       _resync(first: true);
     }
@@ -154,6 +165,7 @@ class _ChatViewState extends State<ChatView> {
   @override
   void dispose() {
     for (final s in subs) { s.cancel(); }
+    chatFocus.removeListener(_onFocus);
     api.removeListener(_onConn);
     input.removeListener(_onInput);
     life.dispose();
@@ -197,8 +209,11 @@ class _ChatViewState extends State<ChatView> {
 
   /// 从后端重建：对话记录 + 进行中的轮次快照。
   Future<void> _resync({bool first = false}) async {
+    final f = chatFocus.value;
+    final focusing = f != null && f.conv == widget.conv;
+    if (focusing) { focusFrom = f.msg; chatFocus.value = null; }
     try {
-      final r = await Future.wait([api.call<List>('sessions.messages', {'id': widget.conv, 'limit': 100}), api.call<List>('sessions.live'), api.call<List>('sessions'),
+      final r = await Future.wait([api.call<List>('sessions.messages', {'id': widget.conv, 'limit': 100, 'from': ?focusFrom}), api.call<List>('sessions.live'), api.call<List>('sessions'),
         api.call<List>('secrets.pending').catchError((_) => []), // 旧版基座没有这个接口
       ]);
       if (!mounted) return;
@@ -215,7 +230,7 @@ class _ChatViewState extends State<ChatView> {
         loading = false;
       });
       if (me.isNotEmpty) widget.onTitle?.call('${me.first['title']}');
-      _changed(force: first);
+      if (focusing) { _toFocus(); } else { _changed(force: first && focusFrom == null); }
     } catch (_) {
       if (mounted) setState(() => loading = false);
     }
@@ -293,6 +308,15 @@ class _ChatViewState extends State<ChatView> {
     } else if (!unread) {
       setState(() => unread = true);
     }
+  }
+
+  /// 滚到定位的那条消息并标亮几秒。
+  void _toFocus() {
+    setState(() { flash = true; atBottom = false; });
+    void go() { final c = focusKey.currentContext; if (c != null && c.mounted) Scrollable.ensureVisible(c, alignment: 0.25, duration: const Duration(milliseconds: 250)); }
+    WidgetsBinding.instance.addPostFrameCallback((_) => go());
+    Future.delayed(const Duration(milliseconds: 400), go); // 图表、公式渲染后高度会变
+    Future.delayed(const Duration(seconds: 3), () { if (mounted) setState(() => flash = false); });
   }
 
   void _toBottom({bool animate = true}) {
@@ -426,7 +450,10 @@ class _ChatViewState extends State<ChatView> {
     final rows = <Widget>[
       for (final m in msgs) ...[
         ...before[(m['id'] as num?)?.toInt()] ?? const <Widget>[],
-        _message(context, m, cs, process: lastSeg[(m['id'] as num?)?.toInt()]),
+        if (focusFrom != null && (m['id'] as num?)?.toInt() == focusFrom)
+          AnimatedContainer(key: focusKey, duration: const Duration(milliseconds: 400), decoration: BoxDecoration(color: flash ? cs.primary.withValues(alpha: 0.12) : Colors.transparent, borderRadius: BorderRadius.circular(12)), child: _message(context, m, cs, process: lastSeg[(m['id'] as num?)?.toInt()]))
+        else
+          _message(context, m, cs, process: lastSeg[(m['id'] as num?)?.toInt()]),
         ...after[(m['id'] as num?)?.toInt()] ?? const <Widget>[],
       ],
       ...tail,

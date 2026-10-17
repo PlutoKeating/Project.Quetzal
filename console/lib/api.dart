@@ -319,7 +319,17 @@ class Api extends ChangeNotifier {
     _events.add(ev);
   }
 
+  /// 测试用：设置后 call 不经网络，由它回答（widget 测试里模拟运行基座）。
+  @visibleForTesting
+  Future<dynamic> Function(String method, Map<String, dynamic> params)? fake;
+
+  /// 测试用：模拟一条推送事件。
+  @visibleForTesting
+  void emitForTest(GatewayEvent e) => _events.add(e);
+
   Future<T> call<T>(String method, [Map<String, dynamic>? params]) {
+    final f = fake;
+    if (f != null) return f(method, params ?? {}).then((v) => v as T);
     final ws = _ws;
     if (ws == null || conn != Conn.online) return Future.error(RpcError('OFFLINE', '未连接到 agent'));
     final id = ++_seq;
