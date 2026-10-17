@@ -47,7 +47,7 @@ test("对话历史：每条带时间，回复前附过程记录，插话有标�
   const self = store.addMessage("user", "飞书", "现在这句", { session: "h" });
   const h = history("h", self);
   assert.equal(h.length, 12); // 每条回复前多一条基座附注
-  assert.match(h[0].content, /^\[\d\d\/\d\d \d\d:\d\d\] 看这张图\n\[\d\d\/\d\d \d\d:\d\d 随这条消息发来的附件：shot\.png（.*shot\.png）；图片当时已附在消息里，现在只剩路径，想再看用 view_image\]$/);
+  assert.match(h[0].content, /^\[\d\d\/\d\d \d\d:\d\d\] 看这张图\n\[\d\d\/\d\d \d\d:\d\d 随这条消息发来的附件：1\. shot\.png（.*shot\.png）；图片当时已附在消息里，现在只剩路径，想再看用 view_image\]$/);
   assert.equal(h[1].role, "user");
   assert.match(h[1].content, /^\[基座附注，不是对方的话｜\d\d\/\d\d \d\d:\d\d 你回复了下一条；这一轮的过程记录：这一轮用了 1 个工具：view_image×1（细节用 recent_actions 查）\]$/); // 较早的一轮：只有计数
   assert.deepEqual([h[2].role, h[2].content], ["assistant", "看到了"]); // 她的回复只留原文：不带时间与过程记录，免得模型照着格式自己编
@@ -81,6 +81,17 @@ test("同一张图不重复发送：随消息附带过的、view_image 看过的
   assert.match(r2.text, /✓ .*other\.png\n= .*other\.png：这张图这一轮已经在你眼前/);
   assert.equal(s.images.length, 1);
   s.close();
+});
+
+test("正文里标出的附件位置（#4）：说明「[附件 N：…]」指附件列表第 N 项，图片注明是随消息的第几张；历史里同样编号", async () => {
+  const m = await userMessage("你 通过控制台对你说：\n这里 [附件 1：shot.png] 的按钮不对", [attachment], "回复");
+  assert.match(String(m.content), /正文里的「\[附件 N：文件名\]」是对方把第 N 个附件放在文字中的位置/);
+  assert.match(String(m.content), /1\. shot\.png（[^\n]*：图片，已附在消息中（随消息附带的第 1 张图）/);
+  assert.doesNotMatch(String((await userMessage("没有标记", [attachment], "回复")).content), /放在文字中的位置/, "没有标记时不多说");
+  store.ensureSession("pl", "位置");
+  store.addMessage("user", "控制台", "这里 [附件 1：shot.png] 不对", { session: "pl", attachments: [attachment] });
+  const self = store.addMessage("user", "控制台", "下一句", { session: "pl" });
+  assert.match(String(history("pl", self)[0].content), /随这条消息发来的附件（正文里的「\[附件 N：…\]」是第 N 个的位置）：1\. shot\.png/);
 });
 
 test("recent_actions：按时间、工具名查自己的审计记录", async () => {

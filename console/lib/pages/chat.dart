@@ -28,6 +28,7 @@ import '../hearing.dart';
 import '../platform/caps.dart';
 import 'sessions.dart';
 import '../host_mode.dart';
+import '../attach_marks.dart';
 
 const maxFiles = 20;
 const modes = {'steer': ('插话', '这一步结束后并入，她会注意到', Icons.call_merge), 'queue': ('排队', '等这一轮结束后再处理', Icons.schedule_send), 'interrupt': ('打断', '立即打断她的输出，工具不受影响', Icons.pan_tool)};
@@ -35,10 +36,11 @@ const modes = {'steer': ('插话', '这一步结束后并入，她会注意到',
 /// 待发送的附件（上传中 / 已上传 / 失败）。
 class _Pending {
   final String name;
+  final String marker; // 在输入框里标出它的位置（attach_marks.dart）
   double progress = 0;
   Map? file;
   String? error;
-  _Pending(this.name);
+  _Pending(this.name, this.marker);
 }
 
 /// 要加入附件的一个文件：名字与读出内容的方法（附件按钮、粘贴、拖入、输入法插入共用）。
@@ -314,7 +316,12 @@ class _ChatViewState extends State<ChatView> {
     final room = maxFiles - files.length;
     if (room <= 0) { toast(context, '一次最多 $maxFiles 个文件'); return; }
     if (src.length > room) toast(context, '一次最多 $maxFiles 个文件，已取前 $room 个');
-    final added = [for (final f in src.take(room)) (f, _Pending(f.name))];
+    final marks = <String>[for (final f in files) f.marker];
+    final added = <(_Source, _Pending)>[];
+    for (final f in src.take(room)) { final m = attachMarker(f.name, marks); marks.add(m); added.add((f, _Pending(f.name, m))); }
+    // 在光标处标出附件的位置：她读到消息时知道对方把它放在文字的哪里
+    final (t, at) = insertMarkers(input.text, input.selection.isValid ? input.selection.baseOffset : -1, [for (final x in added) x.$2.marker]);
+    input.value = TextEditingValue(text: t, selection: TextSelection.collapsed(offset: at));
     setState(() => files.addAll(added.map((x) => x.$2)));
     for (final (f, p) in added) {
       try {
@@ -360,7 +367,8 @@ class _ChatViewState extends State<ChatView> {
 
   Future<void> _send() async {
     if (secret != null) return _sendSecret(input.text);
-    final text = input.text.trim();
+    var text = placeMarkers(input.text, [for (final f in files) (marker: f.marker, name: f.name, ready: f.file != null)]).trim();
+    if (text.replaceAll(placedMarker, '').trim().isEmpty) text = ''; // 只有附件、没有文字：不需要标位置
     focus.requestFocus();
     final ready = files.where((f) => f.file != null).map((f) => f.file!).toList();
     if ((text.isEmpty && ready.isEmpty) || uploading) return;
@@ -566,7 +574,7 @@ class _ChatViewState extends State<ChatView> {
                   : f.file == null ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, value: f.progress > 0 ? f.progress : null))
                   : Icon(_icon(f.file!), size: 18),
               label: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 140), child: Text(f.error != null ? '${f.name}：${f.error}' : f.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
-              onDeleted: () => setState(() => files.remove(f)),
+              onDeleted: () => setState(() { files.remove(f); input.text = removeMarker(input.text, f.marker); }),
             ),
           Text('${files.length}/$maxFiles', style: Theme.of(context).textTheme.labelSmall),
         ]),

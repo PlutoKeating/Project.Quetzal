@@ -16,7 +16,7 @@ import { identity } from "../memory/identity.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemPrompt } from "./prompt.ts";
 import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, saveContextSource, type Attachment } from "../store.ts";
-import { userMessage } from "./attachments.ts";
+import { userMessage, PLACED } from "./attachments.ts";
 import { config } from "../config.ts";
 import * as mem from "../memory/memory.ts";
 import * as soul from "../memory/soul-sync.ts";
@@ -316,7 +316,7 @@ export function history(conv: string, self: number, budget = Infinity): Msg[] {
       const ear = entryBody(m.via);
       text = `[${stamp(m.ts)}｜环境声音：${ear ? `${ear} 这具身体的` : ""}麦克风听到并识别的话${m.mode === "ignored" ? "；你当时判断不是对你说的，没有回应" : "，不一定是对你说的"}] ${m.text}`;
     } else if (m.role === "user") {
-      const files = m.attachments?.length ? `\n[${stamp(m.ts)} 随这条消息发来的附件：${m.attachments.map((f) => `${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片当时已附在消息里，现在只剩路径，想再看用 view_image" : ""}]` : "";
+      const files = m.attachments?.length ? `\n[${stamp(m.ts)} 随这条消息发来的附件${PLACED.test(m.text) ? "（正文里的「[附件 N：…]」是第 N 个的位置）" : ""}：${m.attachments.map((f, i) => `${i + 1}. ${f.name}（${f.path}）`).join("、")}${m.attachments.some((f) => f.kind === "image") ? "；图片当时已附在消息里，现在只剩路径，想再看用 view_image" : ""}]` : "";
       const via = entryBody(m.via);
       text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}${via ? `｜经 ${via} 发来` : ""}] ${m.text}${files}`;
     } else {

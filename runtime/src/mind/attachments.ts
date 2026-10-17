@@ -73,6 +73,9 @@ export function resolveUpload(rel: string): string | undefined {
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 /** 组装带附件的用户消息。seen：本轮已放进上下文的图片路径，成功附带的图片会登记进去（view_image 据此不再重复发送）。 */
+/** 控制台在正文里标出附件位置的写法：「[附件 N：文件名]」，N 是附件列表里的第 N 项（#4）。 */
+export const PLACED = /\[附件 (\d+)：[^\]\n]*\]/;
+
 export async function userMessage(header: string, files: Attachment[], instruction: string, seen?: Set<string>): Promise<Msg> {
   const images: ImagePart[] = [];
   const lines: string[] = [];
@@ -84,7 +87,7 @@ export async function userMessage(header: string, files: Attachment[], instructi
         const { image, note } = await loadImage(f.path);
         images.push(image);
         seen?.add(path.resolve(f.path));
-        lines.push(`${tag}：图片，已附在消息中${note ? `（${note}）` : ""}`);
+        lines.push(`${tag}：图片，已附在消息中（随消息附带的第 ${images.length} 张图）${note ? `（${note}）` : ""}`);
       } else if (f.kind === "text") {
         const text = fs.readFileSync(f.path, "utf8");
         if (inlined + text.length <= MAX_TEXT_CHARS) {
@@ -96,6 +99,7 @@ export async function userMessage(header: string, files: Attachment[], instructi
       lines.push(`${tag}：${f.kind === "image" ? "图片无法放进消息" : "读取失败"}（${e.message}），可以用 view_image 或 shell 处理`);
     }
   }
-  const body = [header, ...(lines.length ? [`\n附件（${lines.length} 个）：\n${lines.join("\n")}`] : []), `\n${instruction}`].join("\n");
+  const placed = lines.length && PLACED.test(header) ? "正文里的「[附件 N：文件名]」是对方把第 N 个附件放在文字中的位置，按它们在文字里的位置理解对方的意思。\n" : "";
+  const body = [header, ...(lines.length ? [`\n附件（${lines.length} 个）：\n${placed}${lines.join("\n")}`] : []), `\n${instruction}`].join("\n");
   return images.length ? { role: "user", content: body, images } : { role: "user", content: body };
 }
