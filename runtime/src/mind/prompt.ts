@@ -23,6 +23,7 @@ import * as zone from "../time/zone.ts";
 import * as reminders from "../time/reminders.ts";
 import * as claims from "./claims.ts";
 import { workspaceBlock, workspaceNote, localReposText, remoteReposText } from "./workspace.ts";
+import { canvasBlock } from "./canvas.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
 
@@ -167,6 +168,7 @@ ${(() => { const l = reminders.active(); return l.length ? `你答应对方的�
     ...(projectBlock(o.conv) ? [projectBlock(o.conv)] : []),
     `## 身体\n${describeBody()}${localReposText()}`,
     ...(workspaceBlock(o.conv) ? [workspaceBlock(o.conv)] : []),
+    ...((c) => (c ? [c] : []))(canvasBlock(o.conv)), // 这个会话的 canvas：小的给全文，大的给概要；对方改过的、未解决的评论、最近一次运行
     ...(othersBlock() ? [othersBlock()] : []),
     `## 技能与自造工具\n${skillsBlock()}`,
     `## 会话与子 agent\n${sessionBlock()}`,

@@ -40,6 +40,7 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | `say` | Something it says proactively |
 | `activity` | Progress `{session, conv, origin, channel, ts, kind, …}`; `kind` below |
 | `secret` | Secret-input state (never contains values) |
+| `canvas.changed` | A canvas changed `{doc, conv, kind, author?}` (`kind`: created, edited, renamed, deleted, comment, run, copied from another body) |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | Feishu one-tap setup |
 
 `activity.kind`: `start` / `queued` / `steer` / `step` / `delta` (streamed fragment) / `text` / `tool` (one event while running, one after) / `alive` (15-second heartbeat) / `done` / `error`. Every turn in progress is also kept as a snapshot (`sessions.live`) so a client can rebuild its UI at any time.
@@ -67,6 +68,15 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | `projects` / `projects.create` / `projects.update` / `projects.delete` | … | Projects: name, description, project instructions (added to the system prompt of every session in the project), color and icon, archiving; deleting a project keeps its sessions and only removes them from it |
 | `sessions.live` | — | Snapshots of turns in progress |
 | `poke` | `{note?}` | Poke |
+
+**Canvas** (see the [guide](/docs/guide/canvas))
+
+| Method | Params | Notes |
+|---|---|---|
+| `canvas.list` / `canvas.get` / `canvas.versions` | `{conv?}` / `{id, version?}` / `{id}` | A conversation's canvases, one canvas in full (with comments and recent runs), version history |
+| `canvas.create` / `canvas.edit` / `canvas.update` / `canvas.delete` / `canvas.restore` | … | Create; save as a new version (with `base`: if the agent just changed it, it is still saved and `conflict` is returned); rename or change language; delete; restore a version |
+| `canvas.run` / `canvas.runImage` | `{id, version?, timeout?}` / `{run, name}` | Run the code in the sandbox (gated by the *Run commands* permission); fetch an image the run produced |
+| `canvas.comment` / `canvas.reply` / `canvas.resolve` / `canvas.apply` | … | Comment on a selection (sent to the agent by default), reply, resolve, accept the agent's edit suggestion |
 
 **Vault**: `secrets`, `secrets.delete`, `secrets.pending`, `secrets.end`.
 

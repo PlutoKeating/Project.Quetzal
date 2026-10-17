@@ -44,6 +44,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `say` | ta 主动说的话 |
 | `activity` | 进展 `{session, conv, origin, channel, ts, kind, …}`，`kind` 见下 |
 | `secret` | 保密输入状态（永远不含值） |
+| `canvas.changed` | 一份 canvas 变了 `{doc, conv, kind, author?}`（`kind`：新建、修改、改名、删除、评论、运行、从其他身体复制来） |
 | `feishu.qr` / `feishu.registered` / `feishu.error` | 飞书一键接入 |
 
 `activity.kind`：`start` / `queued` / `steer` / `step` / `delta`（流式片段）/ `text` / `tool`（执行中与执行后各一条）/ `alive`（15 秒心跳）/ `done` / `error`。进行中的每一轮同时保存为快照（`sessions.live`），客户端随时可以用它完整重建界面。
@@ -71,6 +72,15 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `projects` / `projects.create` / `projects.update` / `projects.delete` | … | 项目：名字、简介、项目说明（注入这个项目下会话的系统提示）、颜色与图标、归档；删除不删会话，只解除归属 |
 | `sessions.live` | — | 进行中轮次的快照 |
 | `poke` | `{note?}` | 戳一下 |
+
+**Canvas**（见[使用指南](/docs/guide/canvas)）
+
+| 方法 | 参数 | 说明 |
+|---|---|---|
+| `canvas.list` / `canvas.get` / `canvas.versions` | `{conv?}` / `{id, version?}` / `{id}` | 一个会话的 canvas、一份的完整内容（含评论与最近几次运行）、版本历史 |
+| `canvas.create` / `canvas.edit` / `canvas.update` / `canvas.delete` / `canvas.restore` | … | 新建；保存为新版本（带 `base`：她刚改过时照样保存，返回 `conflict`）；改标题或语言；删除；恢复到某一版 |
+| `canvas.run` / `canvas.runImage` | `{id, version?, timeout?}` / `{run, name}` | 在沙箱里运行代码（按「执行命令」权限过闸门）；取运行生成的图片 |
+| `canvas.comment` / `canvas.reply` / `canvas.resolve` / `canvas.apply` | … | 选中一段加评论（缺省发给 ta）、回复、解决、采纳 ta 的编辑建议 |
 
 **保密库**：`secrets`、`secrets.delete`、`secrets.pending`、`secrets.end`。
 

@@ -56,9 +56,11 @@
 
 | 归属 | 内容 |
 |---|---|
-| 心智（网上复制） | 心脏状态、会话与消息（含会话的置顶与项目归属）、会话的工作区（§2.7）、项目、进行中轮次的快照、未完成的念头、想分享的一句话、审批、急停与暂停、时间线、子 agent、全网配置（C8）、预算用量 |
+| 心智（网上复制） | 心脏状态、会话与消息（含会话的置顶与项目归属）、会话的工作区（§2.7）、项目、进行中轮次的快照、未完成的念头、想分享的一句话、审批、急停与暂停、时间线、子 agent、全网配置（C8）、预算用量、Canvas（文档 / 代码的全部版本、评论、运行结果，见下面「Canvas 的复制」） |
 | 心智（持久） | 灵魂仓库（git），同时是成员信任的根 |
-| 身体（只在本地） | 适配器、传感器、设备工具、耳朵与扬声器、保密库 `vault/`、自造工具的实现、网关令牌、部署私钥、网状层私钥 |
+| 身体（只在本地） | 适配器、传感器、设备工具、耳朵与扬声器、保密库 `vault/`、自造工具的实现、网关令牌、部署私钥、网状层私钥、Canvas 运行代码生成的图片文件与运行目录 |
+
+**Canvas 的复制**（`mesh/canvas.ts`，ARCHITECTURE §5.5）：四张表 `canvas_docs`、`canvas_versions`、`canvas_comments`、`canvas_runs` 在同一个 agent 的正式成员之间复制（灵魂桥不参与），不进灵魂仓库。连上一具身体时先要它的摘要（`canvas.digest`：每份 canvas 与每条评论的修改时刻、每个版本与每次运行的 id），再按 id 分批要本机没有的或对方较新的行（`canvas.rows`，每批最多 200 个 id、4 MB，大小超了的留到下一批）；平时本机每写一行就实时广播（事件 `canvas`）。合并规则：版本与运行不可变（同一个 id 再来一次也不改）；当前版本是时刻最新的版本，两具身体同时改时两版都留下；canvas 的标题、语言、删除与评论的解决状态按较新的修改为准。收到的行逐字段检查后才写入（`mind/canvas.ts` 的 `applyCanvasRemote`）：id 的格式、类型与作者只认枚举、时间在 2020 年以后且不晚于现在 + 10 分钟（修改时刻再钳在现在 + 5 分钟以内）、内容 50 万字符、评论 2 万字符、输出 64 KB、图片清单的文件名不能带路径；**实时收到的行只能是发来的那具身体写的**（`body` 等于网状层认证过的对端），补齐时可以带别的身体的行。运行生成的图片只在运行它的身体上（只复制清单），别处的控制台说明取不到。1.10.0 及以前的身体没有这两个方法：补齐失败只记一笔。
 
 ### 2.2 协调者与分区
 
@@ -201,4 +203,5 @@
 | 多会话认领（#7） | `mind/claims.ts`、`mesh/shared.ts` 的 claims 分区与 `claims.op`（经协调者决定） |
 | C10 多只耳朵去重、从听到的身体发声 | `mesh/channels.ts`、`voice/hearing.ts` |
 | §2.7 工作区跟着任务走、身体工作区概况（#38、#37） | `mind/workspace.ts`、`mind/repos.ts`、`mesh/workspace.ts`（`workspace.pull`、`body.workspace`、`agent.run` 等）、`mesh/presence.ts` 的路由 |
+| Canvas 的复制（#33 / #34） | `mesh/canvas.ts`（补齐摘要 + 按 id 取行 + 实时广播）、`mind/canvas.ts` 的 `applyCanvasRemote` |
 | B4 灵魂桥作为只读成员入网 | `mesh/mesh.ts` 的只读成员（`handle(…, readable)`、`connectedReaders`；类型以灵魂仓库登记为准）、`mesh/presence.ts` 的 `presence.digest`、`bridge/src/mesh.ts`（`mesh bind`、守护进程取近况写 `now.md`，框架里的 agent 读它） |

@@ -59,7 +59,8 @@ config/providers.json    模型供应商（Key 为密文）
 config/mcp.json          本机 stdio MCP 来源（默认禁用；启用后分别审批启动和调用，不随灵魂 / mesh 同步）
 secrets/                 0700：master.key（Key 加密主密钥；存在却损坏时报错，不重新生成）、gateway.token、gateway-tls.key / gateway-tls.crt（网关局域网 HTTPS 的自签名证书，损坏或过期时重新生成）、feishu_secret、azure_speech_key、soul_ed25519、mesh_ed25519（网状层的节点密钥）、sync.json（同步服务的绑定令牌）、sync-account.json（账户令牌）。每个文件先写临时文件、fsync 再改名，0600。agent 的命令在沙箱里看不到这个目录（§8.1）
 vault/                   0700：保密库。对方通过 pass_secret 交给 agent 的保密值，每项一个 0600 文件；index.json 记录说明（见 §5.1）
-data/quetzal.db          SQLite：kv / timeline / messages / sessions / workspaces（会话与子 agent 的工作区，§6.2「工作区跟着任务走」）/ audit / usage
+data/quetzal.db          SQLite：kv / timeline / messages / sessions / workspaces（会话与子 agent 的工作区，§6.2「工作区跟着任务走」）/ audit / usage，以及 Canvas 的 canvas_docs / canvas_versions / canvas_comments / canvas_runs（§5.5）
+data/canvas-runs/<运行>/  Canvas 运行代码生成的图片（§5.5；只在运行它的身体上）
 data/catalog.json        公共模型目录缓存（models.dev）
 data/from-bodies/<身体>/  多具身体时工具带 body 从别的身体取来的文件（§6.2「身体参数」）
 soul/                    灵魂目录（git 仓库）
@@ -190,7 +191,7 @@ sequenceDiagram
 
 文本估计采用 UTF-8 字节数加协议开销，图片另作保守启发式估计；**不是真实 tokenizer，也不证明供应商的实际 token 一定在窗口内**。默认窗口缺省值65536，摘要正文预算1024；具体模型配置的 context 决定实际候选窗口，输出预留受请求上限、模型上限和窗口四分之一共同限制。超额不截系统政策、当前请求或未完成工具组。手动 `session_compact` 的数据库语义仍在下一轮生效；本轮自动生成的视图可即时缩小。完整机制见 [动态上下文](engine/DYNAMIC_CONTEXT.md)。
 
-内置工具（`mind/tools.ts`）：`task_state`（目标、约束、未决问题、阶段和标签）、`context_read`（当前会话原文分页）、`memory_records` / `memory_evolve`（同作用域记忆版本与经验演化）、`memory`（与 Hermes 语义一致）、`note_save` / `note_read` / `note_list` / `note_move` / `note_delete`（笔记目录树）、`recall`（检索全部记忆：对话、笔记、日记、常驻记忆，可限定时间段，见 §6.1）、`reminder`（提醒与日程：一次性或 cron 重复，到点由基座准时发出，见 §6.0）、`open_loop`、`recent_actions`（查审计：最近真实做过的工具调用的时间、参数与结果，用来核实自己「做没做过」）、`web_search`（依次尝试 360 搜索、百度、必应，拿到结果即止，相不相关由她判断；没有结果时照实写明，被转到了别的网站就写出是哪里；英文资料她可以指定必应国际版）/ `web_fetch`、`view_image`（看图：把本地图片——自己拍的照片、下载的图、之前对话里的附件——放进下一次模型调用，自动选用能看图的模型；这一轮已经在上下文里的图片不重复发送）、`read_document`（读取 Word / PPT / Excel / PDF / ODF / EPUB / HTML 等文档，分页）、`shell`（前台等待或 `background` 后台运行；输出为空而命令丢弃了 stderr 时提醒"可能是报错被吞了"）——多具身体时这三个读文件的工具多一个 `body` 参数（另一具身体的 uuid），带上时路径指那具身体上的文件，见 §6.2「身体参数」与 `shell_jobs`（查看后台任务输出、随时停止）、`processes`（Linux / 安卓直接读 `/proc`、Windows 读 Win32_Process 列进程，不依赖 ps——有的沙箱里 ps 看不到进程；标出她自己、父进程与她的后台任务）、`voice_speak`（用自己的声音说话：Azure 语音合成，由身体播放）与 `voice_config`（自己选音色、风格，配置区域与密钥）、`pass_secret`（向对方索取密码、令牌、密钥时用：对方在对话里保密输入，她只拿到文件路径，见 §5.1）、`host_mode`（请求进入或退出真实环境：这个会话的命令不经沙箱，见 §8.2）、`send_message`（对话中调用时只出现在当前对话里；自己醒来思考时才作为主动消息发出，带「主动消息」标识，放进哪个会话由她选：`session` 填已有会话的 id，`new_session` 填标题开新会话，都不填时这次醒来的第一条开一个新会话、之后几条接着放进去）、`share_thought`（更新「想分享的一句话」，持续显示在控制台首页与飞书「此刻」卡片；醒来结束的 finish 也可顺带更新）、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`、`edit_identity`（修改自己的身份资料：名字、代词、简介、主题色、偏好语言，写入灵魂仓库同步到所有身体）、`tool_write` / `tool_read` / `tool_delete`（自造工具，见 §5.2）、`hearing_config`（听觉开关与参数，见 §5.3）、`session_new` / `session_compact` / `project` / `claim` / `agent_spawn` / `agent_status` / `agent_message` / `agent_stop`（会话、认领与子 agent，见 §5.4）；多具身体时还有 `body_call`（在另一具身体上调用它的工具）与 `move_to`（换到另一具身体继续这一轮），见 §6.2；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
+内置工具（`mind/tools.ts`）：`task_state`（目标、约束、未决问题、阶段和标签）、`context_read`（当前会话原文分页）、`memory_records` / `memory_evolve`（同作用域记忆版本与经验演化）、`memory`（与 Hermes 语义一致）、`note_save` / `note_read` / `note_list` / `note_move` / `note_delete`（笔记目录树）、`recall`（检索全部记忆：对话、笔记、日记、常驻记忆，可限定时间段，见 §6.1）、`reminder`（提醒与日程：一次性或 cron 重复，到点由基座准时发出，见 §6.0）、`open_loop`、`recent_actions`（查审计：最近真实做过的工具调用的时间、参数与结果，用来核实自己「做没做过」）、`web_search`（依次尝试 360 搜索、百度、必应，拿到结果即止，相不相关由她判断；没有结果时照实写明，被转到了别的网站就写出是哪里；英文资料她可以指定必应国际版）/ `web_fetch`、`view_image`（看图：把本地图片——自己拍的照片、下载的图、之前对话里的附件——放进下一次模型调用，自动选用能看图的模型；这一轮已经在上下文里的图片不重复发送）、`read_document`（读取 Word / PPT / Excel / PDF / ODF / EPUB / HTML 等文档，分页）、`shell`（前台等待或 `background` 后台运行；输出为空而命令丢弃了 stderr 时提醒"可能是报错被吞了"）——多具身体时这三个读文件的工具多一个 `body` 参数（另一具身体的 uuid），带上时路径指那具身体上的文件，见 §6.2「身体参数」与 `shell_jobs`（查看后台任务输出、随时停止）、`processes`（Linux / 安卓直接读 `/proc`、Windows 读 Win32_Process 列进程，不依赖 ps——有的沙箱里 ps 看不到进程；标出她自己、父进程与她的后台任务）、`voice_speak`（用自己的声音说话：Azure 语音合成，由身体播放）与 `voice_config`（自己选音色、风格，配置区域与密钥）、`pass_secret`（向对方索取密码、令牌、密钥时用：对方在对话里保密输入，她只拿到文件路径，见 §5.1）、`host_mode`（请求进入或退出真实环境：这个会话的命令不经沙箱，见 §8.2）、`send_message`（对话中调用时只出现在当前对话里；自己醒来思考时才作为主动消息发出，带「主动消息」标识，放进哪个会话由她选：`session` 填已有会话的 id，`new_session` 填标题开新会话，都不填时这次醒来的第一条开一个新会话、之后几条接着放进去）、`share_thought`（更新「想分享的一句话」，持续显示在控制台首页与飞书「此刻」卡片；醒来结束的 finish 也可顺带更新）、`adjust_self`（有界地修改自己的性格参数）、`rewrite_soul`、`edit_identity`（修改自己的身份资料：名字、代词、简介、主题色、偏好语言，写入灵魂仓库同步到所有身体）、`tool_write` / `tool_read` / `tool_delete`（自造工具，见 §5.2）、`hearing_config`（听觉开关与参数，见 §5.3）、`session_new` / `session_compact` / `project` / `claim` / `agent_spawn` / `agent_status` / `agent_message` / `agent_stop`（会话、认领与子 agent，见 §5.4）、`canvas_create` / `canvas_read` / `canvas_edit` / `canvas_list` / `canvas_comment` / `canvas_run`（会话旁边的 Canvas：文档与代码、版本、评论、在沙箱里运行代码，见 §5.5）；多具身体时还有 `body_call`（在另一具身体上调用它的工具）与 `move_to`（换到另一具身体继续这一轮），见 §6.2；以及适配器提供的设备工具、预留的 `hands` 工具（看屏幕、点击、输入、打开应用）。
 
 对话（`converse`）与醒来共用工具循环，但不需要 finish；有人说话会把她从睡眠中叫醒，聊完后想念与表达欲回落。对话里某一步模型什么也没输出（没有工具调用也没有文字，常见于输出长度用完在思考上；各协议适配器把「到了输出上限」报告为 `truncated`）不算结束：这一步不进上下文，基座以「基座提醒」的口吻提醒她直接回复，最多两次；仍然没有文字时，回复写明这一轮做了几步、没能把结果说出来，而不是留一个空回复。回复只取结束这一轮的那一步的文字：之前各步的文字是中途说的话，已经在过程里，不拿来顶替空的最后一步（否则同一段话在过程和回复里各出现一次）。一步输出上限由 `brain.maxOutputTokens`、候选模型 maxTokens 与窗口预留共同约束（到了上限按上面的「输出长度用完」处理），不按文字内容去猜是不是在复读。
 
@@ -314,6 +315,29 @@ sequenceDiagram
 子 agent 也有工作区（§6.2「工作区跟着任务走」）：`agent_spawn` 可带 `body`（身体的 uuid）与 `dir`，不给就继承派出它的那一轮的工作区。工作区在另一具在线的身体上时，经网状层的 `agent.run` 在那具身体上派出（那边按自己「会话」类别的闸门），它在那边跑完整的工具循环、shell 在工作区目录里执行；进展经在场转回来，报告照常以「子agent」的提醒送回派出它的会话，`agent_status` / `agent_message` / `agent_stop` 经 `agent.status` / `agent.message` / `agent.stop` 转到那边（哪个 id 在哪具身体上只记在内存里，派出它的身体重启后要直接在那具身体上看）。工作区所在的身体离线时在本机派出并说明。
 
 子 agent 与主 agent 在同一个 Node.js 进程里运行，不是独立权限域；它不自动继承主 agent 的系统提示和历史，但仍能使用共享记忆工具，工具权限按同一具身体的配置检查。`maxSteps` 由工具循环强制计数：到了最后一步基座提醒它调用 finish 写报告，再多 2 步仍没结束就停下，送回的「中断了」里交代它最后做的几步；没给 `maxSteps` 时不限步数，无进展时间墙也不是总时长或消费上限。子 agent 结束时没写报告，送回的报告同样交代它最后做的几步，不只是一句「没有留下报告」。
+
+### 5.5 Canvas：对话旁边的编辑区（`mind/canvas.ts`）
+
+长的文档、方案与代码放在对话旁边一块独立的编辑区里，她和对方在同一份上来回改（issue #33 运行代码、#34 评论协作）。数据与规则在 `mind/canvas.ts`，她的工具在 `mind/canvas-tools.ts`，控制台的操作在 `mind/canvas-ops.ts`（网关 `canvas.*`，见 API §1.3），复制在 `mesh/canvas.ts`，界面在控制台的 `pages/canvas.dart`。
+
+```mermaid
+flowchart LR
+  A["她：canvas_create / edit / comment / run"] --> C[("canvas_docs · canvas_versions<br/>canvas_comments · canvas_runs")]
+  U["对方：控制台 Canvas 面板<br/>canvas.* 方法"] --> C
+  C -- "canvas.changed 推送" --> U
+  C -- "系统提示的 Canvas 一节" --> A
+  C <-- "mesh/canvas.ts：补齐 + 实时广播" --> O["其他身体"]
+  R["运行：sh.ts 的 shell<br/>（与她的命令同一个沙箱）"] --> C
+```
+
+- **数据**：每个会话可以有若干份 canvas（`canvas_docs`：会话、标题、类型 `markdown` / `code`、语言、删除标记）。每次修改是一个不可变的版本（`canvas_versions`：作者 agent / user、写下它的身体、内容、说明、上一版），当前版本是时刻最新的那个，可以回看任何一版，恢复也是存成一个新版本。一份 canvas 最多 50 万字符。表在第一次用到时建立（不改 `store.ts` 的建表）。
+- **修改**：她用 `canvas_edit` 按片段查找替换（每个片段必须与当前内容逐字一致、只出现一次，要全部替换加 `all`；找不到或有歧义时不改，说明原因，免得改错地方）、整体替换或恢复到某一版；对方在控制台里保存就是一个新版本（带上编辑时基于的版本：保存时她也改过，照样存为最新、返回「冲突」让控制台说明，她的那版在历史里）。并发时两个版本都留下、按时间较新的为当前版本，不做三方合并。
+- **她看到什么**：系统提示里有这个会话的「Canvas」一节（`canvasBlock`）：每份的标题、id、类型、版本与最后修改的人；小的（4000 字符以内、整节 14000 字符的预算内）给全文，大的只给开头与标题大纲，用 `canvas_read` 分页读（`offset` / `limit`）；对方在她上次看过之后改过的，标明并附上改动的那一段（去掉相同的开头与结尾的行）；未解决的评论（位置、原文、最新回复、编辑建议）；最近一次运行的结果。她看过的版本记在 `kv`（只在这具身体上），所以同一处改动只标一次。
+- **运行代码**（`runCanvas`）：Python、JavaScript（Node）、TypeScript（Node 去类型）、shell、PowerShell。代码写进她工作区里一个新的运行目录（Linux 为 `~/Quetzal/canvas/<运行>/`，Windows 为 `%USERPROFILE%\Quetzal\canvas\<运行>\`；只留最近 30 个），经 `sh.ts` 的 `shell` 执行——与她的命令同一个沙箱（§8.1），**不经沙箱的路径一律没有**，会话处在真实环境（§8.2）里也照样在沙箱里；没有可用沙箱时与她的命令一样不执行。超时按「多久没有任何输出」计（默认 60 秒，最多 600 秒），另有 15 分钟总时长上限；输出沿用 4 MB 上限，存下的 stdout / stderr 各 64 KB（留开头与结尾）。环境里带上 `MPLBACKEND=Agg`（matplotlib 没有屏幕也能 `savefig`）与 UTF-8 输出。解释器找不到时不执行，结果写明（退出码 127：Windows 安装器装着 Python 3，重新安装即可补上；Linux 用包管理器装 `python3`；安卓 App 暂无 Python）；Windows 上不认应用商店的 `python` 占位别名，shell 代码要写成 PowerShell。运行目录里生成的图片（png / jpg / gif / webp / svg）只收普通文件（不跟随符号链接：代码在沙箱里，可能放一个指向密钥的链接）、核对文件头、最多 8 张每张 4 MB，复制到 `data/canvas-runs/<运行>/`：控制台经 `canvas.runImage` 取来显示，她用 `view_image` 看。结果（退出码、输出、图片清单、运行目录）记在 `canvas_runs`，她下一轮在系统提示里看到，可以据此改代码。
+- **闸门**：读写 canvas 归「会话与子 agent」类别（缺省允许）；运行归「执行命令」：她的 `canvas_run` 经 `callTool`，控制台的运行经 `canvas.run` 调用 `guard.check("shell", …)`（询问时生成审批、等对方批准），都写审计。
+- **评论**（`canvas_comments`）：根评论锚定一段文字——原文、起止位置、前后各 32 个字符与当时的版本；内容变了以后重新定位（`locate`）：原位置还是原文就是 `exact`；原文在别处就取前后文最吻合、离原位置最近的一处（`moved`）；原文已经不在了标为过时（`stale`），不猜新位置。不给范围就是评论整份文档。回复是挂在根评论下的新行，有人回复已解决的评论时重新打开。对方在控制台加的评论缺省发给她：作为对话里对方说的一条消息（经 `converse`，带被评论的片段与行号、评论 id），她可以用 `canvas_comment` 回复、解决或重开，也可以直接用 `canvas_edit` 改那一段；她也可以主动对某段加评论或**编辑建议**（`suggestion`：把那段原文换成的文字），对方一键采纳（`canvas.apply`：换掉定位到的原文、存为新版本、评论标为已解决；原文已过时就不采纳）。
+- **复制**（`mesh/canvas.ts`，见 DISTRIBUTED.md）：canvas、全部版本、评论与运行结果在同一个 agent 的身体之间复制；运行生成的图片文件不复制，只复制清单（别处的控制台显示「在运行它的那具身体上」）。
+- **控制台**（`pages/canvas.dart`）：桌面在对话右侧分栏（她在这个会话里新建 canvas 时自动打开），手机是全屏页；Markdown 预览与编辑、代码轻量高亮、保存与版本历史、运行结果、评论与角标，见 [console 文档](../console/docs/ARCHITECTURE.md)。
 
 ## 6. 身份、记忆与灵魂同步
 
@@ -463,7 +487,7 @@ flowchart LR
 ## 8. 闸门
 
 - 能力类别：联网、执行命令、设备功能、相机、麦克风、定位、主动发消息、修改自身参数、改写记忆、操作屏幕与应用、索取保密信息（`pass_secret`）、会话与子 agent、跨身体操作（`body_call` / `move_to` / 带 `body` 的 `view_image`、`read_document`、`shell`）、造工具（`tool_write`）。跨身体调用的工具在被调用的那具身体上再按它自己的类别检查一次。每类四档：「允许 / 交给审核模型 / 每次询问 / 禁止」；相机、麦克风、定位、操作屏幕、造工具默认交给审核模型（§8.0），其余默认允许；「每次询问」（人工审批）仍可按类别选，不是默认。一个工具可以同时属于几个类别，按其中最严的检查（禁止 > 询问 > 审核 > 允许；自造工具 = 声明的类别 + 执行命令）。
-- **执行命令为「允许」时，其他类别挡不住她**：命令能做设备工具、联网、改文件能做的一切。默认允许是产品上的取舍（她要能干活）；沙箱是边界（§8.1），真实环境里的命令另由审核模型把关（§8.0）；想更紧，把「执行命令」改成交给审核模型或询问。
+- **执行命令为「允许」时，其他类别挡不住她**：命令能做设备工具、联网、改文件能做的一切。默认允许是产品上的取舍（她要能干活）；沙箱是边界（§8.1），真实环境里的命令另由审核模型把关（§8.0）；想更紧，先把「执行命令」改成交给审核模型或询问。
 - 询问：生成审批，推送到控制台与飞书（带按钮的卡片），30 分钟未处理视为拒绝。进入真实环境的请求（§8.2）不看档位：缺省交给审核模型，可配置为每次人工审批。
 - 急停：写入 `STOP` 文件，立即拒绝所有工具调用、醒来率归零；解除需人工确认。急停先于审核判断：急停中不调用审核模型，直接拒绝。
 - 审计：工具调用、配置修改、记忆修改、审批决定、审核结论（`sentinel.review`）都写入 `audit` 表。
@@ -485,10 +509,11 @@ flowchart LR
 - **配置**：`guard.sentinel`（开关、模型、送审类别、失败策略、真实环境的请求交给谁），全网共用（设置分区 `guard`），控制台「权限」页的「安全审核」一节与网关 `sentinel` / `setSentinel` 修改。
 - **档位迁移**：旧版本里这几类缺省是「询问」，而加载配置时整份配置都写回了文件，分不出哪些是对方明确选的。升级后第一次启动时以审计为准：对方最后一次明确设为「询问」（`permission.set`）的保留为人工审批，其余改为交给审核模型；只改这具身体、不标记共享修改时刻（免得盖过别的身体上对方明确的选择），只做一次（`kv` 的 `guard.reviewDefaults`），记审计 `permission.migrate`。
 - **如实说明**：审核模型也是模型，会误判——放过不该放的，或拦下该做的；它看到的只是一次操作，判断不了多步组合起来的意图。它是减少明显失误与被注入带偏的一道关，不是边界：边界仍是沙箱（§8.1）。
+- Canvas 的运行代码（她的 `canvas_run` 与控制台的「运行」）归「执行命令」，与 `shell` 同一个沙箱（§5.5）。
 
 ### 8.1 agent 的边界：沙箱（`sandbox.ts`）
 
-她与基座是同一个系统用户。不按命令文字拦截（那种拦截换个写法就绕过，还会误伤无关的命令，例如别的项目里叫 `sync.json` 的文件）。边界由操作系统给：她能运行的一切命令——`shell`、后台任务、自造工具（sh、ps1 与 node）——都经 `sandbox.ts` 包一层（唯一的例外是对方同意后的真实环境，见 §8.2）。Windows 上她的命令是 PowerShell（有 pwsh 7 用 7，否则系统自带的 5.1，带 UTF-8 前导防代码页 936 乱码），自造工具用 ps1 或 node（`tool.sh` 写不进 Windows 身体：技能文档随灵魂同步，她按文档重写一份）。
+她与基座是同一个系统用户。不按命令文字拦截（那种拦截换个写法就绕过，还会误伤无关的命令，例如别的项目里叫 `sync.json` 的文件）。边界由操作系统给：她能运行的一切命令——`shell`、后台任务、自造工具（sh、ps1 与 node）、Canvas 里运行的代码（§5.5）——都经 `sandbox.ts` 包一层（唯一的例外是对方同意后的真实环境，见 §8.2）。Windows 上她的命令是 PowerShell（有 pwsh 7 用 7，否则系统自带的 5.1，带 UTF-8 前导防代码页 936 乱码），自造工具用 ps1 或 node（`tool.sh` 写不进 Windows 身体：技能文档随灵魂同步，她按文档重写一份）。
 
 | 环境 | 实现 | 效果 |
 |---|---|---|

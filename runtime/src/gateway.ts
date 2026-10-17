@@ -293,6 +293,7 @@ export function startGateway(safeMode: boolean): GatewayHandle {
   bus.on("projects", (l) => broadcast("projects", l));
   bus.on("mesh", (s) => broadcast("mesh", s));
   bus.on("account", (s) => broadcast("account", s));
+  bus.on("canvas.changed", (e) => broadcast("canvas.changed", e)); // canvas 变了：控制台的 Canvas 面板据此刷新
   bus.on("replica.applied", (e) => { if (e.table !== "timeline") broadcast("replica", { table: e.table, from: e.from, convs: [...new Set(e.rows.map((r) => r.session ?? r.id).filter(Boolean))].slice(0, 50) }); });
 
   // 明文只在回环：127.0.0.1（失败照旧抛出，由守护者处理），::1 尽力而为（没有 IPv6 的机器跳过）

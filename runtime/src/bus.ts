@@ -30,6 +30,8 @@ export interface Events {
   shared: [sections: string[]]; // 本机改了全网共用的分区（设置分区，以及 memory.ts 的想分享的一句话 thought；网状层据此同步给其他身体）
   "shared.applied": [sections: string[]]; // 采用了其他身体较新的设置分区（相关模块据此生效，例如飞书持有者变了要重连）
   usage: [row: { day: string; model: string; body: string; input: number; output: number; cost: number }]; // 本机的用量变了（各身体合计每日预算）
+  "canvas.changed": [e: { doc: string; conv: string; kind: string; [k: string]: unknown }]; // 一份 canvas 变了（新建、修改、改名、删除、评论、运行、从其他身体复制来）：控制台据此刷新面板（mind/canvas.ts）
+  "canvas.replica": [e: { docs: unknown[]; versions: unknown[]; comments: unknown[]; runs: unknown[] }]; // 本机新写的 canvas 行：网状层实时复制给其他身体（mesh/canvas.ts）
   "replica.applied": [e: { table: string; rows: any[]; from: string }]; // 从其他身体复制来的行已写入本机（控制台据此刷新会话与对话）
   replica: [e: { table: "messages" | "timeline" | "sessions" | "message.mode"; rows: any[] }]; // 本机新写入的对话、时间线、会话（网状层据此实时复制给其他身体） // 网状层状态变化（绑定进展、同步服务连接、各身体的连接与路径），控制台据此刷新
   "mesh.event": [e: { from: string; name: string; data: unknown }]; // 其他身体经网状层发来的事件 // 她碰过的变更已推送到远端（网状层据此通知其他身体立即拉取）

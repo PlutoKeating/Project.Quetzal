@@ -13,7 +13,7 @@ src/
 ├── platform.ts           平台差异：命令查找（Windows 按 PATHEXT）、结束整棵进程树（POSIX 进程组 / Windows taskkill /T）、只给本用户的目录权限（chmod / icacls）、遇到占用时重试的改名
 ├── ssh-key.ts            OpenSSH 格式的 ed25519 部署密钥（Node 内置 crypto 生成，不依赖 ssh-keygen）
 ├── mermaid.ts            Mermaid 的兜底渲染（网关 mermaid.render，单独打包为 mermaid.mjs）：beautiful-mermaid 画 SVG，整理成 flutter_svg 能显示的静态 SVG
-├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event / reminders.changed / claims.changed 等）
+├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event / reminders.changed / claims.changed / canvas.changed / canvas.replica 等）
 ├── store.ts              SQLite：kv、timeline、sessions、tool_calls（每次工具调用的完整参数与完整结果，只在本机，不复制；控制台点开卡片时经 tool.detail 取）、messages（会话、执行过程、附件、插话方式、写入它的身体 body、对方的话经哪具身体进来 via；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote：编号段与作者、实时只收对方自己的行、字段类型与长度、时间范围；段尾 2^24 不收，本机的下一个编号不会越段）；用量只收对方自己的行；1.0 前编号的一次性迁移；会话的置顶与项目归属（migrateSessionOrganize 给旧库补列，listSessions 的筛选与排序，复制时逐字段较新为准，#30）
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时按「多久没有任何输出」计、输出上限，子进程不弹窗口；前台命令自成进程组，超时或停止时整组结束，脱离进程组的进程占着输出时 5 秒后不再等）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树；真实环境里的命令不经沙箱（hostScript），前台命令自成进程组，超时或退出真实环境时整棵结束
@@ -54,6 +54,9 @@ src/
 │   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话；系统提示里带它的工作区）
 │   ├── workspace.ts      工作区跟着任务走（#38）：会话 / 子 agent 的工作区 {身体, 目录}（workspaces 表、复制来的行的检查与后写胜合并、墓碑）、从命令自动登记（git clone / init、cd）、对话的路由目标（routeBody）、shell / shell_jobs 放到工作区所在的身体（routeTool）与本机的工作区目录（localCwd）、读文件工具的路径（workspaceFiles）、子 agent 在哪里做（agentPlace、runAgentOn、remoteAgent）、系统提示的「工作区」一节、workspace 工具、网关的 workspace.*
 │   ├── repos.ts          身体的工作区概况（#37）：直接读 .git 列出工作目录下深度 2 以内的 git 仓库（路径、去掉凭据的远端、当前分支），上限 30 个、扫描时限、缓存；别处发来的概况的检查
+│   ├── canvas.ts         Canvas（ARCHITECTURE §5.5）：canvas_docs / canvas_versions / canvas_comments / canvas_runs（第一次用到时建表）；不可变的版本、按片段查找替换（找不到或有歧义不改）、恢复；评论的锚点（原文 + 前后文）与重新定位（exact / moved / stale）、回复、解决、编辑建议的采纳；运行代码（runCanvas：写进工作区的运行目录，经 sh.ts 的 shell 在沙箱里执行，不经沙箱的路径没有；无输出超时 + 15 分钟总时长、输出上限；解释器不存在时说明不执行；图片只收普通文件、核对文件头，复制到 data/canvas-runs/）；系统提示的 Canvas 一节（canvasBlock：小的全文、大的概要，对方改过的地方、未解决的评论、最近一次运行）；复制来的行的检查（applyCanvasRemote）、补齐摘要与按 id 取行
+│   ├── canvas-tools.ts   她的 Canvas 工具：canvas_create / canvas_read / canvas_edit / canvas_list / canvas_comment（会话类别）与 canvas_run（执行命令类别），挂进 tools.ts 的工具表与内置名单
+│   ├── canvas-ops.ts     控制台的 Canvas 操作（网关 canvas.*，经 ops.ts）：编辑基于旧版本时返回冲突、运行按「执行命令」过闸门并写审计、运行图片（base64）、评论缺省作为对方的话经 converse 发给她
 │   ├── custom-tools.ts   自造工具：QUETZAL_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（一律在子进程里、经沙箱：stdin JSON + ARG_ 环境变量 / 子进程里加载 ES 模块，超时整组杀掉）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
 │   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick），供附件与 view_image 使用
@@ -84,6 +87,7 @@ src/
 │   ├── lan.ts            局域网信令：同步服务连不上时，签名信封经 UDP4 直接发给记得的私有IPv4地址（端口同网关；地址表 data/mesh-lan.json；只收私有IPv4来源、限大小与频率；选中IPv6路径不建立该地址记录）
 │   ├── route.ts          经其他身体中转：签名的拓扑（rt，链路状态洪泛、30 秒刷新、90 秒作废）、最短路的下一跳、发出者签名的转发信封（fwd，最多 8 跳，收件人验签与防重放）；只读成员不参与
 │   ├── mesh.ts           全连接管理：按在场建立 / 停止连接（同步服务说下线但直连通着就留着；停下的连接收到验过签名的连接请求就恢复；重新连上同步服务时没连上的立即重来）、网络变了时检查各条连接、直连不通时经中转收发、验签、请求 / 应答（回应只认被请求的身体；调用方可取消，cancel 只认发起请求的那具身体）、事件、状态（不含地址）；只读成员（灵魂桥）只能调用可读的方法；钉住各身体的公钥与类型（TOFU，acceptPin 确认变更）、灵魂仓库更新后核对现有连接（reverify）；由对方触发的回调都接住异常
+│   ├── canvas.ts         Canvas 的复制：连上时要对方的摘要（canvas.digest）再按 id 分批取行（canvas.rows），平时实时广播（事件 canvas）；收到的行经 mind/canvas.ts 的 applyCanvasRemote 检查，实时只收发来的身体自己写的
 │   ├── replica.ts        一份对话：对话、会话与时间线在身体之间复制（连上时按版本向量补齐、分页续传，有总量上限；平时实时广播；收到的先经 store.applyRemote 逐字段检查再幂等写入）
 │   ├── presence.ts       在场：进展事件转发给其他身体（控制台看得到别处进行中的一轮）、刚连上时取回对方的进行中轮次、断开时清掉；发给别处进行中会话的话（含附件）转过去，没有进行中的一轮而会话的工作区在另一具在线的身体上时也把这一轮转过去（mind/workspace.ts 的 routeBody）（接收方只取白名单字段、就地处理，via 记为发来的那具身体；子 agent 报告、灵魂同步提醒转过去仍是提醒）；给灵魂桥的近况（单行、截断、标明谁说的）
 │   ├── coordinator.ts    协调者：交换候选条件（优先级、电源、启动时刻）选出持有心跳的身体；跟随者的心脏操作转给它，它异步广播心脏状态（最快2秒一次，接班沿用已收到快照，未广播更新不保证复制）；分区重连时合并

@@ -29,6 +29,7 @@ import '../platform/caps.dart';
 import 'sessions.dart';
 import '../host_mode.dart';
 import '../attach_marks.dart';
+import 'canvas.dart';
 
 const maxFiles = 20;
 const modes = {'steer': ('插话', '这一步结束后并入，她会注意到', Icons.call_merge), 'queue': ('排队', '等这一轮结束后再处理', Icons.schedule_send), 'interrupt': ('打断', '立即打断她的输出，工具不受影响', Icons.pan_tool)};
@@ -79,6 +80,7 @@ class _ChatPageState extends State<ChatPage> {
             if (s != null && context.mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(conv: '${s['id']}', title: '${s['title']}')));
           }),
           IconButton(tooltip: '全部会话', icon: const Icon(Icons.forum_outlined), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SessionsPage(current: widget.conv)))),
+          CanvasButton(conv: widget.conv),
           HostModeButton(conv: widget.conv),
         ],
         body: Column(children: [

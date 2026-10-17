@@ -42,6 +42,7 @@ import { memoryKey } from '../../engine/src/memory.ts';
 import { kv } from './store.ts';
 import * as ws from './mind/workspace.ts';
 import { sentinelView, setSentinel } from './guard/sentinel.ts';
+import { canvasOps } from './mind/canvas-ops.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -87,6 +88,7 @@ function projectOf(ref: string) {
 const pick = <T extends object>(o: T, keys: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => keys.includes(k))) as Partial<T>;
 
 export const ops = {
+  ...canvasOps, // Canvas：对话旁边的编辑区（文档 / 代码、版本、运行、评论），见 mind/canvas-ops.ts
   // 提醒：控制台只看与取消；设提醒是对她说（reminder 工具）
   reminders: () => reminderView(),
   "reminders.cancel": (a: { id: string }, actor: string) => { const r = reminders.cancel(String(a?.id ?? "")); audit(actor, "reminders.cancel", "", { id: r.id }, "ok"); return reminderView(); },
