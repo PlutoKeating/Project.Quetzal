@@ -60,8 +60,11 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | Method | Params | Notes |
 |---|---|---|
 | `chat.send` | `{text, conv?, turn?, attachments?, mode?}` | `mode`: `steer` (default, interjection) / `queue` / `interrupt` |
-| `sessions` / `sessions.create` / `sessions.rename` / `sessions.archive` | … | Session management |
-| `sessions.messages` | `{id, limit?, before?}` | One session's conversation (with process records) |
+| `sessions` / `sessions.create` / `sessions.rename` / `sessions.archive` | … | Session management; `sessions` can filter by channel, in progress, pinned, project and time, and sort by last update, creation time or title (pinned sessions always come first) |
+| `sessions.pin` / `sessions.move` | `{id, pinned?}` / `{id, project}` | Pin and unpin; put a session in a project or take it out |
+| `sessions.search` | `{query, limit?}` | Search sessions by title and content, one best hit per session (snippet, highlight ranges, message id) |
+| `sessions.messages` | `{id, limit?, before?, from?}` | One session's conversation (with process records); with `from` (a message id) it starts near that message (to open a search hit) |
+| `projects` / `projects.create` / `projects.update` / `projects.delete` | … | Projects: name, description, project instructions (added to the system prompt of every session in the project), color and icon, archiving; deleting a project keeps its sessions and only removes them from it |
 | `sessions.live` | — | Snapshots of turns in progress |
 | `poke` | `{note?}` | Poke |
 

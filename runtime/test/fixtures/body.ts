@@ -30,6 +30,7 @@ const fs = await import("node:fs");
 const { wake } = await import("../../src/mind/brain.ts");
 const { liveTurns } = await import("../../src/mind/activity.ts");
 const claims = await import("../../src/mind/claims.ts");
+const projects = await import("../../src/mind/projects.ts");
 const { converse, stopTurn } = await import("../../src/mind/brain.ts");
 const reg = await import("../../src/providers/registry.ts");
 const mem = await import("../../src/memory/memory.ts");
@@ -86,6 +87,13 @@ const cmds: Record<string, (a: any) => unknown> = {
   updateSession: (a) => store.updateSession(a.id, a.patch),
   messages: (a) => store.sessionMessages(a.session, a.limit ?? 200),
   sessions: () => store.listSessions(),
+  // 会话的置顶与项目（#30）
+  setPinned: (a) => store.setSessionPinned(a.id, a.pinned !== false),
+  setProject: (a) => store.setSessionProject(a.id, a.project ?? null),
+  createProject: (a) => projects.create(a),
+  updateProject: (a) => projects.update(a.id, a.patch),
+  removeProject: (a) => projects.remove(a.id),
+  projects: () => projects.all(),
   timeline: () => store.listTimeline(200),
   idPrefix: () => store.idPrefix(),
   coordinator: () => coordinator(),

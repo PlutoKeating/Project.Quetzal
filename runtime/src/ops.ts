@@ -3,7 +3,9 @@ import path from "node:path";
 import { ensureSshKeyFile } from "./ssh-key.ts";
 import fs from "node:fs";
 import { config, saveConfig, paths, type Level } from "./config.ts";
-import { getToolCall, type ToolCallRow, audit, listTimeline, listAudit, usageToday, recentMessages, listSessions, ensureSession, updateSession, sessionMessages, addMessage } from "./store.ts";
+import { getToolCall, type ToolCallRow, audit, listTimeline, listAudit, usageToday, recentMessages, listSessions, ensureSession, updateSession, sessionMessages, sessionMessagesFrom, addMessage, getSession, setSessionPinned, setSessionProject, type SessionInfo, type SessionQuery } from "./store.ts";
+import * as projects from "./mind/projects.ts";
+import { searchSessions } from "./mind/session-search.ts";
 import { liveTurns } from "./mind/activity.ts";
 import * as voice from "./voice/azure.ts";
 import crypto from "node:crypto";
@@ -56,6 +58,33 @@ export const status = () => ({
 /** 控制台看到的提醒：下一次的说法、是否重复、内容。 */
 const reminderView = () => reminders.active().slice(0, 20).map((r) => ({ id: r.id, text: r.text, at: r.at, when: r.span ? reminders.describe({ ...r, cron: undefined }) : reminders.when(r.at, r.tz), repeat: r.cron ? reminders.cronText(r.cron) : "" }));
 
+// ---------- 会话列表（#30）
+type SessionsArgs = { archived?: boolean; channel?: string; live?: boolean; pinned?: boolean; project?: string; from?: number; to?: number; sort?: string; limit?: number };
+/** 控制台给的筛选：只收认得的键与类型。 */
+function sessionQuery(a: SessionsArgs): SessionQuery {
+  const q: SessionQuery = { archived: a.archived === true };
+  if (typeof a.channel === "string" && a.channel.trim()) q.channel = a.channel.trim().slice(0, 100);
+  if (a.pinned === true) q.pinned = true;
+  if (typeof a.project === "string" && a.project) { q.project = a.project === "none" ? "none" : a.project; q.projects = projects.liveIds(); }
+  if (a.live === true) q.only = [...new Set(liveTurns().map((t) => t.conv).filter(Boolean))];
+  if (Number.isFinite(a.from)) q.from = Number(a.from);
+  if (Number.isFinite(a.to)) q.to = Number(a.to);
+  if (a.sort === "created" || a.sort === "title" || a.sort === "updated") q.sort = a.sort;
+  if (Number.isFinite(a.limit)) q.limit = Number(a.limit);
+  return q;
+}
+/** 归属已删除（或还没同步到）的项目的会话，对外一律当作不属于项目。 */
+const liveProject = (s: SessionInfo): SessionInfo => {
+  const { pin_changed: _p, project_changed: _c, ...rest } = s;
+  return { ...rest, project: s.project && projects.get(s.project) ? s.project : null };
+};
+function projectOf(ref: string) {
+  const p = projects.find(String(ref));
+  if (!p) throw new Error("没有这个项目");
+  return p;
+}
+const pick = <T extends object>(o: T, keys: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => keys.includes(k))) as Partial<T>;
+
 export const ops = {
   // 提醒：控制台只看与取消；设提醒是对她说（reminder 工具）
   reminders: () => reminderView(),
@@ -86,11 +115,43 @@ export const ops = {
   audit: (a: { limit?: number }) => listAudit(a.limit ?? 100),
 
   // 会话：多个会话可同时进行；归档的会话可以找回；进行中的轮次可随时取回快照（断线、切到后台后恢复界面）
-  sessions: (a: { archived?: boolean }) => listSessions({ archived: !!a.archived }),
-  "sessions.create": (a: { title?: string }) => ensureSession(crypto.randomUUID(), a.title?.trim() || "新的对话"),
+  // 列表的筛选与排序（#30）：置顶的总在最前；channel / live / pinned / project / from / to / sort 都可不给（旧控制台只给 archived）
+  sessions: (a: SessionsArgs) => listSessions(sessionQuery(a ?? {})).map(liveProject),
+  "sessions.create": (a: { title?: string; project?: string }, actor: string) => {
+    const project = a?.project ? projectOf(a.project) : undefined;
+    const s = ensureSession(crypto.randomUUID(), a?.title?.trim() || "新的对话");
+    if (project) { setSessionProject(s.id, project.id); audit(actor, "sessions.move", "", { id: s.id, project: project.id }, "ok"); }
+    return liveProject(getSession(s.id)!);
+  },
   "sessions.rename": (a: { id: string; title: string }) => updateSession(a.id, { title: a.title }),
   "sessions.archive": (a: { id: string; archived: boolean }) => updateSession(a.id, { archived: a.archived !== false }),
-  "sessions.messages": (a: { id: string; limit?: number; before?: number }) => sessionMessages(a.id, a.limit ?? 60, a.before),
+  "sessions.pin": (a: { id: string; pinned?: boolean }, actor: string) => {
+    const s = setSessionPinned(String(a?.id ?? ""), a?.pinned !== false);
+    if (!s) throw new Error("没有这个会话");
+    audit(actor, "sessions.pin", "", { id: s.id, pinned: s.pinned > 0 }, "ok");
+    return liveProject(s);
+  },
+  "sessions.move": (a: { id: string; project?: string | null }, actor: string) => {
+    const project = a?.project ? projectOf(a.project) : undefined;
+    const s = setSessionProject(String(a?.id ?? ""), project?.id ?? null);
+    if (!s) throw new Error("没有这个会话");
+    audit(actor, "sessions.move", "", { id: s.id, project: project?.id ?? null }, "ok");
+    return liveProject(s);
+  },
+  // 按标题与内容搜索（内容用记忆检索的全文索引），每个会话一条最好的命中，带片段与高亮位置
+  "sessions.search": (a: { query: string; limit?: number }) => searchSessions(String(a?.query ?? ""), { limit: Number(a?.limit) || undefined }).map((h) => ({ ...h, session: liveProject(h.session) })),
+  // from：从这条消息起（前面带几条）到最新，搜索结果点开时定位用
+  "sessions.messages": (a: { id: string; limit?: number; before?: number; from?: number }) => Number.isSafeInteger(a.from) ? sessionMessagesFrom(a.id, a.from!) : sessionMessages(a.id, a.limit ?? 60, a.before),
+  // 项目（#30）：项目级说明注入这个项目下所有会话的系统提示；删除不删会话，只解除归属
+  projects: (a: { archived?: boolean }) => projects.list(a?.archived === undefined ? {} : { archived: a.archived === true }),
+  "projects.create": (a: projects.ProjectPatch & { name: string }, actor: string) => { const p = projects.create(a ?? { name: "" }); audit(actor, "projects.create", "", { id: p.id, name: p.name }, "ok"); return p; },
+  "projects.update": (a: projects.ProjectPatch & { id: string }, actor: string) => {
+    const { id, ...patch } = a ?? { id: "" };
+    const p = projects.update(String(id), pick(patch, ["name", "description", "instructions", "color", "icon", "archived"]));
+    audit(actor, "projects.update", "", { id: p.id, fields: Object.keys(patch) }, "ok");
+    return p;
+  },
+  "projects.delete": (a: { id: string }, actor: string) => { const n = projects.remove(String(a?.id ?? "")); audit(actor, "projects.delete", "", { id: a.id }, `解除了 ${n} 个会话的归属`); return { sessions: n }; },
   "sessions.live": () => liveTurns(),
   // 工作区：会话在哪具身体的哪个目录里做（mind/workspace.ts）；她通常由基座自动登记，对方也可以在控制台设定或清除
   workspace: (a: { conv: string }) => ws.workspaceView(String(a?.conv ?? "")),

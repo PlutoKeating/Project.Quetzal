@@ -32,7 +32,8 @@ import * as reminders from "../time/reminders.ts";
 import { parseLocal, parseDuration, parts } from "../time/zone.ts";
 import * as player from "../voice/player.ts";
 import * as agents from "./agents.ts";
-import { ensureSession, getSession, kv } from "../store.ts";
+import { ensureSession, getSession, kv, listSessions, setSessionProject } from "../store.ts";
+import * as projects from "./projects.ts";
 import crypto from "node:crypto";
 import { taskState, contextRead } from './context.ts';
 import { readStructuredRecords, archiveRecord, rollbackRecord } from '../memory/structured.ts';
@@ -492,14 +493,18 @@ const core: Tool[] = [
   {
     name: "session_new", permission: "session",
     description: "把当前对话切到一个上下文干净的新会话（相当于对方发 /new）：你这一轮的回复会落在新会话里，对方接下来的话也都在新会话里；旧会话原样保留，可在控制台找回。适合话题彻底换了、或上下文又长又乱、想重新开始的时候。handoff 是你写给新会话里的自己的交接（可选）：把需要带过去的要点写进去，它会作为新会话的第一条记录出现在你眼前；不写则什么都不带。只能在对话中调用。",
-    parameters: obj({ title: str("新会话的标题（可选，不写则由第一句话决定）"), handoff: str("交接要点（可选，Markdown）") }),
+    parameters: obj({ title: str("新会话的标题（可选，不写则由第一句话决定）"), handoff: str("交接要点（可选，Markdown）"), project: str("新会话归到哪个项目（可选，项目的 id 或名字；不写则与当前会话同一个项目，写 none 则不属于任何项目）") }),
     handler: async (a, ctx) => {
       const s = ctx.session;
       if (s?.origin !== "chat" || !s.conv) return failed("session_new 只能在对话中调用");
       if (s.switchTo) return `这一轮已经切到新会话 ${s.switchTo} 了`;
       const conv = s.channel === "飞书" ? `feishu-${Date.now().toString(36)}` : crypto.randomUUID();
       const title = String(a.title ?? "").trim() || "新的对话";
+      const wanted = typeof a.project === "string" && a.project.trim() ? a.project.trim() : undefined;
+      const proj = wanted === "none" ? undefined : wanted ? projects.find(wanted) : projects.get(getSession(s.conv)?.project ?? "");
+      if (wanted && wanted !== "none" && !proj) return failed(`没有项目「${wanted}」：用 project 的 list 看有哪些`);
       ensureSession(conv, title, s.channel);
+      if (proj) setSessionProject(conv, proj.id);
       if (s.channel === "飞书") kv.set("feishu.conv", conv);
       if (typeof a.handoff === "string" && a.handoff.trim()) addMessage("ambient", "交接", a.handoff.trim(), { session: conv });
       s.switchTo = conv;
@@ -543,6 +548,58 @@ const core: Tool[] = [
       addMessage("ambient", "摘要", summary, { session: s.conv });
       addTimeline("session", "压缩了当前会话的上下文", { conv: s.conv, chars: summary.length });
       return `已压缩：从下一轮起，你只会看到这段摘要（${summary.length} 字）和之后的内容。\n\n${summary}`;
+    },
+  },
+  {
+    name: "project", permission: "session",
+    description: "项目：把相关的会话组织在一起（对方在控制台里也能建、改、删）。每个项目有名字、简介和项目说明——项目说明会作为这个项目下所有会话的额外上下文出现在你的系统提示里。一个会话至多属于一个项目。" +
+      "list 列出项目（include_archived=true 连归档的）；show 看一个项目的说明与它下面的会话（不给 project 就看当前会话所属的）；create 新建（name 必填，可带 description、instructions）；" +
+      "update 改名字、简介、说明或归档（archived）；assign 把会话归到项目（session 缺省为当前会话，project 写 none 移出项目）。删除项目由对方在控制台里决定。project 可以写 id 或名字。",
+    parameters: obj({
+      action: { type: "string", enum: ["list", "show", "create", "update", "assign"] },
+      project: str("项目的 id 或名字（show / update / assign）；assign 时写 none 表示移出项目"), session: str("会话 id（assign；缺省为当前会话）"),
+      name: str("名字（create / update）"), description: str("简介（create / update，可选）"), instructions: str("项目说明（create / update，可选，Markdown）：这个项目下所有会话都要知道的背景、约定与要求"),
+      archived: { type: "boolean", description: "归档或找回（update）" }, include_archived: { type: "boolean", description: "list 时连归档的一起列" },
+    }, ["action"]),
+    handler: async (a, ctx) => {
+      const s = ctx.session, here = s?.origin === "chat" && s.conv ? s.conv : "";
+      const line = (p: projects.Project) => `- ${p.name}（id ${p.id}${p.archived ? "，已归档" : ""}，${listSessions({ project: p.id, limit: 1000 }).length} 个会话）${p.description ? `：${p.description}` : ""}`;
+      const ref = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+      if (a.action === "list") {
+        const l = projects.list(a.include_archived === true ? {} : { archived: false });
+        return l.length ? l.map(line).join("\n") : "还没有项目";
+      }
+      if (a.action === "show") {
+        const p = ref(a.project) ? projects.find(ref(a.project)) : projects.get(getSession(here)?.project ?? "");
+        if (!p) return ref(a.project) ? failed(`没有项目「${ref(a.project)}」`) : "当前会话不属于任何项目";
+        const ss = listSessions({ project: p.id, limit: 50 });
+        return `${line(p)}\n项目说明：${p.instructions || "（没有）"}\n会话：\n${ss.map((x) => `- ${x.title}（${x.id}）`).join("\n") || "（没有）"}`;
+      }
+      if (a.action === "create") {
+        const p = projects.create({ name: String(a.name ?? ""), description: a.description, instructions: a.instructions });
+        addTimeline("session", `新建了项目「${p.name}」`, { project: p.id });
+        return `已新建项目「${p.name}」（id ${p.id}）。用 assign 把会话归进去。`;
+      }
+      if (a.action === "update") {
+        const p0 = projects.find(ref(a.project));
+        if (!p0) return failed(`没有项目「${ref(a.project)}」`);
+        const patch: projects.ProjectPatch = {};
+        for (const k of ["name", "description", "instructions"] as const) if (typeof a[k] === "string") patch[k] = a[k];
+        if (typeof a.archived === "boolean") patch.archived = a.archived;
+        const p = projects.update(p0.id, patch);
+        return `已更新项目「${p.name}」${p.archived ? "（已归档）" : ""}`;
+      }
+      if (a.action === "assign") {
+        const conv = ref(a.session) || here;
+        if (!conv || !getSession(conv)) return failed(conv ? `没有会话 ${conv}` : "不在对话里：用 session 指定会话 id");
+        const target = ref(a.project);
+        if (!target) return failed("需要 project：项目的 id 或名字（none 表示移出项目）");
+        const p = target === "none" ? undefined : projects.find(target);
+        if (target !== "none" && !p) return failed(`没有项目「${target}」：用 list 看有哪些，或先 create`);
+        setSessionProject(conv, p?.id ?? null);
+        return p ? `会话「${getSession(conv)!.title}」已归到项目「${p.name}」` : `会话「${getSession(conv)!.title}」已移出项目`;
+      }
+      return failed("action 只能是 list / show / create / update / assign");
     },
   },
   {

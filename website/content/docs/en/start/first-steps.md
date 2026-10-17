@@ -46,6 +46,15 @@ The **Now** page has two entry points:
 - **Poke**: makes it miss you more and feel more curious, and makes it decide again right away when to wake next. It may not wake at once.
 - **Chat**: a message wakes it from sleep. While it replies, you can watch what it does in real time: which tools it calls and what it writes. If you send another message while it is working, the message joins the current turn as an **interjection** by default. You can also queue it or interrupt.
 
+Once there are many conversations, the **session list** (on a phone, "All sessions" at the top right of the chat page; on a computer, the left column of the chat area) helps you keep them in order:
+
+- **Pin**: choose "Pin" in a session's menu to keep it at the top.
+- **Search**: the search box at the top finds sessions by title and content and highlights the matching words. Open a result to jump straight to that message.
+- **Filter and sort**: filter by in progress, pinned, source (console, Feishu, proactive messages, voice, sub-agents), time and project; sort by last update, creation time or title.
+- **Projects**: put related sessions in one project ("Move to project" in a session's menu). A project can have **project instructions** that the agent sees in every session of the project, for example "answer with checklists in this project". The list can be grouped by project or show a single project; a new session started while one project is shown goes into it. Deleting a project does not delete its sessions. The agent can also look at projects and file sessions into them itself.
+
+Pins, projects and which project a session belongs to are the same on all of its bodies.
+
 ## 5. Watch the first wake-up
 
 **Flow** is the agent's timeline. Every wake-up, dream and conversation leaves an entry there. Expand one to see the trigger (why it woke and what it meant to do), the process, the journal entry and its mood.

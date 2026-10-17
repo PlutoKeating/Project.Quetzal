@@ -14,7 +14,7 @@ src/
 ├── ssh-key.ts            OpenSSH 格式的 ed25519 部署密钥（Node 内置 crypto 生成，不依赖 ssh-keygen）
 ├── mermaid.ts            Mermaid 的兜底渲染（网关 mermaid.render，单独打包为 mermaid.mjs）：beautiful-mermaid 画 SVG，整理成 flutter_svg 能显示的静态 SVG
 ├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event / reminders.changed / claims.changed 等）
-├── store.ts              SQLite：kv、timeline、sessions、tool_calls（每次工具调用的完整参数与完整结果，只在本机，不复制；控制台点开卡片时经 tool.detail 取）、messages（会话、执行过程、附件、插话方式、写入它的身体 body、对方的话经哪具身体进来 via；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote：编号段与作者、实时只收对方自己的行、字段类型与长度、时间范围；段尾 2^24 不收，本机的下一个编号不会越段）；用量只收对方自己的行；1.0 前编号的一次性迁移
+├── store.ts              SQLite：kv、timeline、sessions、tool_calls（每次工具调用的完整参数与完整结果，只在本机，不复制；控制台点开卡片时经 tool.detail 取）、messages（会话、执行过程、附件、插话方式、写入它的身体 body、对方的话经哪具身体进来 via；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote：编号段与作者、实时只收对方自己的行、字段类型与长度、时间范围；段尾 2^24 不收，本机的下一个编号不会越段）；用量只收对方自己的行；1.0 前编号的一次性迁移；会话的置顶与项目归属（migrateSessionOrganize 给旧库补列，listSessions 的筛选与排序，复制时逐字段较新为准，#30）
 ├── log.ts                日志（stdout，写出前脱敏）
 ├── sh.ts                 外部命令执行（超时按「多久没有任何输出」计、输出上限，子进程不弹窗口；前台命令自成进程组，超时或停止时整组结束，脱离进程组的进程占着输出时 5 秒后不再等）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树；真实环境里的命令不经沙箱（hostScript），前台命令自成进程组，超时或退出真实环境时整棵结束
 ├── host-mode.ts          真实环境模式：某个对话会话里她的 shell 不经沙箱、以基座的系统用户直接在主机上执行。她用 host_mode 带理由请求（每次都生成审批，不看能力类别的档位，并发系统通知）或对方在控制台打开（ops host.enter）；按会话、只在这具身体上、只在内存里（重启即回到沙箱）；30 分钟没有真实环境命令、急停、退出（她自己、控制台、飞书 /sandbox）时结束进行中的真实环境命令与后台任务；进出写审计与时间线（kind host），每条命令的审计参数带 realEnv
@@ -47,6 +47,8 @@ src/
 │   ├── fetch-guard.ts    web_fetch 的出站检查：每一跳解析 DNS、拒绝回环 / 私有 / 链路本地 / CGNAT / 元数据地址，连接时再查（防 DNS 重绑定），手动跟随重定向
 │   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write）；参数脱敏后才进审批与审计；read_document / view_image 的真实路径检查；多具身体时读文件的工具（view_image、read_document、shell）多一个 body 参数，交给 body-files.ts；不按命令文字拦截，边界是 sandbox.ts；工具返回 ToolFailure（failed()）或抛错就是失败（命令非零退出、参数不对、那边出错），卡片红叉、上下文里写明失败；shell 的命令里有 ‹secret:…› 占位符就不执行；这一轮被停止时 shell 的命令随之结束；每次调用结束后触发灵魂目录的触碰即同步
 │   ├── claims.ts         认领（claim 工具）：几个会话避免同时做同一件对外的事；按名字字面比较、带说明与期限；存 kv；多具身体时由协调者决定（setClaimRouter），记录按条目合并；系统提示「其他会话」里列出
+│   ├── projects.ts       项目（#30）：名字、简介、项目说明（注入这个项目下会话的系统提示）、颜色与图标、归档；存 kv，删除留墓碑、只解除会话归属；多具身体时按条目合并（mesh/shared.ts 的 projects 分区）；project 工具与控制台共用
+│   ├── session-search.ts 会话列表的搜索（#30）：标题与内容（复用 memory/index.ts 的对话全文索引，没有 FTS5 时逐条匹配），每个会话一条最好的命中，片段与高亮位置
 │   ├── bodies.ts         其他身体的登记（多具身体时由 mesh/ 填入，带灵魂仓库登记的 uuid 与对方自报的 uuid）：工具表的 body_call / move_to 与系统提示的「其他身体」一节读它；可跨身体调用的内置工具名单
 │   ├── body-files.ts     身体参数：解析 body（uuid → 登记里的身体名 → 认证过的连接，核对自报一致、拒绝一个 uuid 对多具身体）；file.read 的两端（那边 lendFile：闸门、真实路径挡密钥目录与保密库、只交普通文件、64 MB、分段；这边 fetchFile：闸门、核对大小与 sha256、文件名清洗、落到 data/from-bodies/<身体>/）；两边记审计
 │   ├── agents.ts         子 agent：她派出的后台工作者（自己的系统提示、独立工具循环、进展广播、对话、停止、报告送回派出它的会话；系统提示里带它的工作区）
@@ -87,7 +89,7 @@ src/
 │   ├── coordinator.ts    协调者：交换候选条件（优先级、电源、启动时刻）选出持有心跳的身体；跟随者的心脏操作转给它，它异步广播心脏状态（最快2秒一次，接班沿用已收到快照，未广播更新不保证复制）；分区重连时合并
 │   ├── placement.ts      运行位置：各身体的概况（body.overview）、打分推荐、她在内省时选 where；在选中的身体上执行醒来（mind.wake）
 │   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call；调用方取消时经网状层的 cancel 中止：命令结束、审批撤销；带 cwd 时在那个工作区目录里执行，命令看出的工作目录以 workdir 交回）、把这里的文件交给别处带 body 的工具（file.read，经 mind/body-files.ts 的 lendFile；灵魂桥调用不到）、灵魂仓库身体登记里的 uuid（soulRegistry）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
-│   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）
+│   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）；项目（projects 分区，按条目合并、删除留墓碑）
 │   ├── workspace.ts      工作区在网状层上：工作区复制（workspace.pull 补齐、workspace 事件实时）、body.workspace（工作区概况；带 dir 时核对目录）、agent.run / agent.status / agent.message / agent.stop（子 agent 在这具身体上执行）；连上时取回其他身体的概况、5 分钟刷新
 │   ├── channels.ts       通道：飞书只由指定的身体持有（其他身体的主动消息转过去）；几只耳朵同时听到同一句话只留一只（起止时间重叠且识别出同样的字才算同一句，不按相似度猜）；记下哪只耳朵听到的（voice_speak 从那里说）
 │   ├── node-key.ts       这具身体的节点密钥（灵魂同步写身体登记时用，不依赖整个网状层）

@@ -60,6 +60,7 @@ export function openStore() {
   if (!tcols.includes("body")) db.exec("ALTER TABLE timeline ADD COLUMN body TEXT");
   const scols = (db.prepare("PRAGMA table_info(sessions)").all() as any[]).map((c) => c.name);
   if (!scols.includes("changed")) db.exec("ALTER TABLE sessions ADD COLUMN changed INTEGER DEFAULT 0");
+  migrateSessionOrganize();
   db.exec("CREATE INDEX IF NOT EXISTS messages_session_ts ON messages(session, ts, id)");
   db.exec("CREATE INDEX IF NOT EXISTS messages_ts ON messages(ts, id)");
   db.exec("CREATE INDEX IF NOT EXISTS timeline_ts ON timeline(ts, id)");
@@ -78,6 +79,20 @@ export function openStore() {
     db.prepare("INSERT OR IGNORE INTO sessions(id,title,channel,created,updated) VALUES('first','最初的对话','控制台',?,?)").run(orphan.a, orphan.b);
     db.exec("UPDATE messages SET session='first' WHERE session IS NULL");
   }
+}
+
+/**
+ * 会话的整理（#30）：置顶与项目归属。旧库补列；每个字段带自己的修改时刻，多具身体之间逐字段以较新的为准（见 applyRemote），
+ * 旧版本身体发来的行没有这些字段，不动本机的值。
+ *   pinned：置顶的时刻（0 = 没有置顶）；pin_changed：置顶 / 取消的修改时刻
+ *   project：所属项目的编号（mind/projects.ts；空 = 不属于任何项目）；project_changed：归属的修改时刻
+ */
+function migrateSessionOrganize() {
+  const have = new Set((db.prepare("PRAGMA table_info(sessions)").all() as any[]).map((c) => c.name));
+  for (const [c, t] of [["pinned", "INTEGER DEFAULT 0"], ["pin_changed", "INTEGER DEFAULT 0"], ["project", "TEXT"], ["project_changed", "INTEGER DEFAULT 0"]]) {
+    if (!have.has(c)) db.exec(`ALTER TABLE sessions ADD COLUMN ${c} ${t}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS sessions_project ON sessions(project)");
 }
 
 /**
@@ -145,12 +160,15 @@ export function listTimeline(limit = 50, before = Number.MAX_SAFE_INTEGER, kind?
 }
 
 // ---------- 会话与对话
-export interface SessionInfo { id: string; title: string; channel: string; created: number; updated: number; archived: boolean; changed?: number; count?: number; last?: string }
+export interface SessionInfo {
+  id: string; title: string; channel: string; created: number; updated: number; archived: boolean; changed?: number; count?: number; last?: string;
+  pinned: number; project: string | null; pin_changed?: number; project_changed?: number; // pinned：置顶的时刻（0 = 没置顶）；project：所属项目（mind/projects.ts）
+}
 export interface Attachment { id: string; name: string; path: string; rel: string; mime: string; size: number; kind: "image" | "text" | "file" } // rel：相对 uploads 目录
 export type Role = "user" | "agent" | "ambient"; // ambient：环境的声音（麦克风听到并识别的话），不是对方发来的消息
 export interface MessageRow { id: number; ts: number; role: Role; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null; body?: string | null; via?: string | null } // mode：她工作时发来的消息如何并入（steer / interrupt）；body：在哪具身体上；via：对方的话从哪具身体进来（旧行为空，按 body）
 
-const rowSession = (r: any): SessionInfo => ({ ...r, archived: !!r.archived });
+const rowSession = (r: any): SessionInfo => ({ ...r, archived: !!r.archived, pinned: Number(r.pinned ?? 0), project: r.project || null });
 const rowMessage = (r: any): MessageRow => ({ ...r, process: r.process ? JSON.parse(r.process) : null, attachments: r.attachments ? JSON.parse(r.attachments) : null });
 
 /** 确保会话存在（固定 id 的会话如「飞书」首次使用时自动创建）。 */
@@ -163,10 +181,38 @@ export function getSession(id: string): SessionInfo | undefined {
   const r = db.prepare("SELECT * FROM sessions WHERE id=?").get(id);
   return r ? rowSession(r) : undefined;
 }
-export function listSessions(o: { archived?: boolean; limit?: number } = {}): SessionInfo[] {
+/** 会话列表的筛选与排序（控制台的搜索框、筛选菜单与项目视图）。 */
+export interface SessionQuery {
+  archived?: boolean; limit?: number;
+  channel?: string; // 来源通道（sessions.channel）；「子agent」：有子 agent 报告送回的会话
+  pinned?: boolean; // 只看置顶的
+  project?: string; // 只看某个项目；"none"：不属于任何（现存）项目
+  projects?: string[]; // 现存的项目编号（"none" 据此把归属已删除项目的会话也算作不属于项目）
+  only?: string[]; // 只看这几个会话（如：此刻有进行中一轮的）
+  from?: number; to?: number; // 最近更新落在 [from, to)
+  sort?: "updated" | "created" | "title";
+  title?: string; // 标题包含这段文字（不分大小写）
+}
+export const SUBAGENT_CHANNEL = "子agent";
+const likeOf = (t: string) => `%${t.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+/** 会话列表：置顶的排在最前（置顶之间按置顶时刻，新置顶的在上），其余按 sort（缺省最近更新）。 */
+export function listSessions(o: SessionQuery = {}): SessionInfo[] {
+  const where = ["archived=?"], args: (string | number)[] = [o.archived ? 1 : 0];
+  if (o.channel === SUBAGENT_CHANNEL) { where.push("EXISTS(SELECT 1 FROM messages m WHERE m.session=s.id AND m.channel=?)"); args.push(SUBAGENT_CHANNEL); }
+  else if (o.channel) { where.push("s.channel=?"); args.push(o.channel); }
+  if (o.pinned) where.push("s.pinned>0");
+  if (o.project === "none") {
+    const known = (o.projects ?? []).slice(0, 1000);
+    where.push(`(s.project IS NULL OR s.project=''${known.length ? ` OR s.project NOT IN (${known.map(() => "?").join(",")})` : ""})`); args.push(...known);
+  } else if (o.project) { where.push("s.project=?"); args.push(o.project); }
+  if (o.only) { const ids = o.only.slice(0, 1000); where.push(ids.length ? `s.id IN (${ids.map(() => "?").join(",")})` : "0"); args.push(...ids); }
+  if (typeof o.from === "number" && Number.isFinite(o.from)) { where.push("s.updated>=?"); args.push(o.from); }
+  if (typeof o.to === "number" && Number.isFinite(o.to)) { where.push("s.updated<?"); args.push(o.to); }
+  if (o.title?.trim()) { where.push("s.title LIKE ? ESCAPE '\\'"); args.push(likeOf(o.title.trim())); }
+  const order = o.sort === "created" ? "s.created DESC" : o.sort === "title" ? "s.title COLLATE NOCASE, s.updated DESC" : "s.updated DESC";
   return (db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session=s.id) count,
       (SELECT text FROM messages m WHERE m.session=s.id ORDER BY ts DESC, id DESC LIMIT 1) last
-    FROM sessions s WHERE archived=? ORDER BY updated DESC LIMIT ?`).all(o.archived ? 1 : 0, o.limit ?? 200) as any[])
+    FROM sessions s WHERE ${where.join(" AND ")} ORDER BY CASE WHEN s.pinned>0 THEN 0 ELSE 1 END, s.pinned DESC, ${order} LIMIT ?`).all(...args, Math.max(1, Math.min(o.limit ?? 200, 1000))) as any[])
     .map((r) => ({ ...rowSession(r), last: String(r.last ?? "").slice(0, 80) }));
 }
 export function updateSession(id: string, patch: { title?: string; archived?: boolean }) {
@@ -176,8 +222,30 @@ export function updateSession(id: string, patch: { title?: string; archived?: bo
   replicateSession(id);
   return getSession(id);
 }
+/** 置顶 / 取消置顶。置顶的时刻决定置顶之间的先后。 */
+export function setSessionPinned(id: string, pinned: boolean) {
+  const now = Date.now();
+  if (!Number(db.prepare("UPDATE sessions SET pinned=?, pin_changed=? WHERE id=?").run(pinned ? now : 0, now, id).changes)) return undefined;
+  replicateSession(id);
+  return getSession(id);
+}
+/** 把会话归到一个项目（一个会话至多一个项目）；project 为空解除归属。项目是否存在由调用方（ops / 工具）检查。 */
+export function setSessionProject(id: string, project: string | null) {
+  const now = Date.now();
+  if (!Number(db.prepare("UPDATE sessions SET project=?, project_changed=? WHERE id=?").run(project || null, now, id).changes)) return undefined;
+  replicateSession(id);
+  return getSession(id);
+}
+/** 删除项目时解除它名下所有会话的归属（会话本身不动），返回解除了几个。 */
+export function clearSessionProject(project: string): number {
+  const ids = (db.prepare("SELECT id FROM sessions WHERE project=?").all(project) as { id: string }[]).map((r) => r.id);
+  for (const id of ids) setSessionProject(id, null);
+  return ids.length;
+}
+/** 复制给其他身体的会话列：旧版本身体只认前七列，其余的忽略。 */
+const SESSION_COLS = "id,title,channel,created,updated,archived,changed,pinned,pin_changed,project,project_changed";
 function replicateSession(id: string) {
-  const r = db.prepare("SELECT id,title,channel,created,updated,archived,changed FROM sessions WHERE id=?").get(id);
+  const r = db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id=?`).get(id);
   if (r) bus.emit("replica", { table: "sessions", rows: [r] });
 }
 
@@ -204,6 +272,17 @@ export function sessionMessages(session: string, limit = 50, before = Number.MAX
   const [bts, bid] = cursor("messages", before);
   return (db.prepare("SELECT * FROM messages WHERE session=?1 AND (ts<?2 OR (ts=?2 AND id<?3)) ORDER BY ts DESC, id DESC LIMIT ?4").all(session, bts, bid, limit) as any[]).map(rowMessage).reverse();
 }
+/**
+ * 从某条消息起（前面再带 before 条）到最新的对话（正序，最多 max 条）：会话列表的搜索结果点开时定位到那条消息。
+ * 消息不在这个会话里时退回最近的 max 条。
+ */
+export function sessionMessagesFrom(session: string, from: number, before = 5, max = 1000): MessageRow[] {
+  const m = db.prepare("SELECT ts FROM messages WHERE id=? AND session=?").get(from, session) as { ts: number } | undefined;
+  if (!m) return sessionMessages(session, max);
+  const head = (db.prepare("SELECT * FROM messages WHERE session=?1 AND (ts<?2 OR (ts=?2 AND id<?3)) ORDER BY ts DESC, id DESC LIMIT ?4").all(session, m.ts, from, before) as any[]).reverse();
+  const rest = db.prepare("SELECT * FROM messages WHERE session=?1 AND (ts>?2 OR (ts=?2 AND id>=?3)) ORDER BY ts, id LIMIT ?4").all(session, m.ts, from, max) as any[];
+  return [...head, ...rest].map(rowMessage);
+}
 export function getSessionMessage(id: number, session: string): MessageRow | undefined {
   const row = db.prepare('SELECT * FROM messages WHERE id=? AND session=?').get(id, session);
   return row ? rowMessage(row) : undefined;
@@ -227,7 +306,7 @@ export function rowsAfter(table: "messages" | "timeline", vector: Record<string,
   }
   return out;
 }
-export const allSessions = () => db.prepare("SELECT id,title,channel,created,updated,archived,changed FROM sessions").all() as any[];
+export const allSessions = () => db.prepare(`SELECT ${SESSION_COLS} FROM sessions`).all() as any[];
 // ---------- 复制来的行的检查：字段类型与长度、时间、编号段与作者。不合格的整行丢弃（对方是可信的身体，但数据可能来自出错或被攻破的一方，不能让它弄坏本机的库）
 const BODY_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const TS_MIN = Date.UTC(2020, 0, 1);
@@ -264,6 +343,25 @@ function okRow(table: "messages" | "timeline", r: any, from: string, catchUp: bo
   return isStr(r.kind, 40, 1) && isStr(r.title, 4000) && okJson(r.detail ?? "null", 1 << 20, () => true);
 }
 const clampTime = (v: unknown, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(v, max)) : 0);
+export const PROJECT_ID_RE = /^[0-9a-f]{16}$/;
+/**
+ * 复制来的会话行里的置顶与项目字段（#30）。没带修改时刻的字段（旧版本身体）返回 undefined：不动本机的值；
+ * 带了但不合格（项目编号格式不对、时刻不是数字）整行不收，返回 null。
+ */
+function sessionOrganize(r: any, soon: number): { pin?: { pinned: number; pin_changed: number }; project?: { project: string | null; project_changed: number } } | null {
+  const out: { pin?: { pinned: number; pin_changed: number }; project?: { project: string | null; project_changed: number } } = {};
+  const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+  if (r.pin_changed !== undefined && r.pin_changed !== null) {
+    if (!num(r.pin_changed) || !(r.pinned === undefined || r.pinned === null || num(r.pinned))) return null;
+    out.pin = { pinned: clampTime(r.pinned ?? 0, soon), pin_changed: clampTime(r.pin_changed, soon) };
+  }
+  if (r.project_changed !== undefined && r.project_changed !== null) {
+    const p = r.project === undefined || r.project === null || r.project === "" ? null : r.project;
+    if (!num(r.project_changed) || (p !== null && !(typeof p === "string" && PROJECT_ID_RE.test(p)))) return null;
+    out.project = { project: p, project_changed: clampTime(r.project_changed, soon) };
+  }
+  return out;
+}
 
 /**
  * 写入来自其他身体的行（from：发来的身体；catchUp：连上时的补齐，见 okRow）。不合格的行丢弃。
@@ -294,16 +392,29 @@ export function applyRemote(table: ReplicaTable, rows: any[], o: { from: string;
         if (Number(db.prepare("UPDATE messages SET mode=? WHERE id=? AND COALESCE(mode,'')<>COALESCE(?,'')").run(r.mode ?? null, r.id, r.mode ?? null).changes)) changed.push(r);
       } else if (table === "sessions") {
         if (!r || !isStr(r.id, 200, 1) || !isStr(r.title, 200) || !isStr(r.channel, 100)) { rejected++; continue; }
+        const org = sessionOrganize(r, soon);
+        if (!org) { rejected++; continue; }
         // 时间一律不晚于「现在 + 5 分钟」：一个远在未来的修改时刻会让标题永远改不动
         const s = { id: r.id, title: r.title, channel: r.channel, created: clampTime(r.created, soon), updated: clampTime(r.updated, soon), changed: clampTime(r.changed ?? 0, soon), archived: r.archived === true || r.archived === 1 ? 1 : 0 };
         const cur = db.prepare("SELECT * FROM sessions WHERE id=?").get(s.id) as any;
-        if (!cur) { db.prepare("INSERT INTO sessions(id,title,channel,created,updated,archived,changed) VALUES(?,?,?,?,?,?,?)").run(s.id, s.title, s.channel, s.created, s.updated, s.archived, s.changed); changed.push(s); continue; }
+        if (!cur) {
+          db.prepare("INSERT INTO sessions(id,title,channel,created,updated,archived,changed,pinned,pin_changed,project,project_changed) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+            .run(s.id, s.title, s.channel, s.created, s.updated, s.archived, s.changed, org.pin?.pinned ?? 0, org.pin?.pin_changed ?? 0, org.project?.project ?? null, org.project?.project_changed ?? 0);
+          changed.push({ ...s, ...org.pin, ...org.project }); continue;
+        }
         // 标题与归档：以较新的修改为准；最近更新取两边较大的；创建时间取较早的
         const takeTheirs = s.changed > (cur.changed ?? 0) || ((cur.changed ?? 0) === 0 && cur.title === "新的对话" && s.title !== "新的对话");
-        const next = { title: takeTheirs ? s.title : cur.title, archived: takeTheirs ? s.archived : cur.archived, changed: Math.max(cur.changed ?? 0, s.changed), updated: Math.max(cur.updated, s.updated), created: Math.min(cur.created, s.created) };
-        if (next.title !== cur.title || next.archived !== cur.archived || next.updated !== cur.updated || next.created !== cur.created || next.changed !== (cur.changed ?? 0)) {
-          db.prepare("UPDATE sessions SET title=?, archived=?, changed=?, updated=?, created=? WHERE id=?").run(next.title, next.archived, next.changed, next.updated, next.created, s.id);
-          changed.push(s);
+        // 置顶与项目归属各有自己的修改时刻，逐字段以较新的为准；对方（旧版本）没带这些字段就不动
+        const pinTheirs = !!org.pin && org.pin.pin_changed > (cur.pin_changed ?? 0), projTheirs = !!org.project && org.project.project_changed > (cur.project_changed ?? 0);
+        const next = {
+          title: takeTheirs ? s.title : cur.title, archived: takeTheirs ? s.archived : cur.archived, changed: Math.max(cur.changed ?? 0, s.changed), updated: Math.max(cur.updated, s.updated), created: Math.min(cur.created, s.created),
+          pinned: pinTheirs ? org.pin!.pinned : Number(cur.pinned ?? 0), pin_changed: pinTheirs ? org.pin!.pin_changed : Number(cur.pin_changed ?? 0),
+          project: projTheirs ? org.project!.project : (cur.project || null), project_changed: projTheirs ? org.project!.project_changed : Number(cur.project_changed ?? 0),
+        };
+        if (next.title !== cur.title || next.archived !== cur.archived || next.updated !== cur.updated || next.created !== cur.created || next.changed !== (cur.changed ?? 0) || pinTheirs || projTheirs) {
+          db.prepare("UPDATE sessions SET title=?, archived=?, changed=?, updated=?, created=?, pinned=?, pin_changed=?, project=?, project_changed=? WHERE id=?")
+            .run(next.title, next.archived, next.changed, next.updated, next.created, next.pinned, next.pin_changed, next.project, next.project_changed, s.id);
+          changed.push({ ...s, ...next });
         }
       }
     }

@@ -8,6 +8,8 @@ export interface Events {
   "reminders.changed": []; // 提醒有改动（本机）：网状层同步给其他身体
   "claims.changed": []; // 认领有改动（本机）：网状层同步给其他身体（mind/claims.ts）
   "vault.changed": []; // 保密库有改动（本机）：网状层把「多端同步」的各项同步给其他身体（mind/secrets.ts）
+  "projects.changed": []; // 项目有改动（本机）：网状层同步给其他身体（mind/projects.ts）
+  projects: [list: unknown[]]; // 项目有改动（本机或其他身体同步来的）：网关推给控制台（现存的项目）
   "reminders.missed": [r: { id: string; text: string; at: number }, lateMs: number]; // 错过太久、没有发出的提醒
   timeline: [entry: TimelineEntry];
   state: [];
