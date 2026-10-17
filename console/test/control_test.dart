@@ -8,7 +8,7 @@ void main() {
     List<String> titles(String g) => items.where((it) => it.group == g).map((it) => it.title).toList();
     expect(titles('main'), ['模型', '权限', '节律', '声音', '飞书', '设备']);
     expect(titles('end'), ['高级', '关于']);
-    expect(titles('more'), ['工具', '保密库', '预算', '同步', '记忆历史', '操作记录', '运行', if (isDesktop) '字号'], reason: '字号只在原生桌面版');
+    expect(titles('more'), ['工具', '插件', '保密库', '预算', '同步', '记忆历史', '操作记录', '运行', if (isDesktop) '字号'], reason: '字号只在原生桌面版');
     expect(items.map((it) => it.id).toSet().length, items.length);
   });
 
