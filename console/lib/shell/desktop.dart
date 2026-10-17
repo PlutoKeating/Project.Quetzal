@@ -397,6 +397,10 @@ class _PresencePane extends StatelessWidget {
             label('提醒'),
             const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: RemindersSection(compact: true)),
           ],
+          if (((api.status['goals'] as List?) ?? []).isNotEmpty) ...[
+            label('目标'),
+            const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: GoalsSection(compact: true)),
+          ],
           label('内在'),
           const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: InnerSection(compact: true)),
           label('身体'),
