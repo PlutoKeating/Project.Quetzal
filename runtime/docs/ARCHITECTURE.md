@@ -57,7 +57,7 @@ src/
 │   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，固定顺序、拿到结果即止（相不相关由她判断）；没有结果时照实说明，被转到别的网站就写出是哪里
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
-│   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（QUETZAL_HOME/vault）、工具输出与参数里的保密值替换（连同基座自己的密钥，见 secret-values.ts）
+│   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（QUETZAL_HOME/vault；每项多端同步或仅本机，exportVault / mergeVault 供 mesh/shared.ts 按条目同步）、工具输出与参数里的保密值替换（连同基座自己的密钥，见 secret-values.ts）
 │   └── brain.ts          注入宿主模型、工具、Session、脱敏与记录，调用独立 engine.runTurn；醒来（内省 → 多具身体时选在哪里做 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess；放在回复前一条单独的「基座附注」里，她的回复只留原文；主动消息的附注写明是她醒来时主动发的）；回复只取结束这一轮的那一步的文字，session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；对话中模型空回的一步不算结束（提醒后重试最多两次，仍空则说明没能回复）；工具失败时上下文里写明失败，同样的调用第二次失败起提醒她不要原样重试；对方停止这一轮（stopTurn，网关 chat.stop）时中止模型输出、不再等工具，以一句说明结束；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
 ├── memory/
 │   ├── identity.ts       agent.json 的种子身份、读取与字段更新；称呼、颜色与语言来自数据

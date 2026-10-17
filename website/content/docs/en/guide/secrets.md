@@ -34,9 +34,9 @@ In the app, a banner sits above the input box during a secret input, and the box
 
 ## The vault
 
-Secrets are stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Control → Advanced → Secrets** shows each item's name, hint, source channel and time, and lets you delete it. It **never shows the contents**.
+Secrets are stored in `QUETZAL_HOME/vault/`, one file per item, named after the item. **Control → Advanced → Secrets** shows each item's name, hint, source channel and time, lets you switch how it syncs, and lets you delete it. It **never shows the contents**.
 
-The vault belongs to this body only. It is **not synced to other bodies** and never enters the soul repository.
+Each item is either **synced to all devices** or **this device only**. The agent picks one when it asks you: credentials for your own accounts (GitHub, Cloudflare and so on) sync, and items that only make sense on this device stay local. You can change it later on the Secrets page, and so can the agent. Synced items travel to the agent's other bodies only over the end-to-end encrypted link between bodies (relayed traffic is encrypted too). They never pass through the sync service in plain text and never enter the soul repository. Switching an item to this device only deletes the copies on the other devices.
 
 ## How it uses it
 

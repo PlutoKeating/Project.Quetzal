@@ -120,6 +120,10 @@ const cmds: Record<string, (a: any) => unknown> = {
   llmSeen: () => llmSeen,
   converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode, ambient: a.ambient }),
   stopTurn: (a) => stopTurn(a.conv),
+  saveSecret: async (a) => (await import("../../src/mind/secrets.ts")).saveSecret(a.name, a.value, a.hint ?? "", "测试", a.sync !== false),
+  secretSync: async (a) => (await import("../../src/mind/secrets.ts")).setSecretSync(a.name, a.sync),
+  deleteSecret: async (a) => (await import("../../src/mind/secrets.ts")).deleteSecret(a.name),
+  vaultValue: (a) => { try { return fs.readFileSync(path.join(paths.vault, a.name), "utf8"); } catch { return null; } },
   procs: (a) => Number(execSync(`pgrep -f -c '[${a.pattern[0]}]${a.pattern.slice(1)}' || true`).toString().trim()) || 0, // 这台机器上命令行含 pattern 的进程数（核对命令是否真的结束了；首字母写成 [x]，不数执行 pgrep 的这个 sh 自己）
   digest: () => digest(),
   claim: (a) => claims.claim({ key: a.key, note: a.note, body: process.env.BODY!, holder: a.holder, where: a.where ?? "测试会话" }),

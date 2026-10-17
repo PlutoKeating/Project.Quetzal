@@ -13,7 +13,7 @@ description: Join several phones and computers into one agent with one conversat
 | One heart | Only one body (the coordinator) decides when the agent wakes. What the other bodies sense (picked up, plugged in…) is passed to it |
 | It chooses where | On waking, the agent sees each body's battery, temperature and current work and where you last talked, and picks one body (or several at once) to think or dream on |
 | Using another body | While thinking on the computer it can take a photo with the phone or run a command on the server (`body_call`), or move the whole turn to another body (`move_to`). Photos, recordings and files made on the phone can be used on the computer too: when viewing an image, reading a document or running a command, the agent adds that body's uuid and the runtime fetches the file first (see "Using files on another body" below) |
-| One set of settings | Change models and keys, permissions, budget (a daily total), hearing and voice, or the emergency stop on one body, and it changes on all of them |
+| One set of settings | Change models and keys, permissions, budget (a daily total), hearing and voice, the emergency stop, or vault items marked to sync on one body, and it changes on all of them |
 | One thought to share | The thought shown on the home page is the same on every body. When the agent changes it on one body, the others follow; a body that was offline catches up when it connects |
 
 Every console shows which body is talking with you right now. If you speak to the same conversation on another body, your message is forwarded automatically.
@@ -108,6 +108,6 @@ All account settings are on the site's [Account](/account) page. In the app, the
 ## Security
 
 - Bodies connect over WebRTC with DTLS encryption. Each body signs its signaling messages with its node key, and receivers trust only the public keys registered in the **soul repository**.
-- Model keys travel between bodies only over that encrypted channel, and the receiving body encrypts them again with its own master key.
+- Model keys and synced vault items travel between bodies only over that encrypted channel. The receiving body encrypts model keys again with its own master key and writes vault items into its own vault.
 - The sync service stores only the account's id, username, display name and email; the id of the GitHub account used to link the soul repository; the agent's name and id; and each body's name / kind / version / public key / last seen time. Tokens are stored as hashes. It keeps no IP or network addresses and cannot see conversations or memory.
 - On the Account page of the site or the app, you can remove a body, delete an agent or the whole account, or sign a console out at any time.

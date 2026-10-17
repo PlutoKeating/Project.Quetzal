@@ -19,7 +19,7 @@ import { bodyUuid } from "../body/uuid.ts";
 import { describeProcesses } from "./processes.ts";
 import * as voice from "../voice/azure.ts";
 import { config, paths } from "../config.ts";
-import { requestSecrets, redactSecrets, redactArgs, MAX_ITEMS } from "./secrets.ts";
+import { requestSecrets, redactSecrets, redactArgs, MAX_ITEMS, setSecretSync } from "./secrets.ts";
 import { protectedPath, workDir } from "../sandbox.ts";
 import { isWindows } from "../platform.ts";
 import { guardedFetch } from "./fetch-guard.ts";
@@ -388,16 +388,22 @@ const core: Tool[] = [
   },
   {
     name: "pass_secret", permission: "secret",
-    description: `向对方索取密码、令牌、API Key、私钥等敏感信息时，必须且只能用它：不要让对方把这类内容直接发在对话里（那样你会看到明文，它还会留在对话记录和上下文里）。不涉及敏感信息时不要用。调用前先用一两句话告诉对方你要什么、为什么要、去哪里拿。调用后基座会在当前对话里提醒对方：对方把每一项各用一条消息发来，最后发回结束口令；这些消息不进入对话，直接存进这具身体的保密库（每项一个文件）。你会一直等到对方输入完毕、取消，或 10 分钟没有动静；拿到的只有每项的文件路径，看不到明文。之后在命令里按路径引用（${isWindows ? "PowerShell：(Get-Content -Raw 路径).Trim()" : '"$(cat 路径)" 或 < 路径'}），不要把内容输出出来（工具输出里出现的保密值会被替换成 ‹secret:名字›）。只能在对话中调用。`,
+    description: `向对方索取密码、令牌、API Key、私钥等敏感信息时，必须且只能用它：不要让对方把这类内容直接发在对话里（那样你会看到明文，它还会留在对话记录和上下文里）。不涉及敏感信息时不要用。调用前先用一两句话告诉对方你要什么、为什么要、去哪里拿。调用后基座会在当前对话里提醒对方：对方把每一项各用一条消息发来，最后发回结束口令；这些消息不进入对话，直接存进保密库（每项一个文件；标为多端同步的经加密的身体间通道同步到你的其他身体，仅本机的只留在这里）。你会一直等到对方输入完毕、取消，或 10 分钟没有动静；拿到的只有每项的文件路径，看不到明文。之后在命令里按路径引用（${isWindows ? "PowerShell：(Get-Content -Raw 路径).Trim()" : '"$(cat 路径)" 或 < 路径'}），不要把内容输出出来（工具输出里出现的保密值会被替换成 ‹secret:名字›）。只能在对话中调用。`,
     parameters: obj({
       purpose: str("用途：一句话说明为什么需要，会显示给对方"),
-      items: { type: "array", description: `要对方提供的各项（1–${MAX_ITEMS} 项），对方按这个顺序一条消息发一项`, items: obj({ name: str("名字，也是保存的文件名：字母、数字、下划线、连字符，如 github_token（同名会覆盖旧值）"), hint: str("给对方看的说明：这是什么、去哪里拿") }, ["name"]) },
+      items: { type: "array", description: `要对方提供的各项（1–${MAX_ITEMS} 项），对方按这个顺序一条消息发一项`, items: obj({ name: str("名字，也是保存的文件名：字母、数字、下划线、连字符，如 github_token（同名会覆盖旧值）"), hint: str("给对方看的说明：这是什么、去哪里拿"), sync: { type: "boolean", description: "多端同步（缺省 true）：对方自己账号的凭据（GitHub、Cloudflare 等）同步到你的其他身体；只在这台设备上用、别处用不了或不需要的填 false（仅本机）。之后可以用 secret_sync 改，对方也能在控制台改" } }, ["name"]) },
     }, ["purpose", "items"]),
     handler: async (a, ctx) => {
       const s = ctx.session;
       if (s?.origin !== "chat" || !s.conv) return failed("pass_secret 只能在对话中调用：需要对方在场，在这个对话里输入。先发消息约对方，等对方回复后在对话里再用。");
       return requestSecrets(s.conv, s.channel, String(a.purpose ?? ""), a.items);
     },
+  },
+  {
+    name: "secret_sync", permission: "secret",
+    description: "改保密库里一项的同步方式：sync=true 多端同步到你的其他身体，sync=false 仅留在这具身体（其他身体上的副本会删掉）。值本身不变，你也看不到它。",
+    parameters: obj({ name: str("保密库里那一项的名字"), sync: { type: "boolean", description: "true 多端同步，false 仅本机" } }, ["name", "sync"]),
+    handler: async (a) => setSecretSync(String(a.name ?? ""), a.sync === true) ? `「${a.name}」改为${a.sync === true ? "多端同步" : "仅本机"}` : failed(`保密库里没有「${a.name}」`),
   },
   {
     name: "adjust_self", permission: "self_modify",

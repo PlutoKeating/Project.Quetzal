@@ -131,7 +131,7 @@ test("兜底：工具输出里出现的保密值被替换；保密库列表与�
   const pem = await callTool("shell", { command: process.platform === "win32" ? `Get-Content -TotalCount 2 '${path.join(paths.vault, "pem")}'` : `head -2 ${path.join(paths.vault, "pem")}` }, "测试"); // 多行的值：只输出其中几行也替换
   assert.ok(!pem.text.includes("AAAAB3NzaC1yc2EAAAADAQAB"));
 
-  assert.match(systemPrompt(), /## 保密库[\s\S]*- github_token：GitHub 的 PAT（.*vault[\\/]github_token）/);
+  assert.match(systemPrompt(), /## 保密库[\s\S]*- github_token：GitHub 的 PAT（.*vault[\\/]github_token；多端同步）/);
   assert.ok(!systemPrompt().includes(TOKEN));
   assert.ok(!JSON.stringify(ops.secrets()).includes(TOKEN));
   assert.equal(ops["secrets.delete"]({ name: "cf_token" }, "控制台"), true);
@@ -181,4 +181,43 @@ test("端到端：她调用 pass_secret，对方在对话里发值与口令；�
   assert.match(toolMsg, /npm_token → .*vault[\\/]npm_token/);
   for (const blob of [JSON.stringify(seen), JSON.stringify(store.listAudit(50)), JSON.stringify(store.listTimeline(20)), JSON.stringify(store.recentMessages(50)), JSON.stringify(events)])
     assert.ok(!blob.includes(NPM));
+});
+
+test("多端同步（#36）：每项带同步标记；导出只给多端同步的值，仅本机的只给标记；合并按较新的修改，删除与改成仅本机都删掉别处的副本", async () => {
+  sec.saveSecret("gh_token", "ghp_同步的值", "GitHub", "控制台");
+  sec.saveSecret("device_pin", "1234", "这台设备的", "控制台", false);
+  const list = sec.listSecrets();
+  assert.equal(list.find((x) => x.name === "gh_token")!.sync, true);
+  assert.equal(list.find((x) => x.name === "device_pin")!.sync, false);
+  const out = sec.exportVault();
+  assert.equal(out.find((x) => x.name === "gh_token")!.value, "ghp_同步的值");
+  assert.deepEqual(Object.keys(out.find((x) => x.name === "device_pin")!).sort(), ["name", "sync", "updated"], "仅本机的不带值");
+  assert.match(systemPrompt(""), /gh_token：GitHub（[^）]*；多端同步）/);
+  assert.match(systemPrompt(""), /device_pin：这台设备的（[^）]*；仅本机）/);
+
+  // 别处来的：较新的采用（0600），较旧的、未来的、名字不对的、值太大的不收
+  const now = Date.now();
+  assert.equal(sec.mergeVault([{ name: "cf_token", updated: now + 1000, hint: "Cloudflare", value: "cf-值", sync: true }]), true);
+  assert.equal(fs.readFileSync(path.join(paths.vault, "cf_token"), "utf8"), "cf-值");
+  if (process.platform !== "win32") assert.equal(mode(path.join(paths.vault, "cf_token")), 0o600);
+  assert.equal(sec.mergeVault([{ name: "cf_token", updated: now, value: "旧值", sync: true }]), false, "较旧的不覆盖");
+  assert.equal(sec.mergeVault([{ name: "x", updated: now + 3600_000, value: "未来", sync: true }, { name: "../etc", updated: now + 2000, value: "v" }, { name: "big", updated: now + 2000, value: "x".repeat(70_000) }]), false);
+
+  // 别处删了 / 别处改成仅本机：这里的副本删掉，留墓碑；墓碑之后更旧的值不会把它带回来
+  assert.equal(sec.mergeVault([{ name: "cf_token", updated: now + 2000, deleted: true }]), true);
+  assert.ok(!fs.existsSync(path.join(paths.vault, "cf_token")));
+  assert.equal(sec.mergeVault([{ name: "cf_token", updated: now + 1500, value: "回来了？", sync: true }]), false);
+  assert.ok(sec.exportVault().some((x) => x.name === "cf_token" && x.deleted), "墓碑继续传给别的身体");
+  sec.saveSecret("shared_key", "共享", "", "控制台");
+  await sleep(5);
+  assert.equal(sec.mergeVault([{ name: "shared_key", updated: Date.now() + 1000, sync: false }]), true);
+  assert.ok(!fs.existsSync(path.join(paths.vault, "shared_key")), "别处改成仅本机：这里的副本删掉");
+
+  // 改同步标记：控制台与她自己的工具
+  assert.equal(await ops["secrets.sync"]({ name: "gh_token", sync: false }, "测试"), true);
+  assert.deepEqual(Object.keys(sec.exportVault().find((x) => x.name === "gh_token")!).sort(), ["name", "sync", "updated"]);
+  const r = await callTool("secret_sync", { name: "gh_token", sync: true }, "测试");
+  assert.match(r.text, /多端同步/);
+  assert.equal(sec.exportVault().find((x) => x.name === "gh_token")!.value, "ghp_同步的值");
+  assert.equal((await callTool("secret_sync", { name: "nope", sync: true }, "测试")).status, "error");
 });

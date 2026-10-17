@@ -37,7 +37,7 @@ lib/
     ├── wake.dart      醒来记录（只读）：WakeView 与手机页；WakeWatch 跟踪进行中的醒来
     ├── flow.dart      心流：FlowFeed（时间线加载与筛选）、手机页（可展开的卡片）、FlowList（桌面列表栏）、FlowDistribution（醒来分布）
     ├── memory.dart    记忆：MemoryCore / JournalList / NotesList / MemorySearch / MarkdownDoc；手机 4 个 Tab，桌面索引在列表栏、内容在主区
-    ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用；group：head 身份 · main 首屏 · end 高级与关于 · more 收进「高级」· hidden 从别的页进入）、controlItem（按 id 找页，旧 id approvals / hearing 映射到权限 / 声音）、MorePage（高级）、节律、权限（ApprovalCard 与能力授权）、预算、操作记录、保密库、飞书、同步（灵魂仓库、同步服务地址、心跳优先级）、运行（含命令沙箱 status.sandbox，none 时提醒）、字号（ZoomPage，只在原生桌面版，见 zoom.dart）
+    ├── control.dart   控制：controlItems（菜单清单，手机 Tab 页与桌面列表栏共用；group：head 身份 · main 首屏 · end 高级与关于 · more 收进「高级」· hidden 从别的页进入）、controlItem（按 id 找页，旧 id approvals / hearing 映射到权限 / 声音）、MorePage（高级）、节律、权限（ApprovalCard 与能力授权）、预算、操作记录、保密库、飞书、同步（灵魂仓库、同步服务地址、心跳优先级）、运行（含命令沙箱 status.sandbox，none 时提醒）；保密库每项可切换「多端同步 / 仅本机」、字号（ZoomPage，只在原生桌面版，见 zoom.dart）
     ├── account.dart   账户（从「设备」进入）：控制台登录（码、链接、二维码，申请到就打开浏览器），之后分四页——概览（agent 与设备、移除、删除 agent）、添加设备（输入码、核对、批准或拒绝）、已登录（退出）、设置（退出管理、删除账户）
     ├── mesh.dart      设备：账户入口、登录（设备码绑定，signInDevice 申请到码就打开浏览器；DeviceCodeView 显示核对表情、码、链接、二维码，向导与账户页共用）、设备列表（直连 / 中转、往返时间、心跳在哪、公钥变了时的「信任」）、这台设备退出登录
     ├── tools.dart     工具：她自己造的工具（定义、源码、技能文档）与灵魂仓库里的技能文档；停用 / 启用、删除

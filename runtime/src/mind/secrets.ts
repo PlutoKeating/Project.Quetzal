@@ -6,8 +6,10 @@
 //      只留在内存里；回执只说收到了第几项和字符数，不回显内容。
 //   3. 对方发回结束口令：已收到的各项写入保密库，工具返回——只有名字、路径与字节数。「口令 重来」清空重填，「口令 取消」放弃；
 //      SECRET_IDLE_MS 内没有动静自动放弃。放弃时已收到的值直接丢弃，不落盘。
-//   保密库：QUETZAL_HOME/vault/（0700），每项一个文件（0600，文件名即名字，内容即值），index.json 记录说明、时间与来源通道（不含值）。
-//   它只属于这具身体：不在灵魂仓库里，不会同步到别的身体。agent 在命令里用 "$(cat 路径)" 或 < 路径 引用。
+//   保密库：QUETZAL_HOME/vault/（0700），每项一个文件（0600，文件名即名字，内容即值），index.json 记录说明、时间、来源通道与是否多端同步（不含值）。
+//   不在灵魂仓库里。每一项带一个「多端同步 / 仅本机」标记（创建时由 agent 按用途选，缺省多端同步；之后控制台或 agent 都能改）：
+//   多端同步的经网状层（端到端加密、节点密钥认证过的直连或中转）按条目同步给同一个 agent 的其他身体，同名以较新的修改为准，删除留墓碑；
+//   改成仅本机时，其他身体上的副本删除。agent 在命令里用 "$(cat 路径)" 或 < 路径 引用。
 //   兜底：所有工具输出在交给模型、写入审计之前经过 redactSecrets，出现的保密值替换为 ‹secret:名字›（只防无意泄露，挡不住刻意变换编码）；
 //   基座自己的密钥（secrets/ 下的令牌、主密钥、私钥，模型供应商的 Key）同样替换。工具参数在写进审计、时间线、审批与过程记录之前经过 redactArgs。
 import fs from "node:fs";
@@ -27,11 +29,15 @@ export const SECRET_IDLE_MS = 10 * 60_000;
 export const MAX_ITEMS = 20;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
-export interface SecretItem { name: string; hint: string }
-export interface SecretInfo { name: string; hint: string; ts: number; channel: string; bytes: number; path: string }
+export interface SecretItem { name: string; hint: string; sync?: boolean } // sync：多端同步（缺省）还是仅本机
+export interface SecretInfo { name: string; hint: string; ts: number; channel: string; bytes: number; path: string; sync: boolean }
 
 // ---------- 保密库
-type Index = Record<string, { hint: string; ts: number; channel: string }>;
+// 每项的记录：updated 为最近一次修改（写入、删除、改同步标记）的时刻，多端合并时较新的为准；deleted 为删除留下的墓碑（没有文件）。
+type Entry = { hint: string; ts: number; channel: string; sync?: boolean; updated?: number; deleted?: boolean };
+type Index = Record<string, Entry>;
+const isSync = (e?: Entry) => e?.sync !== false; // 1.10.0 及以前存的没有标记：按多端同步
+const updatedOf = (name: string, e?: Entry) => e?.updated ?? e?.ts ?? (() => { try { return Math.floor(fs.statSync(file(name)).mtimeMs); } catch { return 0; } })();
 const file = (name: string) => path.join(paths.vault, name);
 const indexFile = () => path.join(paths.vault, "index.json");
 const readIndex = (): Index => { try { return JSON.parse(fs.readFileSync(indexFile(), "utf8")); } catch { return {}; } };
@@ -43,27 +49,89 @@ export function listSecrets(): SecretInfo[] {
   const idx = readIndex();
   return names().map((name) => {
     const st = fs.statSync(file(name));
-    return { name, hint: idx[name]?.hint ?? "", ts: idx[name]?.ts ?? Math.round(st.mtimeMs), channel: idx[name]?.channel ?? "", bytes: st.size, path: file(name) };
+    return { name, hint: idx[name]?.hint ?? "", ts: idx[name]?.ts ?? Math.round(st.mtimeMs), channel: idx[name]?.channel ?? "", bytes: st.size, path: file(name), sync: isSync(idx[name]) };
   });
 }
 
-/** 写入一项（同名覆盖）。单行的值原样写入；多行的值（如私钥）以换行结尾。 */
-export function saveSecret(name: string, value: string, hint = "", channel = ""): string {
+/** 写入一项（同名覆盖）。单行的值原样写入；多行的值（如私钥）以换行结尾。sync：多端同步（缺省）还是仅本机。 */
+export function saveSecret(name: string, value: string, hint = "", channel = "", sync = true): string {
   if (!NAME.test(name)) throw new Error(`名字不合规：${name}`);
   fs.mkdirSync(paths.vault, { recursive: true, mode: 0o700 });
   write(file(name), value.includes("\n") ? value + "\n" : value);
-  write(indexFile(), JSON.stringify({ ...readIndex(), [name]: { hint, ts: Date.now(), channel } }, null, 2));
+  const now = Date.now();
+  write(indexFile(), JSON.stringify({ ...readIndex(), [name]: { hint, ts: now, channel, sync, updated: now } }, null, 2));
   cache = undefined;
+  bus.emit("vault.changed");
   return file(name);
 }
 
+/** 删除一项。多端同步的留墓碑，其他身体上的副本随之删除。 */
 export function deleteSecret(name: string): boolean {
   if (!NAME.test(name) || !fs.existsSync(file(name))) return false;
   fs.rmSync(file(name));
-  const { [name]: _, ...rest } = readIndex();
-  write(indexFile(), JSON.stringify(rest, null, 2));
+  const idx = readIndex(), e = idx[name];
+  idx[name] = { hint: e?.hint ?? "", ts: e?.ts ?? 0, channel: e?.channel ?? "", sync: isSync(e), updated: Date.now(), deleted: true };
+  write(indexFile(), JSON.stringify(idx, null, 2));
   cache = undefined;
+  bus.emit("vault.changed");
   return true;
+}
+
+/** 改一项的同步标记：多端同步 ↔ 仅本机（改成仅本机时，其他身体上的副本删除；值留在这具身体上）。没有这一项返回 false。 */
+export function setSecretSync(name: string, sync: boolean): boolean {
+  const idx = readIndex();
+  if (!NAME.test(name) || !fs.existsSync(file(name))) return false;
+  const e = idx[name] ?? { hint: "", ts: Date.now(), channel: "" };
+  if (isSync(e) === sync) return true;
+  idx[name] = { ...e, sync, updated: Date.now(), deleted: undefined };
+  write(indexFile(), JSON.stringify(idx, null, 2));
+  bus.emit("vault.changed");
+  return true;
+}
+
+// ---------- 多端同步（mesh/shared.ts 的 vault 分区）：只经网状层端到端加密的通道传，不进灵魂仓库、不经同步服务
+export interface VaultRecord { name: string; updated: number; hint?: string; channel?: string; value?: string; sync?: boolean; deleted?: boolean }
+const MAX_VALUE = 64 * 1024;
+
+/** 给其他身体的：多端同步的各项（带值）与它们的墓碑；仅本机的只说「这一项仅本机」（不带值），让别处删掉同名的副本。 */
+export function exportVault(): VaultRecord[] {
+  const idx = readIndex(), out: VaultRecord[] = [];
+  for (const [name, e] of Object.entries(idx)) {
+    if (!NAME.test(name)) continue;
+    const updated = updatedOf(name, e);
+    if (e.deleted) { if (isSync(e)) out.push({ name, updated, deleted: true }); continue; }
+    if (!fs.existsSync(file(name))) continue;
+    if (!isSync(e)) { out.push({ name, updated, sync: false }); continue; }
+    out.push({ name, updated, hint: e.hint, channel: e.channel, value: fs.readFileSync(file(name), "utf8"), sync: true });
+  }
+  for (const name of names()) if (!idx[name]) out.push({ name, updated: updatedOf(name), hint: "", channel: "", value: fs.readFileSync(file(name), "utf8"), sync: true }); // 没有记录的旧文件
+  return out.slice(0, 500);
+}
+
+/** 采用别处的：逐项检查（名字、时刻不晚于现在 + 5 分钟、值不超过 64 KB），比本机较新的才采用。返回是否有变化。 */
+export function mergeVault(list: unknown): boolean {
+  if (!Array.isArray(list)) return false;
+  const idx = readIndex(), limit = Date.now() + 5 * 60_000;
+  let changed = false;
+  for (const r of list.slice(0, 500) as VaultRecord[]) {
+    if (!r || typeof r !== "object" || typeof r.name !== "string" || !NAME.test(r.name)) continue;
+    if (typeof r.updated !== "number" || !Number.isFinite(r.updated) || r.updated > limit) continue;
+    const e = idx[r.name];
+    if (r.updated <= updatedOf(r.name, e)) continue;
+    const meta = { hint: typeof r.hint === "string" ? r.hint.slice(0, 200) : e?.hint ?? "", ts: e?.ts ?? r.updated, channel: typeof r.channel === "string" ? r.channel.slice(0, 40) : e?.channel ?? "" };
+    if (r.deleted || r.sync === false) { // 别处删了，或别处把它改成了仅本机：这里的副本删除
+      try { fs.rmSync(file(r.name), { force: true }); } catch {}
+      idx[r.name] = { ...meta, sync: r.deleted ? true : false, updated: r.updated, deleted: true };
+    } else {
+      if (typeof r.value !== "string" || !r.value || Buffer.byteLength(r.value) > MAX_VALUE) continue;
+      fs.mkdirSync(paths.vault, { recursive: true, mode: 0o700 });
+      write(file(r.name), r.value);
+      idx[r.name] = { ...meta, sync: true, updated: r.updated };
+    }
+    changed = true;
+  }
+  if (changed) { write(indexFile(), JSON.stringify(idx, null, 2)); cache = undefined; }
+  return changed;
 }
 
 // ---------- 兜底：工具输出里出现的保密值一律替换（保密库的每一项、基座自己的密钥，见 secret-values.ts）。目录变化（增删文件）或经由本模块写入后重新读取。
@@ -117,7 +185,7 @@ function newSpell(): string {
 }
 
 function parseItems(raw: unknown): SecretItem[] {
-  const items = (Array.isArray(raw) ? raw : []).map((x) => typeof x === "string" ? { name: x.trim(), hint: "" } : { name: String(x?.name ?? "").trim(), hint: String(x?.hint ?? "").replace(/\s+/g, " ").trim().slice(0, 200) });
+  const items = (Array.isArray(raw) ? raw : []).map((x): SecretItem => typeof x === "string" ? { name: x.trim(), hint: "" } : { name: String(x?.name ?? "").trim(), hint: String(x?.hint ?? "").replace(/\s+/g, " ").trim().slice(0, 200), ...(x?.sync === false ? { sync: false } : {}) });
   if (!items.length || items.length > MAX_ITEMS) throw new Error(`items 需要 1–${MAX_ITEMS} 项`);
   for (const it of items) if (!NAME.test(it.name)) throw new Error(`名字不合规：「${it.name}」。只能用字母、数字、下划线、连字符（以字母或数字开头，最多 64 个字符），如 github_token`);
   if (new Set(items.map((x) => x.name)).size !== items.length) throw new Error("items 里有重复的名字");
@@ -163,7 +231,7 @@ function end(c: Capture, status: "done" | "cancelled" | "expired"): SecretEvent 
   clearTimeout(c.timer);
   captures.delete(c.conv);
   const got = c.values.length;
-  const saved = status === "done" ? c.values.map((v, i) => ({ ...c.items[i], path: saveSecret(c.items[i].name, v, c.items[i].hint, c.channel), bytes: Buffer.byteLength(v) })) : [];
+  const saved = status === "done" ? c.values.map((v, i) => ({ ...c.items[i], path: saveSecret(c.items[i].name, v, c.items[i].hint, c.channel, c.items[i].sync !== false), bytes: Buffer.byteLength(v) })) : [];
   c.values.length = 0;
   const missing = c.items.slice(saved.length).map((x) => x.name);
   c.resolve(status === "cancelled" ? "对方取消了这次保密输入，没有保存任何内容。"

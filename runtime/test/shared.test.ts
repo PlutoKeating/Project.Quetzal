@@ -55,6 +55,20 @@ test("设置、Key、急停、审批、用量、想分享的一句话：一处�
   assert.ok(((await pc.call<any>("aligned", { body: "phone" }))?.took ?? []).includes("模型与 Key"), "多具身体页能看到采用了对方的模型与 Key");
   assert.notEqual(await pc.call("providerCipher", { id: "shared-llm" }), await phone.call("providerCipher", { id: "shared-llm" }));
 
+  // 保密库（#36）：多端同步的连同值同步过去；仅本机的不传；删除与改成仅本机都删掉电脑上的副本
+  step = "保密库";
+  await phone.call("saveSecret", { name: "gh_token", value: "ghp_手机上给的", hint: "GitHub" });
+  await phone.call("saveSecret", { name: "phone_pin", value: "只在手机上", sync: false });
+  await until(async () => (await pc.call("vaultValue", { name: "gh_token" })) === "ghp_手机上给的");
+  assert.equal(await pc.call("vaultValue", { name: "phone_pin" }), null, "仅本机的不传");
+  await phone.call("secretSync", { name: "gh_token", sync: false });
+  await until(async () => (await pc.call("vaultValue", { name: "gh_token" })) === null);
+  assert.equal(await phone.call("vaultValue", { name: "gh_token" }), "ghp_手机上给的", "手机上的值还在");
+  await pc.call("saveSecret", { name: "cf_token", value: "电脑上给的" });
+  await until(async () => (await phone.call("vaultValue", { name: "cf_token" })) === "电脑上给的");
+  await phone.call("deleteSecret", { name: "cf_token" });
+  await until(async () => (await pc.call("vaultValue", { name: "cf_token" })) === null);
+
   // 全网急停与解除
   step = "急停";
   await phone.call("stopNow", {});

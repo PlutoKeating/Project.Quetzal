@@ -355,7 +355,8 @@ String _json(Object? v) {
 }
 
 // ---------------------------------------------------------------- 保密库
-/// 你通过保密输入（她调用 pass_secret 时）交给她的值：只列名字与说明，任何地方都不显示内容；可以删除。只在这具身体上，不同步。
+/// 你通过保密输入（她调用 pass_secret 时）交给她的值：只列名字与说明，任何地方都不显示内容；可以删除。
+/// 每一项可以选「多端同步」（经加密的身体间通道同步到她的其他身体）或「仅本机」，她创建时按用途选，这里可以改。
 class SecretsPage extends StatefulWidget {
   const SecretsPage({super.key});
   @override
@@ -378,13 +379,22 @@ class _SecretsPageState extends State<SecretsPage> {
           ListTile(
             leading: const Icon(Icons.key),
             title: Text('${s['name']}'),
-            subtitle: Text('${'${s['hint']}'.isEmpty ? '' : '${s['hint']}\n'}${hm(s['ts'])}'),
-            isThreeLine: '${s['hint']}'.isNotEmpty,
-            trailing: IconButton(tooltip: '删除', icon: const Icon(Icons.delete_outline), onPressed: () async {
-              if (!await confirm(context, '删除「${s['name']}」', '之后需要时，她得再向你要一次。') || !context.mounted) return;
-              await act(context, () => api.call('secrets.delete', {'name': s['name']}), ok: '已删除');
-              _load();
-            }),
+            subtitle: Text('${'${s['hint']}'.isEmpty ? '' : '${s['hint']}\n'}${hm(s['ts'])} · ${s['sync'] == false ? '仅本机' : '多端同步'}'),
+            isThreeLine: true,
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Tooltip(
+                message: s['sync'] == false ? '仅本机：只留在这台设备上。打开就同步到她的其他身体' : '多端同步：经加密的身体间通道同步到她的其他身体。关掉就只留在这台设备上（其他设备上的副本删除）',
+                child: Switch(value: s['sync'] != false, onChanged: (v) async {
+                  await act(context, () => api.call('secrets.sync', {'name': s['name'], 'sync': v}), ok: v ? '已改为多端同步' : '已改为仅本机');
+                  _load();
+                }),
+              ),
+              IconButton(tooltip: '删除', icon: const Icon(Icons.delete_outline), onPressed: () async {
+                if (!await confirm(context, '删除「${s['name']}」', s['sync'] == false ? '之后需要时，她得再向你要一次。' : '其他设备上的这一项也会删除。之后需要时，她得再向你要一次。') || !context.mounted) return;
+                await act(context, () => api.call('secrets.delete', {'name': s['name']}), ok: '已删除');
+                _load();
+              }),
+            ]),
           ),
       ]),
     );

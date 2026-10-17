@@ -118,8 +118,9 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 | 方法 | 参数 | 说明 |
 |---|---|---|
-| `secrets` | — | 保密库里的各项 `[{name, hint, ts, channel, bytes, path}]` |
-| `secrets.delete` | `{name}` | 删除一项，返回是否存在 |
+| `secrets` | — | 保密库里的各项 `[{name, hint, ts, channel, bytes, path, sync}]`（`sync`：多端同步为真，仅本机为假） |
+| `secrets.delete` | `{name}` | 删除一项，返回是否存在（多端同步的项其他身体上一起删除） |
+| `secrets.sync` | `{name, sync}` | 改一项的同步方式：多端同步 / 仅本机（改成仅本机时其他身体上的副本删除），返回是否存在 |
 | `secrets.pending` | — | 进行中的保密输入（结构同 `secret` 事件），客户端重建界面时取回 |
 | `secrets.end` | `{id, cancel?}` | 结束一次保密输入，与对方发回结束口令（`cancel` 为真时与「口令 取消」）等价；返回结束后的状态，已结束则为 `null` |
 

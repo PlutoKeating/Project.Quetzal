@@ -22,7 +22,7 @@ import { VERSION } from "./version.ts";
 import { identity, setIdentity, type AgentIdentity } from "./memory/identity.ts";
 import { run } from "./sh.ts";
 import { checkRemote } from "./memory/soul-repo.ts";
-import { listSecrets, deleteSecret, pendingSecrets, endCapture } from "./mind/secrets.ts";
+import { listSecrets, deleteSecret, setSecretSync, pendingSecrets, endCapture } from "./mind/secrets.ts";
 import { listCustomTools, listSkills, readTool, readSkill, deleteTool, setToolEnabled } from "./mind/custom-tools.ts";
 import * as hearing from "./voice/hearing.ts";
 import * as player from "./voice/player.ts";
@@ -104,6 +104,7 @@ export const ops = {
   // 保密库（pass_secret）：只有名字、说明与大小，任何接口都不返回值。secrets.end 与对方发回结束口令等价（按钮用）
   secrets: () => listSecrets(),
   "secrets.delete": (a: { name: string }, actor: string) => { const ok = deleteSecret(String(a.name)); audit(actor, "secrets.delete", "", a, ok ? "ok" : "没有这一项"); return ok; },
+  "secrets.sync": (a: { name: string; sync: boolean }, actor: string) => { const ok = setSecretSync(String(a.name), a.sync === true); audit(actor, "secrets.sync", "", a, ok ? "ok" : "没有这一项"); return ok; },
   "secrets.pending": () => pendingSecrets(),
   "secrets.end": (a: { id: string; cancel?: boolean }) => endCapture(String(a.id), a.cancel ? "cancelled" : "done") ?? null,
 

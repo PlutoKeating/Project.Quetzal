@@ -45,7 +45,7 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | emergency stop | 急停 | The `STOP` file in the home directory; if present, everything freezes |
 | audit | 审计 | Records of tool calls, configuration changes, memory edits and approval decisions |
 | pass_secret | 保密传递 | The protocol for requesting credentials: you type in chat, nothing enters the conversation or context |
-| vault | 保密库 | `QUETZAL_HOME/vault/`, local storage for secret values, never synced |
+| vault | 保密库 | `QUETZAL_HOME/vault/`, storage for secret values; each item syncs to all bodies (over the encrypted body link) or stays on this device |
 | done spell | 结束口令 | The random phrase `done-xxxxxx` marking the end of a secret input |
 | gateway | 网关 | The runtime's interface: plain HTTP + WebSocket RPC on the local `127.0.0.1:7788`; when open to the LAN also `https://<address>:7789` (HTTPS / WSS) |
 | certificate fingerprint | 证书指纹 | The SHA-256 fingerprint of the gateway's self-signed certificate, short form like `1a2b 3c4d 5e6f 7a8b`; compared in the app and the pairing notification when pairing, after which the app accepts only that certificate |
