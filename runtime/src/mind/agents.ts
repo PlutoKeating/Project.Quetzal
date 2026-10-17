@@ -21,7 +21,7 @@ export interface SubAgent extends AgentSpec {
 const agents = new Map<string, SubAgent>();
 const sessions = new Map<string, Session>();
 // move_to：子 agent 换身体会结束它自己、由那具身体当成一次醒来接着做，任务身份就丢了（#38）；要用别的身体用 body_call
-export const AGENT_TOOLS = new Set(["session_new", "session_compact", "agent_spawn", "agent_status", "agent_message", "agent_stop", "finish", "move_to"]);
+export const AGENT_TOOLS = new Set(["session_new", "session_compact", "project", "agent_spawn", "agent_status", "agent_message", "agent_stop", "finish", "move_to"]);
 
 /** 由她给的人设、范围、背景拼成子 agent 的系统提示。 */
 export function agentPrompt(a: AgentSpec): string {
