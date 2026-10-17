@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { config, paths, readSecret, writeSecret } from "../config.ts";
-import { check } from "../guard/guard.ts";
+import { check, level } from "../guard/guard.ts";
 import { wrapArgv } from "../sandbox.ts";
 import { killTree } from "../platform.ts";
 import { redactSecrets } from "../mind/secrets.ts";
@@ -254,10 +254,14 @@ export function listSources(): { sources: SourceView[]; error: string; max: numb
   try { servers = readServers().servers; } catch { /* configError 里有原因 */ }
   return { sources: servers.map(view), error: configError, max: MAX_SOURCES };
 }
-export function sourceDetail(id: string): (SourceView & { contents: McpInventory }) | null {
+/** 详情：它提供的工具 / 资源 / 提示词，以及这具身体上的权限档位（启动、全部工具、每个工具；没单独设置的是继承来的）。 */
+export function sourceDetail(id: string): (SourceView & { contents: McpInventory; permissions: { start: string; tools: string; perTool: { tool: string; name: string; level: string }[] } }) | null {
   const s = readServers().servers.find((x) => x.id === id);
   if (!s) return null;
-  return { ...view(s), contents: sources.find((x) => x.server.id === id)?.contents() ?? { tools: [], resources: [], templates: [], prompts: [] } };
+  const live = sources.find((x) => x.server.id === id);
+  const contents = live?.contents() ?? { tools: [], resources: [], templates: [], prompts: [] };
+  const perTool = (live?.list() ?? []).map((b) => ({ tool: b.kind === "tool" ? b.remote : `（${b.remote}）`, name: b.name, level: level(`mcp.${id}.${b.name}`) }));
+  return { ...view(s), contents, permissions: { start: level(`mcp_start.${id}`), tools: level(`mcp.${id}`), perTool } };
 }
 export const findServer = (id: string) => { try { return readServers().servers.find((s) => s.id === id); } catch { return undefined; } };
 export const findRemote = (id: string) => { const s = findServer(id); return s && isRemote(s) ? s : undefined; };

@@ -220,6 +220,7 @@ test("配置管理：新增、启停、凭据写进 secrets/、删除连同凭�
   rt.updateSource("keyed", { enabled: false }, "测试");
   await until(() => !allTools().some((t) => t.name === toolName("keyed", "echo")));
   assert.equal(rt.sourceDetail("keyed")?.state, "off");
+  assert.deepEqual(rt.sourceDetail("keyed")?.permissions, { start: "allow", tools: "allow", perTool: [] }, "权限档位按来源继承总类别");
   assert.throws(() => rt.addSource({ id: "keyed", transport: "http", url: `${base}/mcp` }, "测试"), /已有/);
   assert.equal(rt.removeSource("keyed", "测试"), true);
   assert.ok(!fs.existsSync(path.join(paths.secrets, "mcp_keyed_authorization")));

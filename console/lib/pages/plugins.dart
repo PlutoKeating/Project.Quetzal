@@ -431,6 +431,10 @@ class _SourcePageState extends State<SourcePage> with ReloadOnConnect {
             ]),
           ],
         ],
+        if (s['permissions'] is Map) ...[
+          label('权限（这台设备）'),
+          PermissionRows(permissions: s['permissions'] as Map, id: widget.id, onSet: (key, level) async { await act(context, () => api.call('setPermission', {'id': key, 'level': level})); _load(); }),
+        ],
         label('工具（${(c['tools'] as List?)?.length ?? 0}）'),
         for (final x in ((c['tools'] as List?) ?? []).cast<Map>()) ListTile(dense: true, contentPadding: EdgeInsets.zero, title: Text('${x['name']}'), subtitle: Text('${x['description']}', maxLines: 3, overflow: TextOverflow.ellipsis)),
         if (((c['resources'] as List?) ?? []).isNotEmpty || ((c['templates'] as List?) ?? []).isNotEmpty) label('资源'),
@@ -441,5 +445,31 @@ class _SourcePageState extends State<SourcePage> with ReloadOnConnect {
         if (s['state'] != 'online' && s['enabled'] == true) Padding(padding: const EdgeInsets.only(top: 8), child: Text('连上之后才看得到它提供了什么。', style: t.bodySmall)),
       ]),
     );
+  }
+}
+
+const _levels = {'allow': '允许', 'ask': '询问', 'deny': '禁止'};
+
+/// 一个来源的权限：启动（mcp_start.<来源>）、全部工具（mcp.<来源>）与每个工具（mcp.<来源>.<工具>）；没单独设置的继承上一级，缺省询问。
+class PermissionRows extends StatelessWidget {
+  final Map permissions;
+  final String id;
+  final void Function(String key, String level) onSet;
+  const PermissionRows({super.key, required this.permissions, required this.id, required this.onSet});
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    Widget seg(String key, String level) => SegmentedButton<String>(
+      showSelectedIcon: false,
+      segments: [for (final e in _levels.entries) ButtonSegment(value: e.key, label: Text(e.value))],
+      selected: {level}, onSelectionChanged: (v) => onSet(key, v.first));
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ListTile(contentPadding: EdgeInsets.zero, title: const Text('启动'), trailing: seg('mcp_start.$id', '${permissions['start']}')),
+      ListTile(contentPadding: EdgeInsets.zero, title: const Text('全部工具'), subtitle: const Text('发邮件、改日历、提交表单这类对外的，建议留在「询问」'), trailing: seg('mcp.$id', '${permissions['tools']}')),
+      for (final p in ((permissions['perTool'] as List?) ?? []).cast<Map>()) ListTile(dense: true, contentPadding: EdgeInsets.zero, title: Text('${p['tool']}', style: t.bodyMedium),
+        trailing: PopupMenuButton<String>(initialValue: '${p['level']}', onSelected: (v) => onSet('mcp.$id.${p['name']}', v),
+          itemBuilder: (_) => [for (final e in _levels.entries) PopupMenuItem(value: e.key, child: Text(e.value))],
+          child: Padding(padding: const EdgeInsets.all(8), child: Text(_levels['${p['level']}'] ?? '${p['level']}')))),
+    ]);
   }
 }

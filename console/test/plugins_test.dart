@@ -73,6 +73,23 @@ void main() {
     expect(sent, {'inputs': {'remote': {'DEMO_TOKEN': 'synthetic-token'}}, 'enable': true, 'replace': false});
   });
 
+  testWidgets('来源的权限：启动、全部工具与单个工具各自设置，键名按 mcp_start.<来源> / mcp.<来源> / mcp.<来源>.<工具>', (t) async {
+    final set = <String>[];
+    t.view.physicalSize = const Size(1200, 2000);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(_wrap(PermissionRows(id: 'email', permissions: {'start': 'ask', 'tools': 'allow', 'perTool': [{'tool': 'send_email', 'name': 'mcp_email_abc', 'level': 'allow'}]}, onSet: (k, v) => set.add('$k=$v'))));
+    await t.tap(find.text('允许').first);
+    expect(set.last, 'mcp_start.email=allow');
+    await t.tap(find.text('禁止').at(1));
+    expect(set.last, 'mcp.email=deny');
+    await t.tap(find.text('send_email'));
+    await t.tap(find.byType(PopupMenuButton<String>));
+    await t.pumpAndSettle();
+    await t.tap(find.text('询问').last);
+    expect(set.last, 'mcp.email.mcp_email_abc=ask');
+  });
+
   test('状态说法', () {
     expect(stateLabel('auth'), '需要登录');
     expect(stateLabel('online'), '已连接');
