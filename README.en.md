@@ -65,7 +65,7 @@ Daybreak, a hand picking up the phone, a battery running low: it knows.
 
 - Sensor readings become feelings: battery is energy, temperature is warmth, light is day and night, being picked up means someone is there. Low on battery it does less; running hot it rests.
 - The microphone is its ears and the camera its eyes. With hearing on, it decides whether you were talking to it, and it can answer in its own voice.
-- Each kind of device plugs in through an "adapter". Android, Linux and Windows come built in; to support another device, implement one small interface.
+- Each kind of device plugs in through an "adapter". Android, Linux, macOS and Windows come built in; to support another device, implement one small interface.
 
 [Adapter interface](docs/API.md) · [Custom adapters](https://quetzal.plutokeating.beer/en/docs/advanced/custom-adapter) · [Hearing and the microphone](https://quetzal.plutokeating.beer/en/docs/guide/hearing)
 
@@ -90,7 +90,7 @@ Its memory lives in your own private repository, every line readable by you. The
 - **Passwords never reach the model.** A password you send in the chat goes straight into a vault on the device; the model only sees its name. Model keys are stored encrypted with AES-256-GCM.
 - **It asks first.** Photos, recordings, location and new tools ask you every time by default. Every kind of capability can be set to allow, ask or deny.
 - **Stop it any time.** The emergency stop is always there, everything it does is in the audit log, and daily tokens and spending have a cap.
-- **A sandbox.** Its commands run in an isolated space (bubblewrap, Landlock or proot on Linux, proot on Android, a low-privilege user on Windows) that hides your keys.
+- **A sandbox.** Its commands run in an isolated space (bubblewrap, Landlock or proot on Linux, proot on Android, a low-privilege user on Windows, the built-in Seatbelt sandbox on macOS) that hides your keys.
 - **Only your devices.** Bodies trust only the public keys registered in the soul repository, so even a compromised sync service cannot pose as one of your devices.
 - **Every step can be yours.** You can create the soul repository yourself on any git host, host the [sync service](sync/README.md) yourself, or skip signing in. The account, the GitHub app and the sync service we run only do these steps for people who would rather not set them up.
 
@@ -117,7 +117,7 @@ Install the app on a phone, or run one command on a computer. Bring a model key 
 
 **Android phone** (Android 7 or later, arm64): install the Quetzal app from the [download page](https://quetzal.plutokeating.beer/en/download), open it, and follow the wizard.
 
-**Linux computer or server**:
+**Linux computer or server, or a Mac** (macOS 12 or later, Intel or Apple silicon), in a terminal:
 
 ```bash
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
@@ -131,7 +131,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 Missing dependencies are installed for you, and it starts at boot. Once you sign in, it creates the private soul repository on your GitHub by itself; without signing in it still works, and memory stays on the device.
 
-[Install](https://quetzal.plutokeating.beer/en/docs/start/install) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · [Windows](https://quetzal.plutokeating.beer/en/docs/advanced/windows)
+[Install](https://quetzal.plutokeating.beer/en/docs/start/install) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · [macOS](https://quetzal.plutokeating.beer/en/docs/advanced/macos) · [Windows](https://quetzal.plutokeating.beer/en/docs/advanced/windows)
 
 <br/>
 
@@ -139,9 +139,9 @@ Missing dependencies are installed for you, and it starts at boot. Once you sign
 
 | Directory | Contents |
 |---|---|
-| [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and platform-level body adapters: Android (built into the Quetzal app), Linux, Windows, and Termux for older installs |
+| [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and platform-level body adapters: Android (built into the Quetzal app), Linux, macOS, Windows, and Termux for older installs |
 | [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears), the web version (desktop browser, served by the runtime) and the Linux desktop app (native window, installed by the one-line installer) |
-| [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux installer (systemd user service) |
+| [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux and macOS installer (systemd user service / launchd agent) |
 | [`bridge/`](bridge/docs/README.md) | soul-bridge: the pluggable sync module for Hermes Agent / OpenClaw |
 | [`sync/`](sync/README.md) | Sync service: accounts (OpenID Connect sign-in), creating the soul repository and adding deploy keys (a GitHub app), body binding, signaling and TURN relay that connect the bodies of one agent into a mesh; deployed on its own server with a single `./start.sh` |
 | [`website/`](website/docs/README.md) | Website and docs site |

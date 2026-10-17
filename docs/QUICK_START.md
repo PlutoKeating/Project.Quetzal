@@ -16,7 +16,7 @@
 3. 之后的一切都在 App 里完成，见第 2 节。托付之前请读 [信任与边界](https://quetzal.plutokeating.beer/zh/docs/guide/trust)：数据经过谁、她能碰到什么、更新有多快。**升级**：App 自己会发现 GitHub 上的新正式版并在顶部提示，点横幅或**控制 → 关于 →「更新到 x」**一键完成（首次要在系统设置里允许 Quetzal 安装应用）；新 App 带着新版运行基座，打开后在后台自动换上，不用再点。
 4. **从 Termux 版换过来**：先确认灵魂已推送到灵魂仓库，卸载旧的 Quetzal 与 Termux 三件套，装新 App；装好后先不要改身份，在「控制 → 设备」里登录原来的账号，选中原来的 agent，同一个灵魂仓库会自动接上。
 
-## 2. 之后的一切都在控制台里完成（手机上是 Quetzal App，Linux 机器上是网页控制台，同一份界面）
+## 2. 之后的一切都在控制台里完成（手机上是 Quetzal App，Linux 与 Mac 上是网页控制台，同一份界面）
 
 第一次打开 App 会自动进入安装向导：安装 → 权限 → 后台运行 → 登录 → 模型，一次只做一步，登录可以跳过。完整的用户旅程见 [console/docs/USER_JOURNEY.md](../console/docs/USER_JOURNEY.md)。
 
@@ -51,6 +51,20 @@ npx @plutokeating/quetzal status     # 版本、服务、健康、网页控制�
 
 装好之后的一切（第 2 节的全部配置，以及对话）都在**网页控制台**里完成：这台机器上的浏览器打开 `http://127.0.0.1:7788/` 即登录，不需要配对码也不需要手机。它就是 Quetzal App 的网页版，为电脑横屏重新排布（导航栏 · 列表栏 · 主区 · 她此刻），功能与 App 一致；地址栏的 `#/…` 记录位置，可收藏。再运行一次 `npx @plutokeating/quetzal` 就是升级。没有桌面的服务器：`ssh -L 7788:127.0.0.1:7788 <服务器>` 转发端口后在本机浏览器打开同样的地址（同一台机器的判定看连接来源，隧道算本机）。手机上的 App 也可以连这台机器（先 `--lan` 开放）：**连接新的 agent** → 只填这台机器的地址（如 `192.168.1.8`，App 自动用加密连接 `https://…:7789`）→ 核对 App 显示的证书指纹与 `npx @plutokeating/quetzal status` 里的一致 → **申请配对码**（配对码连同证书指纹弹桌面通知，没有桌面的从 `npx @plutokeating/quetzal logs` 里看）。没有 systemd 用户实例的环境（容器、未开 systemd 的 WSL）用 `npx @plutokeating/quetzal run` 前台运行，交给自己的守护者。npm 包的实现在 [`cli/`](../cli/docs/README.md)。
 
+## 在一台 Mac 上安装（使用者）
+
+macOS 12 或更新，Intel 或 Apple 芯片。在「终端」里运行和 Linux 同一条命令：
+
+```bash
+curl -fsSL https://quetzal.plutokeating.beer/install | bash
+```
+
+缺 git 时系统会弹出「Xcode 命令行工具」的安装对话框，点「安装」，装好后再运行一次同一条命令；缺 Node.js 22.13+ 就经 nvm 装进 `~/.nvm`。npm 包装进 `~/.quetzal/npm`，家目录与 Linux 一样是 `~/.quetzal`；守护是 launchd 用户代理 `~/Library/LaunchAgents/xyz.quetzal.runtime.plist`：你登录这台 Mac 后自动运行，退出 3 秒后重启。她的命令在系统自带的 `sandbox-exec`（经 sandbox-runtime）里运行，不用装什么。控制台是网关托管的网页版：装完在浏览器里打开 `http://127.0.0.1:7788/`，`quetzal open` 再次打开。
+
+想让她看屏幕、点击和输入（计算机使用），要在「系统设置 › 隐私与安全性」里给运行基座的 node（安装器会打印它的路径）打开**辅助功能**与**屏幕与系统录音**，第一次读窗口时再允许它控制「System Events」（自动化），然后 `quetzal restart`。没给时她会说明缺哪一项、去哪里开。
+
+装好后终端里有 `quetzal` 命令（`status` / `logs -f` / `open` / `start` / `stop` / `restart` / `rollback` / `uninstall`），日志在 `~/.quetzal/logs/runtime.log`。升级在控制台的「关于」里点一下或再运行一次安装命令。卸载：`curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall`。详见 [`cli/docs/README.md`](../cli/docs/README.md)「macOS」。
+
 ## 在一台 Windows 电脑上安装（使用者）
 
 Windows 10 1809 或更新，x64 或 arm64。在 PowerShell 里：
@@ -73,7 +87,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 cd runtime
 npm ci
 npm test          # 单元测试
-npm run build     # 生成 dist/main.cjs（单文件，已内置依赖）与身体适配器 dist/android.mjs（Quetzal App 内置）、dist/linux.mjs（Linux）、dist/termux.mjs（旧的 Termux 安装）
+npm run build     # 生成 dist/main.cjs（单文件，已内置依赖）与身体适配器 dist/android.mjs（Quetzal App 内置）、dist/linux.mjs（Linux）、dist/macos.mjs（macOS）、dist/termux.mjs（旧的 Termux 安装）
 QUETZAL_HOME=~/.quetzal node --enable-source-maps dist/main.cjs
 ```
 

@@ -65,7 +65,7 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 
 - 传感器读数被翻译成感受：电量是精力，温度是冷暖，光线是昼夜，被拿起来是有人在。电量低时少动，发烫时休息。
 - 麦克风是耳朵，相机是眼睛。开了听觉，ta 自己判断你是不是在跟 ta 说话，也能用自己的声音回答。
-- 每种设备经一个「适配器」接入。仓库自带安卓、Linux、Windows 三种；想接别的设备，实现一个小接口就行。
+- 每种设备经一个「适配器」接入。仓库自带安卓、Linux、macOS、Windows 四种；想接别的设备，实现一个小接口就行。
 
 [适配器接口](docs/API.md) · [自定义适配器](https://quetzal.plutokeating.beer/zh/docs/advanced/custom-adapter) · [听觉与麦克风](https://quetzal.plutokeating.beer/zh/docs/guide/hearing)
 
@@ -90,7 +90,7 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 - **密码不进模型。** 你在聊天里发的密码直接进本机保密库，模型只看到一个名字。模型 Key 用 AES-256-GCM 加密存在设备上。
 - **先问你。** 拍照、录音、定位、造新工具，默认每次都问。每一类能力都能设为允许、询问或禁止。
 - **随时叫停。** 急停一直都在，工具调用有审计记录；每日 token 与花费预算用尽时减少自主醒来，目前不是强制停止模型调用的硬上限。
-- **沙箱。** ta 的命令在隔离环境里运行（Linux 上 bubblewrap、Landlock 或 proot，安卓上 proot，Windows 上是一个低权限用户），看不到密钥。
+- **沙箱。** ta 的命令在隔离环境里运行（Linux 上 bubblewrap、Landlock 或 proot，安卓上 proot，Windows 上是一个低权限用户，macOS 上是系统自带的 Seatbelt 沙箱），看不到密钥。
 - **只认你的设备。** 身体之间只认灵魂仓库里登记的公钥，同步服务被攻破也冒充不了你的设备。
 - **每一步都能自己来。** 灵魂仓库可以自己建在任何 git 托管上，[同步服务](sync/README.md)可以自己部署，不登录也能用。我们提供的账号、GitHub 应用和同步服务，只是替不想自己配的人把这几步做完。
 
@@ -117,7 +117,7 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 
 **安卓手机**（Android 7 以上，arm64）：从[下载页](https://quetzal.plutokeating.beer/zh/download)装 Quetzal App，打开它，跟着向导走。
 
-**Linux 电脑或服务器**：
+**Linux 电脑或服务器，或者 Mac**（macOS 12 以上，Intel 或 Apple 芯片），在终端里：
 
 ```bash
 curl -fsSL https://quetzal.plutokeating.beer/install | bash
@@ -131,7 +131,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 缺的依赖自动补齐，开机自启。登录后，ta 会在你的 GitHub 上自动建好私有的灵魂仓库；不登录也能用，记忆先存在设备上。
 
-[安装](https://quetzal.plutokeating.beer/zh/docs/start/install) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · [Windows](https://quetzal.plutokeating.beer/zh/docs/advanced/windows)
+[安装](https://quetzal.plutokeating.beer/zh/docs/start/install) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · [macOS](https://quetzal.plutokeating.beer/zh/docs/advanced/macos) · [Windows](https://quetzal.plutokeating.beer/zh/docs/advanced/windows)
 
 <br/>
 
@@ -140,9 +140,9 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 | 目录 | 内容 |
 |---|---|
 | [`engine/`](engine/docs/README.md) | 独立 Agent 执行循环、通用协议、上下文 / 检索策略及受限研究运行器；开发计划和研究接入见 [内核文档](docs/engine/README.md) |
-| [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与平台级身体适配器：安卓（Quetzal App 内置）、Linux、Windows，以及兼容旧安装的 Termux |
+| [`runtime/`](runtime/docs/README.md) | 运行基座（TypeScript / Node.js 22+）与平台级身体适配器：安卓（Quetzal App 内置）、Linux、macOS、Windows，以及兼容旧安装的 Termux |
 | [`console/`](console/docs/README.md) | 控制台（Flutter）：安卓 App（含安装器与耳朵）、网页版（电脑浏览器，由运行基座托管）与 Linux 桌面版（原生窗口，一键安装脚本自动装） |
-| [`cli/`](cli/docs/README.md) | 本机终端聊天 `chat` / `tui`、一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 安装器（systemd 用户服务） |
+| [`cli/`](cli/docs/README.md) | 本机终端聊天 `chat` / `tui`、一键安装脚本 `install.sh`（官网的 `/install`）与 npm 包 `@plutokeating/quetzal`：Linux 与 macOS 安装器（systemd 用户服务 / launchd 用户代理） |
 | [`bridge/`](bridge/docs/README.md) | 灵魂桥：Hermes Agent / OpenClaw 的可插拔同步模块 |
 | [`sync/`](sync/README.md) | 同步服务：账户（OpenID Connect 登录）、自动建灵魂仓库与加部署密钥（GitHub 应用）、身体绑定、信令与 TURN 中转，让同一个 agent 的几具身体连成一张网；独立部署在一台服务器上，`./start.sh` 一行启动 |
 | [`website/`](website/docs/README.md) | 官网与文档站 |
