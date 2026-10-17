@@ -1,10 +1,10 @@
-// 安装与升级：把包里内置的运行基座放进 releases/<版本>/ → 切换 current → 写入缺省配置 → systemd 用户服务 → 健康检查，失败切回上一版。
-// 步骤与 Android 安装器（console/assets/install/install.sh）一一对应，只是守护者从 runit 换成 systemd。
+// 安装与升级：把包里内置的运行基座放进 releases/<版本>/ → 切换 current → 写入缺省配置 → 守护者（Linux：systemd 用户服务；macOS：launchd 用户代理）→ 健康检查，失败切回上一版。
+// 步骤与 Android 安装器（console/assets/install/install.sh）一一对应，只是守护者从 runit 换成 systemd / launchd。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Layout, layout, versionOf, putRelease, switchTo, rollback, prune, readConfig, patchConfig, defaultBody, needsMigration, migrateHome } from "./layout.ts";
-import * as svc from "./service.ts";
+import { svc, isMac } from "./supervisor.ts";
 import { waitHealthy } from "./health.ts";
 import { installMeshModules } from "./mesh.ts";
 import { lanEnabled } from "./lan.ts";
@@ -12,14 +12,16 @@ import { lanEnabled } from "./lan.ts";
 export type Say = (line: string) => void;
 export interface Options { home: string; lan?: boolean; force?: boolean }
 
+/** 包里必有的文件，与有就带上的文件（macOS 的身体适配器 macos.mjs 与命令沙箱库 srt.mjs）。 */
+export const RELEASE_FILES = ["main.cjs", "linux.mjs", "mermaid.mjs"], OPTIONAL_FILES = ["macos.mjs", "srt.mjs"];
+
 /** 包里内置的运行基座与网页控制台（tool/bundle-runtime.sh 放进 dist/runtime/）。 */
-export function bundled() {
-  const dir = fileURLToPath(new URL("./runtime/", import.meta.url));
+export function bundled(dir = fileURLToPath(new URL("./runtime/", import.meta.url))) {
   const version = fs.readFileSync(path.join(dir, "VERSION"), "utf8").trim();
   const web = path.join(dir, "web");
   return {
     dir, version,
-    files: ["main.cjs", "linux.mjs", "mermaid.mjs"].map((name) => ({ name, from: path.join(dir, name) })),
+    files: [...RELEASE_FILES, ...OPTIONAL_FILES.filter((name) => fs.existsSync(path.join(dir, name)))].map((name) => ({ name, from: path.join(dir, name) })),
     dirs: fs.existsSync(path.join(web, "index.html")) ? [{ name: "web", from: web }] : [],
   };
 }
@@ -65,7 +67,8 @@ export async function install(o: Options, say: Say): Promise<void> {
   writeDefaults(l, o.lan);
 
   if (!(await svc.available())) {
-    say("没有可用的 systemd 用户实例（容器或未开启 systemd 的 WSL）：已放好文件，请用 `quetzal run` 前台运行，并交给你自己的进程守护者。");
+    say(isMac ? "这台 Mac 上用不了 launchctl：已放好文件，请用 `quetzal run` 前台运行，并交给你自己的进程守护者。"
+      : "没有可用的 systemd 用户实例（容器或未开启 systemd 的 WSL）：已放好文件，请用 `quetzal run` 前台运行，并交给你自己的进程守护者。");
     return;
   }
   await svc.install({ home: l.home, node: process.execPath });
@@ -83,5 +86,6 @@ export async function install(o: Options, say: Say): Promise<void> {
   if (lanEnabled(l)) say("局域网走加密连接（地址与证书指纹见下）：手机上的 Quetzal App 填这台机器的地址配对，核对 App 显示的指纹与配对通知里的一致；浏览器打开会提示证书不受信任，核对指纹后再继续。");
   const removed = prune(l);
   if (removed.length) say(`清理旧版本：${removed.join("、")}`);
+  if (isMac) say(`提示：launchd 用户代理在你登录这台 Mac 后运行。要让 ta 看屏幕、点击和输入，在 系统设置 › 隐私与安全性 › 辅助功能 与 屏幕与系统录音 里加入 ${process.execPath}，再 quetzal restart。`);
   if (!linger) say("提示：loginctl enable-linger 未成功，这个用户没有登录会话时服务不会运行；服务器上可手动执行 `sudo loginctl enable-linger $USER`。");
 }

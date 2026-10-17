@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { layout, defaultHome, versionOf, rollback } from "./layout.ts";
-import * as svc from "./service.ts";
+import { svc, isMac, adapterFile } from "./supervisor.ts";
 import { health } from "./health.ts";
 import { install, placeRelease, bundled, gatewayPort, gatewayHost, consoleUrl, hasConsole } from "./install.ts";
 import { lanEnabled, lanPort, lanUrls, certFingerprint } from "./lan.ts";
@@ -21,17 +21,17 @@ const pkg = { version: cliVersion() };
 const say = (s: string) => console.log(s);
 process.stdout.on("error", () => {}); // 输出被管道提前关闭（如 | head）时不报错
 
-const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台 Linux 机器上
+const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台 Linux 或 macOS 机器上
 
 用法：npx @plutokeating/quetzal [命令] [选项]
 
 命令（不给命令 = install）：
-  install            安装或升级到包里内置的版本，注册 systemd 用户服务并启动；失败自动切回上一版；有桌面时顺手打开网页控制台
+  install            安装或升级到包里内置的版本，注册守护（Linux：systemd 用户服务；macOS：launchd 用户代理）并启动；失败自动切回上一版；有桌面时顺手打开网页控制台
   open               打开控制台：有原生控制台（一键安装脚本装的）就启动它，否则在浏览器里打开网页版（http://127.0.0.1:<端口>/）
-  run                前台运行（没有 systemd 时用；Ctrl-C 退出）
+  run                前台运行（没有 systemd / launchd 时用；Ctrl-C 退出）
   chat | tui         终端对话（连接本机同一个 agent；--conv ID 选会话）
   status             版本、服务与健康状态
-  logs [-f] [-n N]   服务日志（journald）；-f 持续输出
+  logs [-f] [-n N]   服务日志（Linux：journald；macOS：<家目录>/logs/runtime.log）；-f 持续输出
   start | stop | restart
   rollback           切回上一个版本并重启
   uninstall [--purge] 移除服务；--purge 连家目录（配置、记忆、对话）一起删除
@@ -75,7 +75,7 @@ function parse(argv: string[]) {
 function requireNode() {
   const [maj, min] = process.versions.node.split(".").map(Number);
   if (maj < 22 || (maj === 22 && min < 13)) throw new Error(`需要 Node.js 22.13 以上（内置 node:sqlite），当前 ${process.versions.node}`);
-  if (process.platform !== "linux" && process.platform !== "win32") throw new Error("这个包只支持 Linux 与 Windows；其他系统请看 https://quetzal.plutokeating.beer");
+  if (process.platform !== "linux" && process.platform !== "win32" && process.platform !== "darwin") throw new Error("这个包只支持 Linux、macOS 与 Windows；其他系统请看 https://quetzal.plutokeating.beer");
 }
 
 async function status(home: string) {
@@ -83,7 +83,7 @@ async function status(home: string) {
   const h = await health(gatewayPort(l));
   say(`家目录    ${l.home}`);
   say(`版本      ${versionOf(l.current) ?? "（未安装）"}${versionOf(l.previous) ? `（上一版 ${versionOf(l.previous)}）` : ""}`);
-  say(`服务      ${svc.isInstalled() ? ((await svc.isActive()) ? "运行中（systemd 用户服务 quetzal）" : "已安装，未运行") : "未安装"}`);
+  say(`服务      ${svc.isInstalled() ? ((await svc.isActive()) ? `运行中（${svc.NAME}）` : "已安装，未运行") : "未安装"}`);
   say(`运行基座  ${h ? `${h.version} ${h.safeMode ? "安全模式" : h.mode}` : "没有响应"}`);
   const host = gatewayHost(l);
   say(`网关      127.0.0.1:${gatewayPort(l)}（明文，只在本机）`);
@@ -99,6 +99,13 @@ async function status(home: string) {
 async function open(home: string): Promise<void> {
   const l = layout(home);
   const url = consoleUrl(l);
+  if (isMac) { // macOS：控制台用网关托管的网页版（Flutter 的 macOS 桌面版还没有），open 交给默认浏览器
+    if (!hasConsole(l)) { say(`这个版本没有内置网页控制台；网关在 ${url}`); return; }
+    const p = spawn("open", [url], { stdio: "ignore", detached: true });
+    p.on("error", () => say(`打不开浏览器：请手动打开 ${url}`));
+    p.on("spawn", () => { p.unref(); say(`已在浏览器里打开 ${url}`); });
+    return;
+  }
   if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) { say(`没有桌面会话：在有浏览器的机器上打开 ${url}（需要先 ssh -L ${gatewayPort(l)}:127.0.0.1:${gatewayPort(l)} 转发端口）`); return; }
   const native = path.join(l.home, "console", "current", "quetzal-console");
   if (fs.existsSync(native)) {
@@ -118,7 +125,7 @@ async function runForeground(home: string) {
   const l = layout(home);
   placeRelease(l);
   const child = spawn(process.execPath, ["--enable-source-maps", path.join(l.current, "main.cjs")], {
-    cwd: l.current, stdio: "inherit", env: { ...process.env, QUETZAL_HOME: l.home, QUETZAL_ADAPTER: path.join(l.current, "linux.mjs") },
+    cwd: l.current, stdio: "inherit", env: { ...process.env, QUETZAL_HOME: l.home, QUETZAL_ADAPTER: path.join(l.current, adapterFile) },
   });
   for (const s of ["SIGINT", "SIGTERM"] as const) process.on(s, () => child.kill(s));
   return new Promise<number>((r) => child.on("exit", (c) => r(c ?? 1)));
@@ -144,7 +151,7 @@ async function main() {
     case "open": return open(o.home);
     case "run": process.exitCode = await runForeground(o.home); return;
     case "status": return status(o.home);
-    case "logs": process.exitCode = await svc.logs(o.lines, o.follow); return;
+    case "logs": process.exitCode = await svc.logs(o.lines, o.follow, l.home); return;
     case "start": await svc.start(); return status(o.home);
     case "stop": await svc.stop(); return say("已停止");
     case "restart": await svc.restart(); return status(o.home);
@@ -156,7 +163,7 @@ async function main() {
     }
     case "uninstall": {
       if (svc.isInstalled()) await svc.uninstall();
-      say("已移除 systemd 用户服务");
+      say(`已移除 ${svc.NAME}`);
       if (o.purge) { fs.rmSync(l.home, { recursive: true, force: true }); say(`已删除家目录 ${l.home}（配置、记忆、对话都没有了；灵魂仓库里的内容仍在远端）`); }
       else say(`家目录 ${l.home} 保留（配置、记忆、对话）；要一起删除请加 --purge`);
       return;

@@ -105,7 +105,7 @@ export function patchConfig(l: Layout, patch: (c: Record<string, any>) => void) 
   return c;
 }
 
-/** 身体名字的缺省：主机名（小写、只留字母数字与连字符），拿不到就 linux。只在还没有配置时写入。 */
-export function defaultBody(hostname = os.hostname()): string {
-  return hostname.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "linux";
+/** 身体名字的缺省：主机名（macOS 上去掉 Bonjour 的 .local 后缀，小写、只留字母数字与连字符），拿不到就按系统叫 linux / mac。只在还没有配置时写入。 */
+export function defaultBody(hostname = os.hostname(), platform: string = process.platform): string {
+  return (platform === "darwin" ? hostname.replace(/\.local\.?$/i, "") : hostname).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || (platform === "darwin" ? "mac" : "linux");
 }
