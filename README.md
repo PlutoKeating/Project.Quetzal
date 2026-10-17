@@ -131,7 +131,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 缺的依赖自动补齐，开机自启。登录后，ta 会在你的 GitHub 上自动建好私有的灵魂仓库；不登录也能用，记忆先存在设备上。
 
-[安装](https://quetzal.plutokeating.beer/zh/docs/start/install) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · [Windows](https://quetzal.plutokeating.beer/zh/docs/advanced/windows) · 把一台旧手机腾出来的记录 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
+[安装](https://quetzal.plutokeating.beer/zh/docs/start/install) · [Linux 与其他机器](https://quetzal.plutokeating.beer/zh/docs/advanced/other-machines) · [Windows](https://quetzal.plutokeating.beer/zh/docs/advanced/windows)
 
 <br/>
 

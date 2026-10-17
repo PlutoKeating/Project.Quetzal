@@ -19,16 +19,16 @@ test("中文按二字组分词，英文按词", () => {
 });
 
 test("笔记目录树：分类路径、摘要、移动、删除与目录索引", () => {
-  assert.match(mem.saveNote("身体/honor9/硬件", "麒麟 960，6 GB 内存", false, "这具身体的硬件"), /身体\/honor9\/硬件/);
+  assert.match(mem.saveNote("身体/handset/硬件", "八核处理器，6 GB 内存", false, "这具身体的硬件"), /身体\/handset\/硬件/);
   mem.saveNote("人/PK/喜好", "喜欢下雨天和《沙丘》", false, "PK 喜欢什么");
   mem.saveNote("草稿", "临时想法");
   assert.equal(mem.notePath("a/b/c/d/e/f"), "a/b/c/d-e-f"); // 最多 4 层
   assert.equal(mem.notePath("我的 笔记"), "我的-笔记");
-  assert.deepEqual(mem.listNotes().map((n) => n.name).sort(), ["人/PK/喜好", "草稿", "身体/honor9/硬件"]);
+  assert.deepEqual(mem.listNotes().map((n) => n.name).sort(), ["人/PK/喜好", "草稿", "身体/handset/硬件"]);
   assert.equal(mem.listNotes().find((n) => n.name === "人/PK/喜好")!.summary, "PK 喜欢什么");
   const tree = mem.noteTree();
   assert.match(tree, /身体\/（1 篇）/);
-  assert.match(tree, /硬件：这具身体的硬件  \[身体\/honor9\/硬件\]/);
+  assert.match(tree, /硬件：这具身体的硬件  \[身体\/handset\/硬件\]/);
   assert.match(mem.noteTree("人"), /PK\//);
   assert.doesNotMatch(mem.noteTree("人"), /硬件/);
   assert.match(mem.moveNote("草稿", "想法/草稿"), /已移动/);

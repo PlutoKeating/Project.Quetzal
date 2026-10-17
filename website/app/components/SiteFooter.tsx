@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import { localized, useLang, useMessages } from "~/i18n/core";
 import { Container } from "~/design-system/components";
 import { Wordmark } from "./Wordmark";
-import { GITHUB_ISSUES, GITHUB_RELEASES, GITHUB_REPO, HONOR9_REPO, shellMessages } from "./i18n";
+import { GITHUB_ISSUES, GITHUB_RELEASES, GITHUB_REPO, shellMessages } from "./i18n";
 
 export function SiteFooter() {
   const lang = useLang();
@@ -29,7 +29,6 @@ export function SiteFooter() {
           <a className={link} href={GITHUB_REPO} target="_blank" rel="noreferrer noopener">{t.footer.source} ↗</a>
           <a className={link} href={GITHUB_RELEASES} target="_blank" rel="noreferrer noopener">{t.footer.changelog} ↗</a>
           <a className={link} href={GITHUB_ISSUES} target="_blank" rel="noreferrer noopener">{t.footer.issues} ↗</a>
-          <a className={link} href={HONOR9_REPO} target="_blank" rel="noreferrer noopener">{t.footer.practice} ↗</a>
         </nav>
         <nav aria-label={t.footer.legal} className={col}>
           <p className={head}>{t.footer.legal}</p>

@@ -111,8 +111,8 @@ test("配置：缺公开地址报错，TURN 密钥太短报错", () => {
 });
 
 test("TURN 凭据与 coturn 的 use-auth-secret 算法一致", () => {
-  const c = turnCredential("secret", "abc-honor9", 3600, 1_700_000_000_000);
-  assert.equal(c.username, `${1_700_000_000 + 3600}:abc-honor9`);
+  const c = turnCredential("secret", "abc-handset", 3600, 1_700_000_000_000);
+  assert.equal(c.username, `${1_700_000_000 + 3600}:abc-handset`);
   assert.equal(c.credential, crypto.createHmac("sha1", "secret").update(c.username).digest("base64"));
 });
 
@@ -150,7 +150,7 @@ test("CSRF：跨站来源的表单 POST 被拒绝", async () => {
 
 test("设备码绑定 → WebSocket 在场与信令 → 解绑立即断开", async () => {
   const b = new Browser(); await b.login(42);
-  const phone = await bind(b, "honor9"), pc = await bind(b, "pc");
+  const phone = await bind(b, "handset"), pc = await bind(b, "pc");
   assert.equal(phone.res.agent.id, AGENT);
   assert.equal(phone.res.account, "user42");
 
@@ -160,7 +160,7 @@ test("设备码绑定 → WebSocket 在场与信令 → 解绑立即断开", asy
   assert.deepEqual(w.peers.map((p: any) => [p.body, p.online]), [["pc", false]]);
   assert.equal(w.iceServers.length, 2);
   assert.match(w.iceServers[1].username, /^\d+:[A-Za-z0-9_-]{22}$/, "TURN 用户名的标识部分是不透明的 HMAC");
-  assert.ok(!w.iceServers[1].username.includes("honor9") && !w.iceServers[1].username.includes(AGENT.slice(0, 8)));
+  assert.ok(!w.iceServers[1].username.includes("handset") && !w.iceServers[1].username.includes(AGENT.slice(0, 8)));
 
   const p = await connect(pc.token);
   await p.next("welcome");
@@ -168,7 +168,7 @@ test("设备码绑定 → WebSocket 在场与信令 → 解绑立即断开", asy
   assert.deepEqual([seen.peer.body, seen.peer.online, seen.peer.nodeKey], ["pc", true, pc.key]);
 
   // 定向信令原样转发，带来源
-  p.send({ t: "signal", to: "honor9", id: "1", data: { sdp: "offer", sig: "…" } });
+  p.send({ t: "signal", to: "handset", id: "1", data: { sdp: "offer", sig: "…" } });
   const sig = await a.next("signal");
   assert.deepEqual([sig.from, sig.id, sig.data.sdp], ["pc", "1", "offer"]);
   // 发给不在线的身体：明确报错
@@ -178,7 +178,7 @@ test("设备码绑定 → WebSocket 在场与信令 → 解绑立即断开", asy
   a.send({ t: "turn" });
   assert.equal((await a.next("error")).code, "rate_limited");
 
-  // 网页上解绑 pc：它的连接立即被断开，honor9 收到 peer.removed，旧令牌作废
+  // 网页上解绑 pc：它的连接立即被断开，handset 收到 peer.removed，旧令牌作废
   const acc = await (await b.req("/account")).text();
   const agentRow = acc.match(/name="agent" value="(\d+)"/)![1];
   await b.req("/account/bodies/remove", { method: "POST", form: { agent: agentRow, body: "pc" } });

@@ -132,7 +132,7 @@ export function recentJournal(maxChars = 3000): string {
   return out.join("\n");
 }
 
-// ---------- 笔记（语义记忆）：notes/ 下的目录树（规范 §3.9），最多 4 层，例如 身体/honor9/硬件
+// ---------- 笔记（语义记忆）：notes/ 下的目录树（规范 §3.9），最多 4 层，例如 身体/handset/硬件
 export const NOTE_DEPTH = 4;
 // 每一段在 Windows 上也要放得下（规范 v13 §3.13）：去掉控制字符，截到 60 字后再去掉结尾的点、保留名后面加 _
 const slug = (s: string) => safeSegment(s.trim().replace(/[\\/:*?"<>|\s\x00-\x1f]+/g, "-").replace(/^\.+/, "").slice(0, 60) || "untitled");

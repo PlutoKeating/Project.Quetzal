@@ -19,7 +19,6 @@ export const shellMessages = defineMessages({
       source: "源代码",
       issues: "问题反馈",
       license: "以 AGPL-3.0 许可开源",
-      practice: "把一台旧手机腾出来的记录：Project.Honor9",
     },
     skip: "跳到正文",
   },
@@ -40,7 +39,6 @@ export const shellMessages = defineMessages({
       source: "Source code",
       issues: "Issues",
       license: "Open source under AGPL-3.0",
-      practice: "Notes on clearing out an old phone: Project.Honor9",
     },
     skip: "Skip to content",
   },
@@ -49,4 +47,3 @@ export const shellMessages = defineMessages({
 export const GITHUB_REPO = "https://github.com/PlutoKeating/Project.Quetzal";
 export const GITHUB_ISSUES = `${GITHUB_REPO}/issues`;
 export const GITHUB_RELEASES = `${GITHUB_REPO}/releases`;
-export const HONOR9_REPO = "https://github.com/PlutoKeating/Project.Honor9";

@@ -16,7 +16,7 @@ class Nav extends ChangeNotifier {
 
   static const sections = ['chat', 'flow', 'memory', 'control'];
 
-  /// '#/memory/notes/身体%2Fhonor9' → (memory, notes, 身体/honor9)
+  /// '#/memory/notes/身体%2Fhandset' → (memory, notes, 身体/handset)
   static Place parse(String hash) {
     final parts = hash.replaceFirst(RegExp(r'^#?/?'), '').split('/').where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty || !sections.contains(parts[0])) return (section: 'chat', sub: null, id: null);

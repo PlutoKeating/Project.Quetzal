@@ -141,7 +141,7 @@
 
 ### 3.9 `notes/[<分类>/…/]<主题>.md`（共享笔记，目录树）
 
-- 笔记按目录树组织，路径写作「分类/子分类/主题」，**最多 4 层**，第 4 层必须是文件。例如 `notes/身体/honor9/硬件.md`。
+- 笔记按目录树组织，路径写作「分类/子分类/主题」，**最多 4 层**，第 4 层必须是文件。例如 `notes/身体/handset/硬件.md`。
 - 路径的每一段（目录名与文件名）由原文得到：去掉 `\ / : * ? " < > |`、控制字符与空白（替换为 `-`），去掉开头的 `.`，最长 60 个字符；再去掉结尾的 `.`，Windows 保留名后面加 `_`（v13，见 §3.13）。超出层数时，多余的段并入最后一段（用 `-` 连接）。
 - 第一行 `# <主题>`。其后**可以**有一行以 `> ` 开头的一句话摘要，实现用它生成记忆目录（索引）。其余为自由 Markdown。
 - 目录里只放笔记与子目录；空目录不保留（`notes/` 自身为空时放 `.gitkeep`）。**不得**提交自动生成的索引文件，索引由实现在读取时即时生成。
@@ -150,7 +150,7 @@
 ### 3.10 `bodies/<body>.json`（身体登记）
 
 ```json
-{ "body": "honor9", "kind": "runtime", "runtime": "1.0.0", "meshKey": "<43 个字符的 base64url>", "uuid": "<8-4-4-4-12 的小写十六进制>", "lastSeen": "2026-09-28T02:00:00.000Z" }
+{ "body": "handset", "kind": "runtime", "runtime": "1.0.0", "meshKey": "<43 个字符的 base64url>", "uuid": "<8-4-4-4-12 的小写十六进制>", "lastSeen": "2026-09-28T02:00:00.000Z" }
 { "body": "hermes-pc", "kind": "bridge", "framework": "hermes", "bridge": "0.2.0", "host": "pc", "lastSeen": "…" }
 ```
 
@@ -185,7 +185,7 @@ metadata:
 ### 3.11 `locks/consolidation.json`（整理租约）
 
 ```json
-{ "body": "honor9", "until": 1790530000000 }
+{ "body": "handset", "until": 1790530000000 }
 ```
 
 - 表示某具身体正在整理常驻记忆，`until` 为毫秒时间戳，有效期 30 分钟。
@@ -213,7 +213,7 @@ metadata:
 ## 5. 提交约定
 
 - 作者：`<displayName> (<body>)`，邮箱 `<name>@<body>.local`。
-- 提交信息：`<说明>（<body>）`。例如 `做梦：……（honor9）`、`note_save：笔记 身体/honor9/硬件（honor9）`、`同步 Hermes Agent 的变更（hermes-pc）`、`撤销 1a2b3c4（honor9）`。
+- 提交信息：`<说明>（<body>）`。例如 `做梦：……（handset）`、`note_save：笔记 身体/handset/硬件（handset）`、`同步 Hermes Agent 的变更（hermes-pc）`、`撤销 1a2b3c4（handset）`。
 - 提交的粒度由实现决定，可以细到每次改动一个提交（v8：运行基座在 agent 的每次工具调用之后，只要灵魂目录有变化就提交一次）。
 - 每次推送前拉取合并，推送被拒时重新拉取合并后再推送；**不得**强制推送。
 

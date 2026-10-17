@@ -169,7 +169,7 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
 {
   "code": "BCDF-GHJK",
   "agent": { "id": "<uuid>", "name": "…" },
-  "body": "honor9",                 // 要绑定的身体；控制台登录时为发起它的那具身体
+  "body": "handset",                 // 要绑定的身体；控制台登录时为发起它的那具身体
   "kind": "runtime",                // runtime | bridge | console
   "version": "1.0.1",
   "fingerprint": "3f2a 9c01 77be d4e0", // 节点公钥指纹（§1）；控制台登录时为发起它的那具身体的指纹

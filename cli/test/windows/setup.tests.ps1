@@ -16,7 +16,7 @@ Check 'quote trailing backslash' (Quote-Arg 'C:\a b\') '"C:\a b\\"'
 Check 'quote embedded quote' (Quote-Arg 'say "hi"') '"say \"hi\""'
 Check 'quote backslash before quote' (Quote-Arg 'a\"b') '"a\\\"b"'
 
-Check 'body model' (Normalize-Body 'ThinkPad X1 Carbon Gen 9') 'thinkpad-x1-carbon-gen-9'
+Check 'body model' (Normalize-Body 'Example Laptop 14 Gen 2') 'example-laptop-14-gen-2'
 Check 'body placeholder' (Normalize-Body 'System Product Name') ''
 Check 'body oem' (Normalize-Body 'To be filled by O.E.M.') ''
 Check 'body reserved' (Normalize-Body 'CON') 'con-pc'
@@ -24,7 +24,7 @@ Check 'body com port' (Normalize-Body 'com3') 'com3-pc'
 Check 'body symbols' (Normalize-Body '  --Surface Laptop 5!! ') 'surface-laptop-5'
 Check 'body length' ((Normalize-Body ('a' * 60)).Length) 40
 Check 'body non-ascii' (Normalize-Body ([string][char]0x7535 + [char]0x8111)) ''
-Check 'body hostname' (Normalize-Body 'DESKTOP-7QK2ABC') 'desktop-7qk2abc'
+Check 'body hostname' (Normalize-Body 'DESKTOP-ABC1234') 'desktop-abc1234'
 
 Check 'version ok' (Valid-Version '1.4.0') 'True'
 Check 'version rc' (Valid-Version '1.4.0-rc.1') 'True'

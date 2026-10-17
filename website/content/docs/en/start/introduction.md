@@ -77,4 +77,4 @@ You need:
 3. Read [A month in](/docs/start/first-month) to learn what it records and where you can see it.
 4. Dip into the [Guide](/docs/guide/models) as needed.
 
-Quetzal is open source under AGPL-3.0, and the code is on [GitHub](https://github.com/PlutoKeating/Project.Quetzal). [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) is a full record of running it on one old phone.
+Quetzal is open source under AGPL-3.0, and the code is on [GitHub](https://github.com/PlutoKeating/Project.Quetzal).

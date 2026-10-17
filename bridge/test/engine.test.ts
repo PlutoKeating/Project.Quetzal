@@ -70,12 +70,12 @@ test("OpenClaw：自由 Markdown 与条目互转，agent 新写的段落被吸�
 test("OpenClaw：日记导出、其他身体日记镜像、共享笔记双向与删除", () => {
   const home = tmp(), soul = tmp(), st = {};
   w(`${home}/memory/2026-09-28.md`, "今天");
-  w(`${soul}/journal/honor9/2026-09-28.md`, "手机上的一天");
+  w(`${soul}/journal/handset/2026-09-28.md`, "手机上的一天");
   w(`${soul}/notes/天文.md`, "猎户座");
   const m = openclaw.mappings(home, "claw");
   syncMappings(m, soul, st);
   assert.equal(r(`${soul}/journal/claw/2026-09-28.md`), "今天");
-  assert.equal(r(`${home}/memory/bodies/honor9/2026-09-28.md`), "手机上的一天");
+  assert.equal(r(`${home}/memory/bodies/handset/2026-09-28.md`), "手机上的一天");
   assert.equal(r(`${home}/memory/notes/天文.md`), "猎户座");
   fs.rmSync(`${home}/memory/notes/天文.md`);
   syncMappings(m, soul, st);
@@ -85,14 +85,14 @@ test("OpenClaw：日记导出、其他身体日记镜像、共享笔记双向与
 test("共享笔记按目录树双向同步（规范 v2 §3.9）", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-notes-"));
   const native = path.join(root, "native"), soul = path.join(root, "soul");
-  fs.mkdirSync(path.join(native, "身体", "honor9"), { recursive: true });
-  fs.writeFileSync(path.join(native, "身体", "honor9", "硬件.md"), "# 硬件\n\n麒麟 960\n");
+  fs.mkdirSync(path.join(native, "身体", "handset"), { recursive: true });
+  fs.writeFileSync(path.join(native, "身体", "handset", "硬件.md"), "# 硬件\n\n八核处理器\n");
   fs.mkdirSync(path.join(soul, "notes", "人"), { recursive: true });
   fs.writeFileSync(path.join(soul, "notes", "人", "PK.md"), "# PK\n");
   const m = [{ id: "notes", kind: "files-both" as const, nativeDir: native, soulDir: "notes" }];
   const state = {};
   syncMappings(m, soul, state);
-  assert.equal(fs.readFileSync(path.join(soul, "notes", "身体", "honor9", "硬件.md"), "utf8"), "# 硬件\n\n麒麟 960\n");
+  assert.equal(fs.readFileSync(path.join(soul, "notes", "身体", "handset", "硬件.md"), "utf8"), "# 硬件\n\n八核处理器\n");
   assert.equal(fs.readFileSync(path.join(native, "人", "PK.md"), "utf8"), "# PK\n");
   fs.rmSync(path.join(soul, "notes", "人", "PK.md")); // 灵魂侧删除 → 框架侧同步删除
   syncMappings(m, soul, state);

@@ -133,18 +133,18 @@ const core: Tool[] = [
   },
   {
     name: "note_save", permission: "memory",
-    description: "保存或追加一篇长期笔记（语义记忆，所有身体共享，数量不限）。笔记按目录树存放：title 用「分类/子分类/主题」表示位置（最多 4 层），例如「身体/honor9/硬件」。写一句话 summary，它会出现在记忆目录里，帮你以后找到它。",
+    description: "保存或追加一篇长期笔记（语义记忆，所有身体共享，数量不限）。笔记按目录树存放：title 用「分类/子分类/主题」表示位置（最多 4 层），例如「身体/handset/硬件」。写一句话 summary，它会出现在记忆目录里，帮你以后找到它。",
     parameters: obj({ title: str("「分类/…/主题」"), body: str("正文（Markdown）"), summary: str("一句话摘要"), append: { type: "boolean", description: "追加到已有笔记" } }, ["title", "body"]),
     handler: async (a) => mem.exclusive(() => mem.saveNote(a.title, a.body, !!a.append, a.summary ?? "")),
   },
   {
     name: "note_read", permission: "memory", description: "读取一篇笔记的全文（name 为记忆目录里方括号中的路径）。",
-    parameters: obj({ name: str("笔记路径，如 身体/honor9/硬件") }, ["name"]),
+    parameters: obj({ name: str("笔记路径，如 身体/handset/硬件") }, ["name"]),
     handler: async (a) => mem.readNote(a.name) || `没有这篇笔记：${a.name}`,
   },
   {
     name: "note_list", permission: "memory", description: "浏览笔记目录树：不给 dir 看全部，给 dir 只看该分支（每篇附一句话摘要）。",
-    parameters: obj({ dir: str("分支，如 身体/honor9") }),
+    parameters: obj({ dir: str("分支，如 身体/handset") }),
     handler: async (a) => mem.noteTree(a.dir ?? "", 8000),
   },
   {

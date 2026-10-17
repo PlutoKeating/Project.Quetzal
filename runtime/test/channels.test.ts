@@ -18,12 +18,12 @@ test("同一句话：时间重叠、同样的字（不靠相似度猜）；留�
   assert.ok(!sameWords("今天天气怎么样", "今天天气怎么"), "少一个字就不是同一句：都交给她");
   assert.ok(overlap({ start: 0, end: 1000 }, { start: 900, end: 2000 }));
   assert.ok(!overlap({ start: 0, end: 1000 }, { start: 1001, end: 2000 }));
-  assert.equal(winner([{ id: "1", body: "phone", text: "你好", start: 0, end: 1 }, { id: "2", body: "p9", text: "你好", start: 0, end: 1 }]).body, "p9");
+  assert.equal(winner([{ id: "1", body: "phone", text: "你好", start: 0, end: 1 }, { id: "2", body: "p2", text: "你好", start: 0, end: 1 }]).body, "p2");
 });
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-channels-"));
 const keys: Record<string, string> = {};
-for (const b of ["honor9", "p9"]) { fs.mkdirSync(path.join(tmp, b, "secrets"), { recursive: true }); keys[b] = loadNodeKey(path.join(tmp, b, "secrets", "mesh_ed25519")).nodeKey; }
+for (const b of ["handset", "p2"]) { fs.mkdirSync(path.join(tmp, b, "secrets"), { recursive: true }); keys[b] = loadNodeKey(path.join(tmp, b, "secrets", "mesh_ed25519")).nodeKey; }
 const sync = await fakeSync({ ...keys });
 const procs: ChildProcess[] = [];
 function spawnBody(name: string) {
@@ -45,14 +45,14 @@ const until = async (f: () => Promise<boolean>, ms = 20_000) => { const t = Date
 after(() => { for (const p of procs) p.kill(); sync.close(); });
 
 test("两部手机的耳朵同时听到同一句话：只有一只交给她；不同的话各自保留；另一具身体知道该从哪里说", { skip }, async () => {
-  const a = spawnBody("honor9"), b = spawnBody("p9");
+  const a = spawnBody("handset"), b = spawnBody("p2");
   await Promise.all([a.ready, b.ready]);
-  await until(async () => (await a.call<string[]>("connected")).includes("p9") && (await b.call<string[]>("connected")).includes("honor9"));
+  await until(async () => (await a.call<string[]>("connected")).includes("p2") && (await b.call<string[]>("connected")).includes("handset"));
 
   const at = Date.now();
   const [ka, kb] = await Promise.all([a.call<boolean>("heard", { text: "薰，今天天气怎么样", conv: "v1", at }), b.call<boolean>("heard", { text: "薰今天天气怎么样？", conv: "v1", at: at + 300 })]);
   assert.deepEqual([ka, kb].filter(Boolean).length, 1, "只有一只耳朵把这句话交给她");
-  const keeper = ka ? "honor9" : "p9", other = ka ? b : a;
+  const keeper = ka ? "handset" : "p2", other = ka ? b : a;
   await until(async () => (await other.call("earOf", { conv: "v1" })) === keeper);
 
   const [ka2, kb2] = await Promise.all([a.call<boolean>("heard", { text: "帮我看看日程", conv: "v2" }), b.call<boolean>("heard", { text: "今晚吃什么好呢", conv: "v3" })]);

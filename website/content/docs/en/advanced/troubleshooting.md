@@ -26,7 +26,7 @@ Check in order:
 ## Offline / killed by the system
 
 - When the **Now** page shows the offline banner, tap **Start**: the app starts its own foreground service again (the permanent "lives on this phone" notification).
-- Killed repeatedly: make sure Quetzal is on the **battery optimization ignore list** and **allowed** in the vendor's autostart / background manager. Some vendor systems ship a separate "power genie" style component that ignores the whitelist and must be turned off or disabled in system settings ([Project.Honor9](https://github.com/PlutoKeating/Project.Honor9) records how on one old phone).
+- Killed repeatedly: make sure Quetzal is on the **battery optimization ignore list** and **allowed** in the vendor's autostart / background manager. Some vendor systems ship a separate "power genie" style component that ignores the whitelist and must be turned off or disabled in system settings.
 - **Offline after a reboot or an app update**: a phone with a lock screen password must be unlocked once. If the vendor system has not allowed autostart, it blocks the boot and update broadcasts; open the app once, and allow autostart so it does not happen again.
 
 ## Safe mode

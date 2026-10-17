@@ -131,7 +131,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 Missing dependencies are installed for you, and it starts at boot. Once you sign in, it creates the private soul repository on your GitHub by itself; without signing in it still works, and memory stays on the device.
 
-[Install](https://quetzal.plutokeating.beer/en/docs/start/install) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · [Windows](https://quetzal.plutokeating.beer/en/docs/advanced/windows) · How an old phone was cleared out for it: [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)
+[Install](https://quetzal.plutokeating.beer/en/docs/start/install) · [Linux and other machines](https://quetzal.plutokeating.beer/en/docs/advanced/other-machines) · [Windows](https://quetzal.plutokeating.beer/en/docs/advanced/windows)
 
 <br/>
 

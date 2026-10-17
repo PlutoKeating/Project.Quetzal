@@ -77,4 +77,4 @@ ta 的名字、人格、主题色都写在 ta 自己的灵魂仓库里。Quetzal
 3. 读 [一个月后](/docs/start/first-month)，知道 ta 会记下什么、你在哪里能看到。
 4. 需要时再看 [使用指南](/docs/guide/models) 里的各项功能。
 
-Quetzal 是 AGPL-3.0 开源项目，源码在 [GitHub](https://github.com/PlutoKeating/Project.Quetzal)。一台旧手机上的完整实践记录见 [Project.Honor9](https://github.com/PlutoKeating/Project.Honor9)。
+Quetzal 是 AGPL-3.0 开源项目，源码在 [GitHub](https://github.com/PlutoKeating/Project.Quetzal)。

@@ -59,7 +59,7 @@ The agent needs to run commands to look things up, sort files and build tools, s
 3. Commands run in the sandbox and cannot see keys. Without a sandbox they do not run;
 4. The system prompt spells out hard rules: do not run git in the soul directory, do not fix sync errors yourself, and ask a person before anything that cannot be undone or that reaches outside.
 
-The code enforces the first three. The fourth works only if the agent follows the rules. The full record is in [Project.Honor9's experiment notes](https://github.com/PlutoKeating/Project.Honor9/blob/main/docs/experiments/2026-10-05-soul-incident-cleanup.md).
+The code enforces the first three. The fourth works only if the agent follows the rules.
 
 ### What we recommend
 

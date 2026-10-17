@@ -10,7 +10,7 @@ import path from "node:path";
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-heart-op-"));
 const cfg = await import("../src/config.ts");
 cfg.loadConfig();
-cfg.saveConfig({ body: "honor9" });
+cfg.saveConfig({ body: "handset" });
 const store = await import("../src/store.ts");
 store.openStore();
 const heart = await import("../src/heart/heart.ts");

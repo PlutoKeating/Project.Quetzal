@@ -59,7 +59,7 @@ ta 查资料、整理文件、造工具，都要靠运行命令，所以「执�
 3. 命令进入隔离环境，看不到密钥；没有隔离环境就不执行；
 4. 系统提示里写明红线：不在灵魂目录里运行 git、同步出错不自己修、不可逆或对外的操作先问人。
 
-前三条由代码执行，第四条靠 ta 遵守。完整的记录在 [Project.Honor9 的实验记录](https://github.com/PlutoKeating/Project.Honor9/blob/main/docs/experiments/2026-10-05-soul-incident-cleanup.md) 里。
+前三条由代码执行，第四条靠 ta 遵守。
 
 ### 我们建议
 

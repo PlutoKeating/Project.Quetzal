@@ -132,7 +132,7 @@ test("脱敏：基座自己的密钥也替换；工具参数写进审计前替�
   assert.equal(redactSecrets("x sync_tok_abcdefghijklmnop"), "x ‹secret:sync.json›", "JSON 里的字符串值");
   assert.equal(redactSecrets("https://sync.example.com"), "https://sync.example.com", "地址不算密钥");
   // 按结构认定、不按长度：JSON 里只有凭据字段（token）是密钥；账户名、身体名这些公开字段多长都不替换，凭据多短都替换
-  writeSecret("sync.json", JSON.stringify({ token: "qsb_x", server: "https://sync.example.com", agent: "a-1", body: "honor9", account: "PlutoKeating" }));
+  writeSecret("sync.json", JSON.stringify({ token: "qsb_x", server: "https://sync.example.com", agent: "a-1", body: "handset", account: "PlutoKeating" }));
   assert.equal(redactSecrets("gh api repos/PlutoKeating/Project.Quetzal"), "gh api repos/PlutoKeating/Project.Quetzal", "账户名不是密钥（2026-10-09：被替换后她用占位符连调二十多次）");
   assert.equal(redactSecrets("Bearer qsb_x"), "Bearer ‹secret:sync.json›", "短的凭据同样替换");
   assert.deepEqual(redactArgs({ command: `curl -H "x: ${TOKEN}"` }), { command: 'curl -H "x: ‹secret:gateway.token›"' });

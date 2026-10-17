@@ -45,7 +45,7 @@ test("没绑定：不能登录账户", async () => {
 
 test("控制台登录 → 账户接口 → 令牌被吊销后回到未登录", async () => {
   fs.mkdirSync(paths.secrets, { recursive: true });
-  fs.writeFileSync(path.join(paths.secrets, "sync.json"), JSON.stringify({ server: url, token: "qsb_body", agent: "a", body: "honor9", account: "pluto" }));
+  fs.writeFileSync(path.join(paths.secrets, "sync.json"), JSON.stringify({ server: url, token: "qsb_body", agent: "a", body: "handset", account: "pluto" }));
   const started = await acct.signIn();
   assert.deepEqual([started.bound, started.signedIn, started.signing?.code], [true, false, "BCDF-GHJK"]);
   const t = Date.now();
@@ -69,7 +69,7 @@ test("一次登录：绑定时随批准拿到的控制台令牌直接存下，�
     let body = ""; req.on("data", (d) => (body += d)); req.on("end", () => {
       const code = JSON.parse(body).device_code;
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ access_token: "qsb_new", agent: { id: "a" }, body: "honor9", account: "pluto", console: { access_token: code === "good" ? "qsc_account" : "not a token", expires_in: 1 } }));
+      res.end(JSON.stringify({ access_token: "qsb_new", agent: { id: "a" }, body: "handset", account: "pluto", console: { access_token: code === "good" ? "qsc_account" : "not a token", expires_in: 1 } }));
     });
   });
   await new Promise<void>((r) => fake.listen(0, "127.0.0.1", () => r()));

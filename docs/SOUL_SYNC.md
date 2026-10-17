@@ -75,7 +75,7 @@ sequenceDiagram
   participant R as 灵魂仓库
   A->>T: 调用工具（memory、note_save、shell……）
   T-->>S: 工具结束
-  S->>S: git status：灵魂目录变了？→ 立即提交「note_save：笔记 身体/硬件（honor9）」
+  S->>S: git status：灵魂目录变了？→ 立即提交「note_save：笔记 身体/硬件（handset）」
   S->>S: 3 秒去抖（一轮结束时立即）
   S->>R: push --porcelain（引用被拒 → 拉取合并后重推）
   alt git 失败（网络、钥匙、主机密钥……不按报错文字猜是哪一种）

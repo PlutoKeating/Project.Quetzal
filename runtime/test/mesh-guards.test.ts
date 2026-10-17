@@ -11,7 +11,7 @@ import { EventEmitter } from "node:events";
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-mesh-guards-"));
 const cfg = await import("../src/config.ts");
 cfg.loadConfig();
-cfg.saveConfig({ body: "honor9" });
+cfg.saveConfig({ body: "handset" });
 const store = await import("../src/store.ts");
 store.openStore();
 const shared = await import("../src/mesh/shared.ts");
@@ -26,9 +26,9 @@ test("复制来的对话：编号段与作者对得上、实时只收对方自�
   const ok = applyRemote("messages", [msg("pc", 1)], { from: "pc" });
   assert.deepEqual([ok.changed.length, ok.rejected], [1, 0]);
   const bad = [
-    msg("p9", 1),                                     // 实时：不是发来的身体自己写的
-    msg("honor9", 5),                                 // 实时：冒充这具身体
-    { ...msg("pc", 2), id: seg("p9") + 2 },           // 编号不在作者的段里
+    msg("p2", 1),                                     // 实时：不是发来的身体自己写的
+    msg("handset", 5),                                 // 实时：冒充这具身体
+    { ...msg("pc", 2), id: seg("p2") + 2 },           // 编号不在作者的段里
     msg("pc", 3, { role: "system" }),                 // 角色不认得
     msg("pc", 4, { ts: Date.now() + 3600_000 }),      // 时间在未来
     msg("pc", 5, { ts: "x" }),
@@ -43,7 +43,7 @@ test("复制来的对话：编号段与作者对得上、实时只收对方自�
   const r = applyRemote("messages", bad, { from: "pc" });
   assert.deepEqual([r.changed.length, r.rejected], [0, bad.length]);
   // 补齐时可以带别的身体的行，也可以带回这具身体自己的旧行（重装后找回历史），但编号段同样要对得上
-  const c = applyRemote("messages", [msg("p9", 1), msg("honor9", 3), msg("honor9", SEQ_MAX + 1), { ...msg("p9", 2), id: seg("pc") + 99 }], { from: "pc", catchUp: true });
+  const c = applyRemote("messages", [msg("p2", 1), msg("handset", 3), msg("handset", SEQ_MAX + 1), { ...msg("p2", 2), id: seg("pc") + 99 }], { from: "pc", catchUp: true });
   assert.deepEqual([c.changed.length, c.rejected], [2, 2]);
   // 列表与会话照常可读（坏数据没进库）
   assert.ok(store.sessionMessages("g1").every((m) => typeof m.text === "string"));
@@ -51,11 +51,11 @@ test("复制来的对话：编号段与作者对得上、实时只收对方自�
 
 test("段尾的编号顶不出段：本机的下一个编号总在自己的段里", () => {
   const before = store.addMessage("user", "控制台", "本机的话", { session: "g2" });
-  assert.equal(Math.floor(before / ID_RANGE), idPrefixOf("honor9"));
+  assert.equal(Math.floor(before / ID_RANGE), idPrefixOf("handset"));
   // 有人在补齐时塞进这具身体段尾的编号：被拒；即使旧库里已有（来自修复之前），下一个编号也不越段
-  store.db.prepare("INSERT INTO messages(id,ts,role,channel,text,session,body) VALUES(?,?,?,?,?,?,?)").run(seg("honor9") + ID_RANGE - 1, Date.now(), "user", "控制台", "旧的坏行", "g2", "mallory");
+  store.db.prepare("INSERT INTO messages(id,ts,role,channel,text,session,body) VALUES(?,?,?,?,?,?,?)").run(seg("handset") + ID_RANGE - 1, Date.now(), "user", "控制台", "旧的坏行", "g2", "mallory");
   const next = store.addMessage("user", "控制台", "又一句", { session: "g2" });
-  assert.equal(Math.floor(next / ID_RANGE), idPrefixOf("honor9"));
+  assert.equal(Math.floor(next / ID_RANGE), idPrefixOf("handset"));
   assert.equal(next, before + 1);
 });
 
@@ -83,13 +83,13 @@ test("用量：只收对方自己的行、数值为有限的非负数", () => {
   const day = store.today();
   store.applyUsage([
     { day, model: "m", body: "pc", input: 10, output: 5, cost: 0.1 },
-    { day, model: "m", body: "p9", input: 1e9, output: 0, cost: 0 },     // 不是发来的身体的
+    { day, model: "m", body: "p2", input: 1e9, output: 0, cost: 0 },     // 不是发来的身体的
     { day, model: "m2", body: "pc", input: -5, output: 0, cost: 0 },
     { day, model: "m3", body: "pc", input: Infinity, output: 0, cost: 0 },
     { day: "yesterday", model: "m", body: "pc", input: 1, output: 1, cost: 0 },
   ], "pc");
   store.applyUsage("not rows", "pc");
-  const rows = store.usageRows().filter((r) => r.body !== "honor9");
+  const rows = store.usageRows().filter((r) => r.body !== "handset");
   assert.deepEqual(rows.map((r) => [r.body, r.model, r.input]), [["pc", "m", 10]]);
 });
 
@@ -137,7 +137,7 @@ test("急停「停优先」：别处的停随时生效；解除只解除对方�
     const A = "aaaaaaaaaaaaaaaa", B = "bbbbbbbbbbbbbbbb";
     send("pc", { stopped: true, ids: [A] }, 1); // 修改时刻很旧也照样停
     assert.equal(stopped(), true);
-    send("p9", { stopped: false, ids: [], released: [B] }, Date.now()); // 解除的不是这一次
+    send("p2", { stopped: false, ids: [], released: [B] }, Date.now()); // 解除的不是这一次
     assert.equal(stopped(), true, "解除别的急停解不掉这一次");
     send("pc", { stopped: false, ids: [], released: [A] }, 2);
     assert.equal(stopped(), false);
@@ -167,17 +167,17 @@ test("别处的审批：按身体区分，编号相同分不清时不批；给�
     const id = "0123456789abcdef";
     const ap = (status = "pending") => ({ id, action: "执行命令\u0000", reason: "x".repeat(5000), args: { cmd: "ls" }, status });
     m.emit("event", { from: "pc", name: "approval", data: ap() });
-    m.emit("event", { from: "p9", name: "approval", data: { ...ap(), body: "pc" } }); // 自称在 pc 上：一律按发来的身体记
-    m.emit("event", { from: "p9", name: "approval", data: { id: "../../x", action: "坏的", status: "pending" } });
+    m.emit("event", { from: "p2", name: "approval", data: { ...ap(), body: "pc" } }); // 自称在 pc 上：一律按发来的身体记
+    m.emit("event", { from: "p2", name: "approval", data: { id: "../../x", action: "坏的", status: "pending" } });
     const list = shared.remoteApprovals();
-    assert.deepEqual(list.map((a) => a.body).sort(), ["p9", "pc"]);
+    assert.deepEqual(list.map((a) => a.body).sort(), ["p2", "pc"]);
     assert.ok(list.every((a) => a.reason.length <= 2000 && !a.action.includes("\u0000")));
     assert.equal(await shared.decideAnywhere(id, true, "测试"), false, "分不清是哪一件：不处理");
     assert.equal(m.calls.length, 0);
-    assert.equal(await shared.decideAnywhere(id, true, "测试", "", "p9"), true);
-    assert.deepEqual(m.calls.map((c) => [c.body, c.method, c.params.id]), [["p9", "approval.decide", id]]);
+    assert.equal(await shared.decideAnywhere(id, true, "测试", "", "p2"), true);
+    assert.deepEqual(m.calls.map((c) => [c.body, c.method, c.params.id]), [["p2", "approval.decide", id]]);
     m.emit("event", { from: "pc", name: "approval", data: ap("approved") });
-    assert.deepEqual(shared.remoteApprovals().map((a) => a.body), ["p9"]);
+    assert.deepEqual(shared.remoteApprovals().map((a) => a.body), ["p2"]);
   } finally { off(); }
 });
 

@@ -103,10 +103,10 @@ test("/v1/web/*：CORS 只放行网页前端；改动请求必须带对的 Origi
 test("经网页接口批准身体、查看账户、解绑身体、删除 agent 与账户", async () => {
   const b = new Browser(); await b.login(4);
   const agent = crypto.randomUUID();
-  await bindViaWeb(b, agent, "honor9");
+  await bindViaWeb(b, agent, "handset");
   await bindViaWeb(b, agent, "pc");
   const acc = await (await b.web("/v1/web/account")).json() as any;
-  assert.deepEqual(acc.agents.map((a: any) => [a.id, a.bodies.map((x: any) => x.body)]), [[agent, ["honor9", "pc"]]]);
+  assert.deepEqual(acc.agents.map((a: any) => [a.id, a.bodies.map((x: any) => x.body)]), [[agent, ["handset", "pc"]]]);
   assert.equal(JSON.stringify(acc).includes("qsb_"), false, "不含令牌");
   assert.equal((await b.web("/v1/web/bodies/remove", { agent, body: "pc" })).status, 200);
   assert.equal((await b.web("/v1/web/bodies/remove", { agent, body: "nope" })).status, 404);
@@ -120,7 +120,7 @@ test("经网页接口批准身体、查看账户、解绑身体、删除 agent �
 test("控制台登录：只有本账户下的身体能申请；令牌只能用于账户接口；可在账户里看到并吊销", async () => {
   const owner = new Browser(); await owner.login(7);
   const agent = crypto.randomUUID();
-  const bodyToken = await bindViaWeb(owner, agent, "honor9");
+  const bodyToken = await bindViaWeb(owner, agent, "handset");
   assert.equal((await api("/v1/console/code", {})).status, 401, "要身体令牌");
   const code = await (await api("/v1/console/code", {}, { authorization: `Bearer ${bodyToken}` })).json() as any;
   assert.equal(code.verification_uri, `${WEB}/device`);
@@ -131,7 +131,7 @@ test("控制台登录：只有本账户下的身体能申请；令牌只能用�
   assert.equal((await stranger.web("/v1/web/device/decide", { code: code.user_code, approve: true })).status, 409);
 
   const look = await (await owner.web("/v1/web/device/lookup", { code: code.user_code })).json() as any;
-  assert.deepEqual([look.kind, look.body], ["console", "honor9"]);
+  assert.deepEqual([look.kind, look.body], ["console", "handset"]);
   assert.equal((await owner.web("/v1/web/device/decide", { code: code.user_code, approve: true })).status, 200);
   const tok = await (await api("/v1/device/token", { device_code: code.device_code })).json() as any;
   assert.match(tok.access_token, /^qsc_/);
@@ -143,7 +143,7 @@ test("控制台登录：只有本账户下的身体能申请；令牌只能用�
   const acc = await (await asConsole("/v1/web/account")).json() as any;
   assert.equal(acc.user.login, "user7");
   assert.equal(acc.consoles.length, 2, "绑定时自动发的一个 + 这次单独申请的一个");
-  assert.deepEqual(acc.consoles.filter((c: any) => c.current).map((c: any) => c.body), ["honor9"]);
+  assert.deepEqual(acc.consoles.filter((c: any) => c.current).map((c: any) => c.body), ["handset"]);
   assert.equal((await s.app.request(PUBLIC + "/v1/web/account", { headers: { authorization: `Bearer ${bodyToken}` } })).status, 401, "身体令牌不能当账户令牌");
   assert.equal((await s.app.request(PUBLIC + "/v1/me", { headers: { authorization: `Bearer ${tok.access_token}` } })).status, 401, "账户令牌不能当身体令牌");
   assert.equal((await new Browser().req("/v1/web/account", { headers: { origin: WEB, cookie: `__Host-quetzal_session=${tok.access_token}` } })).status, 401, "控制台令牌不能当 Cookie 用");

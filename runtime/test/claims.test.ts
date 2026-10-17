@@ -11,7 +11,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-claims-"));
 process.env.QUETZAL_HOME = path.join(tmp, "home");
 const { loadConfig, saveConfig } = await import("../src/config.ts");
 loadConfig();
-saveConfig({ body: "honor9" });
+saveConfig({ body: "handset" });
 const store = await import("../src/store.ts");
 store.openStore();
 const claims = await import("../src/mind/claims.ts");
@@ -49,10 +49,10 @@ test("两个会话认领同一件事：后来的被告知是谁、在哪个会�
 
 test("到期自动失效；别处来的记录逐字段检查，同一编号取修改较新的，放下的留墓碑", () => {
   const now = Date.now();
-  const r = claims.take({ key: "发周报", note: "", minutes: 1, body: "honor9", holder: "x", where: "醒来思考" }, now);
+  const r = claims.take({ key: "发周报", note: "", minutes: 1, body: "handset", holder: "x", where: "醒来思考" }, now);
   assert.ok(r.ok);
   assert.equal(claims.holderOf("发周报", now + 2 * 60_000), undefined, "过了期限就没人认领了");
-  assert.ok(claims.release({ key: "发周报", body: "honor9", holder: "x", where: "" }).ok);
+  assert.ok(claims.release({ key: "发周报", body: "handset", holder: "x", where: "" }).ok);
   const id = "0123456789abcdef";
   const rec = { id, key: "下单买猫粮", note: "在比价", body: "pc", holder: "conv-z", where: "会话「家务」", ts: now, until: now + 600_000, updated: now };
   assert.equal(claims.merge([rec, { ...rec, id: "bad" }, { ...rec, id: "1111111111111111", until: now - 1 }, { ...rec, id: "2222222222222222", updated: now + 3600_000 }, { ...rec, id: "3333333333333333", until: now + 7 * 86_400_000 }]), true);
@@ -67,12 +67,12 @@ test("多具身体：认领经协调者决定；连不上协调者时在本机�
   const seen: string[] = [];
   claims.setClaimRouter((op, req) => { seen.push(`${op}:${req.key}`); return Promise.reject(new Error("断了")); });
   try {
-    const r = await claims.claim({ key: "离线时认领", body: "honor9", holder: "h", where: "w" });
+    const r = await claims.claim({ key: "离线时认领", body: "handset", holder: "h", where: "w" });
     assert.ok(r.ok, "连不上协调者：本机决定");
     assert.deepEqual(seen, ["take:离线时认领"]);
     const by = { id: "4444444444444444", key: "协调者那边有人认领了", note: "", body: "pc", holder: "c", where: "醒来思考", ts: Date.now(), until: Date.now() + 60_000, updated: Date.now() };
     claims.setClaimRouter(() => Promise.resolve({ ok: false, by }));
-    const r2 = await claims.claim({ key: "协调者那边有人认领了", body: "honor9", holder: "h", where: "w" });
+    const r2 = await claims.claim({ key: "协调者那边有人认领了", body: "handset", holder: "h", where: "w" });
     assert.equal(r2.ok, false);
     assert.equal(claims.holderOf("协调者那边有人认领了")?.body, "pc", "协调者的结果先在本机记下");
   } finally { claims.setClaimRouter(undefined); }
