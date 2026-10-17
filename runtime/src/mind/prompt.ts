@@ -21,6 +21,7 @@ import * as agents from "./agents.ts";
 import * as zone from "../time/zone.ts";
 import * as reminders from "../time/reminders.ts";
 import * as claims from "./claims.ts";
+import * as goals from "./goals.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
 
@@ -129,7 +130,6 @@ function hostBlock(conv?: string): string {
 export function systemPrompt(context = "", o: { conv?: string; dynamic?: boolean } = {}): string {
   const h = snapshot();
   const d = h.drives;
-  const loops = mem.openLoops();
   const me = identity();
   return [
     mem.soul(),
@@ -166,8 +166,8 @@ ${(() => { const l = reminders.active(); return l.length ? `你答应对方的�
     ...(hearingBlock() ? [hearingBlock()] : []),
     `## 内在状态
 清醒度 ${h.alertness.toFixed(2)}，睡眠压力 ${h.S.toFixed(2)}，昼夜节律 ${h.C.toFixed(2)}
-好奇心 ${d.curiosity.toFixed(2)}，表达欲 ${d.expression.toFixed(2)}，想念 ${d.social.toFixed(2)}，未完成的念头 ${d.openLoops.toFixed(2)}
-${loops.length ? "未完成的念头：\n" + loops.map((l) => `- [${l.id}] ${l.text}`).join("\n") : "没有未完成的念头"}`,
+好奇心 ${d.curiosity.toFixed(2)}，表达欲 ${d.expression.toFixed(2)}，想念 ${d.social.toFixed(2)}，牵挂（进行中的目标） ${d.openLoops.toFixed(2)}
+${goals.promptBlock()}`,
     soulPerception(),
     ...(o.dynamic ? [] : [`## 最近的日记\n${mem.recentJournal() || "（还没有日记）"}`]),
     `## ${o.conv ? "其他会话（都是你自己，同时进行；当前会话的历史在下面的对话里）" : "各个会话的近况（醒来时 send_message 可以用 session 填其中一个的 id，接着那段对话说）"}\n${otherSessions(o.conv) || "（没有其他会话）"}`,

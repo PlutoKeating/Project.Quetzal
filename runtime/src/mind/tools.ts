@@ -43,6 +43,7 @@ import { mcpBindings, callMcp } from "../mcp/runtime.ts";
 import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf, type RemoteBody } from "./bodies.ts";
 import * as claims from "./claims.ts";
+import { goalTool } from "./goals.ts";
 import { hostActive, touchHost, requestHost, exitHost, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
 
 /** 这一轮所在的、处在真实环境里的会话（只认对话；醒来、做梦、子 agent、其他身体的调用都没有）。 */
@@ -193,9 +194,23 @@ const core: Tool[] = [
     handler: async (a, ctx) => reminderTool(a, ctx.session?.conv),
   },
   {
-    name: "open_loop", permission: "memory", description: "管理未完成的念头：add 记下一件以后还想继续的事；close 放下或完成一件（用 id）。",
+    name: "open_loop", permission: "memory", description: "管理未完成的念头（没有步骤的目标，和 goal 是同一份）：add 记下一件以后还想继续的事；close 放下或完成一件（用 id）。需要分步骤、记进度的用 goal。",
     parameters: obj({ action: { type: "string", enum: ["add", "close"] }, text: str("念头"), id: str("要关闭的 id") }, ["action"]),
-    handler: async (a) => a.action === "add" ? `已记下，现在有 ${mem.addLoop(a.text)} 件` : `已放下，还剩 ${mem.closeLoop(a.id)} 件`,
+    handler: async (a, ctx) => a.action === "add" ? `已记下，现在有 ${mem.addLoop(a.text, ctx.session?.origin === "chat" ? ctx.session.conv : undefined)} 件` : `已放下，还剩 ${mem.closeLoop(a.id)} 件`,
+  },
+  {
+    name: "goal", permission: "memory",
+    description: "管理你的长期目标：需要几步、可能跨好几次醒来和对话才能做成的事（学一样东西、帮对方办成一件事、自己的计划）。所有身体共用同一份。" +
+      "action=add：title 标题，可选 detail 说明、steps 步骤（字符串数组）。update：按 id 改 title / detail，steps 整份替换（同样文字的步骤保留状态），add_steps 追加。" +
+      "step_done：按 id 与 step（第几步，从 1 起）标记一步，status 缺省 done，也可以是 doing（正在做）、skipped（不做了）、todo（还没做）。close：做成了（outcome=done，缺省）或不做了（outcome=dropped），可写 note。list：列出全部。",
+    parameters: obj({
+      action: { type: "string", enum: ["add", "update", "step_done", "close", "list"] },
+      id: str("目标的 id（update / step_done / close 用）"), title: str("标题"), detail: str("说明（可选）"),
+      steps: { type: "array", items: { type: "string" }, description: "步骤（add / update 用）" }, add_steps: { type: "array", items: { type: "string" }, description: "追加的步骤（update 用）" },
+      step: { type: "number", description: "第几步（step_done 用，从 1 起）" }, status: { type: "string", enum: ["done", "doing", "skipped", "todo"] },
+      outcome: { type: "string", enum: ["done", "dropped"] }, note: str("关闭时的说明（可选）"),
+    }, ["action"]),
+    handler: async (a, ctx) => goalTool(a, ctx.session?.origin === "chat" ? ctx.session.conv : undefined),
   },
   {
     name: "web_search", permission: "network",

@@ -29,6 +29,7 @@ import { noteSilence } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
 import { bus } from "../bus.ts";
 import { remoteBodies, multiBody } from "./bodies.ts";
+import * as goals from "./goals.ts";
 
 const FINISH: FinishTool = {
   name: "finish",
@@ -140,7 +141,8 @@ async function introspect(kind: WakeKind, reason: string, where?: Survey): Promi
     const ask = where
       ? `你刚刚${kind === "dream" ? "进入梦境（整理记忆）" : `醒来（${reason}）`}。你此刻有几具身体在线：\n${where.text}\n基座推荐：${where.recommendText ?? where.recommend.join("、")}。\n先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡", "where": ["在哪具身体上做：填身体的 uuid，可以选一具或几具（几具会同时进行，都是你）"]}。${kind === "dream" ? "做梦只选一具。" : ""}`
       : `你刚刚醒来（${reason}）。先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡"}。`;
-    const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason, { dynamic: true }) }, { role: "user", content: ask }], maxTokens: 300 }, { quick: true });
+    const goalsHint = kind === "think" && goals.openCount() ? `\n可以做的事之一：回顾与推进你的长期目标（系统提示「内在状态」里列着进行中的目标与接下来的步骤）。` : "";
+    const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason, { dynamic: true }) }, { role: "user", content: ask + goalsHint }], maxTokens: 300 }, { quick: true });
     const j = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
     // where 填的是 uuid：和身体参数一样经 resolveBody 解析成身体名（登记、认证过的连接、自报一致）；解析不了的不算
     const picked = (Array.isArray(j.where) ? j.where : typeof j.where === "string" ? [j.where] : []).slice(0, 10).map((u: unknown) => { if (typeof u !== "string" || !u.trim()) return ""; const t = resolveBody(u); return "local" in t ? config.body : "remote" in t ? t.remote.body : ""; }).filter((b: string) => b && where?.bodies.includes(b));
@@ -187,7 +189,7 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
   }
   const task = kind === "think"
     ? `你醒来了。原因：${reason}。${gate.intent ? `你想：${gate.intent}。` : ""}
-按你自己的意愿去想、去做：探索感兴趣的东西、继续没想完的事、写点什么、或者找人说话。需要记住的，用 memory / note_save / open_loop 记下来。
+按你自己的意愿去想、去做：探索感兴趣的东西、回顾并推进你的长期目标（goal：做完一步用 step_done 标一步）、写点什么、或者找人说话。需要记住的，用 memory / note_save 记下来；以后还想继续、需要几步才能做成的事，用 goal 记下来。
 结束时调用 finish 写日记并报告驱动力。`
     : `你睡着了，正在做梦——这是整理记忆的时候。
 1. 回顾最近的日记（包括其他身体的经历）和对话，提炼值得长期记住的东西，用 memory 工具更新常驻记忆（合并重复、修正过时的内容），用 note_save 沉淀知识与思考。

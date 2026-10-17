@@ -32,6 +32,7 @@ import { remoteApprovals, decideAnywhere } from "./mesh/shared.ts";
 import { sandboxStatus, resetSandbox } from "./sandbox.ts";
 import { checkKeyPath } from "./memory/soul-repo.ts";
 import * as reminders from "./time/reminders.ts";
+import * as goals from "./mind/goals.ts";
 import { hostModes, enterHost, exitHost } from "./host-mode.ts";
 import { readStructuredRecords, archiveRecord, rollbackRecord } from './memory/structured.ts';
 import { confirmPersonalMemory, evolveMemory, learnEpisode } from './memory/prime.ts';
@@ -49,6 +50,7 @@ export const status = () => ({
   mesh: meshRt.meshStatus(), // 网状层：同步服务、绑定、各身体的连接
   sandbox: sandboxStatus(), // agent 命令的沙箱：kind 为 bwrap / proot / none（none 时控制台应提示安装）
   reminders: reminderView(), // 她答应的提醒（首页显示接下来的几条）
+  goals: goals.view(), // 她进行中的长期目标（首页显示：步骤与进度，可关闭）
   host: hostModes(), // 此刻处在真实环境里（命令不经沙箱）的会话：控制台据此显示警示条
 });
 
@@ -59,6 +61,13 @@ export const ops = {
   // 提醒：控制台只看与取消；设提醒是对她说（reminder 工具）
   reminders: () => reminderView(),
   "reminders.cancel": (a: { id: string }, actor: string) => { const r = reminders.cancel(String(a?.id ?? "")); audit(actor, "reminders.cancel", "", { id: r.id }, "ok"); return reminderView(); },
+  // 长期目标：控制台看（closed 为真时连同 30 天内关闭的）与关闭（替她放下或标为完成）；新建与推进是她的事（goal 工具）
+  goals: (a: { closed?: boolean }) => goals.view(a?.closed === true),
+  "goals.close": (a: { id: string; outcome?: string; note?: string }, actor: string) => {
+    const g = goals.close({ id: String(a?.id ?? ""), outcome: a?.outcome === "dropped" ? "dropped" : "done", note: typeof a?.note === "string" ? a.note : `${actor}关闭的` });
+    audit(actor, "goals.close", "", { id: g.id, outcome: g.status }, "ok");
+    return goals.view();
+  },
   // 网状层（多具身体连成一个心智）：同步服务地址、设备码绑定、解绑
   mesh: () => meshRt.meshStatus(),
   "mesh.setServer": async (a: { server: string }, actor: string) => { const r = await meshRt.setServer(String(a.server ?? "")); audit(actor, "mesh.setServer", "", { server: r.server }, "ok"); return r; },
