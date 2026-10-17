@@ -348,7 +348,7 @@ interface BodyAdapter {
   playAudio?(file: string): Promise<void>; // 播放音频文件（语音合成的结果）
   stopAudio?(): Promise<void>;             // 停止播放（对方插嘴时让她停下）
   tools?: AdapterTool[];                   // 设备动作，每个声明所属能力类别
-  hands?: Hands;                           // 预留：看屏幕与操作其他应用
+  hands?: Hands;                           // 看屏幕与操作其他应用（计算机使用），见下；没有屏幕的身体不提供（可以是 getter）
   supervision?: { status(): Promise<SupervisionState>; set(enabled: boolean): Promise<void> }; // 守护开关：开机自启 + 退出后自动重启；SupervisionState = {available, enabled, kind, detail}
   upgrade?(): Promise<string>;             // 从控制台升级：后台重跑安装，立即返回一句说明（Linux 适配器有；安卓由 App 升级）
   deviceId?(): Promise<string | undefined>; // 设备自身稳定的标识（取不到为 undefined）：核心只用它的哈希派生身体 uuid（body/uuid.ts），原始值不进日志、审计、灵魂仓库与网状层
@@ -359,7 +359,31 @@ interface RawSample {
   lux?: number; motion?: number; screenOn?: boolean;
   extra?: Record<string, string | number | boolean>;
 }
+// 手：坐标一律是整屏截图的像素（原点在截图左上角）；多显示器偏移、DPI 由适配器换算。出错抛 Error（消息给她看）。
+interface Hands {
+  status(): Promise<HandsStatus>;          // {ready, reason?, screenshot, tree, input, detail?}：ready 为假时 reason 说清楚怎么才能用
+  screenshot(maxEdge?: number): Promise<{ file: string; width: number; height: number }>; // width / height 是缩之前的屏幕像素
+  snapshot(): Promise<ScreenSnapshot>;     // 前台窗口的无障碍树：{width, height, app?, window?, elements: ScreenElement[], note?}
+  click(at: ScreenPoint, opts?: { button?: "left" | "right" | "middle"; count?: number; holdMs?: number }): Promise<void>;
+  drag(from: ScreenPoint, to: ScreenPoint, durationMs?: number): Promise<void>;
+  scroll(direction: "up" | "down" | "left" | "right", amount: number, at?: ScreenPoint): Promise<void>; // amount：滚轮格数
+  type(text: string, at?: ScreenPoint): Promise<void>;
+  key(keys: string[]): Promise<void>;      // 规范键名，修饰键在前：["ctrl","shift","t"]、["enter"]、["back"]
+  openApp(id: string): Promise<string>;    // 只打开已安装的应用（包名 / 应用 ID / .desktop 名 / 显示名）
+  windows?(): Promise<ScreenWindow[]>;     // {id, title, app?, focused?, x?, y?, w?, h?}
+  focusWindow?(id: string): Promise<void>;
+}
+interface ScreenPoint { x: number; y: number; ref?: string } // ref：snapshot 给元素的不透明引用，按编号操作时原样交回
+interface ScreenElement {
+  role: string;  // button、link、text、input、checkbox、radio、switch、combobox、slider、tab、menu、menuitem、list、item、image、toolbar、dialog、window、group、scroll、other
+  name?: string; value?: string; x: number; y: number; w: number; h: number; ref?: string;
+  clickable?: boolean; editable?: boolean; scrollable?: boolean; enabled?: boolean; focused?: boolean; selected?: boolean; checked?: boolean;
+}
 ```
+
+键名：修饰键 `ctrl`、`alt`、`shift`、`meta`（Win / Super / Command）；`enter`、`esc`、`tab`、`space`、`backspace`、`delete`、`insert`、`home`、`end`、`pageup`、`pagedown`、方向键 `up` / `down` / `left` / `right`、`f1`–`f24`、单个字符；手机的全局动作 `back`、`home`、`recents`、`notifications`、`quick_settings`、`lock`、`power`。核心先把别名（`cmd`、`win`、`return`、`escape`、`pgup`……）规范好再交给适配器，适配器对按不出来的键抛错。
+
+核心据 `hands` 提供 `screen_read`、`screen_capture`、`screen_click`、`screen_drag`、`screen_scroll`、`screen_type`、`screen_key`、`app_open`（适配器有 `windows` / `focusWindow` 时再加 `window_list` / `window_focus`），全部归能力类别 `hands`（操作屏幕与应用），见 [架构 §5.5](ARCHITECTURE.md#55-手看屏幕与操作应用计算机使用)。她看到与给出的坐标是缩到长边 1280 像素的截图坐标，核心负责与屏幕像素换算；按编号操作时核心把元素中心点与 `ref` 一起交给适配器。
 
 约束：
 
@@ -369,13 +393,16 @@ interface RawSample {
 - 适配器从 `QUETZAL_ADAPTER` 环境变量或配置项 `adapter` 指定的路径加载；加载失败时核心回退到通用适配器（无传感器）；
 - 工具的 `permission` 必须是闸门已知的能力类别之一（见 `guard/guard.ts`），否则按「允许」处理；
 - 工具做不成时抛出错误（核心把这次调用标为失败、写明给她）；不要只返回一句「失败」的文字，那样会被当成成功；
+- `hands` 的操作由运行基座进程直接执行，不经过 agent 的命令沙箱：`openApp` 只能打开已安装的应用，不能成为执行任意程序的出口；`snapshot` 不要交出密码框的内容；
 - `deviceId()` 返回的是敏感信息：适配器自己也不得写进日志或工具结果。各平台实现：Linux `/etc/machine-id`（退回 `/var/lib/dbus/machine-id`）、Windows 注册表 `HKLM\SOFTWARE\Microsoft\Cryptography` 的 `MachineGuid`、安卓 App 身体接口的 `GET /v1/device-id`、Termux 尽力用 `settings get secure android_id`（多数手机上没有权限，取不到）。
 
-安卓适配器经 Quetzal App 的**身体接口**取得身体能力：App 在 127.0.0.1 的随机端口提供 HTTP/1.1 接口（`Authorization: Bearer <令牌>`，令牌 256 位、每次启动重新生成），端口与令牌写在 `QUETZAL_HOME/secrets/body.json`（`{port, token}`，0600）。接口：`GET /v1/info`（机型、光线与加速度传感器名、有没有相机与闪光灯）、`GET /v1/sample`（`battery {level, charging, tempC, health}`、`plugged`、`lux`、`motion`、`screenOn`）、`GET /v1/sensors`、`POST /v1/sensor {name}` → `{values}`、`POST /v1/notify {title, text}`、`POST /v1/play {file}`、`POST /v1/stop`、`POST /v1/vibrate {ms}`、`POST /v1/torch {on}`、`POST /v1/clipboard {text?}` → `{text}`、`POST /v1/location` → `{latitude, longitude, accuracy, ageMinutes}`（定不到新位置时为最近一次已知位置）、`POST /v1/photo {camera, file}`、`POST /v1/record {seconds, file}`、`GET/POST /v1/supervision {enabled}`、`GET /v1/device-id` → `{id}`（`Settings.Secure.ANDROID_ID`，只用来派生身体 uuid）、`POST /v1/network {seq}` → `{seq, transport}`（长轮询：App 注册了系统的默认网络回调，网络、传输方式、是否验证过能上网或本机地址变了就把 `seq` 加一；给的 `seq` 与现在的不同就立即返回，否则最多等 50 秒；`transport` 为 wifi / cellular / ethernet / vpn / other / none，不返回地址；安卓适配器的 `onNetworkChange` 用它）。成功 `{ok: true, …}`，失败 `{ok: false, error}`；文件路径必须在 `QUETZAL_HOME` 之内；请求体最大 64 KiB。工具与 Termux 适配器同名同参数。
+安卓适配器经 Quetzal App 的**身体接口**取得身体能力：App 在 127.0.0.1 的随机端口提供 HTTP/1.1 接口（`Authorization: Bearer <令牌>`，令牌 256 位、每次启动重新生成），端口与令牌写在 `QUETZAL_HOME/secrets/body.json`（`{port, token}`，0600）。接口：`GET /v1/info`（机型、光线与加速度传感器名、有没有相机与闪光灯）、`GET /v1/sample`（`battery {level, charging, tempC, health}`、`plugged`、`lux`、`motion`、`screenOn`）、`GET /v1/sensors`、`POST /v1/sensor {name}` → `{values}`、`POST /v1/notify {title, text}`、`POST /v1/play {file}`、`POST /v1/stop`、`POST /v1/vibrate {ms}`、`POST /v1/torch {on}`、`POST /v1/clipboard {text?}` → `{text}`、`POST /v1/location` → `{latitude, longitude, accuracy, ageMinutes}`（定不到新位置时为最近一次已知位置）、`POST /v1/photo {camera, file}`、`POST /v1/record {seconds, file}`、`GET/POST /v1/supervision {enabled}`、`GET /v1/device-id` → `{id}`（`Settings.Secure.ANDROID_ID`，只用来派生身体 uuid）、手（App 的无障碍服务 `HandsService`，用户在系统设置里开启后才可用，没开时返回 `{ok: false, error}` 说明怎么开）：`GET /v1/hands` → `{enabled, connected, screenshot}`、`POST /v1/hands/snapshot {limit}` → `{width, height, app, window, elements: [{c 类名, n 名字, v 值, b [左, 上, 宽, 高], r 引用, k 可点, e 可编辑, s 可滚动, en, f, se, ch}]}`、`POST /v1/hands/screenshot {file, maxEdge}` → `{width, height}`（Android 11+，JPEG）、`POST /v1/hands/click {x, y, ref?, button?, count?, holdMs?}`、`POST /v1/hands/drag {x1, y1, x2, y2, ms}`、`POST /v1/hands/scroll {direction, amount, x?, y?}`、`POST /v1/hands/type {text, x?, y?, ref?}`、`POST /v1/hands/key {kind: global|edit, action}`（global：back / home / recents / notifications / quick_settings / lock / power；edit：enter / backspace / delete / copy / cut / paste / select_all）、`POST /v1/hands/open {id}` → `{app, package}`、`GET /v1/hands/windows` → `{windows}`、`POST /v1/network {seq}` → `{seq, transport}`（长轮询：App 注册了系统的默认网络回调，网络、传输方式、是否验证过能上网或本机地址变了就把 `seq` 加一；给的 `seq` 与现在的不同就立即返回，否则最多等 50 秒；`transport` 为 wifi / cellular / ethernet / vpn / other / none，不返回地址；安卓适配器的 `onNetworkChange` 用它）。成功 `{ok: true, …}`，失败 `{ok: false, error}`；文件路径必须在 `QUETZAL_HOME` 之内；请求体最大 64 KiB。工具与 Termux 适配器同名同参数。
 
 Termux 适配器提供：`sample()` 的电量 / 充电 / 体温 / 健康（`termux-battery-status`）、光照与运动（`termux-sensor`，传感器按名字探测，没有就不报）；`notify()`（带「打开 Quetzal」按钮）、`playAudio()` / `stopAudio()`（`termux-media-player`）；工具 `take_photo`（camera）、`record_audio`（microphone）、`location`（location）、`vibrate` / `torch` / `clipboard` / `read_sensor`（device）。不提供 `speak`（很多手机没有系统 TTS 引擎），说话由运行基座的 `voice_speak` 完成。环境变量：`QUETZAL_HOME`（媒体保存位置 `data/media/`）、`QUETZAL_CONSOLE_ACTIVITY`（通知按钮打开的界面，默认 `xyz.quetzal.console/.MainActivity`）。
 
-Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/power_supply`，跳过蓝牙鼠标等外设电池；`charging` 在「Not charging」且外接电源在线时也为真）、电池自身温度（`temp` 节点，笔记本少有），`extra` 里的 CPU 温度（`/sys/class/thermal`，不冒充体温，因为心脏与听觉按手机电池的 45°C 抑制）与电源来源；`describe` 含发行版（`/etc/os-release`）、是否笔记本、有没有桌面、摄像头与声卡；`notify()`（有桌面时 `notify-send`，同时写到标准输出即服务日志，没有桌面的机器从日志里看配对码）、`playAudio()` / `stopAudio()`（`pw-play` / `paplay` / `ffplay` / `mpv`，WAV 还可 `aplay`）；工具 `take_photo`（camera：`ffmpeg` + `/dev/video0`）、`record_audio`（microphone：`arecord` / `pw-record` / `parecord` / `ffmpeg`）、`screenshot`（hands：Wayland 下 `grim` / `gnome-screenshot` / `spectacle`，X11 下 `scrot` / `gnome-screenshot` / `spectacle` / `import`）、`clipboard`（device：`wl-clipboard` / `xclip` / `xsel`）、`open`（device：`xdg-open`）。没有图形界面时与界面相关的工具直接说明，不报错崩溃。同样不提供 `speak`。环境变量只有 `QUETZAL_HOME`。
+Linux 适配器提供：`sample()` 的电量 / 充电 / 健康（`/sys/class/power_supply`，跳过蓝牙鼠标等外设电池；`charging` 在「Not charging」且外接电源在线时也为真）、电池自身温度（`temp` 节点，笔记本少有），`extra` 里的 CPU 温度（`/sys/class/thermal`，不冒充体温，因为心脏与听觉按手机电池的 45°C 抑制）与电源来源；`describe` 含发行版（`/etc/os-release`）、是否笔记本、有没有桌面、摄像头与声卡；`notify()`（有桌面时 `notify-send`，同时写到标准输出即服务日志，没有桌面的机器从日志里看配对码）、`playAudio()` / `stopAudio()`（`pw-play` / `paplay` / `ffplay` / `mpv`，WAV 还可 `aplay`）；工具 `take_photo`（camera：`ffmpeg` + `/dev/video0`）、`record_audio`（microphone：`arecord` / `pw-record` / `parecord` / `ffmpeg`）、`clipboard`（device：`wl-clipboard` / `xclip` / `xsel`）、`open`（device：`xdg-open`）。没有图形界面时与界面相关的工具直接说明，不报错崩溃。有桌面会话时提供 `hands`（`adapters/linux/hands.ts`）：无障碍树走 AT-SPI（`python3` + gi 的 Atspi 2.0），输入 X11 用 `xdotool`、Wayland 用 `ydotool`（要 `ydotoold`）/ `wtype`，截图 Wayland 下 `grim` / `gnome-screenshot` / `spectacle`、X11 下 `scrot` / `gnome-screenshot` / `spectacle` / `import`，窗口 X11 下 `wmctrl`，打开应用只认 `.desktop`（`gtk-launch` / `gio launch` / `kioclient`）；服务环境里缺 `DISPLAY` / `WAYLAND_DISPLAY` / `DBUS_SESSION_BUS_ADDRESS` 时按 `XDG_RUNTIME_DIR` 与 `/tmp/.X11-unix` 补齐。同样不提供 `speak`。环境变量只有 `QUETZAL_HOME`。
+
+Windows 适配器的 `hands`（`adapters/windows/hands.ts`）：PowerShell 5.1 + .NET 的 UI Automation 读前台窗口的控件视图，`SendInput` / `SetCursorPos`（每显示器 DPI 感知）模拟鼠标键盘与 Unicode 文字，截图按需缩小存 JPEG，顶层窗口列表与 `SetForegroundWindow` 切换，打开应用只认开始菜单里的（`Get-StartApps` → `shell:AppsFolder\<AppID>`）。运行基座在会话 0 时经身体助手 `windows-body.mjs` 的 `POST /call {op: "hands.*", args}` 转交。
 
 ## 3. 配置项（`config/quetzal.json`）
 

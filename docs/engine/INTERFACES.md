@@ -25,7 +25,7 @@
 | 自造工具 | tool_write、tool_read、tool_delete |
 | 会话 / 协作 | session_new、session_compact、claim、agent_spawn/status/message/stop |
 | 多身体 | body_call、move_to；view_image / read_document / shell 可带 body 借用远端文件 |
-| 平台能力 | 由适配器声明；hands 接入后注册 screen_describe、screen_tap、screen_type、app_open |
+| 平台能力 | 由适配器声明；hands 接入后注册 screen_read、screen_capture、screen_click、screen_drag、screen_scroll、screen_type、screen_key、app_open，适配器支持时另有 window_list、window_focus（runtime/src/mind/hands.ts） |
 | MCP | `mcp_<来源ID>_<原始名哈希>` 稳定别名，经宿主来源映射调用；资源与提示词各两个基座加的工具（列出 / 读取、列出 / 取用） |
 | 插件 | plugin_search、plugin_recommend、plugin_prompt |
 | 循环专用 | finish，由 brain.loop 直接处理，不经过普通 callTool |

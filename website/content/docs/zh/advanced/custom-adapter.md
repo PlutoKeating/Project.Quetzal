@@ -12,7 +12,7 @@ description: 用几十行 TypeScript 让一台新设备成为身体：实现 Bod
 - `runtime/adapters/android/`：任意安卓手机，身体能力经 Quetzal App 的本机身体接口提供，构建为 `dist/android.mjs`；
 - `runtime/adapters/termux/`：旧的 Termux 安装，任意安卓手机 + Termux:API，传感器按名字探测，构建为 `dist/termux.mjs`；
 - `runtime/adapters/linux/`：任意 Linux 机器，电池与温度读 `/sys`，桌面工具按可用程序探测，构建为 `dist/linux.mjs`；
-- `runtime/adapters/windows/`：任意 Windows 10（1809 起）/ 11 电脑，电源读系统电源状态，通知、截图、剪贴板、拍照、录音用系统自带的 PowerShell 5.1、.NET 与 WinRT，构建为 `dist/windows.mjs`，见 [Windows](/docs/advanced/windows)。
+- `runtime/adapters/windows/`：任意 Windows 10（1809 起）/ 11 电脑，电源读系统电源状态，通知、截图与操作屏幕、剪贴板、拍照、录音用系统自带的 PowerShell 5.1、.NET（含 UI Automation）与 WinRT，构建为 `dist/windows.mjs`，见 [Windows](/docs/advanced/windows)。
 
 ## 接口
 
@@ -54,13 +54,14 @@ export default adapter;
 | `notify()` | 否 | 本地系统通知；没有它配对码只能从令牌文件读 |
 | `speak()` / `playAudio()` | 否 | 说话 / 播放音频文件 |
 | `tools` | 否 | 设备动作，每个声明所属能力类别（`device`、`camera`、`microphone`、`location`…） |
-| `hands` | 否 | 预留：看屏幕、点击、输入、打开应用 |
+| `hands` | 否 | 手：读屏幕、截图、点击、拖拽、滚动、输入、按键、打开应用（类型见 [适配器接口](/docs/reference/adapter-interface)）；核心据此提供 `screen_*` 工具，归「操作屏幕与应用」 |
 
 ## 约束
 
 - 适配器**只能 `import type`** 接口文件的类型，不得依赖核心的其他实现。构建时类型被擦除，产物因此不依赖核心。
 - 工具的 `permission` 必须是闸门已知的类别，否则按「允许」处理。
 - 加载失败时，核心改用通用适配器（无传感器），并在日志里说明。
+- 实现 `hands` 时，坐标一律用整屏截图的像素（原点在截图左上角），多显示器偏移与 DPI 自己换算；核心负责把它换成 ta 看到的缩小截图上的坐标。`snapshot()` 尽量给出无障碍树里看得见的元素，并给每个元素一个 `ref`，之后按编号操作时原样交回。做不到的动作抛错并说明怎么才能做（装什么、开什么）。`openApp` 只打开已安装的应用。
 
 ## 构建与指定
 

@@ -77,7 +77,20 @@ test("缺省：相机、麦克风、定位、操作屏幕、造工具交给审�
   assert.equal(sentinel.classify({ tool: "note_delete", permission: "memory", args: {} }), undefined, "笔记在灵魂仓库里，删了能从历史找回");
   assert.equal(sentinel.classify({ tool: "tool_delete", permission: "self_modify", args: {} }), "destructive");
   assert.equal(sentinel.classify({ tool: "secret_sync", permission: "secret", args: {} }), "credentials");
-  assert.equal(sentinel.classify({ tool: "screen_tap", permission: "hands", args: {} }), "hands");
+});
+
+test("操作屏幕：按 mind/hands.ts 的真实工具名分类——动作送审（hands 类别），读屏、截图、列窗口不算", async () => {
+  const { handsTools } = await import("../src/mind/hands.ts");
+  const noop = async () => undefined as never;
+  const h = { status: noop, screenshot: noop, snapshot: noop, click: noop, drag: noop, scroll: noop, type: noop, key: noop, openApp: noop, windows: noop, focusWindow: noop };
+  const tools = handsTools(h as never);
+  const names = tools.map((t) => t.name).sort();
+  assert.deepEqual(names, ["app_open", "screen_capture", "screen_click", "screen_drag", "screen_key", "screen_read", "screen_scroll", "screen_type", "window_focus", "window_list"]);
+  const read = ["screen_read", "screen_capture", "window_list"];
+  for (const t of tools) {
+    assert.equal(t.permission, "hands", t.name);
+    assert.equal(sentinel.classify({ tool: t.name, permission: t.permission, args: {} }), read.includes(t.name) ? undefined : "hands", t.name);
+  }
 });
 
 test("allow：照常执行，结论附在结果里（工具卡片点开可见）并写审计（模型、耗时、理由）", async () => {

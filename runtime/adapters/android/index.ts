@@ -2,10 +2,11 @@
 // App 内置的运行基座由 App 的前台服务启动；同一个服务在 127.0.0.1 上开一个只认令牌的「身体接口」，
 // 地址与令牌写在 QUETZAL_HOME/secrets/body.json（agent 的命令在沙箱里看不到密钥目录，绕不过闸门直接调用身体）。
 // 只依赖 body/adapter.ts 的类型定义（构建时擦除）。设备差异全部靠 App 探测：有什么传感器就报什么，缺的能力工具报错而不崩溃。
+// 手（看屏幕、点击、输入、打开应用）由 App 的无障碍服务提供（console/android 的 HandsService），用户在系统设置里开启后才能用。
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { BodyAdapter, AdapterTool, RawSample, SupervisionState } from "../../src/body/adapter.ts";
+import type { BodyAdapter, AdapterTool, RawSample, SupervisionState, Hands, HandsStatus, ScreenElement, ScreenSnapshot } from "../../src/body/adapter.ts";
 
 const HOME = process.env.QUETZAL_HOME ?? path.join(os.homedir(), ".quetzal");
 const MEDIA = path.join(HOME, "data", "media");
@@ -100,6 +101,78 @@ const tools: AdapterTool[] = [
   },
 ];
 
+// ---------- 手：App 的无障碍服务（HandsService，用户在系统设置里开启「Quetzal 操作屏幕」），经身体接口的 /v1/hands/…
+const PHONE_GLOBAL = new Set(["back", "home", "recents", "notifications", "quick_settings", "lock", "power"]);
+/** 键 → 手机上的动作：global 是系统的全局动作（返回、主页、最近任务……），edit 是对当前输入框的编辑。做不到的抛错并说明能按什么。 */
+export function phoneKey(keys: string[]): { kind: "global" | "edit"; action: string } {
+  const main = keys.at(-1) ?? "", mods = keys.slice(0, -1);
+  if (!mods.length) {
+    if (PHONE_GLOBAL.has(main)) return { kind: "global", action: main };
+    if (main === "esc") return { kind: "global", action: "back" };
+    if (["enter", "backspace", "delete"].includes(main)) return { kind: "edit", action: main };
+  }
+  const edit = ({ c: "copy", x: "cut", v: "paste", a: "select_all" } as Record<string, string>)[main];
+  if (mods.length === 1 && (mods[0] === "ctrl" || mods[0] === "meta") && edit) return { kind: "edit", action: edit };
+  throw new Error(`手机上不能按 ${keys.join("+")}：可用 back、home、recents、notifications、quick_settings、lock、enter、backspace、ctrl+c、ctrl+x、ctrl+v、ctrl+a`);
+}
+
+const CLASS_ROLE: Record<string, string> = {
+  Button: "button", ImageButton: "button", MaterialButton: "button", FloatingActionButton: "button", ExtendedFloatingActionButton: "button", Chip: "button",
+  EditText: "input", AutoCompleteTextView: "input", TextInputEditText: "input", MultiAutoCompleteTextView: "input",
+  CheckBox: "checkbox", MaterialCheckBox: "checkbox", RadioButton: "radio", MaterialRadioButton: "radio", Switch: "switch", SwitchCompat: "switch", SwitchMaterial: "switch", ToggleButton: "switch",
+  Spinner: "combobox", SeekBar: "slider", RatingBar: "slider", Slider: "slider", ProgressBar: "slider",
+  ImageView: "image", TextView: "text", CheckedTextView: "item",
+  RecyclerView: "list", ListView: "list", GridView: "list", ExpandableListView: "list",
+  ScrollView: "scroll", HorizontalScrollView: "scroll", NestedScrollView: "scroll", ViewPager: "scroll",
+  TabWidget: "toolbar", TabLayout: "toolbar", Toolbar: "toolbar", ActionBar: "toolbar", WebView: "group", Dialog: "dialog",
+};
+/** 安卓控件类名 → 通用角色：能编辑的是输入框；可点的容器当按钮。 */
+export function phoneRole(cls: string, flags: { clickable?: boolean; editable?: boolean } = {}): string {
+  if (flags.editable) return "input";
+  const short = cls.split(".").pop() ?? "";
+  const role = CLASS_ROLE[short] ?? (/Button$/.test(short) ? "button" : /Layout$|ViewGroup$|^View$/.test(short) ? "group" : "other");
+  return flags.clickable && (role === "group" || role === "other") ? "button" : role;
+}
+
+interface PhoneEl { c: string; n: string; v: string; b: number[]; r: string; k: boolean; e: boolean; s: boolean; en: boolean; f: boolean; se: boolean; ch: boolean | null }
+export function parsePhoneSnapshot(j: { width: number; height: number; app?: string; window?: string; elements?: PhoneEl[] }): ScreenSnapshot {
+  const elements = (j.elements ?? []).map((e): ScreenElement => ({
+    role: phoneRole(e.c, { clickable: e.k, editable: e.e }), name: e.n || undefined, value: e.v || undefined,
+    x: e.b[0], y: e.b[1], w: e.b[2], h: e.b[3], ref: e.r,
+    clickable: e.k || undefined, editable: e.e || undefined, scrollable: e.s || undefined,
+    enabled: e.en, focused: e.f || undefined, selected: e.se || undefined, checked: e.ch ?? undefined,
+  }));
+  return { width: j.width, height: j.height, app: j.app || undefined, window: j.window || undefined, elements, ...(elements.length < 2 ? { note: "这个界面几乎没有无障碍信息（游戏、视频、部分自绘界面），请截图看" } : {}) };
+}
+
+const HANDS_OFF = "手机上的无障碍服务没有开启：请打开 Quetzal App → 控制 → 权限 →「操作屏幕」，按提示在系统设置的无障碍里开启「Quetzal 操作屏幕」";
+const hands: Hands = {
+  async status(): Promise<HandsStatus> {
+    let j: { enabled?: boolean; connected?: boolean; screenshot?: boolean };
+    try { j = await call("/v1/hands"); } catch (e) {
+      const old = (e as { status?: number }).status === 404;
+      return { ready: false, reason: old ? "这个版本的 Quetzal App 还不支持操作屏幕：请升级 App" : `连不上 App 的身体接口：${(e as Error).message}`, screenshot: false, tree: false, input: false };
+    }
+    if (!j.connected) return { ready: false, reason: j.enabled ? "无障碍服务已经开启，但还没有连上：在系统设置里把「Quetzal 操作屏幕」关掉再打开，或重启手机" : HANDS_OFF, screenshot: false, tree: false, input: false };
+    return { ready: true, screenshot: !!j.screenshot, tree: true, input: true, reason: j.screenshot ? undefined : "安卓 11 以下不能截图，只能读屏幕元素", detail: "Quetzal App 的无障碍服务" };
+  },
+  async screenshot(maxEdge) {
+    const file = media(`screen-${stamp()}.jpg`);
+    const j = await call<{ width: number; height: number }>("/v1/hands/screenshot", { file, maxEdge: maxEdge ?? 0 }, 30_000);
+    if (!fs.existsSync(file)) throw new Error("截图失败");
+    return { file, width: j.width, height: j.height };
+  },
+  snapshot: async () => parsePhoneSnapshot(await call("/v1/hands/snapshot", { limit: 600 }, 30_000)),
+  click: async (at, o = {}) => { await call("/v1/hands/click", { x: at.x, y: at.y, ref: at.ref, button: o.button, count: o.count, holdMs: o.holdMs }, 30_000); },
+  drag: async (from, to, ms) => { await call("/v1/hands/drag", { x1: from.x, y1: from.y, x2: to.x, y2: to.y, ms }, 30_000); },
+  scroll: async (direction, amount, at) => { await call("/v1/hands/scroll", { direction, amount, ...(at ? { x: at.x, y: at.y } : {}) }, 60_000); },
+  type: async (text, at) => { await call("/v1/hands/type", { text, ...(at ? { x: at.x, y: at.y, ref: at.ref } : {}) }, 30_000); },
+  key: async (keys) => { await call("/v1/hands/key", phoneKey(keys)); },
+  openApp: async (id) => { const j = await call<{ app: string; package: string }>("/v1/hands/open", { id }); return `已打开 ${j.app}（${j.package}）`; },
+  windows: async () => ((await call<{ windows: { id: string; title: string; app: string; focused: boolean; x: number; y: number; w: number; h: number }[] }>("/v1/hands/windows")).windows ?? [])
+    .map((w) => ({ id: w.id, title: w.title, app: w.app || undefined, ...(w.focused ? { focused: true } : {}), x: w.x, y: w.y, w: w.w, h: w.h })),
+};
+
 const adapter: BodyAdapter = {
   name: "android",
   get describe() {
@@ -141,6 +214,7 @@ const adapter: BodyAdapter = {
   async playAudio(file) { await call("/v1/play", { file }, 30_000); },
   async stopAudio() { await quiet(call("/v1/stop", {})); },
   tools,
+  hands, // 看屏幕与操作应用：要用户在系统设置里开启 App 的无障碍服务，没开时各操作如实说明怎么开
   supervision: {
     status: async (): Promise<SupervisionState> => {
       const j = await quiet(call<{ enabled: boolean }>("/v1/supervision"));

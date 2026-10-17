@@ -1,13 +1,14 @@
 // Quetzal 身体适配器：任意 Windows 10（1809 起）/ 11 电脑（x64、arm64）。只依赖 body/adapter.ts 的类型定义（构建时擦除）。
 //   一切靠探测、不装任何东西：电源读系统的电源状态，温度试 ACPI 热区（多数笔记本拿不到就不报），摄像头与声卡查即插即用设备。
-//   开机自启时运行基座在会话 0（没人登录也在跑），看不到桌面：通知、截图、剪贴板、打开、播放、拍照、录音交给用户桌面里的身体助手
+//   开机自启时运行基座在会话 0（没人登录也在跑），看不到桌面：通知、截图与操作屏幕（hands.ts）、剪贴板、打开、播放、拍照、录音交给用户桌面里的身体助手
 //   （windows-body.mjs，由控制台托盘启动，见 body.ts）；运行基座本来就在登录的桌面里时直接做。都不行时如实说「需要有人登录桌面」。
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
-import type { BodyAdapter, AdapterTool, RawSample } from "../../src/body/adapter.ts";
-import { ps, ops } from "./desktop.ts";
+import type { BodyAdapter, AdapterTool, RawSample, Hands, HandsStatus } from "../../src/body/adapter.ts";
+import { ps, ops as desktopOps } from "./desktop.ts";
+import { handsOps } from "./hands.ts";
 import * as supervise from "./supervise.ts";
 
 const home = () => process.env.QUETZAL_HOME ?? path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "Quetzal", "home");
@@ -19,12 +20,14 @@ let laptop = false;
 let camera = false, sound = false;
 let thermal = false;
 
+const ops = { ...desktopOps, ...handsOps };
+
 // ---------- 桌面操作：自己在桌面里就直接做，否则找身体助手
 interface Helper { port: number; token: string; pid: number }
 function helper(): Helper | undefined {
   try { const h = JSON.parse(fs.readFileSync(path.join(home(), "secrets", "desktop-body.json"), "utf8")); return h.port && h.token ? h : undefined; } catch { return undefined; }
 }
-export class NoDesktop extends Error { constructor() { super("这台电脑现在没有人登录桌面（运行基座在开机后台跑着），截图、通知、剪贴板、打开、播放、拍照、录音要等有人登录 Windows、Quetzal 的托盘图标出现以后才能用"); } }
+export class NoDesktop extends Error { constructor() { super("这台电脑现在没有人登录桌面（运行基座在开机后台跑着），截图、操作屏幕、通知、剪贴板、打开、播放、拍照、录音要等有人登录 Windows、Quetzal 的托盘图标出现以后才能用"); } }
 
 async function desk(op: string, args: Record<string, any> = {}, timeoutMs = 60_000): Promise<any> {
   if (interactive) return ops[op](args);
@@ -45,13 +48,29 @@ const tools: AdapterTool[] = [
     handler: () => camera ? say(() => desk("camera", {}, 90_000)) : Promise.reject(new Error("这台电脑没有摄像头")) },
   { name: "record_audio", permission: "microphone", description: "用麦克风录一段声音（秒，最多 120），返回 WAV 文件路径。", parameters: obj({ seconds: { type: "number" } }, ["seconds"]),
     handler: (a) => say(() => desk("record", { seconds: Number(a.seconds) || 5 }, (Math.min(120, Number(a.seconds) || 5) + 45) * 1000)) },
-  { name: "screenshot", permission: "hands", description: "截取这台电脑当前的屏幕（全部显示器），返回图片路径（之后可以用 view_image 看）。", parameters: obj({}),
-    handler: () => say(() => desk("screenshot")) },
   { name: "clipboard", permission: "device", description: "读取（不给 text）或写入这台电脑的剪贴板。", parameters: obj({ text: { type: "string" } }),
     handler: (a) => say(() => a.text != null ? desk("clipboard.set", { text: String(a.text) }) : desk("clipboard.get")) },
   { name: "open", permission: "device", description: "用这台电脑的默认程序打开一个网址或本地的文档、图片、音视频文件、文件夹（会在桌面上弹出窗口；不打开程序与脚本）。", parameters: obj({ target: { type: "string" } }, ["target"]),
     handler: (a) => say(() => desk("open", { target: String(a.target) })) },
 ];
+
+// ---------- 手：看屏幕、点击、输入（hands.ts），与截图同样在桌面里做
+const hands: Hands = {
+  async status(): Promise<HandsStatus> {
+    try { return await desk("hands.status", {}, 90_000); }
+    catch (e) { return { ready: false, reason: (e as Error).message, screenshot: false, tree: false, input: false }; }
+  },
+  screenshot: (maxEdge) => desk("hands.screenshot", { maxEdge }, 90_000),
+  snapshot: () => desk("hands.snapshot", {}, 90_000),
+  click: async (at, o = {}) => { await desk("hands.click", { x: at.x, y: at.y, button: o.button, count: o.count, holdMs: o.holdMs }); },
+  drag: async (from, to, ms) => { await desk("hands.drag", { x1: from.x, y1: from.y, x2: to.x, y2: to.y, ms }); },
+  scroll: async (direction, amount, at) => { await desk("hands.scroll", { direction, amount, x: at?.x, y: at?.y }); },
+  type: async (text, at) => { await desk("hands.type", { text, x: at?.x, y: at?.y }, 150_000); },
+  key: async (keys) => { await desk("hands.key", { keys }); },
+  openApp: (id) => desk("hands.openApp", { id }),
+  windows: () => desk("hands.windows", {}, 90_000),
+  focusWindow: async (id) => { await desk("hands.focus", { id }); },
+};
 
 /** 设备标识：注册表 HKLM\\SOFTWARE\\Microsoft\\Cryptography 的 MachineGuid（安装 Windows 时生成，重装系统会变）。只用来派生身体 uuid。 */
 export function parseMachineGuid(out: string): string | undefined {
@@ -65,7 +84,7 @@ const adapter: BodyAdapter = {
   name: "windows",
   get describe() {
     const parts = [`一台运行 ${caption} 的${laptop ? "笔记本电脑" : "电脑"}`];
-    parts.push(interactive ? "运行在登录的桌面里（能截图、看剪贴板、打开网页）" : "开机就在后台运行；有人登录桌面时能截图、看剪贴板、打开网页");
+    parts.push(interactive ? "运行在登录的桌面里（能看屏幕、操作应用、看剪贴板、打开网页）" : "开机就在后台运行；有人登录桌面时能看屏幕、操作应用、看剪贴板、打开网页");
     const has = [camera && "摄像头", sound && "扬声器与麦克风"].filter(Boolean);
     if (has.length) parts.push(`有${has.join("、")}`);
     return parts.join("，");
@@ -112,6 +131,7 @@ $p = [System.Windows.Forms.SystemInformation]::PowerStatus
   async playAudio(file) { await desk("playAudio", { file }); },
   async stopAudio() { await desk("stopAudio").catch(() => {}); },
   tools,
+  hands, // 看屏幕与操作应用：没人登录桌面时各操作如实报错（status 说明原因）
   supervision: { status: supervise.status, set: supervise.set },
   quit: () => supervise.quit(),
   // 从控制台升级：有人登录时交给桌面里的身体助手启动（安装包需要提权时能弹 UAC），否则自己在后台启动

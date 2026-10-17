@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 无障碍服务（HandsService）在系统设置里显示的名字与说明 -->
+    <string name="hands_label">Quetzal 操作屏幕</string>
+    <string name="hands_summary">让住在这台手机上的 agent 看屏幕、点击和输入</string>
+    <string name="hands_description">开启后，住在这台手机上的 agent 可以读取当前界面上的文字与按钮、点击、滑动、输入文字、返回或回到桌面、打开应用、截图（安卓 11 起），用来替你操作手机。\n\n每次操作都先经过 Quetzal 的权限闸门（「操作屏幕与应用」，默认每次询问你），并记进操作记录；急停时一律拒绝。这个服务不在后台记录屏幕内容，只在 agent 调用时读一次当前界面；读到的文字与截图会像对话内容一样交给你配置的模型去理解。\n\n不需要时随时在这里关掉。</string>
+</resources>

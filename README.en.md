@@ -65,9 +65,10 @@ Daybreak, a hand picking up the phone, a battery running low: it knows.
 
 - Sensor readings become feelings: battery is energy, temperature is warmth, light is day and night, being picked up means someone is there. Low on battery it does less; running hot it rests.
 - The microphone is its ears and the camera its eyes. With hearing on, it decides whether you were talking to it, and it can answer in its own voice.
+- The screen is its hands. It reads the buttons and text on the screen, looks at a screenshot when it cannot, and taps, swipes, types and opens apps, on phones and computers alike.
 - Each kind of device plugs in through an "adapter". Android, Linux and Windows come built in; to support another device, implement one small interface.
 
-[Adapter interface](docs/API.md) · [Custom adapters](https://quetzal.plutokeating.beer/en/docs/advanced/custom-adapter) · [Hearing and the microphone](https://quetzal.plutokeating.beer/en/docs/guide/hearing)
+[Adapter interface](docs/API.md) · [Custom adapters](https://quetzal.plutokeating.beer/en/docs/advanced/custom-adapter) · [Hearing and the microphone](https://quetzal.plutokeating.beer/en/docs/guide/hearing) · [Operating the screen](https://quetzal.plutokeating.beer/en/docs/guide/screen)
 
 <br/>
 
@@ -90,7 +91,7 @@ What it does often, it turns into its own tool, done in one step next time.
 Its memory lives in your own private repository, every line readable by you. The code is open source, every line of it.
 
 - **Passwords never reach the model.** A password you send in the chat goes straight into a vault on the device; the model only sees its name. Model keys are stored encrypted with AES-256-GCM.
-- **Risky actions get a second opinion.** Photos, recordings, location, new tools and commands in the real environment go to an independent review model first by default. It sees only that one action, not the agent's prompt or the whole conversation; if it says no, the agent gets the reason and tries another way, and you do not approve things one by one. Every kind of capability can be set to review, allow, ask (every time) or deny.
+- **Risky actions get a second opinion.** Photos, recordings, location, operating the screen, new tools and commands in the real environment go to an independent review model first by default. It sees only that one action, not the agent's prompt or the whole conversation; if it says no, the agent gets the reason and tries another way, and you do not approve things one by one. Every kind of capability can be set to review, allow, ask (every time) or deny.
 - **Stop it any time.** The emergency stop is always there, everything it does is in the audit log, and daily tokens and spending have a cap.
 - **A sandbox.** Its commands run in an isolated space (bubblewrap, Landlock or proot on Linux, proot on Android, a low-privilege user on Windows) that hides your keys.
 - **Only your devices.** Bodies trust only the public keys registered in the soul repository, so even a compromised sync service cannot pose as one of your devices.

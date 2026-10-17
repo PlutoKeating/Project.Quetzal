@@ -11,7 +11,7 @@
 ```mermaid
 flowchart TB
   subgraph Host["身体（任意设备）"]
-    AD["身体适配器（外部仓库提供）<br/>sample() · notify() · speak() · tools · hands"]
+    AD["身体适配器（仓库内的平台级适配器或外部仓库）<br/>sample() · notify() · speak() · tools · hands"]
     SUP["进程守护者<br/>runit / systemd / …"]
   end
   subgraph Core["运行基座 · 单进程 Node.js（dist/main.cjs）"]
@@ -47,7 +47,7 @@ flowchart TB
 设计原则：
 
 - **单进程、模块化**：模块之间通过进程内事件总线（`bus.ts`）和少量函数调用耦合，便于单独测试。
-- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由适配器提供。仓库内自带几个平台级适配器：`runtime/adapters/android/`（任意安卓手机：身体能力由 Quetzal App 的原生代码经本机身体接口提供，传感器按类型探测）、`runtime/adapters/termux/`（旧的 Termux 安装：任意安卓手机 + Termux:API，传感器按名字探测）、`runtime/adapters/linux/`（任意 Linux 机器：电池与温度读 `/sys`，桌面工具按可用程序探测）与 `runtime/adapters/windows/`（任意 Windows 10 1809 起 / 11 电脑：电源读系统电源状态，通知、截图、剪贴板、拍照、录音用系统自带的 PowerShell 5.1、.NET 与 WinRT），都不含任何具体机型的实现。
+- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由适配器提供。仓库内自带几个平台级适配器：`runtime/adapters/android/`（任意安卓手机：身体能力由 Quetzal App 的原生代码经本机身体接口提供，传感器按类型探测）、`runtime/adapters/termux/`（旧的 Termux 安装：任意安卓手机 + Termux:API，传感器按名字探测）、`runtime/adapters/linux/`（任意 Linux 机器：电池与温度读 `/sys`，桌面工具按可用程序探测）与 `runtime/adapters/windows/`（任意 Windows 10 1809 起 / 11 电脑：电源读系统电源状态，通知、截图与操作屏幕、剪贴板、拍照、录音用系统自带的 PowerShell 5.1、.NET（含 UI Automation）与 WinRT），都不含任何具体机型的实现。安卓、Linux、Windows 适配器都实现了「手」（看屏幕、点击、输入、打开应用，见 §5.5）。
 - **状态全部落盘**：心脏状态、时间线、审计、用量在 SQLite，人格与记忆在灵魂目录。进程重启只相当于"睡了一觉"。
 - **所有控制入口共用一个操作层**（`ops.ts`）：控制台和飞书的行为完全一致，都经过审计。
 
@@ -360,6 +360,34 @@ flowchart LR
 - 心脏的「牵挂」= 进行中的目标数 / 5（公式不变，`heart.ts` 的 `setOpenLoops`）：目标一变（本机改的或别处同步来的）就重新计算，跟随者照常转给协调者。
 - 全网同步：经 `mesh/shared.ts` 的 `goals` 分区按条目合并（§6.2「进行中的工作」）。控制台首页「目标」一节显示进度与步骤，可以替她标为完成或放下（网关 `goals` / `goals.close`）。
 
+### 5.5 手：看屏幕与操作应用（计算机使用）
+
+身体适配器提供 `hands`（`body/adapter.ts` 的 `Hands`：`status`、`screenshot`、`snapshot`、`click`、`drag`、`scroll`、`type`、`key`、`openApp`，可选 `windows`、`focusWindow`）时，核心（`mind/hands.ts`）给她一组统一的工具：
+
+| 工具 | 做什么 |
+|---|---|
+| `screen_read` | 读前台窗口（手机上是当前界面）的无障碍树，列出看得见的按钮、文字、输入框……每个带编号、中心坐标与大小、状态（焦点、已勾选、不可用……）；`screenshot: true` 时顺便截图 |
+| `screen_capture` | 截整个屏幕给她看（复用 `view_image` 的看图流程：图片在下一步思考时出现，自动选用能看图的模型） |
+| `screen_click` | 按编号或坐标点击；双击、右键、长按（`hold` 毫秒） |
+| `screen_drag` / `screen_scroll` | 拖拽、滑动；按格滚动（手机上一格约六分之一屏） |
+| `screen_type` / `screen_key` | 输入任意文字（可先点某个输入框、输完按回车）；按键与组合键（`ctrl+c`、`alt+tab`；手机上 `back`、`home`、`recents`、`notifications`…） |
+| `app_open` | 按应用名或包名 / 应用 ID 打开已安装的应用（不执行任意命令） |
+| `window_list` / `window_focus` | 列出、切换顶层窗口（适配器支持时才有） |
+
+- **屏幕理解优先无障碍树，截图兜底**：元素列表准、便宜、不依赖看图模型；读不到（应用没有无障碍信息、Wayland 下坐标不可靠）时她截图看。适配器报告读不到无障碍树时，`screen_read` 直接改为截图。
+- **坐标**：适配器的坐标一律是整屏截图的像素（多显示器偏移、DPI 由适配器换算）。她看到与使用的是缩到长边 1280 像素的「视图坐标」——截图交给模型之前核心先缩到这个尺寸，元素坐标也按同一比例给出；她点 (x, y) 时核心换回屏幕像素。缩到 1280 是为了各家模型都不再二次缩图（二次缩图后模型说的坐标就对不上了）。
+- **按编号操作**：编号来自最近一次 `screen_read`；核心把编号换成元素中心点，连同适配器给这个元素的 `ref` 一起交下去，适配器能直接对元素做动作时（安卓的无障碍点击与设值、Linux 的 AT-SPI 动作）优先用它。屏幕变了编号就作废，要重新读。
+- **闸门与安全**：全部归「操作屏幕与应用」（`hands`，默认交给审核模型，§8.0；档位为「允许」时 `screen_click` / `screen_drag` / `screen_scroll` / `screen_type` / `screen_key` / `app_open` / `window_focus` 仍按 `hands` 风险类别送审，只读的 `screen_read` / `screen_capture` / `window_list` 不送审），急停时闸门直接拒绝，每次调用写审计。这些操作由运行基座进程（适配器、App 的无障碍服务）执行，不经过她的命令沙箱：能做的就是坐在这块屏幕前的人能做的一切（包括在终端里敲命令），所以默认送审；`app_open` 只打开已安装的应用。读到的屏幕内容与截图像对话内容一样交给模型。
+- **跨身体**：hands 工具在可被别的身体调用的清单里（`mesh/limbs.ts`），在电脑上可以经 `body_call` 操作手机的屏幕（那具身体按它自己的权限再问一次）；没有进行中的思考时截图只返回路径，带那具身体的 uuid 用 `view_image` 看。
+
+各平台的实现（一切靠探测，见 [runtime 模块地图](../runtime/docs/ARCHITECTURE.md)）：
+
+| 平台 | 无障碍树 | 输入 | 截图 | 说明 |
+|---|---|---|---|---|
+| 安卓 | App 的无障碍服务 `HandsService`（`AccessibilityNodeInfo`） | `dispatchGesture`、节点动作、`performGlobalAction` | `AccessibilityService.takeScreenshot`（Android 11+；更早的只能读元素） | 用户在系统设置 → 无障碍里开启「Quetzal 操作屏幕」，控制台「控制 → 权限」里有引导；经本机身体接口 `/v1/hands/…` 暴露给运行基座 |
+| Linux | AT-SPI（python3 + gi 的 Atspi 2.0） | X11：xdotool；Wayland：ydotool（鼠标与键盘）/ wtype（键盘），都没有时对有引用的元素退回 AT-SPI 动作 | grim / scrot / gnome-screenshot / spectacle / ImageMagick | 服务环境里没有 `DISPLAY` 时按 `XDG_RUNTIME_DIR` 与 `/tmp/.X11-unix` 补齐；没有桌面会话时不提供 hands |
+| Windows | UI Automation（PowerShell 5.1 + .NET） | SendInput / SetCursorPos（每显示器 DPI 感知） | `Graphics.CopyFromScreen`，按需缩小存 JPEG | 会话 0 里看不到桌面时经身体助手 `windows-body.mjs` 转交；以管理员身份运行的窗口、UAC、锁屏收不到普通进程的输入（UIPI） |
+
 ## 6. 身份、记忆与灵魂同步
 
 ### 6.0 提醒（`time/reminders.ts`）
@@ -529,7 +557,7 @@ flowchart LR
 - **模型**：`guard.sentinel.model` 指定模型页里的一个模型 id，不指定时用快速模型（quick 路由）；其余照全局顺序作为故障转移。最多等 `timeoutMs`（缺省 20 秒）。
 - **哪些操作送审**：不按命令文字猜，按能力类别与工具语义——
   - 档位为「交给审核模型」的类别：这一类的每次调用（缺省相机、麦克风、定位、操作屏幕、造工具）。
-  - 档位为「允许」的类别里，属于 `guard.sentinel.classes` 所列风险类别的操作：`host_shell` 真实环境里的命令；`remote_exec` 经 `body_call` 到别的身体执行命令（`shell` / `shell_jobs` / `host_mode`；别的工具在那具身体上按它自己的类别查）；`outbound` 醒来时对外发消息（`send_message` 不在对话里时）；`mcp_write` MCP 工具里来源没有声明只读（`readOnlyHint`）的；`destructive` 删除找不回的数据（`tool_delete`：自造工具的实现只在这具身体上；MCP 声明 `destructiveHint` 的）——笔记、常驻记忆与人格在灵魂仓库里，每次改动都能在「记忆历史」里撤销，不算；`credentials` 账号与凭据（`secret_sync`、带新密钥的 `voice_config`；`pass_secret` 本身就要对方在场输入，不在此列）；`tool_write` 造工具；`hands` 操作屏幕与应用。`sandbox_shell`（沙箱里的普通命令）可选，缺省不审：边界由沙箱给，逐条审核只会拖慢她。
+  - 档位为「允许」的类别里，属于 `guard.sentinel.classes` 所列风险类别的操作：`host_shell` 真实环境里的命令；`remote_exec` 经 `body_call` 到别的身体执行命令（`shell` / `shell_jobs` / `host_mode`；别的工具在那具身体上按它自己的类别查）；`outbound` 醒来时对外发消息（`send_message` 不在对话里时）；`mcp_write` MCP 工具里来源没有声明只读（`readOnlyHint`）的；`destructive` 删除找不回的数据（`tool_delete`：自造工具的实现只在这具身体上；MCP 声明 `destructiveHint` 的）——笔记、常驻记忆与人格在灵魂仓库里，每次改动都能在「记忆历史」里撤销，不算；`credentials` 账号与凭据（`secret_sync`、带新密钥的 `voice_config`；`pass_secret` 本身就要对方在场输入，不在此列）；`tool_write` 造工具；`hands` 操作屏幕与应用的动作（`screen_click` / `screen_drag` / `screen_scroll` / `screen_type` / `screen_key` / `app_open` / `window_focus`；只读的 `screen_read` / `screen_capture` / `window_list` 不算）。`sandbox_shell`（沙箱里的普通命令）可选，缺省不审：边界由沙箱给，逐条审核只会拖慢她。
   - 「询问」仍是人工审批，「禁止」直接拒绝；审核关着（`enabled: false`）时「交给审核模型」退回人工审批，「允许」下的风险类别不再审核。
 - **超时或失败**（没有可用模型、出错、回答不合格式）：`onFailure` 缺省 `by_risk`——低风险类（沙箱命令、对外发消息、相机、麦克风、定位等）放行并注明，高风险类（真实环境、跨身体执行、删除、凭据、造工具、操作屏幕、MCP 写操作）拦下并说明；也可配置为一律放行、一律拦下或转人工审批。
 - **工具调用之外的闸门**（MCP 来源启动、跨身体取文件）遇到「交给审核模型」档位同样由审核模型判断。
@@ -598,5 +626,5 @@ flowchart LR
 - **Android + Termux 部署约定（旧安装，兼容保留）**（1.0.x 的安装脚本 `install.sh` 已从 App 中移除）：软件包 `nodejs-lts termux-services termux-api git openssh proot`；版本目录 `~/quetzal/releases/<版本>/`（`main.cjs`、`termux.mjs`），`~/quetzal/current` → 运行中的版本，`~/quetzal/previous` → 上一版；runit 服务目录 `$PREFIX/var/service/quetzal`（`run` 以 `QUETZAL_ADAPTER=$HOME/quetzal/current/termux.mjs` 启动 node），日志 `$PREFIX/var/log/sv/quetzal/`；开机脚本 `~/.termux/boot/quetzal`（唤醒锁 + 启动 runit）。迁移到 App 内置：确认灵魂已推送，卸载 Termux 版，装新 App 后接入同一个灵魂仓库（接入前不改身份）。
 - **Linux + npm 部署约定**（npm 包 `@plutokeating/quetzal`，源码在 `cli/`，与旧的 Termux 约定同构）：`npx @plutokeating/quetzal` 把包内置的 `main.cjs`、`linux.mjs` 与网页控制台 `web/` 放进 `~/.quetzal/releases/<版本>/`（Linux 的家目录缺省 `~/.quetzal`，`QUETZAL_HOME` / `--home` 可改；0.6.7 前的 `~/quetzal` 自动搬过来），`current` / `previous` 同上；网关托管 `current/web/`（`QUETZAL_WEB_DIR` 可覆盖），装完有桌面时自动打开浏览器，`quetzal open` 再次打开；守护者是 systemd 用户服务 `~/.config/systemd/user/quetzal.service`（`ExecStart=<安装时的 node> --enable-source-maps ~/.quetzal/current/main.cjs`，`QUETZAL_ADAPTER=~/.quetzal/current/linux.mjs`，`Restart=always`），日志在 journald；尝试 `loginctl enable-linger` 让服务在没有登录会话时也运行。健康检查 40 秒且 `/health` 的版本相符才算成功，否则切回 `previous`。`--lan` 把 `gateway.host` 写为 `0.0.0.0`、`gateway.lan` 写为真：局域网上开 HTTPS / WSS（`gateway.lanPort`，默认 7789，自签名证书），明文仍只在 127.0.0.1，手机上的 App 填这台机器的地址、核对证书指纹后配对；配对码（连同证书的短指纹）由适配器的 `notify` 弹桌面通知并写进服务日志，`quetzal status` 打印局域网地址与指纹。没有 systemd 用户实例时只放文件，提示 `quetzal run` 前台运行。网状层的原生组件（`linux-<x64|arm64>-<gnu|musl>`）同样按锁定的 sha512 下载核对到 `~/.quetzal/mesh-modules/<版本>/`，失败不影响安装。
 - **一键安装脚本**（`cli/install.sh`，官网构建时复制为 `https://quetzal.plutokeating.beer/install`，`curl -fsSL …/install | bash`）：在 npm 包之上补齐使用者机器可能缺的一切——用发行版自己的包管理器装 git / curl / tar / CA 证书，Node.js 22.13+ 没有就经 nvm 装（musl 用 apk，NixOS 要求自备），npm 包装进 `~/.quetzal/npm` 独立前缀，`~/.local/bin/quetzal` 垫片固定用安装时的 node；守护在 systemd 之上确保 `loginctl enable-linger`，没有 systemd 的机器写 `~/.quetzal/bin/quetzal-supervise` 守护循环（退出 3 秒重启）并用 `crontab @reboot` 与桌面自启动项开机拉起；有桌面时写 `quetzal.desktop`、图标与启动器 `quetzal-console`（Chromium 系浏览器 `--app` 独立窗口）。中英双语、幂等、可 `--uninstall`。
-- **Windows 部署约定**（Windows 10 1809 起 / 11，x64 与 arm64；源码在 `cli/windows/`，设计与拍板见 [WINDOWS_DECISIONS.md](WINDOWS_DECISIONS.md)）：`irm https://quetzal.plutokeating.beer/install.ps1 | iex`（纯 ASCII 的 PowerShell 5.1 脚本：认出真实架构，智能应用控制开着就说明原因并打开设置页等用户关掉，在 PowerShell 里用 Ed25519 验发版清单的签名，核对哈希后静默运行安装包）或下载页的 `quetzal-<版本>-windows-<x64|arm64>-setup.exe`（NSIS，内嵌运行基座、控制台与 Node.js 24 / Git / Python 3.14 的官方安装包）。安装包以用户身份把文件装进 `ROOT = %LOCALAPPDATA%\Quetzal`：`runtime\<版本>\`（`main.cjs`、`windows.mjs`、`windows-body.mjs`、`windows-supervise.mjs`、`srt.mjs`、`mermaid.mjs`、`web\`、`srt-win\srt-win.exe`、网状层原生组件复制进 `node_modules\`）、`runtime\current.txt` / `previous.txt`（指针文件代替符号链接）、`console\<版本>\` 与 `console\current.txt`、`node.txt`、`bin\`、`home\`（`QUETZAL_HOME`）；然后**一次** UAC 做机器级的事：缺的 Node（22.13+ 才算有）、Git、Python 3 以机器范围静默安装（沙箱用户才读得到），`srt-win install`，注册计划任务 `\Quetzal\Runtime-Boot`（开机、以安装用户身份、S4U 不存密码、失败每分钟重启：电脑重启后没人登录也在跑）与 `\Quetzal\Runtime-Logon`（登录时；S4U 注册不了的机器靠它）。两个任务都经 `bin\quetzal-supervise.ps1` 执行守护进程 `windows-supervise.mjs`：单实例，每次拉起都读 `current.txt`，退出后退避重启，日志写 `home\logs\runtime.log` 并轮转，`state\supervise.off` 暂停、`state\quit` 连同守护一起退出（控制台的「守护」开关与托盘的「退出」）。开机任务（S4U）里 Windows 不允许 `CreateProcessWithLogonW`，命令沙箱起不来，她的命令 fail-closed（说明原因）；有人登录后登录任务的守护进程写 `state\takeover` 请开机任务那份让位，在用户的桌面会话里重新拉起运行基座，沙箱随之可用；注销后开机任务（每 5 分钟重复）在后台接上。开机任务里运行基座在会话 0，看不到桌面：通知、截图、剪贴板、打开、播放、拍照、录音交给用户桌面里的身体助手 `windows-body.mjs`（控制台托盘在登录时启动并看护，127.0.0.1 随机端口 + 随机令牌，写在 `secrets\desktop-body.json`），没人登录时如实说明。控制台由 `HKCU\…\Run` 以 `--background` 在登录时只起托盘。升级：控制台点「升级」，运行基座在后台脱离进程树重跑 install.ps1（有人登录时经身体助手启动，需要提权时能弹 UAC），旧进程经同意后关掉、干净安装，40 秒健康检查不过就把指针退回上一版；日志与状态解析与 Linux 同格式。发布的 exe 暂未做 Authenticode 签名，完整性靠 Ed25519 签名的 SHA256SUMS。
-- **配置缺省**：`body` 由安装器写为机型名（Android、Windows；Windows 取 Win32_ComputerSystem 的型号，拿不到用计算机名，避开保留名）或主机名（Linux），`timezone` 取系统时区；相机、麦克风、定位、操作屏幕、造工具默认「每次询问」；听觉默认关闭；网关只监听本机（局域网访问需显式开启，且只走 HTTPS）。
+- **Windows 部署约定**（Windows 10 1809 起 / 11，x64 与 arm64；源码在 `cli/windows/`，设计与拍板见 [WINDOWS_DECISIONS.md](WINDOWS_DECISIONS.md)）：`irm https://quetzal.plutokeating.beer/install.ps1 | iex`（纯 ASCII 的 PowerShell 5.1 脚本：认出真实架构，智能应用控制开着就说明原因并打开设置页等用户关掉，在 PowerShell 里用 Ed25519 验发版清单的签名，核对哈希后静默运行安装包）或下载页的 `quetzal-<版本>-windows-<x64|arm64>-setup.exe`（NSIS，内嵌运行基座、控制台与 Node.js 24 / Git / Python 3.14 的官方安装包）。安装包以用户身份把文件装进 `ROOT = %LOCALAPPDATA%\Quetzal`：`runtime\<版本>\`（`main.cjs`、`windows.mjs`、`windows-body.mjs`、`windows-supervise.mjs`、`srt.mjs`、`mermaid.mjs`、`web\`、`srt-win\srt-win.exe`、网状层原生组件复制进 `node_modules\`）、`runtime\current.txt` / `previous.txt`（指针文件代替符号链接）、`console\<版本>\` 与 `console\current.txt`、`node.txt`、`bin\`、`home\`（`QUETZAL_HOME`）；然后**一次** UAC 做机器级的事：缺的 Node（22.13+ 才算有）、Git、Python 3 以机器范围静默安装（沙箱用户才读得到），`srt-win install`，注册计划任务 `\Quetzal\Runtime-Boot`（开机、以安装用户身份、S4U 不存密码、失败每分钟重启：电脑重启后没人登录也在跑）与 `\Quetzal\Runtime-Logon`（登录时；S4U 注册不了的机器靠它）。两个任务都经 `bin\quetzal-supervise.ps1` 执行守护进程 `windows-supervise.mjs`：单实例，每次拉起都读 `current.txt`，退出后退避重启，日志写 `home\logs\runtime.log` 并轮转，`state\supervise.off` 暂停、`state\quit` 连同守护一起退出（控制台的「守护」开关与托盘的「退出」）。开机任务（S4U）里 Windows 不允许 `CreateProcessWithLogonW`，命令沙箱起不来，她的命令 fail-closed（说明原因）；有人登录后登录任务的守护进程写 `state\takeover` 请开机任务那份让位，在用户的桌面会话里重新拉起运行基座，沙箱随之可用；注销后开机任务（每 5 分钟重复）在后台接上。开机任务里运行基座在会话 0，看不到桌面：通知、截图与操作屏幕、剪贴板、打开、播放、拍照、录音交给用户桌面里的身体助手 `windows-body.mjs`（控制台托盘在登录时启动并看护，127.0.0.1 随机端口 + 随机令牌，写在 `secrets\desktop-body.json`），没人登录时如实说明。控制台由 `HKCU\…\Run` 以 `--background` 在登录时只起托盘。升级：控制台点「升级」，运行基座在后台脱离进程树重跑 install.ps1（有人登录时经身体助手启动，需要提权时能弹 UAC），旧进程经同意后关掉、干净安装，40 秒健康检查不过就把指针退回上一版；日志与状态解析与 Linux 同格式。发布的 exe 暂未做 Authenticode 签名，完整性靠 Ed25519 签名的 SHA256SUMS。
+- **配置缺省**：`body` 由安装器写为机型名（Android、Windows；Windows 取 Win32_ComputerSystem 的型号，拿不到用计算机名，避开保留名）或主机名（Linux），`timezone` 取系统时区；相机、麦克风、定位、操作屏幕、造工具默认「交给审核模型」（§8.0）；听觉默认关闭；网关只监听本机（局域网访问需显式开启，且只走 HTTPS）。

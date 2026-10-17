@@ -45,7 +45,7 @@ src/
 │   ├── prompt.ts         政策、人格与处境提示；生产dynamic模式不固定注入常驻全文，兼容入口仍可用旧字符视图
 │   ├── context.ts        每轮工作状态/标签（真正的会话的经 task-states.ts 记下、全网同步）、动态记忆选择、实际模型窗口计划、稳定摘要与SQLite原文/历史过程/完整工具引用回查
 │   ├── fetch-guard.ts    web_fetch 的出站检查（远程 MCP 的 net.ts 复用它的地址检查与 guardedLookup）：每一跳解析 DNS、拒绝回环 / 私有 / 链路本地 / CGNAT / 元数据地址，连接时再查（防 DNS 重绑定），手动跟随重定向
-│   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + 预留 hands 工具 + 她自己造的工具；经闸门调用（sentinel.ts 的 gate；一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write；审核结论附在结果末尾，未通过的理由作为 denied 结果交给她）；参数脱敏后才进审核、审批与审计；read_document / view_image 的真实路径检查；多具身体时读文件的工具（view_image、read_document、shell）多一个 body 参数，交给 body-files.ts；不按命令文字拦截，边界是 sandbox.ts；工具返回 ToolFailure（failed()）或抛错就是失败（命令非零退出、参数不对、那边出错），卡片红叉、上下文里写明失败；shell 的命令里有 ‹secret:…› 占位符就不执行；这一轮被停止时 shell 的命令随之结束；每次调用结束后触发灵魂目录的触碰即同步
+│   ├── tools.ts          内置工具（含 send_message：醒来时发到她选的已有会话或新开的会话，不指定则一次醒来一个新会话；recent_actions 查审计、view_image 同一轮不重复发图、edit_identity、tool_write / tool_read / tool_delete、hearing_config）+ 适配器工具 + hands 工具（mind/hands.ts）+ 她自己造的工具；经闸门调用（sentinel.ts 的 gate；一个工具可属于几个类别，按最严的检查：自造工具加 shell，tool_write 加 tool_write；审核结论附在结果末尾，未通过的理由作为 denied 结果交给她）；参数脱敏后才进审核、审批与审计；read_document / view_image 的真实路径检查；多具身体时读文件的工具（view_image、read_document、shell）多一个 body 参数，交给 body-files.ts；不按命令文字拦截，边界是 sandbox.ts；工具返回 ToolFailure（failed()）或抛错就是失败（命令非零退出、参数不对、那边出错），卡片红叉、上下文里写明失败；shell 的命令里有 ‹secret:…› 占位符就不执行；这一轮被停止时 shell 的命令随之结束；每次调用结束后触发灵魂目录的触碰即同步
 │   ├── claims.ts         认领（claim 工具）：几个会话避免同时做同一件对外的事；按名字字面比较、带说明与期限；存 kv；多具身体时由协调者决定（setClaimRouter），记录按条目合并；系统提示「其他会话」里列出
 │   ├── projects.ts       项目（#30）：名字、简介、项目说明（注入这个项目下会话的系统提示）、颜色与图标、归档；存 kv，删除留墓碑、只解除会话归属；多具身体时按条目合并（mesh/shared.ts 的 projects 分区）；project 工具与控制台共用
 │   ├── session-search.ts 会话列表的搜索（#30）：标题与内容（复用 memory/index.ts 的对话全文索引，没有 FTS5 时逐条匹配），每个会话一条最好的命中，片段与高亮位置
@@ -62,7 +62,8 @@ src/
 │   ├── continuity.ts     续做（#11）：本机进展折叠成轮次检查点（turns），基座重启后从检查点续做本机没做完的轮次与子 agent（对话以「续做」的交接在原会话里接着做），谁续做的决定（decideTake / take，多具身体时经协调者），续做次数与时限
 │   ├── custom-tools.ts   自造工具：QUETZAL_HOME/tools/<名>/（tool.json + tool.sh | tool.mjs）的校验、热加载、执行（一律在子进程里、经沙箱：stdin JSON + ARG_ 环境变量 / 子进程里加载 ES 模块，超时整组杀掉）、依赖检查；技能文档（灵魂仓库 skills/<名>/SKILL.md，Agent Skills 规范）的读写
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、按标识找本机开着的会话（sessionById）、被别处接手的停止原因（HandedOver）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
-│   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick），供附件与 view_image 使用
+│   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick / 内置 jpeg-js，长边可指定），供附件、view_image 与截图使用
+│   ├── hands.ts          手（计算机使用）：把适配器的 Hands 包装成 screen_read / screen_capture / screen_click / screen_drag / screen_scroll / screen_type / screen_key / app_open / window_list / window_focus；读屏结果过滤、编号、排版，视图坐标（截图缩到长边 1280）与屏幕像素换算，按编号取元素中心与 ref，键名规范；全部归 hands 类别（缺省交给审核模型；sentinel 的 hands 风险类别只算动作，读屏、截图、列窗口不算）
 │   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
 │   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，固定顺序、拿到结果即止（相不相关由她判断）；没有结果时照实说明，被转到别的网站就写出是哪里
@@ -105,7 +106,7 @@ src/
 │   └── runtime.ts        绑定到运行时：配置、绑定令牌（secrets/sync.json）、钉住记录（data/mesh-pins.json）、局域网地址表（data/mesh-lan.json）、原生组件的按需加载、身体登记的公钥、soul.pushed → 其他身体立即拉取、拉取灵魂仓库后核对连接；网关的 mesh.* 方法（含 acceptPin）
 ├── guard/
 │   ├── guard.ts          能力授权（allow / review / ask / deny）、审批队列（ask：不看档位、直接生成审批，真实环境配置为人工时用它）、急停、审计；review 档位交给登记的审核者（setReviewer）
-│   └── sentinel.ts       安全审核：独立的审核模型（固定的审核系统提示，只送这一次操作：工具、类别、脱敏参数、她这一步的说明、对方最近一两句话、身体与是否真实环境；结论 allow / revise / block + 风险 + 理由）；按能力类别与工具语义的风险分类（classify，不看命令文字）；工具调用的闸门 gate；超时 / 失败策略；进入真实环境的审核 approveHost；审计 sentinel.review；控制台配置 sentinelView / setSentinel；旧缺省「询问」的一次性迁移 migrateReviewDefaults
+│   └── sentinel.ts       安全审核：独立的审核模型（固定的审核系统提示，只送这一次操作：工具、类别、脱敏参数、她这一步的说明、对方最近一两句话、身体与是否真实环境；结论 allow / revise / block + 风险 + 理由）；按能力类别与工具语义的风险分类（classify，不看命令文字；hands 类别里只读的 screen_read / screen_capture / window_list 不算风险类别）；工具调用的闸门 gate；超时 / 失败策略；进入真实环境的审核 approveHost；审计 sentinel.review；控制台配置 sentinelView / setSentinel；旧缺省「询问」的一次性迁移 migrateReviewDefaults
 ├── mcp/                  MCP 宿主工具来源（配置、权限、隔离与同步见 docs/engine/MCP.md）
 │   ├── client.ts         官方 SDK：stdio / Streamable HTTP / 旧版 SSE 传输、协商、工具发现与稳定别名（带来源声明的只读 / 破坏性注解，供审核分类；资源与提示词工具标为只读）、资源与提示词（以基座加的工具交给她）、schema 校验、输出边界与调用取消
 │   ├── runtime.ts        config/mcp.json 的校验与读写、启动授权（mcp_start.<id>）、沙箱环境与凭据引用、即时启停（reconcile）、来源状态、控制台管理（增删改、登录）、多端同步的导出与按条目合并（exportMcp / mergeMcp）
@@ -129,6 +130,15 @@ src/
     ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话；保密输入期间只回不含内容的回执）、主动消息（注明所在会话）、菜单与单聊事件、卡片回调、一键接入
     ├── feishu-progress.ts 执行过程卡片：按插话分段——插话那一刻上面的卡片定格，新的一段回复插话消息在下面重新开出；发送 / 更新经注入的 sender，可测试
     └── feishu-cards.ts   卡片 JSON 2.0：此刻 / 心流 / 记忆 / 控制 / 模型 / 权限（审核 / 允许 / 询问 / 禁止） / 预算 / 审批 / 保密输入
+```
+
+平台级适配器（`adapters/`，与 `src/` 平级，只 `import type` 接口）里「手」的实现：
+
+```
+adapters/
+├── android/index.ts      经 App 身体接口的 /v1/hands/…（App 的无障碍服务 HandsService）；控件类名 → 通用角色、键 → 全局动作 / 输入框编辑
+├── linux/hands.ts        桌面会话环境探测；xdotool（X11）/ ydotool、wtype（Wayland）的命令拼装；AT-SPI 脚本（python3 + gi Atspi）与解析；wmctrl；.desktop 查找；截图命令
+└── windows/hands.ts      常驻 PowerShell 里的 C# 帮手（SendInput、DPI、虚拟屏幕偏移）；UI Automation 读屏与窗口列表脚本及解析；开始菜单应用；hands.* 操作表（身体助手 body.ts 共用）
 ```
 
 约定：

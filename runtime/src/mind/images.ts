@@ -56,21 +56,21 @@ export function shrinkJpegJs(file: string, out: string, maxEdge = MAX_EDGE): boo
   return true;
 }
 
-/** 依次尝试缩图工具，最后是内置的 jpeg-js；导出供测试逐个验证。 */
-export async function shrink(file: string, only?: "ffmpeg" | "magick" | "convert" | "jpeg-js"): Promise<string | undefined> {
+/** 依次尝试缩图工具，最后是内置的 jpeg-js；导出供测试逐个验证。maxEdge：长边缩到多少像素（缺省 MAX_EDGE；看屏幕的截图用更小的值，见 hands.ts）。 */
+export async function shrink(file: string, only?: "ffmpeg" | "magick" | "convert" | "jpeg-js", maxEdge = MAX_EDGE): Promise<string | undefined> {
   const out = path.join(os.tmpdir(), `quetzal-img-${process.pid}-${Date.now()}.jpg`);
   const tries: [string, string[]][] = [
     // 注意：这里不经过 shell，参数里不能带引号；force_original_aspect_ratio=decrease 保持比例、只缩不放（只在大文件时调用）
-    ["ffmpeg", ["-y", "-loglevel", "error", "-i", file, "-vf", `scale=${MAX_EDGE}:${MAX_EDGE}:force_original_aspect_ratio=decrease`, "-frames:v", "1", "-q:v", "4", out]],
-    ["magick", [file, "-auto-orient", "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, "-quality", "85", out]],
-    ["convert", [file, "-auto-orient", "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, "-quality", "85", out]],
+    ["ffmpeg", ["-y", "-loglevel", "error", "-i", file, "-vf", `scale=${maxEdge}:${maxEdge}:force_original_aspect_ratio=decrease`, "-frames:v", "1", "-q:v", "4", out]],
+    ["magick", [file, "-auto-orient", "-resize", `${maxEdge}x${maxEdge}>`, "-quality", "85", out]],
+    ["convert", [file, "-auto-orient", "-resize", `${maxEdge}x${maxEdge}>`, "-quality", "85", out]],
   ];
   // Windows 上的 convert 是系统自带的 FAT→NTFS 转换程序（System32\convert.exe），不是 ImageMagick：不调用
   for (const [cmd, args] of tries.filter(([c]) => (!only || c === only) && !(c === "convert" && process.platform === "win32"))) {
     const r = await run(cmd, args, 60_000);
     if (r.code === 0 && fs.existsSync(out) && fs.statSync(out).size > 0) return out;
   }
-  if ((!only || only === "jpeg-js") && imageMime(file) === "image/jpeg" && shrinkJpegJs(file, out)) return out;
+  if ((!only || only === "jpeg-js") && imageMime(file) === "image/jpeg" && shrinkJpegJs(file, out, maxEdge)) return out;
   return undefined;
 }
 

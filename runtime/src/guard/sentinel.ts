@@ -34,7 +34,7 @@ export const RISK_CLASSES: Record<string, { label: string; risk: "low" | "high" 
   destructive: { label: "删除找不回的数据（自造工具、MCP 声明为破坏性的）", risk: "high" },
   credentials: { label: "账号与凭据（pass_secret 之外）", risk: "high" },
   tool_write: { label: "造工具（写会被执行的代码）", risk: "high" },
-  hands: { label: "操作屏幕与应用", risk: "high" },
+  hands: { label: "操作屏幕：点击、拖拽、滚动、输入、按键、打开应用、切换窗口", risk: "high" },
 };
 /** 档位为「交给审核模型」的能力类别审核失败时的风险（没列出的按 high）。 */
 const PERMISSION_RISK: Record<string, "low" | "high"> = { camera: "low", microphone: "low", location: "low", device: "low", network: "low", memory: "low", message: "low", session: "low" };
@@ -46,6 +46,8 @@ const PERMISSION_RISK: Record<string, "low" | "high"> = { camera: "low", microph
  */
 const DESTRUCTIVE = new Set(["tool_delete"]);
 const REMOTE_EXEC = new Set(["shell", "shell_jobs", "host_mode"]);
+/** 操作屏幕类别（mind/hands.ts）里只看不动的工具：读屏、截图、列窗口不算 hands 风险类别（档位为「交给审核模型」时仍照档位送审）。 */
+const HANDS_READ = new Set(["screen_read", "screen_capture", "window_list"]);
 
 export interface Classified { tool: string; permission: string; args: Record<string, unknown>; origin?: string; realEnv?: boolean; mcp?: { readOnly?: boolean; destructive?: boolean } }
 /** 这次调用属于哪个风险类别（不属于任何一类为 undefined）。permission 是工具自己声明的类别。 */
@@ -58,7 +60,7 @@ export function classify(o: Classified): string | undefined {
   if (DESTRUCTIVE.has(o.tool)) return "destructive";
   if (o.tool === "secret_sync" || (o.tool === "voice_config" && a.action === "set" && typeof a.key === "string" && a.key)) return "credentials";
   if (o.mcp) return o.mcp.destructive ? "destructive" : o.mcp.readOnly === true ? undefined : "mcp_write";
-  if (o.permission === "hands") return "hands";
+  if (o.permission === "hands") return HANDS_READ.has(o.tool) ? undefined : "hands";
   return undefined;
 }
 

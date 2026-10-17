@@ -1,4 +1,4 @@
-// Windows 桌面上的身体能力：通知（Toast）、截图、剪贴板、打开网址与文件、播放声音、拍照、录音。
+// Windows 桌面上的身体能力：通知（Toast）、剪贴板、打开网址与文件、播放声音、拍照、录音（截图与操作屏幕见 hands.ts）。
 //   都要在用户登录的桌面会话里做（开机自启的运行基座在会话 0，看不到桌面）：运行基座在交互会话里就直接调用这里，
 //   在会话 0 就经身体助手（body.ts，由控制台托盘在登录时启动）调用同一份实现。
 //   一切靠探测、不装任何东西：PowerShell 5.1 + .NET Framework + WinRT 是 Windows 10 起自带的；拍照还可以退回 ffmpeg。
@@ -39,22 +39,6 @@ $doc = New-Object Windows.Data.Xml.Dom.XmlDocument
 $doc.LoadXml(${psq(toast)})
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($id).Show([Windows.UI.Notifications.ToastNotification]::new($doc))
 `);
-}
-
-export async function screenshot(): Promise<string> {
-  const f = path.join(mediaDir(), `screen-${stamp()}.png`);
-  await ps.run(`
-if (-not ('QuetzalDpi' -as [type])) { Add-Type -Name QuetzalDpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();' }
-[QuetzalDpi]::SetProcessDPIAware() | Out-Null
-Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-$b = [System.Windows.Forms.SystemInformation]::VirtualScreen
-$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
-$g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
-$bmp.Save(${psq(f)}, [System.Drawing.Imaging.ImageFormat]::Png)
-$g.Dispose(); $bmp.Dispose()
-`, 30_000);
-  return fs.existsSync(f) ? `已截图：${f}（${sizeKB(f)} KB）` : fail("截图失败");
 }
 
 export async function clipboard(text?: string): Promise<string> {
@@ -155,7 +139,6 @@ try {
 /** 身体助手与适配器共用的操作表（body.ts 的 POST /call 按 op 分派到这里）。 */
 export const ops: Record<string, (a: Record<string, any>) => Promise<unknown>> = {
   notify: (a) => notify(String(a.title ?? ""), String(a.text ?? "")),
-  screenshot: () => screenshot(),
   "clipboard.get": () => clipboard(),
   "clipboard.set": (a) => clipboard(String(a.text ?? "")),
   open: (a) => open(String(a.target ?? "")),

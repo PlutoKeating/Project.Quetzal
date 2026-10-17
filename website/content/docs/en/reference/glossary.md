@@ -56,6 +56,6 @@ description: Terms that recur throughout the Quetzal documentation: runtime, bod
 | Now | 此刻 | The app's home page: state, drives, the thought it wants to share |
 | Flow | 心流 | The app's timeline page: wake-ups, dreams, conversations |
 | proactive message | 主动消息 | A message it sends with `send_message` when waking on its own |
-| hands | hands | The reserved interface for operating the screen and apps (not yet implemented) |
+| hands | hands | The adapter's "hands": reading the screen (accessibility tree), screenshots, clicks, typing, keys and opening apps; the core turns it into the `screen_*` tools |
 | body interface | 身体接口 | The body abilities (sensors, notifications, camera, microphone, location…) the Quetzal app serves locally to its built-in runtime; token-only, address and token in `secrets/body.json` |
 | home directory | 家目录 | `QUETZAL_HOME`, where all runtime data lives; default `files/home/quetzal` in the app's data directory on Android (`~/quetzal` for older Termux installs), `%LOCALAPPDATA%\Quetzal\home` on Windows and `~/.quetzal` on Linux, overridable |

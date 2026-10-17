@@ -12,7 +12,7 @@ The repository ships several platform adapters to learn from:
 - `runtime/adapters/android/`, built as `dist/android.mjs`: any Android phone, with body abilities served by the Quetzal app's local body interface.
 - `runtime/adapters/termux/`, built as `dist/termux.mjs`: older Termux installs on any Android phone with Termux:API; sensors are detected by name.
 - `runtime/adapters/linux/`, built as `dist/linux.mjs`: any Linux machine; battery and temperature come from `/sys`, and desktop tools depend on which programs are available.
-- `runtime/adapters/windows/`, built as `dist/windows.mjs`: any Windows 10 1809 or later / Windows 11 PC; power comes from the system power status, and notifications, screenshots, clipboard, photos and recording use the built-in PowerShell 5.1, .NET and WinRT. See [Windows](/docs/advanced/windows).
+- `runtime/adapters/windows/`, built as `dist/windows.mjs`: any Windows 10 1809 or later / Windows 11 PC; power comes from the system power status, and notifications, screenshots and screen control, clipboard, photos and recording use the built-in PowerShell 5.1, .NET (including UI Automation) and WinRT. See [Windows](/docs/advanced/windows).
 
 ## The interface
 
@@ -54,13 +54,14 @@ export default adapter;
 | `notify()` | no | Local system notification; without it pairing codes can only be read from the token file |
 | `speak()` / `playAudio()` | no | Speak / play an audio file |
 | `tools` | no | Device actions, each declaring its capability category (`device`, `camera`, `microphone`, `location`…) |
-| `hands` | no | Reserved: see the screen, tap, type, open apps |
+| `hands` | no | Hands: read the screen, take screenshots, click, drag, scroll, type, press keys, open apps (types in [Adapter interface](/docs/reference/adapter-interface)); the core turns it into the `screen_*` tools under **Screen and apps** |
 
 ## Constraints
 
 - An adapter may **only `import type`** from the interface file; it must not depend on any other part of the core. Types are erased at build time, so the output has no dependency on the core.
 - A tool's `permission` must be a category the guard knows; otherwise it is treated as "allow".
 - If loading fails, the core falls back to the generic adapter (no sensors) and says so in the log.
+- When implementing `hands`, use full-screenshot pixels for every coordinate (origin at the top-left of the screenshot) and handle multi-display offsets and DPI yourself; the core converts them to the coordinates of the shrunk screenshot the agent sees. `snapshot()` should return the visible elements of the accessibility tree, each with a `ref` that comes back unchanged when the agent acts on that element by number. Throw an error that says how to make it work (what to install or enable) when an action is not possible. `openApp` opens installed apps only.
 
 ## Build and point at it
 

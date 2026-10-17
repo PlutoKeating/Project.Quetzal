@@ -205,9 +205,9 @@ ROOT\bin\quetzal.cmd             命令行入口
 
 ### 4.3 身体助手（会话 0 里拿不到桌面）
 
-- 运行基座在 `Runtime-Boot` 下运行于会话 0：电池、温度这类读数自己取；通知、截图、剪贴板、打开网址、播放与朗读、相机、录音要交给**用户会话**里的身体助手。
+- 运行基座在 `Runtime-Boot` 下运行于会话 0：电池、温度这类读数自己取；通知、截图与操作屏幕、剪贴板、打开网址、播放与朗读、相机、录音要交给**用户会话**里的身体助手。
 - 身体助手 = `"<node>" ROOT\runtime\<当前>\windows-body.mjs`，由控制台托盘进程在登录时以不显示窗口的方式启动并看护（崩溃重启）。它监听 `127.0.0.1` 随机端口，令牌随机，写 `ROOT\home\secrets\desktop-body.json` = `{port, token, pid, session}`（0600 等价 ACL）。
-- 协议：`POST /call`，`Authorization: Bearer <令牌>`，体 `{op, args}` → `{ok, result?, error?}`；`GET /health` → `{ok, session}`。`op` 与适配器方法一一对应（`notify`、`screenshot`、`clipboard.get/set`、`open`、`playAudio`、`stopAudio`、`speak`、`camera`、`record`）。
+- 协议：`POST /call`，`Authorization: Bearer <令牌>`，体 `{op, args}` → `{ok, result?, error?}`；`GET /health` → `{ok, session}`。`op` 与适配器方法一一对应（`notify`、`clipboard.get/set`、`open`、`playAudio`、`stopAudio`、`speak`、`camera`、`record`；手的 `hands.status`、`hands.screenshot`、`hands.snapshot`、`hands.click`、`hands.drag`、`hands.scroll`、`hands.type`、`hands.key`、`hands.openApp`、`hands.windows`、`hands.focus`，见 `runtime/adapters/windows/hands.ts`）。
 - 运行基座的 Windows 适配器：自己在交互会话里就直接做；在会话 0 就找身体助手，找不到如实报告「需要登录桌面」。
 
 ### 4.4 安装（Q8–Q11、Q15–Q17）

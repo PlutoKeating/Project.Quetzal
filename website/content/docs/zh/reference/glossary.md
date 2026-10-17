@@ -56,7 +56,7 @@ description: Quetzal 文档里反复出现的名词：运行基座、身体、�
 | 此刻 | Now | App 首页：状态、驱动力、ta 想分享的一句话 |
 | 心流 | Flow | App 的时间线页：醒来、做梦、对话的记录 |
 | 主动消息 | proactive message | ta 自己醒来时用 `send_message` 发出的消息 |
-| hands | hands | 预留的屏幕与应用操作接口（尚未实现） |
+| hands | hands | 适配器的「手」：读屏幕（无障碍树）、截图、点击、输入、按键、打开应用的接口；核心据此提供 `screen_*` 工具 |
 | 身体接口 | body interface | Quetzal App 在本机提供给内置运行基座的身体能力（传感器、通知、相机、麦克风、定位……），只认令牌，地址与令牌在 `secrets/body.json` |
 | 身体助手 | body helper | Windows 上控制台托盘在登录时启动的 `windows-body.mjs`。开机任务里的运行基座看不到桌面，通知、截图、剪贴板、打开、播放、拍照、录音由它完成；端口与令牌在 `secrets\desktop-body.json` |
 | 家目录 | QUETZAL_HOME | 运行基座的全部数据所在。默认：安卓 App 数据目录下的 `files/home/quetzal`（旧的 Termux 安装为 `~/quetzal`）、Linux `~/.quetzal`、Windows `%LOCALAPPDATA%\Quetzal\home`；可用环境变量改 |

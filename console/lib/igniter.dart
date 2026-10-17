@@ -1,7 +1,7 @@
 // 运行基座桥：控制台与 App 内置的运行基座之间的原生交互（MethodChannel quetzal/runtime）。
 //   只装一个 App：Node.js、git、ssh、proot 随 APK 一起安装（见 tool/android-runtime/），运行基座在 App 自己的前台服务里运行（RuntimeService）。
 //   点火 = 启动前台服务；升级 = 重启它（新版 App 带着新版运行基座，重启即升级）；网关令牌直接从家目录读取，同一台手机不需要配对码。
-//   另有身体权限（相机、麦克风、定位、通知）与保活（电池优化、厂商自启动管理）。
+//   另有身体权限（相机、麦克风、定位、通知）、保活（电池优化、厂商自启动管理），以及手（无障碍服务 HandsService：看屏幕、点击、输入）的开启引导。
 import 'package:flutter/services.dart';
 
 class Igniter {
@@ -37,4 +37,13 @@ class Igniter {
   static Future<void> requestIgnoreBattery() => _ch.invokeMethod('requestIgnoreBattery');
   /// 各厂商的「自启动 / 后台运行」管理页；找不到时打开本应用的详情页。
   static Future<void> openAutostart() => _ch.invokeMethod('openAutostart');
+
+  /// 手（无障碍服务）：{enabled 系统设置里开了, connected 服务已连上, screenshot 能截图（安卓 11+）, restricted 安卓 13+（侧载的 App 可能要先「允许受限设置」）}。
+  static Future<Map<String, bool>> handsStatus() async {
+    try { return Map<String, bool>.from(await _ch.invokeMethod<Map>('handsStatus') ?? {}); } catch (_) { return {}; }
+  }
+  /// 打开系统的无障碍设置（尽量直达「Quetzal 操作屏幕」）。
+  static Future<void> openHandsSettings() => _ch.invokeMethod('openHandsSettings');
+  /// 本应用的「应用信息」页（安卓 13+ 在右上角菜单里「允许受限设置」）。
+  static Future<void> openAppDetails() => _ch.invokeMethod('openAppDetails');
 }

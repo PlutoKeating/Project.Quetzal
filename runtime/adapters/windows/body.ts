@@ -1,4 +1,4 @@
-// Windows 的身体助手（构建为 windows-body.mjs）：在用户登录的桌面会话里，替会话 0 里的运行基座做要桌面的事（通知、截图、剪贴板、打开、播放、拍照、录音）。
+// Windows 的身体助手（构建为 windows-body.mjs）：在用户登录的桌面会话里，替会话 0 里的运行基座做要桌面的事（通知、截图与操作屏幕、剪贴板、打开、播放、拍照、录音）。
 //   由控制台托盘在登录时以不显示窗口的方式启动并看护（docs/WINDOWS_DECISIONS.md §4.3）。只监听 127.0.0.1 的随机端口，令牌随机，
 //   端口与令牌写进 QUETZAL_HOME\secrets\desktop-body.json（目录只有本用户能读，agent 的命令在沙箱里看不到它，也连不到回环）。
 //   启动它的进程（控制台托盘）退出时它也退出。协议：GET /health → {ok, session, pid}；POST /call {op, args}（Authorization: Bearer <令牌>）→ {ok, result} | {ok:false, error}。
@@ -8,10 +8,11 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ops as desktopOps, ps } from "./desktop.ts";
+import { handsOps } from "./hands.ts";
 import { startUpgrade } from "./supervise.ts";
 
-// 桌面操作，加上「升级」：从用户的桌面里启动安装（需要提权时能弹出 UAC；会话 0 里的运行基座弹不出）
-const ops: Record<string, (a: Record<string, any>) => Promise<unknown>> = { ...desktopOps, upgrade: async (a) => { startUpgrade(a.version ? String(a.version) : undefined, a.id ? String(a.id) : undefined); return "已开始"; } };
+// 桌面操作与手（看屏幕、点击、输入，hands.ts），加上「升级」：从用户的桌面里启动安装（需要提权时能弹出 UAC；会话 0 里的运行基座弹不出）
+const ops: Record<string, (a: Record<string, any>) => Promise<unknown>> = { ...desktopOps, ...handsOps, upgrade: async (a) => { startUpgrade(a.version ? String(a.version) : undefined, a.id ? String(a.id) : undefined); return "已开始"; } };
 
 export const DESKTOP_BODY_FILE = "desktop-body.json";
 const home = process.env.QUETZAL_HOME ?? path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "Quetzal", "home");

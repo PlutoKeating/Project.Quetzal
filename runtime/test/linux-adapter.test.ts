@@ -1,7 +1,7 @@
 // Linux 身体适配器：电池与温度按 /sys 条目挑选，桌面工具按可用程序挑选；没有任何工具的机器上不崩溃。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickBattery, pickThermal, prettyName, playerCommand, screenshotCommand, clipboardCommand, recordCommand } from "../adapters/linux/linux.ts";
+import { pickBattery, pickThermal, prettyName, playerCommand, clipboardCommand, recordCommand } from "../adapters/linux/linux.ts";
 import { hasRebootLine, withRebootLine, DROPIN_OFF, quit } from "../adapters/linux/supervise.ts";
 import { upgradeShell, detachCommand, parseUpgradeLog } from "../adapters/linux/upgrade.ts";
 
@@ -32,8 +32,6 @@ test("桌面工具按可用程序挑选", () => {
   assert.deepEqual(playerCommand("a.mp3", has(["paplay", "ffplay"])), ["paplay", ["a.mp3"]]);
   assert.equal(playerCommand("a.mp3", has(["aplay"])), undefined); // aplay 只认 WAV
   assert.deepEqual(playerCommand("a.wav", has(["aplay"])), ["aplay", ["-q", "a.wav"]]);
-  assert.deepEqual(screenshotCommand("s.png", true, has(["scrot", "grim"])), ["grim", ["s.png"]]);
-  assert.deepEqual(screenshotCommand("s.png", false, has(["scrot", "grim"])), ["scrot", ["-o", "s.png"]]);
   assert.deepEqual(clipboardCommand(false, true, has(["xclip"])), ["xclip", ["-selection", "clipboard", "-o"]]);
   assert.deepEqual(clipboardCommand(true, true, has(["wl-copy", "xclip"])), ["wl-copy", []]);
   assert.deepEqual(recordCommand("r.wav", 3, has(["pw-record"])), { cmd: "pw-record", args: ["r.wav"], limited: false });
@@ -43,7 +41,10 @@ test("桌面工具按可用程序挑选", () => {
 test("什么工具都没有的机器上：初始化与采样不崩溃，工具给出可读的提示", async () => {
   process.env.PATH = "/nonexistent";
   delete process.env.DISPLAY; delete process.env.WAYLAND_DISPLAY;
+  const { probe } = await import("../adapters/linux/hands.ts");
+  probe.get = () => ({ env: process.env, uid: 1000, home: "/nonexistent", ls: () => [], exists: () => false }); // 跑测试的机器可能有桌面：当作没有
   const { default: adapter } = await import("../adapters/linux/index.ts");
+  assert.equal(adapter.hands, undefined, "没有桌面会话：不提供手，不出现 screen_* 工具");
   await adapter.init!();
   assert.equal(adapter.name, "linux");
   assert.match(adapter.describe, /Linux/);
@@ -51,8 +52,8 @@ test("什么工具都没有的机器上：初始化与采样不崩溃，工具�
   const s = await adapter.sample();
   if (s.battery) { assert.ok(s.battery.level >= 0 && s.battery.level <= 100); assert.equal(typeof s.battery.charging, "boolean"); }
   const names = adapter.tools!.map((t) => t.name);
-  assert.deepEqual(names, ["take_photo", "record_audio", "screenshot", "clipboard", "open"]);
-  await assert.rejects(adapter.tools!.find((t) => t.name === "screenshot")!.handler({}), /没有图形界面/, "做不成时抛错：核心标为失败");
+  assert.deepEqual(names, ["take_photo", "record_audio", "clipboard", "open"]);
+  await assert.rejects(adapter.tools!.find((t) => t.name === "clipboard")!.handler({}), /没有图形界面/, "做不成时抛错：核心标为失败");
   await assert.rejects(adapter.tools!.find((t) => t.name === "record_audio")!.handler({ seconds: 1 }), /需要/);
   await assert.rejects(adapter.playAudio!("x.mp3"), /播放器/);
   await adapter.stopAudio!();

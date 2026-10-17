@@ -3,10 +3,11 @@ import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-export function run(cmd: string, args: string[] = [], timeoutMs = 20_000, input?: string): Promise<{ code: number; out: string }> {
+/** 执行一个程序（不经 shell）。失败时 out 里附上标准错误，便于把原因告诉她。env：给桌面程序补齐的会话环境（hands.ts）。 */
+export function run(cmd: string, args: string[] = [], timeoutMs = 20_000, input?: string, env?: NodeJS.ProcessEnv): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
-    const p = execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 8 << 20 }, (e: any, out) =>
-      resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: String(out) }));
+    const p = execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 8 << 20, ...(env ? { env } : {}) }, (e: any, out, err) =>
+      resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out: e ? `${out}${err ?? ""}` : String(out) }));
     if (input != null) p.stdin?.end(input);
   });
 }
@@ -52,14 +53,6 @@ export function playerCommand(file: string, has: (c: string) => boolean = have):
     ["ffplay", ["-nodisp", "-autoexit", "-loglevel", "error", file]], ["mpv", ["--no-video", "--really-quiet", file]],
   ];
   if (/\.wav$/i.test(file)) c.push(["aplay", ["-q", file]]);
-  return c.find(([cmd]) => has(cmd));
-}
-
-/** 截图命令：Wayland 下 grim / gnome-screenshot / spectacle，X11 下 scrot / gnome-screenshot / spectacle / import。 */
-export function screenshotCommand(file: string, wayland: boolean, has: (c: string) => boolean = have): [string, string[]] | undefined {
-  const c: [string, string[]][] = wayland
-    ? [["grim", [file]], ["gnome-screenshot", ["-f", file]], ["spectacle", ["-b", "-n", "-o", file]]]
-    : [["scrot", ["-o", file]], ["gnome-screenshot", ["-f", file]], ["spectacle", ["-b", "-n", "-o", file]], ["import", ["-window", "root", file]]];
   return c.find(([cmd]) => has(cmd));
 }
 
