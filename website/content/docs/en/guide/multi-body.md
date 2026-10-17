@@ -56,6 +56,18 @@ flowchart LR
 - **Where you said it**: the agent sees which body your message came in through: the body your console is connected to, the body that receives Feishu, or the phone whose ears heard you. With a single body this is left out.
 - **Hermes / OpenClaw**: a body with the [soul bridge](https://github.com/PlutoKeating/Project.Quetzal/blob/main/bridge/skills/soul-bridge/SKILL.md) can join as a **read-only member**. Give the sync service address to the agent there, and it hands you a link and a binding code. That body can see what the agent is doing on which body and the recent conversations. It cannot act on other bodies and is never chosen to think or dream.
 
+## Workspaces: the work stays where the task is
+
+Several devices, one agent. Which device does a given job is arranged by the runtime, so neither the agent nor you has to think about switching devices.
+
+- **Each conversation has its own workspace**: a directory on a particular body. When the agent clones a repository (`git clone`), creates one (`git init`) or `cd`s into a directory to work on some body, the runtime records it as that conversation's workspace. The agent can also set, show or clear it with the `workspace` tool. Workspaces sync with the conversations to every body.
+- **Later messages go there on their own**: say you had the agent clone a repository on your phone and start editing, then you get home and keep writing to that conversation from the computer. The turn still runs on the phone (while the phone is online), and the reply shows up where you wrote. When two conversations have workspaces on different devices, each goes its own way and they do not get mixed up.
+- **Commands and files**: the agent's commands run in the workspace directory. If a turn happens to run on another body (for example, right after the workspace changed), the runtime sends the commands to the body that holds the workspace, and relative paths in file reads point at files there too. Permissions and audit work as usual, and both sides keep a record.
+- **Sub-agents** follow the workspace: they run on the body that holds it and report back to the conversation that sent them.
+- **If the workspace's device is offline**, the turn runs on the device that got the message. The agent is told where the workspace is and that it is offline, so it can wait for it or pick another workspace.
+- **The agent knows which repositories each device has**: the runtime lists the git repositories in each body's home directory (up to two levels deep), their remote address (with any token removed) and current branch, so a new conversation can find a repository cloned earlier.
+- Workspaces are kept only between your devices and never go into the soul repository.
+
 ## Using files on another body
 
 Files belong to the body they are on: a photo taken on the phone has no path on the computer. On the computer, the agent can add `body` to `view_image` (look at an image), `read_document` (read a document) and `shell` (run a command), writing the path as it is on the phone. The runtime fetches the file over the encrypted link between the bodies into the computer's `data/from-bodies/<body name>/` and hands it to the tool. `shell` takes the files to fetch in `files` and still runs the command on the computer; to run a command on the phone, use `body_call`.
