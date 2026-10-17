@@ -5,11 +5,13 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import type { Layout } from "./layout.ts";
 
-/** 这台机器对应的原生包平台：linux-<x64|arm64>-<gnu|musl>；不支持的返回 undefined。 */
-export function meshPlatform(): string | undefined {
-  if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch)) return undefined;
-  const glibc = (process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined)?.header?.glibcVersionRuntime;
-  return `linux-${process.arch}-${glibc ? "gnu" : "musl"}`;
+/** 这台机器对应的原生包平台：linux-<x64|arm64>-<gnu|musl>、darwin-<x64|arm64>；不支持的返回 undefined。 */
+export function meshPlatform(platform: string = process.platform, arch: string = process.arch, glibc?: () => string | undefined): string | undefined {
+  if (!["x64", "arm64"].includes(arch)) return undefined;
+  if (platform === "darwin") return `darwin-${arch}`;
+  if (platform !== "linux") return undefined;
+  const g = glibc ? glibc() : (process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined)?.header?.glibcVersionRuntime;
+  return `linux-${arch}-${g ? "gnu" : "musl"}`;
 }
 
 export async function installMeshModules(l: Layout, bundledDir: string, releaseDir: string, say: (s: string) => void): Promise<boolean> {
