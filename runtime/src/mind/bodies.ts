@@ -5,7 +5,8 @@ export interface RemoteTool { name: string; description: string; params: string[
 export interface RemoteBody { body: string; uuid?: string; claimed?: string; describe: string; tools: RemoteTool[] }
 export interface BodiesHooks {
   list: () => RemoteBody[];
-  call: (body: string, tool: string, args: Record<string, unknown>, reason: string) => Promise<{ text: string; status: "ok" | "error" | "denied" }>;
+  /** signal：这一轮被停止时不再等，并请那具身体中止正在做的（命令结束、等着的审批撤销）。 */
+  call: (body: string, tool: string, args: Record<string, unknown>, reason: string, signal?: AbortSignal) => Promise<{ text: string; status: "ok" | "error" | "denied" }>;
   /** 换到另一具身体继续：对话 → 那具身体在同一个会话里接着做（返回它的回复）；醒来 → 那具身体按交接继续这次醒来。 */
   move: (body: string, ctx: { origin: string; conv: string; channel: string; note: string; reason: string }) => Promise<string>;
   /** 向另一具身体取文件的一段（网状层的 file.read，见 mind/body-files.ts）：第一次带 path，之后带 ticket 与 offset。 */

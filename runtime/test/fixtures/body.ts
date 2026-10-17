@@ -28,10 +28,11 @@ const fs = await import("node:fs");
 const { wake } = await import("../../src/mind/brain.ts");
 const { liveTurns } = await import("../../src/mind/activity.ts");
 const claims = await import("../../src/mind/claims.ts");
-const { converse } = await import("../../src/mind/brain.ts");
+const { converse, stopTurn } = await import("../../src/mind/brain.ts");
 const reg = await import("../../src/providers/registry.ts");
 const mem = await import("../../src/memory/memory.ts");
 const http = await import("node:http");
+const { execSync } = await import("node:child_process");
 
 // 模拟的模型：回复里带上身体名（看得出是哪具身体在回答），可以设置延迟（制造「正在进行的一轮」）
 let llmDelay = 0, llmWhere: string[] | undefined;
@@ -118,6 +119,8 @@ const cmds: Record<string, (a: any) => unknown> = {
   llmDelay: (a) => { llmDelay = a.ms; return true; },
   llmSeen: () => llmSeen,
   converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode }),
+  stopTurn: (a) => stopTurn(a.conv),
+  procs: (a) => Number(execSync(`pgrep -f -c '[${a.pattern[0]}]${a.pattern.slice(1)}' || true`).toString().trim()) || 0, // 这台机器上命令行含 pattern 的进程数（核对命令是否真的结束了；首字母写成 [x]，不数执行 pgrep 的这个 sh 自己）
   digest: () => digest(),
   claim: (a) => claims.claim({ key: a.key, note: a.note, body: process.env.BODY!, holder: a.holder, where: a.where ?? "测试会话" }),
   unclaim: (a) => claims.unclaim({ key: a.key, body: process.env.BODY!, holder: a.holder, where: "", force: a.force }),

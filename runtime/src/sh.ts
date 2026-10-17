@@ -6,17 +6,23 @@ import { wrapScript, hostScript, SandboxUnavailable } from "./sandbox.ts";
 import { killTree, isWindows } from "./platform.ts";
 
 const MAX_OUTPUT = 4 << 20;
+const GRACE_MS = 5_000; // 结束命令后最多再等多久它的输出管道关上
 
 /** 执行一条命令。idleMs：这么久没有任何输出（stdout / stderr）就结束它；有输出就重新计时。signal 中止时结束。 */
 export function run(cmd: string, args: string[] = [], idleMs = 20_000, o: { cwd?: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
     if (o.signal?.aborted) return resolve({ code: 130, out: "", err: "没有执行：这一轮已经停止" });
     let p: ChildProcess;
-    try { p = spawn(cmd, args, { cwd: o.cwd, env: o.env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }); }
+    try { p = spawn(cmd, args, { cwd: o.cwd, env: o.env, detached: !isWindows, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }); } // POSIX 上自成进程组：结束时整组结束
     catch (e) { return resolve({ code: 127, out: "", err: `启动失败：${(e as Error).message}` }); }
     let out = "", err = "", note = "", t: NodeJS.Timeout | undefined;
-    // Windows 上只杀直接子进程会留下孙进程（沙箱里的命令）：整棵结束
-    const kill = (why: string) => { if (note) return; note = why; if (isWindows) killTree(p.pid); else p.kill("SIGKILL"); };
+    // 只杀直接子进程会留下孙进程（git 下面的 ssh、凭据助手……），它们占着输出管道，命令就一直不算结束：整组 / 整棵结束。
+    // 仍有进程脱离了进程组还占着管道时，过一会儿不再等它（GRACE_MS），照常交回结果。
+    let grace: NodeJS.Timeout | undefined;
+    const kill = (why: string) => {
+      if (note) return; note = why; killTree(p.pid, "SIGKILL");
+      grace = setTimeout(() => { p.stdout?.destroy(); p.stderr?.destroy(); note += "\n（它启动的进程还占着输出，没有再等）"; done(137); }, GRACE_MS); grace.unref?.();
+    };
     const arm = () => { clearTimeout(t); t = setTimeout(() => kill(`\n（${Math.round(idleMs / 1000)} 秒没有任何输出，已结束）`), idleMs); };
     const take = (b: Buffer, to: "out" | "err") => {
       arm();
@@ -28,7 +34,7 @@ export function run(cmd: string, args: string[] = [], idleMs = 20_000, o: { cwd?
     const onAbort = () => kill("\n（这一轮被停止，命令已结束）");
     o.signal?.addEventListener("abort", onAbort, { once: true });
     let settled = false;
-    const done = (code: number) => { if (settled) return; settled = true; clearTimeout(t); o.signal?.removeEventListener("abort", onAbort); resolve({ code: note && code === 0 ? 1 : code, out, err: err + note }); };
+    const done = (code: number) => { if (settled) return; settled = true; clearTimeout(t); clearTimeout(grace); o.signal?.removeEventListener("abort", onAbort); resolve({ code: note && code === 0 ? 1 : code, out, err: err + note }); };
     p.on("error", (e) => { err += `启动失败：${e.message}`; done(127); });
     p.on("close", (code, sig) => done(code ?? (sig ? 128 : 1)));
     arm();

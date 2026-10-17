@@ -41,7 +41,7 @@ export interface MeshOptions {
   lan?: { port: number; file?: string; kickMs?: number }; // 局域网信令（lan.ts）：UDP 端口、记住的地址表；kickMs：同步服务连不上多久后经局域网去连（缺省 10 秒）
 }
 
-export type Handler = (params: any, from: string) => unknown | Promise<unknown>;
+export type Handler = (params: any, from: string, signal: AbortSignal) => unknown | Promise<unknown>; // signal：调用方取消了这次请求（{t:"cancel"}，例如那一轮被停止）
 export interface PeerStatus {
   body: string; kind: string; version: string; online: boolean; lastSeen: number; link: string; path?: { local: string; remote: string; rtt: number }; error?: string;
   keyOk: boolean; registered: boolean; fingerprint: string; pinMismatch?: boolean;
@@ -115,6 +115,7 @@ export class Mesh extends EventEmitter {
   private mismatch = new Set<string>();   // 公钥或类型与钉住的不符、等待确认的身体
   private sigErrors = new Map<string, string>(); // 最近一次拒绝某具身体的连接请求的原因（控制台显示；认证通过后清掉）
   private pending = new Map<string, { body: string; method: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private serving = new Map<string, AbortController>(); // 正在处理的别处的请求（「身体\0编号」）：对方取消时中止
   private warned = new Recent(200);
   private warnTimes: number[] = [];
   private kinds = new Map<string, { kind: string | undefined; at: number }>();
@@ -164,6 +165,8 @@ export class Mesh extends EventEmitter {
     this.dir.close();
     for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error("网状层已停止")); }
     this.pending.clear();
+    for (const c of this.serving.values()) c.abort();
+    this.serving.clear();
   }
 
   /** 由对方触发的回调：异常接住，记一笔丢掉。 */
@@ -445,9 +448,13 @@ export class Mesh extends EventEmitter {
       if (!h) return reply(false, reader && this.handlers.has(method) ? `只读成员不能调用 ${method}` : `没有这个方法：${clip(method, 100)}`);
       const prog = setInterval(() => { try { this.sendTo(from, { t: "prog", id }); } catch {} }, meshTimings.progMs); // 还在做：让对方重新计时
       prog.unref?.();
-      Promise.resolve().then(() => h(m.p, from)).then((v) => { clearInterval(prog); reply(true, v ?? null); }, (e) => { clearInterval(prog); reply(false, (e as Error)?.message ?? e); });
+      const key = `${from}\0${id}`, ctl = new AbortController();
+      this.serving.set(key, ctl);
+      const end = () => { clearInterval(prog); if (this.serving.get(key) === ctl) this.serving.delete(key); };
+      Promise.resolve().then(() => h(m.p, from, ctl.signal)).then((v) => { end(); reply(true, v ?? null); }, (e) => { end(); reply(false, (e as Error)?.message ?? e); });
       return;
     }
+    if (m.t === "cancel" && typeof m.id === "string") { this.serving.get(`${from}\0${m.id}`)?.abort(); return; } // 只能取消自己发来的请求
     if (m.t === "prog" && typeof m.id === "string") { const p = this.pending.get(m.id); if (p && p.body === from) this.rearm(m.id); return; }
     if (m.t === "res" && typeof m.id === "string") {
       const p = this.pending.get(m.id);
@@ -487,17 +494,28 @@ export class Mesh extends EventEmitter {
     p.timer.unref?.();
   }
 
-  request<T = unknown>(body: string, method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  /** signal：中止时不再等，并告诉对方取消（{t:"cancel", id}：对方中止正在做的事；1.10.0 及以前的身体不认，照常做完）。 */
+  request<T = unknown>(body: string, method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS, signal?: AbortSignal): Promise<T> {
     const l = this.links.get(body);
     if ((!l || l.state === "closed") && !(this.router?.via(body) && !this.isReaderNow(body))) return Promise.reject(new Error(`${body} 不在网上`));
+    if (signal?.aborted) return Promise.reject(new Error(`已取消（${method}）`));
     const id = crypto.randomUUID();
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${body} 在 ${Math.round(timeoutMs / 1000)} 秒内没有回应 ${method}`)); }, timeoutMs);
+      const onAbort = () => {
+        const p = this.pending.get(id);
+        if (!p) return;
+        this.pending.delete(id); clearTimeout(p.timer);
+        try { this.sendTo(body, { t: "cancel", id }); } catch {}
+        p.reject(new Error(`已取消：没有再等 ${body} 的 ${method}，已请那边中止`));
+      };
+      const settle = <A>(f: (a: A) => void) => (a: A) => { signal?.removeEventListener("abort", onAbort); f(a); };
+      const timer = setTimeout(() => { this.pending.delete(id); settle(reject)(new Error(`${body} 在 ${Math.round(timeoutMs / 1000)} 秒内没有回应 ${method}`)); }, timeoutMs);
       timer.unref?.();
-      this.pending.set(id, { body, method, resolve: resolve as (v: unknown) => void, reject, timer });
+      this.pending.set(id, { body, method, resolve: settle(resolve as (v: unknown) => void), reject: settle(reject), timer });
+      signal?.addEventListener("abort", onAbort, { once: true });
       let sent = false;
-      try { sent = this.sendTo(body, { t: "req", id, m: method, p: params }); } catch (e) { this.pending.delete(id); clearTimeout(timer); return reject(e as Error); }
-      if (!sent) { this.pending.delete(id); clearTimeout(timer); reject(new Error(`发给 ${body} 失败`)); }
+      try { sent = this.sendTo(body, { t: "req", id, m: method, p: params }); } catch (e) { this.pending.delete(id); clearTimeout(timer); return settle(reject)(e as Error); }
+      if (!sent) { this.pending.delete(id); clearTimeout(timer); settle(reject)(new Error(`发给 ${body} 失败`)); }
     });
   }
 

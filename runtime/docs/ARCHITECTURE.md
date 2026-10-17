@@ -16,7 +16,7 @@ src/
 ├── bus.ts                进程内事件总线（sense / message / timeline / state / approval / say / notice / activity / secret / soul.alert / soul.pushed / mesh / mesh.event / reminders.changed / claims.changed 等）
 ├── store.ts              SQLite：kv、timeline、sessions、tool_calls（每次工具调用的完整参数与完整结果，只在本机，不复制；控制台点开卡片时经 tool.detail 取）、messages（会话、执行过程、附件、插话方式、写入它的身体 body、对方的话经哪具身体进来 via；role 为 user / agent / ambient）、audit、usage；消息与时间线按身体编号段编号、按时间排序；复制用的版本向量、补齐分页与幂等写入（applyRemote：编号段与作者、实时只收对方自己的行、字段类型与长度、时间范围；段尾 2^24 不收，本机的下一个编号不会越段）；用量只收对方自己的行；1.0 前编号的一次性迁移
 ├── log.ts                日志（stdout，写出前脱敏）
-├── sh.ts                 外部命令执行（超时按「多久没有任何输出」计、输出上限，子进程不弹窗口）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树；真实环境里的命令不经沙箱（hostScript），前台命令自成进程组，超时或退出真实环境时整棵结束
+├── sh.ts                 外部命令执行（超时按「多久没有任何输出」计、输出上限，子进程不弹窗口；前台命令自成进程组，超时或停止时整组结束，脱离进程组的进程占着输出时 5 秒后不再等）；agent 的命令与后台任务经沙箱执行（Windows 上是 PowerShell，输出的 CRLF 统一成 LF）、工作目录为用户主目录（Windows 为工作区 %USERPROFILE%\Quetzal）；后台任务可随时停止整棵进程树；真实环境里的命令不经沙箱（hostScript），前台命令自成进程组，超时或退出真实环境时整棵结束
 ├── host-mode.ts          真实环境模式：某个对话会话里她的 shell 不经沙箱、以基座的系统用户直接在主机上执行。她用 host_mode 带理由请求（每次都生成审批，不看能力类别的档位，并发系统通知）或对方在控制台打开（ops host.enter）；按会话、只在这具身体上、只在内存里（重启即回到沙箱）；30 分钟没有真实环境命令、急停、退出（她自己、控制台、飞书 /sandbox）时结束进行中的真实环境命令与后台任务；进出写审计与时间线（kind host），每条命令的审计参数带 realEnv
 ├── sandbox.ts            agent 命令的沙箱：Linux 用 bwrap（密钥目录为空 tmpfs、QUETZAL_HOME 整体只读（含 data / soul，阻止伪造记忆元数据与 SQLite 来源）、浏览器配置与用户启动文件保护、独立 pid 命名空间）或 Landlock，安卓用 proot（遮住密钥、配置、data / soul、版本目录、runit 与开机脚本，以及 `QUETZAL_HIDE_PATHS` 指定的目录），Windows 用 sandbox-runtime 的 srt-win（沙箱用户 srt-sandbox、按会话授权的 ACL、WFP 拦直连、代理拒绝连回本机；库单独打包为 srt.mjs），都没有时 kind=none 并提醒一次；包装接口 wrapScript / wrapArgv（异步）；真实环境用的 hostScript / hostEnv（不经沙箱；基座自己的 QUETZAL_* 不传，其余原样传）；读文件工具的真实路径检查（protectedPath：Windows 上取系统的真实路径、不分大小写，不收 UNC、设备路径与流名）
 ├── idle-fetch.ts         按「无进展」计时的 HTTP 请求：多久没收到任何东西才放弃（合成语音、模型目录的下载）
@@ -79,12 +79,12 @@ src/
 │   ├── netwatch.ts       网络变化：平台通知（适配器的 onNetworkChange）+ 每 5 秒比较本机地址与去往同步服务的路由用哪个本机地址（不发包），合并后通知网状层
 │   ├── lan.ts            局域网信令：同步服务连不上时，签名信封经 UDP4 直接发给记得的私有IPv4地址（端口同网关；地址表 data/mesh-lan.json；只收私有IPv4来源、限大小与频率；选中IPv6路径不建立该地址记录）
 │   ├── route.ts          经其他身体中转：签名的拓扑（rt，链路状态洪泛、30 秒刷新、90 秒作废）、最短路的下一跳、发出者签名的转发信封（fwd，最多 8 跳，收件人验签与防重放）；只读成员不参与
-│   ├── mesh.ts           全连接管理：按在场建立 / 停止连接（同步服务说下线但直连通着就留着；停下的连接收到验过签名的连接请求就恢复；重新连上同步服务时没连上的立即重来）、网络变了时检查各条连接、直连不通时经中转收发、验签、请求 / 应答（回应只认被请求的身体）、事件、状态（不含地址）；只读成员（灵魂桥）只能调用可读的方法；钉住各身体的公钥与类型（TOFU，acceptPin 确认变更）、灵魂仓库更新后核对现有连接（reverify）；由对方触发的回调都接住异常
+│   ├── mesh.ts           全连接管理：按在场建立 / 停止连接（同步服务说下线但直连通着就留着；停下的连接收到验过签名的连接请求就恢复；重新连上同步服务时没连上的立即重来）、网络变了时检查各条连接、直连不通时经中转收发、验签、请求 / 应答（回应只认被请求的身体；调用方可取消，cancel 只认发起请求的那具身体）、事件、状态（不含地址）；只读成员（灵魂桥）只能调用可读的方法；钉住各身体的公钥与类型（TOFU，acceptPin 确认变更）、灵魂仓库更新后核对现有连接（reverify）；由对方触发的回调都接住异常
 │   ├── replica.ts        一份对话：对话、会话与时间线在身体之间复制（连上时按版本向量补齐、分页续传，有总量上限；平时实时广播；收到的先经 store.applyRemote 逐字段检查再幂等写入）
 │   ├── presence.ts       在场：进展事件转发给其他身体（控制台看得到别处进行中的一轮）、刚连上时取回对方的进行中轮次、断开时清掉；发给别处进行中会话的话（含附件）转过去（接收方只取白名单字段、就地处理，via 记为发来的那具身体）；给灵魂桥的近况（单行、截断、标明谁说的）
 │   ├── coordinator.ts    协调者：交换候选条件（优先级、电源、启动时刻）选出持有心跳的身体；跟随者的心脏操作转给它，它异步广播心脏状态（最快2秒一次，接班沿用已收到快照，未广播更新不保证复制）；分区重连时合并
 │   ├── placement.ts      运行位置：各身体的概况（body.overview）、打分推荐、她在内省时选 where；在选中的身体上执行醒来（mind.wake）
-│   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call）、把这里的文件交给别处带 body 的工具（file.read，经 mind/body-files.ts 的 lendFile；灵魂桥调用不到）、灵魂仓库身体登记里的 uuid（soulRegistry）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
+│   ├── limbs.ts          肢体：可被调用的工具清单（tool.list）、在这里执行别处调来的工具（tool.call；调用方取消时经网状层的 cancel 中止：命令结束、审批撤销）、把这里的文件交给别处带 body 的工具（file.read，经 mind/body-files.ts 的 lendFile；灵魂桥调用不到）、灵魂仓库身体登记里的 uuid（soulRegistry）、接手换过来的对话（chat.continue）；填入 mind/bodies.ts
 │   ├── shared.ts         全网共用：设置分区（较新的修改生效，修改时刻不能在未来、只留认得的键）、模型供应商连同 Key（接收方逐个校验、重新加密）、语音密钥、全网急停（停优先）、审批（在哪里批准都行，按「身体/编号」区分）、每日用量合计、提醒与认领（按条目合并；认领与放下经 claims.op 由协调者决定）、想分享的一句话（按写下的时刻后写胜）
 │   ├── channels.ts       通道：飞书只由指定的身体持有（其他身体的主动消息转过去）；几只耳朵同时听到同一句话只留一只（起止时间重叠且识别出同样的字才算同一句，不按相似度猜）；记下哪只耳朵听到的（voice_speak 从那里说）
 │   ├── node-key.ts       这具身体的节点密钥（灵魂同步写身体登记时用，不依赖整个网状层）

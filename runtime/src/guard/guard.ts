@@ -30,23 +30,25 @@ export function setLevel(permission: string, l: Level, actor: string) {
   audit(actor, "permission.set", "", { permission, level: l }, "ok");
 }
 
-export async function check(permission: string, action: string, reason: string, args: unknown): Promise<boolean> {
+/** signal：这次调用被停止（这一轮停了、或别处调来的那一次被取消）时不再等批准，审批撤销、视为拒绝。 */
+export async function check(permission: string, action: string, reason: string, args: unknown, signal?: AbortSignal): Promise<boolean> {
   if (fs.existsSync(paths.stop)) return false;
   const l = level(permission);
   if (l === "allow") return true;
   if (l === "deny") { audit("agent", action, reason, args, "denied: policy"); return false; }
-  return ask(action, reason, args);
+  return ask(action, reason, args, undefined, signal);
 }
 
 /** 生成一条审批，等对方批准或拒绝（30 分钟未处理视为拒绝；急停时直接拒绝）。不看能力类别：真实环境的请求（host-mode.ts）每次都走这里。 */
-export async function ask(action: string, reason: string, args: unknown, kind?: Approval["kind"]): Promise<boolean> {
-  if (fs.existsSync(paths.stop)) return false;
+export async function ask(action: string, reason: string, args: unknown, kind?: Approval["kind"], signal?: AbortSignal): Promise<boolean> {
+  if (fs.existsSync(paths.stop) || signal?.aborted) return false;
   const a: Approval = { id: crypto.randomBytes(8).toString("hex"), action, reason, args, status: "pending", ...(kind ? { kind } : {}) }; // 8 个随机字节：多具身体时各处的审批列在一起（另按「身体/编号」区分，见 mesh/shared.ts）
   addTimeline("approval", `请求批准：${action}`, { id: a.id, reason, args });
   const ok = await new Promise<boolean>((resolve) => {
     pending.set(a.id, { a, resolve });
     bus.emit("approval", a);
     setTimeout(() => decide(a.id, false, "system", "超时未处理"), ASK_TIMEOUT_MS).unref();
+    signal?.addEventListener("abort", () => decide(a.id, false, "system", "调用已停止，不再需要"), { once: true });
   });
   return ok;
 }

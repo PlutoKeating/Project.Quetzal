@@ -50,7 +50,9 @@ const hostConv = (ctx: ToolContext): string | undefined => ctx.session?.origin =
 
 /** 调用工具的上下文：当前这一轮（对话或醒来）。 */
 /** fetched：带 body 时从另一具身体取来的文件（远端路径 → 本地路径），见 body-files.ts。 */
-export interface ToolContext { session?: Session; fetched?: Fetched[] }
+export interface ToolContext { session?: Session; fetched?: Fetched[]; signal?: AbortSignal } // signal：别的身体经 body_call 调来、那边停止了这一轮时中止（这里没有会话）
+/** 这次调用的停止信号：本机的一轮，或别处调来的那一次。 */
+const stopOf = (ctx: ToolContext): AbortSignal | undefined => ctx.signal ?? ctx.session?.signal;
 function accessibleMemory(record: MemoryRecord, ctx: ToolContext): boolean {
   return record.scope.agentId === identity().id && (!record.scope.userId || record.scope.userId === 'owner')
     && (!record.scope.sessionId || record.scope.sessionId === ctx.session?.conv) && !record.scope.taskType;
@@ -115,7 +117,7 @@ const core: Tool[] = [
       ctx.session?.check();
       const records = readStructuredRecords();
       if (a.keys.some((key: string) => !records.some((r) => memoryKey(r) === key && accessibleMemory(r, ctx)))) return failed('记忆版本不属于当前Agent、用户或会话范围');
-      const signal = ctx.session?.signal;
+      const signal = stopOf(ctx);
       if (a.operation === 'rollback') { if (a.keys.length !== 1) return failed('恢复一次只指定一个版本'); await rollbackRecord(a.keys[0], signal); return '已恢复已验证历史版本'; }
       if (a.operation === 'archive') { for (const key of a.keys) await archiveRecord(key, signal); return '已归档，原版本及来源仍保留'; }
       if (!['rewrite', 'generalize', 'combine'].includes(a.operation)) return failed('不支持的演化操作');
@@ -274,7 +276,7 @@ const core: Tool[] = [
       if (String(a.command ?? "").includes("‹secret:")) return failed("没有执行：命令里有 ‹secret:…›。那是基座在输出里遮住保密值时换上的占位符，不是真实的值，写进命令一定会失败。要用保密库里的值，在命令里按路径引用（\"$(cat 路径)\"）；要用输出里被遮住的值，让它只在命令内部传递（例如 OWNER=$(gh api user --jq .login)），不要从输出里抄。");
       const host = hostConv(ctx);
       // 这一轮被对方停止时命令随之结束；真实环境另有自己的中止（退出、闲置、急停）
-      const stops = [host ? touchHost(host) : undefined, ctx.session?.signal].filter((x): x is AbortSignal => !!x);
+      const stops = [host ? touchHost(host) : undefined, stopOf(ctx)].filter((x): x is AbortSignal => !!x);
       const signal = stops.length > 1 ? AbortSignal.any(stops) : stops[0];
       const where = host ? "（真实环境：不经沙箱）" : "";
       if (a.background) { let j; try { j = await startJob(a.command, { host }); } catch (e) { return failed((e as Error).message); } return `已在后台运行${where}，任务 ${j.id}。用 shell_jobs 查看输出（action=output）或停止（action=stop）。`; }
@@ -283,7 +285,9 @@ const core: Tool[] = [
       // 输出为空而命令丢弃了 stderr：报错可能被吞了，看起来像"没有结果"，不能据此下结论（非零退出时 run 会补一句 Command failed，不算输出）
       const real = r.out + r.err.replace(/^Command failed: [^\n]*\n?/, "");
       const note = !real.trim() && /2>\s*\/dev\/null|2>&-/.test(String(a.command)) ? "\n（输出为空，而命令把 stderr 丢弃了：可能是命令报错被吞掉，不等于「没有」。去掉 2>/dev/null 再看，或换别的来源核实，比如 processes。）" : "";
-      const text = `exit ${r.code}${where}\n${out}${note}`;
+      // 被强制结束的 git 来不及清理自己的锁：之后这个仓库里的 git 命令都会报 index.lock 已存在
+      const lock = /（[^）]*(已结束|没有再等)）/.test(r.err) && /\bgit\b/.test(String(a.command)) ? "\n（这条 git 命令是被强制结束的，仓库里可能留下 .git/index.lock 之类的锁文件；之后的 git 命令报锁文件已存在时，先确认没有别的 git 进程在跑，再删掉它。）" : "";
+      const text = `exit ${r.code}${where}\n${out}${note}${lock}`;
       return r.code === 0 ? text : failed(text); // 非零退出算失败（grep 没找到也是 1：她看得到退出码与输出，自己判断）
     },
   },
@@ -619,7 +623,7 @@ function bodyTools(): Tool[] {
         const h = bodiesHooks(), b = other(a.body);
         if (typeof b === "string") return failed(b);
         if (!h) return failed(`${b.body} 不在线`);
-        const r = await h.call(b.body, String(a.tool), (a.args && typeof a.args === "object" ? a.args : {}) as Record<string, unknown>, ctx.session ? `${ctx.session.origin} ${ctx.session.conv}` : "");
+        const r = await h.call(b.body, String(a.tool), (a.args && typeof a.args === "object" ? a.args : {}) as Record<string, unknown>, ctx.session ? `${ctx.session.origin} ${ctx.session.conv}` : "", stopOf(ctx)); // 这一轮被停止：不再等，并请那边中止
         return r.status === "ok" ? r.text : failed(`（${b.body} 上的 ${a.tool}${r.status === "denied" ? "没有被允许" : "出错了"}）${r.text}`);
       },
     },
@@ -650,8 +654,8 @@ export function allTools(): Tool[] {
   return [...existing, ...mcpBindings().filter((t) => !existing.some((e) => e.name === t.name)).map((t): Tool => ({
     name: t.name, description: t.description, parameters: t.parameters,
     permission: `mcp.${t.source}.${t.name}`, handler: async (args, ctx) => {
-      ctx.session?.signal.throwIfAborted();
-      const result = await callMcp(t.name, args, ctx.session?.signal);
+      stopOf(ctx)?.throwIfAborted();
+      const result = await callMcp(t.name, args, stopOf(ctx));
       return result.failed ? failed(result.text) : result.text;
     },
   }))];
@@ -676,7 +680,7 @@ export async function callTool(name: string, args: Record<string, any>, reason: 
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };
   const real = name === "shell" && !!hostConv(ctx);
   const safe = real ? { ...redactArgs(args), realEnv: true } : redactArgs(args); // 参数里的保密值不进审批、时间线与审计；真实环境里的命令另外标记
-  if (!(await check(strictest([t.permission, ...(t.also ?? [])]), name, reason, safe))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
+  if (!(await check(strictest([t.permission, ...(t.also ?? [])]), name, reason, safe, stopOf(ctx)))) return { text: "这个动作没有被允许（闸门拒绝或急停中）", status: "denied" };
   try {
     let a = args, note = "";
     if (t.bodyFiles && args.body !== undefined) { // 带 body：先把路径参数指的文件从那具身体取来（闸门、检查与审计都在 body-files.ts）
