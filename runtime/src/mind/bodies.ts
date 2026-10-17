@@ -18,6 +18,8 @@ let hooks: BodiesHooks | undefined;
 export const setBodies = (h: BodiesHooks | undefined) => { hooks = h; };
 export const remoteBodies = (): RemoteBody[] => hooks?.list() ?? [];
 export const bodiesHooks = () => hooks;
+/** 她有不止一具身体：此刻有别的身体在线，或灵魂仓库里登记了不止一具运行基座。别的身体暂时离线时仍算——消息从哪具身体进来、一轮在哪具身体上做，照样要标明。 */
+export const multiBody = () => remoteBodies().length > 0 || (hooks?.registry?.().length ?? 0) > 1;
 
 /** 可以在另一具身体上调用的工具：属于那具身体的（设备、命令、进程、文档、她自己造的工具、说话）。心智层面的（记忆、会话、子 agent、保密输入、身份）不跨身体。 */
 export const REMOTE_CORE_TOOLS = new Set(["shell", "shell_jobs", "processes", "read_document", "voice_speak", "tool_write", "tool_read", "tool_delete", "web_fetch"]);

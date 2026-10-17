@@ -28,7 +28,7 @@ import { intake, redactArgs, redactSecrets } from "./secrets.ts";
 import { noteSilence } from "../voice/hearing.ts";
 import * as agents from "./agents.ts";
 import { bus } from "../bus.ts";
-import { remoteBodies } from "./bodies.ts";
+import { remoteBodies, multiBody } from "./bodies.ts";
 
 const FINISH: FinishTool = {
   name: "finish",
@@ -255,7 +255,7 @@ export function stripStamp(text: string): string {
  * 她自己的回复按同样的规则标出是在哪具身体上做的（body）。
  */
 export function entryBody(via: string | null | undefined): string | undefined {
-  return via && (via !== config.body || remoteBodies().length > 0) ? via : undefined;
+  return via && (via !== config.body || multiBody()) ? via : undefined; // 不止一具身体时总是标明（别的身体暂时离线也标：只有一具在线时她照样需要知道对方从哪里来）
 }
 const stamp = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 

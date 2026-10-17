@@ -60,11 +60,23 @@ test("别处进行中的一轮：看得到、话转过去作为插话、两边�
   assert.deepEqual(await vias(b), await vias(a));
   assert.ok((await a.call<string[]>("llmSeen")).some((t) => t.includes("补充了新消息（经 pc 这具身体）")), "插话标明经哪具身体发来");
 
+  // 子 agent 的报告送进一个正在手机上进行的会话：转过去仍是基座的提醒，不变成「对方经电脑说的话」（#38）
+  await a.call("llmDelay", { ms: 2500 });
+  const replyR = a.call<string>("converse", { text: "手机上又开一轮", conv: "r" });
+  await until(async () => (await b.call<any[]>("live")).some((t) => t.conv === "r" && t.body === "honor9"));
+  await b.call("converse", { from: "子agent", text: "子 agent「x」完成了任务（完成）。报告：做完了", channel: "子agent", conv: "r", ambient: true });
+  await replyR;
+  const report = (await a.call<any[]>("messages", { session: "r" })).find((m) => /子 agent「x」/.test(m.text));
+  assert.deepEqual([report.role, report.channel, report.via ?? null], ["ambient", "子agent", null]);
+  const seen = await a.call<string[]>("llmSeen");
+  assert.ok(seen.some((t) => t.includes("你派出的子 agent 送回了报告")), "按提醒并入");
+  assert.ok(!seen.some((t) => /补充了新消息[^：]*：\n子 agent「x」/.test(t)), "不当成对方的插话");
+
   // 给只读成员（灵魂桥）的近况：最近的会话与它的最后几句，只取摘要
   const d = await b.call<any>("digest");
   assert.equal(d.body, "pc");
-  assert.equal(d.sessions[0].id, "c1");
-  assert.deepEqual(d.recent.map((m: any) => [m.role, m.text]), [["user", "在手机上开始的话题"], ["user", "电脑上补充一句"], ["agent", "honor9 的回复"]]);
+  const c1 = d.sessions.find((x: any) => x.id === "c1");
+  assert.ok(c1, "c1 在最近的会话里");
 
   // 没有进行中的一轮时，新的一轮由收到消息的身体接
   await b.call("llmDelay", { ms: 0 });

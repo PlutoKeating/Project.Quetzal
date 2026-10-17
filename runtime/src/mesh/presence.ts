@@ -40,17 +40,18 @@ export function digest() {
 }
 
 interface Forward { from: string; text: string; channel: string; o: { conv?: string; mode?: string; ambient?: boolean }; files: { name: string; data: string }[] }
-const FORWARD_CHANNELS = new Set(["控制台", "飞书", "语音"]); // 转来的话可以带的通道
+const FORWARD_CHANNELS = new Set(["控制台", "飞书", "语音", "子agent", "灵魂同步"]); // 转来的话可以带的通道
+const NOTICE_CHANNELS = new Set(["子agent", "灵魂同步"]); // 基座的提醒（子 agent 的报告、灵魂同步）：只能以环境输入转来，不是对方说的话
 const MODES = new Set(["steer", "queue", "interrupt"]);
 
-/** 别处转来的一轮的选项：只取会话、并入方式（白名单）；就在这里处理，不再转出。环境声音只认听觉通道的。 */
+/** 别处转来的一轮的选项：只取会话、并入方式（白名单）；就在这里处理，不再转出。环境输入只认听觉通道的与基座的提醒。 */
 export function forwardOptions(o: unknown, channel: string): ConverseOptions {
   const x = (o && typeof o === "object" ? o : {}) as Record<string, unknown>;
   return {
     local: true,
     ...(typeof x.conv === "string" && x.conv && x.conv.length <= 200 ? { conv: x.conv } : {}),
     ...(typeof x.mode === "string" && MODES.has(x.mode) ? { mode: x.mode as ConverseOptions["mode"] } : {}),
-    ...(x.ambient === true && channel === "语音" ? { ambient: true } : {}),
+    ...(x.ambient === true && (channel === "语音" || NOTICE_CHANNELS.has(channel)) ? { ambient: true } : {}),
   };
 }
 
@@ -77,7 +78,9 @@ export function installPresence(mesh: Mesh): () => void {
       bytes += data.length;
       attachments.push(saveUpload(clip(f.name, 200) || "file", data));
     }
-    const channel = typeof p?.channel === "string" && FORWARD_CHANNELS.has(p.channel) ? p.channel : "控制台";
+    // 提醒通道只认环境输入：不带 ambient 的按控制台对待（不会把对方的话当成基座的提醒，也不会反过来）
+    const claimed = typeof p?.channel === "string" && FORWARD_CHANNELS.has(p.channel) ? p.channel : "控制台";
+    const channel = NOTICE_CHANNELS.has(claimed) && (p?.o as { ambient?: unknown } | undefined)?.ambient !== true ? "控制台" : claimed;
     const o = forwardOptions(p?.o, channel);
     log("mesh", `${from} 转来一句话（会话 ${clip(o.conv ?? "", 40)}）`);
     // 这句话是从发来的那具身体进来的：via 取网状层认证过的对端，不取对方自报的

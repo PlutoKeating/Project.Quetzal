@@ -195,6 +195,9 @@ test("别处转来的一轮：只取会话与并入方式，就地处理（不�
   assert.deepEqual(presence.forwardOptions({ conv: "c1", ambient: true, mode: "rm -rf" }, "语音"), { local: true, conv: "c1", ambient: true });
   assert.deepEqual(presence.forwardOptions(null, "控制台"), { local: true });
   assert.deepEqual(presence.forwardOptions({ conv: "x".repeat(500) }, "控制台"), { local: true });
+  // 基座的提醒（子 agent 的报告、灵魂同步）转过去仍是提醒，不变成对方说的话（#38）
+  assert.deepEqual(presence.forwardOptions({ conv: "c1", ambient: true }, "子agent"), { local: true, conv: "c1", ambient: true });
+  assert.deepEqual(presence.forwardOptions({ conv: "c1", ambient: true }, "灵魂同步"), { local: true, conv: "c1", ambient: true });
 });
 
 test("给灵魂桥的近况：单行、去掉控制字符、截断，每句标明谁说的（role、channel）", () => {

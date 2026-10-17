@@ -6,7 +6,7 @@ import * as mem from "../memory/memory.ts";
 import { identity } from "../memory/identity.ts";
 import { recent as soulRecent, syncStatus, pendingCopies } from "../memory/soul-sync.ts";
 import path from "node:path";
-import { remoteBodies } from "./bodies.ts";
+import { remoteBodies, multiBody } from "./bodies.ts";
 import { bodyUuid } from "../body/uuid.ts";
 import { describeBody } from "../body/twin.ts";
 import { snapshot } from "../heart/heart.ts";
@@ -51,7 +51,7 @@ function othersBlock(): string {
   if (!bodies.length) return "";
   const busy = (b: string) => liveTurns().filter((t) => t.body === b).length;
   const self = bodyUuid();
-  return `## 其他身体（此刻在线，都是你）\n${self ? `你此刻在 ${config.body}（body: ${self}）。\n` : ""}${bodies.map((b) => `- ${b.body}（body: ${b.uuid ?? "还没有登记 uuid"}）：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}`).join("\n")}\n凡是要指一具身体的地方（body_call、move_to、读文件工具的 body）都填它的 uuid（上面括号里的），不填名字。用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对方的话标着是经哪具身体发来的（对方的控制台连着哪具身体、飞书由哪具身体收、哪具身体的耳朵听到）。对话、会话、记忆、心脏都是同一份；保密库、自造工具的实现与文件属于各自的身体：在那边拍的照片、录的音、写的文件，这里没有那个路径：view_image、read_document、shell 带上 body（那具身体的 uuid），路径照那边的写，基座先把文件取到这里再用（shell 把要取的文件列在 files 里，命令仍在这里执行）。`;
+  return `## 其他身体（此刻在线，都是你）\n${self ? `你此刻在 ${config.body}（body: ${self}）。\n` : ""}${bodies.map((b) => `- ${b.body}（body: ${b.uuid ?? "还没有登记 uuid"}）：${b.describe || "（没有描述）"}${busy(b.body) ? `；那边正有 ${busy(b.body)} 轮在进行` : ""}\n  工具：${b.tools.map((t) => `${t.name}(${t.params.join(", ")})——${t.description.split(/[。\n]/)[0].slice(0, 60)}`).join("；") || "（没有）"}`).join("\n")}\n凡是要指一具身体的地方（body_call、move_to、读文件工具的 body）都填它的 uuid（上面括号里的），不填名字。用 body_call 调用另一具身体的工具，用 move_to 换到另一具身体继续这一轮。对方的话标着是经哪具身体发来的（对方的控制台连着哪具身体、飞书由哪具身体收、哪具身体的耳朵听到）：这只说明消息从哪具身体进来，不等于对方手里拿的就是那台设备（控制台可以连到别的身体上），也不决定活在哪里做——文件和仓库在哪具身体上，就在哪具身体上做。对话、会话、记忆、心脏都是同一份；保密库、自造工具的实现与文件属于各自的身体：在那边拍的照片、录的音、写的文件，这里没有那个路径：view_image、read_document、shell 带上 body（那具身体的 uuid），路径照那边的写，基座先把文件取到这里再用（shell 把要取的文件列在 files 里，命令仍在这里执行）。`;
 }
 
 /** 技能与自造工具：本机可用的、缺依赖的、只有文档没有实现的。 */
@@ -99,15 +99,20 @@ function otherSessions(conv = "", budget = 4000): string {
   const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n) + "…" : x; };
   const lines: string[] = claims.active().map((c) => `- 【认领】${claims.describe(c, conv ? { body: config.body, holder: conv } : undefined)}`);
   const title = (id: string) => listSessions({ limit: 200 }).find((s) => s.id === id)?.title ?? id;
+  // 不止一具身体时标明每条在哪具身体上：进行中的一轮在哪做、对方的话经哪具身体进来、我的话在哪具身体上说的
+  const multi = multiBody(), on = (b?: string | null) => (multi && b ? `（在 ${b} 上）` : "");
+  const NOTICE: Record<string, string> = { "子agent": "子 agent 的报告", "灵魂同步": "基座提醒", "换身体": "换身体的交接", "交接": "交接", "摘要": "摘要", "语音": "麦克风听到" };
+  const speaker = (m: { role: string; channel: string; body?: string | null; via?: string | null }) =>
+    m.role === "user" ? `对方${multi && m.via ? `（经 ${m.via}）` : ""}` : m.role === "agent" ? `我${on(m.body)}` : `（${NOTICE[m.channel] ?? m.channel}，不是对方说的）`;
   for (const t of liveTurns().filter((t) => t.conv !== conv)) {
     const lastTool = [...t.items].reverse().find((x) => x.type === "tool") as any;
-    const where = t.origin === "chat" ? `会话「${title(t.conv)}」` : t.origin === "dream" ? "做梦（整理记忆）" : "醒来思考";
-    lines.push(`- 【进行中】${where}${t.origin === "chat" ? `：对方说「${clip(t.text, 80)}」` : `：${clip(t.text, 60)}`}；${t.status === "queued" ? "排队中" : `第 ${t.step} 步`}${lastTool ? `，最近的工具 ${lastTool.name}（${lastTool.status}）` : ""}${t.live ? `，正在写：「${clip(t.live, 80)}」` : ""}`);
+    const where = t.origin === "chat" ? `会话「${title(t.conv)}」` : t.origin === "dream" ? "做梦（整理记忆）" : t.origin === "agent" ? "子 agent" : "醒来思考";
+    lines.push(`- 【进行中】${on(t.body)}${where}${t.origin === "chat" ? `：对方说「${clip(t.text, 80)}」` : `：${clip(t.text, 60)}`}；${t.status === "queued" ? "排队中" : `第 ${t.step} 步`}${lastTool ? `，最近的工具 ${lastTool.name}（${lastTool.status}）` : ""}${t.live ? `，正在写：「${clip(t.live, 80)}」` : ""}`);
   }
   for (const s of listSessions({ limit: 8 }).filter((s) => s.id !== conv).slice(0, 5)) {
     const msgs = sessionMessages(s.id, 4);
     if (!msgs.length) continue;
-    lines.push(`- 会话「${s.title}」（id：${s.id}，${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}）：\n${msgs.map((m) => `    ${m.role === "user" ? "对方" : "我"}：${clip(m.text, 160)}`).join("\n")}`);
+    lines.push(`- 会话「${s.title}」（id：${s.id}，${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}）：\n${msgs.map((m) => `    ${speaker(m)}：${clip(m.text, 160)}`).join("\n")}`);
   }
   let out = lines.join("\n");
   if (out.length > budget) out = out.slice(0, budget) + "…";

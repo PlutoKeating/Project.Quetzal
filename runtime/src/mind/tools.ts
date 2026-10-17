@@ -542,8 +542,11 @@ const core: Tool[] = [
       const s = ctx.session;
       const { spawnAgent } = await import("./brain.ts");
       const spec = { name: String(a.name).trim().slice(0, 40), goal: String(a.goal), persona: a.persona, scope: a.scope, background: a.background, context: a.context, maxSteps: a.maxSteps ? Number(a.maxSteps) : undefined };
-      const sub = spawnAgent(spec, { conv: s?.conv || "first", channel: s?.channel || "控制台" });
-      return `已派出「${sub.name}」（id ${sub.id}），在后台开始了。用 agent_status 看进度，agent_message 跟它说话；做完后报告会送回这个会话。`;
+      // 报告送回派出它的会话；醒来时派出的（没有会话）送回这次醒来主动发消息的会话，还没有就为它开一个，不落进不相干的默认会话（#38）
+      let conv = s?.conv || (s?.sayTo && getSession(s.sayTo) ? s.sayTo : "");
+      if (!conv) { conv = crypto.randomUUID(); ensureSession(conv, `子 agent「${spec.name}」`, "主动"); }
+      const sub = spawnAgent(spec, { conv, channel: s?.channel || "控制台" });
+      return `已派出「${sub.name}」（id ${sub.id}），在后台开始了。用 agent_status 看进度，agent_message 跟它说话；做完后报告会送回${s?.conv ? "这个会话" : `会话「${getSession(conv)?.title ?? conv}」（${conv}）`}。`;
     },
   },
   {

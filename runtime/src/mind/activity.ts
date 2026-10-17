@@ -41,8 +41,14 @@ export interface LiveTurn {
   text: string; msg: number; status: "queued" | "running"; step: number; live: string; items: Record<string, unknown>[];
 }
 const live = new Map<string, LiveTurn>();
+/** 别的身体上的一轮多久没有任何进展（含 15 秒一次的心跳）就不再当它在进行：结束的消息可能丢了，留着会把发到这个会话的话转给早已结束的一轮（#38）。 */
+const REMOTE_STALE_MS = 3 * 60_000;
 /** 所有进行中的轮次（按开始时间）。 */
-export const liveTurns = (): LiveTurn[] => [...live.values()].sort((a, b) => a.started - b.started);
+export const liveTurns = (): LiveTurn[] => {
+  const now = Date.now();
+  for (const t of [...live.values()]) if (t.body && t.body !== config.body && now - t.updated > REMOTE_STALE_MS) live.delete(t.turn);
+  return [...live.values()].sort((a, b) => a.started - b.started);
+};
 
 function fold(a: Activity) {
   if (a.kind === "start") live.set(a.session, { turn: a.session, conv: a.conv, origin: a.origin, channel: a.channel, started: a.ts, updated: a.ts, body: a.body, text: a.text ?? "", msg: a.msg ?? 0, status: "running", step: 0, live: "", items: [] });
@@ -71,10 +77,10 @@ function fold(a: Activity) {
 }
 
 /** 其他身体转来的进展：并进快照并推给本机的控制台（不再转发）。 */
-export function foldRemote(a: Activity) { fold(a); bus.emit("activity", a); }
+export function foldRemote(a: Activity) { fold(a); const t = live.get(a.session); if (t) t.updated = Date.now(); bus.emit("activity", a); } // 按本机收到的时刻计进展：两台设备的钟可能不准
 /** 采用另一具身体此刻进行中的轮次（刚连上时）。 */
 export function adoptLive(turns: LiveTurn[], body: string) {
-  for (const t of turns) if (t && typeof t.turn === "string" && !live.has(t.turn)) live.set(t.turn, { ...t, body });
+  for (const t of turns) if (t && typeof t.turn === "string" && !live.has(t.turn)) live.set(t.turn, { ...t, body, updated: Date.now() });
 }
 /** 一具身体断开了：它那些进行中的轮次不再有进展，从快照里移除，并告诉控制台这一轮结束了（回复若已生成会经复制到达）。 */
 export function dropBody(body: string) {

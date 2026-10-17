@@ -118,7 +118,7 @@ const cmds: Record<string, (a: any) => unknown> = {
   wake: (a) => wake(a.kind ?? "think", a.reason ?? "测试"),
   llmDelay: (a) => { llmDelay = a.ms; return true; },
   llmSeen: () => llmSeen,
-  converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode }),
+  converse: (a) => converse(a.from ?? "你", a.text, a.channel ?? "控制台", { conv: a.conv, mode: a.mode, ambient: a.ambient }),
   stopTurn: (a) => stopTurn(a.conv),
   procs: (a) => Number(execSync(`pgrep -f -c '[${a.pattern[0]}]${a.pattern.slice(1)}' || true`).toString().trim()) || 0, // 这台机器上命令行含 pattern 的进程数（核对命令是否真的结束了；首字母写成 [x]，不数执行 pgrep 的这个 sh 自己）
   digest: () => digest(),
