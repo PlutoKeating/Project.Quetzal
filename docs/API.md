@@ -110,6 +110,9 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `sessions.rename` / `sessions.archive` | `{id, title}` / `{id, archived}` | 重命名 / 归档与找回（有新消息的会话自动回到列表） |
 | `sessions.messages` | `{id, limit?, before?}` | 某个会话的对话 `[{id, ts, role, channel, text, session, process, attachments, mode, body, via}]`（按时间排列；`before` 为消息 id，取比它更早的；`body` 为这条消息发生在哪具身体上（写入它的那具）；`via` 为对方的话（`user`，以及通道 `语音` 的 `ambient`）从哪具身体进来：对方的控制台连着的、持有飞书长连接的、听到的耳朵所在的那具，转给另一具身体处理时仍是最初进来的那具，旧消息与其他环境输入为 `null`；消息 id 在所有身体上相同）；`role` 为 `user`（对方）、`agent`（她）或 `ambient`（环境输入，不是对方发的消息：通道 `语音` 为麦克风听到并识别的话（`mode` 为 `ignored` 表示她判断不是对她说的，控制台不显示）、`子agent` 为子 agent 送回的报告、`摘要` 为她用 `session_compact` 写下的上下文摘要（之前的历史不再进入上下文）、`交接` 为她用 `session_new` 切会话时写的交接）；`process` 里的 `{type: "steer", msg, text, mode, ambient}` 是插话 / 打断到达的那一刻（控制台据此把之前的过程截断在插话消息上方，之后的从它下面重新开出）；`process` 为这轮回复的执行过程（工具卡片与中间叙述） |
 | `sessions.live` | — | 进行中的轮次快照 `[{turn, conv, origin, body, text, msg, status, step, live, items}]`（含其他身体上进行中的轮次，`body` 为在哪具身体上） |
+| `workspace` | `{conv}` | 会话的工作区与各具身体的工作区概况 `{workspace, bodies}`：`workspace` 为 `{key, body, uuid, dir, changed, source, author, online}` 或 `null`（`source`：`auto` 基座按她的命令自动登记、`agent` 她用 `workspace` 工具设定、`user` 对方在控制台设定）；`bodies` 为 `[{body, online, overview}]`，`overview` 为 `{root, repos: [{path, remote?, branch?}], truncated?, at}`（工作目录下深度 2 以内的 git 仓库，远端地址去掉了凭据；其他身体的是连上时取回的，可能为空）。见 ARCHITECTURE.md §6.2「工作区跟着任务走」 |
+| `workspace.set` | `{conv, body?, dir}` | 设定会话的工作区：`body` 为身体名（缺省为这具身体，另一具要在线），`dir` 相对路径从那具身体的工作目录算，要已经存在（基座的家目录与密钥目录不行）；之后这个会话的每一轮放在那具身体上执行。她自动登记的工作区不会覆盖对方设定的（新的 `git clone` / `git init` 除外）。返回同 `workspace` |
+| `workspace.clear` | `{conv}` | 清除会话的工作区（留墓碑，其他身体也清掉）：之后的每一轮由收到消息的身体执行。返回同 `workspace` |
 | `poke` | `{note?}` | 戳一下：推高想念与好奇并立即重新抽样，不强制醒来 |
 
 **保密库（`pass_secret`）**
@@ -210,6 +213,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `mesh.acceptPin` | `{body}` | 确认某具身体新的节点公钥（或从灵魂桥变成运行基座）：钉住灵魂仓库里现在登记的，重新连接；返回同 `mesh`。只在 `peers` 里那一项 `pinMismatch` 为真、并且核对过指纹时用 |
 
 推送事件 `mesh`：数据同 `mesh` 方法，网状层状态变化时推送（绑定进展、同步服务连接、各身体的连接与路径）。
+
+**身体之间的方法**（网状层内部，经节点密钥认证过的连接，不在网关上；只读成员（灵魂桥）只能调用 `presence.digest`）：工作区跟着任务走新增 `workspace.pull`（会话的全部工作区，含墓碑，连上时补齐用）与事件 `workspace`（本机改了的工作区，实时复制；只收发来的身体自己写的）、`body.workspace`（这具身体的工作区概况；带 `{dir}` 时返回 `{dir, exists}`：这个目录在这里能不能用作工作区）、`agent.run`（`{name, goal, persona?, scope?, background?, context?, maxSteps?, dir?, parent: {conv, channel}}`：在这具身体上派出子 agent，按这边「会话」类别的闸门，返回 `{id, name, dir?}`）与 `agent.status` / `agent.message` / `agent.stop`（`{id, text?}`）；`tool.call` 多一个可选的 `cwd`（在这个目录里执行），结果多一个可选的 `workdir`（这条命令让哪个目录成了工作的地方）。
 
 **账户**（`mesh/account.ts`）：控制台管理同步服务上的整个账户，与官网的账户页是同一套接口（[sync/docs/PROTOCOL.md](../sync/docs/PROTOCOL.md) §5）。前提是这具身体已绑定；再做一次控制台登录，账户令牌存在 `secrets/sync-account.json`（0600）。这些方法只给持网关令牌的控制台用，agent 的工具里没有；agent 的命令在沙箱里运行，那里没有密钥目录（沙箱为 `none` 时没有这层保护，见 `status.sandbox`）。
 
