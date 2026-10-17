@@ -9,6 +9,9 @@ export interface Events {
   "claims.changed": []; // 认领有改动（本机）：网状层同步给其他身体（mind/claims.ts）
   "vault.changed": []; // 保密库有改动（本机）：网状层把「多端同步」的各项同步给其他身体（mind/secrets.ts）
   "goals.changed": []; // 长期目标有改动（本机）：网状层同步给其他身体（mind/goals.ts）
+  "taskStates.changed": []; // 某个会话的工作状态有改动（本机）：网状层同步给其他身体（mind/task-states.ts）
+  "agents.changed": []; // 子 agent 的记录有改动（本机，含检查点）：网状层同步给其他身体（mind/agents.ts）
+  "turns.changed": []; // 进行中轮次的检查点有改动（本机）：网状层同步给其他身体（mind/continuity.ts）
   "reminders.missed": [r: { id: string; text: string; at: number }, lateMs: number]; // 错过太久、没有发出的提醒
   timeline: [entry: TimelineEntry];
   state: [];

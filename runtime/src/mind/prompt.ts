@@ -79,7 +79,8 @@ function sessionBlock(): string {
   return [
     "会话由你掌握：话题彻底换了或上下文又长又乱，可以用 session_new 切到干净的新会话（可写交接）；会话太长、前面大多没用了，可以用 session_compact 压缩（摘要最好你自己写）。",
     "需要后台做一件事、调研或学习一个领域、换个视角，可以用 agent_spawn 派出子 agent（给它名字、目标，按需给人设、范围、背景、上下文；它不是你，只知道你告诉它的）；agent_status 看进度与报告，agent_message 跟它说话，agent_stop 停止。做完后报告会以环境输入送回派出它的会话。要不要用、什么时候用、怎么用，都由你自己决定。",
-    running.length ? `进行中的子 agent：${running.map((a) => `${a.name}（${a.id}，${Math.round((Date.now() - a.started) / 60000)} 分钟，目标：${a.goal.slice(0, 40)}）`).join("；")}` : "",
+    "进行中的一轮（对话、醒来）与子 agent 由基座定期记下检查点：基座重启、或手上有活的那具身体离线时，会在这具或另一具在线的身体上从检查点接着做，并以「续做」的交接告诉你之前做到哪里。所有身体共用同一份会话、目标与子 agent 记录，换没换设备不影响你做事。",
+    running.length ? `进行中的子 agent：${running.map((a) => `${a.name}（${a.id}，${Math.round((Date.now() - a.started) / 60000)} 分钟${a.body && a.body !== config.body ? `，在 ${a.body} 上` : ""}，目标：${a.goal.slice(0, 40)}）`).join("；")}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -102,7 +103,7 @@ function otherSessions(conv = "", budget = 4000): string {
   const title = (id: string) => listSessions({ limit: 200 }).find((s) => s.id === id)?.title ?? id;
   // 不止一具身体时标明每条在哪具身体上：进行中的一轮在哪做、对方的话经哪具身体进来、我的话在哪具身体上说的
   const multi = multiBody(), on = (b?: string | null) => (multi && b ? `（在 ${b} 上）` : "");
-  const NOTICE: Record<string, string> = { "子agent": "子 agent 的报告", "灵魂同步": "基座提醒", "换身体": "换身体的交接", "交接": "交接", "摘要": "摘要", "语音": "麦克风听到" };
+  const NOTICE: Record<string, string> = { "子agent": "子 agent 的报告", "灵魂同步": "基座提醒", "换身体": "换身体的交接", "续做": "续做的交接", "交接": "交接", "摘要": "摘要", "语音": "麦克风听到" };
   const speaker = (m: { role: string; channel: string; body?: string | null; via?: string | null }) =>
     m.role === "user" ? `对方${multi && m.via ? `（经 ${m.via}）` : ""}` : m.role === "agent" ? `我${on(m.body)}` : `（${NOTICE[m.channel] ?? m.channel}，不是对方说的）`;
   for (const t of liveTurns().filter((t) => t.conv !== conv)) {

@@ -11,9 +11,10 @@ import { config, paths } from '../config.ts';
 import { chat } from '../providers/router.ts';
 import { kv, saveContextSource, readContextSource, getToolCall, getSessionMessage } from '../store.ts';
 import { redactSecrets } from './secrets.ts';
+import * as taskStates from './task-states.ts';
 import { log } from '../log.ts';
 
-interface TurnContext { state: TaskWorkingState; tags: string[]; phase: MemoryStage | 'unknown'; phaseExplicit: boolean; manager: ContextManager; conv: string; query: string; plan?: ContextPlan }
+interface TurnContext { state: TaskWorkingState; tags: string[]; phase: MemoryStage | 'unknown'; phaseExplicit: boolean; manager: ContextManager; conv: string; shared: boolean; query: string; plan?: ContextPlan } // shared：属于一个真正的会话（工作状态全网同步，见 task-states.ts）
 const turns = new Map<string, TurnContext>();
 const historySources = new WeakMap<Msg, { id: number; conv: string }>();
 export function registerHistorySource(message: Msg, messageId: number, conv: string): Msg {
@@ -34,7 +35,7 @@ export async function summarizeContext({ entries, previousSummary, maxTokens, si
 export function createTurnContext(id: string, conv: string, messages: Msg[]) {
   const protectedFrom = Math.max(0, messages.findLastIndex((m) => m.role === 'user'));
   const initial = messages[protectedFrom]?.content ?? '';
-  const previousState = conv ? kv.get<TaskWorkingState | null>(`context.state.${conv}`, null) : null;
+  const previousState = conv ? taskStates.get(conv) : null;
   const state: TaskWorkingState = { goal: initial, constraints: previousState?.constraints ?? [], openQuestions: previousState?.openQuestions ?? [], evidence: [] };
   const previousSummary = conv ? kv.get<{ summary?: ContextPlan['summary'] } | null>(`context.plan.${conv}`, null)?.summary : undefined;
   const sourceRef = (sourceId: string, message: Msg, original?: Msg) => {
@@ -49,7 +50,7 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
     reference: sourceRef,
     summarize: summarizeContext,
   });
-  const context: TurnContext = { state, tags: [], phase: 'exploration', phaseExplicit: false, manager, conv: conv || id, query: initial };
+  const context: TurnContext = { state, tags: [], phase: 'exploration', phaseExplicit: false, manager, conv: conv || id, shared: !!conv, query: initial };
   turns.set(id, context);
   return {
     async prepare(request: ChatRequest): Promise<ChatRequest> {
@@ -104,7 +105,8 @@ export function taskState(id: string, patch?: Partial<TaskWorkingState> & { phas
     context.state = { ...context.state, ...state };
     if (phase) { context.phase = phase; context.phaseExplicit = true; }
     if (tags) context.tags = [...tags];
-    kv.set(`context.state.${context.conv}`, { ...context.state, phase: context.phase, updatedAt: Date.now() });
+    if (context.shared) taskStates.save(context.conv, { ...context.state, phase: context.phase, tags: context.tags });
+    else kv.set(`context.state.${context.conv}`, { ...context.state, phase: context.phase, updatedAt: Date.now() });
   }
   return structuredClone({ ...context.state, phase: context.phase, tags: context.tags });
 }

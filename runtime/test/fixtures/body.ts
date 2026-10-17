@@ -22,6 +22,11 @@ const { installLimbs } = await import("../../src/mesh/limbs.ts");
 const { installShared, decideAnywhere, remoteApprovals, alignStatus } = await import("../../src/mesh/shared.ts");
 const guard = await import("../../src/guard/guard.ts");
 const { installChannels } = await import("../../src/mesh/channels.ts");
+const { installContinuity } = await import("../../src/mesh/continuity.ts");
+const continuity = await import("../../src/mind/continuity.ts");
+const goals = await import("../../src/mind/goals.ts");
+const taskStates = await import("../../src/mind/task-states.ts");
+const agents = await import("../../src/mind/agents.ts");
 const { meshHeard } = await import("../../src/voice/hearing.ts");
 const { earOf } = await import("../../src/mind/bodies.ts");
 const fs = await import("node:fs");
@@ -44,8 +49,9 @@ const llm = http.createServer((req, res) => {
     for (const m of j.messages) llmSeen.push(typeof m.content === "string" ? m.content : (m.content ?? []).map((c: any) => c.text ?? "").join(""));
     llmSeen.splice(0, Math.max(0, llmSeen.length - 200)); const text = typeof last.content === "string" ? last.content : last.content?.find((c: any) => c.type === "text")?.text ?? "";
     const content = /先别急着做事/.test(text) && llmWhere ? JSON.stringify({ engage: true, intent: "测试的意图", where: llmWhere }) : `${process.env.BODY} 的回复`;
-    const message = !/先别急着做事/.test(text) && llmScript.length ? llmScript.shift() : { content };
-    setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); }, llmDelay);
+    const item = !/先别急着做事/.test(text) && llmScript.length ? llmScript.shift() : { content };
+    const message = item && typeof item === "object" && "message" in item ? item.message : item; // 脚本里可以写 {delay, message}：这一条单独延迟（制造做到一半的一轮）
+    setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); }, item && typeof item === "object" && typeof item.delay === "number" ? item.delay : llmDelay);
   });
 });
 await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
@@ -70,6 +76,10 @@ installPlacement(mesh, "t", () => false);
 installLimbs(mesh);
 installShared(mesh);
 installChannels(mesh);
+// 续做：测试里把检查点、离线交接与启动续做的时间调小
+continuity.configureContinuity({ checkpointMs: 200, graceMs: Number(process.env.GRACE_MS ?? 3_600_000), sweepMs: 200, resumeDelayMs: 300 });
+installContinuity(mesh);
+continuity.startContinuity();
 mesh.start();
 
 const cmds: Record<string, (a: any) => unknown> = {
@@ -130,6 +140,16 @@ const cmds: Record<string, (a: any) => unknown> = {
   unclaim: (a) => claims.unclaim({ key: a.key, body: process.env.BODY!, holder: a.holder, where: "", force: a.force }),
   claims: () => claims.active(),
   live: () => liveTurns().map((t) => ({ conv: t.conv, body: t.body, origin: t.origin, status: t.status })),
+  goal: (a) => goals.goalTool(a, a.conv),
+  goals: () => goals.all(),
+  saveTaskState: (a) => taskStates.save(a.conv, a.state),
+  taskState: (a) => taskStates.get(a.conv),
+  spawnAgent: async (a) => { const { spawnAgent } = await import("../../src/mind/brain.ts"); store.ensureSession(a.conv, "主会话"); return spawnAgent({ name: a.name, goal: a.goal }, { conv: a.conv, channel: "控制台" }).id; },
+  agents: () => agents.list(),
+  mergeAgents: (a) => agents.merge(a.records),
+  take: (a) => continuity.take(a.kind, a.id),
+  turns: () => continuity.turns(),
+  agentMessage: (a) => agents.message(a.id, a.text),
   stop: () => { mesh.stop(); setTimeout(() => { ndc.cleanup(); process.exit(0); }, 200); return true; },
 };
 process.on("message", async (m: any) => {

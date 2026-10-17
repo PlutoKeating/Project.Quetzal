@@ -9,7 +9,8 @@
 //   - 保密库（mind/secrets.ts）：标为多端同步的各项连同值按条目合并（较新的修改为准，删除留墓碑；改成仅本机的让别处删掉副本），一改就广播，连上时互相拉一次；
 //     值只经这条端到端加密、节点密钥认证过的通道传，接收方写进自己的保密库（0600）。
 //   - 认领（mind/claims.ts）：同样按条目合并、一改就广播；认领与放下由协调者决定（跟随者经 claims.op 转过去，holder 的身体一律记为发来的那具）。
-//   - 长期目标（mind/goals.ts，#23）：同样按条目合并、一改就广播、连上时互相拉一次；逐字段校验。
+//   - 心智里进行中的工作（#11、#23）：长期目标（mind/goals.ts）、每个会话的工作状态（mind/task-states.ts）、子 agent 的记录（mind/agents.ts）、
+//     进行中轮次的检查点（mind/continuity.ts）。同样按条目合并、一改就广播、连上时互相拉一次；各模块逐字段校验，谁来续做由协调者决定（mesh/continuity.ts）。
 //   - 来自别处的设置先校验：修改时刻不能晚于「现在 + 5 分钟」（一个远在未来的时刻会让这个分区再也改不动）；
 //     每个分区只留认得的键、类型与缺省值一致的值。急停是「停优先」：别处停了随时跟着停；解除只解除对方明确解除的那几次急停（见 stopState）。
 import fs from "node:fs";
@@ -27,11 +28,15 @@ import { thought, mergeThought } from "../memory/memory.ts";
 import * as claims from "../mind/claims.ts";
 import { exportVault, mergeVault } from "../mind/secrets.ts";
 import * as goals from "../mind/goals.ts";
+import * as taskStates from "../mind/task-states.ts";
+import * as agents from "../mind/agents.ts";
+import { turns, mergeTurns } from "../mind/continuity.ts";
 import { coordinator, isCoordinator } from "./coordinator.ts";
 import { log } from "../log.ts";
 
-const SECTIONS = [...SHARED_SECTIONS, "providers", "speechKey", "stop", "reminders", "thought", "claims", "vault", "goals"] as const;
-const MERGED = new Set(["stop", "reminders", "thought", "claims", "vault", "goals"]); // 按内容合并、不看修改时刻的分区
+const WORK = ["goals", "taskStates", "agents", "turns"] as const; // 心智里进行中的工作：按条目合并
+const SECTIONS = [...SHARED_SECTIONS, "providers", "speechKey", "stop", "reminders", "thought", "claims", "vault", ...WORK] as const;
+const MERGED = new Set(["stop", "reminders", "thought", "claims", "vault", ...WORK]); // 按内容合并、不看修改时刻的分区
 type Section = (typeof SECTIONS)[number];
 const FUTURE_MS = 5 * 60_000;
 const BODY_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -107,11 +112,14 @@ function read(section: Section): unknown {
   if (section === "claims") return claims.all();
   if (section === "vault") return exportVault();
   if (section === "goals") return goals.all();
+  if (section === "taskStates") return taskStates.all();
+  if (section === "agents") return agents.records();
+  if (section === "turns") return turns();
   return (config as any)[section];
 }
 
 // ---------- 与每具身体对齐设置的结果（控制台「设备」页显示：哪些设置采用了对方的、失败的原因）
-const LABEL: Record<string, string> = { goals: "目标", vault: "保密库", reminders: "提醒", thought: "想分享的一句话", claims: "认领", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
+const LABEL: Record<string, string> = { goals: "目标", taskStates: "会话的工作状态", agents: "子 agent", turns: "进行中的轮次", vault: "保密库", reminders: "提醒", thought: "想分享的一句话", claims: "认领", providers: "模型与 Key", speechKey: "语音密钥", permissions: "权限", budget: "预算", heart: "活跃度", hearing: "听觉", speech: "语音", brain: "大脑", channels: "通道", stop: "急停" };
 export interface AlignStatus { at: number; took: string[]; error?: string }
 const aligned = new Map<string, AlignStatus>();
 const note = (body: string, took: string[], error?: string) => {
@@ -137,6 +145,9 @@ function write(section: Section, value: any, from: string): boolean {
   else if (section === "claims") return claims.merge(value);
   else if (section === "vault") return mergeVault(value);
   else if (section === "goals") return goals.merge(value);
+  else if (section === "taskStates") return taskStates.merge(value);
+  else if (section === "agents") return agents.merge(value);
+  else if (section === "turns") return mergeTurns(value);
   else {
     const clean = sanitizeSection(section, value);
     if (!clean) throw new Error("格式不对");
@@ -255,8 +266,8 @@ export function installShared(mesh: Mesh): () => void {
   const onReminders = () => onShared(["reminders"]);
   const onClaims = () => onShared(["claims"]);
   const onVault = () => onShared(["vault"]);
-  const onGoals = () => onShared(["goals"]);
-  bus.on("goals.changed", onGoals);
+  const work = WORK.map((n) => [`${n}.changed` as "goals.changed", () => onShared([n])] as const);
+  for (const [e, f] of work) bus.on(e, f);
   bus.on("shared", onShared);
   bus.on("reminders.changed", onReminders);
   bus.on("claims.changed", onClaims);
@@ -268,7 +279,7 @@ export function installShared(mesh: Mesh): () => void {
   setApprovalRouter((body, id, approve, note) => mesh.request<boolean>(body, "approval.decide", { id, approve, note }, 15_000));
   claims.setClaimRouter((op, req) => (isCoordinator() || !mesh.connected().includes(coordinator()) ? undefined : mesh.request<claims.ClaimResult>(coordinator(), "claims.op", { op, req }, 15_000)));
   return () => {
-    bus.off("goals.changed", onGoals);
+    for (const [e, f] of work) bus.off(e, f);
     bus.off("shared", onShared as any); bus.off("reminders.changed", onReminders); bus.off("claims.changed", onClaims); bus.off("vault.changed", onVault); claims.setClaimRouter(undefined); bus.off("approval", onApproval as any); bus.off("usage", onUsage as any);
     mesh.off("event", onEvent); mesh.off("peer", onPeer); setApprovalRouter(undefined); remote.clear();
   };
