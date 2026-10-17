@@ -14,6 +14,7 @@ import { htmlToText, readDocument } from "./documents.ts";
 import { webSearch, BROWSER_HEADERS } from "./search.ts";
 import fs from "node:fs";
 import { loadImage } from "./images.ts";
+import { handsTools as screenTools } from "./hands.ts";
 import { localize, withBodyParam, resolveBody, type Fetched } from "./body-files.ts";
 import { bodyUuid } from "../body/uuid.ts";
 import { describeProcesses } from "./processes.ts";
@@ -599,16 +600,10 @@ function customTools(): Tool[] {
   }));
 }
 
+/** 手（看屏幕、点击、输入、打开应用）：适配器提供 hands 时才有，见 hands.ts。 */
 function handsTools(): Tool[] {
   const h = adapter.hands;
-  if (!h) return [];
-  const p = "hands";
-  return [
-    { name: "screen_describe", permission: p, description: "描述当前屏幕内容。", parameters: obj({}), handler: () => h.describeScreen() },
-    { name: "screen_tap", permission: p, description: "点击屏幕坐标。", parameters: obj({ x: { type: "number" }, y: { type: "number" } }, ["x", "y"]), handler: async (a) => { await h.tap(a.x, a.y); return "ok"; } },
-    { name: "screen_type", permission: p, description: "在当前输入框输入文字。", parameters: obj({ text: str("文字") }, ["text"]), handler: async (a) => { await h.type(a.text); return "ok"; } },
-    { name: "app_open", permission: p, description: "打开应用。", parameters: obj({ id: str("应用包名") }, ["id"]), handler: async (a) => { await h.openApp(a.id); return "ok"; } },
-  ];
+  return h ? screenTools(h) : [];
 }
 
 /** 跨身体：有其他在线身体时才出现（多具身体时由 mesh/ 填入 mind/bodies.ts）。body 参数一律是身体的 uuid，解析走 body-files.ts 的 resolveBody。 */
