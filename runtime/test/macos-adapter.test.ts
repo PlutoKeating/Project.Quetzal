@@ -38,7 +38,7 @@ test("ioreg AppleSmartBattery：电池温度（0.01 °C，个别为 0.1 K）与�
 });
 
 test("设备标识：IOPlatformUUID（小写）；格式不对的不用", () => {
-  const out = `+-o J000AP  <class IOPlatformExpertDevice, id 0x100000214, registered, matched, active, busy 0 (0 ms), retain 37>\n    {\n      "IOPlatformSerialNumber" = "XXXXXXXXXX"\n      "IOPlatformUUID" = "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9"\n    }`;
+  const out = `+-o Root  <class IOPlatformExpertDevice, id 0x100000214, registered, matched, active, busy 0 (0 ms), retain 37>\n    {\n      "IOPlatformSerialNumber" = "XXXXXXXXXX"\n      "IOPlatformUUID" = "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9"\n    }`;
   assert.equal(platformUUID(out), "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9");
   assert.equal(platformUUID(`"IOPlatformUUID" = "not-a-uuid"`), undefined);
 });
