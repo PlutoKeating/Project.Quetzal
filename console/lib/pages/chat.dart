@@ -11,6 +11,7 @@
 //   ChatView 是对话的全部内容（记录、过程、输入）；ChatPage 在手机上给它套 AppBar，桌面外壳把它放进主区。
 //   桌面：Enter 发送、Shift+Enter 换行；内容宽度由外壳限制（PaneWidth）。
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:cross_file/cross_file.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -599,6 +600,7 @@ class _ChatViewState extends State<ChatView> {
       if (process.isNotEmpty) ProcessView(process),
       if (atts.isNotEmpty) _attachments(context, atts, me, cs),
       if ('${m['text']}'.isNotEmpty || atts.isEmpty) Bubble('${m['text']}', me: me, channel: m['channel'], pending: m['pending'] == true),
+      if (!me && '${m['text']}'.trim().isNotEmpty) ReplyActions('${m['text']}', ts: (m['ts'] as num?)?.toInt()),
       if (me && modes[m['mode']] != null) Text('${modes[m['mode']]!.$1} · 在她工作时发送', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
       if (!me && m['body'] != null && '${m['body']}' != api.body && api.body.isNotEmpty) Text('在 ${m['body']} 上', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)), // 多具身体：这条回复是另一具身体给的
     ]);
@@ -673,6 +675,44 @@ class _ChatViewState extends State<ChatView> {
         if (t.live.isNotEmpty) Bubble(t.live, live: true),
         if (t.hint.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(t.hint, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic))),
       ]);
+}
+
+/// 她的每条回复下面：一键复制整条原文（Markdown），或导出为 .md 文件（桌面弹保存对话框、手机交给系统选位置、网页直接下载）。
+class ReplyActions extends StatelessWidget {
+  final String text;
+  final int? ts;
+  const ReplyActions(this.text, {super.key, this.ts});
+
+  /// 导出的文件名：quetzal-<当地时刻>.md（取这条回复的时刻，没有就取现在）。
+  static String fileName(int? ts) {
+    final t = ts == null ? DateTime.now() : DateTime.fromMillisecondsSinceEpoch(ts);
+    String two(int n) => n.toString().padLeft(2, '0');
+    return 'quetzal-${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}${two(t.second)}.md';
+  }
+
+  Future<void> _copy(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (context.mounted) toast(context, '已复制这条回复');
+  }
+
+  Future<void> _export(BuildContext context) async {
+    try {
+      final saved = await FilePicker.saveFile(fileName: fileName(ts), bytes: Uint8List.fromList(utf8.encode(text.endsWith('\n') ? text : '$text\n')), mimeType: 'text/markdown', type: FileType.custom, allowedExtensions: const ['md']);
+      if (saved != null && context.mounted) toast(context, '已导出为 Markdown');
+    } catch (e) {
+      if (context.mounted) toast(context, '没能导出：$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    Widget btn(String tip, IconData icon, VoidCallback f) => IconButton(tooltip: tip, onPressed: f, icon: Icon(icon, size: 16, color: cs.outline), visualDensity: VisualDensity.compact, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 30, minHeight: 30));
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      btn('复制', Icons.copy_outlined, () => _copy(context)),
+      btn('导出为 Markdown', Icons.download_outlined, () => _export(context)),
+    ]);
+  }
 }
 
 /// 子 agent 送回的报告：默认只显示一句「子 agent X 完成了（结论）」，点开才看完整报告（报告往往很长，她自己仍读到全文）。
