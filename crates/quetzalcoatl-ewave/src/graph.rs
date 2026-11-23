@@ -4085,9 +4085,37 @@ impl SerpentineGraph {
     /// 导出 `@plutokeating/ewave@0.2.0` 兼容的 `EwaveSnapshot`（节点与边均按确定性 UTF-16 码元序排列）。
     #[must_use]
     pub fn to_snapshot(&self) -> EwaveSnapshot {
+        let pending_set: BTreeSet<&str> = self.pending_reembed.iter().map(String::as_str).collect();
         let mut node_list: Vec<&GraphNode> = self.nodes.values().collect();
         node_list.sort_by(|a, b| cmp_utf16(&a.id, &b.id));
-        let nodes = node_list.into_iter().map(GraphNode::to_snapshot).collect();
+        let mut nodes: Vec<NodeSnapshot> = node_list
+            .into_iter()
+            .map(|n| {
+                let mut snap = n.to_snapshot();
+                if pending_set.contains(snap.id.as_str()) {
+                    snap.meta.insert(
+                        String::from("reembed_pending"),
+                        serde_json::Value::Bool(true),
+                    );
+                }
+                snap
+            })
+            .collect();
+
+        if !self.sayit_records.is_empty() {
+            let mut records: Vec<&SayItSessionRecord> = self.sayit_records.values().collect();
+            records.sort_by(|a, b| {
+                cmp_utf16(&a.sayit_user_hash, &b.sayit_user_hash)
+                    .then_with(|| cmp_utf16(&a.session_id, &b.session_id))
+            });
+            if let Ok(serialized_records) = serde_json::to_value(&records)
+                && let Some(root_snap) = nodes.iter_mut().find(|n| n.id == self.root_id)
+            {
+                root_snap
+                    .meta
+                    .insert(String::from("qz_sayit_records"), serialized_records);
+            }
+        }
 
         let mut edge_list: Vec<&GraphEdge> = self.edges.values().collect();
         edge_list.sort_by(|a, b| cmp_utf16(&a.key(), &b.key()));
@@ -4272,6 +4300,36 @@ impl SerpentineGraph {
         if let Some(dim) = graph.dimension {
             graph.options.emb_dim = dim;
         }
+
+        // 恢复持久化的 SayIt 归档会话账本（若存在于 root.meta["qz_sayit_records"]）
+        let raw_sayit_records = graph
+            .nodes
+            .get_mut(&graph.root_id)
+            .and_then(|root| root.meta.remove("qz_sayit_records"));
+        if let Some(val) = raw_sayit_records {
+            let parsed_records: Vec<SayItSessionRecord> =
+                serde_json::from_value(val).map_err(|e| QuetzalcoatlError::SerializationError {
+                    detail: format!("EWAVE_SNAPSHOT: 解析 qz_sayit_records 失败: {e}"),
+                })?;
+            for rec in parsed_records {
+                graph
+                    .sayit_records
+                    .insert((rec.sayit_user_hash.clone(), rec.session_id.clone()), rec);
+            }
+        }
+
+        // 按确定性 UTF-16 序重建离线待重算向量队列 pending_reembed
+        let mut pending_ids: Vec<NodeId> = graph
+            .nodes
+            .values()
+            .filter(|n| {
+                n.kind != NodeKind::Root
+                    && n.meta.get("reembed_pending") == Some(&serde_json::Value::Bool(true))
+            })
+            .map(|n| n.id.clone())
+            .collect();
+        pending_ids.sort_by(|a, b| cmp_utf16(a, b));
+        graph.pending_reembed = pending_ids;
 
         let mut hierarchy_meta: BTreeMap<String, EdgeSnapshot> = BTreeMap::new();
         let mut link_edges: Vec<EdgeSnapshot> = Vec::new();

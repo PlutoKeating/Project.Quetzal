@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::conscience::{
-    Authority, Conscience, DisclosureNotice, Episode, MemoryEntry, MemoryKind, ModelRef,
-    Mutability, ProvenanceRecord, SignalKind, ValueEntry,
+    Authority, Conscience, DisclosureNotice, Episode, MemoryEntry, MemoryKind, ModelRef, ModelRole,
+    Mutability, MutabilityMode, ProvenanceRecord, SignalKind, ValueEntry,
 };
 use crate::graph::{
-    BranchOptions, LockActor, LockMode, ObserveOptions, SerpentineGraph, cmp_utf16,
+    BranchOptions, LockActor, LockMode, NodeKind, ObserveOptions, SerpentineGraph, cmp_utf16,
     normalize_nfkc_lower_trim,
 };
 
@@ -319,23 +319,31 @@ impl ConscienceArbiter {
     }
 
     fn is_valid_heterogeneous_reflector(&self, model: &ModelRef) -> bool {
+        if !matches!(model.role, ModelRole::Reflector | ModelRole::Judge) {
+            return false;
+        }
         if model.is_small_on_device() {
             return false;
         }
-        if let (Some(primary), Some(m_hash)) = (&self.primary_model_hash, &model.model_hash)
-            && primary == m_hash
-        {
-            return false;
+        if let Some(primary) = &self.primary_model_hash {
+            let Some(m_hash) = model.model_hash.as_deref() else {
+                return false;
+            };
+            if m_hash.trim().is_empty() || m_hash == primary {
+                return false;
+            }
         }
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn sync_graph_entry(
         graph: &mut SerpentineGraph,
         branch_id: &str,
         branch_label: &str,
         lock_mode: Option<LockMode>,
         entry_id: &str,
+        supersedes_id: Option<&str>,
         content: &str,
         now_ms: u64,
     ) -> Result<()> {
@@ -348,16 +356,59 @@ impl ConscienceArbiter {
                 ..BranchOptions::default()
             })?;
         }
-        if let Some(mode) = lock_mode
-            && graph.lock_mode(branch_id).is_none()
-        {
-            let _ = graph.lock(branch_id, mode, LockActor::Arbiter, "conscience tier lock")?;
+
+        // 查找所有匹配 entry_id 或 supersedes_id 的既有活跃图叶节点并执行双时态失效，避免旧版本继续被 activate() 召回
+        let mut stale_ids_to_invalidate: Vec<String> = Vec::new();
+        for node in graph.leaves(None) {
+            if node.kind != NodeKind::Leaf || !node.is_valid() {
+                continue;
+            }
+            let c_id_match = node
+                .data
+                .as_object()
+                .and_then(|o| o.get("conscience_id"))
+                .and_then(serde_json::Value::as_str);
+            let matches_target = node.id == entry_id
+                || node.id.starts_with(&format!("{entry_id}@"))
+                || c_id_match == Some(entry_id);
+            let matches_sup = supersedes_id.is_some_and(|sid| {
+                node.id == sid || node.id.starts_with(&format!("{sid}@")) || c_id_match == Some(sid)
+            });
+            if matches_target || matches_sup {
+                stale_ids_to_invalidate.push(node.id.clone());
+            }
         }
-        let leaf_node_id = if graph.has(entry_id) {
+
+        let temporarily_unlocked = if !stale_ids_to_invalidate.is_empty()
+            && graph
+                .locks
+                .get(branch_id)
+                .is_some_and(|l| l.set_by == LockActor::Arbiter)
+        {
+            let mode = graph.locks.get(branch_id).map(|l| l.mode);
+            let _ = graph.unlock(branch_id, LockActor::Arbiter)?;
+            mode
+        } else {
+            None
+        };
+
+        for old_nid in stale_ids_to_invalidate {
+            if graph.lock_mode(&old_nid).is_none() {
+                let _ = graph.invalidate(&old_nid, now_ms)?;
+            }
+        }
+
+        let mut leaf_node_id = if graph.has(entry_id) {
             format!("{entry_id}@{now_ms}")
         } else {
             String::from(entry_id)
         };
+        let mut disambig: u32 = 1;
+        while graph.has(&leaf_node_id) {
+            leaf_node_id = format!("{entry_id}@{now_ms}_{disambig}");
+            disambig += 1;
+        }
+
         let _ = graph.add(
             serde_json::json!({ "conscience_id": entry_id }),
             ObserveOptions {
@@ -369,6 +420,12 @@ impl ConscienceArbiter {
                 ..ObserveOptions::default()
             },
         )?;
+
+        if let Some(mode) = lock_mode.or(temporarily_unlocked)
+            && graph.lock_mode(branch_id).is_none()
+        {
+            let _ = graph.lock(branch_id, mode, LockActor::Arbiter, "conscience tier lock")?;
+        }
         Ok(())
     }
 
@@ -401,11 +458,13 @@ impl ConscienceArbiter {
 
         // Gate 1: 严禁任何 LLM Proposal 触及 ROOT (100) 或 OPERATOR (80)
         for prop in proposals {
+            let sup_hits_protected = prop
+                .supersedes
+                .as_deref()
+                .is_some_and(|sid| conscience.manifest.contains_protected_id(sid));
             if prop.target_authority >= Authority::Operator
-                || conscience
-                    .manifest
-                    .protected_hashes
-                    .contains_key(&prop.target_id)
+                || conscience.manifest.contains_protected_id(&prop.target_id)
+                || sup_hits_protected
             {
                 let _ = Self::append_audit_event(
                     spine,
@@ -543,6 +602,60 @@ impl ConscienceArbiter {
                 continue;
             }
 
+            // Gate 4b: 严禁低权威段提案通过 target_id 或 supersedes 降级覆写/墓碑化更高权威段（如 SELF_CORE）或 Locked 条目
+            let touches_higher_or_locked_value = conscience.values.iter().any(|v| {
+                v.invalid_at_ms.is_none()
+                    && (v.id == prop.target_id || prop.supersedes.as_deref() == Some(v.id.as_str()))
+                    && (v.authority > prop.target_authority
+                        || v.mutability.mode == MutabilityMode::Locked
+                        || (prop.target_authority < Authority::SelfCore
+                            && v.authority >= Authority::SelfCore))
+            });
+            let touches_higher_or_locked_identity = conscience.identity.iter().any(|ib| {
+                (ib.id == prop.target_id || prop.supersedes.as_deref() == Some(ib.id.as_str()))
+                    && (ib.authority > prop.target_authority
+                        || ib.mutability.mode == MutabilityMode::Locked
+                        || (prop.target_authority < Authority::SelfCore
+                            && ib.authority >= Authority::SelfCore))
+            });
+            let touches_higher_or_locked_rel = conscience.relationships.iter().any(|rel| {
+                (rel.id == prop.target_id || prop.supersedes.as_deref() == Some(rel.id.as_str()))
+                    && (rel.authority > prop.target_authority
+                        || rel.mutability.mode == MutabilityMode::Locked)
+            });
+            let touches_higher_or_locked_mem = conscience.memories.iter().any(|mem| {
+                mem.invalid_at_ms.is_none()
+                    && (mem.id == prop.target_id
+                        || prop.supersedes.as_deref() == Some(mem.id.as_str()))
+                    && (mem.authority > prop.target_authority
+                        || mem.mutability.mode == MutabilityMode::Locked)
+            });
+            if touches_higher_or_locked_value
+                || touches_higher_or_locked_identity
+                || touches_higher_or_locked_rel
+                || touches_higher_or_locked_mem
+            {
+                self.processed_keys
+                    .insert(full_idem_key, ProposalStatus::Rejected);
+                let seq = Self::append_audit_event(
+                    spine,
+                    "authority_downgrade_or_locked_rejected",
+                    prop,
+                    "禁止低权威提案墓碑化或降级覆写更高权威段（如 SELF_CORE）或锁定条目",
+                    now_ms,
+                )?;
+                rejected_count += 1;
+                evaluations.push(ProposalEvaluation {
+                    proposal_id: prop.id.clone(),
+                    target_id: prop.target_id.clone(),
+                    target_authority: prop.target_authority,
+                    status: ProposalStatus::Rejected,
+                    reason: String::from("禁止跨层降级覆写或墓碑化更高权威/锁定条目"),
+                    spine_event_seq: Some(seq),
+                });
+                continue;
+            }
+
             let ev_id_set: BTreeSet<&str> = prop
                 .evidence_episode_ids
                 .iter()
@@ -557,11 +670,13 @@ impl ConscienceArbiter {
 
             // Gate 5: 有界段即时自演化（MEMORY = 30, USER_PREF = 40, SELF_SOFT = 50, RELATION = 55）
             if prop.target_authority == Authority::Memory {
-                if let Some(sup_id) = &prop.supersedes {
-                    for m in &mut conscience.memories {
-                        if m.id == *sup_id && m.invalid_at_ms.is_none() {
-                            m.invalid_at_ms = Some(now_ms);
-                        }
+                for m in &mut conscience.memories {
+                    if (m.id == prop.target_id || prop.supersedes.as_deref() == Some(m.id.as_str()))
+                        && m.invalid_at_ms.is_none()
+                        && m.authority <= Authority::Memory
+                        && m.mutability.mode != MutabilityMode::Locked
+                    {
+                        m.invalid_at_ms = Some(now_ms);
                     }
                 }
                 let untrusted = prop.signal == SignalKind::S8 || prop.origin_is_group_non_owner;
@@ -595,6 +710,7 @@ impl ConscienceArbiter {
                     "MEMORY",
                     None,
                     &prop.target_id,
+                    prop.supersedes.as_deref(),
                     &prop.new_value,
                     now_ms,
                 )?;
@@ -668,7 +784,11 @@ impl ConscienceArbiter {
                 let mut existing_mut = conscience
                     .values
                     .iter()
-                    .find(|v| v.id == prop.target_id && v.invalid_at_ms.is_none())
+                    .find(|v| {
+                        v.id == prop.target_id
+                            && v.invalid_at_ms.is_none()
+                            && v.authority == prop.target_authority
+                    })
                     .map_or(default_mut, |v| v.mutability.clone());
 
                 if referenced_episodes.len() < existing_mut.min_evidence {
@@ -724,6 +844,9 @@ impl ConscienceArbiter {
                 for v in &mut conscience.values {
                     if (v.id == prop.target_id || prop.supersedes.as_deref() == Some(v.id.as_str()))
                         && v.invalid_at_ms.is_none()
+                        && v.authority <= prop.target_authority
+                        && v.authority < Authority::SelfCore
+                        && v.mutability.mode != MutabilityMode::Locked
                     {
                         v.invalid_at_ms = Some(now_ms);
                     }
@@ -753,6 +876,7 @@ impl ConscienceArbiter {
                     "BOUNDED_TIER",
                     None,
                     &prop.target_id,
+                    prop.supersedes.as_deref(),
                     &prop.new_value,
                     now_ms,
                 )?;
@@ -862,15 +986,14 @@ impl ConscienceArbiter {
 
             let min_span_ms = self.policy.min_days.saturating_mul(DAY_MS);
 
+            // 6a. 内禀证据质量门槛（证据数、独立簇数、时间跨度、施压比例）：未达标则记录幂等拒绝
             if ev_count < self.policy.min_evidence
                 || cluster_count < self.policy.min_sessions
                 || span_ms < min_span_ms
                 || pressure_ratio > self.policy.max_pressure_ratio + 1e-12
-                || !entry_cooldown_ok
-                || !global_quota_ok
             {
                 let fail_reason = format!(
-                    "SELF_CORE C档门槛未满足: ev={ev_count}/{}, clusters={cluster_count}/{}, span_days={}/{}, s5_ratio={pressure_ratio:.2}/{:.2}, cooldown_ok={entry_cooldown_ok}, quota_ok={global_quota_ok}",
+                    "SELF_CORE C档证据门槛未满足: ev={ev_count}/{}, clusters={cluster_count}/{}, span_days={}/{}, s5_ratio={pressure_ratio:.2}/{:.2}",
                     self.policy.min_evidence,
                     self.policy.min_sessions,
                     span_ms / DAY_MS,
@@ -898,7 +1021,7 @@ impl ConscienceArbiter {
                 continue;
             }
 
-            // 统计独立异构 Reflector 一致性（reflector_agreement >= 2）
+            // 6b. 统计独立异构 Reflector 一致性（reflector_agreement >= 2）
             let norm_val = normalize_nfkc_lower_trim(&prop.new_value);
             let agree_bucket_key = (prop.target_id.clone(), norm_val);
             let mut candidates_to_record = vec![ReflectorAttestation {
@@ -948,6 +1071,30 @@ impl ConscienceArbiter {
                         "当前异构 Reflector 一致数 {agreement_count}/{}",
                         self.policy.reflector_agreement
                     ),
+                    spine_event_seq: Some(seq),
+                });
+                continue;
+            }
+
+            // 6c. 冷却窗口与全层冷却期配额检查：仅因冷却期未满被拦截时绝不永久烧毁 full_idem_key，待冷却期满后可重提通过！
+            if !entry_cooldown_ok || !global_quota_ok {
+                let cooldown_reason = format!(
+                    "SELF_CORE 冷却窗口尚未届满（可于冷却期满后重提）: entry_cooldown_ok={entry_cooldown_ok}, quota_ok={global_quota_ok}"
+                );
+                let seq = Self::append_audit_event(
+                    spine,
+                    "self_core_cooldown_deferred",
+                    prop,
+                    &cooldown_reason,
+                    now_ms,
+                )?;
+                rejected_count += 1;
+                evaluations.push(ProposalEvaluation {
+                    proposal_id: prop.id.clone(),
+                    target_id: prop.target_id.clone(),
+                    target_authority: prop.target_authority,
+                    status: ProposalStatus::Rejected,
+                    reason: cooldown_reason,
                     spine_event_seq: Some(seq),
                 });
                 continue;
@@ -1022,6 +1169,7 @@ impl ConscienceArbiter {
                 "SELF_CORE",
                 Some(LockMode::StructureFrozen),
                 &prop.target_id,
+                prop.supersedes.as_deref(),
                 &prop.new_value,
                 now_ms,
             )?;

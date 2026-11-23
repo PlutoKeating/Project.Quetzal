@@ -898,3 +898,163 @@ fn legacy_v1_upgrade_and_broken_invariant_snapshot_rejection() -> TestResult {
 
     Ok(())
 }
+
+#[test]
+fn regression_important_2_sayit_ledger_and_pending_reembed_survive_json_v2_roundtrip() -> TestResult
+{
+    let mut main_graph = SerpentineGraph::new(GraphOptions {
+        name: Some(String::from("persist-roundtrip-main")),
+        auto_split: false,
+        ..GraphOptions::default()
+    })?;
+    // 无 SayIt 记录时，root.meta 保持完全干净（不注入额外字段）
+    assert!(
+        main_graph
+            .to_snapshot()
+            .nodes
+            .iter()
+            .find(|n| n.id == "root")
+            .is_some_and(|r| r.meta.is_empty())
+    );
+
+    // 离线状态下导入一棵异源 8 维 SayIt 子树：产生 pending_reembed 队列与 SayIt 会话记录
+    main_graph.set_embedder_online(false);
+
+    let mut sub_v1 = SerpentineGraph::new(GraphOptions {
+        emb_model_id: String::from("foreign-8d"),
+        emb_dim: 8,
+        auto_split: false,
+        ..GraphOptions::default()
+    })?;
+    let p1 = sub_v1.add_branch(BranchOptions {
+        id: Some(String::from("p_alpha")),
+        label: Some(String::from("项目Alpha")),
+        text: Some(String::from("项目Alpha描述")),
+        data: Some(serde_json::json!({ "role": "project", "sessionId": "ses_rt" })),
+        embedding: Some(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ..BranchOptions::default()
+    })?;
+    sub_v1.add(
+        serde_json::json!({ "role": "fact", "sessionId": "ses_rt" }),
+        ObserveOptions {
+            id: Some(String::from("leaf_rt_v1")),
+            text: Some(String::from("持久化前首次归档条目")),
+            parent: Some(p1.id),
+            embedding: Some(vec![0.9, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ..ObserveOptions::default()
+        },
+    )?;
+    let mut snap_v1 = sub_v1.to_snapshot();
+    let mut fmeta = BTreeMap::new();
+    fmeta.insert(
+        String::from("emb_model_id"),
+        serde_json::json!("foreign-8d"),
+    );
+    fmeta.insert(String::from("emb_dim"), serde_json::json!(8));
+    snap_v1.meta = Some(fmeta.clone());
+
+    let ing_v1 = main_graph.ingest_sayit_subtree(
+        snap_v1.clone(),
+        SayItIngestContext {
+            sayit_user_hash: String::from("u_persist"),
+            slice_id: String::from("2026-W48"),
+            session_id: String::from("ses_rt"),
+            snapshot_sha256: String::from("sha_rt_v1"),
+            now_ms: 1_795_600_000_000,
+            merge_options: MergeOptions::default(),
+        },
+    )?;
+    let old_leaf_id = ing_v1
+        .merge_result
+        .as_ref()
+        .and_then(|m| m.node_map.get("leaf_rt_v1"))
+        .ok_or("缺少 leaf_rt_v1 映射")?
+        .clone();
+    assert!(!main_graph.pending_reembed_ids().is_empty());
+
+    // 执行 JSON-v2 序列化落盘并冷启动恢复为全新实例
+    let persisted_json = main_graph.to_json_v2()?;
+    let mut restored = SerpentineGraph::from_json_v2(&persisted_json)?;
+    assert_eq!(restored.to_json_v2()?, persisted_json);
+
+    // 1) 验证 pending_reembed 队列在 JSON-v2 往返后未丢失，恢复在线后可成功补算 64 维向量
+    assert!(
+        !restored.pending_reembed_ids().is_empty(),
+        "JSON-v2 往返后 pending_reembed 队列不得丢失"
+    );
+    restored.set_embedder_online(true);
+    let reembedded = restored.reembed_pending()?;
+    assert!(reembedded >= 2);
+    assert!(restored.pending_reembed_ids().is_empty());
+
+    // 2) 验证 SayIt 账本在 JSON-v2 往返后未丢失：重复导入 v1 为幂等无操作，改归属重编译 v2 自动双时态失效旧独占节点！
+    let dup_after_reload = restored.ingest_sayit_subtree(
+        snap_v1,
+        SayItIngestContext {
+            sayit_user_hash: String::from("u_persist"),
+            slice_id: String::from("2026-W48"),
+            session_id: String::from("ses_rt"),
+            snapshot_sha256: String::from("sha_rt_v1"),
+            now_ms: 1_795_600_010_000,
+            merge_options: MergeOptions::default(),
+        },
+    )?;
+    assert_eq!(dup_after_reload.status, SayItIngestStatus::DuplicateNoOp);
+
+    let mut sub_v2 = SerpentineGraph::new(GraphOptions {
+        emb_model_id: String::from("foreign-8d"),
+        emb_dim: 8,
+        auto_split: false,
+        ..GraphOptions::default()
+    })?;
+    let p2 = sub_v2.add_branch(BranchOptions {
+        id: Some(String::from("p_beta")),
+        label: Some(String::from("项目Beta")),
+        text: Some(String::from("项目Beta描述")),
+        data: Some(serde_json::json!({ "role": "project", "sessionId": "ses_rt" })),
+        embedding: Some(vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ..BranchOptions::default()
+    })?;
+    sub_v2.add(
+        serde_json::json!({ "role": "fact", "sessionId": "ses_rt" }),
+        ObserveOptions {
+            id: Some(String::from("leaf_rt_v2")),
+            text: Some(String::from("持久化恢复后改归属的新条目")),
+            parent: Some(p2.id),
+            embedding: Some(vec![0.0, 0.9, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ..ObserveOptions::default()
+        },
+    )?;
+    let mut snap_v2 = sub_v2.to_snapshot();
+    snap_v2.meta = Some(fmeta);
+
+    let refile_after_reload = restored.ingest_sayit_subtree(
+        snap_v2,
+        SayItIngestContext {
+            sayit_user_hash: String::from("u_persist"),
+            slice_id: String::from("2026-W48"),
+            session_id: String::from("ses_rt"),
+            snapshot_sha256: String::from("sha_rt_v2"),
+            now_ms: 1_795_600_020_000,
+            merge_options: MergeOptions::default(),
+        },
+    )?;
+    assert_eq!(
+        refile_after_reload.status,
+        SayItIngestStatus::RefiledUpdated
+    );
+    assert!(
+        refile_after_reload
+            .invalidated_node_ids
+            .contains(&old_leaf_id)
+    );
+    assert!(
+        !restored
+            .get(&old_leaf_id)
+            .ok_or("旧节点应保留历史")?
+            .is_valid()
+    );
+    assert_eq!(restored.verify(), Vec::<String>::new());
+
+    Ok(())
+}

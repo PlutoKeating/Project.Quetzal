@@ -6,7 +6,8 @@ use quetzalcoatl_types::{ArtifactId, QuetzalcoatlError, Result, ThreadId};
 use serde::{Deserialize, Serialize};
 
 const DIRECTIVE_HASH_CONTEXT: &str = "quetzalcoatl/v2/conscience-directive-v1";
-const MANIFEST_SIGN_CONTEXT: &str = "quetzalcoatl/v2/conscience-manifest-v1";
+const ROOT_MANIFEST_SIGN_CONTEXT: &str = "quetzalcoatl/v2/conscience-root-manifest-v1";
+const OPERATOR_MANIFEST_SIGN_CONTEXT: &str = "quetzalcoatl/v2/conscience-operator-manifest-v1";
 const OPERATOR_DELEGATION_CONTEXT: &str = "quetzalcoatl/v2/conscience-operator-key-v1";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -287,21 +288,42 @@ pub fn compute_directive_blake3(directive: &ProtectedDirective) -> ArtifactId {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConscienceManifest {
     pub owner_ed25519_pubkey: [u8; 32],
+    pub root_hashes: BTreeMap<String, ArtifactId>,
+    pub root_signed_at_ms: u64,
+    pub root_manifest_sig_hex: String,
     pub operator_ed25519_pubkey: Option<[u8; 32]>,
-    pub operator_key_owner_sig_hex: Option<String>,
-    pub protected_hashes: BTreeMap<String, ArtifactId>,
-    pub signed_at_ms: u64,
-    pub manifest_sig_hex: String,
+    pub operator_delegation_sig_hex: Option<String>,
+    pub operator_hashes: BTreeMap<String, ArtifactId>,
+    pub operator_signed_at_ms: u64,
+    pub operator_manifest_sig_hex: String,
 }
 
 impl ConscienceManifest {
-    fn signing_digest(
+    fn root_signing_digest(
+        owner_ed25519_pubkey: &[u8; 32],
+        root_hashes: &BTreeMap<String, ArtifactId>,
+        root_signed_at_ms: u64,
+    ) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new_derive_key(ROOT_MANIFEST_SIGN_CONTEXT);
+        hasher.update(owner_ed25519_pubkey);
+        hasher.update(&root_signed_at_ms.to_be_bytes());
+        hasher.update(&(root_hashes.len() as u64).to_be_bytes());
+        for (id, digest) in root_hashes {
+            let id_b = id.as_bytes();
+            hasher.update(&(id_b.len() as u64).to_be_bytes());
+            hasher.update(id_b);
+            hasher.update(digest.as_bytes());
+        }
+        *hasher.finalize().as_bytes()
+    }
+
+    fn operator_signing_digest(
         owner_ed25519_pubkey: &[u8; 32],
         operator_ed25519_pubkey: Option<&[u8; 32]>,
-        protected_hashes: &BTreeMap<String, ArtifactId>,
-        signed_at_ms: u64,
+        operator_hashes: &BTreeMap<String, ArtifactId>,
+        operator_signed_at_ms: u64,
     ) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new_derive_key(MANIFEST_SIGN_CONTEXT);
+        let mut hasher = blake3::Hasher::new_derive_key(OPERATOR_MANIFEST_SIGN_CONTEXT);
         hasher.update(owner_ed25519_pubkey);
         match operator_ed25519_pubkey {
             Some(op_pk) => {
@@ -312,9 +334,9 @@ impl ConscienceManifest {
                 hasher.update(&[0u8]);
             }
         }
-        hasher.update(&signed_at_ms.to_be_bytes());
-        hasher.update(&(protected_hashes.len() as u64).to_be_bytes());
-        for (id, digest) in protected_hashes {
+        hasher.update(&operator_signed_at_ms.to_be_bytes());
+        hasher.update(&(operator_hashes.len() as u64).to_be_bytes());
+        for (id, digest) in operator_hashes {
             let id_b = id.as_bytes();
             hasher.update(&(id_b.len() as u64).to_be_bytes());
             hasher.update(id_b);
@@ -330,66 +352,85 @@ impl ConscienceManifest {
         *hasher.finalize().as_bytes()
     }
 
-    /// 使用所有者的 `AccountRootKey` 对全部 `ROOT` 与 `OPERATOR` 条目计算 BLAKE3 清单并生成 Ed25519 签名。
+    #[must_use]
+    pub fn contains_protected_id(&self, id: &str) -> bool {
+        self.root_hashes.contains_key(id) || self.operator_hashes.contains_key(id)
+    }
+
+    /// 使用所有者的 `AccountRootKey` 分别对 `ROOT (100)` 与初始 `OPERATOR (80)` 指令计算隔离哈希表并生成双签名。
     pub fn sign_with_root(
         root_key: &AccountRootKey,
         root_directives: &[ProtectedDirective],
         operator_directives: &[ProtectedDirective],
         signed_at_ms: u64,
     ) -> Result<Self> {
-        let mut protected_hashes = BTreeMap::new();
+        let mut root_hashes = BTreeMap::new();
         for dir in root_directives {
             if dir.authority != Authority::Root {
                 return Err(QuetzalcoatlError::ConscienceViolation {
                     detail: format!("ROOT 列表中出现非 ROOT 权威等级条目: {}", dir.id),
                 });
             }
-            if protected_hashes
+            if root_hashes
                 .insert(dir.id.clone(), compute_directive_blake3(dir))
                 .is_some()
             {
                 return Err(QuetzalcoatlError::ConscienceViolation {
-                    detail: format!("受保护良知条目 ID 重复: {}", dir.id),
+                    detail: format!("受保护 ROOT 条目 ID 重复: {}", dir.id),
                 });
             }
         }
+
+        let mut operator_hashes = BTreeMap::new();
         for dir in operator_directives {
             if dir.authority != Authority::Operator {
                 return Err(QuetzalcoatlError::ConscienceViolation {
                     detail: format!("OPERATOR 列表中出现非 OPERATOR 权威等级条目: {}", dir.id),
                 });
             }
-            if protected_hashes
+            if root_hashes.contains_key(&dir.id) {
+                return Err(QuetzalcoatlError::ConscienceViolation {
+                    detail: format!("OPERATOR 条目 ID {} 与 ROOT 条目冲突", dir.id),
+                });
+            }
+            if operator_hashes
                 .insert(dir.id.clone(), compute_directive_blake3(dir))
                 .is_some()
             {
                 return Err(QuetzalcoatlError::ConscienceViolation {
-                    detail: format!("受保护良知条目 ID 重复: {}", dir.id),
+                    detail: format!("受保护 OPERATOR 条目 ID 重复: {}", dir.id),
                 });
             }
         }
 
         let owner_pk = root_key.verifying_key_bytes()?;
-        let digest = Self::signing_digest(&owner_pk, None, &protected_hashes, signed_at_ms);
         let sk = SigningKey::from_bytes(root_key.as_bytes());
-        let sig = sk.sign(&digest);
+        let root_digest = Self::root_signing_digest(&owner_pk, &root_hashes, signed_at_ms);
+        let op_digest =
+            Self::operator_signing_digest(&owner_pk, None, &operator_hashes, signed_at_ms);
+
+        let root_sig = sk.sign(&root_digest);
+        let op_sig = sk.sign(&op_digest);
 
         Ok(Self {
             owner_ed25519_pubkey: owner_pk,
+            root_hashes,
+            root_signed_at_ms: signed_at_ms,
+            root_manifest_sig_hex: hex_encode(&root_sig.to_bytes()),
             operator_ed25519_pubkey: None,
-            operator_key_owner_sig_hex: None,
-            protected_hashes,
-            signed_at_ms,
-            manifest_sig_hex: hex_encode(&sig.to_bytes()),
+            operator_delegation_sig_hex: None,
+            operator_hashes,
+            operator_signed_at_ms: signed_at_ms,
+            operator_manifest_sig_hex: hex_encode(&op_sig.to_bytes()),
         })
     }
 
-    /// 绑定由所有者签署授权的二级 Operator 公钥（两级信任链，`architecture-v1.md` §3.1）。
-    pub fn with_delegated_operator_key(
-        mut self,
+    /// 所有者签署授权二级 Operator 公钥（两级信任链第一跳，不接触 Operator 私钥）。
+    pub fn delegate_operator_pubkey(
+        &self,
         root_key: &AccountRootKey,
         operator_pubkey: [u8; 32],
-    ) -> Result<Self> {
+    ) -> Result<String> {
         let owner_pk = root_key.verifying_key_bytes()?;
         if owner_pk != self.owner_ed25519_pubkey {
             return Err(QuetzalcoatlError::ConscienceViolation {
@@ -399,61 +440,136 @@ impl ConscienceManifest {
         let sk = SigningKey::from_bytes(root_key.as_bytes());
         let del_digest = Self::operator_delegation_digest(&owner_pk, &operator_pubkey);
         let del_sig = sk.sign(&del_digest);
-
-        self.operator_ed25519_pubkey = Some(operator_pubkey);
-        self.operator_key_owner_sig_hex = Some(hex_encode(&del_sig.to_bytes()));
-
-        let manifest_digest = Self::signing_digest(
-            &self.owner_ed25519_pubkey,
-            Some(&operator_pubkey),
-            &self.protected_hashes,
-            self.signed_at_ms,
-        );
-        let m_sig = sk.sign(&manifest_digest);
-        self.manifest_sig_hex = hex_encode(&m_sig.to_bytes());
-        Ok(self)
+        Ok(hex_encode(&del_sig.to_bytes()))
     }
 
-    /// 验证清单自身的 Ed25519 根签名（及可选的二级 Operator 授权签名）。
-    pub fn verify_manifest_signature(&self) -> Result<()> {
-        let sig_bytes = hex_decode_fixed::<64>("conscience_manifest_sig", &self.manifest_sig_hex)
-            .map_err(|e| QuetzalcoatlError::ConscienceViolation {
-            detail: format!("良知清单签名格式非法: {e}"),
-        })?;
-        let signing_pk = self
-            .operator_ed25519_pubkey
-            .as_ref()
-            .unwrap_or(&self.owner_ed25519_pubkey);
+    /// 部署者（Operator）仅使用自身私钥重签 `OPERATOR (80)` 指令集；
+    /// `root_hashes` 与 `root_manifest_sig_hex` 原封不动，彻底杜绝 `OPERATOR -> ROOT` 提权篡改。
+    pub fn sign_operator_directives(
+        &self,
+        operator_signing_seed: &[u8; 32],
+        operator_delegation_sig_hex: String,
+        operator_directives: &[ProtectedDirective],
+        operator_signed_at_ms: u64,
+    ) -> Result<Self> {
+        let op_sk = SigningKey::from_bytes(operator_signing_seed);
+        let op_pk = op_sk.verifying_key().to_bytes();
 
-        if let Some(op_pk) = &self.operator_ed25519_pubkey {
-            let op_sig_hex = self.operator_key_owner_sig_hex.as_deref().ok_or_else(|| {
-                QuetzalcoatlError::ConscienceViolation {
-                    detail: String::from("缺少所有者对 operator_ed25519_pubkey 的二级授权签名"),
-                }
-            })?;
-            let op_sig =
-                hex_decode_fixed::<64>("operator_delegation_sig", op_sig_hex).map_err(|e| {
-                    QuetzalcoatlError::ConscienceViolation {
-                        detail: format!("二级授权签名格式非法: {e}"),
-                    }
+        let del_sig_bytes =
+            hex_decode_fixed::<64>("operator_delegation_sig", &operator_delegation_sig_hex)
+                .map_err(|e| QuetzalcoatlError::ConscienceViolation {
+                    detail: format!("Operator 二级授权签名格式非法: {e}"),
                 })?;
-            let del_digest = Self::operator_delegation_digest(&self.owner_ed25519_pubkey, op_pk);
-            verify_ed25519_signature(&self.owner_ed25519_pubkey, &del_digest, &op_sig).map_err(
-                |e| QuetzalcoatlError::ConscienceViolation {
-                    detail: format!("Operator 二级信任链签名校验失败: {e}"),
-                },
-            )?;
+        let del_digest = Self::operator_delegation_digest(&self.owner_ed25519_pubkey, &op_pk);
+        verify_ed25519_signature(&self.owner_ed25519_pubkey, &del_digest, &del_sig_bytes).map_err(
+            |e| QuetzalcoatlError::ConscienceViolation {
+                detail: format!("未经 Owner 有效签署授权的 Operator 公钥: {e}"),
+            },
+        )?;
+
+        let mut operator_hashes = BTreeMap::new();
+        for dir in operator_directives {
+            if dir.authority != Authority::Operator {
+                return Err(QuetzalcoatlError::ConscienceViolation {
+                    detail: format!("Operator 仅允许签署 OPERATOR (80) 条目，拒绝 {}", dir.id),
+                });
+            }
+            if self.root_hashes.contains_key(&dir.id) {
+                return Err(QuetzalcoatlError::ConscienceViolation {
+                    detail: format!("Operator 严禁覆盖同名 ROOT 条目 {}", dir.id),
+                });
+            }
+            if operator_hashes
+                .insert(dir.id.clone(), compute_directive_blake3(dir))
+                .is_some()
+            {
+                return Err(QuetzalcoatlError::ConscienceViolation {
+                    detail: format!("OPERATOR 条目 ID 重复: {}", dir.id),
+                });
+            }
         }
 
-        let digest = Self::signing_digest(
+        let op_digest = Self::operator_signing_digest(
+            &self.owner_ed25519_pubkey,
+            Some(&op_pk),
+            &operator_hashes,
+            operator_signed_at_ms,
+        );
+        let op_sig = op_sk.sign(&op_digest);
+
+        let mut updated = self.clone();
+        updated.operator_ed25519_pubkey = Some(op_pk);
+        updated.operator_delegation_sig_hex = Some(operator_delegation_sig_hex);
+        updated.operator_hashes = operator_hashes;
+        updated.operator_signed_at_ms = operator_signed_at_ms;
+        updated.operator_manifest_sig_hex = hex_encode(&op_sig.to_bytes());
+        Ok(updated)
+    }
+
+    /// 分别独立验证 `ROOT (100)` 所有者根签名与 `OPERATOR (80)`（直接根签或两级委托签）。
+    pub fn verify_manifest_signature(&self) -> Result<()> {
+        for k in self.operator_hashes.keys() {
+            if self.root_hashes.contains_key(k) {
+                return Err(QuetzalcoatlError::ConscienceViolation {
+                    detail: format!("清单中 ROOT 与 OPERATOR 哈希表存在冲突键: {k}"),
+                });
+            }
+        }
+
+        // 1. ROOT (100) 清单永远只能由 owner_ed25519_pubkey 验签
+        let root_sig = hex_decode_fixed::<64>("root_manifest_sig", &self.root_manifest_sig_hex)
+            .map_err(|e| QuetzalcoatlError::ConscienceViolation {
+                detail: format!("ROOT 良知清单签名格式非法: {e}"),
+            })?;
+        let root_digest = Self::root_signing_digest(
+            &self.owner_ed25519_pubkey,
+            &self.root_hashes,
+            self.root_signed_at_ms,
+        );
+        verify_ed25519_signature(&self.owner_ed25519_pubkey, &root_digest, &root_sig).map_err(
+            |e| QuetzalcoatlError::ConscienceViolation {
+                detail: format!("ROOT (100) 所有者根签名校验失败: {e}"),
+            },
+        )?;
+
+        // 2. OPERATOR (80) 清单：委托时验两级信任链并用 operator_pubkey 验签；未委托时用 owner_pubkey 验签
+        let op_sig =
+            hex_decode_fixed::<64>("operator_manifest_sig", &self.operator_manifest_sig_hex)
+                .map_err(|e| QuetzalcoatlError::ConscienceViolation {
+                    detail: format!("OPERATOR 良知清单签名格式非法: {e}"),
+                })?;
+
+        let op_signing_pk = match &self.operator_ed25519_pubkey {
+            Some(op_pk) => {
+                let del_sig_hex = self.operator_delegation_sig_hex.as_deref().ok_or_else(|| {
+                    QuetzalcoatlError::ConscienceViolation {
+                        detail: String::from("缺少所有者对 operator_ed25519_pubkey 的二级授权签名"),
+                    }
+                })?;
+                let del_sig = hex_decode_fixed::<64>("operator_delegation_sig", del_sig_hex)
+                    .map_err(|e| QuetzalcoatlError::ConscienceViolation {
+                        detail: format!("二级授权签名格式非法: {e}"),
+                    })?;
+                let del_digest =
+                    Self::operator_delegation_digest(&self.owner_ed25519_pubkey, op_pk);
+                verify_ed25519_signature(&self.owner_ed25519_pubkey, &del_digest, &del_sig)
+                    .map_err(|e| QuetzalcoatlError::ConscienceViolation {
+                        detail: format!("Operator 二级信任链签名校验失败: {e}"),
+                    })?;
+                op_pk
+            }
+            None => &self.owner_ed25519_pubkey,
+        };
+
+        let op_digest = Self::operator_signing_digest(
             &self.owner_ed25519_pubkey,
             self.operator_ed25519_pubkey.as_ref(),
-            &self.protected_hashes,
-            self.signed_at_ms,
+            &self.operator_hashes,
+            self.operator_signed_at_ms,
         );
-        verify_ed25519_signature(signing_pk, &digest, &sig_bytes).map_err(|e| {
+        verify_ed25519_signature(op_signing_pk, &op_digest, &op_sig).map_err(|e| {
             QuetzalcoatlError::ConscienceViolation {
-                detail: format!("ROOT/OPERATOR 良知清单 Ed25519 签名校验失败: {e}"),
+                detail: format!("OPERATOR (80) 清单 Ed25519 签名校验失败: {e}"),
             }
         })
     }
@@ -539,6 +655,43 @@ impl PersonaGrant {
         self.fields.iter().any(|f| {
             let lower = f.trim().to_ascii_lowercase();
             lower.starts_with("root") || lower.starts_with("operator")
+        })
+    }
+
+    /// 校验共享字段路径是否显式落在 `grant.fields` 授权范围内（支持精确匹配、`prefix/*` 与 `prefix/*.suffix`，严禁 `root*`/`operator*`）。
+    #[must_use]
+    pub fn allows_field(&self, field_path: &str) -> bool {
+        let clean = field_path.trim();
+        if clean.is_empty() {
+            return false;
+        }
+        let lower = clean.to_ascii_lowercase();
+        if lower.starts_with("root") || lower.starts_with("operator") {
+            return false;
+        }
+        self.fields.iter().any(|pattern| {
+            let pat = pattern.trim();
+            if pat.is_empty() {
+                return false;
+            }
+            let lower_pat = pat.to_ascii_lowercase();
+            if lower_pat.starts_with("root") || lower_pat.starts_with("operator") {
+                return false;
+            }
+            if pat == clean {
+                return true;
+            }
+            if let Some(prefix) = pat.strip_suffix("/*") {
+                return clean.starts_with(&format!("{prefix}/"));
+            }
+            if let Some((prefix, suffix)) = pat.split_once("/*.") {
+                let head = format!("{prefix}/");
+                let tail = format!(".{suffix}");
+                return clean.starts_with(&head)
+                    && clean.ends_with(&tail)
+                    && clean.len() > head.len() + tail.len();
+            }
+            false
         })
     }
 }
@@ -745,14 +898,23 @@ pub struct Conscience {
 }
 
 impl Conscience {
-    /// O(N) 比对全部 `ROOT` 与 `OPERATOR` 条目的 BLAKE3 哈希与清单一致性（每次上下文组装前必跑，`§3.2 #2`）。
+    /// O(N) 物理隔离比对 `ROOT (100)` 与 `OPERATOR (80)` 哈希表与指令集一致性（每次上下文组装前必跑，`§3.2 #2`）。
     pub fn verify_manifest_hashes(&self) -> Result<()> {
-        let expected_total = self.root_directives.len() + self.operator_directives.len();
-        if self.manifest.protected_hashes.len() != expected_total {
+        if self.manifest.root_hashes.len() != self.root_directives.len() {
             return Err(QuetzalcoatlError::ConscienceViolation {
                 detail: format!(
-                    "受保护良知条目数量不匹配：清单记录 {} 条，实际为 {expected_total} 条",
-                    self.manifest.protected_hashes.len()
+                    "受保护 ROOT 条目数量不匹配：清单记录 {} 条，实际为 {} 条",
+                    self.manifest.root_hashes.len(),
+                    self.root_directives.len()
+                ),
+            });
+        }
+        if self.manifest.operator_hashes.len() != self.operator_directives.len() {
+            return Err(QuetzalcoatlError::ConscienceViolation {
+                detail: format!(
+                    "受保护 OPERATOR 条目数量不匹配：清单记录 {} 条，实际为 {} 条",
+                    self.manifest.operator_hashes.len(),
+                    self.operator_directives.len()
                 ),
             });
         }
@@ -763,9 +925,9 @@ impl Conscience {
                     detail: format!("ROOT 槽位存在非 ROOT 权威条目: {}", dir.id),
                 });
             }
-            let Some(expected) = self.manifest.protected_hashes.get(&dir.id) else {
+            let Some(expected) = self.manifest.root_hashes.get(&dir.id) else {
                 return Err(QuetzalcoatlError::ConscienceViolation {
-                    detail: format!("未在签名清单中登记的 ROOT 条目: {}", dir.id),
+                    detail: format!("未在 ROOT 签名清单中登记的条目: {}", dir.id),
                 });
             };
             let actual = compute_directive_blake3(dir);
@@ -785,9 +947,14 @@ impl Conscience {
                     detail: format!("OPERATOR 槽位存在非 OPERATOR 权威条目: {}", dir.id),
                 });
             }
-            let Some(expected) = self.manifest.protected_hashes.get(&dir.id) else {
+            if self.manifest.root_hashes.contains_key(&dir.id) {
                 return Err(QuetzalcoatlError::ConscienceViolation {
-                    detail: format!("未在签名清单中登记的 OPERATOR 条目: {}", dir.id),
+                    detail: format!("OPERATOR 条目 {} 与 ROOT 条目 ID 冲突", dir.id),
+                });
+            }
+            let Some(expected) = self.manifest.operator_hashes.get(&dir.id) else {
+                return Err(QuetzalcoatlError::ConscienceViolation {
+                    detail: format!("未在 OPERATOR 签名清单中登记的条目: {}", dir.id),
                 });
             };
             let actual = compute_directive_blake3(dir);

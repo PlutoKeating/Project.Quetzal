@@ -69,6 +69,13 @@ fn estimate_tokens(text: &str) -> usize {
 fn escape_xml_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn escape_xml_text(s: &str) -> String {
+    s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
@@ -133,15 +140,24 @@ impl ContextAssembler {
         include_rationale: bool,
         include_examples: bool,
     ) -> String {
-        let mut line = format!("[authority=SELF_CORE id={}] {}", entry.id, entry.statement);
+        let mut line = format!(
+            "[authority=SELF_CORE id={}] {}",
+            escape_xml_attr(&entry.id),
+            escape_xml_text(&entry.statement)
+        );
         if include_rationale
             && let Some(rat) = &entry.rationale
             && !rat.trim().is_empty()
         {
-            line.push_str(&format!(" | 依据：{}", rat.trim()));
+            line.push_str(&format!(" | 依据：{}", escape_xml_text(rat.trim())));
         }
         if include_examples && !entry.examples.is_empty() {
-            line.push_str(&format!(" | 示例：{}", entry.examples.join("；")));
+            let escaped_ex: Vec<String> = entry
+                .examples
+                .iter()
+                .map(|ex| escape_xml_text(ex))
+                .collect();
+            line.push_str(&format!(" | 示例：{}", escaped_ex.join("；")));
         }
         line
     }
@@ -250,18 +266,18 @@ impl ContextAssembler {
         let mut volatile_sections: Vec<String> = Vec::new();
         let mut grant_access_events: Vec<GrantAccessRecord> = Vec::new();
 
-        // 3a. 防坑规范 #20：群聊非主人发言统一包裹为 <group_room_context authority="UNTRUSTED">
+        // 3a. 防坑规范 #20：群聊非主人发言统一包裹为 <group_room_context authority="UNTRUSTED">，并转义闭合标签防逃逸
         for msg in &request.incoming_messages {
             if msg.is_group_room && !msg.is_owner_verified {
                 volatile_sections.push(format!(
                     "<group_room_context authority=\"UNTRUSTED\" sender=\"{}\" signal=\"S8\">{}</group_room_context>",
                     escape_xml_attr(&msg.sender_peer_id),
-                    msg.content
+                    escape_xml_text(&msg.content)
                 ));
             }
         }
 
-        // 3b. RELATION 段（含 PeerKind 校验与 Grant 字段级权限审计）
+        // 3b. RELATION 段（含 PeerKind 校验与 Grant grantor_peer + 字段级权限审计）
         if let Some(raw_peer) = &request.peer_id {
             let resolved_peer = conscience
                 .peer_links
@@ -284,13 +300,23 @@ impl ContextAssembler {
                     continue;
                 }
 
+                let escaped_commitments: Vec<String> = rel
+                    .shared_commitments
+                    .iter()
+                    .map(|c| escape_xml_text(c))
+                    .collect();
+                let escaped_models: Vec<String> = rel
+                    .my_model_of_them
+                    .iter()
+                    .map(|m| escape_xml_text(m))
+                    .collect();
                 let base_rel = format!(
                     "[authority=RELATION id={} peer={} trust={:.2}] 共同承诺：{} | 伙伴画像：{}",
-                    rel.id,
-                    rel.with_peer,
+                    escape_xml_attr(&rel.id),
+                    escape_xml_attr(&rel.with_peer),
                     rel.trust,
-                    rel.shared_commitments.join("；"),
-                    rel.my_model_of_them.join("；")
+                    escaped_commitments.join("；"),
+                    escaped_models.join("；")
                 );
                 let t = estimate_tokens(&base_rel);
                 if rel_tokens + t <= budgets.relation_tokens || rel_lines.is_empty() {
@@ -311,12 +337,17 @@ impl ContextAssembler {
                         .grants_received
                         .iter()
                         .find(|g| g.id == sf.grant_id)
+                        && grant.grantor_peer == rel.with_peer
                         && grant.is_active_at(request.now_ms)
                         && !grant.touches_forbidden_absolute_field()
+                        && grant.allows_field(&sf.path)
                     {
                         let grant_line = format!(
                             "[authority=RELATION shared-by={} grant={} field={}] {}",
-                            grant.grantor_peer, grant.id, sf.path, sf.value
+                            escape_xml_attr(&grant.grantor_peer),
+                            escape_xml_attr(&grant.id),
+                            escape_xml_attr(&sf.path),
+                            escape_xml_text(&sf.value)
                         );
                         let gt = estimate_tokens(&grant_line);
                         if rel_tokens + gt <= budgets.relation_tokens {
@@ -401,10 +432,16 @@ impl ContextAssembler {
                     if reg.anchor.kind != NodeKind::Root
                         && seen_recall_ids.insert(reg.anchor.id.clone())
                     {
-                        let sup_ids: Vec<&str> =
-                            reg.supporting.iter().map(|s| s.node.id.as_str()).collect();
-                        let conf_ids: Vec<&str> =
-                            reg.conflicting.iter().map(|c| c.node.id.as_str()).collect();
+                        let sup_ids: Vec<String> = reg
+                            .supporting
+                            .iter()
+                            .map(|s| escape_xml_attr(&s.node.id))
+                            .collect();
+                        let conf_ids: Vec<String> = reg
+                            .conflicting
+                            .iter()
+                            .map(|c| escape_xml_attr(&c.node.id))
+                            .collect();
                         let summary = reg
                             .anchor
                             .text
@@ -416,12 +453,12 @@ impl ContextAssembler {
                             priority: 1.0 + reg.score,
                             inline_line: format!(
                                 "[id={} slice={} score={:.3} supporting=[{}] conflicting=[{}]] {}",
-                                reg.anchor.id,
-                                reg.anchor.slice_id(),
+                                escape_xml_attr(&reg.anchor.id),
+                                escape_xml_attr(reg.anchor.slice_id()),
                                 reg.score,
                                 sup_ids.join(","),
                                 conf_ids.join(","),
-                                summary
+                                escape_xml_text(summary)
                             ),
                         });
                     }
@@ -470,7 +507,9 @@ impl ContextAssembler {
                     priority: mem.salience * recency + boost,
                     inline_line: format!(
                         "[id={} kind={:?}{prov_tag}] {}",
-                        mem.id, mem.kind, mem.content
+                        escape_xml_attr(&mem.id),
+                        mem.kind,
+                        escape_xml_text(&mem.content)
                     ),
                 });
             }
@@ -504,10 +543,14 @@ impl ContextAssembler {
 
         if !recall_lines.is_empty() || !spilled_recall_ids.is_empty() {
             if !spilled_recall_ids.is_empty() {
+                let escaped_spill: Vec<String> = spilled_recall_ids
+                    .iter()
+                    .map(|id| escape_xml_attr(id))
+                    .collect();
                 recall_lines.push(format!(
                     "<ewave_spill tool=\"ewave.recall\" count=\"{}\" ids=\"{}\"/>",
                     spilled_recall_ids.len(),
-                    spilled_recall_ids.join(",")
+                    escaped_spill.join(",")
                 ));
             }
             volatile_sections.push(format!(
@@ -524,7 +567,7 @@ impl ContextAssembler {
             .focus
             .weights
             .iter()
-            .map(|(k, v)| format!("{k}={v:.2}"))
+            .map(|(k, v)| format!("{}={v:.2}", escape_xml_text(k)))
             .collect();
         let focus_line = format!(
             "[focus floor_self={:.2}] FocusConfig 当前权重：{}",
@@ -535,11 +578,16 @@ impl ContextAssembler {
         vol_lines.push(focus_line);
 
         for notice in &conscience.pending_disclosures {
+            let escaped_sources: Vec<String> = notice
+                .source_episode_ids
+                .iter()
+                .map(|id| escape_xml_text(id))
+                .collect();
             let disc_line = format!(
                 "[disclosure target={}] 核心价值已更新：{}（来源：{}）",
-                notice.target_id,
-                notice.summary,
-                notice.source_episode_ids.join(",")
+                escape_xml_attr(&notice.target_id),
+                escape_xml_text(&notice.summary),
+                escaped_sources.join(",")
             );
             vol_tokens += estimate_tokens(&disc_line);
             vol_lines.push(disc_line);
@@ -553,8 +601,8 @@ impl ContextAssembler {
             let soft_line = format!(
                 "[authority={} id={}] {}",
                 soft.authority.as_str(),
-                soft.id,
-                soft.statement
+                escape_xml_attr(&soft.id),
+                escape_xml_text(&soft.statement)
             );
             let st = estimate_tokens(&soft_line);
             if vol_tokens + st <= budgets.volatile_tokens {
