@@ -39,20 +39,21 @@ const fn decode_nibble(byte: u8) -> Option<u8> {
 fn decode_hex_fixed<const N: usize>(kind: &'static str, input: &str) -> Result<[u8; N]> {
     let raw = input.as_bytes();
     if raw.len() != N * 2 {
-        return Err(QuetzalcoatlError::InvalidId {
+        return Err(QuetzalcoatlError::invalid_id(
             kind,
-            detail: format!("期望 {} 个十六进制字符，实际收到 {} 个", N * 2, raw.len()),
-        });
+            format!("期望 {} 个十六进制字符，实际收到 {} 个", N * 2, raw.len()),
+        ));
     }
     let mut out = [0u8; N];
     for (idx, slot) in out.iter_mut().enumerate() {
-        let hi = decode_nibble(raw[idx * 2]).ok_or_else(|| QuetzalcoatlError::InvalidId {
-            kind,
-            detail: format!("位置 {} 处包含非法十六进制字符", idx * 2),
+        let hi = decode_nibble(raw[idx * 2]).ok_or_else(|| {
+            QuetzalcoatlError::invalid_id(kind, format!("位置 {} 处包含非法十六进制字符", idx * 2))
         })?;
-        let lo = decode_nibble(raw[idx * 2 + 1]).ok_or_else(|| QuetzalcoatlError::InvalidId {
-            kind,
-            detail: format!("位置 {} 处包含非法十六进制字符", idx * 2 + 1),
+        let lo = decode_nibble(raw[idx * 2 + 1]).ok_or_else(|| {
+            QuetzalcoatlError::invalid_id(
+                kind,
+                format!("位置 {} 处包含非法十六进制字符", idx * 2 + 1),
+            )
         })?;
         *slot = (hi << 4) | lo;
     }
@@ -119,7 +120,7 @@ impl fmt::Display for ErrorCode {
 #[serde(tag = "code", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum QuetzalcoatlError {
     #[error("无效标识符 ({kind}): {detail}")]
-    InvalidId { kind: &'static str, detail: String },
+    InvalidId { kind: String, detail: String },
 
     #[error("密码学完整性或审计链校验失败: {detail}")]
     IntegrityViolation { detail: String },
@@ -177,6 +178,15 @@ pub enum QuetzalcoatlError {
 }
 
 impl QuetzalcoatlError {
+    /// 构造完全拥有所有权的 `InvalidId` 错误（保证 `QuetzalcoatlError: DeserializeOwned`）。
+    #[must_use]
+    pub fn invalid_id(kind: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self::InvalidId {
+            kind: kind.into(),
+            detail: detail.into(),
+        }
+    }
+
     /// 提取机器可读的顶层 `ErrorCode`。
     #[must_use]
     pub const fn code(&self) -> ErrorCode {
@@ -265,10 +275,7 @@ macro_rules! define_uuid_id {
             fn from_str(s: &str) -> Result<Self> {
                 Uuid::parse_str(s)
                     .map(Self)
-                    .map_err(|err| QuetzalcoatlError::InvalidId {
-                        kind: stringify!($name),
-                        detail: err.to_string(),
-                    })
+                    .map_err(|err| QuetzalcoatlError::invalid_id(stringify!($name), err.to_string()))
             }
         }
 

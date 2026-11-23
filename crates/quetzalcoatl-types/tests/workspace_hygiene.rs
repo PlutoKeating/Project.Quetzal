@@ -408,3 +408,42 @@ fn strongly_typed_ids_epoch_and_error_codes_roundtrip() -> TestResult {
 
     Ok(())
 }
+
+#[test]
+fn quetzalcoatl_error_is_deserialize_owned_and_roundtrips_across_ipc() -> TestResult {
+    fn assert_deserialize_owned<T: serde::de::DeserializeOwned>() {}
+
+    assert_deserialize_owned::<QuetzalcoatlError>();
+    assert_deserialize_owned::<ErrorCode>();
+    assert_deserialize_owned::<AgentId>();
+    assert_deserialize_owned::<DeviceId>();
+    assert_deserialize_owned::<RunId>();
+    assert_deserialize_owned::<ThreadId>();
+    assert_deserialize_owned::<ArtifactId>();
+    assert_deserialize_owned::<Epoch>();
+    assert_deserialize_owned::<HlcTimestamp>();
+
+    let err_from_parse = AgentId::from_str("invalid-uuid-payload")
+        .err()
+        .ok_or("非法 UUID 必须产生错误")?;
+
+    // 1. 动态堆分配 String / 字节切片 (from_slice) 往返
+    let encoded_bytes = serde_json::to_vec(&err_from_parse)?;
+    let decoded_from_slice: QuetzalcoatlError = serde_json::from_slice(&encoded_bytes)?;
+    assert_eq!(decoded_from_slice, err_from_parse);
+
+    // 2. serde_json::Value (from_value) 往返，含 JSON 转义字符的 kind 字段
+    let escaped_json = serde_json::json!({
+        "code": "INVALID_ID",
+        "kind": "AgentId/\"quoted\"",
+        "detail": "bad escape check\nline2"
+    });
+    let decoded_escaped: QuetzalcoatlError = serde_json::from_value(escaped_json)?;
+    assert_eq!(decoded_escaped.code(), ErrorCode::InvalidId);
+
+    let reencoded_str = serde_json::to_string(&decoded_escaped)?;
+    let roundtripped: QuetzalcoatlError = serde_json::from_reader(reencoded_str.as_bytes())?;
+    assert_eq!(roundtripped, decoded_escaped);
+
+    Ok(())
+}
