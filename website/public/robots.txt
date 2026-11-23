@@ -1,3 +1,0 @@
-User-agent: *
-Allow: /
-Sitemap: https://quetzal.plutokeating.beer/sitemap.xml

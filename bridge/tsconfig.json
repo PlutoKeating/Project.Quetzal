@@ -1,5 +1,0 @@
-{
-  "extends": "../runtime/tsconfig.json",
-  "compilerOptions": { "typeRoots": ["../runtime/node_modules/@types"] },
-  "include": ["src", "test"]
-}

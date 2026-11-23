@@ -1,0 +1,48 @@
+# Quetzalcoatl V2 — cargo-deny 许可证、依赖与源门禁配置
+# Apache-2.0 核心工作区严禁引入任何 GPL-2.0 / GPL-3.0 / AGPL-3.0 等强传染性许可证依赖。
+
+[graph]
+all-features = true
+
+[output]
+feature-depth = 2
+
+[advisories]
+ignore = []
+
+[licenses]
+confidence-threshold = 0.85
+unused-allowed-license = "allow"
+# 仅允许与 Apache-2.0 分发兼容的宽松/弱传染开源许可证；
+# 任何未在此白名单内的许可证（包括 GPL-2.0*, GPL-3.0*, AGPL-3.0*, LGPL-3.0*, SSPL-1.0）一律硬阻断（deny）。
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MPL-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+]
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
