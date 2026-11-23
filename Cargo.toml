@@ -2,6 +2,8 @@
 resolver = "3"
 members = [
     "crates/quetzalcoatl-types",
+    "crates/quetzalcoatl-crypto",
+    "crates/quetzalcoatl-spine",
 ]
 
 [workspace.package]
@@ -21,7 +23,26 @@ panic = "deny"
 todo = "deny"
 
 [workspace.dependencies]
+argon2 = "0.5.3"
+blake3 = "1.8.7"
+chacha20poly1305 = "0.10.1"
+curve25519-dalek = { version = "4.1.3", features = ["digest", "rand_core"] }
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+hkdf = "0.12.4"
+hmac = "0.12.1"
+ml-kem = { version = "0.2.3", features = ["deterministic", "zeroize"] }
+quetzalcoatl-crypto = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-crypto" }
+quetzalcoatl-spine = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-spine" }
+quetzalcoatl-types = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-types" }
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+rusqlite = { version = "0.38.0", default-features = false, features = ["bundled"] }
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.142"
+serde_json = { version = "1.0.142", features = ["raw_value"] }
+sha2 = "0.10.9"
+sha3 = "0.10.9"
 thiserror = "2.0.12"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
+x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
+zeroize = { version = "1.9.2", features = ["derive"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zstd = "0.13.5"

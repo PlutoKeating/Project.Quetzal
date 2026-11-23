@@ -290,13 +290,13 @@
 - Consumes: `quetzalcoatl_types::*`, `spec/vectors/*`
 - Produces: `AccountRootKey`, `EpochKeyRing`, `seal_packfile() / open_packfile()`（`zstd windowLog<=20` + 2 的幂次分桶填充 + 结构化 AAD），`SpineEngine::{append_event, seal_checkpoint, export_zip, import_zip, import_v1}`，以及 `MaterializedStore` trait（`RusqliteWalStore` 实现）。
 
-- [ ] **Step 1: 编写脊柱防篡改、时钟漂移隔离与 V1 双库幂等导入失败测试**
+- [x] **Step 1: 编写脊柱防篡改、时钟漂移隔离与 V1 双库幂等导入失败测试**
   覆盖：① 篡改密文或 `AAD` 任一字节报错 `IntegrityViolation`；② 注入 `+10m` 未来 HLC 事件被拒收且不推高本机 HLC；③ 同一份 V1 `soul-v14` + 两份不同身体 `quetzal.db` 连续导入两次结果严格幂等无重复。
-- [ ] **Step 2: 运行测试确认红灯**
+- [x] **Step 2: 运行测试确认红灯**
   Run: `cargo test -p quetzalcoatl-crypto -p quetzalcoatl-spine` -> Expected: FAIL
-- [ ] **Step 3: 实现 `quetzalcoatl-crypto` 与 `quetzalcoatl-spine`**
+- [x] **Step 3: 实现 `quetzalcoatl-crypto` 与 `quetzalcoatl-spine`**
   实现纪元密钥轮换、1MiB 窗口压缩加密 Packfile、`rusqlite` WAL 物化表（事件、快照、记忆索引、会话、运行记录）、可读 Markdown + `.quetzalcoatl-spine/` 双模 ZIP 导出器及 `import-v1`。
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 4: 验证通过并提交**
   Run: `cargo clippy --workspace -- -D warnings && cargo test -p quetzalcoatl-crypto -p quetzalcoatl-spine` -> Expected: PASS，原子提交。
 
 ---

@@ -1,0 +1,30 @@
+[package]
+name = "quetzalcoatl-crypto"
+description = "Quetzalcoatl V2 密码学核心：5 槽位主权根密钥、X-Wing 混合抗量子 HPKE 纪元环与 1MiB 分桶加密 Packfile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+argon2 = { workspace = true }
+blake3 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+curve25519-dalek = { workspace = true }
+ed25519-dalek = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+ml-kem = { workspace = true }
+quetzalcoatl-types = { workspace = true }
+rand_core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sha3 = { workspace = true }
+x25519-dalek = { workspace = true }
+zeroize = { workspace = true }
+zstd = { workspace = true }

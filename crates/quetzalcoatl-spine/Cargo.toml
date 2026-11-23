@@ -1,0 +1,21 @@
+[package]
+name = "quetzalcoatl-spine"
+description = "Quetzalcoatl V2 单主权签名 HLC 状态脊柱、SQLite WAL 物化视图、可读 ZIP 归档与 V1 单向幂等迁移"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3 = { workspace = true }
+quetzalcoatl-crypto = { workspace = true }
+quetzalcoatl-types = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+zip = { workspace = true }
