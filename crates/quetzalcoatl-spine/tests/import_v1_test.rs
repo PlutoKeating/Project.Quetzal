@@ -117,3 +117,112 @@ fn import_v1_soul_v14_and_two_multi_body_sqlite_dbs_is_strictly_idempotent() -> 
     fs::remove_dir_all(&temp_dir)?;
     Ok(())
 }
+
+#[test]
+fn import_v1_preserves_latest_canvas_version_and_merges_divergent_sessions_without_regression()
+-> TestResult {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "qz_import_v1_canvas_sess_test_{}",
+        std::process::id()
+    ));
+    if temp_dir.exists() {
+        fs::remove_dir_all(&temp_dir)?;
+    }
+    fs::create_dir_all(&temp_dir)?;
+
+    let f_dir = fixtures_dir();
+    let soul_v14 = f_dir.join("v1_soul_v14");
+    let sample_sql = fs::read_to_string(f_dir.join("v1_quetzal_sample.sql"))?;
+
+    let db_newer_first = temp_dir.join("newer_first.db");
+    let db_older_second = temp_dir.join("older_second.db");
+
+    {
+        let conn1 = Connection::open(&db_newer_first)?;
+        conn1.execute_batch(&sample_sql)?;
+        // doc-001 在此库拥有旧版 ver-001 (ts=1790841700000) 与新版 ver-002 (ts=1790899999000)
+        // conv-arch-01 在此库已被重命名并归档（updated=1790990000000，比旧库更新）
+        conn1.execute_batch(
+            "
+            INSERT INTO canvas_versions(id, doc, ts, author, body, content, note, parent)
+              VALUES ('ver-002', 'doc-001', 1790899999000, 'agent', 'laptop', '# 迁移核对清单（最终定稿 v2）\n', '修订版', 'ver-001');
+            UPDATE sessions
+               SET title = '状态脊柱迁移讨论（已结项归档）',
+                   archived = 1,
+                   updated = 1790990000000
+             WHERE id = 'conv-arch-01';
+            ",
+        )?;
+    }
+    {
+        let conn2 = Connection::open(&db_older_second)?;
+        conn2.execute_batch(&sample_sql)?;
+        // conn2 仍停留在旧版 conv-arch-01 (title='状态脊柱迁移讨论', archived=0, updated=1790931600000)
+        // 以及旧版 doc-001 ('ver-001', ts=1790841700000)
+    }
+
+    let agent_id = AgentId::from_str("018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f")?;
+    let root_key = AccountRootKey::generate()?;
+    let dev =
+        DeviceIdentity::generate(DeviceId::from_str("01020304-0506-8708-890a-0b0c0d0e0f10")?)?;
+    let ring = EpochKeyRing::new_genesis(agent_id, &root_key, dev.public_record())?;
+    let store = RusqliteWalStore::open(&temp_dir.join("v2_merged.sqlite"))?;
+
+    let mut engine = SpineEngine::new(
+        agent_id,
+        dev.clone(),
+        ring,
+        HlcTimestamp::from_parts(1_795_400_000_000, 0, dev.device_id().hlc_node_tag()),
+        store,
+    )?;
+
+    // 故意以 [newer_first, older_second] 顺序传入，验证旧库绝不能倒退会话元数据或用旧版覆盖 canvas！
+    let report = engine.import_v1(
+        &soul_v14,
+        &[db_newer_first, db_older_second],
+        1_795_400_010_000,
+    )?;
+
+    // 仅 conv-arch-01 与 conv-daily-02 两个唯一会话，绝不能因两库 updated 不同而计为 3 次！
+    assert_eq!(report.threads_imported, 2);
+    // SOUL.md (1) + journal (2) + notes (1) + doc-001 唯一最新版 (1) = 5 篇文档！
+    assert_eq!(report.docs_imported, 5);
+
+    let docs = engine.store().list_markdown_docs()?;
+    let canvas_doc = docs
+        .iter()
+        .find(|(p, _)| p == "notes/canvas/doc-001.md")
+        .map(|(_, c)| c.as_str())
+        .ok_or("缺少导入的 notes/canvas/doc-001.md")?;
+    assert_eq!(
+        canvas_doc, "# 迁移核对清单（最终定稿 v2）\n",
+        "多版本 canvas_docs 必须保留最新修订版，严禁被旧版本覆盖"
+    );
+
+    let threads = engine.store().list_threads()?;
+    let arch_thread = threads
+        .iter()
+        .find(|t| t.legacy_key == "conv-arch-01")
+        .ok_or("缺少 conv-arch-01 会话")?;
+    assert_eq!(arch_thread.title, "状态脊柱迁移讨论（已结项归档）");
+    assert!(arch_thread.archived);
+    assert_eq!(arch_thread.updated_ms, 1790990000000);
+
+    // 直接调用 upsert_thread 传入更早的 updated_ms 也绝不能回退元数据
+    let mut stale = arch_thread.clone();
+    stale.title = String::from("回退脏标题");
+    stale.archived = false;
+    stale.updated_ms = 1_790_000_000_000;
+    engine.store_mut().upsert_thread(&stale)?;
+    let threads_after = engine.store().list_threads()?;
+    let arch_after = threads_after
+        .iter()
+        .find(|t| t.legacy_key == "conv-arch-01")
+        .ok_or("缺少 conv-arch-01")?;
+    assert_eq!(arch_after.title, "状态脊柱迁移讨论（已结项归档）");
+    assert!(arch_after.archived);
+    assert_eq!(arch_after.updated_ms, 1790990000000);
+
+    fs::remove_dir_all(&temp_dir)?;
+    Ok(())
+}

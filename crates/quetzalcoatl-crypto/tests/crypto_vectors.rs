@@ -613,6 +613,37 @@ fn spine_pack_aad_vector_zstd_window_guard_and_tamper_detection() -> TestResult 
 }
 
 #[test]
+fn zstd_single_segment_with_dictionary_id_flag_and_shifted_fcs_is_rejected() -> TestResult {
+    // RFC 8878 §3.1.1.1:
+    // Magic: [0x28, 0xb5, 0x2f, 0xfd]
+    // FHD = 0x21 (Single_Segment_flag = 1, FCS_flag = 0 -> 1B FCS, Dictionary_ID_flag = 1 -> 1B Dict_ID)
+    // Dict_ID = 0x00 (RFC 8878 允许 Dict_ID 值为 0 表示无字典，libzstd 原生会放行解压)
+    // FCS = 0x01 (1 字节内容)
+    // Block = [0x0b, 0x00, 0x00, b'A'] (Last_Block=1, Block_Type=RLE_Block(1), Size=1, byte='A')
+    let dict_flag_single_seg = [
+        0x28u8, 0xb5, 0x2f, 0xfd, 0x21, 0x00, 0x01, 0x0b, 0x00, 0x00, b'A',
+    ];
+    let err1 = zstd_decompress_1mib_guarded(&dict_flag_single_seg)
+        .err()
+        .ok_or("携带非零 Dictionary_ID_flag 的单段 zstd 帧必须被拒绝")?;
+    assert_eq!(err1.code(), ErrorCode::IntegrityViolation);
+
+    // FHD = 0xa3 (FCS_flag = 2 -> 4B FCS, Single_Segment_flag = 1, Dictionary_ID_flag = 3 -> 4B Dict_ID)
+    // Dict_ID (bytes 5..9) = [0x00, 0x00, 0x00, 0x00] (若误把 offset 5 当作 FCS 会误判为 0B！)
+    // 真实 FCS (bytes 9..13) = 16 MiB (0x0100_0000 > 1 MiB)
+    let shifted_oversized_fcs = [
+        0x28u8, 0xb5, 0x2f, 0xfd, 0xa3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00,
+        0x00,
+    ];
+    let err2 = zstd_decompress_1mib_guarded(&shifted_oversized_fcs)
+        .err()
+        .ok_or("携带 4B Dictionary_ID 偏移后的 16MiB FCS 单段帧必须被拒绝")?;
+    assert_eq!(err2.code(), ErrorCode::IntegrityViolation);
+
+    Ok(())
+}
+
+#[test]
 fn account_root_key_five_slots_and_epoch_key_ring_revocation_forward_secrecy() -> TestResult {
     let agent_id = AgentId::new_v4();
     let root_key = AccountRootKey::generate()?;

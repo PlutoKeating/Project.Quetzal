@@ -20,13 +20,16 @@ pub use store::{
     MaterializedThread, RusqliteWalStore,
 };
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use quetzalcoatl_crypto::{
     DeviceIdentity, EpochKey, EpochKeyRing, PackCompartment, SealedPackfile, open_packfile,
     seal_packfile,
 };
-use quetzalcoatl_types::{AgentId, ArtifactId, HlcTimestamp, QuetzalcoatlError, Result, RunId};
+use quetzalcoatl_types::{
+    AgentId, ArtifactId, DeviceId, HlcTimestamp, QuetzalcoatlError, Result, RunId,
+};
 
 const CHECKPOINT_DOMAIN_CONTEXT: &str = "quetzalcoatl/v2/spine-checkpoint-v1";
 
@@ -283,7 +286,202 @@ impl<S: MaterializedStore> SpineEngine<S> {
         Ok(())
     }
 
-    /// 校验并原子合入远端加密 Packfile（任一字节篡改或时钟超限均整包拒收、零脏写）。
+    /// 内部共享原子批次合入管线：
+    /// 1. 每个 `SealedPackfile` 仅解密解压一次；
+    /// 2. 跨分舱（`Core` / `ExternalChannel`）按 `(device_id, seq)` 全局排序并完整预检哈希链连续性、签名与 `+5m` HLC 漂移；
+    /// 3. 先在内存模拟推进 `next_hlc`，确保任何错误均不污染本机 `self.hlc` 或 SQLite；
+    /// 4. 通过单事务 `commit_verified_event_batch` 原子落库并精确记录每条已封包事件的 `pack_id`。
+    pub(crate) fn ingest_verified_batch(
+        &mut self,
+        pack_inputs: &[(&SealedPackfile, &EpochKey, &[u8; 32])],
+        tail_events: &[(SpineEvent, PackCompartment, [u8; 32])],
+        local_trusted_wall_ms: u64,
+    ) -> Result<Vec<SpineEvent>> {
+        type StagedEntry = (SpineEvent, PackCompartment, Option<ArtifactId>, [u8; 32]);
+        let mut by_device = BTreeMap::<DeviceId, BTreeMap<u64, StagedEntry>>::new();
+        let mut device_pubkeys_map = BTreeMap::<DeviceId, [u8; 32]>::new();
+        let mut packs_to_store = Vec::<SealedPackfile>::with_capacity(pack_inputs.len());
+
+        for &(pack, epoch_key, sender_pk) in pack_inputs {
+            if pack.aad.agent_id != self.agent_id {
+                return Err(QuetzalcoatlError::IntegrityViolation {
+                    detail: String::from("远端 Packfile AAD agent_id 不匹配"),
+                });
+            }
+            let plain = open_packfile(pack, epoch_key)?;
+            let jsonl =
+                std::str::from_utf8(&plain).map_err(|e| QuetzalcoatlError::SerializationError {
+                    detail: format!("远端 Packfile 解压内容不是合法 UTF-8: {e}"),
+                })?;
+            let events = parse_events_jsonl(jsonl)?;
+            let first_ev = events
+                .first()
+                .ok_or_else(|| QuetzalcoatlError::IntegrityViolation {
+                    detail: String::from("拒绝空事件列表的 Packfile"),
+                })?;
+            let last_ev = events
+                .last()
+                .ok_or_else(|| QuetzalcoatlError::IntegrityViolation {
+                    detail: String::from("拒绝空事件列表的 Packfile"),
+                })?;
+            if first_ev.header.seq != pack.aad.first_seq || last_ev.header.seq != pack.aad.last_seq
+            {
+                return Err(QuetzalcoatlError::IntegrityViolation {
+                    detail: String::from(
+                        "Packfile 内首尾事件 seq 与 AAD first_seq/last_seq 不一致",
+                    ),
+                });
+            }
+
+            let mut actual_min_hlc = first_ev.header.hlc;
+            let mut actual_max_hlc = first_ev.header.hlc;
+            let mut prev_seq_in_pack = 0u64;
+            for ev in events {
+                if ev.header.agent_id != self.agent_id
+                    || ev.header.device_id != pack.aad.device_id
+                    || ev.header.epoch != pack.aad.epoch
+                {
+                    return Err(QuetzalcoatlError::IntegrityViolation {
+                        detail: String::from(
+                            "Packfile 内事件 agent_id/device_id/epoch 与 AAD 不一致",
+                        ),
+                    });
+                }
+                if ev.header.seq <= prev_seq_in_pack {
+                    return Err(QuetzalcoatlError::IntegrityViolation {
+                        detail: String::from("Packfile 内事件序号必须严格单调递增"),
+                    });
+                }
+                prev_seq_in_pack = ev.header.seq;
+                if ev.header.hlc < actual_min_hlc {
+                    actual_min_hlc = ev.header.hlc;
+                }
+                if ev.header.hlc > actual_max_hlc {
+                    actual_max_hlc = ev.header.hlc;
+                }
+                ev.header.hlc.validate_drift(local_trusted_wall_ms)?;
+                ev.verify(sender_pk)?;
+
+                device_pubkeys_map.insert(ev.header.device_id, *sender_pk);
+                let seq_map = by_device.entry(ev.header.device_id).or_default();
+                if let Some((existing, _, _, _)) = seq_map.get(&ev.header.seq)
+                    && existing.event_blake3 != ev.event_blake3
+                {
+                    return Err(QuetzalcoatlError::IntegrityViolation {
+                        detail: format!(
+                            "同一批次中检测到设备 {} seq={} 双签分叉",
+                            ev.header.device_id, ev.header.seq
+                        ),
+                    });
+                }
+                seq_map.insert(
+                    ev.header.seq,
+                    (ev, pack.aad.compartment, Some(pack.pack_id), *sender_pk),
+                );
+            }
+
+            if actual_min_hlc != pack.aad.min_hlc || actual_max_hlc != pack.aad.max_hlc {
+                return Err(QuetzalcoatlError::IntegrityViolation {
+                    detail: String::from("Packfile 内事件 HLC 极值与 AAD min_hlc/max_hlc 不一致"),
+                });
+            }
+            packs_to_store.push(pack.clone());
+        }
+
+        for (ev, comp, sender_pk) in tail_events {
+            if ev.header.agent_id != self.agent_id {
+                return Err(QuetzalcoatlError::IntegrityViolation {
+                    detail: String::from("尾部事件 agent_id 与目标脊柱不一致"),
+                });
+            }
+            ev.header.hlc.validate_drift(local_trusted_wall_ms)?;
+            ev.verify(sender_pk)?;
+            device_pubkeys_map.insert(ev.header.device_id, *sender_pk);
+            let seq_map = by_device.entry(ev.header.device_id).or_default();
+            if let Some((existing, _, _, _)) = seq_map.get(&ev.header.seq) {
+                if existing.event_blake3 != ev.event_blake3 {
+                    return Err(QuetzalcoatlError::IntegrityViolation {
+                        detail: format!(
+                            "尾部事件与已封包事件在设备 {} seq={} 处发生分叉",
+                            ev.header.device_id, ev.header.seq
+                        ),
+                    });
+                }
+            } else {
+                seq_map.insert(ev.header.seq, (ev.clone(), *comp, None, *sender_pk));
+            }
+        }
+
+        // 在写入 SQLite 或更新本机 HLC 之前，完整校验每台设备的单写者连续哈希链！
+        let mut verified_commits = Vec::<(SpineEvent, PackCompartment, Option<ArtifactId>)>::new();
+        let mut returned_events = Vec::<SpineEvent>::new();
+        let mut simulated_hlc = self.hlc;
+        let local_tag = self.local_device.device_id().hlc_node_tag();
+
+        for (dev_id, seq_map) in by_device {
+            let existing_events = self.store.list_device_events(dev_id)?;
+            let existing_by_seq: BTreeMap<u64, &SpineEvent> =
+                existing_events.iter().map(|e| (e.header.seq, e)).collect();
+            let mut running_head: Option<(u64, ArtifactId)> = existing_events
+                .last()
+                .map(|last| (last.header.seq, last.event_blake3));
+
+            for (seq, (ev, comp, opt_pack_id, _pk)) in seq_map {
+                if let Some(&already) = existing_by_seq.get(&seq) {
+                    if already.event_blake3 != ev.event_blake3 {
+                        return Err(QuetzalcoatlError::IntegrityViolation {
+                            detail: format!("远端设备 {dev_id} 在 seq={seq} 处与本地已有事件分叉"),
+                        });
+                    }
+                    if opt_pack_id.is_some() {
+                        verified_commits.push((ev.clone(), comp, opt_pack_id));
+                    }
+                    returned_events.push(ev);
+                    continue;
+                }
+
+                match running_head {
+                    None => {
+                        if seq != 1 || ev.header.prev_blake3 != ArtifactId::ZERO {
+                            return Err(QuetzalcoatlError::IntegrityViolation {
+                                detail: format!(
+                                    "远端设备 {dev_id} 首条事件必须为 seq=1 且 prev_blake3=0，实际 seq={seq}"
+                                ),
+                            });
+                        }
+                    }
+                    Some((last_seq, last_b3)) => {
+                        let expected_seq = last_seq.saturating_add(1);
+                        if seq != expected_seq || ev.header.prev_blake3 != last_b3 {
+                            return Err(QuetzalcoatlError::IntegrityViolation {
+                                detail: format!(
+                                    "远端设备 {dev_id} 批次内哈希链断裂：期望 seq={expected_seq}/prev={last_b3}，实际 seq={seq}/prev={}",
+                                    ev.header.prev_blake3
+                                ),
+                            });
+                        }
+                    }
+                }
+
+                simulated_hlc = simulated_hlc.observe_remote(
+                    ev.header.hlc,
+                    local_trusted_wall_ms,
+                    local_tag,
+                )?;
+                running_head = Some((seq, ev.event_blake3));
+                returned_events.push(ev.clone());
+                verified_commits.push((ev, comp, opt_pack_id));
+            }
+        }
+
+        let pubkey_list: Vec<(DeviceId, [u8; 32])> = device_pubkeys_map.into_iter().collect();
+        self.store
+            .commit_verified_event_batch(&pubkey_list, &verified_commits, &packs_to_store)?;
+        self.hlc = simulated_hlc;
+        Ok(returned_events)
+    }
+
+    /// 校验并原子合入远端加密 Packfile（任一字节篡改、哈希链断裂或时钟超限均整包拒收、零脏写）。
     pub fn ingest_remote_packfile(
         &mut self,
         pack: &SealedPackfile,
@@ -291,72 +489,30 @@ impl<S: MaterializedStore> SpineEngine<S> {
         sender_ed25519_pubkey: &[u8; 32],
         local_trusted_wall_ms: u64,
     ) -> Result<Vec<SpineEvent>> {
-        if pack.aad.agent_id != self.agent_id {
-            return Err(QuetzalcoatlError::IntegrityViolation {
-                detail: String::from("远端 Packfile AAD agent_id 不匹配"),
-            });
-        }
-        let plain = open_packfile(pack, epoch_key)?;
-        let jsonl =
-            std::str::from_utf8(&plain).map_err(|e| QuetzalcoatlError::SerializationError {
-                detail: format!("远端 Packfile 解压内容不是合法 UTF-8: {e}"),
-            })?;
-        let events = parse_events_jsonl(jsonl)?;
-        if events.is_empty() {
-            return Err(QuetzalcoatlError::IntegrityViolation {
-                detail: String::from("拒绝空事件列表的 Packfile"),
-            });
-        }
+        self.ingest_remote_packfiles(
+            std::slice::from_ref(pack),
+            epoch_key,
+            sender_ed25519_pubkey,
+            local_trusted_wall_ms,
+        )
+    }
 
-        // 先全量预检 HLC 漂移、AAD 边界一致性与 Ed25519 签名，确保原子性
-        let first_ev = events
-            .first()
-            .ok_or_else(|| QuetzalcoatlError::IntegrityViolation {
-                detail: String::from("Packfile 事件列表为空"),
-            })?;
-        let last_ev = events
-            .last()
-            .ok_or_else(|| QuetzalcoatlError::IntegrityViolation {
-                detail: String::from("Packfile 事件列表为空"),
-            })?;
-        if first_ev.header.seq != pack.aad.first_seq || last_ev.header.seq != pack.aad.last_seq {
-            return Err(QuetzalcoatlError::IntegrityViolation {
-                detail: String::from("Packfile 内首尾事件 seq 与 AAD first_seq/last_seq 不一致"),
-            });
+    /// 原子批量合入远端多个 Packfiles（支持跨 `Core` / `ExternalChannel` 分舱交错序号排序验链）。
+    pub fn ingest_remote_packfiles(
+        &mut self,
+        packs: &[SealedPackfile],
+        epoch_key: &EpochKey,
+        sender_ed25519_pubkey: &[u8; 32],
+        local_trusted_wall_ms: u64,
+    ) -> Result<Vec<SpineEvent>> {
+        if packs.is_empty() {
+            return Ok(Vec::new());
         }
-        let mut actual_min_hlc = first_ev.header.hlc;
-        let mut actual_max_hlc = first_ev.header.hlc;
-        for ev in &events {
-            if ev.header.device_id != pack.aad.device_id || ev.header.epoch != pack.aad.epoch {
-                return Err(QuetzalcoatlError::IntegrityViolation {
-                    detail: String::from("Packfile 内事件 device_id 或 epoch 与 AAD 不一致"),
-                });
-            }
-            if ev.header.hlc < actual_min_hlc {
-                actual_min_hlc = ev.header.hlc;
-            }
-            if ev.header.hlc > actual_max_hlc {
-                actual_max_hlc = ev.header.hlc;
-            }
-            ev.header.hlc.validate_drift(local_trusted_wall_ms)?;
-            ev.verify(sender_ed25519_pubkey)?;
-        }
-        if actual_min_hlc != pack.aad.min_hlc || actual_max_hlc != pack.aad.max_hlc {
-            return Err(QuetzalcoatlError::IntegrityViolation {
-                detail: String::from("Packfile 内事件 HLC 极值与 AAD min_hlc/max_hlc 不一致"),
-            });
-        }
-
-        for ev in &events {
-            self.ingest_remote_event(
-                ev.clone(),
-                pack.aad.compartment,
-                sender_ed25519_pubkey,
-                local_trusted_wall_ms,
-            )?;
-        }
-        self.store.put_packfile(pack)?;
-        Ok(events)
+        let inputs: Vec<(&SealedPackfile, &EpochKey, &[u8; 32])> = packs
+            .iter()
+            .map(|p| (p, epoch_key, sender_ed25519_pubkey))
+            .collect();
+        self.ingest_verified_batch(&inputs, &[], local_trusted_wall_ms)
     }
 
     /// 显式封存检查点（例如 `Commit Run` 结项或设备主动挂起移交前）：

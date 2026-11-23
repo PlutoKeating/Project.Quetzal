@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::str::FromStr;
 
 use quetzalcoatl_crypto::{
-    PackCompartment, SealedPackfile, hex_decode_fixed, hex_encode, open_packfile,
+    AccountRootKey, EpochKey, MemberOperation, PackCompartment, SealedManifestEnvelope,
+    SealedPackfile, SignedMembershipChange, open_manifest_envelope, seal_manifest_envelope,
 };
 use quetzalcoatl_types::{AgentId, DeviceId, Epoch, QuetzalcoatlError, Result};
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::SpineEngine;
-use crate::ledger::{SpineCheckpoint, SpineEvent, parse_events_jsonl};
+use crate::ledger::{SpineCheckpoint, SpineEvent};
 use crate::store::{
     MaterializedMemory, MaterializedMessage, MaterializedRun, MaterializedStore, MaterializedThread,
 };
@@ -32,11 +32,12 @@ impl Default for ZipExportOptions {
     }
 }
 
+/// 密封在 `SealedManifestEnvelope` 密文内部的敏感脊柱清单负载（绝不以明文写入 `.quetzalcoatl-spine/manifest.json`）。
 #[derive(Serialize, Deserialize)]
-struct SpineArchiveManifest {
+struct SpineArchiveManifestPayload {
     version: u32,
     agent_id: AgentId,
-    device_pubkeys: BTreeMap<String, String>,
+    membership_changes: Vec<SignedMembershipChange>,
     pack_files: Vec<String>,
     tail_events: Vec<(SpineEvent, PackCompartment)>,
     checkpoints: Vec<SpineCheckpoint>,
@@ -51,7 +52,10 @@ fn validate_safe_rel_path(rel_path: &str) -> Result<()> {
     if rel_path.is_empty()
         || rel_path.starts_with('/')
         || rel_path.contains('\\')
-        || rel_path.split('/').any(|seg| seg == "..")
+        || rel_path.contains('\0')
+        || rel_path
+            .split('/')
+            .any(|seg| seg.is_empty() || seg == "." || seg == "..")
     {
         return Err(QuetzalcoatlError::IntegrityViolation {
             detail: format!("拒绝不安全的归档相对路径: {rel_path}"),
@@ -155,6 +159,13 @@ pub fn export_zip_archive<S: MaterializedStore>(
     }
 
     if options.include_spine_packs {
+        let current_epoch = engine.epoch_ring().current_epoch();
+        let current_epoch_key = engine.epoch_ring().current_epoch_key().ok_or_else(|| {
+            QuetzalcoatlError::PermissionDenied {
+                detail: String::from("导出加密归档需要当前活跃纪元密钥 EpochKey"),
+            }
+        })?;
+
         let packs = engine.store().list_packfiles()?;
         let mut pack_entry_names = Vec::with_capacity(packs.len());
 
@@ -170,20 +181,10 @@ pub fn export_zip_archive<S: MaterializedStore>(
         }
 
         let tail_events = engine.store().list_all_unpacked_events()?;
-
-        let mut device_pubkeys = BTreeMap::new();
-        for (dev_id, pk) in engine.store().list_device_pubkeys()? {
-            device_pubkeys.insert(dev_id.to_string(), hex_encode(&pk));
-        }
-        device_pubkeys.insert(
-            engine.local_device().device_id().to_string(),
-            hex_encode(engine.local_device().ed25519_public_key()),
-        );
-
-        let manifest = SpineArchiveManifest {
+        let payload = SpineArchiveManifestPayload {
             version: 2,
             agent_id: engine.agent_id(),
-            device_pubkeys,
+            membership_changes: engine.epoch_ring().membership_log().to_vec(),
             pack_files: pack_entry_names,
             tail_events,
             checkpoints: engine.store().list_checkpoints()?,
@@ -193,15 +194,25 @@ pub fn export_zip_archive<S: MaterializedStore>(
             runs: engine.store().list_runs()?,
             markdown_docs: docs,
         };
-        let manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(|e| {
+        let payload_json =
+            serde_json::to_vec(&payload).map_err(|e| QuetzalcoatlError::SerializationError {
+                detail: format!("序列化归档清单明文失败: {e}"),
+            })?;
+        let sealed_envelope = seal_manifest_envelope(
+            engine.agent_id(),
+            current_epoch,
+            current_epoch_key,
+            &payload_json,
+        )?;
+        let envelope_bytes = serde_json::to_vec_pretty(&sealed_envelope).map_err(|e| {
             QuetzalcoatlError::SerializationError {
-                detail: format!("序列化归档 manifest.json 失败: {e}"),
+                detail: format!("序列化归档加密信封 manifest.json 失败: {e}"),
             }
         })?;
         write_zip_entry(
             &mut writer,
             ".quetzalcoatl-spine/manifest.json",
-            &manifest_bytes,
+            &envelope_bytes,
         )?;
     }
 
@@ -251,129 +262,111 @@ pub fn import_zip_archive<S: MaterializedStore>(
     }
 
     if let Some(manifest_raw) = entries.get(".quetzalcoatl-spine/manifest.json") {
-        let manifest: SpineArchiveManifest = serde_json::from_slice(manifest_raw).map_err(|e| {
-            QuetzalcoatlError::SerializationError {
-                detail: format!("解析 .quetzalcoatl-spine/manifest.json 失败: {e}"),
-            }
-        })?;
-        if manifest.agent_id != engine.agent_id() {
+        let envelope: SealedManifestEnvelope =
+            serde_json::from_slice(manifest_raw).map_err(|e| {
+                QuetzalcoatlError::IntegrityViolation {
+                    detail: format!(
+                        "归档 .quetzalcoatl-spine/manifest.json 不是合法的加密信封: {e}"
+                    ),
+                }
+            })?;
+        let manifest_epoch = Epoch::new(envelope.epoch);
+        let manifest_key = engine
+            .epoch_ring()
+            .epoch_key(manifest_epoch)
+            .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
+                detail: format!("缺少解密归档 manifest 所需的 EpochKey[{manifest_epoch}]"),
+            })?
+            .clone();
+
+        let plain_manifest = open_manifest_envelope(engine.agent_id(), &envelope, &manifest_key)?;
+        let manifest: SpineArchiveManifestPayload = serde_json::from_slice(&plain_manifest)
+            .map_err(|e| QuetzalcoatlError::IntegrityViolation {
+                detail: format!("解密后的归档清单 JSON 结构损坏: {e}"),
+            })?;
+
+        if manifest.version != 2 || manifest.agent_id != engine.agent_id() {
             return Err(QuetzalcoatlError::IntegrityViolation {
-                detail: format!(
-                    "归档包 AgentId ({}) 与目标脊柱 AgentId ({}) 不一致",
-                    manifest.agent_id,
-                    engine.agent_id()
-                ),
+                detail: String::from("解密后的归档清单 AgentId 或版本不匹配"),
             });
         }
 
-        let mut pubkeys = BTreeMap::<DeviceId, [u8; 32]>::new();
-        for (dev_s, pk_hex) in &manifest.device_pubkeys {
-            let dev_id = DeviceId::from_str(dev_s)?;
-            let pk = hex_decode_fixed::<32>("manifest.device_pubkeys", pk_hex)?;
-            engine.store_mut().register_device_pubkey(dev_id, &pk)?;
-            pubkeys.insert(dev_id, pk);
+        // 严格凭 AccountRootKey 根签名校验所有成员设备公钥（严禁采信未签名设备公钥表！）
+        let root_vk = *engine.epoch_ring().root_verifying_key();
+        let mut verified_pubkeys = BTreeMap::<DeviceId, [u8; 32]>::new();
+        for (&dev_id, dev_rec) in engine.epoch_ring().active_devices() {
+            verified_pubkeys.insert(dev_id, dev_rec.ed25519_pubkey);
+        }
+        for change in &manifest.membership_changes {
+            if change.agent_id != engine.agent_id() {
+                return Err(QuetzalcoatlError::IntegrityViolation {
+                    detail: String::from("归档成员变更记录的 AgentId 与当前脊柱不一致"),
+                });
+            }
+            AccountRootKey::verify_membership_change(&root_vk, change)?;
+            if change.op == MemberOperation::AddDevice {
+                verified_pubkeys.insert(change.device_id, change.ed25519_pubkey);
+            }
         }
 
-        let mut imported_events = 0usize;
+        // 校验全部 markdown_docs 相对路径安全性
+        for (rel_path, _) in &manifest.markdown_docs {
+            validate_safe_rel_path(rel_path)?;
+        }
 
+        let mut decoded_packs =
+            Vec::<(SealedPackfile, EpochKey, [u8; 32])>::with_capacity(manifest.pack_files.len());
         for pack_entry in &manifest.pack_files {
+            validate_safe_rel_path(pack_entry)?;
             let pack_raw =
                 entries
                     .get(pack_entry)
                     .ok_or_else(|| QuetzalcoatlError::IntegrityViolation {
-                        detail: format!("manifest 引用的 Packfile 缺失: {pack_entry}"),
+                        detail: format!("归档清单引用的 Packfile 缺失: {pack_entry}"),
                     })?;
             let pack: SealedPackfile = serde_json::from_slice(pack_raw).map_err(|e| {
-                QuetzalcoatlError::SerializationError {
+                QuetzalcoatlError::IntegrityViolation {
                     detail: format!("反序列化归档 Packfile {pack_entry} 失败: {e}"),
                 }
             })?;
-            let epoch = Epoch::new(pack.aad.epoch);
-            let epoch_key = engine
+            let ep = Epoch::new(pack.aad.epoch);
+            let ep_key = engine
                 .epoch_ring()
-                .epoch_key(epoch)
+                .epoch_key(ep)
                 .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
-                    detail: format!("缺少解封归档 Packfile 所需的 EpochKey[{epoch}]"),
+                    detail: format!("缺少解封归档 Packfile 所需的 EpochKey[{ep}]"),
                 })?
                 .clone();
-            let sender_pk = pubkeys.get(&pack.aad.device_id).ok_or_else(|| {
+            let sender_pk = *verified_pubkeys.get(&pack.aad.device_id).ok_or_else(|| {
                 QuetzalcoatlError::IntegrityViolation {
-                    detail: format!("manifest 缺少设备 {} 的签名公钥", pack.aad.device_id),
+                    detail: format!(
+                        "归档 Packfile 设备 {} 未通过 AccountRootKey 根签名授权核验",
+                        pack.aad.device_id
+                    ),
                 }
             })?;
-
-            // 验证并解密 Packfile，支持同一设备跨 Core/ExternalChannel 分舱交叉序号收集后统一排序验链
-            let plain_jsonl = open_packfile(&pack, &epoch_key)?;
-            let jsonl_str = std::str::from_utf8(&plain_jsonl).map_err(|e| {
-                QuetzalcoatlError::SerializationError {
-                    detail: format!("Packfile 解压后不是合法 UTF-8 JSONL: {e}"),
-                }
-            })?;
-            let decoded_events = parse_events_jsonl(jsonl_str)?;
-            for ev in &decoded_events {
-                ev.header.hlc.validate_drift(local_trusted_wall_ms)?;
-                ev.verify(sender_pk)?;
-            }
-            engine.store_mut().put_packfile(&pack)?;
+            decoded_packs.push((pack, ep_key, sender_pk));
         }
 
-        // 收集所有 Packfile 内事件与尾部未封包事件，按每台设备 (device_id, seq) 连续校验签名哈希链后写入
-        let mut events_by_device =
-            BTreeMap::<DeviceId, BTreeMap<u64, (SpineEvent, PackCompartment)>>::new();
-        for pack_entry in &manifest.pack_files {
-            if let Some(pack_raw) = entries.get(pack_entry) {
-                let pack: SealedPackfile = serde_json::from_slice(pack_raw).map_err(|e| {
-                    QuetzalcoatlError::SerializationError {
-                        detail: format!("二次读取 Packfile 失败: {e}"),
-                    }
-                })?;
-                let epoch_key = engine
-                    .epoch_ring()
-                    .epoch_key(Epoch::new(pack.aad.epoch))
-                    .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
-                        detail: String::from("缺少归档纪元密钥"),
-                    })?;
-                let plain = open_packfile(&pack, epoch_key)?;
-                let jsonl_s = std::str::from_utf8(&plain).map_err(|e| {
-                    QuetzalcoatlError::SerializationError {
-                        detail: format!("UTF-8 错误: {e}"),
-                    }
-                })?;
-                for ev in parse_events_jsonl(jsonl_s)? {
-                    events_by_device
-                        .entry(ev.header.device_id)
-                        .or_default()
-                        .insert(ev.header.seq, (ev, pack.aad.compartment));
-                }
-            }
-        }
+        let mut tail_with_keys = Vec::<(SpineEvent, PackCompartment, [u8; 32])>::with_capacity(
+            manifest.tail_events.len(),
+        );
         for (ev, comp) in manifest.tail_events {
-            let sender_pk = pubkeys.get(&ev.header.device_id).ok_or_else(|| {
+            let sender_pk = *verified_pubkeys.get(&ev.header.device_id).ok_or_else(|| {
                 QuetzalcoatlError::IntegrityViolation {
-                    detail: format!("尾部事件缺少设备 {} 的签名公钥", ev.header.device_id),
+                    detail: format!(
+                        "归档尾部事件设备 {} 未通过 AccountRootKey 根签名授权核验",
+                        ev.header.device_id
+                    ),
                 }
             })?;
-            ev.header.hlc.validate_drift(local_trusted_wall_ms)?;
-            ev.verify(sender_pk)?;
-            events_by_device
-                .entry(ev.header.device_id)
-                .or_default()
-                .insert(ev.header.seq, (ev, comp));
+            tail_with_keys.push((ev, comp, sender_pk));
         }
 
-        for (_dev_id, seq_map) in events_by_device {
-            let mut ordered: Vec<(SpineEvent, PackCompartment)> = seq_map.into_values().collect();
-            ordered.sort_by_key(|(e, _)| e.header.seq);
-            for (ev, comp) in ordered {
-                let pk = pubkeys.get(&ev.header.device_id).ok_or_else(|| {
-                    QuetzalcoatlError::IntegrityViolation {
-                        detail: String::from("缺少设备公钥"),
-                    }
-                })?;
-                engine.ingest_remote_event(ev, comp, pk, local_trusted_wall_ms)?;
-                imported_events += 1;
-            }
-        }
+        let pack_refs: Vec<(&SealedPackfile, &EpochKey, &[u8; 32])> =
+            decoded_packs.iter().map(|(p, k, pk)| (p, k, pk)).collect();
+        let imported_events =
+            engine.ingest_verified_batch(&pack_refs, &tail_with_keys, local_trusted_wall_ms)?;
 
         for cp in &manifest.checkpoints {
             engine.store_mut().put_checkpoint(cp)?;
@@ -397,7 +390,7 @@ pub fn import_zip_archive<S: MaterializedStore>(
                 .upsert_markdown_doc(rel_path, content, hlc_now)?;
         }
 
-        return Ok(imported_events);
+        return Ok(imported_events.len());
     }
 
     // 纯可读 Markdown ZIP 导入模式（解析 memories/*.md 段落并生成签名脊柱事件）

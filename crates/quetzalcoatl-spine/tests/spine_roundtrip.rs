@@ -533,6 +533,364 @@ fn interleaved_compartments_partial_pack_preserves_unpacked_events_on_zip_roundt
     let restored = engine_b.import_zip(&zip_path, 1_795_400_000_500)?;
     assert_eq!(restored, 3);
     assert_eq!(engine_b.store().list_all_events()?.len(), 3);
+    // 已在 Packfile 内的 seq=1 与 seq=3 恢复后必须保留各自的 pack_id，仅未封包的 seq=2 处于 unpacked 状态！
+    assert_eq!(
+        engine_b.store().list_all_unpacked_events()?.len(),
+        1,
+        "从 ZIP 恢复后，已封包事件的 pack_id 不得丢失退化为 NULL"
+    );
+
+    fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
+#[test]
+fn zip_manifest_is_encrypted_authenticated_and_rejects_rogue_device_or_tampering() -> TestResult {
+    use std::io::{Read, Write};
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipWriter};
+
+    let dir = temp_test_dir("manifest_sec")?;
+    let agent_id = AgentId::new_v4();
+    let root_key = AccountRootKey::generate()?;
+    let dev_a = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let dev_b = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let mut ring = EpochKeyRing::new_genesis(agent_id, &root_key, dev_a.public_record())?;
+    ring.add_device(&root_key, dev_b.public_record())?;
+
+    let mut engine_a = SpineEngine::new(
+        agent_id,
+        dev_a.clone(),
+        ring.clone(),
+        HlcTimestamp::from_parts(1_795_400_000_000, 0, dev_a.device_id().hlc_node_tag()),
+        RusqliteWalStore::open(&dir.join("sec_a.sqlite"))?,
+    )?;
+
+    engine_a.append_event(
+        PackCompartment::Core,
+        "{\"kind\":\"memory.observe\",\"secret\":\"TAIL_SECRET_PAYLOAD_8821\"}",
+        1_795_400_000_100,
+    )?;
+    engine_a.store_mut().upsert_message(&MaterializedMessage {
+        message_id: String::from("msg-sec-1"),
+        thread_key: String::from("th-sec"),
+        role: String::from("user"),
+        channel: String::from("local"),
+        body_origin: String::from("laptop"),
+        content: String::from("ULTRA_SECRET_TRANSCRIPT_9941"),
+        ts_ms: 1_795_400_000_110,
+    })?;
+    let hlc_a = engine_a.local_hlc();
+    engine_a.store_mut().upsert_memory(&MaterializedMemory {
+        memory_id: String::from("mem-sec-1"),
+        category: String::from("memory"),
+        authority: 30,
+        content: String::from("CORE_MEMORY_SECRET_7731"),
+        updated_hlc: hlc_a,
+    })?;
+
+    let zip_path = dir.join("backup_sec.zip");
+    engine_a.export_zip(
+        &zip_path,
+        ZipExportOptions {
+            include_spine_packs: true,
+        },
+    )?;
+
+    // 1. 断言 .quetzalcoatl-spine/manifest.json 已用 EpochKey 加密密封，不含任何敏感明文字段！
+    let mut all_entries = Vec::<(String, Vec<u8>)>::new();
+    let manifest_text = {
+        let zf = File::open(&zip_path)?;
+        let mut archive = ZipArchive::new(zf)?;
+        let mut found_manifest = String::new();
+        for idx in 0..archive.len() {
+            let mut item = archive.by_index(idx)?;
+            let name = item.name()?.into_owned();
+            let mut buf = Vec::new();
+            item.read_to_end(&mut buf)?;
+            if name == ".quetzalcoatl-spine/manifest.json" {
+                found_manifest = String::from_utf8(buf.clone())?;
+            }
+            all_entries.push((name, buf));
+        }
+        found_manifest
+    };
+    assert!(!manifest_text.is_empty());
+    for forbidden_plaintext in [
+        "TAIL_SECRET_PAYLOAD_8821",
+        "ULTRA_SECRET_TRANSCRIPT_9941",
+        "CORE_MEMORY_SECRET_7731",
+        "\"tail_events\"",
+        "\"messages\"",
+        "\"device_pubkeys\"",
+    ] {
+        assert!(
+            !manifest_text.contains(forbidden_plaintext),
+            ".quetzalcoatl-spine/manifest.json 严禁明文暴露敏感脊柱状态: {forbidden_plaintext}"
+        );
+    }
+
+    // 2. 构造篡改 manifest.json（注入未授权流氓设备或翻转密文字节）的恶意 ZIP，验证导入返回 IntegrityViolation
+    let rogue_dev = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let forged_zip_path = dir.join("forged_manifest.zip");
+    {
+        let out = File::create(&forged_zip_path)?;
+        let mut writer = ZipWriter::new(out);
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        for (name, bytes) in &all_entries {
+            writer.start_file(name.as_str(), opts)?;
+            if name == ".quetzalcoatl-spine/manifest.json" {
+                let mut v: serde_json::Value = serde_json::from_slice(bytes)?;
+                if let Some(ct_hex) = v
+                    .get("ciphertext_hex")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                {
+                    let mut raw = quetzalcoatl_crypto::hex_decode("ct", &ct_hex)?;
+                    if let Some(b) = raw.first_mut() {
+                        *b ^= 0xff;
+                    }
+                    v["ciphertext_hex"] =
+                        serde_json::Value::String(quetzalcoatl_crypto::hex_encode(&raw));
+                } else {
+                    // 若未加密，模拟攻击者直接向明文 manifest 塞入 rogue_dev 公钥与伪造高权限良知文档
+                    v["device_pubkeys"][rogue_dev.device_id().to_string()] =
+                        serde_json::Value::String(quetzalcoatl_crypto::hex_encode(
+                            rogue_dev.ed25519_public_key(),
+                        ));
+                }
+                writer.write_all(&serde_json::to_vec(&v)?)?;
+            } else {
+                writer.write_all(bytes)?;
+            }
+        }
+        writer.finish()?;
+    }
+
+    let mut target_engine = SpineEngine::new(
+        agent_id,
+        dev_b.clone(),
+        ring.clone(),
+        HlcTimestamp::from_parts(1_795_400_000_000, 0, dev_b.device_id().hlc_node_tag()),
+        RusqliteWalStore::open(&dir.join("sec_b.sqlite"))?,
+    )?;
+    let tamper_err = target_engine
+        .import_zip(&forged_zip_path, 1_795_400_000_500)
+        .err()
+        .ok_or("篡改 manifest.json 密文必须报错")?;
+    assert_eq!(tamper_err.code(), ErrorCode::IntegrityViolation);
+
+    // 3. 即使攻击者持有旧 EpochKey 重密封了合法 AEAD 信封，只要没有 AccountRootKey 根私钥，
+    //    伪造成员设备变更签名或注入越界 markdown_docs 路径（如 ../escape.md）仍必须被拦截！
+    let fake_root = AccountRootKey::generate()?;
+    let forged_membership = fake_root.sign_membership_change(
+        agent_id,
+        Epoch::new(1),
+        quetzalcoatl_crypto::MemberOperation::AddDevice,
+        &rogue_dev.public_record(),
+    )?;
+    let rogue_ev = SpineEvent::sign_new(
+        agent_id,
+        &rogue_dev,
+        Epoch::new(1),
+        1,
+        ArtifactId::ZERO,
+        HlcTimestamp::from_parts(1_795_400_000_200, 0, rogue_dev.device_id().hlc_node_tag()),
+        "{\"kind\":\"conscience.poison\"}",
+    )?;
+    let epoch_key = ring.current_epoch_key().ok_or("缺少当前纪元密钥")?.clone();
+
+    for (zip_name, forged_payload) in [
+        (
+            "forged_rogue_member.zip",
+            serde_json::json!({
+                "version": 2,
+                "agent_id": agent_id,
+                "membership_changes": [forged_membership],
+                "pack_files": [],
+                "tail_events": [[rogue_ev, "core"]],
+                "checkpoints": [],
+                "memories": [],
+                "threads": [],
+                "messages": [],
+                "runs": [],
+                "markdown_docs": []
+            }),
+        ),
+        (
+            "forged_doc_traversal.zip",
+            serde_json::json!({
+                "version": 2,
+                "agent_id": agent_id,
+                "membership_changes": [],
+                "pack_files": [],
+                "tail_events": [],
+                "checkpoints": [],
+                "memories": [],
+                "threads": [],
+                "messages": [],
+                "runs": [],
+                "markdown_docs": [["../escape.md", "pwned"]]
+            }),
+        ),
+    ] {
+        let p = dir.join(zip_name);
+        let env = quetzalcoatl_crypto::seal_manifest_envelope(
+            agent_id,
+            Epoch::new(1),
+            &epoch_key,
+            &serde_json::to_vec(&forged_payload)?,
+        )?;
+        let out = File::create(&p)?;
+        let mut writer = ZipWriter::new(out);
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        writer.start_file(".quetzalcoatl-spine/manifest.json", opts)?;
+        writer.write_all(&serde_json::to_vec(&env)?)?;
+        writer.finish()?;
+
+        let err = target_engine
+            .import_zip(&p, 1_795_400_000_500)
+            .err()
+            .ok_or("伪造根签名成员变更或越界路径必须报错")?;
+        assert_eq!(err.code(), ErrorCode::IntegrityViolation);
+    }
+
+    // 4. 验证合法未篡改的加密备份包无损恢复全部事件、消息与记忆！
+    let restored_events = target_engine.import_zip(&zip_path, 1_795_400_000_600)?;
+    assert_eq!(restored_events, 1);
+    assert_eq!(target_engine.store().list_messages(None)?.len(), 1);
+    assert_eq!(target_engine.store().list_memories()?.len(), 1);
+
+    fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
+#[test]
+fn batch_ingest_interleaved_packs_marks_pack_id_and_broken_chain_is_atomic() -> TestResult {
+    let dir = temp_test_dir("batch_atomic")?;
+    let agent_id = AgentId::new_v4();
+    let root_key = AccountRootKey::generate()?;
+    let dev_a = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let dev_b = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let dev_rogue_chain = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let mut ring = EpochKeyRing::new_genesis(agent_id, &root_key, dev_a.public_record())?;
+    ring.add_device(&root_key, dev_b.public_record())?;
+    ring.add_device(&root_key, dev_rogue_chain.public_record())?;
+
+    let mut engine_a = SpineEngine::new(
+        agent_id,
+        dev_a.clone(),
+        ring.clone(),
+        HlcTimestamp::from_parts(1_795_400_000_000, 0, dev_a.device_id().hlc_node_tag()),
+        RusqliteWalStore::open(&dir.join("atomic_a.sqlite"))?,
+    )?;
+    // 交错写入 seq=1(Core), seq=2(ExternalChannel), seq=3(Core)，然后 seal_checkpoint 生成 2 个交错 Packfiles
+    engine_a.append_event(PackCompartment::Core, "{\"n\":1}", 1_795_400_000_010)?;
+    engine_a.append_event(
+        PackCompartment::ExternalChannel,
+        "{\"n\":2}",
+        1_795_400_000_020,
+    )?;
+    engine_a.append_event(PackCompartment::Core, "{\"n\":3}", 1_795_400_000_030)?;
+    let packs = engine_a.seal_checkpoint(None, 1_795_400_000_040)?;
+    assert_eq!(packs.len(), 2);
+
+    let epoch_key = ring.current_epoch_key().ok_or("缺少当前纪元密钥")?.clone();
+
+    let mut engine_b = SpineEngine::new(
+        agent_id,
+        dev_b.clone(),
+        ring,
+        HlcTimestamp::from_parts(1_795_400_000_000, 0, dev_b.device_id().hlc_node_tag()),
+        RusqliteWalStore::open(&dir.join("atomic_b.sqlite"))?,
+    )?;
+
+    // Part A: 批量原子合入交错分舱 Packfiles，验证 3 条事件全部合入且 pack_id 均非 NULL（unpacked == 0）
+    let ingested = engine_b.ingest_remote_packfiles(
+        &packs,
+        &epoch_key,
+        dev_a.ed25519_public_key(),
+        1_795_400_000_100,
+    )?;
+    assert_eq!(ingested.len(), 3);
+    assert_eq!(engine_b.store().list_all_events()?.len(), 3);
+    assert!(
+        engine_b.store().list_all_unpacked_events()?.is_empty(),
+        "经 Packfile 合入的事件必须标记其所属 pack_id，不得遗留为未封包事件"
+    );
+
+    // Part B: 构造包内第 2 条事件 prev_blake3 断裂的 Packfile，验证整包原子拒收、SQLite 零残留、HLC 不推进
+    let hlc_ev1 = HlcTimestamp::from_parts(
+        1_795_400_000_200,
+        0,
+        dev_rogue_chain.device_id().hlc_node_tag(),
+    );
+    let hlc_ev2 = HlcTimestamp::from_parts(
+        1_795_400_000_210,
+        0,
+        dev_rogue_chain.device_id().hlc_node_tag(),
+    );
+    let good_ev1 = SpineEvent::sign_new(
+        agent_id,
+        &dev_rogue_chain,
+        Epoch::new(1),
+        1,
+        ArtifactId::ZERO,
+        hlc_ev1,
+        "{\"step\":\"ok-1\"}",
+    )?;
+    let broken_ev2 = SpineEvent::sign_new(
+        agent_id,
+        &dev_rogue_chain,
+        Epoch::new(1),
+        2,
+        ArtifactId::from_bytes([0xee; 32]), // 错误的 prev_blake3！
+        hlc_ev2,
+        "{\"step\":\"broken-2\"}",
+    )?;
+    let broken_jsonl = encode_events_jsonl(&[good_ev1, broken_ev2])?;
+    let broken_pack = quetzalcoatl_crypto::seal_packfile(
+        agent_id,
+        dev_rogue_chain.device_id(),
+        PackCompartment::Core,
+        Epoch::new(1),
+        &epoch_key,
+        1,
+        2,
+        hlc_ev1,
+        hlc_ev2,
+        broken_jsonl.as_bytes(),
+    )?;
+
+    let hlc_before = engine_b.local_hlc();
+    let events_before = engine_b.store().list_all_events()?.len();
+
+    let broken_err = engine_b
+        .ingest_remote_packfile(
+            &broken_pack,
+            &epoch_key,
+            dev_rogue_chain.ed25519_public_key(),
+            1_795_400_000_300,
+        )
+        .err()
+        .ok_or("包内哈希链断裂必须报错")?;
+    assert_eq!(broken_err.code(), ErrorCode::IntegrityViolation);
+    assert_eq!(
+        engine_b.local_hlc(),
+        hlc_before,
+        "原子校验失败不得推进本机 HLC"
+    );
+    assert_eq!(
+        engine_b.store().list_all_events()?.len(),
+        events_before,
+        "原子校验失败不得把第 1 条事件残留在 SQLite 中"
+    );
+    assert!(
+        engine_b
+            .store()
+            .list_device_events(dev_rogue_chain.device_id())?
+            .is_empty()
+    );
 
     fs::remove_dir_all(&dir)?;
     Ok(())

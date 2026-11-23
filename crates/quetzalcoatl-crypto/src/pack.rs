@@ -149,7 +149,10 @@ pub fn parse_padded_frame(padded_frame: &[u8]) -> Result<&[u8]> {
     Ok(&padded_frame[4..end_offset])
 }
 
-/// 按 RFC 8878 预扫描 Zstandard 帧头，严禁 `window_size > 1 MiB`（守护 `<12MB` iOS NSE）。
+/// 按 RFC 8878 §3.1.1.1 预扫描 Zstandard 帧头：
+/// 1. 严格计算 `Window_Descriptor` 与 `Dictionary_ID` 字节偏移后再读取 `Frame_Content_Size`；
+/// 2. 严禁滑动窗口或声明内容长度 `> 1 MiB`（守护 `<12MB` iOS NSE）；
+/// 3. 严禁非零 `Dictionary_ID_flag`（脊柱 Packfile 绝不依赖外部字典）。
 fn inspect_zstd_frame_header_window(compressed: &[u8]) -> Result<()> {
     if compressed.len() < 6 || compressed[0..4] != ZSTD_MAGIC_LE {
         return Err(integrity_err("Zstd 魔数或最小帧头长度校验失败"));
@@ -158,12 +161,18 @@ fn inspect_zstd_frame_header_window(compressed: &[u8]) -> Result<()> {
     let fcs_flag = fhd >> 6;
     let single_segment = ((fhd >> 5) & 1) != 0;
     let reserved_bit = ((fhd >> 3) & 1) != 0;
+    let dict_id_flag = fhd & 0x03;
     if reserved_bit {
         return Err(integrity_err("Zstd 帧头包含非零保留位"));
     }
 
+    let mut offset: usize = 5;
     if !single_segment {
-        let wd = compressed[5];
+        if compressed.len() <= offset {
+            return Err(integrity_err("Zstd 多段帧缺少 Window_Descriptor"));
+        }
+        let wd = compressed[offset];
+        offset += 1;
         let exponent = u32::from(wd >> 3) + 10;
         let mantissa = u64::from(wd & 0x07);
         if exponent > 30 {
@@ -178,29 +187,55 @@ fn inspect_zstd_frame_header_window(compressed: &[u8]) -> Result<()> {
                 "Zstd 帧请求窗口 ({window_size} B) 超出 1MiB 安全上限 ({ZSTD_MAX_WINDOW_BYTES} B)"
             )));
         }
-    } else {
-        let fcs_field_len: usize = match fcs_flag {
-            0 => 1,
-            1 => 2,
-            2 => 4,
-            _ => 8,
-        };
-        if compressed.len() < 5 + fcs_field_len {
-            return Err(integrity_err("Zstd 单段帧缺少完整的 Frame_Content_Size"));
+    }
+
+    let dict_id_len: usize = match dict_id_flag {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        _ => 4,
+    };
+    if compressed.len() < offset + dict_id_len {
+        return Err(integrity_err("Zstd 帧头缺少完整的 Dictionary_ID 字段"));
+    }
+    offset += dict_id_len;
+
+    let fcs_field_len: usize = match (fcs_flag, single_segment) {
+        (0, false) => 0,
+        (0, true) => 1,
+        (1, _) => 2,
+        (2, _) => 4,
+        _ => 8,
+    };
+    if fcs_field_len > 0 {
+        if compressed.len() < offset + fcs_field_len {
+            return Err(integrity_err("Zstd 帧头缺少完整的 Frame_Content_Size 字段"));
         }
-        let s = &compressed[5..5 + fcs_field_len];
+        let s = &compressed[offset..offset + fcs_field_len];
         let fcs: u64 = match fcs_field_len {
             1 => u64::from(s[0]),
             2 => u64::from(u16::from_le_bytes([s[0], s[1]])) + 256,
             4 => u64::from(u32::from_le_bytes([s[0], s[1], s[2], s[3]])),
             _ => u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]),
         };
-        if fcs > ZSTD_MAX_WINDOW_BYTES as u64 {
+        if single_segment && fcs > ZSTD_MAX_WINDOW_BYTES as u64 {
             return Err(integrity_err(format!(
                 "Zstd 单段帧内容窗口 ({fcs} B) 超出 1MiB 安全上限"
             )));
         }
+        if fcs > MAX_DECOMPRESSED_PACK_BYTES {
+            return Err(integrity_err(format!(
+                "Zstd 帧声明内容大小 ({fcs} B) 超出单包解压上限"
+            )));
+        }
     }
+
+    if dict_id_flag != 0 {
+        return Err(integrity_err(
+            "Zstd 帧禁止携带外部字典标识 (Dictionary_ID_flag != 0)",
+        ));
+    }
+
     Ok(())
 }
 
@@ -431,4 +466,123 @@ pub fn open_packfile(pack: &SealedPackfile, epoch_key: &EpochKey) -> Result<Vec<
     }
 
     Ok(uncompressed)
+}
+
+/// 密封归档清单信封（用于 `.quetzalcoatl-spine/manifest.json`，零敏感明文落盘）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SealedManifestEnvelope {
+    pub v: u32,
+    pub agent_id: AgentId,
+    pub epoch: u64,
+    pub padded_len: usize,
+    pub uncompressed_blake3: ArtifactId,
+    pub aad_utf8: String,
+    pub nonce_hex: String,
+    pub ciphertext_hex: String,
+}
+
+fn canonical_manifest_aad(
+    agent_id: AgentId,
+    epoch: u64,
+    padded_len: usize,
+    uncompressed_blake3: ArtifactId,
+    v: u32,
+) -> String {
+    format!(
+        "{{\"agent_id\":\"{}\",\"epoch\":{},\"padded_len\":{},\"purpose\":\"spine_archive_manifest\",\"uncompressed_blake3\":\"{}\",\"v\":{}}}",
+        agent_id,
+        epoch,
+        padded_len,
+        uncompressed_blake3.to_hex(),
+        v,
+    )
+}
+
+/// 使用 `EpochKey[epoch]` 对归档清单负载执行 `zstd(<=1MiB)` + 2 的幂次分桶填充 + `XChaCha20-Poly1305` 密封。
+pub fn seal_manifest_envelope(
+    agent_id: AgentId,
+    epoch: Epoch,
+    epoch_key: &EpochKey,
+    plaintext_bytes: &[u8],
+) -> Result<SealedManifestEnvelope> {
+    let compressed = zstd_compress_1mib(plaintext_bytes)?;
+    let mut padded = build_padded_frame(&compressed)?;
+    let uncompressed_blake3 = ArtifactId::from_bytes(*blake3::hash(plaintext_bytes).as_bytes());
+    let aad_utf8 =
+        canonical_manifest_aad(agent_id, epoch.get(), padded.len(), uncompressed_blake3, 2);
+
+    let mut nonce = [0u8; 24];
+    OsRng.fill_bytes(&mut nonce);
+    let cipher = XChaCha20Poly1305::new(epoch_key.as_bytes().into());
+    let ct_res = cipher.encrypt(
+        XNonce::from_slice(&nonce),
+        Payload {
+            msg: &padded,
+            aad: aad_utf8.as_bytes(),
+        },
+    );
+    padded.zeroize();
+    let ct = ct_res.map_err(|_| integrity_err("加密归档 manifest 信封失败"))?;
+
+    Ok(SealedManifestEnvelope {
+        v: 2,
+        agent_id,
+        epoch: epoch.get(),
+        padded_len: compute_bucket_len(compressed.len())?,
+        uncompressed_blake3,
+        aad_utf8,
+        nonce_hex: crate::hex_encode(&nonce),
+        ciphertext_hex: crate::hex_encode(&ct),
+    })
+}
+
+/// 校验并解封 `.quetzalcoatl-spine/manifest.json` 加密信封，任何篡改一律报错 `IntegrityViolation`。
+pub fn open_manifest_envelope(
+    expected_agent_id: AgentId,
+    envelope: &SealedManifestEnvelope,
+    epoch_key: &EpochKey,
+) -> Result<Vec<u8>> {
+    if envelope.v != 2 || envelope.agent_id != expected_agent_id {
+        return Err(integrity_err("归档 manifest 信封版本或 AgentId 不匹配"));
+    }
+    let expected_aad = canonical_manifest_aad(
+        envelope.agent_id,
+        envelope.epoch,
+        envelope.padded_len,
+        envelope.uncompressed_blake3,
+        envelope.v,
+    );
+    if envelope.aad_utf8 != expected_aad {
+        return Err(integrity_err("归档 manifest AAD 与头部元数据不一致"));
+    }
+
+    let nonce = crate::hex_decode_fixed::<24>("manifest.nonce", &envelope.nonce_hex)
+        .map_err(|e| integrity_err(format!("归档 manifest nonce 非法: {e}")))?;
+    let ct = crate::hex_decode("manifest.ciphertext", &envelope.ciphertext_hex)
+        .map_err(|e| integrity_err(format!("归档 manifest 密文十六进制非法: {e}")))?;
+
+    let cipher = XChaCha20Poly1305::new(epoch_key.as_bytes().into());
+    let mut padded = cipher
+        .decrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &ct,
+                aad: envelope.aad_utf8.as_bytes(),
+            },
+        )
+        .map_err(|_| integrity_err("归档 manifest 密文认证标签校验失败"))?;
+
+    if padded.len() != envelope.padded_len {
+        padded.zeroize();
+        return Err(integrity_err("归档 manifest 分桶长度与 AAD 不一致"));
+    }
+    let decompressed_res = parse_padded_frame(&padded).and_then(zstd_decompress_1mib_guarded);
+    padded.zeroize();
+    let plain = decompressed_res?;
+
+    let actual_b3 = ArtifactId::from_bytes(*blake3::hash(&plain).as_bytes());
+    if actual_b3 != envelope.uncompressed_blake3 {
+        return Err(integrity_err("归档 manifest 解压明文 BLAKE3 校验失败"));
+    }
+    Ok(plain)
 }

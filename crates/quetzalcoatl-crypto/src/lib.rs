@@ -24,10 +24,11 @@ pub use keys::{
     opaque_open_envelope, opaque_oprf_blind_deterministic, verify_ed25519_signature,
 };
 pub use pack::{
-    MIN_BUCKET_BYTES, PackAad, PackCompartment, SPINE_EVENT_HASH_CONTEXT, SealedPackfile,
-    ZSTD_MAX_WINDOW_BYTES, ZSTD_MAX_WINDOW_LOG, build_padded_frame, compute_bucket_len,
-    open_packfile, parse_padded_frame, seal_packfile, seal_packfile_with_materials,
-    zstd_compress_1mib, zstd_decompress_1mib_guarded,
+    MIN_BUCKET_BYTES, PackAad, PackCompartment, SPINE_EVENT_HASH_CONTEXT, SealedManifestEnvelope,
+    SealedPackfile, ZSTD_MAX_WINDOW_BYTES, ZSTD_MAX_WINDOW_LOG, build_padded_frame,
+    compute_bucket_len, open_manifest_envelope, open_packfile, parse_padded_frame,
+    seal_manifest_envelope, seal_packfile, seal_packfile_with_materials, zstd_compress_1mib,
+    zstd_decompress_1mib_guarded,
 };
 
 use quetzalcoatl_types::{QuetzalcoatlError, Result};

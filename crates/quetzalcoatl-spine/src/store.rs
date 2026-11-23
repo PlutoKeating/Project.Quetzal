@@ -89,6 +89,13 @@ pub trait MaterializedStore {
         pack_id: ArtifactId,
     ) -> Result<()>;
 
+    fn commit_verified_event_batch(
+        &mut self,
+        device_pubkeys: &[(DeviceId, [u8; 32])],
+        events: &[(SpineEvent, PackCompartment, Option<ArtifactId>)],
+        packs: &[SealedPackfile],
+    ) -> Result<()>;
+
     fn put_packfile(&mut self, pack: &SealedPackfile) -> Result<()>;
     fn list_packfiles(&self) -> Result<Vec<SealedPackfile>>;
 
@@ -523,7 +530,7 @@ impl MaterializedStore for RusqliteWalStore {
         self.conn
             .execute(
                 "UPDATE spine_events SET pack_id = ?1
-                 WHERE device_id = ?2 AND compartment = ?3 AND seq >= ?4 AND seq <= ?5;",
+                 WHERE device_id = ?2 AND compartment = ?3 AND pack_id IS NULL AND seq >= ?4 AND seq <= ?5;",
                 params![
                     pack_id.to_hex(),
                     device_id.to_string(),
@@ -533,6 +540,82 @@ impl MaterializedStore for RusqliteWalStore {
                 ],
             )
             .map_err(sql_err)?;
+        Ok(())
+    }
+
+    fn commit_verified_event_batch(
+        &mut self,
+        device_pubkeys: &[(DeviceId, [u8; 32])],
+        events: &[(SpineEvent, PackCompartment, Option<ArtifactId>)],
+        packs: &[SealedPackfile],
+    ) -> Result<()> {
+        let mut pack_jsons = Vec::with_capacity(packs.len());
+        for pack in packs {
+            let json =
+                serde_json::to_string(pack).map_err(|e| QuetzalcoatlError::SerializationError {
+                    detail: format!("序列化 SealedPackfile 失败: {e}"),
+                })?;
+            pack_jsons.push((pack, json));
+        }
+
+        let tx = self.conn.transaction().map_err(sql_err)?;
+        for (dev_id, pk) in device_pubkeys {
+            tx.execute(
+                "INSERT INTO device_keys (device_id, ed25519_pubkey_hex) VALUES (?1, ?2)
+                 ON CONFLICT(device_id) DO UPDATE SET ed25519_pubkey_hex = excluded.ed25519_pubkey_hex;",
+                params![dev_id.to_string(), hex_encode(pk)],
+            )
+            .map_err(sql_err)?;
+        }
+
+        for (event, compartment, opt_pack_id) in events {
+            let hlc_be = event.header.hlc.to_be_bytes();
+            let pack_id_hex = opt_pack_id.map(|id| id.to_hex());
+            tx.execute(
+                "INSERT INTO spine_events (
+                    device_id, seq, agent_id, epoch, hlc_be, hlc_hex,
+                    prev_blake3, payload_blake3, event_blake3, sig_hex, payload_utf8, compartment, pack_id
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                ON CONFLICT(device_id, seq) DO UPDATE SET
+                    pack_id = COALESCE(spine_events.pack_id, excluded.pack_id);",
+                params![
+                    event.header.device_id.to_string(),
+                    u64_to_i64(event.header.seq),
+                    event.header.agent_id.to_string(),
+                    u64_to_i64(event.header.epoch),
+                    hlc_be.as_slice(),
+                    event.header.hlc.to_hex(),
+                    event.header.prev_blake3.to_hex(),
+                    event.header.payload_blake3.to_hex(),
+                    event.event_blake3.to_hex(),
+                    &event.sig_hex,
+                    &event.payload_utf8,
+                    compartment.as_str(),
+                    pack_id_hex,
+                ],
+            )
+            .map_err(sql_err)?;
+        }
+
+        for (pack, json) in pack_jsons {
+            tx.execute(
+                "INSERT OR REPLACE INTO packfiles (
+                    pack_id, compartment, epoch, device_id, first_seq, last_seq, pack_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);",
+                params![
+                    pack.pack_id.to_hex(),
+                    pack.aad.compartment.as_str(),
+                    u64_to_i64(pack.aad.epoch),
+                    pack.aad.device_id.to_string(),
+                    u64_to_i64(pack.aad.first_seq),
+                    u64_to_i64(pack.aad.last_seq),
+                    json,
+                ],
+            )
+            .map_err(sql_err)?;
+        }
+
+        tx.commit().map_err(sql_err)?;
         Ok(())
     }
 
@@ -787,10 +870,15 @@ impl MaterializedStore for RusqliteWalStore {
                 "INSERT INTO threads (legacy_key, thread_id, title, channel, created_ms, updated_ms, archived)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(legacy_key) DO UPDATE SET
-                    title = excluded.title,
-                    channel = excluded.channel,
-                    updated_ms = MAX(threads.updated_ms, excluded.updated_ms),
-                    archived = excluded.archived;",
+                    title = CASE WHEN excluded.updated_ms >= threads.updated_ms THEN excluded.title ELSE threads.title END,
+                    channel = CASE WHEN excluded.updated_ms >= threads.updated_ms THEN excluded.channel ELSE threads.channel END,
+                    created_ms = CASE
+                        WHEN excluded.created_ms > 0 AND (threads.created_ms = 0 OR excluded.created_ms < threads.created_ms)
+                        THEN excluded.created_ms
+                        ELSE threads.created_ms
+                    END,
+                    archived = CASE WHEN excluded.updated_ms >= threads.updated_ms THEN excluded.archived ELSE threads.archived END,
+                    updated_ms = MAX(threads.updated_ms, excluded.updated_ms);",
                 params![
                     &thread.legacy_key,
                     thread.thread_id.to_string(),

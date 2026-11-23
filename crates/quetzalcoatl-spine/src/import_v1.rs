@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -115,6 +116,39 @@ fn sqlite_table_exists(conn: &Connection, table_name: &str) -> Result<bool> {
 #[allow(clippy::cast_sign_loss)]
 fn i64_nonneg_u64(v: i64) -> u64 {
     if v < 0 { 0 } else { v as u64 }
+}
+
+fn validate_safe_v1_doc_id(doc_id: &str) -> Result<()> {
+    if doc_id.is_empty()
+        || doc_id == "."
+        || doc_id == ".."
+        || doc_id.contains('/')
+        || doc_id.contains('\\')
+        || doc_id.contains("..")
+        || doc_id.chars().any(char::is_control)
+    {
+        return Err(QuetzalcoatlError::IntegrityViolation {
+            detail: format!("拒绝包含路径分隔符或越界片段的 V1 canvas doc_id: {doc_id}"),
+        });
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct MergedV1Session {
+    title: String,
+    channel: String,
+    created: i64,
+    updated: i64,
+    archived: i64,
+}
+
+#[derive(Clone, Debug)]
+struct LatestV1Canvas {
+    ver_id: String,
+    ts: i64,
+    title: String,
+    content: String,
 }
 
 fn emit_v1_event_once<S: MaterializedStore>(
@@ -371,6 +405,10 @@ pub fn run_import_v1<S: MaterializedStore>(
     }
 
     // 7. 多身体 SQLite quetzal.db 库幂等合并导入
+    // 先跨全部数据库聚合收敛 sessions（按最大 updated 取最新状态）与 canvas_docs（每个 doc_id 仅保留最大 ts 最新修订版）
+    let mut merged_sessions = BTreeMap::<String, MergedV1Session>::new();
+    let mut latest_canvas_by_doc = BTreeMap::<String, LatestV1Canvas>::new();
+
     for db_path in db_paths {
         let conn = Connection::open_with_flags(
             db_path,
@@ -404,48 +442,134 @@ pub fn run_import_v1<S: MaterializedStore>(
                 .map_err(|e| QuetzalcoatlError::StorageError {
                     detail: format!("遍历 V1 sessions 失败: {e}"),
                 })?;
-            let mut session_items = Vec::new();
             for row in rows {
-                session_items.push(row.map_err(|e| QuetzalcoatlError::StorageError {
-                    detail: format!("读取 V1 session 行失败: {e}"),
-                })?);
-            }
-            for (sid, title, channel, created, updated, archived) in session_items {
-                let ev_payload = serde_json::json!({
-                    "kind": "thread.v1_import",
-                    "session_id": sid,
-                    "title": title,
-                    "channel": channel,
-                    "created": created,
-                    "updated": updated,
-                    "archived": archived != 0,
-                });
-                let canonical_session = format!("{sid}\0{title}\0{channel}\0{archived}");
-                if emit_v1_event_once(
-                    engine,
-                    &mut report,
-                    "db.session",
-                    &sid,
-                    canonical_session.as_bytes(),
-                    &ev_payload,
-                    local_wall_ms,
-                )?
-                .is_some()
-                {
-                    let tid = ThreadId::from_uuid(deterministic_uuid("v1.thread", &sid));
-                    engine.store_mut().upsert_thread(&MaterializedThread {
-                        thread_id: tid,
-                        legacy_key: sid,
+                let (sid, title, channel, created, updated, archived) =
+                    row.map_err(|e| QuetzalcoatlError::StorageError {
+                        detail: format!("读取 V1 session 行失败: {e}"),
+                    })?;
+                merged_sessions
+                    .entry(sid)
+                    .and_modify(|cur| {
+                        if created > 0 && (cur.created <= 0 || created < cur.created) {
+                            cur.created = created;
+                        }
+                        if (updated, &title, archived) > (cur.updated, &cur.title, cur.archived) {
+                            cur.title.clone_from(&title);
+                            cur.channel.clone_from(&channel);
+                            cur.updated = updated;
+                            cur.archived = archived;
+                        }
+                    })
+                    .or_insert(MergedV1Session {
                         title,
                         channel,
-                        created_ms: i64_nonneg_u64(created),
-                        updated_ms: i64_nonneg_u64(updated),
-                        archived: archived != 0,
-                    })?;
-                    report.threads_imported += 1;
-                }
+                        created,
+                        updated,
+                        archived,
+                    });
             }
         }
+
+        if sqlite_table_exists(&conn, "canvas_docs")?
+            && sqlite_table_exists(&conn, "canvas_versions")?
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT d.id, COALESCE(d.title, ''), COALESCE(v.id, ''),
+                            COALESCE(v.ts, 0), COALESCE(v.content, '')
+                     FROM canvas_docs d
+                     JOIN canvas_versions v ON v.doc = d.id
+                     WHERE COALESCE(d.deleted, 0) = 0;",
+                )
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                    detail: format!("查询 V1 canvas_docs 失败: {e}"),
+                })?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                })
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                    detail: format!("遍历 V1 canvas_docs 失败: {e}"),
+                })?;
+            for row in rows {
+                let (doc_id, title, ver_id, ts, content) =
+                    row.map_err(|e| QuetzalcoatlError::StorageError {
+                        detail: format!("读取 V1 canvas 行失败: {e}"),
+                    })?;
+                validate_safe_v1_doc_id(&doc_id)?;
+                latest_canvas_by_doc
+                    .entry(doc_id)
+                    .and_modify(|cur| {
+                        if (ts, &ver_id) > (cur.ts, &cur.ver_id) {
+                            cur.ver_id.clone_from(&ver_id);
+                            cur.ts = ts;
+                            cur.title.clone_from(&title);
+                            cur.content.clone_from(&content);
+                        }
+                    })
+                    .or_insert(LatestV1Canvas {
+                        ver_id,
+                        ts,
+                        title,
+                        content,
+                    });
+            }
+        }
+    }
+
+    for (sid, sess) in merged_sessions {
+        let ev_payload = serde_json::json!({
+            "kind": "thread.v1_import",
+            "session_id": sid,
+            "title": sess.title,
+            "channel": sess.channel,
+            "created": sess.created,
+            "updated": sess.updated,
+            "archived": sess.archived != 0,
+        });
+        let canonical_session = format!(
+            "{sid}\0{}\0{}\0{}\0{}",
+            sess.title, sess.channel, sess.updated, sess.archived
+        );
+        if emit_v1_event_once(
+            engine,
+            &mut report,
+            "db.session",
+            &sid,
+            canonical_session.as_bytes(),
+            &ev_payload,
+            local_wall_ms,
+        )?
+        .is_some()
+        {
+            let tid = ThreadId::from_uuid(deterministic_uuid("v1.thread", &sid));
+            engine.store_mut().upsert_thread(&MaterializedThread {
+                thread_id: tid,
+                legacy_key: sid,
+                title: sess.title,
+                channel: sess.channel,
+                created_ms: i64_nonneg_u64(sess.created),
+                updated_ms: i64_nonneg_u64(sess.updated),
+                archived: sess.archived != 0,
+            })?;
+            report.threads_imported += 1;
+        }
+    }
+
+    for db_path in db_paths {
+        let conn = Connection::open_with_flags(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("只读打开 V1 SQLite 库 {} 失败: {e}", db_path.display()),
+        })?;
 
         if sqlite_table_exists(&conn, "messages")? {
             let mut stmt = conn
@@ -701,64 +825,38 @@ pub fn run_import_v1<S: MaterializedStore>(
                 }
             }
         }
+    }
 
-        if sqlite_table_exists(&conn, "canvas_docs")?
-            && sqlite_table_exists(&conn, "canvas_versions")?
+    for (doc_id, canvas) in latest_canvas_by_doc {
+        let rel = format!("notes/canvas/{doc_id}.md");
+        let ev_payload = serde_json::json!({
+            "kind": "canvas.v1_import",
+            "doc_id": doc_id,
+            "version_id": canvas.ver_id,
+            "ts": canvas.ts,
+            "title": canvas.title,
+            "content": canvas.content,
+        });
+        let canonical_canvas = format!(
+            "{}\0{}\0{}\0{}",
+            canvas.ver_id, canvas.ts, canvas.title, canvas.content
+        );
+        if emit_v1_event_once(
+            engine,
+            &mut report,
+            "db.canvas",
+            &doc_id,
+            canonical_canvas.as_bytes(),
+            &ev_payload,
+            local_wall_ms,
+        )?
+        .is_some()
         {
-            let mut stmt = conn
-                .prepare(
-                    "SELECT d.id, COALESCE(d.title, ''), COALESCE(v.content, '')
-                     FROM canvas_docs d
-                     JOIN canvas_versions v ON v.doc = d.id
-                     WHERE COALESCE(d.deleted, 0) = 0
-                     ORDER BY v.ts DESC;",
-                )
-                .map_err(|e| QuetzalcoatlError::StorageError {
-                    detail: format!("查询 V1 canvas_docs 失败: {e}"),
-                })?;
-            let rows = stmt
-                .query_map([], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                })
-                .map_err(|e| QuetzalcoatlError::StorageError {
-                    detail: format!("遍历 V1 canvas_docs 失败: {e}"),
-                })?;
-            let mut canvas_items = Vec::new();
-            for row in rows {
-                canvas_items.push(row.map_err(|e| QuetzalcoatlError::StorageError {
-                    detail: format!("读取 V1 canvas 行失败: {e}"),
-                })?);
-            }
-            for (doc_id, title, content) in canvas_items {
-                let rel = format!("notes/canvas/{doc_id}.md");
-                let ev_payload = serde_json::json!({
-                    "kind": "canvas.v1_import",
-                    "doc_id": doc_id,
-                    "title": title,
-                    "content": content,
-                });
-                if emit_v1_event_once(
-                    engine,
-                    &mut report,
-                    "db.canvas",
-                    &doc_id,
-                    content.as_bytes(),
-                    &ev_payload,
-                    local_wall_ms,
-                )?
-                .is_some()
-                {
-                    let hlc = engine.local_hlc();
-                    engine
-                        .store_mut()
-                        .upsert_markdown_doc(&rel, &content, hlc)?;
-                    report.docs_imported += 1;
-                }
-            }
+            let hlc = engine.local_hlc();
+            engine
+                .store_mut()
+                .upsert_markdown_doc(&rel, &canvas.content, hlc)?;
+            report.docs_imported += 1;
         }
     }
 
