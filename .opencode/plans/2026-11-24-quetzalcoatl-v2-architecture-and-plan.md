@@ -265,15 +265,15 @@
 **Interfaces:**
 - Produces: `quetzalcoatl_types::{AgentId, DeviceId, RunId, ThreadId, ArtifactId, HlcTimestamp, Epoch, ErrorCode, QuetzalcoatlError}` 与 `spec/vectors/*.json` 跨语言黄金测试向量。
 
-- [ ] **Step 1: 保护 `docs/V2_GOAL.html` 并创建 `v1-legacy` 永久归档分支与标签**
+- [x] **Step 1: 保护 `docs/V2_GOAL.html` 并创建 `v1-legacy` 永久归档分支与标签**
   先检查当前工作区，抽取合成 V1 测试样本（不含任何个人隐私数据），在当前 V1 `HEAD` 创建 `v1-final` 标签与 `v1-legacy` 分支，确认 `git rev-parse v1-legacy` 无误。
-- [ ] **Step 2: 清空 `main` 旧 V1 模块目录并建立 Quetzalcoatl V2 根骨架**
+- [x] **Step 2: 清空 `main` 旧 V1 模块目录并建立 Quetzalcoatl V2 根骨架**
   使用 `git rm -r` 移除 `engine/ runtime/ console/ sync/ bridge/ cli/ website/` 等旧目录，保留 `docs/V2_GOAL.html`，写入新版 `AGENTS.md`（载入六语言契约与 18 条防坑纪律）、双许可证、`deny.toml` 与 Workspace `Cargo.toml`。
-- [ ] **Step 3: 编写架构与门禁自检测试（先写失败断言）**
+- [x] **Step 3: 编写架构与门禁自检测试（先写失败断言）**
   编写 `crates/quetzalcoatl-types/tests/workspace_hygiene.rs`：断言 `deny.toml` 阻断 `GPL/AGPL` 依赖、断言 `spec/vectors/*.json` 格式完整可解析。
-- [ ] **Step 4: 实现 `quetzalcoatl-types` 核心强类型原语与 `spec/` 黄金测试向量**
+- [x] **Step 4: 实现 `quetzalcoatl-types` 核心强类型原语与 `spec/` 黄金测试向量**
   实现固定宽度大端 `HlcTimestamp(u128)`、全系强类型新类型 ID（`AgentId` 等）与机器可读 `QuetzalcoatlError` 枚举。
-- [ ] **Step 5: 验证门禁并提交**
+- [x] **Step 5: 验证门禁并提交**
   Run: `cargo deny check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && git status -s`
   Expected: 全部 PASS 且无任何 untracked 文件，执行中文语义化原子提交。
 

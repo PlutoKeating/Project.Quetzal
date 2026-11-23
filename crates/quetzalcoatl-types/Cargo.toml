@@ -1,0 +1,20 @@
+[package]
+name = "quetzalcoatl-types"
+description = "Quetzalcoatl V2 共享强类型标识符、混合逻辑时钟 HLC 与机器可读错误码原语"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+toml = "0.8.23"
