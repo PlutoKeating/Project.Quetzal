@@ -1,0 +1,23 @@
+[package]
+name = "quetzalcoatl-ewave"
+description = "Quetzalcoatl V2 蛇形四维记忆核（兼容 @plutokeating/ewave@0.2.0 JSON-v2）与两段式良知治理引擎"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3 = { workspace = true }
+ed25519-dalek = { workspace = true }
+quetzalcoatl-crypto = { workspace = true }
+quetzalcoatl-spine = { workspace = true }
+quetzalcoatl-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+unicode-normalization = { workspace = true }
+uuid = { workspace = true }

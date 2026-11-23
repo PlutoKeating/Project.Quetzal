@@ -4,6 +4,7 @@ members = [
     "crates/quetzalcoatl-types",
     "crates/quetzalcoatl-crypto",
     "crates/quetzalcoatl-spine",
+    "crates/quetzalcoatl-ewave",
 ]
 
 [workspace.package]
@@ -32,6 +33,7 @@ hkdf = "0.12.4"
 hmac = "0.12.1"
 ml-kem = { version = "0.2.3", features = ["deterministic", "zeroize"] }
 quetzalcoatl-crypto = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-crypto" }
+quetzalcoatl-ewave = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-ewave" }
 quetzalcoatl-spine = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-spine" }
 quetzalcoatl-types = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-types" }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
@@ -41,6 +43,7 @@ serde_json = { version = "1.0.142", features = ["raw_value"] }
 sha2 = "0.10.9"
 sha3 = "0.10.9"
 thiserror = "2.0.12"
+unicode-normalization = "0.1.25"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 zeroize = { version = "1.9.2", features = ["derive"] }

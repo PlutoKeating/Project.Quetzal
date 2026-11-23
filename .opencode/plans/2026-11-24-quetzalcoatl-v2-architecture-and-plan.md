@@ -311,13 +311,13 @@
 - Consumes: `quetzalcoatl_types::*`, `quetzalcoatl_spine::SpineEngine`
 - Produces: `SerpentineGraph`（`observe, add_branch, promote, link, activate, collapse_time, align, merge, verify, from_json_v2, to_json_v2`）、`ContextAssembler::assemble(BudgetProfile::{Standard, CompactOnDevice(u32)})`、`ConscienceArbiter::evaluate_proposals(router_epoch)`。
 
-- [ ] **Step 1: 编写 JSON-v2 快照双向兼容、抗施压/反思维病毒与 C 档自动写回失败测试**
+- [x] **Step 1: 编写 JSON-v2 快照双向兼容、抗施压/反思维病毒与 C 档自动写回失败测试**
   构造含多父归属、跨 $\alpha_t$ 切片与 `+1/-1` 极性边的 `@plutokeating/ewave@0.2.0` 黄金 JSON 快照；构造单会话 15 轮施压（S5）企图篡改 `SELF_CORE` 的拒绝用例，以及跨 3 个独立 Thread 簇满足冷却期自动升格 `SELF_CORE` 的放行用例。
-- [ ] **Step 2: 运行测试确认红灯**
+- [x] **Step 2: 运行测试确认红灯**
   Run: `cargo test -p quetzalcoatl-ewave` -> Expected: FAIL
-- [ ] **Step 3: 实现蛇形四维图核心、单 `emb_version` 词法哈希默认向量、双预算组装器与租约围栏 `Arbiter`**
+- [x] **Step 3: 实现蛇形四维图核心、单 `emb_version` 词法哈希默认向量、双预算组装器与租约围栏 `Arbiter`**
   严格保证浮点 CF 聚合、主干叶计数守恒、最远点对确定性分裂及反模因免疫条款钉扎。
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 4: 验证通过并提交**
   Run: `cargo clippy --workspace -- -D warnings && cargo test -p quetzalcoatl-ewave` -> Expected: PASS，原子提交。
 
 ---
