@@ -332,13 +332,13 @@
 - Consumes: `quetzalcoatl_types::*`
 - Produces: `SandboxManager::{probe, mint_ticket, spawn_clean_room}`、`CredentialBroker::{register_scoped_secret, serve_ipc}` 与独立可执行包装器 `quetzalcoatl-sandbox-exec`（兼容 `-c "<cmd>"` 统一调用约定）。
 
-- [ ] **Step 1: 编写沙箱探针防泄密、配置目录只读与跨源凭据防外带测试**
+- [x] **Step 1: 编写沙箱探针防泄密、配置目录只读与跨源凭据防外带测试**
   断言沙箱内进程读 `~/.quetzalcoatl/secrets/probe` 失败、写工作区 `.git/hooks/pre-commit` 或 `.opencode/opencode.json` 失败、将代理令牌发往非白名单攻击者域名返回 `403`、回包中若意外回显密钥明文或 base64 编码均被替换为 `[REDACTED]`。
-- [ ] **Step 2: 运行测试确认红灯**
+- [x] **Step 2: 运行测试确认红灯**
   Run: `cargo test -p quetzalcoatl-sandbox` -> Expected: FAIL
-- [ ] **Step 3: 实现三桌面平台沙箱后端、一次性执行票据与 Unix Socket / Named Pipe `Credential Broker`**
+- [x] **Step 3: 实现三桌面平台沙箱后端、一次性执行票据与 Unix Socket / Named Pipe `Credential Broker`**
   Linux 落实 AppArmor 真实 `mount` 探针与 `SYS_clone3 -> ENOSYS` `seccompiler` 规则；macOS 落实 Seatbelt；Windows 落实 `mxc-sdk` + `srt-win` 分级后端。
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 4: 验证通过并提交**
   Run: `cargo clippy --workspace -- -D warnings && cargo test -p quetzalcoatl-sandbox` -> Expected: PASS，原子提交。
 
 ---

@@ -1,0 +1,25 @@
+[package]
+name = "quetzalcoatl-sandbox"
+description = "Quetzalcoatl V2 桌面无容器 OS 沙箱、quetzalcoatl-sandbox-exec 包装器与零凭据代理（Credential Broker）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "quetzalcoatl-sandbox-exec"
+path = "src/bin/quetzalcoatl-sandbox-exec.rs"
+
+[dependencies]
+blake3 = { workspace = true }
+quetzalcoatl-crypto = { workspace = true }
+quetzalcoatl-types = { workspace = true }
+rand_core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+zeroize = { workspace = true }
