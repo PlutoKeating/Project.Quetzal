@@ -1,0 +1,229 @@
+{
+  "agents": {
+    "agent_a_id": "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f",
+    "agent_b_id": "018f4a90-8888-4a11-9c22-112233445566",
+    "shared_role_maintainer_id": "018f4a90-9999-4b22-ad33-778899aabbcc"
+  },
+  "constants": {
+    "max_consecutive_agent_hops": 3,
+    "non_owner_ewave_signal": "S8",
+    "owner_verified_ewave_signal": "S1",
+    "silent_token": "<PASS>",
+    "untrusted_group_tag": "UNTRUSTED"
+  },
+  "floor_control_cases": [
+    {
+      "consecutive_agent_hops": 0,
+      "expected_by_agent": {
+        "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f": {
+          "authority_envelope": "OWNER_VERIFIED",
+          "ewave_signal_class": "S1",
+          "floor_action": "RESPOND"
+        },
+        "018f4a90-8888-4a11-9c22-112233445566": {
+          "authority_envelope": "UNTRUSTED",
+          "ewave_signal_class": "S8",
+          "floor_action": "SILENT_PASS"
+        }
+      },
+      "human_typing_active": false,
+      "id": "direct_addressee_only_target_speaks",
+      "mentions": [
+        {
+          "kind": "addressee",
+          "target_agent_id": "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f"
+        }
+      ],
+      "sender_kind": "owner_human",
+      "sender_signature_verified": true
+    },
+    {
+      "consecutive_agent_hops": 0,
+      "expected_by_agent": {
+        "018f4a90-8888-4a11-9c22-112233445566": {
+          "authority_envelope": "UNTRUSTED",
+          "ewave_signal_class": "S8",
+          "floor_action": "SILENT_INGEST_MEMORY"
+        },
+        "018f4a90-9999-4b22-ad33-778899aabbcc": {
+          "authority_envelope": "UNTRUSTED",
+          "ewave_signal_class": "S8",
+          "floor_action": "RESPOND"
+        }
+      },
+      "human_typing_active": false,
+      "id": "cc_silent_memory_ingest_never_replies",
+      "mentions": [
+        {
+          "kind": "addressee",
+          "target_agent_id": "018f4a90-9999-4b22-ad33-778899aabbcc"
+        },
+        {
+          "kind": "cc",
+          "target_agent_id": "018f4a90-8888-4a11-9c22-112233445566"
+        }
+      ],
+      "sender_kind": "other_human",
+      "sender_signature_verified": true
+    },
+    {
+      "consecutive_agent_hops": 0,
+      "expected_by_agent": {
+        "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f": {
+          "authority_envelope": "OWNER_VERIFIED",
+          "ewave_signal_class": "S1",
+          "floor_action": "RESPOND_STRUCTURED_CARD_ONCE"
+        },
+        "018f4a90-8888-4a11-9c22-112233445566": {
+          "authority_envelope": "UNTRUSTED",
+          "ewave_signal_class": "S8",
+          "floor_action": "RESPOND_STRUCTURED_CARD_ONCE"
+        }
+      },
+      "human_typing_active": false,
+      "id": "all_agents_structured_card_single_round",
+      "mentions": [
+        {
+          "kind": "all_agents"
+        }
+      ],
+      "sender_kind": "owner_human",
+      "sender_signature_verified": true
+    },
+    {
+      "consecutive_agent_hops": 1,
+      "expected_by_agent": {
+        "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f": {
+          "authority_envelope": "UNTRUSTED",
+          "ewave_signal_class": "S8",
+          "floor_action": "MUTE_UNTIL_HUMAN_SPEAKS"
+        },
+        "018f4a90-8888-4a11-9c22-112233445566": {
+          "authority_envelope": "UNTRUSTED",
+          "ewave_signal_class": "S8",
+          "floor_action": "MUTE_UNTIL_HUMAN_SPEAKS"
+        }
+      },
+      "human_typing_active": false,
+      "id": "all_humans_hard_mutes_every_agent",
+      "mentions": [
+        {
+          "kind": "all_humans"
+        },
+        {
+          "kind": "addressee",
+          "target_agent_id": "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f"
+        }
+      ],
+      "sender_kind": "other_human",
+      "sender_signature_verified": true
+    },
+    {
+      "consecutive_agent_hops": 3,
+      "expected_by_agent": {
+        "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f": {
+          "authority_envelope": "UNTRUSTED",
+          "ewave_signal_class": "S8",
+          "expected_error_code": "FLOOR_SILENCED",
+          "floor_action": "SILENT_MAX_HOPS_EXCEEDED"
+        }
+      },
+      "human_typing_active": false,
+      "id": "agent_to_agent_max_hops_3_breaker",
+      "mentions": [
+        {
+          "kind": "addressee",
+          "target_agent_id": "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f"
+        }
+      ],
+      "sender_kind": "peer_agent",
+      "sender_signature_verified": true
+    },
+    {
+      "consecutive_agent_hops": 1,
+      "expected_by_agent": {
+        "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f": {
+          "authority_envelope": "UNTRUSTED",
+          "ewave_signal_class": "S8",
+          "floor_action": "DEFER_HUMAN_TYPING"
+        }
+      },
+      "human_typing_active": true,
+      "id": "human_typing_backoff",
+      "mentions": [
+        {
+          "kind": "addressee",
+          "target_agent_id": "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f"
+        }
+      ],
+      "sender_kind": "peer_agent",
+      "sender_signature_verified": true
+    }
+  ],
+  "protocol": "Quetzalcoatl-ANP-P9-FloorGate-v1",
+  "schema_version": 1,
+  "watermark_barrier_cases": [
+    {
+      "current_hub_mls_epoch": 5,
+      "expected_resolution": "REENCRYPT_WITH_NEW_MLS_EPOCH",
+      "head_group_seq": 42,
+      "id": "mls_epoch_rotation_reencrypt_without_llm_rerun",
+      "intervening_events": [],
+      "last_seen_group_seq": 42,
+      "submitted_mls_epoch": 4,
+      "submitting_agent_id": "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f"
+    },
+    {
+      "attached_causal_parent_seq": 42,
+      "current_hub_mls_epoch": 5,
+      "expected_resolution": "FAST_FORWARD_CAUSAL_PARENT",
+      "head_group_seq": 44,
+      "id": "unrelated_emoji_or_chatter_fast_forwards_causal_parent",
+      "intervening_events": [
+        {
+          "emoji": "👀",
+          "kind": "reaction",
+          "mentions": [],
+          "seq": 43
+        },
+        {
+          "kind": "chatter",
+          "mentions": [
+            {
+              "kind": "addressee",
+              "target_agent_id": "018f4a90-8888-4a11-9c22-112233445566"
+            }
+          ],
+          "parent_seq": 10,
+          "seq": 44
+        }
+      ],
+      "last_seen_group_seq": 42,
+      "submitted_mls_epoch": 5,
+      "submitting_agent_id": "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f"
+    },
+    {
+      "current_hub_mls_epoch": 5,
+      "expected_error_code": "WATERMARK_CONFLICT",
+      "expected_resolution": "REJECT_WATERMARK_RECOMPUTE",
+      "head_group_seq": 43,
+      "id": "new_constraint_or_mention_rejects_stale_watermark",
+      "intervening_events": [
+        {
+          "kind": "constraint_update",
+          "mentions": [
+            {
+              "kind": "all_agents"
+            }
+          ],
+          "parent_seq": 42,
+          "seq": 43,
+          "summary": "追加过敏源禁忌：严禁含花生与麸质食材"
+        }
+      ],
+      "last_seen_group_seq": 42,
+      "submitted_mls_epoch": 5,
+      "submitting_agent_id": "018f4a90-7c20-4d31-8b12-9a0b1c2d3e4f"
+    }
+  ]
+}
