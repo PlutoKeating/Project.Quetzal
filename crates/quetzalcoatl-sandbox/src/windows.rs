@@ -11,9 +11,9 @@ use quetzalcoatl_types::{QuetzalcoatlError, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    NetworkPolicy, PROTECTED_WORKSPACE_SUBPATHS, SandboxBackendKind, SandboxCommand,
-    SandboxExecSpec, SandboxExecutionOutput, SandboxMode, SandboxProbeReport, build_sanitized_env,
-    collect_all_masked_paths, prepare_workspace_protections,
+    NetworkPolicy, SandboxBackendKind, SandboxCommand, SandboxExecSpec, SandboxExecutionOutput,
+    SandboxMode, SandboxProbeReport, build_sanitized_env, collect_all_masked_paths,
+    compute_protected_workspace_ro_targets, prepare_workspace_protections,
 };
 
 /// Windows Low Mandatory Integrity Level SID (`S-1-16-4096`).
@@ -70,6 +70,24 @@ pub fn build_windows_sandbox_plan(
     command: &SandboxCommand,
     appcontainer_available: bool,
 ) -> Result<WindowsSandboxPlan> {
+    let default_ro_paths: Vec<PathBuf> = compute_protected_workspace_ro_targets(spec)
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
+    build_windows_sandbox_plan_with_ro_locks(
+        spec,
+        command,
+        appcontainer_available,
+        &default_ro_paths,
+    )
+}
+
+fn build_windows_sandbox_plan_with_ro_locks(
+    spec: &SandboxExecSpec,
+    command: &SandboxCommand,
+    appcontainer_available: bool,
+    protected_ro_paths: &[PathBuf],
+) -> Result<WindowsSandboxPlan> {
     if spec.workspace_dir.as_os_str().is_empty() {
         return Err(QuetzalcoatlError::SandboxViolation {
             detail: String::from("Windows 沙箱工作区路径不能为空"),
@@ -120,23 +138,17 @@ pub fn build_windows_sandbox_plan(
         String::from("SeTcbPrivilege"),
     ];
 
+    // Windows DACL 中显式 Deny ACE 优先于 Allow ACE；同时在有序列表中将 DenyWrite 与最终宿主密钥 DenyAll 排在最末
     let mut acl_entries = Vec::new();
-    for masked in collect_all_masked_paths(spec) {
-        acl_entries.push(WindowsAclEntry {
-            path: masked,
-            access: WindowsAccessDisposition::DenyAll,
-        });
-    }
-
     match spec.mode {
         SandboxMode::WorkspaceWritable => {
             acl_entries.push(WindowsAclEntry {
                 path: spec.workspace_dir.clone(),
                 access: WindowsAccessDisposition::AllowReadWrite,
             });
-            for rel in PROTECTED_WORKSPACE_SUBPATHS {
+            for ro_path in protected_ro_paths {
                 acl_entries.push(WindowsAclEntry {
-                    path: spec.workspace_dir.join(rel),
+                    path: ro_path.clone(),
                     access: WindowsAccessDisposition::DenyWrite,
                 });
             }
@@ -153,6 +165,13 @@ pub fn build_windows_sandbox_plan(
                 });
             }
         }
+    }
+
+    for masked in collect_all_masked_paths(spec) {
+        acl_entries.push(WindowsAclEntry {
+            path: masked,
+            access: WindowsAccessDisposition::DenyAll,
+        });
     }
 
     Ok(WindowsSandboxPlan {
@@ -226,8 +245,12 @@ pub fn execute_windows(
             detail: String::from("Windows 宿主缺少 mxc-sdk / srt-win 沙箱启动器，拒绝无沙箱裸跑"),
         })?;
     let protection_guard = prepare_workspace_protections(spec)?;
-    let plan =
-        build_windows_sandbox_plan(spec, command, tier == WindowsSandboxTier::MxcAppContainer)?;
+    let plan = build_windows_sandbox_plan_with_ro_locks(
+        spec,
+        command,
+        tier == WindowsSandboxTier::MxcAppContainer,
+        protection_guard.ro_paths(),
+    )?;
     let plan_json =
         serde_json::to_string(&plan).map_err(|e| QuetzalcoatlError::SerializationError {
             detail: format!("序列化 WindowsSandboxPlan 失败: {e}"),

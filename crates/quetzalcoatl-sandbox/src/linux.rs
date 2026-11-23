@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     NetworkPolicy, SandboxBackendKind, SandboxCommand, SandboxExecSpec, SandboxExecutionOutput,
     SandboxMode, SandboxProbeReport, build_sanitized_env, collect_collapsed_masked_paths,
-    prepare_workspace_protections,
+    compute_protected_workspace_ro_targets, prepare_workspace_protections,
 };
 
 /// `x86_64` 与 `aarch64` Linux 上的 `SYS_clone3` 系统调用号。
@@ -126,7 +126,10 @@ impl EphemeralSeccompFile {
         } else {
             std::env::temp_dir()
         };
-        let path = dir.join(format!("qz_seccomp_{}.bpf", Uuid::new_v4().simple()));
+        let path = dir.join(format!(
+            "quetzalcoatl_seccomp_{}.bpf",
+            Uuid::new_v4().simple()
+        ));
         let bpf = build_clone3_enosys_bpf();
         fs::write(&path, &bpf).map_err(|e| QuetzalcoatlError::SandboxViolation {
             detail: format!("写入临时 seccomp BPF 规则失败 ({}): {e}", path.display()),
@@ -224,7 +227,7 @@ pub fn probe_linux() -> Result<SandboxProbeReport> {
     let output = Command::new("/bin/sh")
         .arg("-c")
         .arg("bpf=$1; bw=$2; shift 2; exec \"$bw\" --seccomp 9 \"$@\" 9< \"$bpf\"")
-        .arg("qz-bwrap-probe")
+        .arg("quetzalcoatl-bwrap-probe")
         .arg(seccomp_file.path())
         .arg(&bwrap_bin)
         .args([
@@ -272,12 +275,39 @@ fn path_to_arg(path: &Path, label: &str) -> Result<String> {
 }
 
 /// 根据给定规格组装 `bwrap` 参数列表（不含 `--seccomp 9`，由启动包装器统一前置挂载）。
+/// 根据给定规格组装 `bwrap` 参数列表（不含 `--seccomp 9`，由启动包装器统一前置挂载）。
+///
+/// 默认包含工作区受保护子路径（`.git/hooks` 或单文件 `.git`、`.opencode`、`.claude`、`.codex`）只读锁，
+/// 并将宿主私密目录遮蔽层置于所有工作区挂载之后。
 pub fn build_bwrap_args(
     spec: &SandboxExecSpec,
     command: &SandboxCommand,
 ) -> Result<(PathBuf, Vec<String>)> {
     let bwrap_bin = locate_bwrap_binary().unwrap_or_else(|| PathBuf::from("/usr/bin/bwrap"));
-    build_bwrap_args_with_ro_locks(spec, command, &bwrap_bin, &[])
+    let default_ro_locks: Vec<PathBuf> = compute_protected_workspace_ro_targets(spec)
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
+    build_bwrap_args_with_ro_locks(spec, command, &bwrap_bin, &default_ro_locks)
+}
+
+fn is_already_mounted_under_tmp(
+    candidate: &Path,
+    spec: &SandboxExecSpec,
+    command: &SandboxCommand,
+) -> bool {
+    if candidate.starts_with(&spec.workspace_dir) {
+        return true;
+    }
+    if let Some(suite) = &spec.verifier_suite_dir
+        && candidate.starts_with(suite)
+    {
+        return true;
+    }
+    spec.extra_ro_mounts
+        .iter()
+        .chain(command.extra_ro_mounts.iter())
+        .any(|m| candidate.starts_with(m))
 }
 
 fn build_bwrap_args_with_ro_locks(
@@ -309,50 +339,18 @@ fn build_bwrap_args_with_ro_locks(
         String::from("--clearenv"),
     ]);
 
-    // 1. 遮蔽所有宿主存在的敏感目录与文件（$QUETZALCOATL_HOME、~/.ssh、~/.gnupg、~/.aws、~/.claude、~/.codex 等）
-    let masked = collect_collapsed_masked_paths(spec);
-    for mpath in &masked {
-        let Ok(meta) = fs::symlink_metadata(mpath) else {
-            // 宿主上本就不存在的路径在只读根挂载 (--ro-bind / /) 与空 /tmp 下既无秘密数据也无法被创建
-            continue;
-        };
-        let m_str = path_to_arg(mpath, "masked_path")?;
-        let under_tmp = mpath == Path::new("/tmp") || mpath.starts_with("/tmp/");
-        if meta.file_type().is_dir() {
-            if under_tmp {
-                args.extend([String::from("--dir"), m_str.clone()]);
-            }
-            args.extend([
-                String::from("--tmpfs"),
-                m_str.clone(),
-                String::from("--remount-ro"),
-                m_str,
-            ]);
-        } else if meta.file_type().is_file() {
-            if under_tmp
-                && let Some(parent) = mpath.parent()
-                && parent != Path::new("/tmp")
-            {
-                let p_str = path_to_arg(parent, "masked_file_parent")?;
-                args.extend([String::from("--dir"), p_str]);
-            }
-            args.extend([String::from("--ro-bind"), String::from("/dev/null"), m_str]);
-        }
-        // 若 meta.file_type().is_symlink()，collect_all_masked_paths 已将其 canonicalize 真实目标纳入集合遮蔽
-    }
-
-    // 2. 挂载工作区（普通模式可写，洁净室模式严格只读）
+    // 1. 先挂载工作区（普通模式可写，洁净室模式严格只读）
     let ws_str = path_to_arg(&spec.workspace_dir, "workspace_dir")?;
     match spec.mode {
         SandboxMode::WorkspaceWritable => {
-            args.extend([String::from("--bind"), ws_str.clone(), ws_str.clone()]);
+            args.extend([String::from("--bind"), ws_str.clone(), ws_str]);
         }
         SandboxMode::CleanRoomReadOnly => {
-            args.extend([String::from("--ro-bind"), ws_str.clone(), ws_str.clone()]);
+            args.extend([String::from("--ro-bind"), ws_str.clone(), ws_str]);
         }
     }
 
-    // 3. 洁净室锁定校验套件目录与额外只读挂载
+    // 2. 洁净室锁定校验套件目录与额外只读挂载
     if let Some(suite_dir) = &spec.verifier_suite_dir {
         let suite_str = path_to_arg(suite_dir, "verifier_suite_dir")?;
         args.extend([String::from("--ro-bind"), suite_str.clone(), suite_str]);
@@ -366,30 +364,70 @@ fn build_bwrap_args_with_ro_locks(
         args.extend([String::from("--ro-bind"), ro_str.clone(), ro_str]);
     }
 
-    // 4. 若配置了 CredentialBroker Unix Domain Socket，则仅将该单文件节点挂载入沙箱供受控代理通信
+    // 3. 在可写工作区之上叠挂载只读锁（.git/hooks 或单文件 .git, .opencode, .claude, .codex）
+    for ro_lock in protected_ro_paths {
+        let lock_str = path_to_arg(ro_lock, "protected_workspace_subpath")?;
+        args.extend([String::from("--ro-bind"), lock_str.clone(), lock_str]);
+    }
+
+    // 4. 最后施加宿主私密目录遮蔽层（确保当 workspace_dir == $HOME 时，空 tmpfs 严格压盖宿主真实 ~/.quetzalcoatl、~/.ssh、~/.claude、~/.codex）
+    let masked = collect_collapsed_masked_paths(spec);
+    let mut mounted_tmpfs_dirs = Vec::<PathBuf>::new();
+    let mut remount_ro_targets = Vec::<String>::new();
+
+    for mpath in &masked {
+        let Ok(meta) = fs::symlink_metadata(mpath) else {
+            continue;
+        };
+        let m_str = path_to_arg(mpath, "masked_path")?;
+        let needs_tmp_mkdir = (mpath == Path::new("/tmp") || mpath.starts_with("/tmp/"))
+            && !is_already_mounted_under_tmp(mpath, spec, command);
+        if meta.file_type().is_dir() {
+            if needs_tmp_mkdir {
+                args.extend([String::from("--dir"), m_str.clone()]);
+            }
+            args.extend([String::from("--tmpfs"), m_str.clone()]);
+            mounted_tmpfs_dirs.push(mpath.clone());
+            remount_ro_targets.push(m_str);
+        } else if meta.file_type().is_file() {
+            if needs_tmp_mkdir
+                && let Some(parent) = mpath.parent()
+                && parent != Path::new("/tmp")
+            {
+                let p_str = path_to_arg(parent, "masked_file_parent")?;
+                args.extend([String::from("--dir"), p_str]);
+            }
+            args.extend([String::from("--ro-bind"), String::from("/dev/null"), m_str]);
+        }
+    }
+
+    // 5. 若配置了 CredentialBroker UnixSocket（即使嵌套在 $QUETZALCOATL_HOME/run/broker.sock 内部），
+    // 在已挂载的空 tmpfs 内创建父目录并以 --ro-bind 暴露单文件套接字，随后将父 tmpfs 整体锁为只读
     if let Some(sock_path) = command
         .broker_unix_socket
         .as_ref()
         .or(spec.broker_unix_socket.as_ref())
     {
         let sock_str = path_to_arg(sock_path, "broker_unix_socket")?;
-        if sock_path.starts_with("/tmp/")
+        let inside_masked_tmpfs = mounted_tmpfs_dirs.iter().any(|d| sock_path.starts_with(d));
+        let under_unmounted_tmp = sock_path.starts_with("/tmp/")
+            && !is_already_mounted_under_tmp(sock_path, spec, command);
+        if (inside_masked_tmpfs || under_unmounted_tmp)
             && let Some(parent) = sock_path.parent()
             && parent != Path::new("/tmp")
         {
             let parent_str = path_to_arg(parent, "broker_unix_socket_parent")?;
             args.extend([String::from("--dir"), parent_str]);
         }
-        args.extend([String::from("--bind"), sock_str.clone(), sock_str]);
+        args.extend([String::from("--ro-bind"), sock_str.clone(), sock_str]);
     }
 
-    // 5. 在可写工作区之上叠挂载只读锁（.git/hooks, .opencode, .claude, .codex）
-    for ro_lock in protected_ro_paths {
-        let lock_str = path_to_arg(ro_lock, "protected_workspace_subpath")?;
-        args.extend([String::from("--ro-bind"), lock_str.clone(), lock_str]);
+    // 6. 将全部遮蔽 tmpfs 挂载点重挂载为严格只读
+    for m_str in remount_ro_targets {
+        args.extend([String::from("--remount-ro"), m_str]);
     }
 
-    // 6. 设置工作目录与净化后的环境变量
+    // 7. 设置工作目录与净化后的环境变量
     let cwd = command.current_dir.as_ref().unwrap_or(&spec.workspace_dir);
     let cwd_str = path_to_arg(cwd, "current_dir")?;
     args.extend([String::from("--chdir"), cwd_str]);
@@ -427,7 +465,7 @@ pub fn execute_linux(
     cmd.env_clear();
     cmd.arg("-c")
         .arg("bpf=$1; bw=$2; shift 2; exec \"$bw\" --seccomp 9 \"$@\" 9< \"$bpf\"")
-        .arg("qz-bwrap-exec")
+        .arg("quetzalcoatl-bwrap-exec")
         .arg(seccomp_file.path())
         .arg(&bwrap_bin)
         .args(&bwrap_args);

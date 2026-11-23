@@ -444,6 +444,65 @@ fn ensure_no_symlinks_in_tree(root: &Path, depth: usize) -> Result<()> {
     Ok(())
 }
 
+/// 判断候选路径是否已被宿主私密遮蔽集合覆盖（当 `workspace_dir == $HOME` 时，避免将真实的 `~/.claude` / `~/.codex` 作为普通只读目录重新暴露）。
+#[must_use]
+pub(crate) fn is_covered_by_mask(candidate: &Path, masked_paths: &[PathBuf]) -> bool {
+    let canon_cand = fs::canonicalize(candidate).ok();
+    masked_paths.iter().any(|m| {
+        if candidate.starts_with(m) {
+            return true;
+        }
+        if let (Some(cc), Ok(cm)) = (&canon_cand, fs::canonicalize(m))
+            && cc.starts_with(&cm)
+        {
+            return true;
+        }
+        false
+    })
+}
+
+/// 纯无副作用计算可写工作区内需强制只读锁定的受保护路径列表 `(path, is_regular_file)`。
+///
+/// 兼容 Git Worktree 单文件 `.git`，且自动排除已被宿主私密目录遮蔽覆盖的路径。
+#[must_use]
+pub(crate) fn compute_protected_workspace_ro_targets(
+    spec: &SandboxExecSpec,
+) -> Vec<(PathBuf, bool)> {
+    if spec.mode != SandboxMode::WorkspaceWritable {
+        return Vec::new();
+    }
+    let masked = collect_collapsed_masked_paths(spec);
+    let ws = &spec.workspace_dir;
+    let mut out = Vec::with_capacity(4);
+
+    let dot_git = ws.join(".git");
+    if let Ok(git_meta) = fs::symlink_metadata(&dot_git)
+        && git_meta.file_type().is_file()
+    {
+        if !is_covered_by_mask(&dot_git, &masked) {
+            out.push((dot_git, true));
+        }
+    } else {
+        let dot_git_hooks = dot_git.join("hooks");
+        if !is_covered_by_mask(&dot_git_hooks, &masked) {
+            out.push((dot_git_hooks, false));
+        }
+    }
+
+    for rel in [".opencode", ".claude", ".codex"] {
+        let sub = ws.join(rel);
+        if is_covered_by_mask(&sub, &masked) {
+            continue;
+        }
+        let is_file = fs::symlink_metadata(&sub)
+            .map(|m| m.file_type().is_file())
+            .unwrap_or(false);
+        out.push((sub, is_file));
+    }
+
+    out
+}
+
 /// 校验工作区不与敏感密钥目录重叠、拒绝受保护配置/钩子路径上的符号链接，并准备只读锁定挂载列表。
 pub(crate) fn prepare_workspace_protections(
     spec: &SandboxExecSpec,
@@ -465,8 +524,9 @@ pub(crate) fn prepare_workspace_protections(
         detail: format!("规范化工作区路径失败 ({}): {e}", ws.display()),
     })?;
 
-    for masked in collect_collapsed_masked_paths(spec) {
-        let cmp_masked = fs::canonicalize(&masked).unwrap_or(masked);
+    let collapsed_masks = collect_collapsed_masked_paths(spec);
+    for masked in &collapsed_masks {
+        let cmp_masked = fs::canonicalize(masked).unwrap_or_else(|_| masked.clone());
         if canon_ws.starts_with(&cmp_masked) {
             return Err(QuetzalcoatlError::SandboxViolation {
                 detail: format!(
@@ -518,8 +578,9 @@ pub(crate) fn prepare_workspace_protections(
                     });
                 }
                 if git_meta.is_file() {
-                    // Git Worktree 模式下 .git 为普通文件，直接将其只读挂载防篡改 gitdir 指针
-                    ro_paths.push(dot_git);
+                    if !is_covered_by_mask(&dot_git, &collapsed_masks) {
+                        ro_paths.push(dot_git);
+                    }
                 } else if git_meta.is_dir() {
                     match fs::symlink_metadata(&dot_git_hooks) {
                         Ok(hooks_meta) => {
@@ -531,8 +592,10 @@ pub(crate) fn prepare_workspace_protections(
                                     ),
                                 });
                             }
-                            ensure_no_symlinks_in_tree(&dot_git_hooks, 0)?;
-                            ro_paths.push(dot_git_hooks);
+                            if !is_covered_by_mask(&dot_git_hooks, &collapsed_masks) {
+                                ensure_no_symlinks_in_tree(&dot_git_hooks, 0)?;
+                                ro_paths.push(dot_git_hooks);
+                            }
                         }
                         Err(_) => {
                             fs::create_dir(&dot_git_hooks).map_err(|e| {
@@ -544,7 +607,9 @@ pub(crate) fn prepare_workspace_protections(
                                 }
                             })?;
                             created_sentinel_dirs.push(dot_git_hooks.clone());
-                            ro_paths.push(dot_git_hooks);
+                            if !is_covered_by_mask(&dot_git_hooks, &collapsed_masks) {
+                                ro_paths.push(dot_git_hooks);
+                            }
                         }
                     }
                 }
@@ -562,18 +627,25 @@ pub(crate) fn prepare_workspace_protections(
                         ),
                     }
                 })?;
-                // 逆序登记以便 Drop 时先删子目录再删父目录
                 created_sentinel_dirs.push(dot_git_hooks.clone());
                 created_sentinel_dirs.push(dot_git);
-                ro_paths.push(dot_git_hooks);
+                if !is_covered_by_mask(&dot_git_hooks, &collapsed_masks) {
+                    ro_paths.push(dot_git_hooks);
+                }
             }
         }
 
         // 2. 保护 .opencode, .claude, .codex
+        // 注意：当 workspace == $HOME 时，~/.claude 与 ~/.codex 属于宿主私密目录，
+        // 绝不放入 ro_paths（避免以 --ro-bind 暴露真实订阅凭据），而交由最终遮蔽层挂载空只读 tmpfs！
         for rel in [".opencode", ".claude", ".codex"] {
             let sub = ws.join(rel);
+            let covered_by_secret_mask = is_covered_by_mask(&sub, &collapsed_masks);
             match fs::symlink_metadata(&sub) {
                 Ok(meta) => {
+                    if covered_by_secret_mask {
+                        continue;
+                    }
                     if meta.file_type().is_symlink() {
                         return Err(QuetzalcoatlError::SandboxViolation {
                             detail: format!("拒绝工作区受保护目录符号链接逃逸: {}", sub.display()),
@@ -587,7 +659,9 @@ pub(crate) fn prepare_workspace_protections(
                         detail: format!("创建受保护哨兵目录失败 ({}): {e}", sub.display()),
                     })?;
                     created_sentinel_dirs.push(sub.clone());
-                    ro_paths.push(sub);
+                    if !covered_by_secret_mask {
+                        ro_paths.push(sub);
+                    }
                 }
             }
         }

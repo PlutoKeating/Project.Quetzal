@@ -30,7 +30,7 @@ const B64_URL_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 const REDACTED_MARKER: &[u8] = b"[REDACTED]";
-const INTERNAL_JSON_PROXY_PATH: &str = "/__qz_broker/v1/proxy";
+const INTERNAL_JSON_PROXY_PATH: &str = "/__quetzalcoatl_broker/v1/proxy";
 const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
 const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CONCURRENT_IPC_CONNS: usize = 64;
@@ -880,20 +880,155 @@ impl CredentialBroker {
             }),
             BrokerEndpoint::LoopbackTcp(addr) => self.serve_loopback_tcp(addr),
             BrokerEndpoint::NamedPipe(pipe_name) => {
-                if !pipe_name.starts_with(r"\\.\pipe\quetzalcoatl-") {
-                    return Err(QuetzalcoatlError::SandboxViolation {
-                        detail: format!(
-                            "Windows NamedPipe 名称必须以 \\\\.\\pipe\\quetzalcoatl- 开头: {pipe_name}"
-                        ),
-                    });
+                validate_named_pipe_name(&pipe_name)?;
+                #[cfg(windows)]
+                {
+                    self.serve_named_pipe(pipe_name)
                 }
-                Err(QuetzalcoatlError::SandboxViolation {
-                    detail: String::from(
-                        "跨平台宿主建议在非 Windows 环境使用 UnixSocket 或 LoopbackTcp 端点",
-                    ),
-                })
+                #[cfg(not(windows))]
+                {
+                    Err(QuetzalcoatlError::SandboxViolation {
+                        detail: String::from(
+                            "Windows NamedPipe IPC 仅在 Windows 平台启用；当前宿主请使用 UnixSocket 或 LoopbackTcp",
+                        ),
+                    })
+                }
             }
         }
+    }
+
+    #[cfg(windows)]
+    fn serve_named_pipe(&self, pipe_name: String) -> Result<BrokerServerHandle> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::windows::named_pipe::ServerOptions;
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("初始化 Windows NamedPipe Tokio 运行时失败: {e}"),
+            })?;
+
+        let first_server = {
+            let _guard = rt.enter();
+            ServerOptions::new()
+                .first_pipe_instance(true)
+                .reject_remote_clients(true)
+                .create(&pipe_name)
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                    detail: format!("创建首发 Windows NamedPipe 失败 ({pipe_name}): {e}"),
+                })?
+        };
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_bg = Arc::clone(&stop);
+        let broker_clone = self.clone();
+        let pipe_name_bg = pipe_name.clone();
+        let inflight = Arc::new(AtomicUsize::new(0));
+
+        let join_handle = thread::spawn(move || {
+            rt.block_on(async move {
+                let mut current_server = first_server;
+                while !stop_bg.load(Ordering::Relaxed) {
+                    let wait_res =
+                        tokio::time::timeout(Duration::from_millis(25), current_server.connect())
+                            .await;
+                    let Ok(connect_res) = wait_res else {
+                        continue;
+                    };
+                    let mut connected_pipe = current_server;
+                    match ServerOptions::new()
+                        .reject_remote_clients(true)
+                        .create(&pipe_name_bg)
+                    {
+                        Ok(next) => current_server = next,
+                        Err(_) => break,
+                    }
+                    if connect_res.is_err() {
+                        continue;
+                    }
+                    if inflight.fetch_add(1, Ordering::AcqRel) >= MAX_CONCURRENT_IPC_CONNS {
+                        inflight.fetch_sub(1, Ordering::AcqRel);
+                        let busy = json_error_response(
+                            503,
+                            "STORAGE_ERROR",
+                            "broker concurrent request limit reached",
+                        );
+                        let wire = encode_http_response_bytes(&busy);
+                        let _ = connected_pipe.write_all(&wire).await;
+                        continue;
+                    }
+                    let broker_conn = broker_clone.clone();
+                    let inflight_conn = Arc::clone(&inflight);
+                    tokio::spawn(async move {
+                        let mut buf = Vec::with_capacity(2048);
+                        let mut chunk = [0u8; 2048];
+                        let mut parse_err: Option<QuetzalcoatlError> = None;
+                        let header_end_opt = loop {
+                            if let Some(pos) = find_header_end(&buf) {
+                                break Some(pos);
+                            }
+                            if buf.len() > MAX_HTTP_HEADER_BYTES {
+                                parse_err = Some(QuetzalcoatlError::CredentialRejected {
+                                    detail: String::from("HTTP 请求头超出 64KiB 上限"),
+                                });
+                                break None;
+                            }
+                            match connected_pipe.read(&mut chunk).await {
+                                Ok(0) | Err(_) => {
+                                    parse_err = Some(QuetzalcoatlError::CredentialRejected {
+                                        detail: String::from("NamedPipe 客户端提前关闭连接"),
+                                    });
+                                    break None;
+                                }
+                                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                            }
+                        };
+
+                        let resp = match header_end_opt {
+                            Some(header_end) => {
+                                match parse_http_request_head_and_initial_body(&buf, header_end) {
+                                    Ok((mut req, expected_len)) => {
+                                        while req.body.len() < expected_len {
+                                            let want =
+                                                (expected_len - req.body.len()).min(chunk.len());
+                                            match connected_pipe.read(&mut chunk[..want]).await {
+                                                Ok(0) | Err(_) => break,
+                                                Ok(n) => req.body.extend_from_slice(&chunk[..n]),
+                                            }
+                                        }
+                                        dispatch_parsed_wire_request(&broker_conn, req)
+                                    }
+                                    Err(err) => json_error_response(
+                                        400,
+                                        err.code().as_str(),
+                                        &err.to_string(),
+                                    ),
+                                }
+                            }
+                            None => {
+                                let detail = parse_err.as_ref().map_or_else(
+                                    || String::from("invalid request"),
+                                    ToString::to_string,
+                                );
+                                json_error_response(400, "CREDENTIAL_REJECTED", &detail)
+                            }
+                        };
+
+                        let out = encode_http_response_bytes(&resp);
+                        let _ = connected_pipe.write_all(&out).await;
+                        let _ = connected_pipe.flush().await;
+                        inflight_conn.fetch_sub(1, Ordering::AcqRel);
+                    });
+                }
+            });
+        });
+
+        Ok(BrokerServerHandle {
+            endpoint: BrokerEndpoint::NamedPipe(pipe_name),
+            stop,
+            join_handle: Some(join_handle),
+        })
     }
 
     #[cfg(unix)]
@@ -1085,6 +1220,28 @@ fn status_reason(status: u16) -> &'static str {
     }
 }
 
+fn validate_named_pipe_name(pipe_name: &str) -> Result<()> {
+    let Some(suffix) = pipe_name.strip_prefix(r"\\.\pipe\quetzalcoatl-") else {
+        return Err(QuetzalcoatlError::SandboxViolation {
+            detail: format!(
+                "Windows NamedPipe 名称必须以 \\\\.\\pipe\\quetzalcoatl- 开头: {pipe_name}"
+            ),
+        });
+    };
+    if suffix.is_empty()
+        || pipe_name.len() > 256
+        || suffix.contains('\\')
+        || suffix.contains('/')
+        || suffix.contains("..")
+        || suffix.bytes().any(|b| b <= 0x20 || b == 0x7f)
+    {
+        return Err(QuetzalcoatlError::SandboxViolation {
+            detail: format!("Windows NamedPipe 名称包含非法字符或超长: {pipe_name}"),
+        });
+    }
+    Ok(())
+}
+
 fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|w| w == b"\r\n\r\n")
 }
@@ -1096,31 +1253,10 @@ struct ParsedHttpWireRequest {
     body: Vec<u8>,
 }
 
-fn read_http_request_from_stream<R: Read>(stream: &mut R) -> Result<ParsedHttpWireRequest> {
-    let mut buf = Vec::with_capacity(2048);
-    let mut chunk = [0u8; 2048];
-    let header_end = loop {
-        if let Some(pos) = find_header_end(&buf) {
-            break pos;
-        }
-        if buf.len() > MAX_HTTP_HEADER_BYTES {
-            return Err(QuetzalcoatlError::CredentialRejected {
-                detail: String::from("HTTP 请求头超出 64KiB 上限"),
-            });
-        }
-        let n = stream
-            .read(&mut chunk)
-            .map_err(|e| QuetzalcoatlError::StorageError {
-                detail: format!("读取 IPC HTTP 请求失败: {e}"),
-            })?;
-        if n == 0 {
-            return Err(QuetzalcoatlError::CredentialRejected {
-                detail: String::from("客户端在完整发送 HTTP 请求头前关闭连接"),
-            });
-        }
-        buf.extend_from_slice(&chunk[..n]);
-    };
-
+fn parse_http_request_head_and_initial_body(
+    buf: &[u8],
+    header_end: usize,
+) -> Result<(ParsedHttpWireRequest, usize)> {
     let header_text = std::str::from_utf8(&buf[..header_end]).map_err(|_| {
         QuetzalcoatlError::CredentialRejected {
             detail: String::from("HTTP 请求头不是合法 UTF-8"),
@@ -1175,8 +1311,46 @@ fn read_http_request_from_stream<R: Read>(stream: &mut R) -> Result<ParsedHttpWi
         let already = (buf.len() - body_start).min(content_length);
         body.extend_from_slice(&buf[body_start..body_start + already]);
     }
-    while body.len() < content_length {
-        let want = (content_length - body.len()).min(chunk.len());
+
+    Ok((
+        ParsedHttpWireRequest {
+            method: String::from(method),
+            request_target: String::from(target),
+            headers,
+            body,
+        },
+        content_length,
+    ))
+}
+
+fn read_http_request_from_stream<R: Read>(stream: &mut R) -> Result<ParsedHttpWireRequest> {
+    let mut buf = Vec::with_capacity(2048);
+    let mut chunk = [0u8; 2048];
+    let header_end = loop {
+        if let Some(pos) = find_header_end(&buf) {
+            break pos;
+        }
+        if buf.len() > MAX_HTTP_HEADER_BYTES {
+            return Err(QuetzalcoatlError::CredentialRejected {
+                detail: String::from("HTTP 请求头超出 64KiB 上限"),
+            });
+        }
+        let n = stream
+            .read(&mut chunk)
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("读取 IPC HTTP 请求失败: {e}"),
+            })?;
+        if n == 0 {
+            return Err(QuetzalcoatlError::CredentialRejected {
+                detail: String::from("客户端在完整发送 HTTP 请求头前关闭连接"),
+            });
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    };
+
+    let (mut req, content_length) = parse_http_request_head_and_initial_body(&buf, header_end)?;
+    while req.body.len() < content_length {
+        let want = (content_length - req.body.len()).min(chunk.len());
         let n = stream
             .read(&mut chunk[..want])
             .map_err(|e| QuetzalcoatlError::StorageError {
@@ -1185,15 +1359,10 @@ fn read_http_request_from_stream<R: Read>(stream: &mut R) -> Result<ParsedHttpWi
         if n == 0 {
             break;
         }
-        body.extend_from_slice(&chunk[..n]);
+        req.body.extend_from_slice(&chunk[..n]);
     }
 
-    Ok(ParsedHttpWireRequest {
-        method: String::from(method),
-        request_target: String::from(target),
-        headers,
-        body,
-    })
+    Ok(req)
 }
 
 fn decode_chunked_body(raw: &[u8]) -> Result<Vec<u8>> {
@@ -1355,7 +1524,7 @@ fn read_http_response_from_stream<R: Read>(stream: &mut R) -> Result<UpstreamRes
     })
 }
 
-fn write_http_response_to_stream<W: Write>(stream: &mut W, resp: &BrokerProxyResponse) {
+fn encode_http_response_bytes(resp: &BrokerProxyResponse) -> Vec<u8> {
     let mut out = Vec::with_capacity(256 + resp.body.len());
     out.extend_from_slice(
         format!(
@@ -1379,51 +1548,42 @@ fn write_http_response_to_stream<W: Write>(stream: &mut W, resp: &BrokerProxyRes
     }
     out.extend_from_slice(b"Connection: close\r\n\r\n");
     out.extend_from_slice(&resp.body);
+    out
+}
+
+fn write_http_response_to_stream<W: Write>(stream: &mut W, resp: &BrokerProxyResponse) {
+    let out = encode_http_response_bytes(resp);
     let _ = stream.write_all(&out);
     let _ = stream.flush();
 }
 
-fn serve_single_http_stream<S: Read + Write>(broker: &CredentialBroker, stream: &mut S) {
-    let parsed_wire = match read_http_request_from_stream(stream) {
-        Ok(req) => req,
-        Err(err) => {
-            let resp = json_error_response(400, err.code().as_str(), &err.to_string());
-            write_http_response_to_stream(stream, &resp);
-            return;
-        }
-    };
-
+fn dispatch_parsed_wire_request(
+    broker: &CredentialBroker,
+    parsed_wire: ParsedHttpWireRequest,
+) -> BrokerProxyResponse {
     if parsed_wire.method.eq_ignore_ascii_case("POST")
         && parsed_wire.request_target == INTERNAL_JSON_PROXY_PATH
     {
-        match serde_json::from_slice::<BrokerProxyRequest>(&parsed_wire.body) {
-            Ok(proxy_req) => {
-                let resp = broker.handle_proxy_request(&proxy_req);
-                write_http_response_to_stream(stream, &resp);
-            }
-            Err(err) => {
-                let resp = json_error_response(400, "SERIALIZATION_ERROR", &err.to_string());
-                write_http_response_to_stream(stream, &resp);
-            }
-        }
-        return;
+        return match serde_json::from_slice::<BrokerProxyRequest>(&parsed_wire.body) {
+            Ok(proxy_req) => broker.handle_proxy_request(&proxy_req),
+            Err(err) => json_error_response(400, "SERIALIZATION_ERROR", &err.to_string()),
+        };
     }
 
-    // 原始 HTTP/1.1 代理模式：从 X-Qz-Capability-Token 或 Proxy-Authorization 提取能力令牌，
-    // 从完整 URL 请求行或 X-Qz-Target-Url 请求头提取目标 URL。
+    // 原始 HTTP/1.1 代理模式：遵守 AGENTS.md §2 全拼规范，仅从 X-Quetzalcoatl-Broker-Token /
+    // X-Quetzalcoatl-Capability-Token / Proxy-Authorization 提取能力令牌，
+    // 从完整 URL 请求行或 X-Quetzalcoatl-Target-Url 提取目标 URL。
     let mut cap_token = String::new();
     let mut header_target_url: Option<String> = None;
     for (k, v) in &parsed_wire.headers {
-        if k.eq_ignore_ascii_case("x-quetzalcoatl-capability-token")
-            || k.eq_ignore_ascii_case("x-qz-capability-token")
+        if k.eq_ignore_ascii_case("x-quetzalcoatl-broker-token")
+            || k.eq_ignore_ascii_case("x-quetzalcoatl-capability-token")
         {
             cap_token = v.trim().to_string();
         } else if cap_token.is_empty() && k.eq_ignore_ascii_case("proxy-authorization") {
             let stripped = v.trim().strip_prefix("Bearer ").unwrap_or(v.trim());
             cap_token = String::from(stripped);
-        } else if k.eq_ignore_ascii_case("x-quetzalcoatl-target-url")
-            || k.eq_ignore_ascii_case("x-qz-target-url")
-        {
+        } else if k.eq_ignore_ascii_case("x-quetzalcoatl-target-url") {
             header_target_url = Some(v.trim().to_string());
         }
     }
@@ -1435,13 +1595,11 @@ fn serve_single_http_stream<S: Read + Write>(broker: &CredentialBroker, stream: 
     {
         parsed_wire.request_target
     } else {
-        let resp = json_error_response(
+        return json_error_response(
             400,
             "CREDENTIAL_REJECTED",
-            "缺少 X-Qz-Target-Url 头或完整目标 URL",
+            "缺少 X-Quetzalcoatl-Target-Url 头或完整目标 URL",
         );
-        write_http_response_to_stream(stream, &resp);
-        return;
     };
 
     let proxy_req = BrokerProxyRequest {
@@ -1451,7 +1609,19 @@ fn serve_single_http_stream<S: Read + Write>(broker: &CredentialBroker, stream: 
         headers: parsed_wire.headers,
         body: parsed_wire.body,
     };
-    let resp = broker.handle_proxy_request(&proxy_req);
+    broker.handle_proxy_request(&proxy_req)
+}
+
+fn serve_single_http_stream<S: Read + Write>(broker: &CredentialBroker, stream: &mut S) {
+    let parsed_wire = match read_http_request_from_stream(stream) {
+        Ok(req) => req,
+        Err(err) => {
+            let resp = json_error_response(400, err.code().as_str(), &err.to_string());
+            write_http_response_to_stream(stream, &resp);
+            return;
+        }
+    };
+    let resp = dispatch_parsed_wire_request(broker, parsed_wire);
     write_http_response_to_stream(stream, &resp);
 }
 
@@ -1543,6 +1713,11 @@ impl BrokerServerHandle {
                     body: up.body,
                 })
             }
+            #[cfg(windows)]
+            BrokerEndpoint::NamedPipe(pipe_name) => {
+                send_request_named_pipe(pipe_name, raw_http.as_bytes(), &json_body)
+            }
+            #[cfg(not(windows))]
             BrokerEndpoint::NamedPipe(_) => Err(QuetzalcoatlError::SandboxViolation {
                 detail: String::from("NamedPipe 传输仅在原生 Windows 命名管道运行时启用"),
             }),
@@ -1571,6 +1746,89 @@ impl Drop for BrokerServerHandle {
     fn drop(&mut self) {
         self.stop_inner();
     }
+}
+
+#[cfg(windows)]
+fn send_request_named_pipe(
+    pipe_name: &str,
+    raw_http_head: &[u8],
+    json_body: &[u8],
+) -> Result<BrokerProxyResponse> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::windows::named_pipe::ClientOptions;
+
+    validate_named_pipe_name(pipe_name)?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("初始化 Windows NamedPipe 客户端运行时失败: {e}"),
+        })?;
+
+    let raw_response = rt.block_on(async {
+        let mut client = loop {
+            match ClientOptions::new().open(pipe_name) {
+                Ok(c) => break c,
+                // Windows ERROR_PIPE_BUSY == 231
+                Err(e) if e.raw_os_error() == Some(231) => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Err(e) => {
+                    return Err(QuetzalcoatlError::StorageError {
+                        detail: format!("打开 Windows NamedPipe ({pipe_name}) 失败: {e}"),
+                    });
+                }
+            }
+        };
+
+        client
+            .write_all(raw_http_head)
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("写入 NamedPipe 请求头失败: {e}"),
+            })?;
+        client
+            .write_all(json_body)
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("写入 NamedPipe 请求体失败: {e}"),
+            })?;
+        client
+            .flush()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("刷新 NamedPipe 请求失败: {e}"),
+            })?;
+
+        let mut buf = Vec::with_capacity(4096);
+        let mut chunk = [0u8; 4096];
+        loop {
+            if buf.len() > MAX_HTTP_HEADER_BYTES + MAX_HTTP_BODY_BYTES {
+                return Err(QuetzalcoatlError::SerializationError {
+                    detail: String::from("NamedPipe 响应超出安全体积上限"),
+                });
+            }
+            let n = client
+                .read(&mut chunk)
+                .await
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                    detail: format!("读取 NamedPipe 响应失败: {e}"),
+                })?;
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        Ok(buf)
+    })?;
+
+    let mut cursor = std::io::Cursor::new(raw_response);
+    let up = read_http_response_from_stream(&mut cursor)?;
+    Ok(BrokerProxyResponse {
+        status: up.status,
+        headers: up.headers,
+        body: up.body,
+    })
 }
 
 #[cfg(test)]

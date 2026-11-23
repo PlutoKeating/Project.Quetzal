@@ -274,7 +274,10 @@ fn quetzalcoatl_sandbox_exec_cli_enforces_isolation_via_dash_c_shell_convention(
         broker_unix_socket: None,
         extra_masked_paths: Vec::new(),
         extra_ro_mounts: Vec::new(),
-        extra_env: BTreeMap::from([(String::from("QZ_CUSTOM_FLAG"), String::from("enabled"))]),
+        extra_env: BTreeMap::from([(
+            String::from("QUETZALCOATL_CUSTOM_FLAG"),
+            String::from("enabled"),
+        )]),
         allowlisted_host_env: Vec::new(),
     };
     let spec_path = tmp.path().join("exec_spec.json");
@@ -287,7 +290,7 @@ fn quetzalcoatl_sandbox_exec_cli_enforces_isolation_via_dash_c_shell_convention(
             "if cat '{}' >/dev/null 2>&1; then echo SECRET_LEAKED; exit 42; fi\n",
             "if sh -c 'echo bad > \"{}/.opencode/opencode.json\"' 2>/dev/null; then echo OPENCODE_WRITABLE; exit 43; fi\n",
             "if sh -c 'echo bad > \"{}/.git/hooks/pre-commit\"' 2>/dev/null; then echo HOOK_WRITABLE; exit 44; fi\n",
-            "printf '%s' \"$QZ_CUSTOM_FLAG\" > '{}/cli_result.txt'\n",
+            "printf '%s' \"$QUETZALCOATL_CUSTOM_FLAG\" > '{}/cli_result.txt'\n",
             "echo CLI_WRAPPER_OK"
         ),
         qz_home.join("secrets/probe").display(),
@@ -297,7 +300,7 @@ fn quetzalcoatl_sandbox_exec_cli_enforces_isolation_via_dash_c_shell_convention(
     );
 
     let output = Command::new(bin)
-        .env("QZ_SANDBOX_SPEC", &spec_path)
+        .env("QUETZALCOATL_SANDBOX_SPEC", &spec_path)
         .env("ANTHROPIC_API_KEY", "sk-ant-host-leak-canary")
         .env("OPENAI_API_KEY", "sk-proj-host-leak-canary")
         .args(["-c", &shell_cmd])
@@ -691,7 +694,7 @@ fn credential_broker_blocks_off_origin_and_traversal_and_redacts_plaintext_and_b
                 "import socket\n",
                 "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n",
                 "s.connect({sock:?})\n",
-                "req = ('GET /v1/allowed/echo HTTP/1.1\\r\\nHost: localhost\\r\\nX-Qz-Capability-Token: {tok}\\r\\nX-Qz-Target-Url: http://127.0.0.1:{port}/v1/allowed/echo\\r\\nConnection: close\\r\\n\\r\\n').encode()\n",
+                "req = ('GET /v1/allowed/echo HTTP/1.1\\r\\nHost: localhost\\r\\nX-Quetzalcoatl-Broker-Token: {tok}\\r\\nX-Quetzalcoatl-Target-Url: http://127.0.0.1:{port}/v1/allowed/echo\\r\\nConnection: close\\r\\n\\r\\n').encode()\n",
                 "s.sendall(req)\n",
                 "chunks = []\n",
                 "while True:\n",
@@ -720,7 +723,7 @@ fn credential_broker_blocks_off_origin_and_traversal_and_redacts_plaintext_and_b
         // 同时验证原生 UnixStream 直连攻击者 URL 返回 403
         let mut raw_uds = UnixStream::connect(&sock_path)?;
         let evil_http = format!(
-            "GET / HTTP/1.1\r\nHost: localhost\r\nX-Qz-Capability-Token: {}\r\nX-Qz-Target-Url: http://127.0.0.1:{attacker_port}/steal\r\nConnection: close\r\n\r\n",
+            "GET / HTTP/1.1\r\nHost: localhost\r\nX-Quetzalcoatl-Broker-Token: {}\r\nX-Quetzalcoatl-Target-Url: http://127.0.0.1:{attacker_port}/steal\r\nConnection: close\r\n\r\n",
             grant.capability_token
         );
         raw_uds.write_all(evil_http.as_bytes())?;
@@ -904,8 +907,9 @@ fn loopback_tcp_broker_rejects_wildcard_bind_and_scrubs_chunked_secret_echoes() 
             let mut buf = [0u8; 2048];
             let n = stream.read(&mut buf).unwrap_or(0);
             let req_str = String::from_utf8_lossy(&buf[..n]).to_ascii_lowercase();
-            // 确认代理内部控制头 X-Qz-Capability-Token 绝未泄漏给上游，且自定义 x-api-key 已正确注入
-            let cap_stripped = !req_str.contains("x-qz-capability-token");
+            // 确认代理内部控制头 X-Quetzalcoatl-* 与防御性拦截头 X-Qz-* 均未泄漏给上游，且自定义 x-api-key 已正确注入
+            let cap_stripped = !req_str.contains("x-quetzalcoatl-broker-token")
+                && !req_str.contains("x-qz-legacy-header");
             let key_injected =
                 req_str.contains(&format!("x-api-key: {}", secret_owned.to_ascii_lowercase()));
 
@@ -943,10 +947,16 @@ fn loopback_tcp_broker_rejects_wildcard_bind_and_scrubs_chunked_secret_echoes() 
         capability_token: grant.capability_token.clone(),
         method: String::from("POST"),
         target_url: format!("http://127.0.0.1:{upstream_port}/v1/messages"),
-        headers: vec![(
-            String::from("X-Qz-Capability-Token"),
-            grant.capability_token.clone(),
-        )],
+        headers: vec![
+            (
+                String::from("X-Quetzalcoatl-Broker-Token"),
+                grant.capability_token.clone(),
+            ),
+            (
+                String::from("X-Qz-Legacy-Header"),
+                String::from("must-also-be-stripped"),
+            ),
+        ],
         body: b"{}".to_vec(),
     })?;
     assert_eq!(resp.status, 200);
@@ -979,5 +989,431 @@ fn loopback_tcp_broker_rejects_wildcard_bind_and_scrubs_chunked_secret_echoes() 
     server.shutdown()?;
     stop.store(true, Ordering::Relaxed);
     let _ = upstream_handle.join();
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn regression_critical_1_workspace_at_user_home_masks_all_secrets_and_mounts_nested_broker_socket()
+-> TestResult {
+    let base = PathBuf::from("/tmp/opencode");
+    let root = if base.is_dir() {
+        base
+    } else {
+        std::env::temp_dir()
+    };
+    let short_dir = root.join(format!("c1_{}", &Uuid::new_v4().simple().to_string()[..8]));
+    fs::create_dir_all(&short_dir)?;
+    let tmp = TempDirGuard { path: short_dir };
+    let fake_user_home = tmp.path().join("home");
+    let qz_home = fake_user_home.join(".quetzalcoatl");
+    fs::create_dir_all(qz_home.join("secrets"))?;
+    fs::create_dir_all(qz_home.join("run"))?;
+    fs::create_dir_all(fake_user_home.join(".ssh"))?;
+    fs::create_dir_all(fake_user_home.join(".claude"))?;
+    fs::create_dir_all(fake_user_home.join(".codex"))?;
+
+    fs::write(qz_home.join("secrets/probe"), "HOME_QZ_SECRET")?;
+    fs::write(fake_user_home.join(".ssh/id_ed25519"), "HOME_SSH_SECRET")?;
+    fs::write(
+        fake_user_home.join(".claude/credentials.json"),
+        "{\"refresh_token\":\"HOME_CLAUDE_RT\"}",
+    )?;
+    fs::write(
+        fake_user_home.join(".codex/auth.json"),
+        "{\"refresh_token\":\"HOME_CODEX_RT\"}",
+    )?;
+
+    // 启动模拟上游与位于 $QUETZALCOATL_HOME/run/broker.sock 内部的真实 CredentialBroker UnixSocket
+    let upstream_listener = TcpListener::bind("127.0.0.1:0")?;
+    upstream_listener.set_nonblocking(true)?;
+    let upstream_port = upstream_listener.local_addr()?.port();
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_bg = Arc::clone(&stop);
+    let upstream_thread = thread::spawn(move || {
+        while !stop_bg.load(Ordering::Relaxed) {
+            let Ok((mut stream, _)) = upstream_listener.accept() else {
+                thread::sleep(std::time::Duration::from_millis(5));
+                continue;
+            };
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let body = "{\"status\":\"ok\",\"echo\":\"sk-home-broker-secret\"}";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+
+    let broker = CredentialBroker::new();
+    let grant = broker.register_scoped_secret(ScopedSecretRegistration {
+        secret_value: String::from("sk-home-broker-secret"),
+        allowed_origins: vec![OriginPathRule::new(
+            "http",
+            "127.0.0.1",
+            upstream_port,
+            "/v1/ping",
+        )?],
+        injection: SecretInjection::BearerHeader,
+    })?;
+    let sock_path = qz_home.join("run/broker.sock");
+    let server = broker.serve_ipc(BrokerEndpoint::UnixSocket(sock_path.clone()))?;
+
+    let mut cfg = SandboxConfig::new(&qz_home);
+    cfg.user_home = Some(fake_user_home.clone());
+    let manager = SandboxManager::new(cfg);
+
+    // 关键边界：workspace_dir 恰好等于 fake_user_home（所有私密目录的祖先目录）！
+    let ticket = manager.mint_ticket(TicketRequest {
+        run_id: RunId::new_v4(),
+        workspace_dir: fake_user_home.clone(),
+        mode: SandboxMode::WorkspaceWritable,
+        network_policy: NetworkPolicy::Isolated,
+        ttl_ms: Some(30_000),
+        now_wall_ms: 200_000,
+    })?;
+
+    let py_script = format!(
+        concat!(
+            "import socket\n",
+            "for secret_path in [{p1:?}, {p2:?}, {p3:?}, {p4:?}]:\n",
+            "    try:\n",
+            "        open(secret_path, 'rb').read()\n",
+            "        raise SystemExit('LEAKED_READ:' + secret_path)\n",
+            "    except OSError:\n",
+            "        pass\n",
+            "for ro_dir in [{d1:?}, {d2:?}, {d3:?}, {d4:?}, {d5:?}, {d6:?}, {d7:?}]:\n",
+            "    try:\n",
+            "        open(ro_dir + '/tamper', 'w').write('x')\n",
+            "        raise SystemExit('LEAKED_WRITE:' + ro_dir)\n",
+            "    except OSError:\n",
+            "        pass\n",
+            "open({note:?}, 'w').write('home_workspace_ok')\n",
+            "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n",
+            "s.connect({sock:?})\n",
+            "req = ('GET /v1/ping HTTP/1.1\\r\\nHost: localhost\\r\\nX-Quetzalcoatl-Broker-Token: {tok}\\r\\nX-Quetzalcoatl-Target-Url: http://127.0.0.1:{port}/v1/ping\\r\\nConnection: close\\r\\n\\r\\n').encode()\n",
+            "s.sendall(req)\n",
+            "reply = b''\n",
+            "while True:\n",
+            "    c = s.recv(4096)\n",
+            "    if not c: break\n",
+            "    reply += c\n",
+            "text = reply.decode()\n",
+            "assert '200 OK' in text, text\n",
+            "assert '[REDACTED]' in text and 'sk-home-broker-secret' not in text, text\n",
+            "print('HOME_WORKSPACE_MASK_AND_BROKER_OK')\n"
+        ),
+        p1 = qz_home.join("secrets/probe").display().to_string(),
+        p2 = fake_user_home.join(".ssh/id_ed25519").display().to_string(),
+        p3 = fake_user_home
+            .join(".claude/credentials.json")
+            .display()
+            .to_string(),
+        p4 = fake_user_home
+            .join(".codex/auth.json")
+            .display()
+            .to_string(),
+        d1 = qz_home.display().to_string(),
+        d2 = qz_home.join("run").display().to_string(),
+        d3 = fake_user_home.join(".ssh").display().to_string(),
+        d4 = fake_user_home.join(".claude").display().to_string(),
+        d5 = fake_user_home.join(".codex").display().to_string(),
+        d6 = fake_user_home.join(".opencode").display().to_string(),
+        d7 = fake_user_home.join(".git/hooks").display().to_string(),
+        note = fake_user_home
+            .join("project_note.txt")
+            .display()
+            .to_string(),
+        sock = sock_path.display().to_string(),
+        tok = grant.capability_token,
+        port = upstream_port,
+    );
+
+    let mut cmd = SandboxCommand::new("/usr/bin/python3", vec![String::from("-c"), py_script]);
+    cmd.broker_unix_socket = Some(sock_path);
+    let out = manager.execute_with_ticket(&ticket, &cmd, 200_100)?;
+    assert!(
+        out.success(),
+        "workspace == $HOME 时密钥遮蔽或嵌套 Broker Socket 失败: code={}, stdout={}, stderr={}",
+        out.exit_code,
+        out.stdout_lossy(),
+        out.stderr_lossy()
+    );
+    assert_eq!(
+        out.stdout_lossy().trim(),
+        "HOME_WORKSPACE_MASK_AND_BROKER_OK"
+    );
+    assert_eq!(
+        fs::read_to_string(fake_user_home.join("project_note.txt"))?,
+        "home_workspace_ok"
+    );
+
+    server.shutdown()?;
+    stop.store(true, Ordering::Relaxed);
+    let _ = upstream_thread.join();
+    Ok(())
+}
+
+#[test]
+fn regression_important_1_macos_seatbelt_last_match_canonical_paths_and_worktree_gitfile_locks()
+-> TestResult {
+    let tmp = TempDirGuard::new("quetzalcoatl_imp1_worktree")?;
+    let wt_ws = tmp.path().join("wt_repo");
+    fs::create_dir_all(wt_ws.join(".opencode"))?;
+    // Git Worktree 中 .git 为普通文件
+    fs::write(
+        wt_ws.join(".git"),
+        "gitdir: /Users/alice/main/.git/worktrees/wt1\n",
+    )?;
+
+    // 1. workspace == user_home 时，Seatbelt 必须在 allow file-write* (subpath "<ws>") 之后输出 deny file-read* file-write* 规则（Last-match-wins）
+    let home_ws_spec = SandboxExecSpec {
+        quetzalcoatl_home: PathBuf::from("/Users/alice/.quetzalcoatl"),
+        user_home: Some(PathBuf::from("/Users/alice")),
+        workspace_dir: PathBuf::from("/Users/alice"),
+        mode: SandboxMode::WorkspaceWritable,
+        network_policy: NetworkPolicy::AllowHostNetwork,
+        verifier_suite_dir: None,
+        broker_unix_socket: Some(PathBuf::from("/Users/alice/.quetzalcoatl/run/broker.sock")),
+        extra_masked_paths: Vec::new(),
+        extra_ro_mounts: Vec::new(),
+        extra_env: BTreeMap::new(),
+        allowlisted_host_env: Vec::new(),
+    };
+    let sbpl_home = macos::generate_seatbelt_profile(&home_ws_spec)?;
+    let allow_ws_pos = sbpl_home
+        .find("(allow file-write* (subpath \"/Users/alice\"))")
+        .ok_or("缺少 workspace allow 规则")?;
+    let deny_secrets_pos = sbpl_home
+        .rfind("(deny file-read* file-write* (subpath \"/Users/alice/.quetzalcoatl/secrets\"))")
+        .ok_or("缺少 secrets deny 规则")?;
+    let allow_broker_pos = sbpl_home
+        .rfind("(allow file-read* file-write* (literal \"/Users/alice/.quetzalcoatl/run/broker.sock\"))")
+        .ok_or("缺少嵌套 broker_unix_socket literal 放行规则")?;
+    assert!(
+        deny_secrets_pos > allow_ws_pos,
+        "Seatbelt last-match-wins 要求宿主密钥 deny 规则必须排在 workspace allow 规则之后: \n{sbpl_home}"
+    );
+    assert!(
+        allow_broker_pos > deny_secrets_pos,
+        "嵌套在被遮蔽目录内的单文件 broker_unix_socket literal 放行必须位于父目录遮蔽之后: \n{sbpl_home}"
+    );
+
+    // 2. /tmp/clean_ws 洁净室模式必须同时输出 /private/tmp/clean_ws 写拒绝，压制前序 /private/tmp 临时可写规则
+    let clean_tmp_spec = SandboxExecSpec {
+        quetzalcoatl_home: PathBuf::from("/tmp/qz_home"),
+        user_home: Some(PathBuf::from("/Users/alice")),
+        workspace_dir: PathBuf::from("/tmp/clean_ws"),
+        mode: SandboxMode::CleanRoomReadOnly,
+        network_policy: NetworkPolicy::Isolated,
+        verifier_suite_dir: Some(PathBuf::from("/var/folders/qz/suite")),
+        broker_unix_socket: None,
+        extra_masked_paths: Vec::new(),
+        extra_ro_mounts: Vec::new(),
+        extra_env: BTreeMap::new(),
+        allowlisted_host_env: Vec::new(),
+    };
+    let sbpl_clean_tmp = macos::generate_seatbelt_profile(&clean_tmp_spec)?;
+    let allow_private_tmp_pos = sbpl_clean_tmp
+        .find("/private/tmp")
+        .ok_or("缺少 /private/tmp 基础规则")?;
+    let deny_private_tmp_ws_pos = sbpl_clean_tmp
+        .rfind("(deny file-write* (subpath \"/private/tmp/clean_ws\"))")
+        .ok_or("缺少规范化 /private/tmp/clean_ws 洁净室只读拒绝规则")?;
+    assert!(
+        deny_private_tmp_ws_pos > allow_private_tmp_pos,
+        "/private/tmp/clean_ws 只读拒绝必须覆盖 /private/tmp 写放行: \n{sbpl_clean_tmp}"
+    );
+    assert!(
+        sbpl_clean_tmp.contains("(deny file-write* (subpath \"/private/var/folders/qz/suite\"))"),
+        "/var 路径必须同步输出 /private/var 规范化只读保护: \n{sbpl_clean_tmp}"
+    );
+    assert!(
+        sbpl_clean_tmp
+            .rfind("(deny file-read* file-write* (subpath \"/private/tmp/qz_home\"))")
+            .is_some(),
+        "/tmp 下的 quetzalcoatl_home 必须同步遮蔽 /private/tmp/qz_home: \n{sbpl_clean_tmp}"
+    );
+
+    // 3. Git Worktree 单文件 .git 在 macOS Seatbelt 中使用 (literal ...) 保护，在 Windows 计划中生成 DenyWrite ACL
+    let wt_spec = SandboxExecSpec {
+        quetzalcoatl_home: PathBuf::from("/Users/alice/.quetzalcoatl"),
+        user_home: Some(PathBuf::from("/Users/alice")),
+        workspace_dir: wt_ws.clone(),
+        mode: SandboxMode::WorkspaceWritable,
+        network_policy: NetworkPolicy::AllowHostNetwork,
+        verifier_suite_dir: None,
+        broker_unix_socket: None,
+        extra_masked_paths: Vec::new(),
+        extra_ro_mounts: Vec::new(),
+        extra_env: BTreeMap::new(),
+        allowlisted_host_env: Vec::new(),
+    };
+    let sbpl_wt = macos::generate_seatbelt_profile(&wt_spec)?;
+    let expected_git_literal = format!(
+        "(deny file-write* (literal \"{}\"))",
+        wt_ws.join(".git").display()
+    );
+    assert!(
+        sbpl_wt.contains(&expected_git_literal),
+        "Git Worktree 单文件 .git 必须使用 Seatbelt literal 规则锁定: \n{sbpl_wt}"
+    );
+
+    let win_wt_plan = windows::build_windows_sandbox_plan(
+        &wt_spec,
+        &SandboxCommand::new("cmd.exe", vec![String::from("/c"), String::from("ver")]),
+        true,
+    )?;
+    assert!(
+        win_wt_plan.acl_entries.iter().any(|e| {
+            e.path == wt_ws.join(".git") && e.access == WindowsAccessDisposition::DenyWrite
+        }),
+        "Windows 沙箱计划必须对 Git Worktree 单文件 .git 生成 DenyWrite ACL: {:?}",
+        win_wt_plan.acl_entries
+    );
+
+    Ok(())
+}
+
+#[test]
+fn regression_important_3_public_build_bwrap_args_locks_protected_subpaths_and_orders_masks_last()
+-> TestResult {
+    let tmp = TempDirGuard::new("quetzalcoatl_imp3_bwrap_args")?;
+    let fake_home = tmp.path().join("home_alice");
+    let qz_home = fake_home.join(".quetzalcoatl");
+    let repo_ws = tmp.path().join("repo_ws");
+    fs::create_dir_all(qz_home.join("secrets"))?;
+    fs::create_dir_all(fake_home.join(".claude"))?;
+    fs::create_dir_all(fake_home.join(".codex"))?;
+    fs::create_dir_all(repo_ws.join(".opencode"))?;
+    fs::write(
+        repo_ws.join(".git"),
+        "gitdir: /tmp/main/.git/worktrees/w1\n",
+    )?;
+
+    // 1. 直接调用公开 API linux::build_bwrap_args 必须默认包含受保护路径只读锁（含单文件 .git 与 .opencode）
+    let repo_spec = SandboxExecSpec {
+        quetzalcoatl_home: qz_home.clone(),
+        user_home: Some(fake_home.clone()),
+        workspace_dir: repo_ws.clone(),
+        mode: SandboxMode::WorkspaceWritable,
+        network_policy: NetworkPolicy::AllowHostNetwork,
+        verifier_suite_dir: None,
+        broker_unix_socket: None,
+        extra_masked_paths: Vec::new(),
+        extra_ro_mounts: Vec::new(),
+        extra_env: BTreeMap::new(),
+        allowlisted_host_env: Vec::new(),
+    };
+    let (_bin, args_repo) =
+        linux::build_bwrap_args(&repo_spec, &SandboxCommand::shell("echo check"))?;
+    let opencode_str = repo_ws.join(".opencode").display().to_string();
+    let gitfile_str = repo_ws.join(".git").display().to_string();
+    assert!(
+        args_repo
+            .windows(3)
+            .any(|w| w[0] == "--ro-bind" && w[1] == opencode_str && w[2] == opencode_str),
+        "公开 build_bwrap_args 必须包含 .opencode 只读挂载: {args_repo:?}"
+    );
+    assert!(
+        args_repo
+            .windows(3)
+            .any(|w| w[0] == "--ro-bind" && w[1] == gitfile_str && w[2] == gitfile_str),
+        "公开 build_bwrap_args 必须包含单文件 .git 只读挂载: {args_repo:?}"
+    );
+
+    // 2. 当 workspace_dir == fake_home 时：--tmpfs 遮蔽必须位于 --bind <fake_home> 之后，且不得用 --ro-bind 重新暴露 .claude/.codex
+    let mut home_spec = repo_spec;
+    home_spec.workspace_dir = fake_home.clone();
+    let (_bin2, args_home) =
+        linux::build_bwrap_args(&home_spec, &SandboxCommand::shell("echo check"))?;
+    let home_str = fake_home.display().to_string();
+    let claude_str = fake_home.join(".claude").display().to_string();
+    let bind_ws_idx = args_home
+        .windows(3)
+        .position(|w| w[0] == "--bind" && w[1] == home_str && w[2] == home_str)
+        .ok_or("缺少 --bind workspace 参数")?;
+    let mask_claude_idx = args_home
+        .windows(2)
+        .position(|w| w[0] == "--tmpfs" && w[1] == claude_str)
+        .ok_or("缺少 --tmpfs ~/.claude 遮蔽参数")?;
+    assert!(
+        mask_claude_idx > bind_ws_idx,
+        "宿主密钥 --tmpfs 遮蔽必须位于 --bind workspace 之后: {args_home:?}"
+    );
+    assert!(
+        !args_home
+            .windows(3)
+            .any(|w| w[0] == "--ro-bind" && w[1] == claude_str),
+        "workspace == $HOME 时严禁通过 --ro-bind 重新暴露真实的 ~/.claude: {args_home:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn regression_important_4_agents_md_full_spelling_env_and_headers_enforced() -> TestResult {
+    // 1. CLI --help 仅公开全拼 QUETZALCOATL_SANDBOX_* 环境变量，不暴露 QZ_SANDBOX_* 简写
+    let bin = env!("CARGO_BIN_EXE_quetzalcoatl-sandbox-exec");
+    let help_out = Command::new(bin).arg("--help").output()?;
+    assert!(help_out.status.success());
+    let help_text = String::from_utf8_lossy(&help_out.stdout);
+    assert!(
+        help_text.contains("QUETZALCOATL_SANDBOX_SPEC"),
+        "CLI --help 必须声明全拼 QUETZALCOATL_SANDBOX_SPEC: {help_text}"
+    );
+    assert!(
+        !help_text.contains("QZ_SANDBOX_"),
+        "CLI --help 不得包含违反 AGENTS.md §2 的 QZ_SANDBOX_ 简写: {help_text}"
+    );
+
+    // 2. NamedPipe 端点校验全拼前缀且在非 Windows 宿主返回清晰平台不支持错误
+    let broker = CredentialBroker::new();
+    let bad_pipe_err = broker
+        .serve_ipc(BrokerEndpoint::NamedPipe(String::from(
+            r"\\.\pipe\qz-short-invalid",
+        )))
+        .err()
+        .ok_or("简写管道前缀必须被拒绝")?;
+    assert_eq!(bad_pipe_err.code(), ErrorCode::SandboxViolation);
+
+    #[cfg(not(windows))]
+    {
+        let non_win_err = broker
+            .serve_ipc(BrokerEndpoint::NamedPipe(String::from(
+                r"\\.\pipe\quetzalcoatl-broker-unit",
+            )))
+            .err()
+            .ok_or("非 Windows 平台调用 NamedPipe 应返回明确不支持错误")?;
+        assert_eq!(non_win_err.code(), ErrorCode::SandboxViolation);
+    }
+
+    // 3. 原始 HTTP 代理不再接受旧简写头 X-Qz-Capability-Token 作为有效鉴权凭据（返回 401）
+    let grant = broker.register_scoped_secret(ScopedSecretRegistration {
+        secret_value: String::from("sk-full-spelling-test"),
+        allowed_origins: vec![OriginPathRule::new("http", "127.0.0.1", 9, "/v1")?],
+        injection: SecretInjection::BearerHeader,
+    })?;
+    let server = broker.serve_ipc(BrokerEndpoint::LoopbackTcp("127.0.0.1:0".parse()?))?;
+    let bound = server.loopback_addr().ok_or("缺少回环监听地址")?;
+
+    let mut tcp = std::net::TcpStream::connect(bound)?;
+    let legacy_req = format!(
+        "GET /v1 HTTP/1.1\r\nHost: localhost\r\nX-Qz-Capability-Token: {}\r\nX-Quetzalcoatl-Target-Url: http://127.0.0.1:9/v1\r\nConnection: close\r\n\r\n",
+        grant.capability_token
+    );
+    tcp.write_all(legacy_req.as_bytes())?;
+    let mut reply = String::new();
+    tcp.read_to_string(&mut reply)?;
+    assert!(
+        reply.starts_with("HTTP/1.1 401"),
+        "简写头 X-Qz-Capability-Token 不得再被接受为鉴权令牌，实际响应: {reply}"
+    );
+
+    server.shutdown()?;
     Ok(())
 }

@@ -22,8 +22,8 @@ Usage:
   quetzalcoatl-sandbox-exec [OPTIONS] -- <program> [args...]
 
 Options:
-  --spec <json_path>          Load SandboxExecSpec JSON (or set QZ_SANDBOX_SPEC / QZ_SANDBOX_SPEC_JSON)
-  --workspace <dir>           Workspace directory (or QZ_SANDBOX_WORKSPACE; defaults to cwd)
+  --spec <json_path>          Load SandboxExecSpec JSON (or set QUETZALCOATL_SANDBOX_SPEC / QUETZALCOATL_SANDBOX_SPEC_JSON)
+  --workspace <dir>           Workspace directory (or QUETZALCOATL_SANDBOX_WORKSPACE; defaults to cwd)
   --home <dir>                Quetzalcoatl home directory (or QUETZALCOATL_HOME)
   --clean-room                Mount workspace strictly read-only and isolate network
   --verifier-suite <dir>      Mount kernel-locked verifier suite directory read-only
@@ -53,24 +53,23 @@ fn load_base_spec(explicit_spec_path: Option<PathBuf>) -> Result<Option<SandboxE
         return Ok(Some(parsed));
     }
 
-    if let Some(inline_json) = std::env::var_os("QUETZALCOATL_SANDBOX_SPEC_JSON")
-        .or_else(|| std::env::var_os("QZ_SANDBOX_SPEC_JSON"))
-    {
+    if let Some(inline_json) = std::env::var_os("QUETZALCOATL_SANDBOX_SPEC_JSON") {
         let s = inline_json.to_string_lossy();
         let parsed = serde_json::from_str::<SandboxExecSpec>(&s).map_err(|e| {
             QuetzalcoatlError::SerializationError {
-                detail: format!("解析沙箱内联规格 JSON 失败: {e}"),
+                detail: format!("解析 QUETZALCOATL_SANDBOX_SPEC_JSON 失败: {e}"),
             }
         })?;
         return Ok(Some(parsed));
     }
 
-    if let Some(env_path_os) = std::env::var_os("QUETZALCOATL_SANDBOX_SPEC")
-        .or_else(|| std::env::var_os("QZ_SANDBOX_SPEC"))
-    {
+    if let Some(env_path_os) = std::env::var_os("QUETZALCOATL_SANDBOX_SPEC") {
         let path = PathBuf::from(env_path_os);
         let raw = fs::read(&path).map_err(|e| QuetzalcoatlError::StorageError {
-            detail: format!("读取沙箱规格环境变量文件失败 ({}): {e}", path.display()),
+            detail: format!(
+                "读取 QUETZALCOATL_SANDBOX_SPEC 文件失败 ({}): {e}",
+                path.display()
+            ),
         })?;
         let parsed = serde_json::from_slice::<SandboxExecSpec>(&raw).map_err(|e| {
             QuetzalcoatlError::SerializationError {
@@ -195,9 +194,7 @@ fn parse_cli(raw_args: Vec<String>) -> Result<CliOutcome> {
         None => {
             let ws = match workspace_override.clone() {
                 Some(w) => w,
-                None => match std::env::var_os("QUETZALCOATL_SANDBOX_WORKSPACE")
-                    .or_else(|| std::env::var_os("QZ_SANDBOX_WORKSPACE"))
-                {
+                None => match std::env::var_os("QUETZALCOATL_SANDBOX_WORKSPACE") {
                     Some(env_ws) => PathBuf::from(env_ws),
                     None => std::env::current_dir().map_err(|e| {
                         QuetzalcoatlError::SandboxViolation {
