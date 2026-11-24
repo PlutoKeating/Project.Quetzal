@@ -1,27 +1,28 @@
 //! 按需本地模型包（`libonnxruntime` / SenseVoice / Kokoro / 多语种嵌入）：
-//! Ed25519 验签 + BLAKE3 完整性 + 原子落盘 + 双轴零遥测。
+//! Ed25519 验签 + BLAKE3 流式完整性 + 原子落盘 + 双轴零遥测。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 use quetzalcoatl_types::{QuetzalcoatlError, Result};
 
+pub use crate::hybrid_search::EmbeddingVersionSink;
+
 /// 关闭 ONNX Runtime POSIX 1DS 遥测的环境变量（Windows ETW 由 API 侧关闭）。
 pub const ORT_DISABLE_TELEMETRY: &str = "ORT_DISABLE_TELEMETRY";
-/// 动态 `ort` 初始化必须使用的 API 形态（双杀第二轴）。
-pub const ORT_TELEMETRY_API_CALL: &str =
-    "ort::init_from(model_or_library_path).with_telemetry(false)";
 
 /// 清单 schema 版本。
 pub const MANIFEST_SCHEMA: u32 = 1;
 /// 清单文件名。
 pub const MANIFEST_FILE: &str = "manifest.json";
+/// 流式校验读写块大小（64 KiB）。
+const HASH_CHUNK_BYTES: usize = 64 * 1024;
 
 /// 模型包类别。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -71,6 +72,9 @@ pub struct PackManifest {
     pub kind: AiPackKind,
     pub version: String,
     pub model_id: String,
+    /// 嵌入模型维度（仅 `kind = embedding` 使用；其余为 `None`）。
+    #[serde(default)]
+    pub embedding_dimensions: Option<usize>,
     pub files: Vec<PackFileEntry>,
     /// Ed25519 签名（十六进制，覆盖 [`PackManifest::canonical_bytes`]）。
     pub signature: String,
@@ -91,6 +95,7 @@ struct CanonicalManifest<'a> {
     kind: AiPackKind,
     version: &'a str,
     model_id: &'a str,
+    embedding_dimensions: Option<usize>,
     files: Vec<CanonicalFile<'a>>,
 }
 
@@ -110,9 +115,17 @@ impl PackManifest {
             kind,
             version: version.into(),
             model_id: model_id.into(),
+            embedding_dimensions: None,
             files,
             signature: String::new(),
         }
+    }
+
+    /// 声明嵌入维度（仅 `Embedding` 包），签名覆盖该字段。
+    #[must_use]
+    pub fn with_embedding_dimensions(mut self, dimensions: usize) -> Self {
+        self.embedding_dimensions = Some(dimensions);
+        self
     }
 
     /// 参与签名的确定性规范化字节（文件按路径排序，字段顺序固定）。
@@ -134,6 +147,7 @@ impl PackManifest {
             kind: self.kind,
             version: &self.version,
             model_id: &self.model_id,
+            embedding_dimensions: self.embedding_dimensions,
             files,
         };
         serde_json::to_vec(&canonical).map_err(|error| QuetzalcoatlError::SerializationError {
@@ -200,25 +214,139 @@ impl InstalledPack {
     }
 }
 
-/// 动态 `ort` 初始化计划：双轴关闭遥测的显式声明。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OrtInitPlan {
-    /// 环境轴：`ORT_DISABLE_TELEMETRY` 必须为 `"1"`。
-    pub disable_telemetry_env: &'static str,
-    /// API 轴：必须调用 `with_telemetry(false)`。
-    pub api_call: &'static str,
-    /// 该调用仅在对应 Cargo feature 开启时启用。
-    pub feature_gate: &'static str,
+/// 进程内验签/哈希统计（供回归测试与可观测性使用）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PackVerificationStats {
+    /// 实际执行完整验签 + BLAKE3 流式校验的次数。
+    pub verifications: u64,
+    /// 命中 `(pack, version, mtime, size)` 缓存而跳过的次数。
+    pub cache_hits: u64,
 }
 
-impl Default for OrtInitPlan {
-    fn default() -> Self {
+/// 遥测开关状态。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TelemetryStatus {
+    /// 遥测仍开启。
+    Enabled,
+    /// 遥测已关闭。
+    Disabled,
+}
+
+/// 宿主对动态 `ort` 运行时的桥接（唯一需要 `unsafe` 的 C++ 边界由 `ort` crate 承担）。
+pub trait OrtRuntimeBridge {
+    /// 使用给定共享库路径初始化 ORT；`disable_telemetry` 为真时必须调用
+    /// `with_telemetry(false)`，并返回初始化后**实际生效**的遥测状态。
+    fn init(&mut self, library: &Path, disable_telemetry: bool) -> Result<TelemetryStatus>;
+}
+
+/// 动态 ORT 初始化成功后的双轴凭据。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OrtInitialization {
+    telemetry: TelemetryStatus,
+    environment: BTreeMap<String, String>,
+}
+
+impl OrtInitialization {
+    /// 初始化后实际生效的遥测状态（必须为 [`TelemetryStatus::Disabled`]）。
+    #[must_use]
+    pub const fn telemetry(&self) -> TelemetryStatus {
+        self.telemetry
+    }
+
+    /// 承载 ORT 的进程/加载器必须继承的环境（含 `ORT_DISABLE_TELEMETRY=1`）。
+    #[must_use]
+    pub const fn environment(&self) -> &BTreeMap<String, String> {
+        &self.environment
+    }
+
+    /// 把加载器环境注入子进程。
+    pub fn apply_environment(&self, command: &mut std::process::Command) {
+        command.envs(self.environment.iter());
+    }
+}
+
+/// ORT 初始化的**唯一**公开入口：强制双轴同时关闭遥测，桥接说谎即 fail-closed。
+pub struct OrtInitializer<B: OrtRuntimeBridge> {
+    bridge: B,
+    environment: BTreeMap<String, String>,
+}
+
+impl<B: OrtRuntimeBridge> OrtInitializer<B> {
+    /// 以桥接实现构造；环境轴在构造时即写入。
+    #[must_use]
+    pub fn new(bridge: B) -> Self {
+        let mut environment = BTreeMap::new();
+        environment.insert(String::from(ORT_DISABLE_TELEMETRY), String::from("1"));
         Self {
-            disable_telemetry_env: "1",
-            api_call: ORT_TELEMETRY_API_CALL,
-            feature_gate: "dynamic-ort",
+            bridge,
+            environment,
         }
     }
+
+    /// 当前持有的加载器环境（环境轴）。
+    #[must_use]
+    pub const fn environment(&self) -> &BTreeMap<String, String> {
+        &self.environment
+    }
+
+    /// 初始化动态 ORT：
+    /// 1. 写入（并保持）`ORT_DISABLE_TELEMETRY=1` 环境轴；
+    /// 2. 以 `disable_telemetry = true` 调用宿主桥接（API 轴）；
+    /// 3. 桥接报告遥测仍开启时返回 `IntegrityViolation`，绝不假成功。
+    pub fn initialize(&mut self, library: &Path) -> Result<OrtInitialization> {
+        self.environment
+            .insert(String::from(ORT_DISABLE_TELEMETRY), String::from("1"));
+        let telemetry = self.bridge.init(library, true)?;
+        if telemetry != TelemetryStatus::Disabled {
+            return Err(QuetzalcoatlError::IntegrityViolation {
+                detail: String::from(
+                    "动态 ORT 初始化后遥测仍处于开启状态，已按 fail-closed 拒绝继续加载",
+                ),
+            });
+        }
+        Ok(OrtInitialization {
+            telemetry,
+            environment: self.environment.clone(),
+        })
+    }
+}
+
+/// 基于官方 `ort` crate 的具体桥接（仅在 `dynamic-ort` feature 开启时编译）。
+///
+/// `ort` 以 `load-dynamic` 动态加载预编译 `libonnxruntime`，构建期不下载任何二进制；
+/// `with_telemetry(false)` 关闭 Windows ETW，环境轴关闭 POSIX 1DS。
+#[cfg(feature = "dynamic-ort")]
+pub struct OrtCrateBridge;
+
+#[cfg(feature = "dynamic-ort")]
+impl OrtRuntimeBridge for OrtCrateBridge {
+    fn init(&mut self, library: &Path, disable_telemetry: bool) -> Result<TelemetryStatus> {
+        let telemetry_enabled = !disable_telemetry;
+        let committed = ort::init_from(library)
+            .map_err(|error| QuetzalcoatlError::IntegrityViolation {
+                detail: format!("动态加载 libonnxruntime 失败: {error}"),
+            })?
+            .with_telemetry(telemetry_enabled)
+            .commit();
+        if !committed {
+            return Err(QuetzalcoatlError::IntegrityViolation {
+                detail: String::from(
+                    "已有 ORT 全局环境先于本次初始化建立，无法保证遥测关闭，已 fail-closed",
+                ),
+            });
+        }
+        Ok(if telemetry_enabled {
+            TelemetryStatus::Enabled
+        } else {
+            TelemetryStatus::Disabled
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CachedVerification {
+    fingerprint: Vec<(String, u64, u128)>,
+    pack: InstalledPack,
 }
 
 /// 按需模型包管理器。
@@ -226,6 +354,9 @@ pub struct OnDemandAiPackManager {
     root: PathBuf,
     source: Arc<dyn PackSource>,
     verifying_key: VerifyingKey,
+    embedding_sink: Arc<Mutex<Option<Arc<dyn EmbeddingVersionSink>>>>,
+    cache: Mutex<BTreeMap<(String, String), CachedVerification>>,
+    stats: Mutex<PackVerificationStats>,
 }
 
 impl OnDemandAiPackManager {
@@ -241,6 +372,9 @@ impl OnDemandAiPackManager {
             root,
             source,
             verifying_key,
+            embedding_sink: Arc::new(Mutex::new(None)),
+            cache: Mutex::new(BTreeMap::new()),
+            stats: Mutex::new(PackVerificationStats::default()),
         })
     }
 
@@ -258,14 +392,17 @@ impl OnDemandAiPackManager {
         env
     }
 
-    /// 动态 `ort` 初始化计划。
-    #[must_use]
-    pub const fn ort_init_plan(&self) -> OrtInitPlan {
-        OrtInitPlan {
-            disable_telemetry_env: "1",
-            api_call: ORT_TELEMETRY_API_CALL,
-            feature_gate: "dynamic-ort",
+    /// 注册嵌入版本 sink：安装新的 `Embedding` 包版本时把受影响文档批量入队 `reembed()`。
+    pub fn set_embedding_sink(&self, sink: Arc<dyn EmbeddingVersionSink>) {
+        if let Ok(mut guard) = self.embedding_sink.lock() {
+            *guard = Some(sink);
         }
+    }
+
+    /// 当前进程内验签/缓存统计。
+    #[must_use]
+    pub fn verification_stats(&self) -> PackVerificationStats {
+        self.stats.lock().map(|guard| *guard).unwrap_or_default()
     }
 
     /// 验签并原子安装模型包（已安装且校验通过时幂等返回）。
@@ -295,34 +432,59 @@ impl OnDemandAiPackManager {
 
         let pack_root = self.root.join(&manifest.pack);
         let target = pack_root.join(&manifest.version);
-        if target.exists() {
-            return self.verify_installed(&target);
-        }
-
-        let staging = self.root.join(format!(
-            ".staging-{}-{}-{}",
-            manifest.pack,
-            manifest.version,
-            std::process::id()
-        ));
-        if staging.exists() {
-            fs::remove_dir_all(&staging).map_err(storage_error)?;
-        }
-        let result = self.stage_pack(manifest, &staging);
-        if let Err(error) = result {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(error);
-        }
-
-        secure_dir(&pack_root)?;
-        if let Err(error) = fs::rename(&staging, &target) {
-            let _ = fs::remove_dir_all(&staging);
-            if target.exists() {
-                return self.verify_installed(&target);
+        let installed = if target.exists() {
+            self.verify_installed(&target)?
+        } else {
+            let staging = self.root.join(format!(
+                ".staging-{}-{}-{}",
+                manifest.pack,
+                manifest.version,
+                std::process::id()
+            ));
+            if staging.exists() {
+                fs::remove_dir_all(&staging).map_err(storage_error)?;
             }
-            return Err(storage_error(error));
+            let result = self.stage_pack(manifest, &staging);
+            if let Err(error) = result {
+                let _ = fs::remove_dir_all(&staging);
+                return Err(error);
+            }
+
+            secure_dir(&pack_root)?;
+            if let Err(error) = fs::rename(&staging, &target) {
+                let _ = fs::remove_dir_all(&staging);
+                if target.exists() {
+                    self.verify_installed(&target)?
+                } else {
+                    return Err(storage_error(error));
+                }
+            } else {
+                self.verify_installed(&target)?
+            }
+        };
+        self.notify_embedding_pack(&installed)?;
+        Ok(installed)
+    }
+
+    fn notify_embedding_pack(&self, installed: &InstalledPack) -> Result<()> {
+        if installed.kind != AiPackKind::Embedding {
+            return Ok(());
         }
-        self.verify_installed(&target)
+        let sink = self
+            .embedding_sink
+            .lock()
+            .map_err(|_| QuetzalcoatlError::StorageError {
+                detail: String::from("嵌入版本 sink 锁中毒"),
+            })?
+            .clone();
+        if let Some(sink) = sink {
+            sink.on_embedding_pack_installed(
+                &installed.model_id,
+                &installed.version,
+                installed.manifest.embedding_dimensions,
+            )?;
+        }
+        Ok(())
     }
 
     fn stage_pack(&self, manifest: &PackManifest, staging: &Path) -> Result<()> {
@@ -389,6 +551,9 @@ impl OnDemandAiPackManager {
             }
         })?;
         manifest.verify_signature(&self.verifying_key)?;
+
+        // `(pack, version, mtime, size)` 指纹：未变更时 O(1) 命中缓存。
+        let mut fingerprint = Vec::with_capacity(manifest.files.len());
         for file in &manifest.files {
             validate_relative_file_path(&file.path)?;
             let path = target.join(&file.path);
@@ -396,24 +561,32 @@ impl OnDemandAiPackManager {
                 fs::metadata(&path).map_err(|error| QuetzalcoatlError::IntegrityViolation {
                     detail: format!("模型文件缺失 {}: {error}", path.display()),
                 })?;
-            if metadata.len() != file.size {
-                return Err(QuetzalcoatlError::IntegrityViolation {
-                    detail: format!("模型文件 {} 大小不符", file.path),
-                });
+            fingerprint.push((file.path.clone(), metadata.len(), modified_nanos(&metadata)));
+        }
+        let key = (manifest.pack.clone(), manifest.version.clone());
+        if let Ok(cache) = self.cache.lock()
+            && let Some(entry) = cache.get(&key)
+            && entry.fingerprint == fingerprint
+        {
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.cache_hits = stats.cache_hits.saturating_add(1);
             }
-            let contents = fs::read(&path).map_err(storage_error)?;
-            if blake3::hash(&contents).to_hex().to_string() != file.blake3 {
-                return Err(QuetzalcoatlError::IntegrityViolation {
-                    detail: format!("模型文件 {} 已损坏（BLAKE3 不符）", file.path),
-                });
-            }
+            return Ok(entry.pack.clone());
+        }
+
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.verifications = stats.verifications.saturating_add(1);
+        }
+        for file in &manifest.files {
+            let path = target.join(&file.path);
+            verify_file_streaming(&path, file.size, &file.blake3)?;
         }
         let mut env = self.loader_environment();
         env.insert(
             String::from("QUETZALCOATL_AI_PACK_DIR"),
             target.display().to_string(),
         );
-        Ok(InstalledPack {
+        let installed = InstalledPack {
             kind: manifest.kind,
             pack: manifest.pack.clone(),
             version: manifest.version.clone(),
@@ -421,7 +594,17 @@ impl OnDemandAiPackManager {
             path: target.to_path_buf(),
             manifest,
             env,
-        })
+        };
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.insert(
+                key,
+                CachedVerification {
+                    fingerprint,
+                    pack: installed.clone(),
+                },
+            );
+        }
+        Ok(installed)
     }
 
     /// 枚举全部已安装且校验通过的模型包。
@@ -460,7 +643,7 @@ impl OnDemandAiPackManager {
         Ok(packs)
     }
 
-    /// 按类别与版本加载（重新验签 + 全量 BLAKE3 校验）。
+    /// 按类别与版本加载（重新验签；未变更文件走进程内缓存，变更则流式重哈希）。
     pub fn load_pack(&self, kind: AiPackKind, version: &str) -> Result<InstalledPack> {
         validate_slug(version)?;
         let packs = self.installed_packs()?;
@@ -471,6 +654,53 @@ impl OnDemandAiPackManager {
                 detail: format!("未找到已验签的模型包 {}/{version}", kind.directory_name()),
             })
     }
+}
+
+fn modified_nanos(metadata: &fs::Metadata) -> u128 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0)
+}
+
+/// 流式 BLAKE3 校验（64 KiB 块，绝不整文件读入内存）。
+fn verify_file_streaming(path: &Path, expected_size: u64, expected_blake3: &str) -> Result<()> {
+    let file = fs::File::open(path).map_err(|error| QuetzalcoatlError::IntegrityViolation {
+        detail: format!("模型文件缺失 {}: {error}", path.display()),
+    })?;
+    let mut reader = std::io::BufReader::with_capacity(HASH_CHUNK_BYTES, file);
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = vec![0_u8; HASH_CHUNK_BYTES];
+    let mut total = 0_u64;
+    loop {
+        let read = reader.read(&mut buffer).map_err(storage_error)?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        if total > expected_size {
+            return Err(QuetzalcoatlError::IntegrityViolation {
+                detail: format!("模型文件 {} 超出声明大小", path.display()),
+            });
+        }
+        hasher.update(&buffer[..read]);
+    }
+    if total != expected_size {
+        return Err(QuetzalcoatlError::IntegrityViolation {
+            detail: format!(
+                "模型文件 {} 大小不符（期望 {expected_size}）",
+                path.display()
+            ),
+        });
+    }
+    if hasher.finalize().to_hex().to_string() != expected_blake3 {
+        return Err(QuetzalcoatlError::IntegrityViolation {
+            detail: format!("模型文件 {} 已损坏（BLAKE3 不符）", path.display()),
+        });
+    }
+    Ok(())
 }
 
 fn validate_slug(value: &str) -> Result<()> {
@@ -569,18 +799,4 @@ fn hex_digit(byte: u8) -> Result<u8> {
             detail: String::from("十六进制签名包含非法字符"),
         }),
     }
-}
-
-/// 可选动态 `ort` 加载器：宿主实现该 trait 并调用 `ort::init_from(...).with_telemetry(false)`。
-///
-/// 默认构建不链接 `ort`；`--features dynamic-ort` 仅启用该桥接层，实际 `ort` 依赖由
-/// 桌面/移动宿主 surface 显式引入，避免基础构建被 C++ 动态库污染。
-pub trait DynamicOrtInitializer {
-    /// 使用给定共享库路径初始化 ONNX Runtime，并**在 API 侧同步关闭遥测**。
-    fn init_from_with_telemetry_disabled(&self, library: &Path) -> Result<()>;
-}
-
-/// 把加载器遥测环境注入子进程。
-pub fn apply_loader_env(command: &mut std::process::Command) {
-    command.env(ORT_DISABLE_TELEMETRY, "1");
 }

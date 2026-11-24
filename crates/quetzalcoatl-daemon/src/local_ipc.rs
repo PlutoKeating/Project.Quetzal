@@ -265,6 +265,10 @@ pub enum IpcRequest {
     },
     /// 送入一帧双工音频（320 样本小端 f32 的 base64），仅在 `QUETZALCOATL_VOICE_AI=1` 时可用。
     VoiceFrame {
+        /// 客户端语音流标识：每流独立 AEC/VAD 状态与帧序号。
+        stream_id: String,
+        /// 流内帧序号（必须从 0 开始严格连续）。
+        frame_seq: u64,
         render_b64: String,
         capture_b64: String,
         /// 助手当前是否正在播报（决定是否产生打断事件）。
@@ -317,7 +321,9 @@ pub enum IpcResponse {
     GroupHistory(Vec<crate::group::GroupHistoryRow>),
     /// 单帧声学判决（语音起止 / 打断已同步写入脊柱活动链）。
     VoiceActivity {
+        stream_id: String,
         frame_index: u64,
+        frame_seq: u64,
         speech: bool,
         vad_probability: f32,
         barge_in: bool,

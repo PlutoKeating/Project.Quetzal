@@ -44,19 +44,31 @@ quetzalcoatl-voice-ai --example gen_vad_asset`）。`tests/model_asset.rs` 会�
   签名覆盖文件按路径排序后的规范化 JSON；每个文件绑定下载 URL、BLAKE3 与字节数。
 - 安装：验签 → 校验相对路径 → 逐文件校验大小/BLAKE3 → 私有暂存目录写入并 `fsync` →
   原子 `rename` 到目标目录；失败不残留、不改动既有版本。
-- 加载：重新验签 + 全量 BLAKE3 复核；任何损坏直接 `IntegrityViolation`。
+- 加载：重新验签；文件未变更时命中 `(pack, version, mtime, size)` 进程内缓存（O(1)），
+  变更后以 64 KiB 块**流式** BLAKE3 重校验，任何损坏直接 `IntegrityViolation`。
+  `verification_stats()` 暴露 `verifications`/`cache_hits`，供回归测试证明“第二次加载不重哈希、
+  篡改后缓存失效并检出”。
 - 路径穿越：包名/版本仅允许 `[A-Za-z0-9._-]` 且不得以 `.` 开头；包内路径必须是纯相对
   `Normal` 组件（拒绝 `..`、绝对路径、反斜杠、NUL）。
 - 宿主通过 `PackSource` trait 注入下载实现，crate 自身零网络依赖。
 
-## 3. 双轴零遥测
+## 3. 双轴零遥测（`OrtInitializer`）
 
-1. **环境轴**：`ORT_DISABLE_TELEMETRY=1` 由 `loader_environment()` / `InstalledPack::env()`
-   在每条加载路径注入（含 `apply_loader_env` 供任意子进程使用），关闭 POSIX 1DS。
-2. **API 轴**：启用 `dynamic-ort` feature 时，宿主实现的 `DynamicOrtInitializer` 必须调用
-   `ort::init_from(path).with_telemetry(false)`（`OrtInitPlan.api_call` 显式声明），关闭 Windows ETW。
+初始化动态 ORT 的**唯一公开入口**是 `OrtInitializer::initialize()`（`tests/ort_initializer.rs`）：
 
-默认构建不链接 `ort`/`libonnxruntime`；`tests/zero_telemetry_gate.rs` 还会：
+1. **环境轴**：初始化器自身持有并强制写入 `ORT_DISABLE_TELEMETRY=1` 的加载器环境，
+   通过 `OrtInitialization::apply_environment()` 注入任何承载 ORT 的加载器/子进程，关闭 POSIX 1DS。
+   （进程内 `std::env::set_var` 在 Rust 2024 是 `unsafe`，与本工作区 `forbid(unsafe_code)` 冲突；
+   因此环境轴以“自有加载器环境 + 子进程注入”的等价方式落地，失败路径同样保留该环境。）
+2. **API 轴**：以 `disable_telemetry = true` 调用注入的 `OrtRuntimeBridge::init`；
+   桥接必须返回 `TelemetryStatus::Disabled`，否则 `IntegrityViolation` fail-closed。
+   默认构建不链接 `ort`；`--features dynamic-ort` 时 `OrtCrateBridge` 调用
+   `ort::init_from(path).with_telemetry(false).commit()`（`ort` 为可选依赖、`load-dynamic`，
+   构建期不下载任何二进制），并校验 `commit()` 真正建立了全局环境。
+3. 测试用 mock 桥接：返回 `Enabled` 必须失败（且环境轴仍为 `1`）、返回 `Disabled` 必须成功、
+   桥接错误必须上抛；不再存在“字符串字面量与自身比较”的假门禁。
+
+`tests/zero_telemetry_gate.rs` 还会（**默认测试套件中 `#[ignore]`**，见第 7 节）：
 - 在密封子进程连续运行 VAD/AEC 120 s，断言 `/proc/<pid>/fd` 全程无 socket，且子进程自身复核；
 - 扫描默认构建参考二进制，断言不存在 `onnxruntime`/`OneDS`/`1DS`/`opentelemetry` 字符串与
   `connect`/`socket`/`getaddrinfo`/`sendto` 动态符号。
@@ -72,29 +84,52 @@ quetzalcoatl-voice-ai --example gen_vad_asset`）。`tests/model_asset.rs` 会�
 3. 断言 `size(with) - size(baseline) < 3_000_000` 且 `size(with) > size(baseline)`。
 4. 输出实测数值（例如 `delta ≈ 0.31 MiB`）便于 CI 追踪回归。
 
-方法不含 `tract-onnx`（仅 dev-dependency）与任何未启用的可选特性，确定性强、无需
-`cargo-bloat`，且失败信息包含双二进制实际字节数。
+方法不含 `tract-onnx`（仅 dev-dependency，默认不链接）与任何未启用的可选特性，确定性强、
+无需 `cargo-bloat`，且失败信息包含双二进制实际字节数。该测试会 shell out 到 `cargo`，
+因此标记 `#[ignore]`，由专用 CI 作业执行，**默认 `cargo test --workspace` 绝不调用 cargo、
+也不 sleep 分钟级**。
 
-## 5. `HybridIndex`
+## 5. `HybridIndex` 与 `reembed()` 联动
 
 小规模混合检索：语义余弦（0.65）+ 中文逐字/二元组与 ASCII 词的 BM25 风格词法分（0.35）。
-`set_embedding_version()` 会按 ID 升序把旧版本向量入 `reembed()` 队列；重嵌入完成前命中
-`stale_embedding=true` 且语义分归零（防跨模型/跨维污染），`drain_reembed_batch()` 提供确定性
-分批消费。维度不符在写入与查询两侧都返回 `IntegrityViolation`。
+
+- 每个向量记录 `(model_id, dim, pack_version)`；`upsert_embedded()` 对跨模型/跨维度向量直接
+  `IntegrityViolation`，同模型同维度的旧 `pack_version` 则接受并**入队** `reembed()`
+  （`UpsertOutcome::{Fresh, QueuedForReembed}`）。
+- `OnDemandAiPackManager::set_embedding_sink()`（`SharedHybridIndex`）在安装新的
+  `AiPackKind::Embedding` 包版本时，按 ID 升序把受影响文档入队；
+  `drain_reembed_batch(n)` 提供有界消费。重嵌入完成前命中 `stale_embedding=true` 且语义分归零。
 
 ## 6. `quetzalcoatld` 集成（opt-in）
 
-`QUETZALCOATL_VOICE_AI=1` 才构造 `VoiceActivityRuntime`（否则 `None`，零状态零副作用）。
-IPC 新增 `voice_frame`（`render_b64` / `capture_b64` / `assistant_speaking`），处理结果中的
-语音起止与打断事件以 `PackCompartment::Core` 签名脊柱事件写入既有活动链路，与群组审计同源；
-禁用时该请求返回 `VOICE_AI_DISABLED`。默认禁用的配置保证既有守护进程行为与测试不变。
+`QUETZALCOATL_VOICE_AI=1` 才构造 `VoiceActivitySessions`（否则 `None`，零状态零副作用）。
+IPC 新增 `voice_frame`（`stream_id` / `frame_seq` / `render_b64` / `capture_b64` / `assistant_speaking`）：
+
+- 每个 `stream_id` 独占一份 `DuplexAudioGate`（独立 AEC/VAD/打断状态），最多 8 条流，超出按 LRU 逐出；
+- 流内 `frame_seq` 必须从 0 开始严格连续，缺口/回退返回类型化 `VoiceStreamError::NonContiguousFrameSeq`
+  （IPC 错误码 `VOICE_STREAM_SEQUENCE`）；
+- 语音起止与打断事件以 `PackCompartment::Core` 签名脊柱事件写入既有活动链路，与群组审计同源；
+  `append_event` 失败会作为 `VoiceStreamError::Spine` 上抛，**绝不**静默丢弃；
+- 禁用时该请求返回 `VOICE_AI_DISABLED`；默认禁用的配置保证既有守护进程行为与测试不变。
 
 ## 7. 验证
 
+默认套件（快、不调用 cargo、不 sleep）：
+
 ```bash
 cargo test -p quetzalcoatl-voice-ai --release
-QZ_VOICE_SOAK_SECS=3 cargo test -p quetzalcoatl-voice-ai --release --test zero_telemetry_gate
 cargo test -p quetzalcoatl-daemon --test voice_ai_opt_in
 ```
+
+专用 CI 作业（体积门禁 + 符号扫描 + 120 s 密封子进程）：
+
+```bash
+cargo test -p quetzalcoatl-voice-ai --release --test zero_telemetry_gate -- --ignored --nocapture
+# 本地调试可用 QZ_VOICE_SOAK_SECS=3 缩短密封 soak；CI 必须使用默认 120 s。
+```
+
+`incremental_release_size_is_under_three_megabytes`、
+`default_build_reaches_no_onnxruntime_telemetry_or_network_symbols`、
+`sealed_vad_soak_makes_zero_outbound_connections` 均为 `#[ignore]`，只看显式 CI 作业。
 
 所有测试信号均由固定种子线性同余发生器与解析谐波合成器生成，仓库不含任何真实人声/个人音频。

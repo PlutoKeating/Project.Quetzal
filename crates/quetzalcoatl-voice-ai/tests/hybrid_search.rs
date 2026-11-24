@@ -79,3 +79,82 @@ fn upsert_rejects_dimension_mismatch() {
         quetzalcoatl_types::QuetzalcoatlError::IntegrityViolation { .. }
     ));
 }
+
+/// 异源模型/维度向量必须被拒绝；同模型但旧 pack 版本必须重新入队。
+#[test]
+fn upsert_rejects_foreign_identity_and_requeues_stale_pack_version() {
+    use quetzalcoatl_voice_ai::hybrid_search::UpsertOutcome;
+
+    let mut index = HybridIndex::new(version("embed-a", 4).with_pack_version("1.0.0"));
+    let fresh = index
+        .upsert_embedded(
+            "doc",
+            "声学回声消除",
+            vec![1.0, 0.0, 0.0, 0.0],
+            &version("embed-a", 4).with_pack_version("1.0.0"),
+        )
+        .expect("同源向量");
+    assert_eq!(fresh, UpsertOutcome::Fresh);
+
+    for foreign in [version("embed-b", 4), version("embed-a", 8)] {
+        let error = index
+            .upsert_embedded("doc", "异源", vec![0.1; foreign.dimensions], &foreign)
+            .expect_err("异源模型/维度必须拒绝");
+        assert!(matches!(
+            error,
+            quetzalcoatl_types::QuetzalcoatlError::IntegrityViolation { .. }
+        ));
+    }
+
+    let outcome = index
+        .upsert_embedded(
+            "doc",
+            "声学回声消除",
+            vec![0.9, 0.1, 0.0, 0.0],
+            &version("embed-a", 4).with_pack_version("2.0.0"),
+        )
+        .expect("同模型旧包版本可接收但需重嵌入");
+    assert_eq!(outcome, UpsertOutcome::QueuedForReembed);
+    assert_eq!(index.pending_reembed(), 1);
+    assert_eq!(index.drain_reembed_batch(1), vec!["doc"]);
+}
+
+/// 安装新的 Embedding 包版本必须经 sink 把受影响的文档批量入队。
+#[test]
+fn installing_new_embedding_pack_enqueues_documents_via_sink() {
+    use std::sync::{Arc, Mutex};
+
+    use quetzalcoatl_voice_ai::hybrid_search::SharedHybridIndex;
+
+    let index = Arc::new(Mutex::new(HybridIndex::new(
+        version("embed-a", 4).with_pack_version("1.0.0"),
+    )));
+    index
+        .lock()
+        .expect("索引锁")
+        .upsert("a", "声学回声消除", vec![1.0, 0.0, 0.0, 0.0])
+        .expect("插入 a");
+    index
+        .lock()
+        .expect("索引锁")
+        .upsert("b", "端侧模型验签", vec![0.0, 1.0, 0.0, 0.0])
+        .expect("插入 b");
+
+    let sink = SharedHybridIndex::new(Arc::clone(&index));
+    let queued =
+        quetzalcoatl_voice_ai::hybrid_search::EmbeddingVersionSink::on_embedding_pack_installed(
+            &sink,
+            "embed-a",
+            "2.0.0",
+            Some(4),
+        )
+        .expect("sink 通知");
+    assert_eq!(queued, vec!["a", "b"]);
+    assert_eq!(index.lock().expect("索引锁").pending_reembed(), 2);
+    // 有界批处理 API：一次只消费 1 个。
+    assert_eq!(
+        index.lock().expect("索引锁").drain_reembed_batch(1).len(),
+        1
+    );
+    assert_eq!(index.lock().expect("索引锁").pending_reembed(), 1);
+}

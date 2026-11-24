@@ -589,7 +589,7 @@ pub(crate) struct DaemonMutableState {
     pub(crate) persisted: PersistedSovereignState,
     pub(crate) group: crate::group::GroupRoomRuntime,
     /// opt-in 声学语音门；`None` 时零 AEC/VAD 状态、零副作用。
-    pub(crate) voice: Option<crate::voice::VoiceActivityRuntime>,
+    pub(crate) voice: Option<crate::voice::VoiceActivitySessions>,
     ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
@@ -2004,6 +2004,8 @@ impl SharedDaemonCore {
                 }
             }
             IpcRequest::VoiceFrame {
+                stream_id,
+                frame_seq,
                 render_b64,
                 capture_b64,
                 assistant_speaking,
@@ -2024,7 +2026,7 @@ impl SharedDaemonCore {
                     ref mut kernel,
                     ..
                 } = *guard;
-                let Some(runtime) = voice.as_mut() else {
+                let Some(sessions) = voice.as_mut() else {
                     return (
                         IpcResponse::Error {
                             code: String::from("VOICE_AI_DISABLED"),
@@ -2035,28 +2037,55 @@ impl SharedDaemonCore {
                         false,
                     );
                 };
-                match runtime.ingest(&render, &capture, assistant_speaking) {
-                    Ok(report) => {
-                        // 与群组审计/良知事件同源：语音起止与打断进入签名脊柱活动链。
-                        for payload in report.spine_payloads() {
-                            let _ = kernel.spine_mut().append_event(
-                                PackCompartment::Core,
-                                &payload,
-                                now_unix_ms(),
-                            );
-                        }
-                        (
-                            IpcResponse::VoiceActivity {
-                                frame_index: report.frame_index,
-                                speech: report.speech,
-                                vad_probability: report.vad_probability,
-                                barge_in: report.barge_in,
-                                interrupting_frame_offset_ms: report.interrupting_frame_offset_ms,
-                            },
-                            false,
-                        )
+                let outcome = sessions.ingest_and_publish(
+                    &stream_id,
+                    frame_seq,
+                    &render,
+                    &capture,
+                    assistant_speaking,
+                    |payload| {
+                        // 与群组审计/良知事件同源：语音起止与打断进入签名脊柱活动链；
+                        // 脊柱写入失败必须上抛，绝不静默丢弃活动事件。
+                        kernel
+                            .spine_mut()
+                            .append_event(PackCompartment::Core, payload, now_unix_ms())
+                            .map(|_| ())
+                    },
+                );
+                match outcome {
+                    Ok(report) => (
+                        IpcResponse::VoiceActivity {
+                            stream_id,
+                            frame_index: report.frame_index,
+                            frame_seq,
+                            speech: report.speech,
+                            vad_probability: report.vad_probability,
+                            barge_in: report.barge_in,
+                            interrupting_frame_offset_ms: report.interrupting_frame_offset_ms,
+                        },
+                        false,
+                    ),
+                    Err(crate::voice::VoiceStreamError::NonContiguousFrameSeq {
+                        expected,
+                        actual,
+                    }) => (
+                        IpcResponse::Error {
+                            code: String::from("VOICE_STREAM_SEQUENCE"),
+                            detail: format!("语音流帧序号不连续：期望 {expected} 实际 {actual}"),
+                        },
+                        false,
+                    ),
+                    Err(crate::voice::VoiceStreamError::InvalidStreamId { detail }) => (
+                        IpcResponse::Error {
+                            code: String::from("VOICE_STREAM_ID"),
+                            detail,
+                        },
+                        false,
+                    ),
+                    Err(crate::voice::VoiceStreamError::Frame(error))
+                    | Err(crate::voice::VoiceStreamError::Spine(error)) => {
+                        ipc_error_response(error)
                     }
-                    Err(error) => ipc_error_response(error),
                 }
             }
             IpcRequest::Shutdown => {
@@ -2406,7 +2435,7 @@ impl QuetzalcoatlDaemon {
         };
 
         let qz_home = config.quetzalcoatl_home.clone();
-        let voice_runtime = crate::voice::VoiceActivityRuntime::from_config(config.voice_ai)?;
+        let voice_runtime = crate::voice::VoiceActivitySessions::from_config(config.voice_ai)?;
         let shared_core = Arc::new(SharedDaemonCore {
             config,
             runtime_info: runtime_info.clone(),

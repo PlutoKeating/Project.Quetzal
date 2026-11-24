@@ -13,7 +13,8 @@ workspace = true
 [features]
 default = []
 # 可选动态 ONNX Runtime 运行器：仅在宿主显式开启时链接 `ort`，并按双杀策略初始化。
-dynamic-ort = []
+# `load-dynamic` 保证构建期不下载任何 ONNX Runtime 二进制。
+dynamic-ort = ["dep:ort"]
 
 [dependencies]
 blake3 = { workspace = true }
@@ -23,6 +24,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sonora-aec3 = "0.3.0"
 quetzalcoatl-types = { workspace = true }
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = [
+    "load-dynamic",
+] }
 
 [dev-dependencies]
 tract-onnx = { version = "0.23.10", default-features = false }

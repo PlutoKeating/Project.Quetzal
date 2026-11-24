@@ -24,11 +24,15 @@ struct Rig {
 
 impl Rig {
     fn new(echo_gain: f32) -> Self {
+        Self::with_echo(EchoPath::linear(150, echo_gain, 0x5EED_0001))
+    }
+
+    fn with_echo(echo: EchoPath) -> Self {
         Self {
             gate: DuplexAudioGate::new(GateConfig::default()).expect("构造双工音频门"),
-            echo: EchoPath::new(150, echo_gain, 0x5EED_0001),
+            echo,
             render: SpeechSynth::new(160.0, 0.42),
-            near: SpeechSynth::new(233.0, 0.62),
+            near: SpeechSynth::new(233.0, 0.85),
             frame_index: 0,
             decisions: Vec::new(),
         }
@@ -201,4 +205,102 @@ fn no_barge_in_when_assistant_is_silent() {
     rig.run(40, true, false);
     assert!(rig.barge_ins_since(0).is_empty());
     assert_eq!(rig.speech_frames_since(110), 30, "语音帧应被识别");
+}
+
+/// 软饱和（功放/扬声器非线性）回声路径不得自激，真人语音仍须打断。
+#[test]
+fn saturated_echo_path_does_not_self_trigger() {
+    let mut rig = Rig::with_echo(EchoPath::saturated(150, 0.55, 0x5EED_0002, 2.6));
+    rig.run(120, false, true);
+    rig.run(250, false, true);
+    assert!(
+        rig.barge_ins_since(0).is_empty(),
+        "软饱和回声不得在任何时刻触发打断"
+    );
+    assert_eq!(
+        rig.speech_frames_since(50),
+        0,
+        "软饱和回声不得被识别为语音（含 AEC 收敛期后）"
+    );
+
+    let onset = rig.decisions.len();
+    rig.run(40, true, true);
+    assert!(
+        !rig.barge_ins_since(onset).is_empty(),
+        "软饱和路径下真人语音仍须触发打断"
+    );
+}
+
+/// 回声路径增益中途 +6 dB 阶跃：AEC 重收敛后不得持续自激，真人语音仍须打断。
+#[test]
+fn echo_gain_step_does_not_self_trigger() {
+    let mut rig = Rig::with_echo(EchoPath::linear(150, 0.55, 0x5EED_0003));
+    rig.run(120, false, true);
+    // +6 dB 阶跃，AEC3 需重新估计回声路径。
+    rig.echo.set_gain(1.1);
+    rig.run(250, false, true);
+    assert!(
+        rig.barge_ins_since(0).is_empty(),
+        "增益 +6 dB 阶跃（含重收敛期）不得触发打断"
+    );
+    assert_eq!(rig.speech_frames_since(50), 0, "增益阶跃不得被识别为语音");
+
+    let onset = rig.decisions.len();
+    rig.run(40, true, true);
+    assert!(
+        !rig.barge_ins_since(onset).is_empty(),
+        "增益阶跃后真人语音仍须触发打断"
+    );
+}
+
+/// 短 FIR 混响尾（扬声器→墙面→麦克风）不得自激，真人语音仍须打断。
+#[test]
+fn reverberant_echo_path_does_not_self_trigger() {
+    let gain = 0.5_f32;
+    let taps = [1.0_f32, 0.45, 0.22, 0.11, 0.05];
+    let mut rig = Rig::with_echo(EchoPath::reverberant(150, gain, 0x5EED_0004, &taps, 40));
+    rig.run(140, false, true);
+    rig.run(260, false, true);
+    assert!(
+        rig.barge_ins_since(0).is_empty(),
+        "混响尾回声不得在任何时刻触发打断"
+    );
+    assert_eq!(rig.speech_frames_since(50), 0, "混响尾回声不得被识别为语音");
+
+    let onset = rig.decisions.len();
+    rig.run(40, true, true);
+    assert!(
+        !rig.barge_ins_since(onset).is_empty(),
+        "混响路径下真人语音仍须触发打断"
+    );
+}
+
+/// 非线性 + 混响 + 增益阶跃叠加的最坏合成路径：真人语音仍须在 ~400 ms 打断。
+#[test]
+fn genuine_speech_triggers_under_combined_nonlinear_reverb_echo() {
+    let mut rig = Rig::with_echo(EchoPath::build(
+        150,
+        0.5,
+        0x5EED_0005,
+        Some(2.2),
+        vec![1.0, 0.4, 0.18, 0.08],
+        55,
+    ));
+    rig.run(120, false, true);
+    rig.echo.set_gain(0.9);
+    rig.run(40, false, true);
+
+    let onset = rig.decisions.len();
+    rig.run(40, true, true);
+    let barge_ins = rig.barge_ins_since(onset);
+    assert_eq!(
+        barge_ins.len(),
+        1,
+        "叠加非线性/混响/增益阶跃后，持续真人语音仍须恰好打断一次"
+    );
+    assert!(
+        (400..=480).contains(&(barge_ins[0].1.interrupting_frame_offset * 20)),
+        "打断偏移应约为 400 ms，实际 {} ms",
+        barge_ins[0].1.interrupting_frame_offset * 20
+    );
 }

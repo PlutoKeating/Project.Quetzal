@@ -96,42 +96,110 @@ impl SpeechSynth {
     }
 }
 
-/// 扬声器→麦克风回声路径：固定延迟 + 线性衰减 + 低幅背景噪声。
+/// 扬声器→麦克风回声路径：固定延迟、可选软饱和、短 FIR 混响尾、可阶跃增益与低幅背景噪声。
 pub struct EchoPath {
     delay_samples: usize,
     gain: f32,
-    ring: Vec<f32>,
+    history: Vec<f32>,
     cursor: usize,
     noise: Lcg,
+    drive: Option<f32>,
+    taps: Vec<f32>,
+    spacing: usize,
 }
 
 impl EchoPath {
     pub fn new(delay_ms: u32, gain: f32, seed: u64) -> Self {
+        Self::build(delay_ms, gain, seed, None, vec![1.0], 0)
+    }
+
+    pub fn build(
+        delay_ms: u32,
+        gain: f32,
+        seed: u64,
+        drive: Option<f32>,
+        taps: Vec<f32>,
+        spacing: usize,
+    ) -> Self {
         let delay_samples = (SAMPLE_RATE * delay_ms as f32 / 1000.0) as usize;
+        let taps = if taps.is_empty() { vec![1.0] } else { taps };
+        let span = delay_samples + 1 + spacing * taps.len() + 8;
         Self {
             delay_samples,
             gain,
-            ring: vec![0.0; delay_samples.max(1)],
+            history: vec![0.0; span],
             cursor: 0,
             noise: Lcg::new(seed),
+            drive,
+            taps,
+            spacing,
         }
     }
 
-    /// 由远端渲染帧生成麦克风采集帧（回声 + 底噪）。
+    /// 线性回声。
+    pub fn linear(delay_ms: u32, gain: f32, seed: u64) -> Self {
+        Self::new(delay_ms, gain, seed)
+    }
+
+    /// 软饱和（功率放大器/扬声器非线性）：`tanh(drive * x) / tanh(drive)`。
+    pub fn saturated(delay_ms: u32, gain: f32, seed: u64, drive: f32) -> Self {
+        Self::build(delay_ms, gain, seed, Some(drive.max(0.1)), vec![1.0], 0)
+    }
+
+    /// 带短 FIR 混响尾的线性回声。
+    pub fn reverberant(
+        delay_ms: u32,
+        gain: f32,
+        seed: u64,
+        taps: &[f32],
+        spacing_samples: usize,
+    ) -> Self {
+        Self::build(
+            delay_ms,
+            gain,
+            seed,
+            None,
+            taps.to_vec(),
+            spacing_samples.max(1),
+        )
+    }
+
+    /// 中途阶跃改变回声路径增益（+6 dB 对应 ×2）。
+    pub fn set_gain(&mut self, gain: f32) {
+        self.gain = gain;
+    }
+
+    fn read_delayed(&self, distance: usize) -> f32 {
+        let len = self.history.len();
+        self.history[(self.cursor + len - distance.min(len - 1)) % len]
+    }
+
+    /// 由远端渲染帧生成麦克风采集帧（回声 + 近端 + 底噪）。
     pub fn capture_frame(
         &mut self,
         render: &[f32; FRAME_SAMPLES],
         near_end: &[f32; FRAME_SAMPLES],
         out: &mut [f32; FRAME_SAMPLES],
     ) {
+        let delay = self.delay_samples;
+        let taps = self.taps.clone();
+        let spacing = self.spacing;
+        let drive = self.drive;
+        let len = self.history.len();
         for (idx, sample) in out.iter_mut().enumerate() {
-            let delayed = self.ring[self.cursor];
-            self.ring[self.cursor] = render[idx];
-            self.cursor = (self.cursor + 1) % self.ring.len();
-            // 延迟 20 ms 帧粒度之外补一个样本级偏移，使 AEC 必须自估延迟。
-            let echo = self.gain * delayed;
-            *sample = echo + near_end[idx] + 1.5e-4 * self.noise.next_gauss();
+            let mut echo = 0.0_f32;
+            for (tap_index, tap) in taps.iter().enumerate() {
+                let distance = delay + tap_index * spacing;
+                let delayed = self.history[(self.cursor + len - distance.min(len - 1)) % len];
+                echo += tap * delayed;
+            }
+            let echo = match drive {
+                Some(drive) => (drive * echo).tanh() / drive.tanh(),
+                None => echo,
+            };
+            *sample = self.gain * echo + near_end[idx] + 1.5e-4 * self.noise.next_gauss();
+            self.history[self.cursor] = render[idx];
+            self.cursor = (self.cursor + 1) % len;
         }
-        let _ = self.delay_samples;
     }
 }

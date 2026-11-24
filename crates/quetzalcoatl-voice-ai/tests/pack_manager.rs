@@ -213,3 +213,111 @@ fn detects_on_disk_corruption_on_load() {
         QuetzalcoatlError::IntegrityViolation { .. }
     ));
 }
+
+/// 进程内验签缓存：未变更的包第二次加载不得重复全量哈希；篡改后必须失效并检出。
+#[test]
+fn verification_cache_avoids_rehash_and_invalidates_on_tamper() {
+    let home = temp_home("cache");
+    let key = SigningKey::from_bytes(&[0x66; 32]);
+    let payload = b"cache-test-weights".to_vec();
+    let manifest = manifest_for(&key, "sensevoice", "9.9.9", "model.onnx", &payload);
+    let mgr = manager(&home, source_for(&manifest, &payload), &key);
+
+    let installed = mgr.install_pack(&manifest).expect("安装");
+    let after_install = mgr.verification_stats();
+    assert_eq!(after_install.verifications, 1);
+
+    mgr.load_pack(AiPackKind::Embedding, "9.9.9")
+        .expect("首次加载");
+    mgr.load_pack(AiPackKind::Embedding, "9.9.9")
+        .expect("第二次加载");
+    let cached = mgr.verification_stats();
+    assert_eq!(
+        cached.verifications, after_install.verifications,
+        "未变更的包不得重复全量哈希"
+    );
+    assert!(cached.cache_hits >= 2, "第二次加载必须命中进程内验签缓存");
+
+    // 追加字节篡改（大小与 mtime 均变化）→ 缓存必须失效并检出。
+    let path = installed.path.join("model.onnx");
+    let mut tampered = fs::read(&path).expect("读取");
+    tampered.extend_from_slice(b"evil");
+    fs::write(&path, tampered).expect("篡改");
+    let error = mgr
+        .load_pack(AiPackKind::Embedding, "9.9.9")
+        .expect_err("篡改文件必须检出");
+    assert!(matches!(
+        error,
+        QuetzalcoatlError::IntegrityViolation { .. }
+    ));
+    assert!(
+        mgr.verification_stats().verifications > cached.verifications,
+        "缓存失效后必须重新校验"
+    );
+}
+
+/// 安装新的 Embedding 包版本必须把受影响文档批量入队 `reembed()`。
+#[test]
+fn installing_embedding_pack_enqueues_documents_for_reembed() {
+    use std::sync::Mutex;
+
+    use quetzalcoatl_voice_ai::hybrid_search::{EmbeddingVersion, HybridIndex, SharedHybridIndex};
+
+    let home = temp_home("embed-sink");
+    let key = SigningKey::from_bytes(&[0x77; 32]);
+    let payload_v1 = b"embed-v1-weights".to_vec();
+    let mut manifest_v1 = manifest_for(
+        &key,
+        "multilingual-embed",
+        "1.0.0",
+        "model.onnx",
+        &payload_v1,
+    );
+    manifest_v1.embedding_dimensions = Some(4);
+    manifest_v1.sign_with(&key).expect("重签 v1");
+
+    let index = std::sync::Arc::new(Mutex::new(HybridIndex::new(
+        EmbeddingVersion::new("multilingual-embed-v1", 4).with_pack_version("1.0.0"),
+    )));
+    {
+        let mut guard = index.lock().expect("索引锁");
+        guard
+            .upsert("a", "声学回声消除", vec![1.0, 0.0, 0.0, 0.0])
+            .expect("插入 a");
+        guard
+            .upsert("b", "端侧模型验签", vec![0.0, 1.0, 0.0, 0.0])
+            .expect("插入 b");
+    }
+
+    let mgr = manager(&home, source_for(&manifest_v1, &payload_v1), &key);
+    mgr.set_embedding_sink(std::sync::Arc::new(SharedHybridIndex::new(
+        std::sync::Arc::clone(&index),
+    )));
+    mgr.install_pack(&manifest_v1).expect("安装 v1");
+
+    let payload_v2 = b"embed-v2-weights".to_vec();
+    let mut manifest_v2 = manifest_for(
+        &key,
+        "multilingual-embed",
+        "2.0.0",
+        "model.onnx",
+        &payload_v2,
+    );
+    manifest_v2.embedding_dimensions = Some(4);
+    manifest_v2.sign_with(&key).expect("重签 v2");
+    let mgr_v2_source = source_for(&manifest_v2, &payload_v2);
+    let mgr = {
+        // 同一管理器已持有 v1 源；这里直接以新源重建并复用同一 sink。
+        let mgr = manager(&home, mgr_v2_source, &key);
+        mgr.set_embedding_sink(std::sync::Arc::new(SharedHybridIndex::new(
+            std::sync::Arc::clone(&index),
+        )));
+        mgr
+    };
+    mgr.install_pack(&manifest_v2).expect("安装 v2");
+
+    let mut guard = index.lock().expect("索引锁");
+    assert_eq!(guard.pending_reembed(), 2, "新包版本必须入队全部受影响文档");
+    assert_eq!(guard.drain_reembed_batch(1).len(), 1, "必须是分批消费");
+    assert_eq!(guard.pending_reembed(), 1);
+}

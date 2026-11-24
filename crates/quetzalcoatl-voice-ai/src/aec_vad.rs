@@ -19,6 +19,10 @@ pub const AEC_BLOCK_LEN: usize = 64;
 const FLOOR_FLOOR_DB: f32 = -95.0;
 /// 自适应底噪上限（dBFS）。
 const FLOOR_CEIL_DB: f32 = -12.0;
+/// 参与回声-采集相干性估计的 render 历史帧数（400 ms）。
+const RENDER_HISTORY_FRAMES: usize = 20;
+/// 返回-采集归一化互相关上限：高于此值判定为“回声主导”，抑制 VAD/打断。
+const ECHO_COHERENCE_LIMIT: f32 = 0.82;
 
 /// 声学门配置。
 #[derive(Clone, Debug, PartialEq)]
@@ -97,6 +101,8 @@ pub struct FrameDecision {
     pub speech: bool,
     /// 当前自适应底噪（dBFS）。
     pub noise_floor_db: f32,
+    /// 本帧采集与 render 历史的最大归一化互相关（回声主导程度，0..=1）。
+    pub echo_coherence: f32,
     /// AEC3 估算的回声返回损耗增强（dB）。
     pub echo_return_loss_db: f32,
     /// 本帧产生的事件。
@@ -122,6 +128,9 @@ pub struct DuplexAudioGate {
     barge_armed: bool,
     barge_frames: usize,
     echo_return_loss_db: f32,
+    render_history: Vec<f32>,
+    render_cursor: usize,
+    echo_coherence: f32,
 }
 
 impl DuplexAudioGate {
@@ -152,6 +161,9 @@ impl DuplexAudioGate {
             warmup_frames: u64::from(config.warmup_ms / FRAME_MS),
             barge_frames: (config.barge_in_ms / FRAME_MS) as usize,
             hangover_left: 0,
+            render_history: vec![0.0; RENDER_HISTORY_FRAMES * FRAME_LEN],
+            render_cursor: 0,
+            echo_coherence: 0.0,
             config,
             aec,
             frame_index: 0,
@@ -216,6 +228,9 @@ impl DuplexAudioGate {
         self.barge_gap = 0;
         self.barge_armed = true;
         self.echo_return_loss_db = 0.0;
+        self.render_history.fill(0.0);
+        self.render_cursor = 0;
+        self.echo_coherence = 0.0;
     }
 
     /// 处理一帧（`render` 为扬声器参考，`capture` 为麦克风采集）。
@@ -237,13 +252,19 @@ impl DuplexAudioGate {
             });
         }
 
+        self.push_render(render);
+        self.echo_coherence = echo_coherence(capture, &self.render_history, self.render_cursor);
         let residual = self.cancel_echo(render, capture);
         let edb = frame_energy_db(&residual);
         self.update_noise_floor(edb);
         self.probability = folded_probability(&residual, self.noise_floor_db);
 
         let in_warmup = self.frame_index < self.warmup_frames;
-        let voiced = !in_warmup && self.probability >= self.config.speech_threshold;
+        // 相关门：回声残余与 render 高度相干（含非线性/混响/增益阶跃），
+        // 即使 AEC 残余能量短暂抬升也不得冒充真人语音。
+        let voiced = !in_warmup
+            && self.probability >= self.config.speech_threshold
+            && self.echo_coherence < ECHO_COHERENCE_LIMIT;
         self.voiced = voiced;
 
         let mut events = Vec::new();
@@ -255,11 +276,20 @@ impl DuplexAudioGate {
             vad_probability: self.probability,
             speech: self.speech_active,
             noise_floor_db: self.noise_floor_db,
+            echo_coherence: self.echo_coherence,
             echo_return_loss_db: self.echo_return_loss_db,
             events,
         };
         self.frame_index += 1;
         Ok(decision)
+    }
+
+    fn push_render(&mut self, render: &[f32]) {
+        let len = self.render_history.len();
+        for sample in render {
+            self.render_history[self.render_cursor] = *sample;
+            self.render_cursor = (self.render_cursor + 1) % len;
+        }
     }
 
     fn cancel_echo(&mut self, render: &[f32], capture: &[f32]) -> [f32; FRAME_LEN] {
@@ -384,6 +414,56 @@ impl DuplexAudioGate {
             self.barge_armed = true;
         }
     }
+}
+
+/// 采集帧与 render 历史的最大归一化互相关（粗搜 32 样本 + 1 样本精修）。
+fn echo_coherence(capture: &[f32], history: &[f32], cursor: usize) -> f32 {
+    let len = history.len();
+    if len <= FRAME_LEN {
+        return 0.0;
+    }
+    let capture_energy: f32 = capture.iter().map(|sample| sample * sample).sum();
+    if capture_energy <= 1e-12 {
+        return 0.0;
+    }
+    let max_lag = len - FRAME_LEN;
+    let correlate = |lag: usize| -> f32 {
+        let mut dot = 0.0_f32;
+        let mut energy = 0.0_f32;
+        for (index, sample) in capture.iter().enumerate() {
+            // `cursor` 指向最早样本；采集窗末尾对齐 `cursor + FRAME_LEN - 1`。
+            let position = (cursor + index + len - lag) % len;
+            let reference = history[position];
+            dot += sample * reference;
+            energy += reference * reference;
+        }
+        if energy <= 1e-12 {
+            0.0
+        } else {
+            (dot / (capture_energy * energy).sqrt()).abs()
+        }
+    };
+
+    let mut best_lag = 0usize;
+    let mut best = 0.0_f32;
+    let mut lag = 0usize;
+    while lag <= max_lag {
+        let value = correlate(lag);
+        if value > best {
+            best = value;
+            best_lag = lag;
+        }
+        lag += 32;
+    }
+    let refine_start = best_lag.saturating_sub(32);
+    let refine_end = (best_lag + 32).min(max_lag);
+    for lag in refine_start..=refine_end {
+        let value = correlate(lag);
+        if value > best {
+            best = value;
+        }
+    }
+    best.min(1.0)
 }
 
 fn frame_energy_db(frame: &[f32]) -> f32 {

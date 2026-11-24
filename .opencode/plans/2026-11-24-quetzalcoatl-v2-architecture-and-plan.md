@@ -99,7 +99,7 @@
 | **D-19** | **多主体隐私隔离模型** | **不设单 Agent 内部分舱，1 个 Agent = 1 条物理与密码学独占的主权脊柱**；凡涉及家庭/团队多人协作或公共岗位，**强制创建独立物理隔离的 Agent 实例**，通过群组协议协同 | 在同一个 Agent 脊柱内混装多人的私有与共享数据分舱（复杂度高且存在跨舱提示词污染泄密风险） |
 | **D-20** | **`Super-Group` 四大协同拓扑** | **四项全选原生支持**：① 多人类 + 各自私人主权 Agent 联邦群组 ② 群组/组织共有的常驻岗位角色 Agent ③ 单用户麾下异构 Coding Agent 专长编队 ④ 跨家庭/跨机构 JWS 签名 `AgentCard` + 衰减 `Mandate` 的受限 `A2A` 委托 | 仅支持 1 人对 1 Agent 单聊，或仅支持同质子代理 |
 | **D-21** | **群组控场与防冲突机制** | **`Router` 单声道对外发声 + `ANP-P9` 结构化提及（`@点名 / cc / @agents / @humans`）+ `max_hops=3` 熔断 + 房间无状态协调席（Facilitator）+ `last_seen_seq` 未读水位线提交屏障** | 无协调席纯对等自由抢答与乐观覆盖；或禁止私人 Agent 在群内发声协同 |
-| **D-22** | **语音与端侧小模型策略** | 安装包仅内置 **`<3MB` 纯 Rust `sonora-aec3` 回声消除 + `tract-onnx` 16kHz `Silero VAD`**；开启离线语音或本地语义向量检索时按需下载动态 `ort` 与量化模型（**强制 POSIX+Windows 双杀遥测**），兼容云端多模态实时语音 | 安装包预塞 150MB 离线模型与 C++ ONNX 库；或硬绑单一云厂商语音 SDK |
+| **D-22** | **语音与端侧小模型策略** | 内置 VAD 为**自研、确定性、常量可折叠的 16 kHz 单分支图的纯 Rust 转写**（帧能量 + 周期性；`tract-onnx` 仅作**开发期**解析/折叠/数值一致性校验，因其引入 **19.35 MiB** 而不进默认构建）；**Silero 权重未随包分发**，换用学习型 VAD 是**功能默认启用前**的跟踪项。开启离线语音或本地语义向量检索时按需下载动态 `ort` 与量化模型（**强制 POSIX+Windows 双杀遥测**）；按需 `ort` 运行时加载器**延后实现**（当前已有 `OrtInitializer` 包装器与 `ORT_DISABLE_TELEMETRY` 环境轴，具体加载器随首个需要端侧推理的 surface 落地） | 安装包预塞 150MB 离线模型与 C++ ONNX 库；或硬绑单一云厂商语音 SDK；或在未替换学习型 VAD 前默认启用语音功能 |
 | **D-23** | **安卓商店合规策略** | **双渠道分包**：上架 Google Play 等应用商店的 `store` 标准包走官方 `AppFunctions / Intents`（合并清单 **0 处 `AccessibilityService`**）；屏幕自动化 `Hands` 拆分为独立开源 `full` 增强包/插件 | 单一 APK 强塞 `AccessibilityService` 导致被 Google Play 拒审下架及 Android 17 系统拦截 |
 | **D-24** | **五端界面与底层 TUI 分工 + 生态范围** | 兼容保留各底层 Coding Agent 自带 TUI/IDE 体验；自建五端纯原生界面 100% 聚焦**三档认知密度（伴生极简态 / 承诺与群组工作台态 / 主权工程态）**；首发包含 **5 大标杆领域包**、**7 大通道族**及兼容 Hermes/OpenClaw 的受限 **`spine-bridge`** | 从零重写编码 TUI 替代 OpenCode/Claude 原生终端；或只做极客单一研发场景 |
 | **D-25** | **里程碑交付节奏** | **稳健 5-Sprint 纵向自举推进**（Sprint 1 单机双模核与 eWave → Sprint 2 `iroh` 与 Go Hub 漂移 → Sprint 3 `Super-Group` 群组/通道/领域包 → Sprint 4 Web 与三大原生桌面端 → Sprint 5 双原生移动端与终验） | 把全部五大纯原生 GUI 与移动引擎挤压在单轮冲刺导致尾轮失控 |
@@ -216,7 +216,7 @@
 9. **压缩前分桶填充防 CRIME 侧信道**：外部不可信通道消息与敏感核心状态分包存储，且 `zstd` 压缩后在 AEAD 加密前按 2 的幂次分桶填充长度，绑定完整结构化 `AAD`。
 10. **HLC 未来时钟投毒防护**：签名事件头包含 `hlc_u128`，接收端遇到 `hlc.wall > local_trusted_time + 5m` 的偏置时钟事件直接隔离拒收，绝不推高本机 HLC。
 11. **`SayIt`（`sayit-handoff.md` v2.1）四项对齐与重归档幂等契约**：① 快照 `meta` 显式标记 `{ emb_model_id, emb_dim }`，异源模型子树进入 `quetzalcoatl-ewave::merge()` 时自动用本脊柱规范嵌入器重算向量（离线时先走 `semanticWeight=0` 词法+结构对齐并入队后台 `reembed()`），防 `EWAVE_DIMENSION` 崩溃；② 分支对齐强制校验 `data.role`（`project / record / section`）同粒度匹配；③ 记录 `(sayit_user_hash, slice_id, session_id, snapshot_sha256)`，当用户在 SayIt 改归属重编译覆盖同 `sessionId` 快照时，先双时态 `invalidate()` 旧版独占节点再合并新版；④ 将 `@plutokeating/ewave` 中的宿主区域相关 `localeCompare` 统一升级为确定性 UTF-16 码元序（与 `fnv1a` 对齐），并在 Sprint 1 将 `packages/ewave` 许可证对齐至 `Apache-2.0`。
-12. **`<3MB` 内置 VAD 与双杀 ONNX 遥测**：内置 VAD 用纯 Rust `tract-onnx` 跑常量折叠的 16kHz 单分支 `silero_vad_16k.onnx`（规避嵌套 `If` 算子限制且不捆绑 20MB C++ `libonnxruntime`）；按需动态加载 `ort` 时，**同时**在启动器环境注入 `ORT_DISABLE_TELEMETRY=1`（杀 POSIX 1DS 遥测）并调用 `ort::init_from(...).with_telemetry(false)`（杀 Windows ETW 遥测）。
+12. **`<3MB` 内置 VAD 与双杀 ONNX 遥测**：内置 VAD 是自研常量可折叠 16 kHz 单分支图的**纯 Rust 转写**（能量 + 周期性，确定性；`tract-onnx` 仅在开发期做解析/折叠/数值一致性验收，因增加 19.35 MiB 而不进默认构建）；**Silero 权重未捆绑**，替换为学习型 VAD 是功能默认启用前的跟踪项。按需动态加载 `ort` 时，**同时**在启动器环境注入 `ORT_DISABLE_TELEMETRY=1`（杀 POSIX 1DS 遥测）并由 `OrtInitializer` 强制桥接调用 `ort::init_from(...).with_telemetry(false)`（杀 Windows ETW 遥测），桥接报告遥测未关闭即 fail-closed；具体 `ort` 运行时加载器延后至首个需要端侧推理的 surface。
 13. **单物理主机唯一脊柱持有者防互踢**：桌面上仅后台 `quetzalcoatld` 直接打开 `spine.sqlite` WAL 与 `iroh` 节点密钥；本机 GTK4 / SwiftUI / WinUI 3 与 `qz` CLI 检测到 `quetzalcoatld` 在线时一律走本地 IPC 薄客户端模式，杜绝 `SQLITE_BUSY` 与中继互踢。
 14. **`UniFFI = "=0.32.0"` 精确锁死与拉模式异步流**：`Cargo.toml` 精确用 `=` 锁定 `uniffi` 与 `uniffi-bindgen-cs` 配对版本，全面禁用外语回调接口（规避 C# 异步回调生成同步签名 Bug `#165` 与 GC 委托悬垂崩溃），统一采用 `ViewStream::next_events()` 拉模式流。
 15. **iOS `<12MB` NSE Spool 模式防 `0xdead10cc` 杀后台**：推送解密扩展 `quetzalcoatl-nse-ffi` 不链接 `tokio/iroh`，`zstd` 解压窗口 `<=1MiB`，且**严禁打开主库 `rusqlite` WAL**——解密后仅向 `<AppGroup>/spine-spool/` 写只追加小文件，由主进程前台/后台任务安全合并并在挂起前释放全部文件锁。
@@ -482,15 +482,17 @@
 ### Task 3.2：`<3MB` 纯 Rust 回声消除/VAD 与按需零遥测本地模型管线（`quetzalcoatl-voice-ai`）
 
 **Files:**
-- Create: `crates/quetzalcoatl-voice-ai/{Cargo.toml,src/lib.rs,src/aec_vad.rs,src/ort_loader.rs,src/hybrid_search.rs,assets/silero_vad_16k_int8.onnx}`
-- Test: `crates/quetzalcoatl-voice-ai/tests/{barge_in_aec.rs,zero_telemetry_gate.rs}`
+- Create: `crates/quetzalcoatl-voice-ai/{Cargo.toml,src/lib.rs,src/aec_vad.rs,src/onnx_graph.rs,src/ort_loader.rs,src/hybrid_search.rs,assets/energy_periodicity_vad_16k.onnx}`
+- Test: `crates/quetzalcoatl-voice-ai/tests/{barge_in_aec.rs,zero_telemetry_gate.rs,model_asset.rs,pack_manager.rs,hybrid_search.rs,ort_initializer.rs}`
 
 **Interfaces:**
-- Produces: `DuplexAudioGate`（`sonora-aec3` + `tract-onnx` 16kHz 折叠 VAD，`<3MB` 零外部动态库）与 `OnDemandAiPackManager`（验签拉取 `libonnxruntime` + SenseVoice/Kokoro + 多语种嵌入模型，强制环境与 API 双重关闭遥测）。
+- Produces: `DuplexAudioGate`（`sonora-aec3` + 自研常量可折叠 16 kHz 单分支图的纯 Rust 求值；`tract-onnx` 仅作开发期数值一致性校验；`<3MB` 零外部动态库）与 `OnDemandAiPackManager`（验签拉取 + 流式 BLAKE3 + 验签缓存 + 嵌入包版本联动 `reembed()`）+ `OrtInitializer`（环境轴 + API 轴双杀编排，fail-closed）。
+- Deferred: 具体 `ort` 运行时加载器（`dynamic-ort` feature 下的 `OrtCrateBridge` 已可编译，默认构建不链接；加载器随首个需要端侧推理的 surface 落地）。
 
 - [x] **Step 1: 编写混音回声不自激、真人 150ms 插嘴触发、二进制增量 `<3MB` 及零遥测断言测试**
 - [x] **Step 2: 运行测试确认红灯**
-- [x] **Step 3: 实现声学打断管线、按需动态 `ort` 加载器与 `reembed()` 升级联动**
+- [x] **Step 3a: 实现声学打断管线（含非线性/增益阶跃/混响回声与多流键控）、折叠 VAD、`reembed()` 升级联动与按需包验签/原子落盘**
+- [ ] **Step 3b: 接入具体动态 `ort` 运行时加载器**（当前仅 `OrtInitializer` 包装 + 环境轴 + `dynamic-ort` 桥接占位；待首个需要端侧推理的 surface 落地）
 - [x] **Step 4: 验证通过并提交**
 
 ---

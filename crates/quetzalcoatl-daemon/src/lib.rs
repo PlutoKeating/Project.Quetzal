@@ -25,6 +25,6 @@ pub use group::{
 };
 pub use local_ipc::{IpcClient, IpcRequest, IpcResponse, validate_loopback_host_and_origin};
 pub use voice::{
-    DaemonVoiceEvent, VOICE_AI_ENV, VoiceActivityRuntime, VoiceAiConfig, VoiceTurnReport,
-    decode_audio_frame,
+    DaemonVoiceEvent, MAX_VOICE_STREAMS, VOICE_AI_ENV, VoiceActivityRuntime, VoiceActivitySessions,
+    VoiceAiConfig, VoiceStreamError, VoiceTurnReport, decode_audio_frame,
 };
