@@ -15,8 +15,8 @@ pub use discovery::{
 pub use drivers::{
     EwaveCheckTag, HarnessDriver, HarnessEvent, HarnessLaunchContext, HarnessLaunchPlan,
     HarnessRunOutcome, SandboxLaunchBinding, WorktreeLease, WorktreeManager, acp::AcpJsonRpcDriver,
-    claude::ClaudeCodeDriver, codex::CodexDriver, opencode::OpenCodeDriver, parse_ewave_check_tag,
-    pi::PiDriver,
+    claude::ClaudeCodeDriver, codex::CodexDriver, ensure_secure_private_dir,
+    opencode::OpenCodeDriver, parse_ewave_check_tag, pi::PiDriver,
 };
 pub use gateway::{
     ExtractedOAuthCredentials, GatewayConfig, GatewayServerHandle, GatewaySessionConfig,

@@ -28,8 +28,8 @@ use quetzalcoatl_harness::{
     DiscoveryConfig, GatewayConfig, GatewayServerHandle, GatewaySessionConfig,
     GatewayUpstreamEndpoints, HarnessDriver, HarnessHost, HarnessLaunchContext,
     HttpsUpstreamTransport, LoopbackGateway, McpBridgeSession, OpenCodeDriver, PiDriver,
-    SandboxLaunchBinding, WorktreeManager, discover_coding_agents, prepare_stripped_oauth_stubs,
-    serve_mcp_http_loopback,
+    SandboxLaunchBinding, WorktreeManager, discover_coding_agents, ensure_secure_private_dir,
+    prepare_stripped_oauth_stubs, serve_mcp_http_loopback,
 };
 use quetzalcoatl_kernel::{
     BlindKernel, CapabilityDescriptor, CapabilityInvocation, CapabilityOrigin, CapabilitySet,
@@ -846,8 +846,9 @@ impl SharedDaemonCore {
             )?;
 
             // 提取并挂载宿主 ~/.claude / ~/.codex OAuth 令牌供日常对话出站使用
-            let routine_stub_tmp = sandbox_scratch_root(self.runtime_info.agent_id)
-                .join(format!("routine-stubs/{run_id}"));
+            let scratch_base = sandbox_scratch_root(self.runtime_info.agent_id);
+            ensure_secure_private_dir(&scratch_base, Some(&self.config.quetzalcoatl_home))?;
+            let routine_stub_tmp = scratch_base.join(format!("routine-stubs/{run_id}"));
             if let Ok(routine_oauth) = prepare_stripped_oauth_stubs(
                 host_claude.as_deref(),
                 host_codex.as_deref(),
@@ -967,6 +968,7 @@ impl SharedDaemonCore {
         let sandbox_exec_path = self.resolve_sandbox_exec_path()?;
 
         let scratch_base = sandbox_scratch_root(self.runtime_info.agent_id);
+        ensure_secure_private_dir(&scratch_base, Some(&self.config.quetzalcoatl_home))?;
         let wt_root = scratch_base.join("worktrees");
         let worktree_seed_id = RunId::new_v4();
         let wt_lease = WorktreeManager::create_detached(&target_repo, &wt_root, worktree_seed_id)?;
@@ -1249,8 +1251,9 @@ impl SharedDaemonCore {
     ) -> Result<ExploreWakeReport> {
         let now_ms = now_unix_ms();
         let bindings = default_authored_bindings();
-        let explore_ws = sandbox_scratch_root(self.runtime_info.agent_id)
-            .join(format!("explore-{}", Uuid::new_v4().simple()));
+        let scratch_base = sandbox_scratch_root(self.runtime_info.agent_id);
+        ensure_secure_private_dir(&scratch_base, Some(&self.config.quetzalcoatl_home))?;
+        let explore_ws = scratch_base.join(format!("explore-{}", Uuid::new_v4().simple()));
         fs::create_dir_all(explore_ws.join("skills")).map_err(|e| {
             QuetzalcoatlError::StorageError {
                 detail: format!("创建 Explore 沙箱工作区失败: {e}"),
@@ -1640,7 +1643,12 @@ impl DaemonHandle {
         self.gateway_handle.shutdown();
         let _ = fs::remove_file(self.qz_home.join("run/daemon.json"));
         let _ = fs::remove_file(self.qz_home.join("run/daemon.token"));
-        let _ = fs::remove_dir_all(sandbox_scratch_root(self.runtime_info.agent_id));
+        let scratch_dir = sandbox_scratch_root(self.runtime_info.agent_id);
+        if fs::symlink_metadata(&scratch_dir)
+            .is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir())
+        {
+            let _ = fs::remove_dir_all(&scratch_dir);
+        }
         if let Some(sock) = &self.runtime_info.unix_socket_path {
             let _ = fs::remove_file(sock);
         }

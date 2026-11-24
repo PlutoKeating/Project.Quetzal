@@ -106,17 +106,17 @@ impl McpBridgeSession {
         graph: &SerpentineGraph,
         raw_request: &str,
         now_wall_ms: u64,
-    ) -> Result<String> {
+    ) -> Result<Option<String>> {
         let req_json: serde_json::Value = serde_json::from_str(raw_request).map_err(|e| {
             QuetzalcoatlError::SerializationError {
                 detail: format!("解析 MCP JSON-RPC 请求失败: {e}"),
             }
         })?;
 
-        let id = req_json
-            .get("id")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
+        // JSON-RPC 2.0 §4.1：缺少 "id" 成员的消息属于 Notification（如 notifications/initialized），严禁回包！
+        let Some(id) = req_json.get("id").cloned() else {
+            return Ok(None);
+        };
         let method = req_json
             .get("method")
             .and_then(serde_json::Value::as_str)
@@ -214,8 +214,10 @@ impl McpBridgeSession {
             }),
         };
 
-        serde_json::to_string(&response_val).map_err(|e| QuetzalcoatlError::SerializationError {
-            detail: format!("序列化 MCP JSON-RPC 响应失败: {e}"),
+        serde_json::to_string(&response_val).map(Some).map_err(|e| {
+            QuetzalcoatlError::SerializationError {
+                detail: format!("序列化 MCP JSON-RPC 响应失败: {e}"),
+            }
         })
     }
 }
@@ -622,7 +624,7 @@ impl Drop for McpHttpServerHandle {
 /// 启动绑定 256-bit 路径能力密钥（`http://127.0.0.1:<port>/mcp/<cap_token>`）的会话级回环 MCP HTTP 桥接器。
 pub fn serve_mcp_http_loopback<F>(dispatch_fn: F) -> Result<McpHttpServerHandle>
 where
-    F: Fn(&str) -> Result<String> + Send + Sync + 'static,
+    F: Fn(&str) -> Result<Option<String>> + Send + Sync + 'static,
 {
     let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).map_err(|e| {
         QuetzalcoatlError::StorageError {
@@ -682,7 +684,7 @@ where
 
 fn handle_single_mcp_http_conn<F>(stream: &mut TcpStream, expected_cap: &[u8; 32], dispatch: &F)
 where
-    F: Fn(&str) -> Result<String> + ?Sized,
+    F: Fn(&str) -> Result<Option<String>> + ?Sized,
 {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 2048];
@@ -754,7 +756,8 @@ where
         return;
     };
     match dispatch(body_utf8) {
-        Ok(resp_json) => write_mcp_http_reply(stream, 200, resp_json.as_bytes()),
+        Ok(Some(resp_json)) => write_mcp_http_reply(stream, 200, resp_json.as_bytes()),
+        Ok(None) => write_mcp_http_accepted_empty(stream),
         Err(err) => {
             let payload = serde_json::json!({
                 "jsonrpc": "2.0",
@@ -765,6 +768,12 @@ where
             write_mcp_http_reply(stream, 200, payload.as_bytes());
         }
     }
+}
+
+fn write_mcp_http_accepted_empty(stream: &mut TcpStream) {
+    let head = b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let _ = stream.write_all(head);
+    let _ = stream.flush();
 }
 
 fn write_mcp_http_reply(stream: &mut TcpStream, status: u16, body: &[u8]) {

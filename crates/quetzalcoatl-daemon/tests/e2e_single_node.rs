@@ -907,3 +907,60 @@ echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
 
     Ok(())
 }
+
+#[test]
+fn regression_r2_daemon_scratch_root_rejects_preplanted_symlink_and_enforces_0700() -> TestResult {
+    let tmp = TempDirGuard::new("qz_r2_scratch_symlink")?;
+    let qz_home = tmp.path().join("qz_home");
+    let mut daemon = QuetzalcoatlDaemon::start(DaemonConfig::new(qz_home))?;
+    let agent_id = daemon.runtime_info().agent_id;
+    let client = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+
+    #[cfg(unix)]
+    if Path::new("/var/tmp").is_dir() {
+        let scratch_path = PathBuf::from(format!("/var/tmp/quetzalcoatl-scratch-{agent_id}"));
+        let _ = fs::remove_dir_all(&scratch_path);
+        let _ = fs::remove_file(&scratch_path);
+
+        let attacker_target = tmp.path().join("attacker_controlled");
+        fs::create_dir_all(&attacker_target)?;
+        std::os::unix::fs::symlink(&attacker_target, &scratch_path)?;
+
+        let poisoned_res = client.call(&IpcRequest::ExploreTick {
+            synthesize_skill_id: None,
+            synthesize_script_body: None,
+            attempt_external_send: false,
+        })?;
+        let _ = fs::remove_file(&scratch_path);
+        match poisoned_res {
+            IpcResponse::Error { code, .. } => {
+                assert_eq!(
+                    code, "SANDBOX_VIOLATION",
+                    "/var/tmp 临时沙箱目录被预植符号链接时必须返回 SANDBOX_VIOLATION"
+                );
+            }
+            other => {
+                return Err(
+                    format!("预植符号链接 scratch_root 必须被拒绝，实际返回: {other:?}").into(),
+                );
+            }
+        }
+
+        let clean_res = client.call(&IpcRequest::ExploreTick {
+            synthesize_skill_id: None,
+            synthesize_script_body: None,
+            attempt_external_send: false,
+        })?;
+        assert!(matches!(clean_res, IpcResponse::ExploreTick(_)));
+        let scratch_meta = fs::symlink_metadata(&scratch_path)?;
+        assert!(!scratch_meta.file_type().is_symlink());
+        assert_eq!(
+            scratch_meta.permissions().mode() & 0o077,
+            0,
+            "/var/tmp scratch_root 权限必须严格为 0700（零组/其他用户权限）"
+        );
+    }
+
+    daemon.shutdown()?;
+    Ok(())
+}

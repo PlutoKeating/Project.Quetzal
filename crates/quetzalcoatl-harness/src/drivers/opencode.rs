@@ -90,6 +90,20 @@ impl HarnessDriver for OpenCodeDriver {
             String::from("OPENAI_API_KEY"),
             ctx.gateway_grant.ephemeral_stub_token.clone(),
         );
+        if let Some(mcp_url) = &ctx.mcp_endpoint_url {
+            let inline_cfg = serde_json::json!({
+                "mcp": {
+                    "quetzalcoatl": {
+                        "type": "remote",
+                        "url": mcp_url
+                    }
+                }
+            });
+            env.insert(
+                String::from("OPENCODE_CONFIG_CONTENT"),
+                inline_cfg.to_string(),
+            );
+        }
         if let Some(enh_root) = &ctx.enhancers_root_dir {
             let plugin_dir = enh_root.join("opencode-v2-plugin/.opencode");
             env.insert(

@@ -91,6 +91,16 @@ impl HarnessDriver for CodexDriver {
             args.push(String::from("-c"));
             args.push(format!("mcp_servers.quetzalcoatl.url=\"{mcp_url}\""));
         }
+        if let Some(enh_root) = &ctx.enhancers_root_dir {
+            let runner_str = enh_root
+                .join("codex-hooks/bin/codex-notify-runner.mjs")
+                .to_string_lossy()
+                .into_owned();
+            let quoted_runner =
+                serde_json::to_string(&runner_str).unwrap_or_else(|_| format!("\"{runner_str}\""));
+            args.push(String::from("-c"));
+            args.push(format!("notify=[\"node\",{quoted_runner}]"));
+        }
         args.push(String::from(prompt));
 
         let plan = HarnessLaunchPlan {

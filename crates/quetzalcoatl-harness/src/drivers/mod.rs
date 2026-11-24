@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io;
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -249,8 +249,20 @@ pub(crate) fn inspect_git_workspace_diff(workspace_dir: &Path) -> (Vec<String>, 
                 {
                     changed.insert(String::from(p_str));
                 }
-                // 在 `git status -z` 格式中，R/C 重命名或拷贝会紧跟一条旧路径 NUL 记录，需跳过
-                if status_xy.starts_with(b"R") || status_xy.starts_with(b"C") {
+                // 在 `git status -z` 格式中：
+                // - `R` 重命名会紧跟一条旧路径 NUL 记录（旧路径在 worktree 中已被移走，必须一并纳入 changed 以便从主仓库删除！）
+                // - `C` 拷贝会紧跟一条源路径 NUL 记录（源文件仍在原位未变，仅跳过）
+                let is_rename = status_xy[0] == b'R' || status_xy[1] == b'R';
+                let is_copy = status_xy[0] == b'C' || status_xy[1] == b'C';
+                if is_rename {
+                    if let Some(&old_bytes) = entries.get(idx + 1)
+                        && let Ok(old_str) = std::str::from_utf8(old_bytes)
+                        && !old_str.is_empty()
+                    {
+                        changed.insert(String::from(old_str));
+                    }
+                    idx += 1;
+                } else if is_copy {
                     idx += 1;
                 }
             }
@@ -477,14 +489,8 @@ impl WorktreeLease {
             if exists_in_wt {
                 ensure_no_symlink_along_segments(&self.worktree_dir, &segs, false)?;
             } else {
-                // 删除操作：校验父链无符号链接
-                if segs.len() > 1 {
-                    ensure_no_symlink_along_segments(
-                        &self.worktree_dir,
-                        &segs[..segs.len() - 1],
-                        true,
-                    )?;
-                }
+                // 删除操作：传入完整 &segs 并将 allow_missing_tail 设为 true（逐级核验所有现存父目录非符号链接且为目录，同时允许末端被删文件不存在）
+                ensure_no_symlink_along_segments(&self.worktree_dir, &segs, true)?;
             }
             ensure_no_symlink_along_segments(&self.repo_dir, &segs, true)?;
             validated_plan.push((norm_rel, segs, exists_in_wt));
@@ -602,6 +608,112 @@ impl Drop for WorktreeLease {
     }
 }
 
+/// 安全创建或校验宿主私有临时目录（`0700` 权限、拒绝任何预植符号链接、核对当前进程 UID 归属，防 `/var/tmp` 抢注攻击）。
+pub fn ensure_secure_private_dir(dir: &Path, owner_reference_path: Option<&Path>) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let expected_uid = fs::metadata("/proc/self")
+            .ok()
+            .map(|m| m.uid())
+            .or_else(|| {
+                owner_reference_path
+                    .and_then(|p| fs::symlink_metadata(p).ok())
+                    .map(|m| m.uid())
+            });
+
+        match fs::symlink_metadata(dir) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() || !meta.is_dir() {
+                    return Err(QuetzalcoatlError::SandboxViolation {
+                        detail: format!(
+                            "安全私有目录预检失败（检测到预植符号链接或非目录）: {}",
+                            dir.display()
+                        ),
+                    });
+                }
+                if let Some(euid) = expected_uid
+                    && meta.uid() != euid
+                {
+                    return Err(QuetzalcoatlError::SandboxViolation {
+                        detail: format!(
+                            "安全私有目录归属 UID 异常 (dir_uid={}, expected_uid={euid}): {}",
+                            meta.uid(),
+                            dir.display()
+                        ),
+                    });
+                }
+                fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| {
+                    QuetzalcoatlError::SandboxViolation {
+                        detail: format!("锁定私有目录 0700 权限失败 ({}): {e}", dir.display()),
+                    }
+                })?;
+            }
+            Err(_) => {
+                fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(dir)
+                    .map_err(|e| QuetzalcoatlError::StorageError {
+                        detail: format!("创建 0700 私有目录失败 ({}): {e}", dir.display()),
+                    })?;
+            }
+        }
+
+        let verified =
+            fs::symlink_metadata(dir).map_err(|e| QuetzalcoatlError::SandboxViolation {
+                detail: format!("复核私有目录元数据失败 ({}): {e}", dir.display()),
+            })?;
+        if verified.file_type().is_symlink() || !verified.is_dir() {
+            return Err(QuetzalcoatlError::SandboxViolation {
+                detail: format!("复核发现私有目录被替换为符号链接: {}", dir.display()),
+            });
+        }
+        if let Some(euid) = expected_uid
+            && verified.uid() != euid
+        {
+            return Err(QuetzalcoatlError::SandboxViolation {
+                detail: format!(
+                    "复核发现私有目录 UID 不匹配 (actual={}, expected={euid}): {}",
+                    verified.uid(),
+                    dir.display()
+                ),
+            });
+        }
+        if (verified.mode() & 0o077) != 0 {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| {
+                QuetzalcoatlError::SandboxViolation {
+                    detail: format!("强制收敛私有目录 0700 权限失败 ({}): {e}", dir.display()),
+                }
+            })?;
+            let after_chmod =
+                fs::symlink_metadata(dir).map_err(|e| QuetzalcoatlError::SandboxViolation {
+                    detail: format!("二次复核私有目录权限失败 ({}): {e}", dir.display()),
+                })?;
+            if after_chmod.file_type().is_symlink() || (after_chmod.mode() & 0o077) != 0 {
+                return Err(QuetzalcoatlError::SandboxViolation {
+                    detail: format!("无法将私有目录权限严格锁定为 0700: {}", dir.display()),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = owner_reference_path;
+        if let Ok(meta) = fs::symlink_metadata(dir)
+            && (meta.file_type().is_symlink() || !meta.is_dir())
+        {
+            return Err(QuetzalcoatlError::SandboxViolation {
+                detail: format!("安全私有目录禁止为符号链接或普通文件: {}", dir.display()),
+            });
+        }
+        fs::create_dir_all(dir).map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("创建私有目录失败 ({}): {e}", dir.display()),
+        })
+    }
+}
+
 pub struct WorktreeManager;
 
 impl WorktreeManager {
@@ -610,14 +722,14 @@ impl WorktreeManager {
         worktrees_root: &Path,
         run_id: RunId,
     ) -> Result<WorktreeLease> {
-        fs::create_dir_all(worktrees_root).map_err(|e| QuetzalcoatlError::StorageError {
-            detail: format!(
-                "创建 worktrees 根目录失败 ({}): {e}",
-                worktrees_root.display()
-            ),
-        })?;
+        ensure_secure_private_dir(worktrees_root, Some(repo_dir))?;
         let wt_dir = worktrees_root.join(format!("wt-{run_id}"));
-        if wt_dir.exists() {
+        if let Ok(wt_meta) = fs::symlink_metadata(&wt_dir) {
+            if wt_meta.file_type().is_symlink() {
+                return Err(QuetzalcoatlError::SandboxViolation {
+                    detail: format!("检测到预植符号链接工作树路径: {}", wt_dir.display()),
+                });
+            }
             let _ = fs::remove_dir_all(&wt_dir);
         }
         let out = Command::new("git")

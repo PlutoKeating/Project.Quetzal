@@ -1061,13 +1061,15 @@ fn mcp_bridge_and_isolated_git_worktree_enforce_blind_kernel_router_deprivation(
 
     // 1. Router 会话：shell / edit / skill.synthesize 被盲内核架构级硬剥夺
     let router_mcp = McpBridgeSession::router_default(all_bindings.clone());
-    let list_resp_raw = router_mcp.handle_jsonrpc(
-        &mut kernel,
-        &conscience,
-        &graph,
-        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#,
-        1_795_400_050_000,
-    )?;
+    let list_resp_raw = router_mcp
+        .handle_jsonrpc(
+            &mut kernel,
+            &conscience,
+            &graph,
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#,
+            1_795_400_050_000,
+        )?
+        .ok_or("tools/list 应返回 JSON-RPC 响应")?;
     let list_resp: serde_json::Value = serde_json::from_str(&list_resp_raw)?;
     let router_tools: Vec<&str> = list_resp["result"]["tools"]
         .as_array()
@@ -1082,13 +1084,15 @@ fn mcp_bridge_and_isolated_git_worktree_enforce_blind_kernel_router_deprivation(
     assert!(!router_tools.contains(&"skill.synthesize"));
 
     // Router 强行调用 shell -> 被盲内核拒绝并记入 MovementLedger
-    let deny_resp_raw = router_mcp.handle_jsonrpc(
-        &mut kernel,
-        &conscience,
-        &graph,
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"shell","arguments":{"cmd":"rm -rf /"}}}"#,
-        1_795_400_050_010,
-    )?;
+    let deny_resp_raw = router_mcp
+        .handle_jsonrpc(
+            &mut kernel,
+            &conscience,
+            &graph,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"shell","arguments":{"cmd":"rm -rf /"}}}"#,
+            1_795_400_050_010,
+        )?
+        .ok_or("tools/call 应返回 JSON-RPC 错误响应")?;
     let deny_resp: serde_json::Value = serde_json::from_str(&deny_resp_raw)?;
     assert!(deny_resp.get("error").is_some());
     assert!(
@@ -1299,13 +1303,15 @@ fn regression_r1_finding2_mcp_skill_synthesize_validates_rel_path_before_any_hos
                 }
             }
         });
-        let raw_resp = worker_mcp.handle_jsonrpc(
-            &mut kernel,
-            &conscience,
-            &graph,
-            &req.to_string(),
-            1_795_400_100_100 + (idx as u64),
-        )?;
+        let raw_resp = worker_mcp
+            .handle_jsonrpc(
+                &mut kernel,
+                &conscience,
+                &graph,
+                &req.to_string(),
+                1_795_400_100_100 + (idx as u64),
+            )?
+            .ok_or("tools/call 应返回响应")?;
         let parsed: serde_json::Value = serde_json::from_str(&raw_resp)?;
         assert!(
             parsed.get("error").is_some(),
@@ -1731,6 +1737,241 @@ fn regression_r1_finding6_and_7_codex_opencode_json_parsers_provider_urls_claude
                 .iter()
                 .any(|a| a.kind == CodingAgentKind::Goose),
             ">32MB 的非受管路径 pressly/goose 严禁绕过 --version 被误识别为 Block Goose Coding Agent"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn regression_r2_all_four_mcp_202_native_configs_subdir_delete_git_mv_and_secure_worktree_root()
+-> TestResult {
+    let tmp = TempDirGuard::new("qz_r2_all_four")?;
+
+    // 1a. JSON-RPC 2.0 §4.1 & MCP Streamable HTTP：无 "id" 字段的通知必须返回 Ok(None) 及 HTTP 202 Accepted 空响应体
+    let qz_home = tmp.path().join("qz_home");
+    let store = RusqliteWalStore::open(&qz_home.join("spine/spine.sqlite"))?;
+    let agent_id = AgentId::new_v4();
+    let dev = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let root_key = AccountRootKey::from_bytes([0x51; 32]);
+    let ring = EpochKeyRing::new_genesis(agent_id, &root_key, dev.public_record())?;
+    let spine = SpineEngine::new(
+        agent_id,
+        dev,
+        ring,
+        HlcTimestamp::from_parts(1_795_400_500_000, 0, 1),
+        store,
+    )?;
+    let sandbox = SandboxManager::new(SandboxConfig::new(&qz_home));
+    let mut kernel = BlindKernel::new(
+        spine,
+        sandbox,
+        HeartScheduler::new(11, 0.2, SleepPhase::Awake),
+        LeasePosture::Witnessed {
+            witness_epoch: Epoch::new(1),
+        },
+    );
+    let (conscience, graph) = build_sample_conscience_and_graph()?;
+    let router_mcp = McpBridgeSession::router_default(BTreeSet::new());
+
+    let notif_res = router_mcp.handle_jsonrpc(
+        &mut kernel,
+        &conscience,
+        &graph,
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        1_795_400_500_001,
+    )?;
+    assert!(
+        notif_res.is_none(),
+        "无 id 字段的 JSON-RPC Notification 必须返回 None，实际返回: {notif_res:?}"
+    );
+
+    let mut mcp_http = quetzalcoatl_harness::serve_mcp_http_loopback(|raw| {
+        let v: serde_json::Value = serde_json::from_str(raw).map_err(|e| {
+            quetzalcoatl_types::QuetzalcoatlError::SerializationError {
+                detail: e.to_string(),
+            }
+        })?;
+        if v.get("id").is_none() {
+            Ok(None)
+        } else {
+            Ok(Some(String::from(
+                r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#,
+            )))
+        }
+    })?;
+    let ep_url = mcp_http.endpoint_url().to_owned();
+    let after_scheme = ep_url.strip_prefix("http://").ok_or("mcp http scheme")?;
+    let (addr_str, path_str) = after_scheme.split_once('/').ok_or("mcp path")?;
+    let mcp_addr: SocketAddr = addr_str.parse()?;
+    let mcp_path = format!("/{path_str}");
+
+    let (st_202, _, body_202) = send_raw_http(
+        mcp_addr,
+        "POST",
+        &mcp_path,
+        &[("Content-Type", "application/json")],
+        br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+    )?;
+    assert_eq!(
+        st_202, 202,
+        "MCP Streamable HTTP 收到 Notification 必须返回 202 Accepted"
+    );
+    assert!(body_202.is_empty(), "202 Accepted 通知响应体必须为空字节");
+    mcp_http.shutdown();
+
+    // 1b. OpenCode / Claude / Codex 原生 MCP 配置与原生 CLI 钩子参数透传
+    let enhancers_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("repo root")?
+        .join("packages/harness-enhancers");
+    let grant = quetzalcoatl_harness::GatewaySessionGrant {
+        run_id: RunId::new_v4(),
+        cap_token: "a".repeat(64),
+        qz_token: "b".repeat(64),
+        ephemeral_stub_token: format!("qz_stub_{}", "c".repeat(64)),
+        run_base_url: format!("http://127.0.0.1:18888/run/{}", "a".repeat(64)),
+    };
+    let sample_mcp_url = String::from("http://127.0.0.1:19999/mcp/abcd");
+    let ctx = HarnessLaunchContext {
+        agent_kind: CodingAgentKind::OpenCode,
+        binary_path: PathBuf::from("/usr/local/bin/opencode"),
+        workspace_dir: tmp.path().to_path_buf(),
+        sandbox_exec_path: PathBuf::from("/usr/local/bin/quetzalcoatl-sandbox-exec"),
+        sandbox_spec_path: None,
+        sandbox_binding: None,
+        gateway_grant: grant,
+        claude_stub_dir: None,
+        codex_stub_dir: None,
+        active_codex_provider: String::from("openai"),
+        codex_uses_chatgpt_oauth: false,
+        enhancers_root_dir: Some(enhancers_root),
+        mcp_endpoint_url: Some(sample_mcp_url.clone()),
+        daemon_ipc_url: Some(String::from("http://127.0.0.1:17777")),
+        daemon_ipc_token: Some("d".repeat(64)),
+    };
+
+    let oc_plan = OpenCodeDriver.build_launch_plan(&ctx, "prompt")?;
+    let oc_cfg_str = oc_plan
+        .env
+        .get("OPENCODE_CONFIG_CONTENT")
+        .ok_or("OpenCodeDriver 必须通过 OPENCODE_CONFIG_CONTENT 原生传入 MCP 配置")?;
+    let oc_cfg_json: serde_json::Value = serde_json::from_str(oc_cfg_str)?;
+    assert_eq!(
+        oc_cfg_json["mcp"]["quetzalcoatl"]["url"].as_str(),
+        Some(sample_mcp_url.as_str())
+    );
+
+    let claude_plan = ClaudeCodeDriver.build_launch_plan(&ctx, "prompt")?;
+    let mcp_flag_idx = claude_plan
+        .args
+        .iter()
+        .position(|a| a == "--mcp-config")
+        .ok_or("ClaudeCodeDriver 必须传入原生 --mcp-config 参数")?;
+    let claude_mcp_json: serde_json::Value =
+        serde_json::from_str(&claude_plan.args[mcp_flag_idx + 1])?;
+    assert_eq!(
+        claude_mcp_json["mcpServers"]["quetzalcoatl"]["url"].as_str(),
+        Some(sample_mcp_url.as_str())
+    );
+    let settings_idx = claude_plan
+        .args
+        .iter()
+        .position(|a| a == "--settings")
+        .ok_or("ClaudeCodeDriver 在挂载渐进增强器时必须传入原生 --settings 钩子")?;
+    let claude_settings_json: serde_json::Value =
+        serde_json::from_str(&claude_plan.args[settings_idx + 1])?;
+    assert!(claude_settings_json["hooks"]["Stop"].is_array());
+    assert!(claude_settings_json["hooks"]["PreCompact"].is_array());
+
+    let codex_plan = CodexDriver.build_launch_plan(&ctx, "prompt")?;
+    assert!(
+        codex_plan.args.iter().any(|a| a.starts_with("notify=[")),
+        "CodexDriver 在挂载渐进增强器时必须传入原生 -c notify=[...] 钩子参数"
+    );
+
+    // 2 & 3. 子目录文件删除 (`rm src/obsolete.rs`) 与暂存重命名 (`git mv src/old_name.rs src/new_name.rs`) 同步验证
+    let repo_dir = tmp.path().join("repo");
+    fs::create_dir_all(repo_dir.join("src"))?;
+    fs::write(repo_dir.join("src/lib.rs"), "pub fn keep() {}\n")?;
+    fs::write(repo_dir.join("src/obsolete.rs"), "pub fn drop_me() {}\n")?;
+    fs::write(
+        repo_dir.join("src/old_name.rs"),
+        "pub fn renamed() -> u32 { 7 }\n",
+    )?;
+    assert!(
+        Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["init", "-q"])
+            .status()?
+            .success()
+    );
+    let _ = Command::new("git")
+        .current_dir(&repo_dir)
+        .args(["config", "user.email", "r2@quetzalcoatl.test"])
+        .status()?;
+    let _ = Command::new("git")
+        .current_dir(&repo_dir)
+        .args(["config", "user.name", "R2"])
+        .status()?;
+    let _ = Command::new("git")
+        .current_dir(&repo_dir)
+        .args(["add", "."])
+        .status()?;
+    assert!(
+        Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["commit", "-q", "-m", "init 3 files"])
+            .status()?
+            .success()
+    );
+
+    let wt_root = tmp.path().join("secure_wts");
+    let wt = WorktreeManager::create_detached(&repo_dir, &wt_root, RunId::new_v4())?;
+    fs::remove_file(wt.worktree_dir().join("src/obsolete.rs"))?;
+    assert!(
+        Command::new("git")
+            .current_dir(wt.worktree_dir())
+            .args(["mv", "src/old_name.rs", "src/new_name.rs"])
+            .status()?
+            .success()
+    );
+
+    let applied = wt.apply_verified_to_repo()?;
+    assert!(applied.contains(&String::from("src/obsolete.rs")));
+    assert!(applied.contains(&String::from("src/old_name.rs")));
+    assert!(applied.contains(&String::from("src/new_name.rs")));
+    assert!(
+        !repo_dir.join("src/obsolete.rs").exists(),
+        "子目录内被删除的跟踪文件必须从主仓库移除"
+    );
+    assert!(
+        !repo_dir.join("src/old_name.rs").exists(),
+        "git mv 重命名前的旧路径必须从主仓库移除"
+    );
+    assert!(repo_dir.join("src/new_name.rs").is_file());
+    assert!(repo_dir.join("src/lib.rs").is_file());
+    wt.cleanup()?;
+
+    // 4. worktrees_root 符号链接拦截与 0700 权限校验
+    #[cfg(unix)]
+    {
+        let root_mode = fs::symlink_metadata(&wt_root)?.permissions().mode() & 0o777;
+        assert_eq!(root_mode, 0o700, "worktrees_root 权限必须严格锁定为 0700");
+
+        let real_target = tmp.path().join("real_dir");
+        fs::create_dir_all(&real_target)?;
+        let symlink_wt_root = tmp.path().join("symlink_wts");
+        std::os::unix::fs::symlink(&real_target, &symlink_wt_root)?;
+        let sym_res =
+            WorktreeManager::create_detached(&repo_dir, &symlink_wt_root, RunId::new_v4());
+        assert!(
+            matches!(
+                sym_res,
+                Err(quetzalcoatl_types::QuetzalcoatlError::SandboxViolation { .. })
+            ),
+            "符号链接 worktrees_root 必须被拒绝返回 SandboxViolation"
         );
     }
 

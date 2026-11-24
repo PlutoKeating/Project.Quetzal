@@ -45,6 +45,28 @@ impl HarnessDriver for ClaudeCodeDriver {
             );
         }
 
+        let mut args = vec![
+            String::from("-p"),
+            String::from("--output-format"),
+            String::from("stream-json"),
+            String::from("--verbose"),
+            String::from("--setting-sources"),
+            String::from("user"),
+        ];
+
+        if let Some(mcp_url) = &ctx.mcp_endpoint_url {
+            let mcp_cfg = serde_json::json!({
+                "mcpServers": {
+                    "quetzalcoatl": {
+                        "type": "http",
+                        "url": mcp_url
+                    }
+                }
+            });
+            args.push(String::from("--mcp-config"));
+            args.push(mcp_cfg.to_string());
+        }
+
         if let Some(enh_root) = &ctx.enhancers_root_dir {
             env.insert(
                 String::from("QUETZALCOATL_CLAUDE_HOOKS_PATH"),
@@ -53,19 +75,41 @@ impl HarnessDriver for ClaudeCodeDriver {
                     .to_string_lossy()
                     .into_owned(),
             );
+            let runner_path = enh_root.join("claude-code-hooks/bin/claude-hook-runner.mjs");
+            let hook_cmd = format!("node \"{}\"", runner_path.display());
+            let settings_json = serde_json::json!({
+                "hooks": {
+                    "PreCompact": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": hook_cmd
+                                }
+                            ]
+                        }
+                    ],
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": hook_cmd
+                                }
+                            ]
+                        }
+                    ]
+                }
+            });
+            args.push(String::from("--settings"));
+            args.push(settings_json.to_string());
         }
+
+        args.push(String::from(prompt));
 
         Ok(HarnessLaunchPlan {
             program: ctx.binary_path.clone(),
-            args: vec![
-                String::from("-p"),
-                String::from("--output-format"),
-                String::from("stream-json"),
-                String::from("--verbose"),
-                String::from("--setting-sources"),
-                String::from("user"),
-                String::from(prompt),
-            ],
+            args,
             cwd: ctx.workspace_dir.clone(),
             env,
         })
