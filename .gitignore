@@ -10,6 +10,7 @@ website/.react-router/
 
 # Go 二进制产物
 hub/quetzalcoatl-hub
+hub/cmd/quetzalcoatl-hub/quetzalcoatl-hub
 
 # 原生桌面与移动端构建缓存
 surfaces/macos/.build/

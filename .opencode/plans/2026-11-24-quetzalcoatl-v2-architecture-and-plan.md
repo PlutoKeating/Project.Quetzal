@@ -408,10 +408,10 @@
 - Consumes: `spec/vectors/*.json`
 - Produces: `/v1/auth/*`, `/v1/pair/*`, `/v1/spine/{agent_id}/packs`（`server_seq` 游标 + Presigned `PUT` 精确字节与哈希核验）, `/v1/lease/acquire`（单调 `witness_epoch` CAS）。
 
-- [ ] **Step 1: 编写跨语言 OPAQUE/HPKE 向量互通、配额超限拦截与 CAS 围栏竞态测试**
-- [ ] **Step 2: 运行 `go test -race ./...` 确认红灯**
-- [ ] **Step 3: 纯 Go（`CGO_ENABLED=0`）实现双数据库适配、5 槽位密钥信封、Packfile 配额存储与 CAS 租约寄存器**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写跨语言 OPAQUE/HPKE 向量互通、配额超限拦截与 CAS 围栏竞态测试**
+- [x] **Step 2: 运行 `go test -race ./...` 确认红灯**
+- [x] **Step 3: 纯 Go（`CGO_ENABLED=0`）实现双数据库适配、5 槽位密钥信封、Packfile 配额存储与 CAS 租约寄存器**
+- [x] **Step 4: 验证通过并提交**
   Run: `cd hub && CGO_ENABLED=0 go build ./... && go test -race ./...` -> Expected: PASS，原子提交。
 
 ---
