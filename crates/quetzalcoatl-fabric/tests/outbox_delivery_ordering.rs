@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use quetzalcoatl_crypto::{AccountRootKey, DeviceIdentity, EpochKey, EpochKeyRing};
+use quetzalcoatl_crypto::{
+    AccountRootKey, DeviceIdentity, EpochKey, EpochKeyRing, PackCompartment,
+};
 use quetzalcoatl_fabric::{
     FencedLeaseCoordinator, LeaseCoordinatorConfig, LeaseWitnessBackend, LeaseWitnessRecord,
     SimulatedMonotonicClock, SpineSyncActor, SpineSyncBackend,
@@ -390,6 +392,193 @@ async fn outbox_delivers_before_witnessing_and_refused_delivery_stays_queued_for
         0,
         "已投递的幂等键严禁跨轮重复投递"
     );
+
+    let _ = BTreeMap::<String, String>::new();
+    Ok(())
+}
+
+/// Fix Round 2 / Item 3：投递见证必须单调——一旦某幂等键被记录为已投递，
+/// 之后任何"补偿（aborted_before_send=true）"记录都不得把它重新排回待投递队列。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn abort_record_after_delivered_cannot_requeue_the_key() -> TestResult {
+    let tmp = TempDirGuard::new("qz_outbox_monotonic_precedence")?;
+    let home = tmp.path().join("node");
+    fs::create_dir_all(&home)?;
+    let mut kernel = build_kernel(&home, LeasePosture::PartitionLocal)?;
+
+    let run = kernel.spawn_commit_run("monotonic precedence", None, NOW_MS)?;
+    let mut call =
+        CapabilityInvocation::new("external.send", r#"{"channel":"public","target":"peer"}"#);
+    call.idempotency_key = Some(String::from("idem-monotonic-precedence"));
+    let queued = kernel
+        .authorize_capability(
+            PrincipalRole::Worker,
+            Some(run.run_id),
+            CapabilitySet::All,
+            ScopeChain::unrestricted(),
+            BTreeSet::from([String::from("external.send")]),
+            &call,
+            NOW_MS + 1,
+        )
+        .err()
+        .ok_or("必须暂存 Outbox")?;
+    assert_eq!(queued.code(), ErrorCode::PartitionRestricted);
+
+    let local_device = kernel.spine().local_device().device_id();
+    kernel.set_lease_posture(LeasePosture::Witnessed {
+        witness_epoch: Epoch::new(2),
+    });
+    let mut coord = FencedLeaseCoordinator::new(
+        SimulatedMonotonicClock::new(0),
+        LeaseCoordinatorConfig {
+            ttl_ms: 30_000,
+            safety_margin_ms: 2_000,
+            offline_grace_ms: 5_000,
+        },
+    );
+    coord.observe_remote_epoch(2, Some(local_device), &mut kernel);
+    let hub = StaticHub {
+        witness_epoch: 2,
+        uploads: Arc::new(AtomicUsize::new(0)),
+    };
+    let mut sync = SpineSyncActor::new();
+    let attempts = Arc::new(AtomicUsize::new(0));
+
+    // 1. 首次成功投递并写 delivered 见证。
+    let first = Arc::clone(&attempts);
+    let _ = coord
+        .tick_and_reconcile(
+            &mut kernel,
+            &mut sync,
+            &hub,
+            &hub,
+            NOW_MS + 10,
+            move |_c, _i, _a, _e| {
+                first.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await;
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    let delivered_records = delivery_records(&kernel)?
+        .into_iter()
+        .filter(|r| r["aborted_before_send"].as_bool() == Some(false))
+        .count();
+    assert_eq!(delivered_records, 1);
+
+    // 2. 模拟另一台设备/旧轮次落后的补偿记录（abort）在 delivered 之后到达本地脊柱。
+    let stale_abort = serde_json::json!({
+        "schema": "quetzalcoatl/v2/fabric-external-delivery-v1",
+        "capability_id": "external.send",
+        "idempotency_key": "idem-monotonic-precedence",
+        "witness_epoch": 2,
+        "outbox_id": Uuid::new_v4().to_string(),
+        "aborted_before_send": true,
+    });
+    kernel.spine_mut().append_event(
+        PackCompartment::Core,
+        &serde_json::to_string(&stale_abort)?,
+        NOW_MS + 20,
+    )?;
+
+    // 3. 再跑心跳：已投递键绝不能被 abort 记录重新排队导致二次投递。
+    let second = Arc::clone(&attempts);
+    let _ = coord
+        .tick_and_reconcile(
+            &mut kernel,
+            &mut sync,
+            &hub,
+            &hub,
+            NOW_MS + 30,
+            move |_c, _i, _a, _e| {
+                second.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await;
+    assert_eq!(
+        attempts.load(Ordering::SeqCst),
+        1,
+        "已投递幂等键在后续 abort 记录到达后严禁再次投递"
+    );
+
+    // 4. 反向顺序（abort 先于 delivered）仍必须视为已投递。
+    let key2 = "idem-monotonic-reverse";
+    kernel.set_lease_posture(LeasePosture::PartitionLocal);
+    let run2 = kernel.spawn_commit_run("monotonic reverse", None, NOW_MS + 40)?;
+    let mut call2 =
+        CapabilityInvocation::new("external.send", r#"{"channel":"public","target":"peer2"}"#);
+    call2.idempotency_key = Some(String::from(key2));
+    let _ = kernel.authorize_capability(
+        PrincipalRole::Worker,
+        Some(run2.run_id),
+        CapabilitySet::All,
+        ScopeChain::unrestricted(),
+        BTreeSet::from([String::from("external.send")]),
+        &call2,
+        NOW_MS + 41,
+    );
+    kernel.set_lease_posture(LeasePosture::Witnessed {
+        witness_epoch: Epoch::new(2),
+    });
+    let abort2 = serde_json::json!({
+        "schema": "quetzalcoatl/v2/fabric-external-delivery-v1",
+        "capability_id": "external.send",
+        "idempotency_key": key2,
+        "witness_epoch": 2,
+        "outbox_id": Uuid::new_v4().to_string(),
+        "aborted_before_send": true,
+    });
+    kernel.spine_mut().append_event(
+        PackCompartment::Core,
+        &serde_json::to_string(&abort2)?,
+        NOW_MS + 45,
+    )?;
+    let third = Arc::clone(&attempts);
+    let _ = coord
+        .tick_and_reconcile(
+            &mut kernel,
+            &mut sync,
+            &hub,
+            &hub,
+            NOW_MS + 50,
+            move |_c, _i, _a, _e| {
+                third.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await;
+    // abort 先到 → 仍应投递一次（从 1 增至 2）。
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    // 再补一条 delivered 后不得重复。
+    let delivered2 = serde_json::json!({
+        "schema": "quetzalcoatl/v2/fabric-external-delivery-v1",
+        "capability_id": "external.send",
+        "idempotency_key": key2,
+        "witness_epoch": 2,
+        "outbox_id": null,
+        "aborted_before_send": false,
+    });
+    kernel.spine_mut().append_event(
+        PackCompartment::Core,
+        &serde_json::to_string(&delivered2)?,
+        NOW_MS + 60,
+    )?;
+    let fourth = Arc::clone(&attempts);
+    let _ = coord
+        .tick_and_reconcile(
+            &mut kernel,
+            &mut sync,
+            &hub,
+            &hub,
+            NOW_MS + 70,
+            move |_c, _i, _a, _e| {
+                fourth.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await;
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
 
     let _ = BTreeMap::<String, String>::new();
     Ok(())

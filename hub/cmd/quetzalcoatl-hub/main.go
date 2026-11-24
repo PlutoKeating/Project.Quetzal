@@ -410,6 +410,7 @@ func main() {
 
 	authSvc, err := auth.NewService(st, blobs, auth.Config{
 		RPID:                      rpID,
+		PublicURL:                 publicURL,
 		AllowedOrigins:            origins,
 		ServerIdentity:            envOrDefault("QUETZALCOATL_HUB_SERVER_IDENTITY", "server:quetzalcoatl-hub:v2"),
 		OPRFMasterSeed:            oprfSeed,

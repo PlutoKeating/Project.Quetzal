@@ -177,6 +177,7 @@ fn parse_args(args: Vec<String>) -> Result<DaemonCli> {
             hub_ca_file: fabric_ca_file,
             qad_port: fabric_qad_port.unwrap_or(7842),
             enable_mdns: fabric_mdns.unwrap_or(true),
+            tick_interval_ms: 5_000,
         });
     }
 

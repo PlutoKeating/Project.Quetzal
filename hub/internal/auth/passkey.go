@@ -39,7 +39,9 @@ const (
 )
 
 type Config struct {
-	RPID                      string
+	RPID string
+	// PublicURL 是 Hub 自身对外可达的基址，仅用于向已授权设备广播 iroh Relay 地址。
+	PublicURL                 string
 	AllowedOrigins            []string
 	ServerIdentity            string
 	OPRFMasterSeed            [32]byte
@@ -77,6 +79,7 @@ func NewService(st store.Store, blobs store.BlobStore, cfg Config, clock func() 
 	if cfg.RPID == "" {
 		cfg.RPID = "localhost"
 	}
+	cfg.PublicURL = strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/")
 	if len(cfg.AllowedOrigins) == 0 {
 		cfg.AllowedOrigins = []string{"http://localhost", "https://" + cfg.RPID}
 	}

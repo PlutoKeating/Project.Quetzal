@@ -823,6 +823,8 @@ func (s *Service) handleListDevices(w http.ResponseWriter, r *http.Request) {
 		XWingPubKeyHex   string `json:"xwing_pubkey_hex"`
 		Revoked          bool   `json:"revoked"`
 		CreatedAtMs      int64  `json:"created_at_ms"`
+		// EndpointIDHex 是 iroh 端点 ID（等于设备 Ed25519 公钥），仅用于 P2P 拨号发现，不含任何明文/记忆内容。
+		EndpointIDHex string `json:"endpoint_id_hex"`
 	}
 	out := make([]devResp, 0, len(devs))
 	for _, d := range devs {
@@ -832,7 +834,13 @@ func (s *Service) handleListDevices(w http.ResponseWriter, r *http.Request) {
 			XWingPubKeyHex:   d.XWingPubKeyHex,
 			Revoked:          d.Revoked,
 			CreatedAtMs:      d.CreatedAtMs,
+			EndpointIDHex:    strings.ToLower(d.Ed25519PubKeyHex),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"devices": out})
+	resp := map[string]any{"devices": out}
+	if s.cfg.PublicURL != "" {
+		// 仅广播 Hub 自身 Relay 基址，供对端构造 EndpointAddr；零明文、零记忆内容。
+		resp["relay_url"] = s.cfg.PublicURL
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

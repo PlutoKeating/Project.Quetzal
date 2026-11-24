@@ -327,6 +327,15 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
             .max(500)
     }
 
+    /// Fix Round 2 / Item 2：网络阶段 0 门禁——在任何 Hub/对等网络 I/O 之前**同时**降级协调器状态
+    /// 与内核 `LeasePosture`，返回是否发生了合盖/挂起导致的单调时钟过期降级。
+    pub fn begin_network_tick<S: MaterializedStore>(
+        &mut self,
+        kernel: &mut BlindKernel<S>,
+    ) -> bool {
+        self.check_monotonic_expiry_before_io(kernel)
+    }
+
     /// Review Focus #2：在发出任何网络包或执行任何外部写之前，先读取本机单调时钟 `Instant` 自检租约是否已过期；
     /// 若合盖休眠后苏醒发现已超期，立即在发包前自降级为 `Standby / PartitionLocal`！
     pub fn check_monotonic_expiry_before_io<S: MaterializedStore>(
@@ -456,8 +465,11 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
                 && rec.schema == FABRIC_DELIVERY_SCHEMA
             {
                 if rec.aborted_before_send {
-                    committed_keys.remove(&rec.idempotency_key);
-                    if let Some(oid) = rec.outbox_id {
+                    // 投递见证单调：一旦该幂等键被记录为已投递，后续迟到的 abort 记录
+                    // （来自其他设备/旧轮次）绝不能把它重新排回待投递队列。
+                    if !committed_keys.contains(&rec.idempotency_key)
+                        && let Some(oid) = rec.outbox_id
+                    {
                         committed_outbox_ids.remove(&oid);
                     }
                 } else {

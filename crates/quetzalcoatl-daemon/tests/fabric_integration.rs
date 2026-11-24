@@ -473,6 +473,7 @@ fn qz_login_pair_nodes_and_status_against_live_go_hub_through_daemon_ipc() -> Te
         relay_url: hub.https_url.clone(),
         qad_port: hub.qad_port,
         enable_mdns: false,
+        tick_interval_ms: 500,
     });
     cfg.discovery_search_paths = Some(Vec::new());
     let mut daemon = QuetzalcoatlDaemon::start(cfg)?;

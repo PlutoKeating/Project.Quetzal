@@ -21,7 +21,7 @@ use std::pin::Pin;
 
 use quetzalcoatl_crypto::{
     AccountRootKey, DeviceIdentity, DevicePublicRecord, EpochKey, EpochKeyRing, SealedPackfile,
-    hex_decode, hex_decode_fixed, hex_encode,
+    XWING_PK_LEN, hex_decode, hex_decode_fixed, hex_encode,
 };
 use quetzalcoatl_fabric::{
     FabricNode, FabricNodeConfig, FabricRelaySettings, FabricRpcHandler, FabricRpcRequest,
@@ -41,7 +41,6 @@ use crate::daemon::{SharedDaemonCore, now_unix_ms, write_private_file};
 
 const FABRIC_SESSION_REL_PATH: &str = "fabric/hub_session.json";
 const FABRIC_JOINER_REL_PATH: &str = "fabric/pending_joiner.json";
-const FABRIC_TICK_INTERVAL: Duration = Duration::from_secs(10);
 const FABRIC_HUB_CALL_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_QAD_PORT: u16 = 7842;
 const FABRIC_PAIRINGS_REL_PATH: &str = "fabric/pairing_sessions.json";
@@ -57,6 +56,8 @@ pub struct DaemonFabricConfig {
     pub relay_url: String,
     pub qad_port: u16,
     pub enable_mdns: bool,
+    /// 心跳周期（毫秒），生产默认 5000；测试可调低以缩短收敛等待。
+    pub tick_interval_ms: u64,
 }
 
 fn env_map(pairs: &[(String, String)]) -> BTreeMap<&str, &str> {
@@ -94,12 +95,18 @@ impl DaemonFabricConfig {
         let enable_mdns = map
             .get("QUETZALCOATL_FABRIC_MDNS")
             .is_none_or(|v| !matches!(v.trim(), "0" | "false" | "FALSE" | "off"));
+        let tick_interval_ms = map
+            .get("QUETZALCOATL_FABRIC_TICK_MS")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .filter(|v| *v >= 100)
+            .unwrap_or(5_000);
         Some(Self {
             hub_url,
             hub_ca_file,
             relay_url,
             qad_port,
             enable_mdns,
+            tick_interval_ms,
         })
     }
 
@@ -118,6 +125,7 @@ impl DaemonFabricConfig {
             relay_url: session.relay_url.clone(),
             qad_port: session.qad_port,
             enable_mdns: true,
+            tick_interval_ms: 5_000,
         }
     }
 
@@ -170,28 +178,88 @@ struct PersistedMembershipState {
 
 const FABRIC_MEMBERSHIP_REL_PATH: &str = "fabric/membership_state.json";
 
+/// 把损坏/被篡改的成员状态文件移出原路径并留下 `<file>.corrupt-<unix_ms>` 隔离副本。
+/// 仅记录路径与原因分类，绝不打印文件内容（其中可能含纪元密钥）。
+fn quarantine_membership_state(qz_home: &Path, reason: &str) {
+    let source = qz_home.join(FABRIC_MEMBERSHIP_REL_PATH);
+    let dest = qz_home.join(format!(
+        "{FABRIC_MEMBERSHIP_REL_PATH}.corrupt-{}",
+        now_unix_ms()
+    ));
+    match fs::rename(&source, &dest) {
+        Ok(()) => eprintln!(
+            "quetzalcoatld WARN fabric_membership_quarantined path={} reason={reason}",
+            dest.display()
+        ),
+        Err(e) => eprintln!(
+            "quetzalcoatld WARN fabric_membership_quarantine_failed path={} reason={reason} io={e}",
+            source.display()
+        ),
+    }
+}
+
+fn decode_membership_state(qz_home: &Path) -> Option<PersistedMembershipState> {
+    let path = qz_home.join(FABRIC_MEMBERSHIP_REL_PATH);
+    let raw = match fs::read(&path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(_) => {
+            quarantine_membership_state(qz_home, "unreadable");
+            return None;
+        }
+    };
+    match serde_json::from_slice::<PersistedMembershipState>(&raw) {
+        Ok(state) => Some(state),
+        Err(_) => {
+            quarantine_membership_state(qz_home, "decode_error");
+            None
+        }
+    }
+}
+
 /// 启动时把已持久化的成员变更（新增设备 + 踢人后的新纪元密钥）重放进本地 `EpochKeyRing`。
 /// 每次重放都会用根密钥重新签发成员变更审计记录，因此无需持久化易失效的旧签名。
+///
+/// 安全失败语义（Fix Round 2 / Item 4）：文件损坏或被篡改时隔离该文件并以"无额外成员"安全回退，
+/// 绝不让伪造/半损坏的成员状态阻断守护进程启动；所有条目先整体校验再应用，避免半途污染。
 pub(crate) fn apply_persisted_membership(
     qz_home: &Path,
     ring: &mut EpochKeyRing,
     root_key: &AccountRootKey,
 ) -> Result<()> {
-    let Some(state) =
-        load_json_private::<PersistedMembershipState>(&qz_home.join(FABRIC_MEMBERSHIP_REL_PATH))
-    else {
+    let Some(state) = decode_membership_state(qz_home) else {
         return Ok(());
     };
-    for (epoch, key_hex) in state.extra_epoch_keys {
-        if epoch <= 1 {
+
+    let mut epoch_keys = Vec::new();
+    for (epoch, key_hex) in &state.extra_epoch_keys {
+        if *epoch <= 1 {
             continue;
         }
-        let key = hex_decode_fixed::<32>("membership.extra_epoch_key", &key_hex)?;
-        ring.insert_epoch_key(Epoch::new(epoch), EpochKey::from_bytes(key));
+        match hex_decode_fixed::<32>("membership.extra_epoch_key", key_hex) {
+            Ok(bytes) => epoch_keys.push((*epoch, EpochKey::from_bytes(bytes))),
+            Err(_) => {
+                quarantine_membership_state(qz_home, "invalid_epoch_key");
+                return Ok(());
+            }
+        }
     }
-    for record in state.peer_devices {
-        if !ring.is_device_active(record.device_id) {
-            ring.add_device(root_key, record)?;
+    let mut peer_devices = Vec::new();
+    for record in &state.peer_devices {
+        if record.xwing_pubkey.len() != XWING_PK_LEN {
+            quarantine_membership_state(qz_home, "invalid_device_record");
+            return Ok(());
+        }
+        peer_devices.push(record.clone());
+    }
+
+    for (epoch, key) in epoch_keys {
+        ring.insert_epoch_key(Epoch::new(epoch), key);
+    }
+    for record in peer_devices {
+        if !ring.is_device_active(record.device_id) && ring.add_device(root_key, record).is_err() {
+            quarantine_membership_state(qz_home, "apply_failed");
+            return Ok(());
         }
     }
     Ok(())
@@ -490,6 +558,15 @@ impl BoundedHub {
     }
 }
 
+impl BoundedHub {
+    async fn list_fabric_peers(
+        &self,
+        agent_id: AgentId,
+    ) -> Result<Vec<quetzalcoatl_fabric::FabricPeerEndpoint>> {
+        Self::bound(self.hub.list_fabric_peers(agent_id)).await
+    }
+}
+
 impl LeaseWitnessBackend for BoundedHub {
     fn acquire_lease<'a>(
         &'a self,
@@ -751,6 +828,7 @@ impl DaemonFabricRuntime {
                 relay_url: String::new(),
                 qad_port: DEFAULT_QAD_PORT,
                 enable_mdns: false,
+                tick_interval_ms: 5_000,
             },
         }
     }
@@ -816,9 +894,13 @@ impl DaemonFabricRuntime {
         let hub = BoundedHub::new(self.hub_client(Some(&token))?);
         let wall = now_unix_ms();
 
-        // 阶段 0：短锁快照（本地密封检查点、待上传/既有包、逐对等节点同步计划）。
-        let snapshot = {
+        let mut lease = lock_or_storage(&self.lease)?;
+        let mut sync = lock_or_storage(&self.sync)?;
+
+        // 阶段 0：短锁快照（先做合盖时钟跳变门禁 → 同时降级内核姿态，再密封检查点/快照）。
+        let (snapshot, expired_in_phase_zero) = {
             let mut state = lock_or_storage(&core.state)?;
+            let expired = lease.begin_network_tick(&mut state.kernel);
             let _ = state.kernel.spine_mut().seal_checkpoint(None, wall);
             let all_packs = state.kernel.spine().store().list_packfiles()?;
             let agent_id = state.kernel.spine().agent_id();
@@ -830,17 +912,23 @@ impl DaemonFabricRuntime {
                 .collect();
             let existing: BTreeSet<ArtifactId> = all_packs.iter().map(|p| p.pack_id).collect();
             let peer_plan = SpineSyncActor::collect_peer_sync_plan(&state.kernel)?;
-            SyncSnapshot {
-                agent_id,
-                local_device,
-                local_packs,
-                existing,
-                peer_plan,
-            }
+            (
+                SyncSnapshot {
+                    agent_id,
+                    local_device,
+                    local_packs,
+                    existing,
+                    peer_plan,
+                },
+                expired,
+            )
         };
-
-        let mut lease = lock_or_storage(&self.lease)?;
-        let mut sync = lock_or_storage(&self.sync)?;
+        if expired_in_phase_zero {
+            // 合盖超期后立即把乐观的 Witnessed 快照翻成分区受限，避免 status/nodes 短暂误报全权态。
+            if let Ok(mut view) = self.lease_view.lock() {
+                *view = capture_lease_view(&lease, snapshot.local_device);
+            }
+        }
 
         // 阶段 1a：零内核锁的 Hub 心跳（续租/竞选 + 包上传下载）。
         let report = self.rt.block_on(lease.network_tick(
@@ -855,14 +943,48 @@ impl DaemonFabricRuntime {
 
         // 阶段 1b：零内核锁的逐对等节点直连 Packfile 同步（Hub 不可达时仍可收敛）。
         let mut peer_pulled = Vec::new();
-        for addr in self.node.peer_endpoint_addrs() {
-            if let Ok(outcome) = self.rt.block_on(SpineSyncActor::exchange_with_peer(
-                &self.node,
-                addr,
-                snapshot.agent_id,
-                snapshot.local_device,
-                &snapshot.peer_plan,
-            )) {
+        // 1b-0 生产拨号路径：从 Hub 拉取授权设备的 iroh endpoint id + Relay 基址并主动拨号，
+        // 让两个互无入站流量的空闲守护进程也能建立 P2P 连接（仅 endpoint id/relay url，零明文）。
+        if let Ok(discovered) = self.rt.block_on(hub.list_fabric_peers(snapshot.agent_id)) {
+            for peer in discovered {
+                if peer.device_id == snapshot.local_device {
+                    continue;
+                }
+                // 对端可能刚退出/不可达：单次直连同步必须有时限，绝不让心跳/退出被 iroh 重连重试拖死。
+                let exchange = self.rt.block_on(async {
+                    tokio::time::timeout(
+                        Duration::from_secs(5),
+                        SpineSyncActor::sync_with_peer_by_endpoint(
+                            &self.node,
+                            &peer.endpoint_id_hex,
+                            peer.relay_url.as_deref(),
+                            snapshot.agent_id,
+                            snapshot.local_device,
+                            &snapshot.peer_plan,
+                        ),
+                    )
+                    .await
+                });
+                if let Ok(Ok(outcome)) = exchange {
+                    peer_pulled.extend(outcome.pulled_packs);
+                }
+            }
+        }
+        // 1b-1 已连接对端（覆盖 Hub 暂时不可达但直连仍存活的场景）。
+        let connected = self.rt.block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                sync.exchange_with_connected_peers(
+                    &self.node,
+                    snapshot.agent_id,
+                    snapshot.local_device,
+                    &snapshot.peer_plan,
+                ),
+            )
+            .await
+        });
+        if let Ok(outcomes) = connected {
+            for outcome in outcomes {
                 peer_pulled.extend(outcome.pulled_packs);
             }
         }
@@ -958,9 +1080,10 @@ impl DaemonFabricRuntime {
         }
         let weak = Arc::downgrade(self);
         let stop = Arc::clone(&self.stop);
+        let interval = Duration::from_millis(self.config_snapshot().tick_interval_ms.max(100));
         let join = thread::spawn(move || {
             while !stop.load(Ordering::Relaxed) {
-                thread::sleep(FABRIC_TICK_INTERVAL);
+                thread::sleep(interval);
                 if stop.load(Ordering::Relaxed) {
                     break;
                 }
@@ -987,7 +1110,11 @@ impl DaemonFabricRuntime {
             self.release_active_lease();
         }
         self.refresh_lease_view();
-        self.rt.block_on(self.node.shutdown());
+        // 退出路径必须有时限：Hub/中继不可达时 iroh `endpoint.close()` 可能长时间等待网络超时，
+        // 绝不允许守护进程退出被拖住（5s 上限后放弃剩余后台收尾）。
+        self.rt.block_on(async {
+            let _ = tokio::time::timeout(Duration::from_secs(5), self.node.shutdown()).await;
+        });
     }
 
     /// 优雅退出时把当前 `witness_epoch` 连同最新检查点移交在线对等节点（返回是否移交成功）。
@@ -1014,16 +1141,23 @@ impl DaemonFabricRuntime {
             return false;
         };
         let bounded = BoundedHub::new(hub);
-        self.rt
-            .block_on(lease.voluntary_handoff(
-                &mut state.kernel,
-                &mut sync,
-                &bounded,
-                Some(&bounded),
-                Some((&self.node, target)),
-                now_unix_ms(),
-            ))
-            .is_ok()
+        // 移交请求必须有时限：对端可能刚好同时退出/不可达，绝不能让守护进程退出被 iroh
+        // 重连重试拖住（超时即回退为 Hub 直接释放）。
+        let result = self.rt.block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                lease.voluntary_handoff(
+                    &mut state.kernel,
+                    &mut sync,
+                    &bounded,
+                    Some(&bounded),
+                    Some((&self.node, target)),
+                    now_unix_ms(),
+                ),
+            )
+            .await
+        });
+        matches!(result, Ok(Ok(_)))
     }
 
     fn release_active_lease(&self) {
@@ -1596,6 +1730,9 @@ impl FabricRpcHandler for DaemonFabricRpcHandler {
                         .and_then(|tok| fabric.hub_client(Some(&tok)));
                     match hub_res {
                         Ok(hub) => thread::spawn(move || {
+                            // 接班时 Hub 可能已不可达：必须使用 3s 硬超时垫片，避免把对端的
+                            // 优雅退出移交请求拖住 20s。
+                            let bounded = BoundedHub::new(hub);
                             tokio::runtime::Builder::new_current_thread()
                                 .enable_all()
                                 .build()
@@ -1603,15 +1740,13 @@ impl FabricRpcHandler for DaemonFabricRpcHandler {
                                     detail: e.to_string(),
                                 })
                                 .and_then(|rt| {
-                                    rt.block_on(
-                                        quetzalcoatl_fabric::LeaseWitnessBackend::acquire_lease(
-                                            &hub,
-                                            agent_id,
-                                            local_dev,
-                                            released_epoch,
-                                            30_000,
-                                        ),
-                                    )
+                                    rt.block_on(LeaseWitnessBackend::acquire_lease(
+                                        &bounded,
+                                        agent_id,
+                                        local_dev,
+                                        released_epoch,
+                                        30_000,
+                                    ))
                                 })
                         })
                         .join()

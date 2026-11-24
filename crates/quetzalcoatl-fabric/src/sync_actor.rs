@@ -7,7 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::pin::Pin;
 
-use iroh::EndpointAddr;
+use std::str::FromStr;
+
+use iroh::{EndpointAddr, EndpointId, RelayUrl};
 use quetzalcoatl_crypto::SealedPackfile;
 use quetzalcoatl_kernel::BlindKernel;
 use quetzalcoatl_spine::MaterializedStore;
@@ -254,6 +256,49 @@ impl SpineSyncActor {
             uploaded_packs,
             pulled_packs,
         })
+    }
+
+    /// 按 Hub 发现的 `endpoint_id_hex` + Relay 基址主动拨号并完成一次直连 Packfile 交换。
+    /// 网络本身不含明文/记忆内容，仅传输已签名加密的 `SealedPackfile`。
+    pub async fn sync_with_peer_by_endpoint(
+        fabric: &FabricNode,
+        endpoint_id_hex: &str,
+        relay_url: Option<&str>,
+        agent_id: AgentId,
+        sender_device_id: DeviceId,
+        plan: &PeerSyncPlan,
+    ) -> Result<PeerSyncOutcome> {
+        let id = EndpointId::from_str(endpoint_id_hex)
+            .map_err(|e| QuetzalcoatlError::invalid_id("EndpointId", e.to_string()))?;
+        let mut addr = EndpointAddr::new(id);
+        if let Some(raw) = relay_url.filter(|r| !r.trim().is_empty()) {
+            let relay =
+                RelayUrl::from_str(raw).map_err(|e| QuetzalcoatlError::SerializationError {
+                    detail: format!("非法 Hub Relay URL ({raw}): {e}"),
+                })?;
+            addr = addr.with_relay_url(relay);
+        }
+        fabric.register_peer_addr(addr.clone());
+        Self::exchange_with_peer(fabric, addr, agent_id, sender_device_id, plan).await
+    }
+
+    /// 对当前已连接的全部授权对端执行一次直连 Packfile 交换（零内核锁）。
+    pub async fn exchange_with_connected_peers(
+        &self,
+        fabric: &FabricNode,
+        agent_id: AgentId,
+        sender_device_id: DeviceId,
+        plan: &PeerSyncPlan,
+    ) -> Vec<PeerSyncOutcome> {
+        let mut out = Vec::new();
+        for addr in fabric.peer_endpoint_addrs() {
+            if let Ok(outcome) =
+                Self::exchange_with_peer(fabric, addr, agent_id, sender_device_id, plan).await
+            {
+                out.push(outcome);
+            }
+        }
+        out
     }
 
     /// 将逐对等节点网络交换结果合入本地脊柱并重水合（零网络）。

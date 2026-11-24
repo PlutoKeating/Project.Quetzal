@@ -242,6 +242,13 @@ impl RunningGoHub {
     }
 }
 
+impl RunningGoHub {
+    fn kill(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 impl Drop for RunningGoHub {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -372,6 +379,7 @@ fn fabric_config(qz_home: &Path, hub: &RunningGoHub, ca_pem: &Path) -> DaemonCon
         relay_url: hub.https_url.clone(),
         qad_port: hub.qad_port,
         enable_mdns: false,
+        tick_interval_ms: 500,
     });
     cfg.discovery_search_paths = Some(Vec::new());
     cfg
@@ -539,6 +547,7 @@ fn unreachable_hub_keeps_daemon_status_responsive_while_tick_is_in_flight() -> T
         relay_url: blackhole_url,
         qad_port: 7842,
         enable_mdns: false,
+        tick_interval_ms: 300,
     });
     cfg.discovery_search_paths = Some(Vec::new());
     let mut daemon = QuetzalcoatlDaemon::start(cfg)?;
@@ -864,4 +873,257 @@ fn revoke_of_unknown_device_is_a_typed_error_not_a_silent_ack() -> TestResult {
     }
     daemon.shutdown()?;
     Ok(())
+}
+
+#[test]
+fn corrupt_or_tampered_membership_state_is_quarantined_and_daemon_still_starts() -> TestResult {
+    let tmp = TempDirGuard::new("qz_membership_corrupt")?;
+    let qz_home = tmp.path().join("home");
+    fs::create_dir_all(&qz_home)?;
+    // 先正常生成主权身份（fabric 关闭也走同一条 load_or_init 成员重放路径）。
+    {
+        let mut genesis = QuetzalcoatlDaemon::start(disabled_config(&qz_home))?;
+        genesis.shutdown()?;
+    }
+
+    let fabric_dir = qz_home.join("fabric");
+    fs::create_dir_all(&fabric_dir)?;
+    let membership_path = fabric_dir.join("membership_state.json");
+
+    // 1. 完全损坏的 JSON：必须隔离并安全回退，而不是让守护进程启动失败。
+    fs::write(&membership_path, b"{ this is not json")?;
+    {
+        let mut daemon = QuetzalcoatlDaemon::start(disabled_config(&qz_home))?;
+        let client =
+            IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+        assert!(matches!(
+            client.call(&IpcRequest::Status)?,
+            IpcResponse::Status(_)
+        ));
+        daemon.shutdown()?;
+    }
+    assert!(!membership_path.exists(), "损坏的成员状态必须被移出原路径");
+    let quarantined: Vec<PathBuf> = fs::read_dir(&fabric_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("membership_state.json.corrupt-"))
+        })
+        .collect();
+    assert_eq!(quarantined.len(), 1, "必须留下 .corrupt-<ts> 隔离副本");
+
+    // 2. 结构合法但内容被篡改（非法十六进制纪元密钥）：同样隔离并回退。
+    fs::write(
+        &membership_path,
+        br#"{"extra_epoch_keys":[[7,"not-a-hex-key"]],"peer_devices":[]}"#,
+    )?;
+    {
+        let mut daemon = QuetzalcoatlDaemon::start(disabled_config(&qz_home))?;
+        daemon.shutdown()?;
+    }
+    assert!(!membership_path.exists(), "被篡改的成员状态同样必须被隔离");
+    let quarantined_total = fs::read_dir(&fabric_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("membership_state.json.corrupt-"))
+        })
+        .count();
+    assert!(
+        quarantined_total >= 2,
+        "两类损坏都必须各自留下隔离副本，实际 {quarantined_total}"
+    );
+
+    Ok(())
+}
+
+/// Fix Round 2 / Item 1：两台**互不手动拨号**的空闲守护进程必须通过 Hub 提供的 endpoint id
+/// 自行建立 P2P 直连；Hub 被杀后仍能仅靠 P2P 收敛脊柱事件（证明生产拨号路径真实生效）。
+#[test]
+fn two_idle_daemons_dial_via_hub_discovery_and_converge_peer_only_after_hub_loss() -> TestResult {
+    let mut hub = RunningGoHub::spawn()?;
+    let tmp = TempDirGuard::new("qz_daemon_peer_convergence")?;
+    let home_a = tmp.path().join("home_a");
+    let home_b = tmp.path().join("home_b");
+    fs::create_dir_all(&home_a)?;
+    fs::create_dir_all(&home_b)?;
+    let ca_pem = tmp.path().join("hub_ca.pem");
+    fs::write(&ca_pem, &hub.ca_cert_pem)?;
+
+    // 1. A：真实身份注册 + fabric 守护进程 + OPAQUE 登录。
+    let identity_a = bootstrap_identity(&home_a, &hub)?;
+    let mut daemon_a = QuetzalcoatlDaemon::start(fabric_config(&home_a, &hub, &ca_pem))?;
+    let client_a =
+        IpcClient::from_runtime_info(daemon_a.runtime_info(), daemon_a.ipc_token().to_owned());
+    login_with_pin(&home_a, &hub)?;
+
+    // 2. 配对 B（无需第二台真实机器：把 B 的设备身份装配到独立 home）。
+    let start = run_json(
+        &["pair", "start", "--hub", &hub.https_url, "--json"],
+        &home_a,
+    )?;
+    let pairing_id = start["pairing_id"].as_str().ok_or("pairing_id")?.to_owned();
+    let short_code = start["short_code"].as_str().ok_or("short_code")?.to_owned();
+    let pair_code = start["pair_code"].as_str().ok_or("pair_code")?.to_owned();
+    let _ = run_json(
+        &[
+            "pair",
+            "join",
+            "--hub",
+            &hub.https_url,
+            "--code",
+            &pair_code,
+            "--json",
+        ],
+        &home_a,
+    )?;
+    let _ = run_json(
+        &[
+            "pair",
+            "approve",
+            "--hub",
+            &hub.https_url,
+            "--code",
+            &pair_code,
+            "--json",
+        ],
+        &home_a,
+    )?;
+    let device_b = read_pending_joiner(&home_a)?;
+
+    // 2a. home_b：复制 A 的身份快照，仅替换设备身份为 B，并写入"成员 = A"的成员表。
+    {
+        let mut genesis_b = QuetzalcoatlDaemon::start(disabled_config(&home_b))?;
+        genesis_b.shutdown()?;
+    }
+    let _ = fs::remove_dir_all(home_b.join("spine"));
+    let _ = fs::remove_dir_all(home_b.join("fabric"));
+    fs::create_dir_all(home_b.join("fabric"))?;
+    let mut state_a: serde_json::Value =
+        serde_json::from_slice(&fs::read(home_a.join("identity/sovereign_state.json"))?)?;
+    state_a["device_id"] = serde_json::Value::String(device_b.device_id().to_string());
+    state_a["ed25519_seed_hex"] =
+        serde_json::Value::String(hex_encode_seed(device_b.ed25519_seed()));
+    state_a["xwing_seed_hex"] = serde_json::Value::String(hex_encode_seed(device_b.xwing_seed()));
+    fs::write(
+        home_b.join("identity/sovereign_state.json"),
+        serde_json::to_vec_pretty(&state_a)?,
+    )?;
+    let membership_b = serde_json::json!({
+        "extra_epoch_keys": [],
+        "peer_devices": [identity_a.device.public_record()],
+    });
+    fs::write(
+        home_b.join("fabric/membership_state.json"),
+        serde_json::to_vec_pretty(&membership_b)?,
+    )?;
+
+    // 2b. 为 B 取得 Hub 会话（pair complete），再启动 B 守护进程并登录。
+    let b_token = {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        let anon = HubClient::new(HubClientConfig {
+            base_url: hub.https_url.clone(),
+            session_token: None,
+            custom_ca_certs_der: vec![hub.ca_cert_der.clone()],
+        })?;
+        let (session, _root) =
+            rt.block_on(anon.pair_complete_and_unwrap(&pairing_id, &short_code, &device_b))?;
+        session.session_token
+    };
+    let mut daemon_b = QuetzalcoatlDaemon::start(fabric_config(&home_b, &hub, &ca_pem))?;
+    let client_b =
+        IpcClient::from_runtime_info(daemon_b.runtime_info(), daemon_b.ipc_token().to_owned());
+    let (login_ok, _, login_err) = qz(
+        &[
+            "login",
+            "--hub",
+            &hub.https_url,
+            "--token",
+            &b_token,
+            "--json",
+        ],
+        &home_b,
+    )?;
+    assert!(login_ok, "B 令牌登录失败: {login_err}");
+
+    // 3. 两台守护进程互不手动拨号：仅靠 Hub 发现即应在有限个心跳内出现 **直连** 对端。
+    let device_a_id = identity_a.device.device_id().to_string();
+    let device_b_id = device_b.device_id().to_string();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut connected = false;
+    while Instant::now() < deadline {
+        let nodes_a = run_json(&["nodes", "--json"], &home_a)?;
+        let nodes_b = run_json(&["nodes", "--json"], &home_b)?;
+        let a_sees_b = nodes_a["peers"].as_array().is_some_and(|rows| {
+            rows.iter().any(|r| {
+                r["device_id"].as_str() == Some(device_b_id.as_str())
+                    && r["path_kind"].as_str() != Some("disconnected")
+            })
+        });
+        let b_sees_a = nodes_b["peers"].as_array().is_some_and(|rows| {
+            rows.iter().any(|r| {
+                r["device_id"].as_str() == Some(device_a_id.as_str())
+                    && r["path_kind"].as_str() != Some("disconnected")
+            })
+        });
+        if a_sees_b && b_sees_a {
+            connected = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(300));
+    }
+    assert!(
+        connected,
+        "两台空闲守护进程必须在有限心跳内通过 Hub 发现自行拨号建立 P2P 连接"
+    );
+
+    let baseline_b_events = match client_b.call(&IpcRequest::Status)? {
+        IpcResponse::Status(st) => st.spine_events_count,
+        other => return Err(format!("unexpected status: {other:?}").into()),
+    };
+
+    // 4. 杀 Hub：此后只能依靠已建立的 P2P 直连收敛（证明真实 peer-only 同步路径）。
+    hub.kill();
+    thread::sleep(Duration::from_millis(200));
+
+    match client_a.call(&IpcRequest::ExploreTick {
+        synthesize_skill_id: Some(String::from("skill.peer_convergence")),
+        synthesize_script_body: Some(String::from("#!/bin/sh\necho peer-convergence\n")),
+        attempt_external_send: false,
+    })? {
+        IpcResponse::ExploreTick(rep) => assert!(rep.woke_explore),
+        other => return Err(format!("unexpected explore response: {other:?}").into()),
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut converged = false;
+    while Instant::now() < deadline {
+        if let IpcResponse::Status(st) = client_b.call(&IpcRequest::Status)?
+            && st.spine_events_count > baseline_b_events
+        {
+            converged = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(300));
+    }
+    assert!(
+        converged,
+        "Hub 下线后 B 必须仅靠 P2P 直连同步合入 A 的新事件（baseline={baseline_b_events}）"
+    );
+
+    daemon_a.shutdown()?;
+    daemon_b.shutdown()?;
+    Ok(())
+}
+
+fn hex_encode_seed(seed: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for b in seed {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
 }

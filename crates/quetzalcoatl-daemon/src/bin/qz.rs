@@ -162,6 +162,7 @@ fn run_up(args: &[String]) -> Result<()> {
         hub_ca_file: fabric_ca_file.clone(),
         qad_port: fabric_qad_port.unwrap_or(7842),
         enable_mdns: fabric_mdns.unwrap_or(true),
+        tick_interval_ms: 5_000,
     });
 
     if foreground {

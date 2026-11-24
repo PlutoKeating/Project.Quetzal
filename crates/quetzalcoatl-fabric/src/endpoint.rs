@@ -1252,6 +1252,14 @@ pub struct HubAuthSession {
     pub device_id: DeviceId,
 }
 
+/// 已授权设备在 Hub 上的 P2P 拨号发现记录（`endpoint_id_hex` 即设备 Ed25519 公钥，零明文/零记忆内容）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricPeerEndpoint {
+    pub device_id: DeviceId,
+    pub endpoint_id_hex: String,
+    pub relay_url: Option<String>,
+}
+
 /// `/v1/pair/initiate` 响应。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PairInitiateResponse {
@@ -2092,6 +2100,70 @@ impl HubClient {
             &slot,
         )?;
         Ok((session, root))
+    }
+
+    /// 从 Hub 拉取本 Agent 全部活跃设备的 iroh 拨号信息（endpoint id + Hub Relay 基址），
+    /// 供空闲守护进程主动拨号建立 P2P 同步，无需任何入站流量或人工注册地址。
+    pub async fn list_fabric_peers(&self, agent_id: AgentId) -> Result<Vec<FabricPeerEndpoint>> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/v1/auth/devices/{agent_id}",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("list_fabric_peers 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        let val: serde_json::Value =
+            serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+                detail: e.to_string(),
+            })?;
+        let relay_url = val["relay_url"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .or_else(|| Some(self.config.base_url.clone()));
+        let mut out = Vec::new();
+        if let Some(arr) = val["devices"].as_array() {
+            for item in arr {
+                if item["revoked"].as_bool().unwrap_or(false) {
+                    continue;
+                }
+                let Some(dev_str) = item["device_id"].as_str() else {
+                    continue;
+                };
+                let endpoint_hex = item["endpoint_id_hex"]
+                    .as_str()
+                    .or_else(|| item["ed25519_pubkey_hex"].as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_ascii_lowercase();
+                if endpoint_hex.is_empty() {
+                    continue;
+                }
+                out.push(FabricPeerEndpoint {
+                    device_id: DeviceId::from_str(dev_str)?,
+                    endpoint_id_hex: endpoint_hex,
+                    relay_url: relay_url.clone(),
+                });
+            }
+        }
+        Ok(out)
     }
 
     pub async fn list_active_devices(&self, agent_id: AgentId) -> Result<Vec<DevicePublicRecord>> {
