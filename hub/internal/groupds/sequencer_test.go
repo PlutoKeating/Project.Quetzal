@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -194,16 +195,20 @@ func TestCommitSequencerAllocatesMonotonicPerGroupSequenceAtomically(t *testing.
 		go func(idx int) {
 			defer wg.Done()
 			ciphertext := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("opaque-ciphertext-%02d", idx)))
-			resp, body := doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups/family/commits", "token-b", map[string]any{
+			status, body, err := h.doJSONWorker(http.MethodPost, "/v1/groups/family/commits", "token-b", commitBody(map[string]any{
 				"mls_epoch":         0,
 				"causal_parent_seq": 0,
 				"sender_agent_id":   "agent-b",
 				"sender_device_id":  "dev-b",
 				"mentions":          []map[string]any{{"kind": "addressee", "target_agent_id": "agent-a"}},
 				"ciphertext_b64":    ciphertext,
-			})
-			if resp.StatusCode != http.StatusCreated {
-				errs <- fmt.Errorf("commit %d: status %d body %s", idx, resp.StatusCode, body)
+			}))
+			if err != nil {
+				errs <- fmt.Errorf("commit %d: %w", idx, err)
+				return
+			}
+			if status != http.StatusCreated {
+				errs <- fmt.Errorf("commit %d: status %d body %s", idx, status, body)
 				return
 			}
 			var parsed struct {
@@ -445,6 +450,11 @@ func TestGroupCommitDiskCanaryScanFindsNoPlaintext(t *testing.T) {
 
 func (h *harness) postCommit(t *testing.T, bearer, groupID string, body map[string]any) (*http.Response, []byte) {
 	t.Helper()
+	return doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups/"+groupID+"/commits", bearer, commitBody(body))
+}
+
+// commitBody 生成带默认字段的提交请求体（供 `postCommit` 与工作 goroutine 共用）。
+func commitBody(overrides map[string]any) map[string]any {
 	base := map[string]any{
 		"mls_epoch":         0,
 		"causal_parent_seq": 0,
@@ -456,10 +466,54 @@ func (h *harness) postCommit(t *testing.T, bearer, groupID string, body map[stri
 		"reencrypt_only":    false,
 		"ciphertext_b64":    base64.StdEncoding.EncodeToString([]byte("opaque-ct")),
 	}
-	for k, v := range body {
+	for k, v := range overrides {
 		base[k] = v
 	}
-	return doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups/"+groupID+"/commits", bearer, base)
+	return base
+}
+
+// doJSONWorker 供工作 goroutine 使用：绝不调用 t.Fatalf，所有错误回传主 goroutine。
+func (h *harness) doJSONWorker(method, path, bearer string, body any) (int, []byte, error) {
+	var payload []byte
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return 0, nil, fmt.Errorf("marshal: %w", err)
+		}
+		payload = encoded
+	}
+	req, err := http.NewRequest(method, h.srv.URL+path, bytes.NewReader(payload))
+	if err != nil {
+		return 0, nil, fmt.Errorf("new request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := h.srv.Client().Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("do request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, nil, fmt.Errorf("read body: %w", err)
+	}
+	return resp.StatusCode, raw, nil
+}
+
+// postCommitQuiet 在 worker goroutine 中提交；201/409 都是合法业务结果。
+func (h *harness) postCommitQuiet(bearer, groupID string, body map[string]any) error {
+	status, raw, err := h.doJSONWorker(http.MethodPost, "/v1/groups/"+groupID+"/commits", bearer, commitBody(body))
+	if err != nil {
+		return err
+	}
+	if status != http.StatusCreated && status != http.StatusConflict {
+		return fmt.Errorf("unexpected status %d: %s", status, raw)
+	}
+	return nil
 }
 
 func TestCreateGroupIsIdempotentForOwner(t *testing.T) {
@@ -551,6 +605,16 @@ func TestCommitSequencerValidatesEpochRotation(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusConflict || !bytes.Contains(body, []byte("WATERMARK_CONFLICT")) {
 		t.Fatalf("unflagged epoch bump expected WATERMARK_CONFLICT, got %d (%s)", resp.StatusCode, body)
+	}
+	// 409 必须携带真实群头，供客户端还原类型化 WatermarkConflict。
+	var conflictBody struct {
+		HeadGroupSeq uint64 `json:"head_group_seq"`
+	}
+	if err := json.Unmarshal(body, &conflictBody); err != nil {
+		t.Fatalf("parse conflict body: %v", err)
+	}
+	if conflictBody.HeadGroupSeq != 0 {
+		t.Fatalf("conflict must report real head 0, got %d", conflictBody.HeadGroupSeq)
 	}
 
 	// Pure key rotation: re-encrypted payload under EpochKey[e+1] is accepted and bumps the room epoch.
@@ -687,31 +751,36 @@ func TestEpochValidationIsAtomicWithCommitAppend(t *testing.T) {
 	const staleWriters = 12
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < staleWriters; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			_, _ = h.postCommit(t, "token-a", "atomic-epoch", map[string]any{
-				"sender_agent_id":  "agent-a",
-				"sender_device_id": "dev-a",
-				"mls_epoch":        0,
-			})
-		}()
-	}
-	wg.Add(1)
-	go func() {
+	errs := make(chan error, staleWriters+1)
+	fire := func(body map[string]any) {
 		defer wg.Done()
 		<-start
-		_, _ = h.postCommit(t, "token-a", "atomic-epoch", map[string]any{
+		// 工作 goroutine 绝不调用 t.Fatalf：只把错误回传主 goroutine 统一断言。
+		if err := h.postCommitQuiet("token-a", "atomic-epoch", body); err != nil {
+			errs <- err
+		}
+	}
+	for i := 0; i < staleWriters; i++ {
+		wg.Add(1)
+		go fire(map[string]any{
 			"sender_agent_id":  "agent-a",
 			"sender_device_id": "dev-a",
-			"mls_epoch":        1,
-			"reencrypt_only":   true,
+			"mls_epoch":        0,
 		})
-	}()
+	}
+	wg.Add(1)
+	go fire(map[string]any{
+		"sender_agent_id":  "agent-a",
+		"sender_device_id": "dev-a",
+		"mls_epoch":        1,
+		"reencrypt_only":   true,
+	})
 	close(start)
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent append failed: %v", err)
+	}
 
 	resp, body := doJSON(t, h.srv.Client(), http.MethodGet, h.srv.URL+"/v1/groups/atomic-epoch/commits?after_seq=0&limit=200", "token-a", nil)
 	if resp.StatusCode != http.StatusOK {
@@ -745,6 +814,59 @@ func TestEpochValidationIsAtomicWithCommitAppend(t *testing.T) {
 		if c.MLSEpoch < 1 && c.ServerSeq > rotationSeq {
 			t.Fatalf("stale epoch commit accepted after rotation: %+v (rotation seq %d)", c, rotationSeq)
 		}
+	}
+}
+
+func TestCommitSequencerAcceptsOpaqueMlsCommitWithoutHopInflation(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "mls-room", "agent-a", 1)
+
+	// MLS 提交/提案是 Hub 不可解读的密文：必须作为独立 kind 接受，且不计入 Agent 对话跳数。
+	resp, body := h.postCommit(t, "token-a", "mls-room", map[string]any{
+		"sender_agent_id":  "agent-a",
+		"sender_device_id": "dev-a",
+		"mls_epoch":        1,
+		"reencrypt_only":   true,
+		"kind":             "mls_commit",
+		"author_kind":      "agent",
+		"ciphertext_b64":   base64.StdEncoding.EncodeToString([]byte("opaque-mls-commit")),
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("mls_commit expected 201, got %d (%s)", resp.StatusCode, body)
+	}
+	var out struct {
+		Kind string `json:"kind"`
+		Hop  int    `json:"hop"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("parse mls_commit response: %v", err)
+	}
+	if out.Kind != "mls_commit" {
+		t.Fatalf("kind must round-trip as mls_commit, got %q", out.Kind)
+	}
+	if out.Hop != 0 {
+		t.Fatalf("mls_commit must never inflate agent hops, got %d", out.Hop)
+	}
+
+	// 后续 Agent 对话跳数仍从 1 起算，不被 MLS 提交污染。
+	resp, body = h.postCommit(t, "token-a", "mls-room", map[string]any{
+		"sender_agent_id":  "agent-a",
+		"sender_device_id": "dev-a",
+		"mls_epoch":        1,
+		"kind":             "message",
+		"author_kind":      "agent",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("agent message expected 201, got %d (%s)", resp.StatusCode, body)
+	}
+	var msg struct {
+		Hop int `json:"hop"`
+	}
+	if err := json.Unmarshal(body, &msg); err != nil {
+		t.Fatalf("parse message response: %v", err)
+	}
+	if msg.Hop != 1 {
+		t.Fatalf("agent message hop must start at 1, got %d", msg.Hop)
 	}
 }
 

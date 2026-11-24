@@ -1394,6 +1394,22 @@ impl HubClient {
                 "INTEGRITY_VIOLATION" => {
                     return QuetzalcoatlError::IntegrityViolation { detail };
                 }
+                "WATERMARK_CONFLICT" => {
+                    // 保留 Hub 给出的真实序号；缺省时也要落到类型化错误而不是 StorageError。
+                    let last_seen_seq = val
+                        .get("last_seen_seq")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    let head_seq = val
+                        .get("head_group_seq")
+                        .or_else(|| val.get("head_seq"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    return QuetzalcoatlError::WatermarkConflict {
+                        last_seen_seq,
+                        head_seq,
+                    };
+                }
                 _ => {}
             }
         }
@@ -2893,4 +2909,30 @@ pub struct GroupCommitRecord {
     pub author_kind: String,
     pub hop: u32,
     pub created_at_ms: i64,
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hub_watermark_conflict_is_mapped_to_the_typed_error() {
+        // Hub 409 必须映射成带真实序号的类型化 WatermarkConflict，绝不能退化成 StorageError。
+        let body = br#"{"code":"WATERMARK_CONFLICT","detail":"stale submitted mls_epoch","last_seen_seq":4,"head_group_seq":9}"#;
+        match HubClient::parse_hub_error(reqwest::StatusCode::CONFLICT, body) {
+            QuetzalcoatlError::WatermarkConflict {
+                last_seen_seq,
+                head_seq,
+            } => assert_eq!((last_seen_seq, head_seq), (4, 9)),
+            other => panic!("expected WatermarkConflict, got {other:?}"),
+        }
+
+        // 没有显式序号时仍须是类型化错误，不得落回 StorageError。
+        let body = br#"{"code":"WATERMARK_CONFLICT","detail":"epoch divergence"}"#;
+        assert!(matches!(
+            HubClient::parse_hub_error(reqwest::StatusCode::CONFLICT, body),
+            QuetzalcoatlError::WatermarkConflict { .. }
+        ));
+    }
 }

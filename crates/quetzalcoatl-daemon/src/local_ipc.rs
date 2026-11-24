@@ -209,6 +209,11 @@ pub enum IpcRequest {
     GroupSync {
         room_id: String,
     },
+    /// `qz group read --room <id> --ciphertext <b64>`：解密一条群应用消息。
+    GroupRead {
+        room_id: String,
+        ciphertext_b64: String,
+    },
     /// `qz group list`。
     GroupList,
     /// `qz group members --room <id>`。
@@ -251,8 +256,12 @@ pub enum IpcResponse {
     Agents(DiscoveryReport),
     Chat(Box<ChatResponse>),
     ExploreTick(ExploreWakeReport),
-    ConsciencePinned { pinned_system_tail: String },
-    Ack { detail: String },
+    ConsciencePinned {
+        pinned_system_tail: String,
+    },
+    Ack {
+        detail: String,
+    },
     ImportV1(V1ImportReport),
     FabricLogin(FabricLoginResult),
     FabricPairStart(Box<FabricPairStartResult>),
@@ -267,7 +276,14 @@ pub enum IpcResponse {
     GroupLeave(GroupLeaveOutcome),
     GroupSend(GroupSendOutcome),
     GroupRevokeSteward(GroupRevokeOutcome),
-    Error { code: String, detail: String },
+    /// 解密后的群应用消息明文。
+    GroupPlaintext {
+        text: String,
+    },
+    Error {
+        code: String,
+        detail: String,
+    },
 }
 
 fn is_strict_loopback_authority(authority: &str) -> bool {

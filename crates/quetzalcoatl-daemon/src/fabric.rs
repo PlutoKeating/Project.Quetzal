@@ -1008,6 +1008,42 @@ impl DaemonFabricRuntime {
             }
         };
 
+        // 阶段 2b：MLS 群提交分发 —— 短锁取同步计划 → 零锁拉取 → 短锁按序应用。
+        // 成员离线期间落下的 MLS proposal/commit 在此补齐；纪元推进后应用消息才可解。
+        let room_ids = match lock_or_storage(&core.state) {
+            Ok(state) => state
+                .group
+                .summaries()
+                .into_iter()
+                .map(|summary| summary.room_id)
+                .collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
+        for room_id in room_ids {
+            let plan = match lock_or_storage(&core.state) {
+                Ok(mut state) => match state.group.sync_plan(&room_id) {
+                    Ok(plan) => plan,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+            let Some(plan) = plan else {
+                continue;
+            };
+            let Ok(prepared) = crate::group::GroupRoomRuntime::fetch_sync(&plan) else {
+                continue;
+            };
+            let Ok(mut state) = lock_or_storage(&core.state) else {
+                continue;
+            };
+            let crate::daemon::DaemonMutableState {
+                ref mut group,
+                ref mut kernel,
+                ..
+            } = *state;
+            let _ = group.apply_sync(prepared, kernel.spine_mut().store_mut());
+        }
+
         // 阶段 3：零内核锁执行真实外部投递（外部通道尚未启用 → 全部拒收并保持待投递）。
         let mut outcomes = Vec::new();
         for entry in plan.items.clone() {

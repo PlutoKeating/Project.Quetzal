@@ -962,7 +962,8 @@ fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> Tes
         ],
     )?;
     let send1_json = group_json(&send1)?;
-    assert_eq!(group_data(&send1_json)?["server_seq"], 1);
+    // seq 1 是入群时发布的 MLS Commit（`mls_commit`），应用消息从 2 起。
+    assert_eq!(group_data(&send1_json)?["server_seq"], 2);
 
     // 5. 并发发送：跨两个守护进程并发，server_seq 无缺口无重复。
     let mut handles = Vec::new();
@@ -1008,7 +1009,7 @@ fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> Tes
         }
     }
     seqs.sort_unstable();
-    assert_eq!(seqs, (2..=7).collect::<Vec<u64>>(), "unique monotonic seqs");
+    assert_eq!(seqs, (3..=8).collect::<Vec<u64>>(), "unique monotonic seqs");
 
     // 6. 旧水位线遇到 constraint_update：必须 WATERMARK_CONFLICT。
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -1200,5 +1201,244 @@ fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> Tes
 
     daemon_a.shutdown()?;
     daemon_b.shutdown()?;
+    Ok(())
+}
+
+#[test]
+fn group_mls_commit_distribution_lets_offline_member_catch_up() -> TestResult {
+    // 验收：A/B/C 三人，B 离线期间被 A 踢出并轮换纪元；C 离线 → 重连 sync →
+    // 应用 mls_commit 追平纪元、能解密新消息，而 B 不能；随后 C 重试发送成功。
+    let hub = RunningGoHub::spawn()?;
+    let tmp = TempDirGuard::new("qz_group_mls_dist")?;
+    let ca_pem_path = tmp.path().join("hub_ca.pem");
+    fs::write(&ca_pem_path, &hub.ca_cert_pem)?;
+
+    let mut homes = Vec::new();
+    let mut agents = Vec::new();
+    let mut devices = Vec::new();
+    let mut tokens = Vec::new();
+    for tag in ["a", "b", "c"] {
+        let home = tmp.path().join(format!("home_{tag}"));
+        fs::create_dir_all(&home)?;
+        let (agent, device, root) = {
+            let mut genesis = QuetzalcoatlDaemon::start(fabric_disabled_config(&home))?;
+            genesis.shutdown()?;
+            read_sovereign_identity(&home)?
+        };
+        let token = register_daemon_agent_on_hub(&hub, agent, &device, &root)?;
+        homes.push(home);
+        agents.push(agent);
+        devices.push(device);
+        tokens.push(token);
+    }
+    let (home_a, home_b, home_c) = (homes[0].clone(), homes[1].clone(), homes[2].clone());
+    let (agent_a, agent_b, agent_c) = (agents[0], agents[1], agents[2]);
+
+    let mut daemon_a = QuetzalcoatlDaemon::start(group_fabric_config(&home_a, &hub, &ca_pem_path))?;
+    let mut daemon_b = QuetzalcoatlDaemon::start(group_fabric_config(&home_b, &hub, &ca_pem_path))?;
+    let mut daemon_c = QuetzalcoatlDaemon::start(group_fabric_config(&home_c, &hub, &ca_pem_path))?;
+    for (home, token) in [
+        (&home_a, &tokens[0]),
+        (&home_b, &tokens[1]),
+        (&home_c, &tokens[2]),
+    ] {
+        login_with_token(home, &hub, &ca_pem_path, token)?;
+    }
+
+    let create = run_qz(
+        &home_a,
+        &[
+            "group",
+            "create",
+            "--room",
+            "dist-room",
+            "--level",
+            "1",
+            "--json",
+        ],
+    )?;
+    assert_eq!(group_data(&group_json(&create)?)?["room_id"], "dist-room");
+
+    // B 以协管身份入群（后续由 A 吊销并踢出）。
+    for (home_invitee, agent) in [(&home_b, agent_b), (&home_c, agent_c)] {
+        let invite = run_qz(
+            home_invitee,
+            &["group", "invite", "--room", "dist-room", "--json"],
+        )?;
+        let invite_json = group_json(&invite)?;
+        let key_package = group_data(&invite_json)?["key_package_b64"]
+            .as_str()
+            .ok_or("missing key_package_b64")?
+            .to_owned();
+        let agent_arg = agent.to_string();
+        let mut add_args = vec![
+            "group",
+            "invite",
+            "--room",
+            "dist-room",
+            "--key-package",
+            &key_package,
+            "--agent",
+            &agent_arg,
+            "--json",
+        ];
+        if agent == agent_b {
+            add_args.push("--steward");
+        }
+        let add = run_qz(&home_a, &add_args)?;
+        let add_json = group_json(&add)?;
+        let welcome = group_data(&add_json)?["welcome_b64"]
+            .as_str()
+            .ok_or("missing welcome_b64")?
+            .to_owned();
+        let ratchet = group_data(&add_json)?["ratchet_tree_b64"]
+            .as_str()
+            .ok_or("missing ratchet_tree_b64")?
+            .to_owned();
+        let join = run_qz(
+            home_invitee,
+            &[
+                "group",
+                "join",
+                "--room",
+                "dist-room",
+                "--welcome",
+                &welcome,
+                "--ratchet-tree",
+                &ratchet,
+                "--json",
+            ],
+        )?;
+        assert!(group_json(&join)?.is_object());
+    }
+
+    // B、C 双双离线：它们的本机状态冻结在当前纪元。
+    daemon_b.shutdown()?;
+    daemon_c.shutdown()?;
+
+    let revoke = run_qz(
+        &home_a,
+        &[
+            "group",
+            "revoke-steward",
+            "--room",
+            "dist-room",
+            "--identity",
+            &format!("agent:{agent_b}"),
+            "--json",
+        ],
+    )?;
+    assert_eq!(
+        group_data(&group_json(&revoke)?)?["dropped_management_rights"],
+        true
+    );
+
+    let sent = run_qz(
+        &home_a,
+        &[
+            "group",
+            "send",
+            "--room",
+            "dist-room",
+            "--text",
+            "after-kick",
+            "--to",
+            &agent_a.to_string(),
+            "--json",
+        ],
+    )?;
+    let sent_json = group_json(&sent)?;
+    let posted = group_data(&sent_json)?;
+    let ciphertext = posted["ciphertext_b64"]
+        .as_str()
+        .ok_or("missing ciphertext_b64 from A")?
+        .to_owned();
+    let kicked_epoch = posted["mls_epoch"].as_u64().ok_or("missing mls_epoch")?;
+    assert!(
+        kicked_epoch >= 3,
+        "kick must rotate the epoch, got {kicked_epoch}"
+    );
+
+    // C 重新上线：sync 必须应用 mls_commit 追平纪元。
+    let mut daemon_c = QuetzalcoatlDaemon::start(group_fabric_config(&home_c, &hub, &ca_pem_path))?;
+    let sync = run_qz(&home_c, &["group", "sync", "--room", "dist-room", "--json"])?;
+    let sync_json = group_json(&sync)?;
+    assert_eq!(
+        group_data(&sync_json)?["mls_epoch"].as_u64(),
+        Some(kicked_epoch),
+        "sync must apply the distributed MLS commit and reach the author's epoch"
+    );
+    assert!(
+        !group_data(&sync_json)?["members"]
+            .as_array()
+            .map(|members| members
+                .iter()
+                .any(|m| m.as_str().is_some_and(|s| s.contains(&agent_b.to_string()))))
+            .unwrap_or(false),
+        "kicked member must be gone from C's roster after sync"
+    );
+
+    // C 能解密 A 的新消息（B 不能，见下）。
+    let read = run_qz(
+        &home_c,
+        &[
+            "group",
+            "read",
+            "--room",
+            "dist-room",
+            "--ciphertext",
+            &ciphertext,
+        ],
+    )?;
+    assert!(read.success, "C must decrypt after sync: {}", read.stderr);
+    assert!(
+        read.stdout.contains("after-kick"),
+        "unexpected plaintext: {}",
+        read.stdout
+    );
+
+    // C 冲突后重试发送必须成功（不得永久 WATERMARK_CONFLICT）。
+    let retry = run_qz(
+        &home_c,
+        &[
+            "group",
+            "send",
+            "--room",
+            "dist-room",
+            "--text",
+            "c-catch-up",
+            "--to",
+            &agent_c.to_string(),
+            "--json",
+        ],
+    )?;
+    assert!(
+        retry.success,
+        "C must be able to send after sync: {} {}",
+        retry.stdout, retry.stderr
+    );
+
+    // B 已被踢出：即使重新上线并恢复到旧纪元，也绝解不开新纪元消息。
+    daemon_c.shutdown()?;
+    let mut daemon_b = QuetzalcoatlDaemon::start(group_fabric_config(&home_b, &hub, &ca_pem_path))?;
+    let b_read = run_qz(
+        &home_b,
+        &[
+            "group",
+            "read",
+            "--room",
+            "dist-room",
+            "--ciphertext",
+            &ciphertext,
+        ],
+    )?;
+    assert!(
+        !b_read.success,
+        "kicked member must not decrypt post-rotation traffic: {}",
+        b_read.stdout
+    );
+    daemon_b.shutdown()?;
+    daemon_a.shutdown()?;
+    let _ = devices;
     Ok(())
 }

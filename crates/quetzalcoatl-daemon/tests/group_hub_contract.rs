@@ -45,6 +45,7 @@ struct MockState {
     commits: Vec<serde_json::Value>,
     delete_status: u16,
     delete_calls: usize,
+    commit_status: u16,
     /// `None` 表示按请求 `after_seq` 回显（即“无新提交”）。
     head_seq: Option<u64>,
     epoch: u64,
@@ -61,6 +62,7 @@ impl MockHub {
         let base_url = format!("http://{}", listener.local_addr().expect("addr"));
         let state = Arc::new(Mutex::new(MockState {
             delete_status: 200,
+            commit_status: 201,
             ..MockState::default()
         }));
         let shared = Arc::clone(&state);
@@ -87,6 +89,10 @@ impl MockHub {
 
     fn set_delete_status(&self, status: u16) {
         self.state.lock().expect("mock lock").delete_status = status;
+    }
+
+    fn set_commit_status(&self, status: u16) {
+        self.state.lock().expect("mock lock").commit_status = status;
     }
 
     fn set_epoch(&self, epoch: u64) {
@@ -174,7 +180,16 @@ fn route(
             return (400, serde_json::json!({"code": "SERIALIZATION_ERROR"}));
         };
         let mut guard = state.lock().expect("mock lock");
+        if guard.commit_status != 201 {
+            return (
+                guard.commit_status,
+                serde_json::json!({"code": "STORAGE_ERROR", "detail": "injected"}),
+            );
+        }
         guard.commits.push(parsed.clone());
+        if let Some(epoch) = parsed["mls_epoch"].as_u64() {
+            guard.epoch = guard.epoch.max(epoch);
+        }
         let seq = guard.commits.len() as u64;
         let group_id = target
             .trim_start_matches('/')
@@ -204,12 +219,46 @@ fn route(
             .find(|(key, _)| *key == "after_seq")
             .and_then(|(_, value)| value.parse::<u64>().ok())
             .unwrap_or(0);
+        let limit = query
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .find(|(key, _)| *key == "limit")
+            .and_then(|(_, value)| value.parse::<usize>().ok())
+            .unwrap_or(200);
+        let group_id = target
+            .trim_start_matches('/')
+            .split('/')
+            .nth(2)
+            .unwrap_or("room");
         let guard = state.lock().expect("mock lock");
-        let head = guard.head_seq.unwrap_or(after_seq);
+        let rows: Vec<serde_json::Value> = guard
+            .commits
+            .iter()
+            .enumerate()
+            .skip(after_seq as usize)
+            .take(limit)
+            .map(|(idx, commit)| {
+                serde_json::json!({
+                    "group_id": group_id,
+                    "server_seq": idx as u64 + 1,
+                    "mls_epoch": commit["mls_epoch"],
+                    "causal_parent_seq": commit["causal_parent_seq"],
+                    "sender_agent_id": commit["sender_agent_id"],
+                    "sender_device_id": commit["sender_device_id"],
+                    "mentions": commit["mentions"],
+                    "ciphertext_b64": commit["ciphertext_b64"],
+                    "kind": commit["kind"],
+                    "author_kind": commit["author_kind"],
+                    "hop": 0,
+                    "created_at_ms": 1,
+                })
+            })
+            .collect();
+        let head = guard.head_seq.unwrap_or(guard.commits.len() as u64);
         return (
             200,
             serde_json::json!({
-                "commits": [],
+                "commits": rows,
                 "head_group_seq": head,
                 "current_mls_epoch": guard.epoch,
             }),
@@ -515,13 +564,22 @@ fn revoke_steward_is_hub_first_and_retryable_exactly_once() {
     assert!(!after.members.contains(&identity), "member must be removed");
     assert_eq!(after.mls_epoch, before.mls_epoch + 1);
 
-    // 再次调用不得重复踢人或重复轮换。
-    runtime_a
+    // 再次调用不得重复踢人或重复轮换：尾步骤幂等收敛（补写注册表后返回成功）。
+    let repeat = runtime_a
         .revoke_steward("room", identity.as_bytes(), &mut store_a)
-        .expect_err("grant is already revoked");
+        .expect("idempotent tail retry");
+    assert_eq!(repeat.rotated_epoch, before.mls_epoch + 1);
     assert_eq!(
         runtime_a.summary("room").expect("summary").mls_epoch,
         before.mls_epoch + 1
+    );
+    // Hub 日志里恰好一条 MLS Commit，重试不得重复发布。
+    assert_eq!(
+        mock.commits()
+            .iter()
+            .filter(|commit| commit["kind"] == "mls_commit")
+            .count(),
+        1
     );
 }
 
@@ -590,4 +648,242 @@ fn send_shim_and_manual_pipeline_submit_identical_envelopes() {
             "both paths must publish a non-empty MLS payload: {commit}"
         );
     }
+}
+
+fn peer_commit(
+    seq: u64,
+    epoch: u64,
+    kind: &str,
+    sender: AgentId,
+    ciphertext_b64: &str,
+) -> quetzalcoatl_fabric::GroupCommitRecord {
+    quetzalcoatl_fabric::GroupCommitRecord {
+        group_id: String::from("room"),
+        server_seq: seq,
+        mls_epoch: epoch,
+        causal_parent_seq: seq.saturating_sub(1),
+        sender_agent_id: sender.to_string(),
+        sender_device_id: String::from("dev"),
+        mentions: serde_json::json!([]),
+        ciphertext_b64: ciphertext_b64.to_owned(),
+        kind: kind.to_owned(),
+        author_kind: String::from("agent"),
+        hop: 0,
+        created_at_ms: 1,
+    }
+}
+
+#[test]
+fn mls_commit_is_published_and_applied_by_peer_sync() {
+    let home_a = temp_home("mls-a");
+    let home_b = temp_home("mls-b");
+    let mock = MockHub::start();
+    let agent_a = AgentId::new_v4();
+    let agent_b = AgentId::new_v4();
+    let device_a = DeviceId::new_v4();
+    let device_b = DeviceId::new_v4();
+    let mut store_a = open_store(&home_a);
+    let mut store_b = open_store(&home_b);
+    let mut runtime_a = GroupRoomRuntime::new(home_a.clone(), agent_a, device_a, "88".repeat(32));
+    let mut runtime_b = GroupRoomRuntime::new(home_b.clone(), agent_b, device_b, "99".repeat(32));
+
+    runtime_a.create("room", 1, &mut store_a).expect("create");
+    let key_package = runtime_b
+        .invite_key_package("room")
+        .expect("key package")
+        .key_package_b64
+        .expect("key package bytes");
+    let handoff = runtime_a
+        .add_member("room", &key_package, agent_b, true, &mut store_a)
+        .expect("add member");
+    runtime_b
+        .join(
+            "room",
+            handoff.welcome_b64.as_deref().expect("welcome"),
+            handoff.ratchet_tree_b64.as_deref().expect("ratchet tree"),
+            &mut store_b,
+        )
+        .expect("join");
+    let identity_b = format!("agent:{agent_b}");
+    let epoch_before = runtime_b.summary("room").expect("summary").mls_epoch;
+
+    write_session(&home_a, mock.base_url(), agent_a, device_a);
+    write_session(&home_b, mock.base_url(), agent_b, device_b);
+    runtime_a.with_hub(mock.binding()).expect("attach hub a");
+    runtime_b.with_hub(mock.binding()).expect("attach hub b");
+
+    runtime_a
+        .revoke_steward("room", identity_b.as_bytes(), &mut store_a)
+        .expect("revoke");
+
+    // Hub 只知道 `mls_commit` 这个不透明 kind，绝不解析 MLS 明文。
+    let commits = mock.commits();
+    let published = commits
+        .iter()
+        .find(|commit| commit["kind"] == "mls_commit")
+        .expect("MLS commit must be in the Hub log");
+    assert_eq!(published["author_kind"], "agent");
+    assert!(
+        published["ciphertext_b64"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+    assert!(
+        published["mentions"]
+            .as_array()
+            .is_some_and(|mentions| mentions.is_empty())
+    );
+
+    // 未同步的成员不能自我推进；同步后必须与作者同纪元并失去成员资格。
+    let synced = runtime_b
+        .sync_watermark("room", &mut store_b)
+        .expect("sync");
+    assert_eq!(synced.mls_epoch, epoch_before + 1);
+    assert!(!synced.members.contains(&identity_b));
+    // 重复同步幂等：不得重复应用同一 Commit。
+    let again = runtime_b
+        .sync_watermark("room", &mut store_b)
+        .expect("sync again");
+    assert_eq!(again.mls_epoch, epoch_before + 1);
+}
+
+#[test]
+fn apply_sync_rejects_gaps_and_skips_duplicates() {
+    use quetzalcoatl_daemon::group::PreparedSync;
+
+    let home = temp_home("sync-order");
+    let agent = AgentId::new_v4();
+    let mut store = open_store(&home);
+    let mut runtime = GroupRoomRuntime::new(home, agent, DeviceId::new_v4(), "aa".repeat(32));
+    runtime.create("room", 1, &mut store).expect("create");
+
+    // 序号缺口（期望 1，收到 2）必须冲突，绝不乱序应用。
+    let gap = PreparedSync {
+        room_id: String::from("room"),
+        commits: vec![peer_commit(2, 1, "mls_commit", AgentId::new_v4(), "AA==")],
+        head_group_seq: 2,
+        last_seen_group_seq: 0,
+    };
+    assert!(matches!(
+        runtime.apply_sync(gap, &mut store),
+        Err(quetzalcoatl_types::QuetzalcoatlError::WatermarkConflict { .. })
+    ));
+
+    // MLS 纪元跳步（本地 0，提交声称 3）同样必须冲突。
+    let jump = PreparedSync {
+        room_id: String::from("room"),
+        commits: vec![peer_commit(1, 3, "mls_commit", AgentId::new_v4(), "AA==")],
+        head_group_seq: 1,
+        last_seen_group_seq: 0,
+    };
+    assert!(matches!(
+        runtime.apply_sync(jump, &mut store),
+        Err(quetzalcoatl_types::QuetzalcoatlError::WatermarkConflict { .. })
+    ));
+
+    // 重复序号（<= last_seen）必须跳过而非冲突。
+    let duplicate = PreparedSync {
+        room_id: String::from("room"),
+        commits: vec![peer_commit(1, 1, "mls_commit", AgentId::new_v4(), "AA==")],
+        head_group_seq: 1,
+        last_seen_group_seq: 1,
+    };
+    let summary = runtime
+        .apply_sync(duplicate, &mut store)
+        .expect("duplicate is skipped");
+    assert_eq!(summary.mls_epoch, 0);
+    assert_eq!(summary.last_seen_group_seq, 1);
+}
+
+#[test]
+fn leave_retry_after_publish_failure_converges_in_process() {
+    let home = temp_home("leave-retry");
+    let mock = MockHub::start();
+    let agent = AgentId::new_v4();
+    let device = DeviceId::new_v4();
+    write_session(&home, mock.base_url(), agent, device);
+    let mut store = open_store(&home);
+    let mut runtime = GroupRoomRuntime::new(home.clone(), agent, device, "bb".repeat(32));
+    runtime.create("room", 1, &mut store).expect("create");
+    runtime.with_hub(mock.binding()).expect("attach hub");
+
+    // 尾步骤（离群提案发布）失败：房间与注册表必须原样保留，可原地重试。
+    mock.set_commit_status(500);
+    runtime
+        .leave("room", &mut store)
+        .expect_err("publish failure must abort the tail");
+    assert_eq!(runtime.room_count(), 1);
+    assert_eq!(registry_rooms(&home), vec![String::from("room")]);
+
+    mock.set_commit_status(201);
+    assert!(runtime.leave("room", &mut store).expect("retry").left);
+    assert_eq!(runtime.room_count(), 0);
+    assert!(registry_rooms(&home).is_empty());
+    assert!(!runtime.leave("room", &mut store).expect("done").left);
+}
+
+#[test]
+fn revoke_retry_after_publish_failure_converges_in_process() {
+    let home_a = temp_home("revoke-retry-a");
+    let home_b = temp_home("revoke-retry-b");
+    let mock = MockHub::start();
+    let agent_a = AgentId::new_v4();
+    let agent_b = AgentId::new_v4();
+    let device_a = DeviceId::new_v4();
+    let mut store_a = open_store(&home_a);
+    let mut store_b = open_store(&home_b);
+    let mut runtime_a = GroupRoomRuntime::new(home_a.clone(), agent_a, device_a, "cc".repeat(32));
+    let mut runtime_b =
+        GroupRoomRuntime::new(home_b.clone(), agent_b, DeviceId::new_v4(), "dd".repeat(32));
+    runtime_a.create("room", 1, &mut store_a).expect("create");
+    let key_package = runtime_b
+        .invite_key_package("room")
+        .expect("key package")
+        .key_package_b64
+        .expect("key package bytes");
+    let handoff = runtime_a
+        .add_member("room", &key_package, agent_b, true, &mut store_a)
+        .expect("add member");
+    runtime_b
+        .join(
+            "room",
+            handoff.welcome_b64.as_deref().expect("welcome"),
+            handoff.ratchet_tree_b64.as_deref().expect("ratchet tree"),
+            &mut store_b,
+        )
+        .expect("join");
+    let identity_b = format!("agent:{agent_b}");
+    let before = runtime_a.summary("room").expect("summary");
+    write_session(&home_a, mock.base_url(), agent_a, device_a);
+    runtime_a.with_hub(mock.binding()).expect("attach hub");
+
+    // Hub DELETE 成功但 MLS Commit 发布失败：绝不能先合并/轮换。
+    mock.set_commit_status(500);
+    runtime_a
+        .revoke_steward("room", identity_b.as_bytes(), &mut store_a)
+        .expect_err("publish failure must abort before merging");
+    let after_failure = runtime_a.summary("room").expect("summary");
+    assert!(after_failure.members.contains(&identity_b));
+    assert_eq!(after_failure.mls_epoch, before.mls_epoch);
+
+    // 重试必须完成撤销（待定 Commit 已丢弃，可重新生成），且只轮换一次。
+    mock.set_commit_status(201);
+    let revoked = runtime_a
+        .revoke_steward("room", identity_b.as_bytes(), &mut store_a)
+        .expect("retry revoke");
+    assert_eq!(revoked.rotated_epoch, before.mls_epoch + 1);
+    assert!(
+        !runtime_a
+            .summary("room")
+            .expect("summary")
+            .members
+            .contains(&identity_b)
+    );
+    assert_eq!(
+        mock.commits()
+            .iter()
+            .filter(|commit| commit["kind"] == "mls_commit")
+            .count(),
+        1
+    );
 }

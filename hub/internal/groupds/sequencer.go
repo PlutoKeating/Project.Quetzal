@@ -314,7 +314,7 @@ func normalizeKind(raw string) (string, bool) {
 	switch strings.TrimSpace(raw) {
 	case "", "message":
 		return "message", true
-	case "constraint_update", "cancel", "steer", "question", "chatter", "reaction":
+	case "constraint_update", "cancel", "steer", "question", "chatter", "reaction", "mls_commit":
 		return strings.TrimSpace(raw), true
 	default:
 		return "", false
@@ -382,7 +382,8 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 	// 纪元校验（含 +1 上限与 reencrypt_only 约束）在 `AppendGroupCommit` 的同一事务内完成，
 	// 这里绝不能再基于事务外的房间快照判定，否则陈旧纪元可并发穿透。
 	hop := 0
-	if authorKind == "agent" {
+	// MLS 提交/提案是群状态同步消息，不是 Agent 对话：绝不参与 max_hops 熔断。
+	if authorKind == "agent" && kind != "mls_commit" {
 		hop = 1
 		if req.CausalParentSeq > 0 {
 			parent, err := s.store.GetGroupCommit(r.Context(), groupID, req.CausalParentSeq)
@@ -421,8 +422,16 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 	stored, err := s.store.AppendGroupCommit(r.Context(), commit)
 	if err != nil {
 		if errors.Is(err, store.ErrEpochConflict) {
-			writeError(w, http.StatusConflict, "WATERMARK_CONFLICT",
-				"stale or over-jumping mls_epoch: re-read group state before resubmitting")
+			// 409 必须携带真实群头，客户端据此构造类型化 WatermarkConflict 并触发重读。
+			head, _, headErr := s.store.GroupRoomHead(r.Context(), groupID)
+			payload := map[string]any{
+				"code":   "WATERMARK_CONFLICT",
+				"detail": "stale or over-jumping mls_epoch: re-read group state before resubmitting",
+			}
+			if headErr == nil {
+				payload["head_group_seq"] = head
+			}
+			writeJSON(w, http.StatusConflict, payload)
 			return
 		}
 		if errors.Is(err, store.ErrNotFound) {

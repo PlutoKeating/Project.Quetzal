@@ -522,6 +522,13 @@ impl GroupRoomEngine {
         Ok(self.mls_epoch())
     }
 
+    /// 丢弃本地待定 Commit（发布到 Hub 失败时回滚，保证重试不会卡在 PendingCommitExists）。
+    pub fn discard_pending_commit(&mut self) -> Result<()> {
+        self.group
+            .clear_pending_commit(self.provider.storage())
+            .map_err(|err| mls_error("丢弃待定 Commit 失败", err))
+    }
+
     /// 生成 MLS `Leave`（SelfRemove/Remove）提案；自我移除必须由其他成员提交，
     /// 因此本方法只产出提案，Hub 侧成员撤销由守护进程另行执行。
     pub fn leave_proposal(&mut self) -> Result<Vec<u8>> {

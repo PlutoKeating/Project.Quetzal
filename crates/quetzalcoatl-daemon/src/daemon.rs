@@ -1736,11 +1736,59 @@ impl SharedDaemonCore {
                 }
             }
             IpcRequest::GroupSync { room_id } => {
+                let plan = {
+                    let Ok(mut guard) = self.state.lock() else {
+                        return ipc_lock_error();
+                    };
+                    match guard.group.sync_plan(&room_id) {
+                        Ok(plan) => plan,
+                        Err(err) => return ipc_error_response(err),
+                    }
+                };
+                let Some(plan) = plan else {
+                    let Ok(guard) = self.state.lock() else {
+                        return ipc_lock_error();
+                    };
+                    return match guard.group.summary(&room_id) {
+                        Ok(summary) => (IpcResponse::GroupRoom(summary), false),
+                        Err(err) => ipc_error_response(err),
+                    };
+                };
+                let prepared = match crate::group::GroupRoomRuntime::fetch_sync(&plan) {
+                    Ok(prepared) => prepared,
+                    Err(err) => return ipc_error_response(err),
+                };
                 let Ok(mut guard) = self.state.lock() else {
                     return ipc_lock_error();
                 };
-                match guard.group.sync_watermark(&room_id) {
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match group.apply_sync(prepared, kernel.spine_mut().store_mut()) {
                     Ok(summary) => (IpcResponse::GroupRoom(summary), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupRead {
+                room_id,
+                ciphertext_b64,
+            } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match group.decrypt_room_message(
+                    &room_id,
+                    &ciphertext_b64,
+                    kernel.spine_mut().store_mut(),
+                ) {
+                    Ok(text) => (IpcResponse::GroupPlaintext { text }, false),
                     Err(err) => ipc_error_response(err),
                 }
             }
@@ -1813,7 +1861,13 @@ impl SharedDaemonCore {
                         ref mut kernel,
                         ..
                     } = *guard;
-                    group.finish_send(prepared, applied, kernel.spine_mut().store_mut())
+                    let outcome =
+                        group.finish_send(prepared, applied, kernel.spine_mut().store_mut());
+                    if matches!(&pushed, Err(QuetzalcoatlError::WatermarkConflict { .. })) {
+                        // 冲突后立即重读：把对端 MLS Commit 应用进来，下一次发送才能对齐纪元。
+                        let _ = group.sync_watermark(&room_id, kernel.spine_mut().store_mut());
+                    }
+                    outcome
                 };
                 match pushed {
                     Err(err) => ipc_error_response(err),

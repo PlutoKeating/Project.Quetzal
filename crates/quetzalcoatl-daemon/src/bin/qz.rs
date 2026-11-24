@@ -1183,6 +1183,7 @@ fn run_group(args: &[String]) -> Result<()> {
     let mut hops: u32 = 0;
     let mut kind = String::from("message");
     let mut parent_seq: u64 = 0;
+    let mut ciphertext: Option<String> = None;
     let mut human_typing = false;
     let mut sender_kind = GroupSenderWire::Owner;
     let mut as_steward = false;
@@ -1322,6 +1323,16 @@ fn run_group(args: &[String]) -> Result<()> {
                     .parse::<u64>()
                     .map_err(|err| QuetzalcoatlError::invalid_id("--parent", err.to_string()))?;
             }
+            "--ciphertext" => {
+                i += 1;
+                ciphertext = Some(
+                    rest.get(i)
+                        .ok_or_else(|| {
+                            QuetzalcoatlError::invalid_id("--ciphertext", "缺少 base64 密文")
+                        })?
+                        .clone(),
+                );
+            }
             "--human-typing" => human_typing = true,
             "--steward" => as_steward = true,
             "--peer" => sender_kind = GroupSenderWire::PeerAgent,
@@ -1381,6 +1392,12 @@ fn run_group(args: &[String]) -> Result<()> {
         },
         "sync" => IpcRequest::GroupSync {
             room_id: require_group_room(room)?,
+        },
+        "read" => IpcRequest::GroupRead {
+            room_id: require_group_room(room)?,
+            ciphertext_b64: ciphertext.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id("qz group read", "缺少 --ciphertext <base64>")
+            })?,
         },
         "list" => IpcRequest::GroupList,
         "members" => IpcRequest::GroupMembers {
@@ -1499,6 +1516,9 @@ fn run_group(args: &[String]) -> Result<()> {
             if let Some(ciphertext) = outcome.ciphertext_b64 {
                 println!("ciphertext_b64={ciphertext}");
             }
+        }
+        IpcResponse::GroupPlaintext { text } => {
+            println!("{text}");
         }
         IpcResponse::GroupRevokeSteward(outcome) => {
             println!(
