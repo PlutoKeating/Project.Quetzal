@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"quetzalcoatl-hub/internal/auth"
+	"quetzalcoatl-hub/internal/groupds"
 	"quetzalcoatl-hub/internal/lease"
 	"quetzalcoatl-hub/internal/llmproxy"
 	"quetzalcoatl-hub/internal/relay"
@@ -436,6 +437,11 @@ func main() {
 		log.Fatalf("quetzalcoatl-hub failed to initialize lease service: %v", err)
 	}
 
+	groupSvc, err := groupds.NewService(st, authSvc, time.Now)
+	if err != nil {
+		log.Fatalf("quetzalcoatl-hub failed to initialize group sequencer service: %v", err)
+	}
+
 	relaySvc := relay.NewServer(relay.Config{})
 	defer func() { _ = relaySvc.Close() }()
 
@@ -478,6 +484,7 @@ func main() {
 	authSvc.RegisterRoutes(mux)
 	spineSvc.RegisterRoutes(mux)
 	leaseSvc.RegisterRoutes(mux)
+	groupSvc.RegisterRoutes(mux)
 	relaySvc.RegisterRoutes(mux)
 	llmSvc.RegisterRoutes(mux)
 

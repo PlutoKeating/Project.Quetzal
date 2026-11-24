@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -260,6 +261,35 @@ type LeaseRecord struct {
 	UpdatedAtMs    int64  `json:"updated_at_ms"`
 }
 
+// GroupRoom 是零知识群房间元数据（无任何明文提示词、记忆或人格内容）。
+type GroupRoom struct {
+	GroupID      string `json:"group_id"`
+	OwnerAgentID string `json:"owner_agent_id"`
+	SecrecyLevel int    `json:"secrecy_level"`
+	CreatedAtMs  int64  `json:"created_at_ms"`
+}
+
+// GroupMember 绑定群房间与主权 Agent 成员身份。
+type GroupMember struct {
+	GroupID   string `json:"group_id"`
+	AgentID   string `json:"agent_id"`
+	Role      string `json:"role"`
+	AddedAtMs int64  `json:"added_at_ms"`
+}
+
+// GroupCommit 只保存 openmls 密文与可审计定序元数据，严禁任何业务明文。
+type GroupCommit struct {
+	GroupID         string `json:"group_id"`
+	ServerSeq       uint64 `json:"server_seq"`
+	MLSEpoch        uint64 `json:"mls_epoch"`
+	CausalParentSeq uint64 `json:"causal_parent_seq"`
+	SenderAgentID   string `json:"sender_agent_id"`
+	SenderDeviceID  string `json:"sender_device_id"`
+	MentionsJSON    string `json:"mentions"`
+	CiphertextB64   string `json:"ciphertext_b64"`
+	CreatedAtMs     int64  `json:"created_at_ms"`
+}
+
 type Store interface {
 	Close() error
 
@@ -319,6 +349,15 @@ type Store interface {
 	AcquireLease(ctx context.Context, agentID, deviceID string, expectedEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
 	RenewLease(ctx context.Context, agentID, deviceID string, witnessEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
 	ReleaseLease(ctx context.Context, agentID, deviceID string, witnessEpoch uint64, nowMs int64) (*LeaseRecord, error)
+
+	CreateGroupRoom(ctx context.Context, room GroupRoom) error
+	GetGroupRoom(ctx context.Context, groupID string) (*GroupRoom, error)
+	ListGroupRooms(ctx context.Context) ([]GroupRoom, error)
+	AddGroupMember(ctx context.Context, member GroupMember) error
+	GetGroupMember(ctx context.Context, groupID, agentID string) (*GroupMember, error)
+	ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error)
+	AppendGroupCommit(ctx context.Context, commit GroupCommit) (*GroupCommit, error)
+	ListGroupCommits(ctx context.Context, groupID string, afterSeq uint64, limit int) ([]GroupCommit, error)
 }
 
 const sqliteSchemaDDL = `
@@ -517,6 +556,34 @@ CREATE TABLE IF NOT EXISTS leases (
 	witness_epoch INTEGER NOT NULL,
 	expires_at_ms INTEGER NOT NULL,
 	updated_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS group_rooms (
+	group_id TEXT PRIMARY KEY,
+	owner_agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
+	secrecy_level INTEGER NOT NULL,
+	created_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS group_members (
+	group_id TEXT NOT NULL REFERENCES group_rooms(group_id) ON DELETE CASCADE,
+	agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
+	role TEXT NOT NULL,
+	added_at_ms INTEGER NOT NULL,
+	PRIMARY KEY (group_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS group_commits (
+	group_id TEXT NOT NULL REFERENCES group_rooms(group_id) ON DELETE CASCADE,
+	server_seq INTEGER NOT NULL,
+	mls_epoch INTEGER NOT NULL,
+	causal_parent_seq INTEGER NOT NULL,
+	sender_agent_id TEXT NOT NULL,
+	sender_device_id TEXT NOT NULL,
+	mentions_json TEXT NOT NULL,
+	ciphertext_b64 TEXT NOT NULL,
+	created_at_ms INTEGER NOT NULL,
+	PRIMARY KEY (group_id, server_seq)
 );
 `
 
@@ -1665,4 +1732,179 @@ func (s *SQLiteStore) ReleaseLease(ctx context.Context, agentID, deviceID string
 		return nil, err
 	}
 	return &cur, nil
+}
+
+// CreateGroupRoom 创建零知识群房间元数据。
+func (s *SQLiteStore) CreateGroupRoom(ctx context.Context, room GroupRoom) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO group_rooms (group_id, owner_agent_id, secrecy_level, created_at_ms)
+		VALUES (?, ?, ?, ?)
+	`, room.GroupID, room.OwnerAgentID, room.SecrecyLevel, room.CreatedAtMs)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return ErrConflict
+		}
+		return err
+	}
+	return nil
+}
+
+// GetGroupRoom 返回群房间元数据；不存在时返回 ErrNotFound。
+func (s *SQLiteStore) GetGroupRoom(ctx context.Context, groupID string) (*GroupRoom, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var room GroupRoom
+	err := s.db.QueryRowContext(ctx, `
+		SELECT group_id, owner_agent_id, secrecy_level, created_at_ms
+		FROM group_rooms WHERE group_id = ?
+	`, groupID).Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CreatedAtMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &room, nil
+}
+
+// ListGroupRooms 列出全部群房间元数据。
+func (s *SQLiteStore) ListGroupRooms(ctx context.Context) ([]GroupRoom, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT group_id, owner_agent_id, secrecy_level, created_at_ms
+		FROM group_rooms ORDER BY group_id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GroupRoom
+	for rows.Next() {
+		var room GroupRoom
+		if err := rows.Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CreatedAtMs); err != nil {
+			return nil, err
+		}
+		out = append(out, room)
+	}
+	return out, rows.Err()
+}
+
+// AddGroupMember 幂等地写入群成员关系。
+func (s *SQLiteStore) AddGroupMember(ctx context.Context, member GroupMember) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO group_members (group_id, agent_id, role, added_at_ms)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(group_id, agent_id) DO UPDATE SET role = excluded.role
+	`, member.GroupID, member.AgentID, member.Role, member.AddedAtMs)
+	return err
+}
+
+// GetGroupMember 返回指定成员关系；不存在时返回 ErrNotFound。
+func (s *SQLiteStore) GetGroupMember(ctx context.Context, groupID, agentID string) (*GroupMember, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var member GroupMember
+	err := s.db.QueryRowContext(ctx, `
+		SELECT group_id, agent_id, role, added_at_ms
+		FROM group_members WHERE group_id = ? AND agent_id = ?
+	`, groupID, agentID).Scan(&member.GroupID, &member.AgentID, &member.Role, &member.AddedAtMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &member, nil
+}
+
+// ListGroupMembers 列出群内全部成员。
+func (s *SQLiteStore) ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT group_id, agent_id, role, added_at_ms
+		FROM group_members WHERE group_id = ? ORDER BY added_at_ms ASC, agent_id ASC
+	`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GroupMember
+	for rows.Next() {
+		var member GroupMember
+		if err := rows.Scan(&member.GroupID, &member.AgentID, &member.Role, &member.AddedAtMs); err != nil {
+			return nil, err
+		}
+		out = append(out, member)
+	}
+	return out, rows.Err()
+}
+
+// AppendGroupCommit 在单事务内为该群原子分配严格单调的 server_seq。
+func (s *SQLiteStore) AppendGroupCommit(ctx context.Context, commit GroupCommit) (*GroupCommit, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var nextSeq uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(server_seq), 0) + 1 FROM group_commits WHERE group_id = ?
+	`, commit.GroupID).Scan(&nextSeq); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO group_commits (
+			group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
+			sender_device_id, mentions_json, ciphertext_b64, created_at_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, commit.GroupID, nextSeq, commit.MLSEpoch, commit.CausalParentSeq, commit.SenderAgentID,
+		commit.SenderDeviceID, commit.MentionsJSON, commit.CiphertextB64, commit.CreatedAtMs); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	commit.ServerSeq = nextSeq
+	return &commit, nil
+}
+
+// ListGroupCommits 按 server_seq 升序返回水位线之后的密文提交。
+func (s *SQLiteStore) ListGroupCommits(ctx context.Context, groupID string, afterSeq uint64, limit int) ([]GroupCommit, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
+		       sender_device_id, mentions_json, ciphertext_b64, created_at_ms
+		FROM group_commits
+		WHERE group_id = ? AND server_seq > ?
+		ORDER BY server_seq ASC
+		LIMIT ?
+	`, groupID, afterSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GroupCommit
+	for rows.Next() {
+		var commit GroupCommit
+		if err := rows.Scan(&commit.GroupID, &commit.ServerSeq, &commit.MLSEpoch, &commit.CausalParentSeq,
+			&commit.SenderAgentID, &commit.SenderDeviceID, &commit.MentionsJSON, &commit.CiphertextB64,
+			&commit.CreatedAtMs); err != nil {
+			return nil, err
+		}
+		out = append(out, commit)
+	}
+	return out, rows.Err()
 }

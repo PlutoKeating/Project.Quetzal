@@ -125,6 +125,10 @@ pub trait MaterializedStore {
     ) -> Result<()>;
     fn list_markdown_docs(&self) -> Result<Vec<(String, String)>>;
 
+    /// 不可导出的私有状态块（群组 MLS 私钥材料等）：仅存于本地脊柱库，绝不进入可读 ZIP 导出。
+    fn put_private_blob(&mut self, blob_key: &str, payload_json: &str) -> Result<()>;
+    fn get_private_blob(&self, blob_key: &str) -> Result<Option<String>>;
+
     fn has_v1_import_digest(&self, digest: &ArtifactId) -> Result<bool>;
     fn record_v1_import_digest(
         &mut self,
@@ -272,6 +276,12 @@ impl RusqliteWalStore {
                 status TEXT NOT NULL,
                 title TEXT NOT NULL,
                 detail TEXT NOT NULL,
+                updated_hlc_hex TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS private_blobs (
+                blob_key TEXT PRIMARY KEY,
+                payload_json TEXT NOT NULL,
                 updated_hlc_hex TEXT NOT NULL
             );
 
@@ -1204,6 +1214,36 @@ impl MaterializedStore for RusqliteWalStore {
             )
             .map_err(sql_err)?;
         Ok(())
+    }
+
+    fn put_private_blob(&mut self, blob_key: &str, payload_json: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO private_blobs (blob_key, payload_json, updated_hlc_hex)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(blob_key) DO UPDATE SET
+                    payload_json = excluded.payload_json,
+                    updated_hlc_hex = excluded.updated_hlc_hex;",
+                params![
+                    blob_key,
+                    payload_json,
+                    HlcTimestamp::from_parts(0, 0, 0).to_hex()
+                ],
+            )
+            .map_err(sql_err)?;
+        Ok(())
+    }
+
+    fn get_private_blob(&self, blob_key: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT payload_json FROM private_blobs WHERE blob_key = ?1;")
+            .map_err(sql_err)?;
+        let mut rows = stmt.query(params![blob_key]).map_err(sql_err)?;
+        match rows.next().map_err(sql_err)? {
+            Some(row) => Ok(Some(row.get::<_, String>(0).map_err(sql_err)?)),
+            None => Ok(None),
+        }
     }
 
     fn list_markdown_docs(&self) -> Result<Vec<(String, String)>> {

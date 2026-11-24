@@ -18,9 +18,10 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use quetzalcoatl_crypto::hex_encode;
+use quetzalcoatl_group::floor_control::Mention;
 use quetzalcoatl_harness::DiscoveryReport;
 use quetzalcoatl_spine::V1ImportReport;
-use quetzalcoatl_types::{DeviceId, QuetzalcoatlError, Result, RunId};
+use quetzalcoatl_types::{AgentId, DeviceId, QuetzalcoatlError, Result, RunId};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -31,6 +32,10 @@ use crate::daemon::{
 use crate::fabric::{
     FabricLoginRequest, FabricLoginResult, FabricNodesReport, FabricPairApproveResult,
     FabricPairJoinResult, FabricPairStartResult, FabricRevokeResult,
+};
+use crate::group::{
+    GroupInviteOutcome, GroupLeaveOutcome, GroupMemberView, GroupRevokeOutcome, GroupRoomSummary,
+    GroupSendOutcome,
 };
 
 const MAX_IPC_HEADER_BYTES: usize = 32 * 1024;
@@ -174,7 +179,62 @@ pub enum IpcRequest {
     FabricRevokeDevice {
         device_id: DeviceId,
     },
+    /// `qz group create`：创建零知识群房间并构造本地 openmls 引擎。
+    GroupCreate {
+        room_id: String,
+        secrecy_level: u8,
+    },
+    /// `qz group invite --room <id>`：打印本成员一次性 KeyPackage 交接包。
+    GroupInviteKeyPackage {
+        room_id: String,
+    },
+    /// `qz group invite --room <id> --key-package <b64>`：消费远端 KeyPackage 并返回 Welcome。
+    GroupAddMember {
+        room_id: String,
+        key_package_b64: String,
+        agent_id: AgentId,
+        as_steward: bool,
+    },
+    /// `qz group join --room <id> --welcome <b64> --ratchet-tree <b64>`。
+    GroupJoin {
+        room_id: String,
+        welcome_b64: String,
+        ratchet_tree_b64: String,
+    },
+    /// `qz group leave --room <id>`。
+    GroupLeave {
+        room_id: String,
+    },
+    /// `qz group list`。
+    GroupList,
+    /// `qz group members --room <id>`。
+    GroupMembers {
+        room_id: String,
+    },
+    /// `qz group send --room <id> --text <...>`。
+    GroupSend {
+        room_id: String,
+        text: String,
+        mentions: Vec<Mention>,
+        sender_kind: GroupSenderWire,
+        consecutive_agent_hops: u32,
+        human_typing_active: bool,
+    },
+    /// `qz group revoke-steward --room <id> --identity <mls-identity>`。
+    GroupRevokeSteward {
+        room_id: String,
+        mls_identity: String,
+    },
     Shutdown,
+}
+
+/// 群发言者类型线格式（避免 CLI 传裸字符串）。
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupSenderWire {
+    Owner,
+    OtherHuman,
+    PeerAgent,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -193,6 +253,13 @@ pub enum IpcResponse {
     FabricPairApprove(Box<FabricPairApproveResult>),
     FabricNodes(Box<FabricNodesReport>),
     FabricRevokeDevice(FabricRevokeResult),
+    GroupRooms(Vec<GroupRoomSummary>),
+    GroupRoom(GroupRoomSummary),
+    GroupInvite(GroupInviteOutcome),
+    GroupMembers(Vec<GroupMemberView>),
+    GroupLeave(GroupLeaveOutcome),
+    GroupSend(GroupSendOutcome),
+    GroupRevokeSteward(GroupRevokeOutcome),
     Error { code: String, detail: String },
 }
 

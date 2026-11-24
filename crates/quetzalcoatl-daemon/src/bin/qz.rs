@@ -10,11 +10,13 @@ use std::process::{Command, ExitCode, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use quetzalcoatl_daemon::local_ipc::GroupSenderWire;
 use quetzalcoatl_daemon::{
     ChatRequest, DaemonConfig, DaemonFabricConfig, FabricLoginRequest, IpcClient, IpcRequest,
     IpcResponse, QuetzalcoatlDaemon, export_offline_or_via_ipc, import_v1_offline_or_via_ipc,
     resolve_quetzalcoatl_home,
 };
+use quetzalcoatl_group::floor_control::{Mention, MentionKind};
 use quetzalcoatl_harness::{DiscoveryConfig, discover_coding_agents};
 use quetzalcoatl_kernel::CleanRoomVerifierDag;
 use quetzalcoatl_sandbox::SandboxCommand;
@@ -38,6 +40,7 @@ Commands:
   login       Authenticate against quetzalcoatl-hub (OPAQUE PIN or Bearer token)
   pair        Quantum-safe X-Wing device pairing (start | join | approve)
   nodes       List fabric peers, path kind, Router holder and witness_epoch
+  group       openmls 群组：create | invite | join | leave | list | send | members | revoke-steward
 ";
 
 fn locate_quetzalcoatld_binary() -> PathBuf {
@@ -1116,10 +1119,381 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "login" => run_login(rest),
         "pair" => run_pair(rest),
         "nodes" => run_nodes(rest),
+        "group" => run_group(rest),
         other => Err(QuetzalcoatlError::StorageError {
             detail: format!("未知子命令 `{other}`\n{USAGE_TEXT}"),
         }),
     }
+}
+
+fn parse_uuid_agent(raw: &str, flag: &str) -> Result<AgentId> {
+    raw.parse::<AgentId>()
+        .map_err(|err| QuetzalcoatlError::invalid_id(flag, format!("非法 Agent ID `{raw}`: {err}")))
+}
+
+fn group_ipc_error(code: &str, detail: &str) -> QuetzalcoatlError {
+    match code {
+        "FLOOR_SILENCED" => QuetzalcoatlError::FloorSilenced {
+            detail: String::from(detail),
+        },
+        "WATERMARK_CONFLICT" => QuetzalcoatlError::WatermarkConflict {
+            last_seen_seq: 0,
+            head_seq: 0,
+        },
+        "PERMISSION_DENIED" => QuetzalcoatlError::PermissionDenied {
+            detail: String::from(detail),
+        },
+        "CONSCIENCE_VIOLATION" => QuetzalcoatlError::ConscienceViolation {
+            detail: String::from(detail),
+        },
+        "DELIVERY_REFUSED" => QuetzalcoatlError::DeliveryRefused {
+            detail: String::from(detail),
+        },
+        "INTEGRITY_VIOLATION" => QuetzalcoatlError::IntegrityViolation {
+            detail: String::from(detail),
+        },
+        other => QuetzalcoatlError::StorageError {
+            detail: format!("{other}: {detail}"),
+        },
+    }
+}
+
+fn require_group_room(room: Option<String>) -> Result<String> {
+    room.ok_or_else(|| QuetzalcoatlError::invalid_id("qz group", "缺少 --room <room_id>"))
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_group(args: &[String]) -> Result<()> {
+    let Some((subcmd, rest)) = args.split_first() else {
+        return Err(QuetzalcoatlError::invalid_id(
+            "qz group",
+            "group 需要子命令: create | invite | join | leave | list | send | members | revoke-steward",
+        ));
+    };
+    let mut home: Option<PathBuf> = None;
+    let mut room: Option<String> = None;
+    let mut level: u8 = 1;
+    let mut key_package: Option<String> = None;
+    let mut agent: Option<AgentId> = None;
+    let mut welcome: Option<String> = None;
+    let mut ratchet_tree: Option<String> = None;
+    let mut text = String::new();
+    let mut identity: Option<String> = None;
+    let mut mentions: Vec<Mention> = Vec::new();
+    let mut hops: u32 = 0;
+    let mut human_typing = false;
+    let mut sender_kind = GroupSenderWire::Owner;
+    let mut as_steward = false;
+    let mut json_mode = false;
+
+    let mut i = 0usize;
+    while i < rest.len() {
+        match rest[i].as_str() {
+            "--home" => {
+                i += 1;
+                let v = rest.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--home 缺少目录参数"),
+                })?;
+                home = Some(PathBuf::from(v));
+            }
+            "--room" => {
+                i += 1;
+                room = Some(
+                    rest.get(i)
+                        .ok_or_else(|| QuetzalcoatlError::invalid_id("--room", "缺少房间 ID"))?
+                        .clone(),
+                );
+            }
+            "--level" => {
+                i += 1;
+                level = rest
+                    .get(i)
+                    .ok_or_else(|| QuetzalcoatlError::invalid_id("--level", "缺少保密等级"))?
+                    .parse::<u8>()
+                    .map_err(|err| QuetzalcoatlError::invalid_id("--level", err.to_string()))?;
+            }
+            "--key-package" => {
+                i += 1;
+                key_package = Some(
+                    rest.get(i)
+                        .ok_or_else(|| {
+                            QuetzalcoatlError::invalid_id("--key-package", "缺少 base64")
+                        })?
+                        .clone(),
+                );
+            }
+            "--agent" => {
+                i += 1;
+                agent = Some(parse_uuid_agent(
+                    rest.get(i)
+                        .ok_or_else(|| QuetzalcoatlError::invalid_id("--agent", "缺少 Agent ID"))?,
+                    "--agent",
+                )?);
+            }
+            "--welcome" => {
+                i += 1;
+                welcome = Some(
+                    rest.get(i)
+                        .ok_or_else(|| QuetzalcoatlError::invalid_id("--welcome", "缺少 base64"))?
+                        .clone(),
+                );
+            }
+            "--ratchet-tree" => {
+                i += 1;
+                ratchet_tree = Some(
+                    rest.get(i)
+                        .ok_or_else(|| {
+                            QuetzalcoatlError::invalid_id("--ratchet-tree", "缺少 base64")
+                        })?
+                        .clone(),
+                );
+            }
+            "--text" => {
+                i += 1;
+                text = rest
+                    .get(i)
+                    .ok_or_else(|| QuetzalcoatlError::invalid_id("--text", "缺少文本"))?
+                    .clone();
+            }
+            "--identity" => {
+                i += 1;
+                identity = Some(
+                    rest.get(i)
+                        .ok_or_else(|| {
+                            QuetzalcoatlError::invalid_id("--identity", "缺少 MLS 身份")
+                        })?
+                        .clone(),
+                );
+            }
+            "--to" => {
+                i += 1;
+                mentions.push(Mention {
+                    kind: MentionKind::Addressee,
+                    target_agent_id: Some(parse_uuid_agent(
+                        rest.get(i).ok_or_else(|| {
+                            QuetzalcoatlError::invalid_id("--to", "缺少 Agent ID")
+                        })?,
+                        "--to",
+                    )?),
+                });
+            }
+            "--cc" => {
+                i += 1;
+                mentions.push(Mention {
+                    kind: MentionKind::Cc,
+                    target_agent_id: Some(parse_uuid_agent(
+                        rest.get(i).ok_or_else(|| {
+                            QuetzalcoatlError::invalid_id("--cc", "缺少 Agent ID")
+                        })?,
+                        "--cc",
+                    )?),
+                });
+            }
+            "--agents" => mentions.push(Mention {
+                kind: MentionKind::AllAgents,
+                target_agent_id: None,
+            }),
+            "--humans" => mentions.push(Mention {
+                kind: MentionKind::AllHumans,
+                target_agent_id: None,
+            }),
+            "--hops" => {
+                i += 1;
+                hops = rest
+                    .get(i)
+                    .ok_or_else(|| QuetzalcoatlError::invalid_id("--hops", "缺少跳数"))?
+                    .parse::<u32>()
+                    .map_err(|err| QuetzalcoatlError::invalid_id("--hops", err.to_string()))?;
+            }
+            "--human-typing" => human_typing = true,
+            "--steward" => as_steward = true,
+            "--peer" => sender_kind = GroupSenderWire::PeerAgent,
+            "--other-human" => sender_kind = GroupSenderWire::OtherHuman,
+            "--json" => json_mode = true,
+            other => {
+                return Err(QuetzalcoatlError::invalid_id(
+                    "qz group",
+                    format!("未知选项 {other}"),
+                ));
+            }
+        }
+        i += 1;
+    }
+
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client =
+        IpcClient::connect_from_home(&qz_home)?.ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("quetzalcoatld 尚未启动，请先运行 `qz up`"),
+        })?;
+
+    let request = match subcmd.as_str() {
+        "create" => IpcRequest::GroupCreate {
+            room_id: require_group_room(room)?,
+            secrecy_level: level,
+        },
+        "invite" => match key_package {
+            Some(kp) => {
+                let agent = agent.ok_or_else(|| {
+                    QuetzalcoatlError::invalid_id(
+                        "qz group invite",
+                        "邀请远端成员需要 --agent <id>",
+                    )
+                })?;
+                IpcRequest::GroupAddMember {
+                    room_id: require_group_room(room)?,
+                    key_package_b64: kp,
+                    agent_id: agent,
+                    as_steward,
+                }
+            }
+            None => IpcRequest::GroupInviteKeyPackage {
+                room_id: require_group_room(room)?,
+            },
+        },
+        "join" => IpcRequest::GroupJoin {
+            room_id: require_group_room(room)?,
+            welcome_b64: welcome.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id("qz group join", "缺少 --welcome <base64>")
+            })?,
+            ratchet_tree_b64: ratchet_tree.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id("qz group join", "缺少 --ratchet-tree <base64>")
+            })?,
+        },
+        "leave" => IpcRequest::GroupLeave {
+            room_id: require_group_room(room)?,
+        },
+        "list" => IpcRequest::GroupList,
+        "members" => IpcRequest::GroupMembers {
+            room_id: require_group_room(room)?,
+        },
+        "send" => IpcRequest::GroupSend {
+            room_id: require_group_room(room)?,
+            text,
+            mentions,
+            sender_kind,
+            consecutive_agent_hops: hops,
+            human_typing_active: human_typing,
+        },
+        "revoke-steward" => IpcRequest::GroupRevokeSteward {
+            room_id: require_group_room(room)?,
+            mls_identity: identity.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id("qz group revoke-steward", "缺少 --identity <mls-id>")
+            })?,
+        },
+        other => {
+            return Err(QuetzalcoatlError::invalid_id(
+                "qz group",
+                format!("未知 group 子命令 {other}"),
+            ));
+        }
+    };
+
+    let response = client.call(&request)?;
+    if let IpcResponse::Error { code, detail } = response {
+        return Err(group_ipc_error(&code, &detail));
+    }
+    if json_mode {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&response).map_err(|err| {
+                QuetzalcoatlError::SerializationError {
+                    detail: err.to_string(),
+                }
+            })?
+        );
+        return Ok(());
+    }
+    match response {
+        IpcResponse::GroupRooms(rooms) => {
+            if rooms.is_empty() {
+                println!("No group rooms joined.");
+            }
+            for summary in rooms {
+                println!(
+                    "{}  epoch={} members={} secrecy={} watermark={} hub={}",
+                    summary.room_id,
+                    summary.mls_epoch,
+                    summary.members.len(),
+                    summary.secrecy_level,
+                    summary.last_seen_group_seq,
+                    if summary.hub_connected {
+                        "connected"
+                    } else {
+                        "local"
+                    }
+                );
+            }
+        }
+        IpcResponse::GroupRoom(summary) => {
+            println!(
+                "room={} epoch={} secrecy={} members={:?}",
+                summary.room_id, summary.mls_epoch, summary.secrecy_level, summary.members
+            );
+        }
+        IpcResponse::GroupInvite(outcome) => {
+            if let Some(kp) = outcome.key_package_b64 {
+                println!("KeyPackage handoff (send to group owner):");
+                println!("{kp}");
+            }
+            if let Some(welcome) = outcome.welcome_b64 {
+                println!("Welcome handoff (send to joining member):");
+                println!("{welcome}");
+            }
+            if let Some(tree) = outcome.ratchet_tree_b64 {
+                println!("RatchetTree handoff:");
+                println!("{tree}");
+            }
+            if let Some(commit) = outcome.commit_b64 {
+                println!("Commit (publish via Hub):");
+                println!("{commit}");
+            }
+            println!("mls_epoch={}", outcome.mls_epoch);
+        }
+        IpcResponse::GroupMembers(members) => {
+            for member in members {
+                println!(
+                    "{}{}",
+                    member.identity,
+                    if member.is_self { "  [self]" } else { "" }
+                );
+            }
+        }
+        IpcResponse::GroupLeave(outcome) => {
+            println!("room={} left={}", outcome.room_id, outcome.left);
+        }
+        IpcResponse::GroupSend(outcome) => {
+            println!(
+                "floor={} envelope={} epoch={} watermark={} server_seq={}",
+                outcome.floor_action,
+                outcome.authority_envelope,
+                outcome.mls_epoch,
+                outcome
+                    .watermark_resolution
+                    .unwrap_or_else(|| String::from("-")),
+                outcome
+                    .server_seq
+                    .map_or_else(|| String::from("-"), |seq| seq.to_string())
+            );
+            if let Some(ciphertext) = outcome.ciphertext_b64 {
+                println!("ciphertext_b64={ciphertext}");
+            }
+        }
+        IpcResponse::GroupRevokeSteward(outcome) => {
+            println!(
+                "revoked={} grant={} rotated_epoch={} dropped_rights={}",
+                outcome.revoked_identity,
+                outcome.grant_id,
+                outcome.rotated_epoch,
+                outcome.dropped_management_rights
+            );
+        }
+        other => {
+            return Err(QuetzalcoatlError::SerializationError {
+                detail: format!("群组命令收到非预期响应: {other:?}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn main() -> ExitCode {

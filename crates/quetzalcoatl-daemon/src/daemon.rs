@@ -149,6 +149,8 @@ pub struct DaemonStatus {
     pub sleep_phase: SleepPhase,
     /// 可选 fabric 段落（默认关闭时 `enabled=false, lease="disabled"`）。
     pub fabric: FabricStatus,
+    /// 当前已加入并构造 `openmls` 引擎的群房间数量。
+    pub group_rooms: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -580,6 +582,7 @@ pub(crate) struct DaemonMutableState {
     graph: SerpentineGraph,
     _arbiter: ConscienceArbiter,
     pub(crate) persisted: PersistedSovereignState,
+    pub(crate) group: crate::group::GroupRoomRuntime,
     ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
@@ -1395,6 +1398,7 @@ impl SharedDaemonCore {
                     fabric: self
                         .fabric_runtime()
                         .map_or_else(FabricStatus::disabled, |rt| rt.status()),
+                    group_rooms: guard.group.room_count(),
                 };
                 (IpcResponse::Status(Box::new(status)), false)
             }
@@ -1643,6 +1647,165 @@ impl SharedDaemonCore {
                     ),
                 }
             }
+            IpcRequest::GroupCreate {
+                room_id,
+                secrecy_level,
+            } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match group.create(&room_id, secrecy_level, kernel.spine_mut().store_mut()) {
+                    Ok(summary) => (IpcResponse::GroupRoom(summary), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupInviteKeyPackage { room_id } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                match guard.group.invite_key_package(&room_id) {
+                    Ok(outcome) => (IpcResponse::GroupInvite(outcome), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupAddMember {
+                room_id,
+                key_package_b64,
+                agent_id,
+                as_steward,
+            } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match group.add_member(
+                    &room_id,
+                    &key_package_b64,
+                    agent_id,
+                    as_steward,
+                    kernel.spine_mut().store_mut(),
+                ) {
+                    Ok(outcome) => (IpcResponse::GroupInvite(outcome), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupJoin {
+                room_id,
+                welcome_b64,
+                ratchet_tree_b64,
+            } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match group.join(
+                    &room_id,
+                    &welcome_b64,
+                    &ratchet_tree_b64,
+                    kernel.spine_mut().store_mut(),
+                ) {
+                    Ok(summary) => (IpcResponse::GroupRoom(summary), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupLeave { room_id } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                match guard.group.leave(&room_id) {
+                    Ok(outcome) => (IpcResponse::GroupLeave(outcome), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupList => {
+                let Ok(guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                (IpcResponse::GroupRooms(guard.group.summaries()), false)
+            }
+            IpcRequest::GroupMembers { room_id } => {
+                let Ok(guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                match guard.group.members(&room_id) {
+                    Ok(members) => (IpcResponse::GroupMembers(members), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupSend {
+                room_id,
+                text,
+                mentions,
+                sender_kind,
+                consecutive_agent_hops,
+                human_typing_active,
+            } => {
+                let sender_kind = match sender_kind {
+                    crate::local_ipc::GroupSenderWire::Owner => {
+                        quetzalcoatl_group::floor_control::SenderKind::OwnerHuman
+                    }
+                    crate::local_ipc::GroupSenderWire::OtherHuman => {
+                        quetzalcoatl_group::floor_control::SenderKind::OtherHuman
+                    }
+                    crate::local_ipc::GroupSenderWire::PeerAgent => {
+                        quetzalcoatl_group::floor_control::SenderKind::PeerAgent
+                    }
+                };
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match group.send(
+                    &room_id,
+                    &text,
+                    mentions,
+                    sender_kind,
+                    consecutive_agent_hops,
+                    human_typing_active,
+                    kernel.spine_mut().store_mut(),
+                ) {
+                    Ok(outcome) => (IpcResponse::GroupSend(outcome), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupRevokeSteward {
+                room_id,
+                mls_identity,
+            } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match group.revoke_steward(
+                    &room_id,
+                    mls_identity.as_bytes(),
+                    kernel.spine_mut().store_mut(),
+                ) {
+                    Ok(outcome) => (IpcResponse::GroupRevokeSteward(outcome), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
             IpcRequest::Shutdown => {
                 if let Ok(mut guard) = self.state.lock() {
                     let _ = guard
@@ -1671,6 +1834,26 @@ impl SharedDaemonCore {
             }
         }
     }
+}
+
+fn ipc_error_response(err: QuetzalcoatlError) -> (IpcResponse, bool) {
+    (
+        IpcResponse::Error {
+            code: String::from(err.code().as_str()),
+            detail: err.to_string(),
+        },
+        false,
+    )
+}
+
+fn ipc_lock_error() -> (IpcResponse, bool) {
+    (
+        IpcResponse::Error {
+            code: String::from("STORAGE_ERROR"),
+            detail: String::from("daemon lock poisoned"),
+        },
+        false,
+    )
 }
 
 fn fabric_disabled_response() -> (IpcResponse, bool) {
@@ -1873,6 +2056,32 @@ impl QuetzalcoatlDaemon {
         let arbiter = ConscienceArbiter::new(Epoch::new(1));
         let core_holder: Arc<Mutex<Option<Arc<SharedDaemonCore>>>> = Arc::new(Mutex::new(None));
 
+        // 群房间运行时：每加入一个群即构造独立 openmls 引擎 + ANP-P9 门禁 + 水位线屏障。
+        let mut group_runtime = crate::group::GroupRoomRuntime::new(
+            config.quetzalcoatl_home.clone(),
+            persisted.agent_id,
+            persisted.device_id,
+            persisted.ed25519_seed_hex.clone(),
+        );
+        if let Some(fabric_cfg) = &config.fabric {
+            let session = crate::fabric::load_persisted_session(&config.quetzalcoatl_home);
+            let token = session
+                .filter(|s| s.hub_url == fabric_cfg.hub_url)
+                .map(|s| s.session_token);
+            let ca_certs = fabric_cfg
+                .hub_ca_file
+                .as_ref()
+                .and_then(|path| fs::read(path).ok())
+                .and_then(|raw| quetzalcoatl_fabric::parse_ca_certs_pem_or_der(&raw).ok())
+                .unwrap_or_default();
+            let _ = group_runtime.with_hub(crate::group::GroupHubBinding {
+                base_url: fabric_cfg.hub_url.clone(),
+                session_token: token,
+                custom_ca_certs_der: ca_certs,
+            });
+        }
+        group_runtime.restore(kernel.spine().store())?;
+
         // 3b. 可选 fabric 接入：在构建 core 之前先按内核身份启动 `iroh` 节点与入站 RPC 处理器。
         let (fabric_runtime, fabric_core_slot) = if let Some(fabric_cfg) = config.fabric.clone() {
             let (agent_id, device, epoch_ring) = {
@@ -1958,6 +2167,7 @@ impl QuetzalcoatlDaemon {
                 graph,
                 _arbiter: arbiter,
                 persisted,
+                group: group_runtime,
                 ewave_check_reports: Vec::new(),
             }),
             fabric: Mutex::new(fabric_runtime.clone()),

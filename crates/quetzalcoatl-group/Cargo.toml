@@ -1,0 +1,32 @@
+[package]
+name = "quetzalcoatl-group"
+description = "Quetzalcoatl V2 Super-Group-Agent 物理隔离协同层：openmls 群房间、ANP-P9 发言门禁、未读水位线屏障、A2A 衰减信封与异构编队"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+ed25519-dalek = { workspace = true }
+openmls = { workspace = true }
+openmls_memory_storage = { workspace = true }
+openmls_rust_crypto = { workspace = true }
+openmls_traits = { workspace = true }
+quetzalcoatl-crypto = { workspace = true }
+quetzalcoatl-ewave = { workspace = true }
+quetzalcoatl-spine = { workspace = true }
+quetzalcoatl-types = { workspace = true }
+rand_core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]

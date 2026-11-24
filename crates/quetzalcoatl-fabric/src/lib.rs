@@ -11,9 +11,10 @@ pub mod worker_pool;
 
 pub use endpoint::{
     FABRIC_ALPN, FabricNode, FabricNodeConfig, FabricPeerEndpoint, FabricRelaySettings,
-    FabricRpcHandler, FabricRpcRequest, FabricRpcResponse, HubAuthSession, HubClient,
-    HubClientConfig, LeaseWitnessRecord, PairHpkeBundle, PairInitiateResponse, PairStatusResponse,
-    PeerPathKind, PeerStatusSnapshot, QadReportSnapshot, parse_ca_certs_pem_or_der,
+    FabricRpcHandler, FabricRpcRequest, FabricRpcResponse, GroupCommitReceipt, GroupCommitRecord,
+    GroupMemberRecord, GroupRoomRecord, HubAuthSession, HubClient, HubClientConfig,
+    LeaseWitnessRecord, PairHpkeBundle, PairInitiateResponse, PairStatusResponse, PeerPathKind,
+    PeerStatusSnapshot, QadReportSnapshot, parse_ca_certs_pem_or_der,
 };
 pub use lease_router::{
     FencedDeliveryOutcome, FencedLeaseCoordinator, LeaseCoordinatorConfig, LeaseNetworkOutcome,

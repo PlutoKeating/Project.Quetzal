@@ -2590,4 +2590,256 @@ impl HubClient {
             detail: e.to_string(),
         })
     }
+
+    /// `qz group create`：在零知识 Hub 上登记群房间元数据（无任何明文）。
+    pub async fn create_group_room(
+        &self,
+        group_id: &str,
+        owner_agent_id: AgentId,
+        secrecy_level: u8,
+    ) -> Result<GroupRoomRecord> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .post(format!("{}/v1/groups", self.config.base_url))
+            .bearer_auth(tok)
+            .json(&serde_json::json!({
+                "group_id": group_id,
+                "owner_agent_id": owner_agent_id.to_string(),
+                "secrecy_level": secrecy_level,
+            }))
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("groups/create 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: e.to_string(),
+        })
+    }
+
+    /// 邀请成员：把 openmls 成员身份绑定到群房间。
+    pub async fn add_group_member(
+        &self,
+        group_id: &str,
+        agent_id: AgentId,
+        role: &str,
+    ) -> Result<GroupMemberRecord> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .post(format!(
+                "{}/v1/groups/{group_id}/members",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .json(&serde_json::json!({
+                "agent_id": agent_id.to_string(),
+                "role": role,
+            }))
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("groups/members 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: e.to_string(),
+        })
+    }
+
+    /// 列出群房间成员。
+    pub async fn list_group_members(&self, group_id: &str) -> Result<Vec<GroupMemberRecord>> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/v1/groups/{group_id}/members",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("groups/members 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        let val: serde_json::Value =
+            serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+                detail: e.to_string(),
+            })?;
+        let mut out = Vec::new();
+        if let Some(items) = val["members"].as_array() {
+            for item in items {
+                out.push(serde_json::from_value(item.clone()).map_err(|e| {
+                    QuetzalcoatlError::SerializationError {
+                        detail: e.to_string(),
+                    }
+                })?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// 向 Hub 原子定序器提交 openmls 密文（只含密文与元数据）。
+    pub async fn append_group_commit(
+        &self,
+        group_id: &str,
+        mls_epoch: u64,
+        causal_parent_seq: u64,
+        mentions: &serde_json::Value,
+        ciphertext_b64: &str,
+    ) -> Result<GroupCommitReceipt> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .post(format!(
+                "{}/v1/groups/{group_id}/commits",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .json(&serde_json::json!({
+                "mls_epoch": mls_epoch,
+                "causal_parent_seq": causal_parent_seq,
+                "mentions": mentions,
+                "ciphertext_b64": ciphertext_b64,
+            }))
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("groups/commits 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: e.to_string(),
+        })
+    }
+
+    /// 拉取指定水位线之后的密文提交与当前群头。
+    pub async fn list_group_commits(
+        &self,
+        group_id: &str,
+        after_seq: u64,
+    ) -> Result<(Vec<GroupCommitRecord>, u64)> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/v1/groups/{group_id}/commits?after_seq={after_seq}",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("groups/commits 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        let val: serde_json::Value =
+            serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+                detail: e.to_string(),
+            })?;
+        let mut commits = Vec::new();
+        if let Some(items) = val["commits"].as_array() {
+            for item in items {
+                commits.push(serde_json::from_value(item.clone()).map_err(|e| {
+                    QuetzalcoatlError::SerializationError {
+                        detail: e.to_string(),
+                    }
+                })?);
+            }
+        }
+        let head = val["head_group_seq"].as_u64().unwrap_or(after_seq);
+        Ok((commits, head))
+    }
+}
+
+/// 群房间元数据（零知识，仅 ID/所有者/保密等级）。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GroupRoomRecord {
+    pub group_id: String,
+    pub owner_agent_id: String,
+    pub secrecy_level: u8,
+    pub created_at_ms: i64,
+}
+
+/// 群成员关系记录。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMemberRecord {
+    pub group_id: String,
+    pub agent_id: String,
+    pub role: String,
+    pub added_at_ms: i64,
+}
+
+/// Hub 密文提交定序回执。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GroupCommitReceipt {
+    pub group_id: String,
+    pub server_seq: u64,
+    pub mls_epoch: u64,
+    pub causal_parent_seq: u64,
+    pub sender_agent_id: String,
+    pub sender_device_id: String,
+    pub created_at_ms: i64,
+}
+
+/// 已定序的密文提交。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GroupCommitRecord {
+    pub group_id: String,
+    pub server_seq: u64,
+    pub mls_epoch: u64,
+    pub causal_parent_seq: u64,
+    pub sender_agent_id: String,
+    pub sender_device_id: String,
+    pub mentions: serde_json::Value,
+    pub ciphertext_b64: String,
+    pub created_at_ms: i64,
 }

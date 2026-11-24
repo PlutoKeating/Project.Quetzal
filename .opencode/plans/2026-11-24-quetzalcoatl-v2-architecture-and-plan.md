@@ -472,10 +472,10 @@
 **Interfaces:**
 - Produces: `GroupRoomEngine`（`openmls` 群加密 + Hub `/v1/groups/{id}/commits` 密文原子定序）、`RoomFacilitator`、`AnpP9FloorGate`（`@addressee / cc / @agents / @humans` + `max_hops=3`）、`UnreadWatermarkBarrier`（`last_seen_group_seq` CAS）、`SignedAgentCard & AttenuatedMandate`（跨组织受限 A2A）及 `HeterogeneousSquadCoordinator`。
 
-- [ ] **Step 1: 编写物理隔离防泄密、踢人纪元前向安全、`max_hops=3` 防刷屏与 `MAMUBench` 未读水位线拦截测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 `hub/internal/groupds` 与 `quetzalcoatl-group` 并挂载至 `quetzalcoatld` / `qz group`**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写物理隔离防泄密、踢人纪元前向安全、`max_hops=3` 防刷屏与 `MAMUBench` 未读水位线拦截测试**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现 `hub/internal/groupds` 与 `quetzalcoatl-group` 并挂载至 `quetzalcoatld` / `qz group`**
+- [x] **Step 4: 验证通过并提交**
 
 ---
 

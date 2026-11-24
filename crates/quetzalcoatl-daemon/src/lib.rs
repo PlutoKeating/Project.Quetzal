@@ -5,6 +5,7 @@
 
 pub mod daemon;
 pub mod fabric;
+pub mod group;
 pub mod local_ipc;
 
 pub use daemon::{
@@ -16,5 +17,9 @@ pub use fabric::{
     DaemonFabricConfig, FabricLoginRequest, FabricLoginResult, FabricNodesReport,
     FabricPairApproveResult, FabricPairJoinResult, FabricPairStartResult, FabricPeerRow,
     FabricRevokeResult, FabricStatus, PersistedFabricSession, load_persisted_session,
+};
+pub use group::{
+    GroupHubBinding, GroupInviteOutcome, GroupLeaveOutcome, GroupMemberView, GroupRevokeOutcome,
+    GroupRoomRuntime, GroupRoomSummary, GroupSendOutcome, base64_decode, base64_encode,
 };
 pub use local_ipc::{IpcClient, IpcRequest, IpcResponse, validate_loopback_host_and_origin};

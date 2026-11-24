@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -209,6 +210,34 @@ CREATE TABLE IF NOT EXISTS leases (
 	witness_epoch BIGINT NOT NULL,
 	expires_at_ms BIGINT NOT NULL,
 	updated_at_ms BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS group_rooms (
+	group_id TEXT PRIMARY KEY,
+	owner_agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
+	secrecy_level BIGINT NOT NULL,
+	created_at_ms BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS group_members (
+	group_id TEXT NOT NULL REFERENCES group_rooms(group_id) ON DELETE CASCADE,
+	agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
+	role TEXT NOT NULL,
+	added_at_ms BIGINT NOT NULL,
+	PRIMARY KEY (group_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS group_commits (
+	group_id TEXT NOT NULL REFERENCES group_rooms(group_id) ON DELETE CASCADE,
+	server_seq BIGINT NOT NULL,
+	mls_epoch BIGINT NOT NULL,
+	causal_parent_seq BIGINT NOT NULL,
+	sender_agent_id TEXT NOT NULL,
+	sender_device_id TEXT NOT NULL,
+	mentions_json TEXT NOT NULL,
+	ciphertext_b64 TEXT NOT NULL,
+	created_at_ms BIGINT NOT NULL,
+	PRIMARY KEY (group_id, server_seq)
 );
 `
 
@@ -1196,4 +1225,163 @@ func (p *PostgresStore) ReleaseLease(ctx context.Context, agentID, deviceID stri
 	var holder string
 	_ = p.db.QueryRowContext(ctx, `SELECT witness_epoch, holder_device_id FROM leases WHERE agent_id = $1`, agentID).Scan(&curEpoch, &holder)
 	return nil, &StaleLeaseError{Provided: witnessEpoch, Current: curEpoch, Holder: holder}
+}
+
+func (p *PostgresStore) CreateGroupRoom(ctx context.Context, room GroupRoom) error {
+	_, err := p.db.ExecContext(ctx, `
+		INSERT INTO group_rooms (group_id, owner_agent_id, secrecy_level, created_at_ms)
+		VALUES ($1, $2, $3, $4)
+	`, room.GroupID, room.OwnerAgentID, room.SecrecyLevel, room.CreatedAtMs)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+			return ErrConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (p *PostgresStore) GetGroupRoom(ctx context.Context, groupID string) (*GroupRoom, error) {
+	var room GroupRoom
+	err := p.db.QueryRowContext(ctx, `
+		SELECT group_id, owner_agent_id, secrecy_level, created_at_ms
+		FROM group_rooms WHERE group_id = $1
+	`, groupID).Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CreatedAtMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &room, nil
+}
+
+func (p *PostgresStore) ListGroupRooms(ctx context.Context) ([]GroupRoom, error) {
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT group_id, owner_agent_id, secrecy_level, created_at_ms
+		FROM group_rooms ORDER BY group_id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GroupRoom
+	for rows.Next() {
+		var room GroupRoom
+		if err := rows.Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CreatedAtMs); err != nil {
+			return nil, err
+		}
+		out = append(out, room)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresStore) AddGroupMember(ctx context.Context, member GroupMember) error {
+	_, err := p.db.ExecContext(ctx, `
+		INSERT INTO group_members (group_id, agent_id, role, added_at_ms)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (group_id, agent_id) DO UPDATE SET role = excluded.role
+	`, member.GroupID, member.AgentID, member.Role, member.AddedAtMs)
+	return err
+}
+
+func (p *PostgresStore) GetGroupMember(ctx context.Context, groupID, agentID string) (*GroupMember, error) {
+	var member GroupMember
+	err := p.db.QueryRowContext(ctx, `
+		SELECT group_id, agent_id, role, added_at_ms
+		FROM group_members WHERE group_id = $1 AND agent_id = $2
+	`, groupID, agentID).Scan(&member.GroupID, &member.AgentID, &member.Role, &member.AddedAtMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &member, nil
+}
+
+func (p *PostgresStore) ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT group_id, agent_id, role, added_at_ms
+		FROM group_members WHERE group_id = $1 ORDER BY added_at_ms ASC, agent_id ASC
+	`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GroupMember
+	for rows.Next() {
+		var member GroupMember
+		if err := rows.Scan(&member.GroupID, &member.AgentID, &member.Role, &member.AddedAtMs); err != nil {
+			return nil, err
+		}
+		out = append(out, member)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresStore) AppendGroupCommit(ctx context.Context, commit GroupCommit) (*GroupCommit, error) {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// 行级锁串行化同一群的并发提交，保证 server_seq 严格单调且无空洞。
+	var lockedGroup string
+	if err := tx.QueryRowContext(ctx, `SELECT group_id FROM group_rooms WHERE group_id = $1 FOR UPDATE`, commit.GroupID).Scan(&lockedGroup); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	var nextSeq uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(server_seq), 0) + 1 FROM group_commits WHERE group_id = $1
+	`, commit.GroupID).Scan(&nextSeq); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO group_commits (
+			group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
+			sender_device_id, mentions_json, ciphertext_b64, created_at_ms
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, commit.GroupID, nextSeq, commit.MLSEpoch, commit.CausalParentSeq, commit.SenderAgentID,
+		commit.SenderDeviceID, commit.MentionsJSON, commit.CiphertextB64, commit.CreatedAtMs); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	commit.ServerSeq = nextSeq
+	return &commit, nil
+}
+
+func (p *PostgresStore) ListGroupCommits(ctx context.Context, groupID string, afterSeq uint64, limit int) ([]GroupCommit, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
+		       sender_device_id, mentions_json, ciphertext_b64, created_at_ms
+		FROM group_commits
+		WHERE group_id = $1 AND server_seq > $2
+		ORDER BY server_seq ASC
+		LIMIT $3
+	`, groupID, afterSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GroupCommit
+	for rows.Next() {
+		var commit GroupCommit
+		if err := rows.Scan(&commit.GroupID, &commit.ServerSeq, &commit.MLSEpoch, &commit.CausalParentSeq,
+			&commit.SenderAgentID, &commit.SenderDeviceID, &commit.MentionsJSON, &commit.CiphertextB64,
+			&commit.CreatedAtMs); err != nil {
+			return nil, err
+		}
+		out = append(out, commit)
+	}
+	return out, rows.Err()
 }
