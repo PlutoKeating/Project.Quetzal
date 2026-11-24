@@ -4,14 +4,18 @@ package auth
 
 import (
 	"crypto"
+	"crypto/ecdh"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/mlkem"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +47,54 @@ func UnwrapWithHardwareSecret(agentID string, hwSecret [32]byte, slot *store.Key
 	}
 	defer clear(kek[:])
 	return unwrapSymmetricSlot(agentID, "hardware_local", kek, slot)
+}
+
+// ParsePublicKeySetJSON parses a JSON object mapping kid -> PEM PKIX public key (ECDSA P-256 / RSA)
+// or 65-byte uncompressed SEC1 P-256 hex public key.
+func ParsePublicKeySetJSON(rawJSON string) (map[string]any, error) {
+	if strings.TrimSpace(rawJSON) == "" {
+		return nil, nil
+	}
+	var rawMap map[string]string
+	if err := json.Unmarshal([]byte(rawJSON), &rawMap); err != nil {
+		return nil, fmt.Errorf("parse public key set JSON: %w", err)
+	}
+	out := make(map[string]any, len(rawMap))
+	for kid, val := range rawMap {
+		trimmed := strings.TrimSpace(val)
+		if strings.HasPrefix(trimmed, "-----BEGIN ") {
+			blk, _ := pem.Decode([]byte(trimmed))
+			if blk == nil {
+				return nil, fmt.Errorf("invalid PEM block for kid %q", kid)
+			}
+			pub, err := x509.ParsePKIXPublicKey(blk.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("parse PKIX public key for kid %q: %w", kid, err)
+			}
+			switch pub.(type) {
+			case *ecdsa.PublicKey, *rsa.PublicKey:
+				out[kid] = pub
+			default:
+				return nil, fmt.Errorf("unsupported public key type for kid %q", kid)
+			}
+			continue
+		}
+		rawBytes, err := hex.DecodeString(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("invalid hex/PEM public key for kid %q: %w", kid, err)
+		}
+		ecdhPub, err := ecdh.P256().NewPublicKey(rawBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid P-256 public key for kid %q: %w", kid, err)
+		}
+		pt := ecdhPub.Bytes()
+		out[kid] = &ecdsa.PublicKey{
+			Curve: elliptic.P256(),
+			X:     new(big.Int).SetBytes(pt[1:33]),
+			Y:     new(big.Int).SetBytes(pt[33:65]),
+		}
+	}
+	return out, nil
 }
 
 type oidcPKCEChallengePayload struct {
@@ -169,10 +221,12 @@ func verifySignedJWT(token string, keys map[string]any, expectedIss, expectedAud
 			return nil, errors.New("JWT audience mismatch")
 		}
 	}
-	if expFloat, ok := claims["exp"].(float64); ok {
-		if int64(expFloat) <= nowUnix {
-			return nil, errors.New("JWT expired")
-		}
+	expFloat, ok := claims["exp"].(float64)
+	if !ok {
+		return nil, errors.New("JWT missing required exp claim")
+	}
+	if int64(expFloat) <= nowUnix {
+		return nil, errors.New("JWT expired")
 	}
 	return claims, nil
 }
@@ -252,7 +306,12 @@ func (s *Service) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.AgentID != "" {
-		if _, err := s.store.GetAgent(r.Context(), req.AgentID); errors.Is(err, store.ErrNotFound) {
+		if strings.TrimSpace(req.DeviceID) == "" {
+			writeAPIError(w, http.StatusBadRequest, "INVALID_ID", "device_id is required when agent_id is specified")
+			return
+		}
+		ag, agErr := s.store.GetAgent(r.Context(), req.AgentID)
+		if errors.Is(agErr, store.ErrNotFound) {
 			if _, err := decodeHexFixed32(req.RootVerifyingKeyHex); err != nil {
 				writeAPIError(w, http.StatusBadRequest, "INVALID_ID", "invalid root_verifying_key_hex")
 				return
@@ -291,9 +350,19 @@ func (s *Service) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 				writeAPIError(w, http.StatusInternalServerError, "STORAGE_ERROR", err.Error())
 				return
 			}
-		} else if ag, err := s.store.GetAgent(r.Context(), req.AgentID); err == nil && ag.OwnerAccountID != acc.AccountID {
-			writeAPIError(w, http.StatusForbidden, "PERMISSION_DENIED", "agent owned by another account")
+		} else if agErr != nil {
+			writeAPIError(w, http.StatusInternalServerError, "STORAGE_ERROR", agErr.Error())
 			return
+		} else {
+			if ag.OwnerAccountID != acc.AccountID {
+				writeAPIError(w, http.StatusForbidden, "PERMISSION_DENIED", "agent owned by another account")
+				return
+			}
+			existingDev, devErr := s.store.GetDevice(r.Context(), req.AgentID, req.DeviceID)
+			if devErr != nil || existingDev.Revoked {
+				writeAPIError(w, http.StatusForbidden, "PERMISSION_DENIED", "device is unregistered or revoked")
+				return
+			}
 		}
 	}
 
@@ -339,7 +408,14 @@ func (s *Service) handleAuthEventsWebhook(w http.ResponseWriter, r *http.Request
 		return
 	}
 	hdrBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil || !strings.Contains(string(hdrBytes), `"ES256"`) {
+	if err != nil {
+		writeAPIError(w, http.StatusUnauthorized, "CREDENTIAL_REJECTED", "invalid SET header encoding")
+		return
+	}
+	var setHdr struct {
+		Alg string `json:"alg"`
+	}
+	if err := json.Unmarshal(hdrBytes, &setHdr); err != nil || setHdr.Alg != "ES256" {
 		writeAPIError(w, http.StatusUnauthorized, "CREDENTIAL_REJECTED", "ES256 SET signature required")
 		return
 	}

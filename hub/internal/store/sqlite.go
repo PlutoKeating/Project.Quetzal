@@ -1110,23 +1110,35 @@ func (s *SQLiteStore) RecordPairingAttempt(ctx context.Context, pairingID, expec
 func (s *SQLiteStore) UpdatePairingJoiner(ctx context.Context, pairingID, newDevID, newEdHex, newXWingHex string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		UPDATE pairing_sessions
 		SET new_device_id = ?, new_device_ed25519_hex = ?, new_device_xwing_pk_hex = ?
-		WHERE pairing_id = ? AND locked = 0 AND consumed = 0
+		WHERE pairing_id = ? AND locked = 0 AND consumed = 0 AND new_device_id = '' AND ciphertext_hex = ''
 	`, newDevID, newEdHex, newXWingHex, pairingID)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrConflict
+	}
+	return nil
 }
 
 func (s *SQLiteStore) ApprovePairingSession(ctx context.Context, pairingID, hpkeEncHex, ciphertextHex, aadUTF8 string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		UPDATE pairing_sessions
 		SET hpke_enc_hex = ?, ciphertext_hex = ?, aad_utf8 = ?
-		WHERE pairing_id = ? AND locked = 0 AND consumed = 0
+		WHERE pairing_id = ? AND locked = 0 AND consumed = 0 AND new_device_id != '' AND ciphertext_hex = ''
 	`, hpkeEncHex, ciphertextHex, aadUTF8, pairingID)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrConflict
+	}
+	return nil
 }
 
 func (s *SQLiteStore) ConsumePairingSession(ctx context.Context, pairingID string, nowMs int64) (*PairingSession, error) {

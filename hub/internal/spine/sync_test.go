@@ -971,3 +971,547 @@ func TestQuetzalcoatlHubBinaryLiveSubprocessE2E(t *testing.T) {
 		t.Fatalf("expected clean exit 0 on SIGTERM, state=%v err=%v", state, err)
 	}
 }
+
+func TestS3BlobStorePresignedPutCommitAndDeleteBlobsE2E(t *testing.T) {
+	rawVec, err := os.ReadFile(filepath.Join(findRepoRoot(t), "spec", "vectors", "spine_pack_aad.json"))
+	if err != nil {
+		t.Fatalf("read spine_pack_aad.json: %v", err)
+	}
+	var vec spinePackVectorFile
+	if err := json.Unmarshal(rawVec, &vec); err != nil {
+		t.Fatalf("unmarshal vector: %v", err)
+	}
+
+	clk := &fakeClock{now: time.UnixMilli(1_795_400_000_000)}
+	s3Cfg := store.SigV4Config{
+		Region:          "auto",
+		Bucket:          "quetzalcoatl-s3-test",
+		AccessKeyID:     "AKIAQUETZALCOATLTEST",
+		SecretAccessKey: "secret-key-for-mock-s3-presigned-put-test",
+		UsePathStyle:    true,
+	}
+
+	var s3Mu sync.Mutex
+	s3Objects := make(map[string][]byte)
+	var deleteCalls atomic.Int32
+
+	mockS3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("X-Amz-Algorithm") != "AWS4-HMAC-SHA256" || q.Get("X-Amz-Signature") == "" {
+			http.Error(w, "missing SigV4 query auth", http.StatusForbidden)
+			return
+		}
+		switch r.Method {
+		case http.MethodPut:
+			s3CfgLocal := s3Cfg
+			s3CfgLocal.Endpoint = "http://" + r.Host
+			objKey, expLen, expSHA, vErr := store.VerifySigV4PresignedPut(r, s3CfgLocal, clk.Now())
+			if vErr != nil {
+				http.Error(w, vErr.Error(), http.StatusForbidden)
+				return
+			}
+			body, _ := io.ReadAll(r.Body)
+			sum := sha256.Sum256(body)
+			if int64(len(body)) != expLen || hex.EncodeToString(sum[:]) != expSHA {
+				http.Error(w, "length/sha256 mismatch", http.StatusBadRequest)
+				return
+			}
+			s3Mu.Lock()
+			s3Objects[objKey] = body
+			s3Mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			objKey := strings.TrimPrefix(r.URL.Path, "/"+s3Cfg.Bucket+"/")
+			s3Mu.Lock()
+			data, ok := s3Objects[objKey]
+			s3Mu.Unlock()
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(data)
+		case http.MethodDelete:
+			objKey := strings.TrimPrefix(r.URL.Path, "/"+s3Cfg.Bucket+"/")
+			s3Mu.Lock()
+			_, existed := s3Objects[objKey]
+			delete(s3Objects, objKey)
+			s3Mu.Unlock()
+			if existed {
+				deleteCalls.Add(1)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer mockS3.Close()
+	s3Cfg.Endpoint = mockS3.URL
+
+	tmpDir := t.TempDir()
+	st, err := store.NewSQLiteStore(filepath.Join(tmpDir, "hub.sqlite"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer st.Close()
+
+	s3Blobs, err := store.NewS3BlobStore(s3Cfg, mockS3.Client(), clk.Now)
+	if err != nil {
+		t.Fatalf("NewS3BlobStore: %v", err)
+	}
+
+	oidcKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	webhookKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	var secret [32]byte
+	_, _ = rand.Read(secret[:])
+
+	authSvc, err := auth.NewService(st, s3Blobs, auth.Config{
+		RPID:                   "hub.quetzalcoatl.example",
+		AllowedOrigins:         []string{"https://hub.quetzalcoatl.example"},
+		OPRFMasterSeed:         secret,
+		PairingHMACSecret:      secret,
+		DefaultAgentQuotaBytes: 10 * 1024 * 1024,
+		OIDCIssuer:             "https://idp.quetzalcoatl.example",
+		OIDCClientID:           "quetzalcoatl-client",
+		OIDCPublicKeys:         map[string]any{"idp-1": &oidcKey.PublicKey},
+		WebhookPublicKeys:      map[string]any{"wh-1": &webhookKey.PublicKey},
+	}, clk.Now)
+	if err != nil {
+		t.Fatalf("auth.NewService: %v", err)
+	}
+	spineSvc, err := spine.NewService(st, s3Blobs, authSvc, spine.DefaultMaxPackBytes, clk.Now)
+	if err != nil {
+		t.Fatalf("spine.NewService: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	authSvc.RegisterRoutes(mux)
+	spineSvc.RegisterRoutes(mux)
+	hubSrv := httptest.NewServer(mux)
+	defer hubSrv.Close()
+	client := hubSrv.Client()
+
+	// Register via OIDC so we can trigger ES256 SET deletion at the end
+	verifier := "s3-oidc-pkce-verifier-0123456789-quetzalcoatl-v2"
+	vSum := sha256.Sum256([]byte(verifier))
+	_, obRaw := doJSON(t, client, http.MethodPost, hubSrv.URL+"/v1/auth/oidc/begin", "", map[string]any{
+		"code_challenge":        base64.RawURLEncoding.EncodeToString(vSum[:]),
+		"code_challenge_method": "S256",
+	})
+	var ob struct {
+		ChallengeID string `json:"challenge_id"`
+		State       string `json:"state"`
+		Nonce       string `json:"nonce"`
+	}
+	_ = json.Unmarshal(obRaw, &ob)
+
+	hdrB, _ := json.Marshal(map[string]any{"alg": "ES256", "typ": "JWT", "kid": "idp-1"})
+	clmB, _ := json.Marshal(map[string]any{
+		"iss":   "https://idp.quetzalcoatl.example",
+		"sub":   "s3-user-1",
+		"aud":   "quetzalcoatl-client",
+		"nonce": ob.Nonce,
+		"exp":   clk.Now().Add(10 * time.Minute).Unix(),
+	})
+	sigIn := base64.RawURLEncoding.EncodeToString(hdrB) + "." + base64.RawURLEncoding.EncodeToString(clmB)
+	dig := sha256.Sum256([]byte(sigIn))
+	rSig, sSig, _ := ecdsa.Sign(rand.Reader, oidcKey, dig[:])
+	rawSig := make([]byte, 64)
+	rSig.FillBytes(rawSig[0:32])
+	sSig.FillBytes(rawSig[32:64])
+	idTok := sigIn + "." + base64.RawURLEncoding.EncodeToString(rawSig)
+
+	rootPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	devPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	xw, _ := auth.GenerateXWingKeyPair()
+	xwPK := xw.PublicKeyBytes()
+
+	cbResp, cbRaw := doJSON(t, client, http.MethodPost, hubSrv.URL+"/v1/auth/oidc/callback", "", map[string]any{
+		"challenge_id":              ob.ChallengeID,
+		"state":                     ob.State,
+		"code_verifier":             verifier,
+		"id_token":                  idTok,
+		"agent_id":                  vec.Identity.AgentID,
+		"device_id":                 vec.Identity.DeviceID,
+		"root_verifying_key_hex":    hex.EncodeToString(rootPub),
+		"device_ed25519_pubkey_hex": hex.EncodeToString(devPub),
+		"device_xwing_pubkey_hex":   hex.EncodeToString(xwPK[:]),
+	})
+	if cbResp.StatusCode != http.StatusOK {
+		t.Fatalf("oidc callback failed: %d %s", cbResp.StatusCode, cbRaw)
+	}
+	var cbFin struct {
+		SessionToken string `json:"session_token"`
+	}
+	_ = json.Unmarshal(cbRaw, &cbFin)
+
+	ciphertext := mustHex(t, vec.Packfile.CiphertextHex)
+	ctSHA := sha256.Sum256(ciphertext)
+	ctSHAHex := hex.EncodeToString(ctSHA[:])
+	var aad store.PackAad
+	_ = json.Unmarshal([]byte(vec.Packfile.CanonicalAADUTF8), &aad)
+
+	pResp, pRaw := doJSON(t, client, http.MethodPost, hubSrv.URL+"/v1/spine/"+vec.Identity.AgentID+"/packs/presign", cbFin.SessionToken, map[string]any{
+		"pack_id":        vec.Packfile.PackIDBlake3Hex,
+		"content_length": len(ciphertext),
+		"sha256_hex":     ctSHAHex,
+	})
+	if pResp.StatusCode != http.StatusOK {
+		t.Fatalf("S3 presign failed: %d %s", pResp.StatusCode, pRaw)
+	}
+	var pOut struct {
+		UploadID        string            `json:"upload_id"`
+		PutURL          string            `json:"put_url"`
+		RequiredHeaders map[string]string `json:"required_headers"`
+	}
+	_ = json.Unmarshal(pRaw, &pOut)
+
+	// Direct PUT to external S3 server (bypasses LocalBlobStore.handlePut!)
+	putReq, _ := http.NewRequest(http.MethodPut, pOut.PutURL, bytes.NewReader(ciphertext))
+	putReq.ContentLength = int64(len(ciphertext))
+	for k, v := range pOut.RequiredHeaders {
+		putReq.Header.Set(k, v)
+	}
+	putResp, err := client.Do(putReq)
+	if err != nil || putResp.StatusCode != http.StatusOK {
+		t.Fatalf("direct S3 PUT failed: err=%v status=%v", err, putResp)
+	}
+	_ = putResp.Body.Close()
+
+	// Commit MUST succeed (200 OK), NOT fail with 409 Conflict!
+	cResp, cRaw := doJSON(t, client, http.MethodPost, hubSrv.URL+"/v1/spine/"+vec.Identity.AgentID+"/packs/commit", cbFin.SessionToken, map[string]any{
+		"upload_id":          pOut.UploadID,
+		"pack_id":            vec.Packfile.PackIDBlake3Hex,
+		"aad":                aad,
+		"aad_utf8":           vec.Packfile.CanonicalAADUTF8,
+		"dek_wrap_nonce_hex": vec.Packfile.DEKWrapNonceHex,
+		"wrapped_dek_hex":    vec.Packfile.WrappedDEKHex,
+		"pack_nonce_hex":     vec.Packfile.PackNonceHex,
+		"content_length":     len(ciphertext),
+		"sha256_hex":         ctSHAHex,
+	})
+	if cResp.StatusCode != http.StatusOK {
+		t.Fatalf("S3 pack commit failed: status=%d body=%s", cResp.StatusCode, cRaw)
+	}
+
+	// Trigger ES256 SET account deletion -> MUST execute SigV4 DELETE against S3!
+	whHdr, _ := json.Marshal(map[string]any{"alg": "ES256", "typ": "JWT", "kid": "wh-1"})
+	whClm, _ := json.Marshal(map[string]any{
+		"iss": "https://idp.quetzalcoatl.example",
+		"aud": "quetzalcoatl-client",
+		"sub": "s3-user-1",
+		"exp": clk.Now().Add(5 * time.Minute).Unix(),
+		"events": map[string]any{
+			"https://schemas.openid.net/secevent/risc/event-type/account-purged": map[string]any{},
+		},
+	})
+	whIn := base64.RawURLEncoding.EncodeToString(whHdr) + "." + base64.RawURLEncoding.EncodeToString(whClm)
+	whDig := sha256.Sum256([]byte(whIn))
+	wr, ws, _ := ecdsa.Sign(rand.Reader, webhookKey, whDig[:])
+	whSig := make([]byte, 64)
+	wr.FillBytes(whSig[0:32])
+	ws.FillBytes(whSig[32:64])
+	setJWT := whIn + "." + base64.RawURLEncoding.EncodeToString(whSig)
+
+	delResp, delRaw := doJSON(t, client, http.MethodPost, hubSrv.URL+"/v1/auth/events", "", map[string]any{"set_token": setJWT})
+	if delResp.StatusCode != http.StatusOK {
+		t.Fatalf("account delete webhook failed: %d %s", delResp.StatusCode, delRaw)
+	}
+	if deleteCalls.Load() < 1 {
+		t.Fatalf("expected S3BlobStore.DeleteBlobs to send SigV4 DELETE to S3, got %d DELETE calls", deleteCalls.Load())
+	}
+}
+
+func TestHubSubprocessRestartPersistsSecretsAndEnvPublicKeys(t *testing.T) {
+	hubRoot := filepath.Join(findRepoRoot(t), "hub")
+	tmpDir := t.TempDir()
+	binPath := filepath.Join(tmpDir, "quetzalcoatl-hub")
+	dataDir := filepath.Join(tmpDir, "hub-data")
+
+	buildCmd := exec.Command("go", "build", "-o", binPath, "./cmd/quetzalcoatl-hub")
+	buildCmd.Dir = hubRoot
+	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build failed: %v\n%s", err, out)
+	}
+
+	oidcKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	oidcPubUnc := elliptic.Marshal(elliptic.P256(), oidcKey.PublicKey.X, oidcKey.PublicKey.Y)
+	whKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	whPubUnc := elliptic.Marshal(elliptic.P256(), whKey.PublicKey.X, whKey.PublicKey.Y)
+
+	oidcKeysJSON, _ := json.Marshal(map[string]string{"idp-env-1": hex.EncodeToString(oidcPubUnc)})
+	whKeysJSON, _ := json.Marshal(map[string]string{"wh-env-1": hex.EncodeToString(whPubUnc)})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	baseURL := "http://" + addr
+
+	startHub := func() (*exec.Cmd, func()) {
+		proc := exec.Command(binPath)
+		proc.Env = append(os.Environ(),
+			"QUETZALCOATL_HUB_ADDR="+addr,
+			"QUETZALCOATL_HUB_PUBLIC_URL="+baseURL,
+			"QUETZALCOATL_HUB_DATA_DIR="+dataDir,
+			"QUETZALCOATL_HUB_RP_ID=hub.quetzalcoatl.example",
+			"QUETZALCOATL_HUB_ALLOWED_ORIGINS=https://hub.quetzalcoatl.example",
+			"QUETZALCOATL_HUB_OIDC_ISSUER=https://idp.quetzalcoatl.example",
+			"QUETZALCOATL_HUB_OIDC_CLIENT_ID=quetzalcoatl-client",
+			"QUETZALCOATL_HUB_OIDC_PUBKEYS_JSON="+string(oidcKeysJSON),
+			"QUETZALCOATL_HUB_WEBHOOK_PUBKEYS_JSON="+string(whKeysJSON),
+		)
+		if err := proc.Start(); err != nil {
+			t.Fatalf("start hub: %v", err)
+		}
+		stopped := false
+		stopFn := func() {
+			if !stopped && proc.Process != nil {
+				stopped = true
+				_ = proc.Process.Signal(syscall.SIGTERM)
+				_, _ = proc.Process.Wait()
+			}
+		}
+		hc := &http.Client{Timeout: 3 * time.Second}
+		for i := 0; i < 50; i++ {
+			if r, e := hc.Get(baseURL + "/healthz"); e == nil {
+				_ = r.Body.Close()
+				if r.StatusCode == http.StatusOK {
+					return proc, stopFn
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		stopFn()
+		t.Fatalf("hub failed to start on %s", baseURL)
+		return nil, nil
+	}
+
+	_, stop1 := startHub()
+	defer func() { stop1() }()
+
+	// Verify hub_secrets.json was persisted with 0600 permissions
+	secInfo, err := os.Stat(filepath.Join(dataDir, "hub_secrets.json"))
+	if err != nil {
+		t.Fatalf("expected hub_secrets.json to be persisted under dataDir: %v", err)
+	}
+	if secInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("expected hub_secrets.json mode 0600, got %o", secInfo.Mode().Perm())
+	}
+
+	hc := &http.Client{Timeout: 5 * time.Second}
+	// Verify OIDC login works via QUETZALCOATL_HUB_OIDC_PUBKEYS_JSON
+	verifier := "restart-pkce-verifier-0123456789-quetzalcoatl"
+	vSum := sha256.Sum256([]byte(verifier))
+	_, obRaw := doJSON(t, hc, http.MethodPost, baseURL+"/v1/auth/oidc/begin", "", map[string]any{
+		"code_challenge":        base64.RawURLEncoding.EncodeToString(vSum[:]),
+		"code_challenge_method": "S256",
+	})
+	var ob struct {
+		ChallengeID string `json:"challenge_id"`
+		State       string `json:"state"`
+		Nonce       string `json:"nonce"`
+	}
+	_ = json.Unmarshal(obRaw, &ob)
+
+	hdrB, _ := json.Marshal(map[string]any{"alg": "ES256", "typ": "JWT", "kid": "idp-env-1"})
+	clmB, _ := json.Marshal(map[string]any{
+		"iss":   "https://idp.quetzalcoatl.example",
+		"sub":   "restart-oidc-sub",
+		"aud":   "quetzalcoatl-client",
+		"nonce": ob.Nonce,
+		"exp":   time.Now().Add(10 * time.Minute).Unix(),
+	})
+	sigIn := base64.RawURLEncoding.EncodeToString(hdrB) + "." + base64.RawURLEncoding.EncodeToString(clmB)
+	dig := sha256.Sum256([]byte(sigIn))
+	rSig, sSig, _ := ecdsa.Sign(rand.Reader, oidcKey, dig[:])
+	rawSig := make([]byte, 64)
+	rSig.FillBytes(rawSig[0:32])
+	sSig.FillBytes(rawSig[32:64])
+	idTok := sigIn + "." + base64.RawURLEncoding.EncodeToString(rawSig)
+
+	const agentRestart = "668f4a90-7c20-4d31-8b12-9a0b1c2d3e66"
+	const devRestart = "66020304-0506-8708-890a-0b0c0d0e0f66"
+	var rootSeed [32]byte
+	_, _ = rand.Read(rootSeed[:])
+	rootPub := ed25519.NewKeyFromSeed(rootSeed[:]).Public().(ed25519.PublicKey)
+	devPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	xw, _ := auth.GenerateXWingKeyPair()
+	xwPK := xw.PublicKeyBytes()
+
+	cbResp, cbRaw := doJSON(t, hc, http.MethodPost, baseURL+"/v1/auth/oidc/callback", "", map[string]any{
+		"challenge_id":              ob.ChallengeID,
+		"state":                     ob.State,
+		"code_verifier":             verifier,
+		"id_token":                  idTok,
+		"agent_id":                  agentRestart,
+		"device_id":                 devRestart,
+		"root_verifying_key_hex":    hex.EncodeToString(rootPub),
+		"device_ed25519_pubkey_hex": hex.EncodeToString(devPub),
+		"device_xwing_pubkey_hex":   hex.EncodeToString(xwPK[:]),
+	})
+	if cbResp.StatusCode != http.StatusOK {
+		t.Fatalf("subprocess #1 OIDC callback failed: %d %s", cbResp.StatusCode, cbRaw)
+	}
+	var cbFin struct {
+		SessionToken string `json:"session_token"`
+	}
+	_ = json.Unmarshal(cbRaw, &cbFin)
+
+	// Register OPAQUE Slot 4 on subprocess #1
+	pin := []byte("restart-pin-445566")
+	blindBytes, _ := hex.DecodeString("9c3bb78643928a42ade8b88057986124d291d25883176af0f1ae566bd2977a01")
+	var blind [32]byte
+	copy(blind[:], blindBytes)
+	blinded, _ := auth.OpaqueOPRFBlindDeterministic(pin, blind)
+	riResp, riRaw := doJSON(t, hc, http.MethodPost, baseURL+"/v1/auth/opaque/register/init", cbFin.SessionToken, map[string]any{
+		"agent_id":            agentRestart,
+		"blinded_element_hex": hex.EncodeToString(blinded[:]),
+	})
+	if riResp.StatusCode != http.StatusOK {
+		t.Fatalf("opaque init failed: %d %s", riResp.StatusCode, riRaw)
+	}
+	var ri struct {
+		EvaluatedElementHex string               `json:"evaluated_element_hex"`
+		ServerPublicKeyHex  string               `json:"server_public_key_hex"`
+		ServerIdentity      string               `json:"server_identity"`
+		MHF                 auth.OpaqueMhfParams `json:"mhf"`
+	}
+	_ = json.Unmarshal(riRaw, &ri)
+	saltB, _ := hex.DecodeString(ri.MHF.SaltHex)
+	copy(ri.MHF.Salt[:], saltB)
+	evalB, _ := hex.DecodeString(ri.EvaluatedElementHex)
+	var evalArr [32]byte
+	copy(evalArr[:], evalB)
+	oprfOut, _ := auth.OpaqueFinalizeOPRF(pin, blind, evalArr)
+
+	// Read persisted opaque_private_scalar_hex from hub_secrets.json ONLY to construct client test registration record
+	// (Note: in client OPAQUE registration only server_public_key is needed; we read server pubkey directly!)
+	secRaw, _ := os.ReadFile(filepath.Join(dataDir, "hub_secrets.json"))
+	var secDisk struct {
+		OpaquePrivateScalarHex string `json:"opaque_private_scalar_hex"`
+	}
+	_ = json.Unmarshal(secRaw, &secDisk)
+	srvPrivB, _ := hex.DecodeString(secDisk.OpaquePrivateScalarHex)
+	var srvPriv [32]byte
+	copy(srvPriv[:], srvPrivB)
+
+	var envNonce, maskNonce [32]byte
+	_, _ = rand.Read(envNonce[:])
+	_, _ = rand.Read(maskNonce[:])
+	clientID := "client:device:" + devRestart
+	bundle, err := auth.OpaqueBuildEnvelopeDeterministic(oprfOut, ri.MHF, envNonce, maskNonce, srvPriv, []byte(ri.ServerIdentity), []byte(clientID))
+	if err != nil {
+		t.Fatalf("OpaqueBuildEnvelopeDeterministic: %v", err)
+	}
+	var s4Nonce [24]byte
+	_, _ = rand.Read(s4Nonce[:])
+	s4Wrap, _ := auth.WrapSlot4Deterministic(agentRestart, bundle.ExportKey, rootSeed, s4Nonce)
+	rfResp, rfRaw := doJSON(t, hc, http.MethodPost, baseURL+"/v1/auth/opaque/register/finish", cbFin.SessionToken, map[string]any{
+		"agent_id":              agentRestart,
+		"credential_identifier": "agent:" + agentRestart,
+		"client_public_key_hex": hex.EncodeToString(bundle.ClientPublicKey[:]),
+		"masking_key_hex":       hex.EncodeToString(bundle.MaskingKey[:]),
+		"envelope_hex":          hex.EncodeToString(bundle.Envelope),
+		"slot4_envelope": map[string]any{
+			"aad_utf8":       s4Wrap.AADUTF8,
+			"nonce_hex":      hex.EncodeToString(s4Nonce[:]),
+			"ciphertext_hex": hex.EncodeToString(s4Wrap.Ciphertext),
+		},
+	})
+	if rfResp.StatusCode != http.StatusOK {
+		t.Fatalf("opaque finish failed: %d %s", rfResp.StatusCode, rfRaw)
+	}
+
+	// Stop subprocess #1 and start subprocess #2 on the same dataDir!
+	stop1()
+	_, stop2 := startHub()
+	defer stop2()
+
+	// Complete OPAQUE 3DH login against restarted subprocess #2!
+	ephB, _ := hex.DecodeString("9fe75bd927eaa7e6a0b0d5bea34420dd9d44004c08f5438688292fd90fefbe09")
+	var ephScalar, cNonce [32]byte
+	copy(ephScalar[:], ephB)
+	_, _ = rand.Read(cNonce[:])
+	ke1Dummy, _ := auth.Opaque3DHDerive([]byte("Quetzalcoatl-OPAQUE-Slot4-v1"), []byte(clientID), []byte(ri.ServerIdentity), blinded, cNonce, bundle.ClientPrivateScalar, ephScalar, evalArr, maskNonce, bundle.MaskedResponse, cNonce, srvPriv, ephScalar)
+
+	lsResp, lsRaw := doJSON(t, hc, http.MethodPost, baseURL+"/v1/auth/opaque/login/start", "", map[string]any{
+		"agent_id":        agentRestart,
+		"device_id":       devRestart,
+		"client_identity": clientID,
+		"ke1_hex":         hex.EncodeToString(ke1Dummy.KE1),
+	})
+	if lsResp.StatusCode != http.StatusOK {
+		t.Fatalf("opaque login/start after restart failed: %d %s", lsResp.StatusCode, lsRaw)
+	}
+	var ls struct {
+		LoginID string `json:"login_id"`
+		KE2Hex  string `json:"ke2_hex"`
+	}
+	_ = json.Unmarshal(lsRaw, &ls)
+	ke2 := mustHex(t, ls.KE2Hex)
+	var eval2, maskNonce2, sNonce2, sEphPK2 [32]byte
+	copy(eval2[:], ke2[0:32])
+	copy(maskNonce2[:], ke2[32:64])
+	copy(sNonce2[:], ke2[192:224])
+	copy(sEphPK2[:], ke2[224:256])
+
+	expKey2, cSK2, sPK2, err := auth.OpaqueOpenEnvelope(bundle.RandomizedPwd, eval2, maskNonce2, ke2[64:192], []byte(ri.ServerIdentity), []byte(clientID))
+	if err != nil {
+		t.Fatalf("OpaqueOpenEnvelope after restart failed (server secrets not persisted!): %v", err)
+	}
+	cMAC, expSMAC, err := auth.OpaqueClientFinish3DH([]byte("Quetzalcoatl-OPAQUE-Slot4-v1"), []byte(clientID), []byte(ri.ServerIdentity), ke1Dummy.KE1, cSK2, ephScalar, ke2[0:192], sNonce2, sPK2, sEphPK2)
+	if err != nil || !bytes.Equal(expSMAC[:], ke2[256:320]) {
+		t.Fatalf("3DH ServerMAC mismatch after restart: err=%v", err)
+	}
+	lfResp, lfRaw := doJSON(t, hc, http.MethodPost, baseURL+"/v1/auth/opaque/login/finish", "", map[string]any{
+		"login_id": ls.LoginID,
+		"ke3_hex":  hex.EncodeToString(cMAC[:]),
+	})
+	if lfResp.StatusCode != http.StatusOK {
+		t.Fatalf("opaque login/finish after restart failed: %d %s", lfResp.StatusCode, lfRaw)
+	}
+	var lfFin struct {
+		Slot4Envelope store.KeySlotEnvelope `json:"slot4_envelope"`
+	}
+	_ = json.Unmarshal(lfRaw, &lfFin)
+	var s4N2 [24]byte
+	n2B, _ := hex.DecodeString(lfFin.Slot4Envelope.NonceHex)
+	copy(s4N2[:], n2B)
+	ct2B, _ := hex.DecodeString(lfFin.Slot4Envelope.CiphertextHex)
+	unwrappedRoot, err := auth.UnwrapSlot4(agentRestart, expKey2, &auth.Slot4WrappedRootKey{
+		AADUTF8:    lfFin.Slot4Envelope.AADUTF8,
+		Nonce:      s4N2,
+		Ciphertext: ct2B,
+	})
+	if err != nil || unwrappedRoot != rootSeed {
+		t.Fatalf("Slot4 unwrap after restart failed: err=%v", err)
+	}
+
+	// Verify ES256 webhook deletion works via QUETZALCOATL_HUB_WEBHOOK_PUBKEYS_JSON
+	whHdr, _ := json.Marshal(map[string]any{"alg": "ES256", "typ": "JWT", "kid": "wh-env-1"})
+	whClm, _ := json.Marshal(map[string]any{
+		"iss": "https://idp.quetzalcoatl.example",
+		"aud": "quetzalcoatl-client",
+		"sub": "restart-oidc-sub",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+		"events": map[string]any{
+			"account.deleted": map[string]any{},
+		},
+	})
+	whIn := base64.RawURLEncoding.EncodeToString(whHdr) + "." + base64.RawURLEncoding.EncodeToString(whClm)
+	whDig := sha256.Sum256([]byte(whIn))
+	wr, ws, _ := ecdsa.Sign(rand.Reader, whKey, whDig[:])
+	whSig := make([]byte, 64)
+	wr.FillBytes(whSig[0:32])
+	ws.FillBytes(whSig[32:64])
+	whResp, whRaw := doJSON(t, hc, http.MethodPost, baseURL+"/v1/auth/events", "", map[string]any{
+		"set_token": whIn + "." + base64.RawURLEncoding.EncodeToString(whSig),
+	})
+	if whResp.StatusCode != http.StatusOK {
+		t.Fatalf("env webhook key verification failed: %d %s", whResp.StatusCode, whRaw)
+	}
+}

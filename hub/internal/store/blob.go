@@ -183,7 +183,7 @@ func PresignSigV4Put(cfg SigV4Config, objectKey string, contentLength int64, sha
 	return finalURL, reqHeaders, nil
 }
 
-func PresignSigV4Get(cfg SigV4Config, objectKey string, expires time.Duration, now time.Time) (string, error) {
+func presignSigV4NoBody(method string, cfg SigV4Config, objectKey string, expires time.Duration, now time.Time) (string, error) {
 	expSec := int64(expires / time.Second)
 	if expSec <= 0 || expSec > 604800 {
 		return "", errors.New("expires out of SigV4 range")
@@ -213,7 +213,7 @@ func PresignSigV4Get(cfg SigV4Config, objectKey string, expires time.Duration, n
 	canonicalURI := uriEncodeSigV4(fullPath, false)
 	canonicalHeaders := fmt.Sprintf("host:%s\n", u.Host)
 	canonicalReq := strings.Join([]string{
-		http.MethodGet,
+		method,
 		canonicalURI,
 		canonicalQuery,
 		canonicalHeaders,
@@ -230,6 +230,14 @@ func PresignSigV4Get(cfg SigV4Config, objectKey string, expires time.Duration, n
 	sigKey := sigV4SigningKey(cfg.SecretAccessKey, dateShort, region, "s3")
 	sigHex := hex.EncodeToString(hmacSHA256(sigKey, stringToSign))
 	return fmt.Sprintf("%s://%s%s?%s&X-Amz-Signature=%s", u.Scheme, u.Host, canonicalURI, canonicalQuery, sigHex), nil
+}
+
+func PresignSigV4Get(cfg SigV4Config, objectKey string, expires time.Duration, now time.Time) (string, error) {
+	return presignSigV4NoBody(http.MethodGet, cfg, objectKey, expires, now)
+}
+
+func PresignSigV4Delete(cfg SigV4Config, objectKey string, expires time.Duration, now time.Time) (string, error) {
+	return presignSigV4NoBody(http.MethodDelete, cfg, objectKey, expires, now)
 }
 
 func VerifySigV4PresignedPut(r *http.Request, cfg SigV4Config, now time.Time) (string, int64, string, error) {
@@ -736,8 +744,29 @@ func (s *S3BlobStore) StatVerifiedBlob(ctx context.Context, blobKey string) (*Bl
 }
 
 func (s *S3BlobStore) DeleteBlobs(ctx context.Context, blobKeys []string) error {
-	_ = ctx
-	_ = blobKeys
+	now := s.clock()
+	for _, blobKey := range blobKeys {
+		if strings.TrimSpace(blobKey) == "" {
+			continue
+		}
+		delURL, err := PresignSigV4Delete(s.cfg, blobKey, 5*time.Minute, now)
+		if err != nil {
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodDelete, delURL, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := s.client.Do(req)
+		if err != nil {
+			return err
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("s3 DELETE %s failed with status %d", blobKey, resp.StatusCode)
+		}
+	}
 	return nil
 }
 

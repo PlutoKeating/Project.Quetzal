@@ -259,6 +259,23 @@ func (s *Service) handleGuardianRecoverRequest(w http.ResponseWriter, r *http.Re
 	})
 }
 
+func CanonicalGuardianApprovalMessage(
+	agentID, guardianID, recoveryID string,
+	shareIndex int,
+	requesterXWingPKHex, rewrappedShareHex, rewrappedHPKEEncHex string,
+) []byte {
+	return []byte(fmt.Sprintf(
+		`{"agent_id":%q,"guardian_id":%q,"recovery_id":%q,"requester_xwing_pk_hex":%q,"rewrapped_hpke_enc_hex":%q,"rewrapped_share_hex":%q,"share_index":%d}`,
+		agentID,
+		guardianID,
+		recoveryID,
+		strings.ToLower(requesterXWingPKHex),
+		strings.ToLower(rewrappedHPKEEncHex),
+		strings.ToLower(rewrappedShareHex),
+		shareIndex,
+	))
+}
+
 func (s *Service) handleGuardianRecoverApprove(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RecoveryID          string `json:"recovery_id"`
@@ -272,6 +289,20 @@ func (s *Service) handleGuardianRecoverApprove(w http.ResponseWriter, r *http.Re
 	if err := decodeJSONBody(r, &req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "SERIALIZATION_ERROR", err.Error())
 		return
+	}
+	if req.RewrappedShareHex != "" || req.RewrappedHPKEEncHex != "" {
+		rewrappedBytes, decErr := hex.DecodeString(req.RewrappedShareHex)
+		if decErr != nil || len(rewrappedBytes) < 48 {
+			writeAPIError(w, http.StatusUnprocessableEntity, "INTEGRITY_VIOLATION", "rewrapped_share_hex must decode to >= 48 ciphertext bytes")
+			return
+		}
+		if req.RewrappedHPKEEncHex != "" {
+			encBytes, encErr := hex.DecodeString(req.RewrappedHPKEEncHex)
+			if encErr != nil || len(encBytes) != XWingEncLen {
+				writeAPIError(w, http.StatusUnprocessableEntity, "INTEGRITY_VIOLATION", "rewrapped_hpke_enc_hex must be 1120 bytes")
+				return
+			}
+		}
 	}
 	nowMs := s.clock().UnixMilli()
 	rec, err := s.store.GetGuardianRecovery(r.Context(), req.RecoveryID)
@@ -301,8 +332,16 @@ func (s *Service) handleGuardianRecoverApprove(w http.ResponseWriter, r *http.Re
 		return
 	}
 	sigBytes, err := hex.DecodeString(req.SignatureHex)
-	canonicalMsg := fmt.Sprintf(`{"agent_id":%q,"guardian_id":%q,"recovery_id":%q,"share_index":%d}`, req.AgentID, req.GuardianID, req.RecoveryID, req.ShareIndex)
-	if err != nil || len(sigBytes) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(gPub[:]), []byte(canonicalMsg), sigBytes) {
+	canonicalMsg := CanonicalGuardianApprovalMessage(
+		req.AgentID,
+		req.GuardianID,
+		req.RecoveryID,
+		req.ShareIndex,
+		rec.RequesterXWingPKHex,
+		req.RewrappedShareHex,
+		req.RewrappedHPKEEncHex,
+	)
+	if err != nil || len(sigBytes) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(gPub[:]), canonicalMsg, sigBytes) {
 		writeAPIError(w, http.StatusUnauthorized, "CREDENTIAL_REJECTED", "guardian Ed25519 approval signature invalid")
 		return
 	}
@@ -311,8 +350,8 @@ func (s *Service) handleGuardianRecoverApprove(w http.ResponseWriter, r *http.Re
 		ShareIndex:          req.ShareIndex,
 		GuardianID:          req.GuardianID,
 		SignatureHex:        strings.ToLower(req.SignatureHex),
-		RewrappedShareHex:   req.RewrappedShareHex,
-		RewrappedHPKEEncHex: req.RewrappedHPKEEncHex,
+		RewrappedShareHex:   strings.ToLower(req.RewrappedShareHex),
+		RewrappedHPKEEncHex: strings.ToLower(req.RewrappedHPKEEncHex),
 		ApprovedAtMs:        nowMs,
 	}); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "STORAGE_ERROR", err.Error())
@@ -348,11 +387,12 @@ func (s *Service) handleGuardianRecoverGet(w http.ResponseWriter, r *http.Reques
 	// Server-enforced gating: NEVER return share ciphertexts until approvals >= threshold!
 	if len(apps) < cfg.Threshold {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"recovery_id":     recoveryID,
-			"status":          "pending",
-			"threshold":       cfg.Threshold,
-			"approved_count":  len(apps),
-			"approved_shares": []store.GuardianShareCustody{},
+			"recovery_id":            recoveryID,
+			"status":                 "pending",
+			"threshold":              cfg.Threshold,
+			"approved_count":         len(apps),
+			"requester_xwing_pk_hex": rec.RequesterXWingPKHex,
+			"approved_shares":        []store.GuardianShareCustody{},
 		})
 		return
 	}
@@ -375,11 +415,12 @@ func (s *Service) handleGuardianRecoverGet(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"recovery_id":           recoveryID,
-		"status":                "approved",
-		"threshold":             cfg.Threshold,
-		"approved_count":        len(apps),
-		"commitment_blake3_hex": cfg.CommitmentBlake3Hex,
-		"approved_shares":       released,
+		"recovery_id":            recoveryID,
+		"status":                 "approved",
+		"threshold":              cfg.Threshold,
+		"approved_count":         len(apps),
+		"requester_xwing_pk_hex": rec.RequesterXWingPKHex,
+		"commitment_blake3_hex":  cfg.CommitmentBlake3Hex,
+		"approved_shares":        released,
 	})
 }

@@ -702,21 +702,33 @@ func (p *PostgresStore) RecordPairingAttempt(ctx context.Context, pairingID, exp
 }
 
 func (p *PostgresStore) UpdatePairingJoiner(ctx context.Context, pairingID, newDevID, newEdHex, newXWingHex string) error {
-	_, err := p.db.ExecContext(ctx, `
+	res, err := p.db.ExecContext(ctx, `
 		UPDATE pairing_sessions
 		SET new_device_id = $1, new_device_ed25519_hex = $2, new_device_xwing_pk_hex = $3
-		WHERE pairing_id = $4 AND locked = FALSE AND consumed = FALSE
+		WHERE pairing_id = $4 AND locked = FALSE AND consumed = FALSE AND new_device_id = '' AND ciphertext_hex = ''
 	`, newDevID, newEdHex, newXWingHex, pairingID)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrConflict
+	}
+	return nil
 }
 
 func (p *PostgresStore) ApprovePairingSession(ctx context.Context, pairingID, hpkeEncHex, ciphertextHex, aadUTF8 string) error {
-	_, err := p.db.ExecContext(ctx, `
+	res, err := p.db.ExecContext(ctx, `
 		UPDATE pairing_sessions
 		SET hpke_enc_hex = $1, ciphertext_hex = $2, aad_utf8 = $3
-		WHERE pairing_id = $4 AND locked = FALSE AND consumed = FALSE
+		WHERE pairing_id = $4 AND locked = FALSE AND consumed = FALSE AND new_device_id != '' AND ciphertext_hex = ''
 	`, hpkeEncHex, ciphertextHex, aadUTF8, pairingID)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrConflict
+	}
+	return nil
 }
 
 func (p *PostgresStore) ConsumePairingSession(ctx context.Context, pairingID string, nowMs int64) (*PairingSession, error) {

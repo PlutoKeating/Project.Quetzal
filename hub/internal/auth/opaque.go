@@ -898,18 +898,41 @@ func (s *Service) handleOpaqueRegisterFinish(w http.ResponseWriter, r *http.Requ
 }
 
 func generateRandomRistrettoScalar() (*ristretto255.Scalar, [32]byte, error) {
-	var wide [64]byte
-	var out [32]byte
-	if _, err := rand.Read(wide[:]); err != nil {
-		return nil, out, err
+	for {
+		var wide [64]byte
+		var out [32]byte
+		if _, err := rand.Read(wide[:]); err != nil {
+			return nil, out, err
+		}
+		sc, err := ristretto255.NewScalar().SetUniformBytes(wide[:])
+		clear(wide[:])
+		if err != nil {
+			return nil, out, err
+		}
+		if isZeroScalar(sc) {
+			continue
+		}
+		copy(out[:], sc.Bytes())
+		return sc, out, nil
 	}
-	sc, err := ristretto255.NewScalar().SetUniformBytes(wide[:])
-	clear(wide[:])
+}
+
+// GenerateOpaqueServerScalar generates a cryptographically random canonical non-zero Ristretto255 scalar.
+func GenerateOpaqueServerScalar() ([32]byte, error) {
+	_, out, err := generateRandomRistrettoScalar()
+	return out, err
+}
+
+// ValidateOpaqueServerScalar verifies bytesLE is a canonical non-zero Ristretto255 scalar.
+func ValidateOpaqueServerScalar(bytesLE [32]byte) error {
+	sc, err := decodeCanonicalRistrettoScalar("ServerOpaquePrivateScalar", bytesLE)
 	if err != nil {
-		return nil, out, err
+		return err
 	}
-	copy(out[:], sc.Bytes())
-	return sc, out, nil
+	if isZeroScalar(sc) {
+		return errors.New("ServerOpaquePrivateScalar cannot be zero")
+	}
+	return nil
 }
 
 func (s *Service) handleOpaqueLoginStart(w http.ResponseWriter, r *http.Request) {

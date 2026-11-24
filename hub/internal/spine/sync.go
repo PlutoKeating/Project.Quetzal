@@ -280,6 +280,10 @@ func (s *Service) handleCommit(w http.ResponseWriter, r *http.Request) {
 		writeSpineError(w, http.StatusUnprocessableEntity, "INTEGRITY_VIOLATION", "stored blob BLAKE3 pack_id mismatch")
 		return
 	}
+	if err := s.store.MarkPackUploaded(r.Context(), req.UploadID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeSpineError(w, http.StatusInternalServerError, "STORAGE_ERROR", err.Error())
+		return
+	}
 
 	committed, err := s.store.CommitSpinePack(r.Context(), req.UploadID, store.SpinePackRecord{
 		AgentID:               agentID,

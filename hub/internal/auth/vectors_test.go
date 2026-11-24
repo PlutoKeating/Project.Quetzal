@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -965,8 +966,8 @@ func TestFiveSlotZeroKnowledgeHTTPFlowsAndCrossAccountIDOR(t *testing.T) {
 	_ = json.Unmarshal(raw, &recReq)
 
 	// Approve with guardian 1 ONLY (1 < threshold 2) -> GET MUST gate shares!
-	msg1 := fmt.Sprintf(`{"agent_id":%q,"guardian_id":"g-1","recovery_id":%q,"share_index":1}`, agentA, recReq.RecoveryID)
-	sigG1 := ed25519.Sign(gPrivs[0], []byte(msg1))
+	msg1 := auth.CanonicalGuardianApprovalMessage(agentA, "g-1", recReq.RecoveryID, 1, hex.EncodeToString(recXWingPK[:]), "", "")
+	sigG1 := ed25519.Sign(gPrivs[0], msg1)
 	resp, raw = doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/guardian/recover/approve", "", map[string]any{
 		"recovery_id":   recReq.RecoveryID,
 		"agent_id":      agentA,
@@ -983,8 +984,8 @@ func TestFiveSlotZeroKnowledgeHTTPFlowsAndCrossAccountIDOR(t *testing.T) {
 	}
 
 	// Approve with guardian 3 -> reaches 2-of-3 threshold -> releases shares!
-	msg3 := fmt.Sprintf(`{"agent_id":%q,"guardian_id":"g-3","recovery_id":%q,"share_index":3}`, agentA, recReq.RecoveryID)
-	sigG3 := ed25519.Sign(gPrivs[2], []byte(msg3))
+	msg3 := auth.CanonicalGuardianApprovalMessage(agentA, "g-3", recReq.RecoveryID, 3, hex.EncodeToString(recXWingPK[:]), "", "")
+	sigG3 := ed25519.Sign(gPrivs[2], msg3)
 	resp, raw = doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/guardian/recover/approve", "", map[string]any{
 		"recovery_id":   recReq.RecoveryID,
 		"agent_id":      agentA,
@@ -1369,5 +1370,554 @@ func TestFiveSlotZeroKnowledgeHTTPFlowsAndCrossAccountIDOR(t *testing.T) {
 	postDelResp, _ := doJSON(t, client, http.MethodGet, srv.URL+"/v1/auth/slots/"+agentB, tokenB, nil)
 	if postDelResp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected wiped Account B session to return 401, got %d", postDelResp.StatusCode)
+	}
+}
+
+func TestPairingJoinerOverwriteRaceAndPrematureBurnPrevention(t *testing.T) {
+	st, err := store.NewSQLiteStore(filepath.Join(t.TempDir(), "hub.sqlite"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer st.Close()
+
+	clk := &fakeClock{now: time.UnixMilli(1_795_400_000_000)}
+	var secret [32]byte
+	_, _ = rand.Read(secret[:])
+	authSvc, err := auth.NewService(st, nil, auth.Config{
+		RPID:                   "hub.quetzalcoatl.example",
+		AllowedOrigins:         []string{"https://hub.quetzalcoatl.example"},
+		OPRFMasterSeed:         secret,
+		PairingHMACSecret:      secret,
+		DefaultAgentQuotaBytes: 10 * 1024 * 1024,
+	}, clk.Now)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	mux := http.NewServeMux()
+	authSvc.RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := srv.Client()
+
+	// Register initiator
+	const agentID = "118f4a90-7c20-4d31-8b12-9a0b1c2d3e11"
+	const initDevID = "11020304-0506-8708-890a-0b0c0d0e0f11"
+	var rootSeed [32]byte
+	_, _ = rand.Read(rootSeed[:])
+	rootPub := ed25519.NewKeyFromSeed(rootSeed[:]).Public().(ed25519.PublicKey)
+	initPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	initXW, _ := auth.GenerateXWingKeyPair()
+	initXWPK := initXW.PublicKeyBytes()
+
+	_, bRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/passkey/register/begin", "", map[string]any{
+		"agent_id":                  agentID,
+		"device_id":                 initDevID,
+		"root_verifying_key_hex":    hex.EncodeToString(rootPub),
+		"device_ed25519_pubkey_hex": hex.EncodeToString(initPub),
+		"device_xwing_pubkey_hex":   hex.EncodeToString(initXWPK[:]),
+	})
+	var beg struct {
+		ChallengeID  string `json:"challenge_id"`
+		ChallengeB64 string `json:"challenge_b64"`
+		RPID         string `json:"rp_id"`
+	}
+	_ = json.Unmarshal(bRaw, &beg)
+	pkPriv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	pkPub := elliptic.Marshal(elliptic.P256(), pkPriv.PublicKey.X, pkPriv.PublicKey.Y)
+	cd, ad, sig := buildWebAuthnAssertion(t, pkPriv, "webauthn.create", beg.ChallengeB64, "https://hub.quetzalcoatl.example", beg.RPID, 1)
+	var prf [32]byte
+	slot1, _ := auth.WrapWithPasskeyPRF(agentID, rootSeed, prf)
+	_, fRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/passkey/register/finish", "", map[string]any{
+		"challenge_id":           beg.ChallengeID,
+		"credential_id":          "cred-pair-race",
+		"alg":                    -7,
+		"public_key_hex":         hex.EncodeToString(pkPub),
+		"client_data_json_b64":   cd,
+		"authenticator_data_b64": ad,
+		"signature_b64":          sig,
+		"slot1_envelope":         slot1,
+	})
+	var fin struct {
+		SessionToken string `json:"session_token"`
+	}
+	_ = json.Unmarshal(fRaw, &fin)
+
+	// Initiate pairing
+	_, pRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/pair/initiate", fin.SessionToken, map[string]any{"agent_id": agentID})
+	var pInit struct {
+		PairingID string `json:"pairing_id"`
+		ShortCode string `json:"short_code"`
+	}
+	_ = json.Unmarshal(pRaw, &pInit)
+
+	// Legitimate device joins
+	const legitDevID = "22020304-0506-8708-890a-0b0c0d0e0f22"
+	legitPub, legitPriv, _ := ed25519.GenerateKey(rand.Reader)
+	legitXW, _ := auth.GenerateXWingKeyPair()
+	legitXWPK := legitXW.PublicKeyBytes()
+
+	jResp, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/pair/join", "", map[string]any{
+		"pairing_id":         pInit.PairingID,
+		"short_code":         pInit.ShortCode,
+		"device_id":          legitDevID,
+		"ed25519_pubkey_hex": hex.EncodeToString(legitPub),
+		"xwing_pubkey_hex":   hex.EncodeToString(legitXWPK[:]),
+	})
+	if jResp.StatusCode != http.StatusOK {
+		t.Fatalf("legit join failed: %d", jResp.StatusCode)
+	}
+
+	// Attack 1a: Attacker attempts to overwrite joiner BEFORE approval -> MUST fail with 409 Conflict!
+	atkPub, atkPriv, _ := ed25519.GenerateKey(rand.Reader)
+	atkXW, _ := auth.GenerateXWingKeyPair()
+	atkXWPK := atkXW.PublicKeyBytes()
+	overwrite1, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/pair/join", "", map[string]any{
+		"pairing_id":         pInit.PairingID,
+		"short_code":         pInit.ShortCode,
+		"device_id":          "99999999-9999-4999-8999-999999999999",
+		"ed25519_pubkey_hex": hex.EncodeToString(atkPub),
+		"xwing_pubkey_hex":   hex.EncodeToString(atkXWPK[:]),
+	})
+	if overwrite1.StatusCode != http.StatusConflict {
+		t.Fatalf("expected joiner overwrite before approval to fail with 409 Conflict, got %d", overwrite1.StatusCode)
+	}
+
+	// Root approves legitimate device
+	var legitPubArr [32]byte
+	copy(legitPubArr[:], legitPub)
+	mSig, xwB3, _ := auth.SignMembershipChange(rootSeed, agentID, 1, "add_device", legitDevID, legitPubArr, legitXWPK[:])
+	slot2, _ := auth.WrapWithPairingHPKE(agentID, rootSeed, legitXWPK)
+	apResp, apRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/pair/approve", fin.SessionToken, map[string]any{
+		"pairing_id":              pInit.PairingID,
+		"epoch":                   1,
+		"xwing_pubkey_blake3_hex": xwB3,
+		"root_signature_hex":      hex.EncodeToString(mSig[:]),
+		"slot2_envelope":          slot2,
+	})
+	if apResp.StatusCode != http.StatusOK {
+		t.Fatalf("approve failed: %d %s", apResp.StatusCode, apRaw)
+	}
+
+	// Attack 1b: Attacker attempts to overwrite joiner AFTER root approval -> MUST fail with 409 Conflict!
+	overwrite2, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/pair/join", "", map[string]any{
+		"pairing_id":         pInit.PairingID,
+		"short_code":         pInit.ShortCode,
+		"device_id":          "99999999-9999-4999-8999-999999999999",
+		"ed25519_pubkey_hex": hex.EncodeToString(atkPub),
+		"xwing_pubkey_hex":   hex.EncodeToString(atkXWPK[:]),
+	})
+	if overwrite2.StatusCode != http.StatusConflict {
+		t.Fatalf("expected joiner overwrite after approval to fail with 409 Conflict, got %d", overwrite2.StatusCode)
+	}
+
+	// Attack 2: Attacker sends bogus Ed25519 signature to /v1/pair/complete -> MUST fail 401 WITHOUT burning session!
+	bogusSig := ed25519.Sign(atkPriv, []byte("quetzalcoatl/v2/pair-complete:"+pInit.PairingID))
+	burnAttempt, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/pair/complete", "", map[string]any{
+		"pairing_id":           pInit.PairingID,
+		"short_code":           pInit.ShortCode,
+		"device_signature_hex": hex.EncodeToString(bogusSig),
+	})
+	if burnAttempt.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected bogus signature complete to return 401, got %d", burnAttempt.StatusCode)
+	}
+
+	// Legitimate device now completes pairing -> MUST succeed 200 OK!
+	validSig := ed25519.Sign(legitPriv, []byte("quetzalcoatl/v2/pair-complete:"+pInit.PairingID))
+	okResp, okRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/pair/complete", "", map[string]any{
+		"pairing_id":           pInit.PairingID,
+		"short_code":           pInit.ShortCode,
+		"device_signature_hex": hex.EncodeToString(validSig),
+	})
+	if okResp.StatusCode != http.StatusOK {
+		t.Fatalf("legitimate pair/complete failed (session prematurely burned!): status=%d body=%s", okResp.StatusCode, okRaw)
+	}
+}
+
+func TestGuardianRecoveryRewrapSignatureBindingAndCiphertextValidation(t *testing.T) {
+	st, err := store.NewSQLiteStore(filepath.Join(t.TempDir(), "hub.sqlite"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer st.Close()
+
+	clk := &fakeClock{now: time.UnixMilli(1_795_400_000_000)}
+	var secret [32]byte
+	_, _ = rand.Read(secret[:])
+	authSvc, _ := auth.NewService(st, nil, auth.Config{
+		RPID:                   "hub.quetzalcoatl.example",
+		AllowedOrigins:         []string{"https://hub.quetzalcoatl.example"},
+		OPRFMasterSeed:         secret,
+		PairingHMACSecret:      secret,
+		DefaultAgentQuotaBytes: 10 * 1024 * 1024,
+	}, clk.Now)
+	mux := http.NewServeMux()
+	authSvc.RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := srv.Client()
+
+	const agentID = "338f4a90-7c20-4d31-8b12-9a0b1c2d3e33"
+	const devID = "33020304-0506-8708-890a-0b0c0d0e0f33"
+	var rootSeed [32]byte
+	_, _ = rand.Read(rootSeed[:])
+	rootPub := ed25519.NewKeyFromSeed(rootSeed[:]).Public().(ed25519.PublicKey)
+	devPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	xw, _ := auth.GenerateXWingKeyPair()
+	xwPK := xw.PublicKeyBytes()
+
+	_, bRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/passkey/register/begin", "", map[string]any{
+		"agent_id":                  agentID,
+		"device_id":                 devID,
+		"root_verifying_key_hex":    hex.EncodeToString(rootPub),
+		"device_ed25519_pubkey_hex": hex.EncodeToString(devPub),
+		"device_xwing_pubkey_hex":   hex.EncodeToString(xwPK[:]),
+	})
+	var beg struct {
+		ChallengeID  string `json:"challenge_id"`
+		ChallengeB64 string `json:"challenge_b64"`
+		RPID         string `json:"rp_id"`
+	}
+	_ = json.Unmarshal(bRaw, &beg)
+	pkPriv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	pkPub := elliptic.Marshal(elliptic.P256(), pkPriv.PublicKey.X, pkPriv.PublicKey.Y)
+	cd, ad, sig := buildWebAuthnAssertion(t, pkPriv, "webauthn.create", beg.ChallengeB64, "https://hub.quetzalcoatl.example", beg.RPID, 1)
+	var prf [32]byte
+	slot1, _ := auth.WrapWithPasskeyPRF(agentID, rootSeed, prf)
+	_, fRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/passkey/register/finish", "", map[string]any{
+		"challenge_id":           beg.ChallengeID,
+		"credential_id":          "cred-guardian-bind",
+		"alg":                    -7,
+		"public_key_hex":         hex.EncodeToString(pkPub),
+		"client_data_json_b64":   cd,
+		"authenticator_data_b64": ad,
+		"signature_b64":          sig,
+		"slot1_envelope":         slot1,
+	})
+	var fin struct {
+		SessionToken string `json:"session_token"`
+	}
+	_ = json.Unmarshal(fRaw, &fin)
+
+	shares, _ := auth.SplitShamirShares(rootSeed, 2, 2)
+	var gPubs [2]ed25519.PublicKey
+	var gPrivs [2]ed25519.PrivateKey
+	custody := make([]map[string]any, 2)
+	for i := 0; i < 2; i++ {
+		gPubs[i], gPrivs[i], _ = ed25519.GenerateKey(rand.Reader)
+		sealed, _ := auth.HPKEXWingSeal(xwPK, []byte("quetzalcoatl/v2/guardian-share"), []byte("aad"), shares[i].Value[:])
+		custody[i] = map[string]any{
+			"share_index":         int(shares[i].Index),
+			"guardian_id":         fmt.Sprintf("g-%d", i+1),
+			"guardian_pubkey_hex": hex.EncodeToString(gPubs[i]),
+			"encrypted_share_hex": hex.EncodeToString(sealed.Ciphertext),
+			"hpke_enc_hex":        hex.EncodeToString(sealed.Enc),
+			"aad_utf8":            "aad",
+		}
+	}
+	doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/guardian/setup", fin.SessionToken, map[string]any{
+		"agent_id":              agentID,
+		"threshold":             2,
+		"total":                 2,
+		"commitment_blake3_hex": hex.EncodeToString(shares[0].CommitmentBlake3[:]),
+		"shares":                custody,
+	})
+
+	reqXW, _ := auth.GenerateXWingKeyPair()
+	reqXWPK := reqXW.PublicKeyBytes()
+	reqXWHex := hex.EncodeToString(reqXWPK[:])
+	_, rRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/guardian/recover/request", "", map[string]any{
+		"agent_id":               agentID,
+		"requester_xwing_pk_hex": reqXWHex,
+	})
+	var recReq struct {
+		RecoveryID string `json:"recovery_id"`
+	}
+	_ = json.Unmarshal(rRaw, &recReq)
+
+	// 1. GET /v1/auth/guardian/recover/{id} MUST return requester_xwing_pk_hex so guardians can rewrap to it!
+	_, getPendingRaw := doJSON(t, client, http.MethodGet, srv.URL+"/v1/auth/guardian/recover/"+recReq.RecoveryID, "", nil)
+	var pending struct {
+		RequesterXWingPKHex string `json:"requester_xwing_pk_hex"`
+	}
+	_ = json.Unmarshal(getPendingRaw, &pending)
+	if pending.RequesterXWingPKHex != reqXWHex {
+		t.Fatalf("expected GET recover to expose requester_xwing_pk_hex=%s, got %q", reqXWHex, pending.RequesterXWingPKHex)
+	}
+
+	// 2. Short (<48B) rewrapped_share_hex MUST be rejected!
+	shortShareHex := hex.EncodeToString(bytes.Repeat([]byte{0x11}, 16))
+	msgShort := fmt.Sprintf(
+		`{"agent_id":%q,"guardian_id":"g-1","recovery_id":%q,"requester_xwing_pk_hex":%q,"rewrapped_hpke_enc_hex":"","rewrapped_share_hex":%q,"share_index":1}`,
+		agentID, recReq.RecoveryID, reqXWHex, shortShareHex,
+	)
+	sigShort := ed25519.Sign(gPrivs[0], []byte(msgShort))
+	shortResp, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/guardian/recover/approve", "", map[string]any{
+		"recovery_id":         recReq.RecoveryID,
+		"agent_id":            agentID,
+		"share_index":         1,
+		"guardian_id":         "g-1",
+		"rewrapped_share_hex": shortShareHex,
+		"signature_hex":       hex.EncodeToString(sigShort),
+	})
+	if shortResp.StatusCode == http.StatusOK {
+		t.Fatalf("expected <48B rewrapped_share_hex to be rejected")
+	}
+
+	// 3. Swapping rewrapped_share_hex after guardian signed empty/different rewrapped payload MUST fail signature check!
+	rewrapped1, _ := auth.HPKEXWingSeal(reqXWPK, []byte("quetzalcoatl/v2/guardian-rewrap"), []byte(recReq.RecoveryID), shares[0].Value[:])
+	validMsg1 := fmt.Sprintf(
+		`{"agent_id":%q,"guardian_id":"g-1","recovery_id":%q,"requester_xwing_pk_hex":%q,"rewrapped_hpke_enc_hex":%q,"rewrapped_share_hex":%q,"share_index":1}`,
+		agentID, recReq.RecoveryID, reqXWHex, hex.EncodeToString(rewrapped1.Enc), hex.EncodeToString(rewrapped1.Ciphertext),
+	)
+	sigValid1 := ed25519.Sign(gPrivs[0], []byte(validMsg1))
+
+	tamperedCT := append([]byte(nil), rewrapped1.Ciphertext...)
+	tamperedCT[0] ^= 0xff
+	tamperResp, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/guardian/recover/approve", "", map[string]any{
+		"recovery_id":            recReq.RecoveryID,
+		"agent_id":               agentID,
+		"share_index":            1,
+		"guardian_id":            "g-1",
+		"rewrapped_share_hex":    hex.EncodeToString(tamperedCT),
+		"rewrapped_hpke_enc_hex": hex.EncodeToString(rewrapped1.Enc),
+		"signature_hex":          hex.EncodeToString(sigValid1),
+	})
+	if tamperResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected tampered rewrapped_share_hex to fail signature verification with 401, got %d", tamperResp.StatusCode)
+	}
+
+	// 4. Both guardians submit valid signed rewrapped shares -> requester unwraps & reconstructs root key!
+	for i := 0; i < 2; i++ {
+		gid := fmt.Sprintf("g-%d", i+1)
+		rewrapped, _ := auth.HPKEXWingSeal(reqXWPK, []byte("quetzalcoatl/v2/guardian-rewrap"), []byte(recReq.RecoveryID), shares[i].Value[:])
+		encHex := hex.EncodeToString(rewrapped.Enc)
+		ctHex := hex.EncodeToString(rewrapped.Ciphertext)
+		msg := auth.CanonicalGuardianApprovalMessage(agentID, gid, recReq.RecoveryID, int(shares[i].Index), reqXWHex, ctHex, encHex)
+		gSig := ed25519.Sign(gPrivs[i], msg)
+		aResp, aRaw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/guardian/recover/approve", "", map[string]any{
+			"recovery_id":            recReq.RecoveryID,
+			"agent_id":               agentID,
+			"share_index":            int(shares[i].Index),
+			"guardian_id":            gid,
+			"rewrapped_share_hex":    ctHex,
+			"rewrapped_hpke_enc_hex": encHex,
+			"signature_hex":          hex.EncodeToString(gSig),
+		})
+		if aResp.StatusCode != http.StatusOK {
+			t.Fatalf("valid rewrapped guardian approve %d failed: %d %s", i+1, aResp.StatusCode, aRaw)
+		}
+	}
+	_, approvedRaw := doJSON(t, client, http.MethodGet, srv.URL+"/v1/auth/guardian/recover/"+recReq.RecoveryID, "", nil)
+	var approved struct {
+		Status              string                       `json:"status"`
+		CommitmentBlake3Hex string                       `json:"commitment_blake3_hex"`
+		ApprovedShares      []store.GuardianShareCustody `json:"approved_shares"`
+	}
+	_ = json.Unmarshal(approvedRaw, &approved)
+	if approved.Status != "approved" || len(approved.ApprovedShares) != 2 {
+		t.Fatalf("expected approved recovery with 2 rewrapped shares, got %+v", approved)
+	}
+	commitArr := mustHex32(t, approved.CommitmentBlake3Hex)
+	var recoveredShares []auth.ShamirShare
+	for _, cs := range approved.ApprovedShares {
+		opened, err := auth.HPKEXWingOpen(reqXW, []byte("quetzalcoatl/v2/guardian-rewrap"), []byte(recReq.RecoveryID), &auth.HPKESealedBox{
+			Enc:        mustHex(t, cs.HPKEEncHex),
+			Ciphertext: mustHex(t, cs.EncryptedShareHex),
+		})
+		if err != nil {
+			t.Fatalf("requester open rewrapped share %d: %v", cs.ShareIndex, err)
+		}
+		var val [32]byte
+		copy(val[:], opened)
+		recoveredShares = append(recoveredShares, auth.ShamirShare{
+			Index:            uint8(cs.ShareIndex),
+			Threshold:        2,
+			Value:            val,
+			CommitmentBlake3: commitArr,
+		})
+	}
+	recRoot, err := auth.ReconstructShamirShares(recoveredShares)
+	if err != nil || recRoot != rootSeed {
+		t.Fatalf("reconstruct rewrapped shares failed: err=%v", err)
+	}
+}
+
+func TestOIDCStrictJWTAlgMandatoryExpAndRevokedDeviceGuard(t *testing.T) {
+	st, err := store.NewSQLiteStore(filepath.Join(t.TempDir(), "hub.sqlite"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer st.Close()
+
+	clk := &fakeClock{now: time.UnixMilli(1_795_400_000_000)}
+	oidcKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rsaWhKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	var secret [32]byte
+	_, _ = rand.Read(secret[:])
+
+	authSvc, _ := auth.NewService(st, nil, auth.Config{
+		RPID:                   "hub.quetzalcoatl.example",
+		AllowedOrigins:         []string{"https://hub.quetzalcoatl.example"},
+		OPRFMasterSeed:         secret,
+		PairingHMACSecret:      secret,
+		DefaultAgentQuotaBytes: 10 * 1024 * 1024,
+		OIDCIssuer:             "https://idp.quetzalcoatl.example",
+		OIDCClientID:           "quetzalcoatl-client",
+		OIDCPublicKeys:         map[string]any{"idp-k1": &oidcKey.PublicKey},
+		WebhookPublicKeys:      map[string]any{"wh-rsa": &rsaWhKey.PublicKey},
+	}, clk.Now)
+
+	mux := http.NewServeMux()
+	authSvc.RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := srv.Client()
+
+	beginPKCE := func() (string, string, string, string) {
+		ver := "oidc-strict-verifier-0123456789-quetzalcoatl"
+		h := sha256.Sum256([]byte(ver))
+		_, raw := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/oidc/begin", "", map[string]any{
+			"code_challenge":        base64.RawURLEncoding.EncodeToString(h[:]),
+			"code_challenge_method": "S256",
+		})
+		var b struct {
+			ChallengeID string `json:"challenge_id"`
+			State       string `json:"state"`
+			Nonce       string `json:"nonce"`
+		}
+		_ = json.Unmarshal(raw, &b)
+		return b.ChallengeID, b.State, b.Nonce, ver
+	}
+
+	rootPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	devPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	xw, _ := auth.GenerateXWingKeyPair()
+	xwPK := xw.PublicKeyBytes()
+
+	// 1. OIDC ID token missing "exp" claim MUST be rejected!
+	cid1, st1, nonce1, ver1 := beginPKCE()
+	noExpTok := signES256JWT(t, oidcKey, "idp-k1", map[string]any{
+		"iss":   "https://idp.quetzalcoatl.example",
+		"sub":   "strict-user-1",
+		"aud":   "quetzalcoatl-client",
+		"nonce": nonce1,
+		"iat":   clk.Now().Unix(),
+	})
+	rNoExp, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/oidc/callback", "", map[string]any{
+		"challenge_id":              cid1,
+		"state":                     st1,
+		"code_verifier":             ver1,
+		"id_token":                  noExpTok,
+		"agent_id":                  "448f4a90-7c20-4d31-8b12-9a0b1c2d3e44",
+		"device_id":                 "44020304-0506-8708-890a-0b0c0d0e0f44",
+		"root_verifying_key_hex":    hex.EncodeToString(rootPub),
+		"device_ed25519_pubkey_hex": hex.EncodeToString(devPub),
+		"device_xwing_pubkey_hex":   hex.EncodeToString(xwPK[:]),
+	})
+	if rNoExp.StatusCode == http.StatusOK {
+		t.Fatalf("expected OIDC ID token without exp claim to be rejected")
+	}
+
+	// 2. OIDC callback with agent_id set and empty device_id MUST be rejected!
+	cid2, st2, nonce2, ver2 := beginPKCE()
+	validTok2 := signES256JWT(t, oidcKey, "idp-k1", map[string]any{
+		"iss":   "https://idp.quetzalcoatl.example",
+		"sub":   "strict-user-1",
+		"aud":   "quetzalcoatl-client",
+		"nonce": nonce2,
+		"exp":   clk.Now().Add(5 * time.Minute).Unix(),
+	})
+	rEmptyDev, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/oidc/callback", "", map[string]any{
+		"challenge_id":              cid2,
+		"state":                     st2,
+		"code_verifier":             ver2,
+		"id_token":                  validTok2,
+		"agent_id":                  "448f4a90-7c20-4d31-8b12-9a0b1c2d3e44",
+		"device_id":                 "",
+		"root_verifying_key_hex":    hex.EncodeToString(rootPub),
+		"device_ed25519_pubkey_hex": hex.EncodeToString(devPub),
+		"device_xwing_pubkey_hex":   hex.EncodeToString(xwPK[:]),
+	})
+	if rEmptyDev.StatusCode == http.StatusOK {
+		t.Fatalf("expected empty device_id on agent-scoped OIDC callback to be rejected")
+	}
+
+	// Create valid OIDC account + agent + device, then mark device revoked and attempt OIDC callback!
+	const agentStrict = "448f4a90-7c20-4d31-8b12-9a0b1c2d3e44"
+	const devStrict = "44020304-0506-8708-890a-0b0c0d0e0f44"
+	cid3, st3, nonce3, ver3 := beginPKCE()
+	validTok3 := signES256JWT(t, oidcKey, "idp-k1", map[string]any{
+		"iss":   "https://idp.quetzalcoatl.example",
+		"sub":   "strict-user-1",
+		"aud":   "quetzalcoatl-client",
+		"nonce": nonce3,
+		"exp":   clk.Now().Add(5 * time.Minute).Unix(),
+	})
+	rOK, rOKBody := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/oidc/callback", "", map[string]any{
+		"challenge_id":              cid3,
+		"state":                     st3,
+		"code_verifier":             ver3,
+		"id_token":                  validTok3,
+		"agent_id":                  agentStrict,
+		"device_id":                 devStrict,
+		"root_verifying_key_hex":    hex.EncodeToString(rootPub),
+		"device_ed25519_pubkey_hex": hex.EncodeToString(devPub),
+		"device_xwing_pubkey_hex":   hex.EncodeToString(xwPK[:]),
+	})
+	if rOK.StatusCode != http.StatusOK {
+		t.Fatalf("valid OIDC setup failed: %d %s", rOK.StatusCode, rOKBody)
+	}
+	var okFin struct {
+		AccountID string `json:"account_id"`
+	}
+	_ = json.Unmarshal(rOKBody, &okFin)
+
+	// Revoke devStrict and attempt OIDC callback -> MUST return 403 Forbidden!
+	_ = st.UpsertDevice(rOK.Request.Context(), store.Device{
+		AgentID:          agentStrict,
+		DeviceID:         devStrict,
+		AccountID:        okFin.AccountID,
+		Ed25519PubKeyHex: hex.EncodeToString(devPub),
+		XWingPubKeyHex:   hex.EncodeToString(xwPK[:]),
+		Revoked:          true,
+		CreatedAtMs:      clk.Now().UnixMilli(),
+	})
+	cid4, st4, nonce4, ver4 := beginPKCE()
+	validTok4 := signES256JWT(t, oidcKey, "idp-k1", map[string]any{
+		"iss":   "https://idp.quetzalcoatl.example",
+		"sub":   "strict-user-1",
+		"aud":   "quetzalcoatl-client",
+		"nonce": nonce4,
+		"exp":   clk.Now().Add(5 * time.Minute).Unix(),
+	})
+	rRevoked, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/oidc/callback", "", map[string]any{
+		"challenge_id":  cid4,
+		"state":         st4,
+		"code_verifier": ver4,
+		"id_token":      validTok4,
+		"agent_id":      agentStrict,
+		"device_id":     devStrict,
+	})
+	if rRevoked.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected revoked device in OIDC callback to return 403 Forbidden, got %d", rRevoked.StatusCode)
+	}
+
+	// 4. Spoofed RS256 SET header containing substring "ES256" MUST be rejected!
+	spoofHdr := `{"alg":"RS256","kid":"wh-rsa","comment":"ES256"}`
+	spoofClaims, _ := json.Marshal(map[string]any{
+		"iss":    "https://idp.quetzalcoatl.example",
+		"aud":    "quetzalcoatl-client",
+		"sub":    "strict-user-1",
+		"exp":    clk.Now().Add(5 * time.Minute).Unix(),
+		"events": map[string]any{"account.deleted": map[string]any{}},
+	})
+	spoofIn := base64.RawURLEncoding.EncodeToString([]byte(spoofHdr)) + "." + base64.RawURLEncoding.EncodeToString(spoofClaims)
+	spoofDig := sha256.Sum256([]byte(spoofIn))
+	rsaSig, _ := rsa.SignPKCS1v15(rand.Reader, rsaWhKey, 5 /* crypto.SHA256 */, spoofDig[:])
+	spoofJWT := spoofIn + "." + base64.RawURLEncoding.EncodeToString(rsaSig)
+
+	rSpoof, _ := doJSON(t, client, http.MethodPost, srv.URL+"/v1/auth/events", "", map[string]any{"set_token": spoofJWT})
+	if rSpoof.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected RS256 SET with ES256 substring to be rejected with 401, got %d", rSpoof.StatusCode)
 	}
 }

@@ -541,6 +541,10 @@ func (s *Service) handlePairJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.UpdatePairingJoiner(r.Context(), req.PairingID, req.DeviceID, strings.ToLower(req.Ed25519PubKeyHex), strings.ToLower(req.XWingPubKeyHex)); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			writeAPIError(w, http.StatusConflict, "CREDENTIAL_REJECTED", "pairing session already joined or approved")
+			return
+		}
 		writeAPIError(w, http.StatusInternalServerError, "STORAGE_ERROR", err.Error())
 		return
 	}
@@ -688,24 +692,28 @@ func (s *Service) handlePairComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	nowMs := s.clock().UnixMilli()
 	providedHMAC := s.computePairingCodeHMAC(req.PairingID, req.ShortCode)
-	_, matched, err := s.store.RecordPairingAttempt(r.Context(), req.PairingID, "", providedHMAC, nowMs)
+	psCandidate, matched, err := s.store.RecordPairingAttempt(r.Context(), req.PairingID, "", providedHMAC, nowMs)
 	if err != nil || !matched {
 		writeAPIError(w, http.StatusForbidden, "CREDENTIAL_REJECTED", "invalid or locked pairing session")
 		return
 	}
-	ps, err := s.store.ConsumePairingSession(r.Context(), req.PairingID, nowMs)
-	if err != nil {
-		writeAPIError(w, http.StatusConflict, "CREDENTIAL_REJECTED", err.Error())
+	if psCandidate.CiphertextHex == "" || psCandidate.HPKEEncHex == "" || psCandidate.NewDeviceEd25519Hex == "" {
+		writeAPIError(w, http.StatusConflict, "CREDENTIAL_REJECTED", "pairing session not yet approved")
 		return
 	}
-	devPub, err := decodeHexFixed32(ps.NewDeviceEd25519Hex)
+	devPub, err := decodeHexFixed32(psCandidate.NewDeviceEd25519Hex)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "STORAGE_ERROR", err.Error())
 		return
 	}
 	sigBytes, err := hex.DecodeString(req.DeviceSignatureHex)
-	if err != nil || len(sigBytes) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(devPub[:]), []byte("quetzalcoatl/v2/pair-complete:"+ps.PairingID), sigBytes) {
+	if err != nil || len(sigBytes) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(devPub[:]), []byte("quetzalcoatl/v2/pair-complete:"+psCandidate.PairingID), sigBytes) {
 		writeAPIError(w, http.StatusUnauthorized, "CREDENTIAL_REJECTED", "invalid device proof signature")
+		return
+	}
+	ps, err := s.store.ConsumePairingSession(r.Context(), req.PairingID, nowMs)
+	if err != nil {
+		writeAPIError(w, http.StatusConflict, "CREDENTIAL_REJECTED", err.Error())
 		return
 	}
 	rawToken, err := s.issueSession(r.Context(), ps.InitiatorAccountID, ps.AgentID, ps.NewDeviceID)
