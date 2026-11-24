@@ -629,6 +629,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "quetzalcoatl-daemon"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "blake3",
+ "quetzalcoatl-crypto",
+ "quetzalcoatl-ewave",
+ "quetzalcoatl-harness",
+ "quetzalcoatl-kernel",
+ "quetzalcoatl-sandbox",
+ "quetzalcoatl-spine",
+ "quetzalcoatl-types",
+ "rand_core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "uuid",
+ "zeroize",
+ "zip",
+ "zstd",
+]
+
+[[package]]
 name = "quetzalcoatl-ewave"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -642,6 +664,25 @@ dependencies = [
  "sha2",
  "unicode-normalization",
  "uuid",
+]
+
+[[package]]
+name = "quetzalcoatl-harness"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "blake3",
+ "quetzalcoatl-crypto",
+ "quetzalcoatl-ewave",
+ "quetzalcoatl-kernel",
+ "quetzalcoatl-sandbox",
+ "quetzalcoatl-spine",
+ "quetzalcoatl-types",
+ "rand_core",
+ "serde",
+ "serde_json",
+ "uuid",
+ "zeroize",
+ "zstd",
 ]
 
 [[package]]

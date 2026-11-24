@@ -375,12 +375,12 @@
 - Consumes: Sprint 1 前序全部 crates
 - Produces: `HarnessHost`（`<10ms` 嗅探器 + 回环 LLM 网关 + ACP/RPC 驱动池）、后台独占脊柱守护 `quetzalcoatld`（含防 DNS 重绑定守卫）与唯一简写命令行 `qz`（`up / down / status / agents / chat / export / import-v1`）。
 
-- [ ] **Step 1: 编写嗅探防撞车、回环网关 4-`cache_control`/HMAC/Codex 双模保真及单机端到端测试**
+- [x] **Step 1: 编写嗅探防撞车、回环网关 4-`cache_control`/HMAC/Codex 双模保真及单机端到端测试**
   使用模拟上游与假 Harness 进程验证：未带 `x-qz-token` 请求回 `401`、Claude 请求不超过 4 个 `cache_control` 块、Codex `encrypted_content` 字节原样保留、`Router` 被硬剥夺 `shell/edit` 且自动派发 `Worker` 在独立 worktree 完成任务。
-- [ ] **Step 2: 运行测试确认红灯**
+- [x] **Step 2: 运行测试确认红灯**
   Run: `cargo test -p quetzalcoatl-harness -p quetzalcoatl-daemon` -> Expected: FAIL
-- [ ] **Step 3: 实现通用 Harness 适配层、渐进式插件增强包、`quetzalcoatld` 与 `qz` CLI**
-- [ ] **Step 4: 全工作区门禁验证并提交**
+- [x] **Step 3: 实现通用 Harness 适配层、渐进式插件增强包、`quetzalcoatld` 与 `qz` CLI**
+- [x] **Step 4: 全工作区门禁验证并提交**
   Run: `cargo deny check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` -> Expected: 全绿，原子提交。
 
 ---

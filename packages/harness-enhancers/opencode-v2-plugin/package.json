@@ -1,0 +1,14 @@
+{
+  "name": "@quetzalcoatl/opencode-v2-plugin",
+  "version": "2.0.0-alpha.1",
+  "description": "Quetzalcoatl V2 progressive enhancer directory plugin for OpenCode V2",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./.opencode/plugins/quetzalcoatl/index.ts"
+  },
+  "files": [
+    ".opencode/plugins/quetzalcoatl/index.ts",
+    "src/index.ts"
+  ]
+}
