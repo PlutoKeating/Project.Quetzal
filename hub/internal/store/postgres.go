@@ -373,6 +373,26 @@ func (p *PostgresStore) GetDevice(ctx context.Context, agentID, deviceID string)
 	return &dev, nil
 }
 
+func (p *PostgresStore) ListDevices(ctx context.Context, agentID string) ([]Device, error) {
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT agent_id, device_id, account_id, ed25519_pubkey_hex, xwing_pubkey_hex, revoked, created_at_ms
+		FROM devices WHERE agent_id = $1 ORDER BY created_at_ms ASC, device_id ASC
+	`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Device
+	for rows.Next() {
+		var dev Device
+		if err := rows.Scan(&dev.AgentID, &dev.DeviceID, &dev.AccountID, &dev.Ed25519PubKeyHex, &dev.XWingPubKeyHex, &dev.Revoked, &dev.CreatedAtMs); err != nil {
+			return nil, err
+		}
+		out = append(out, dev)
+	}
+	return out, rows.Err()
+}
+
 func (p *PostgresStore) CreateSession(ctx context.Context, sess Session) error {
 	_, err := p.db.ExecContext(ctx, `
 		INSERT INTO sessions (token_sha256_hex, account_id, agent_id, device_id, expires_at_ms, created_at_ms)

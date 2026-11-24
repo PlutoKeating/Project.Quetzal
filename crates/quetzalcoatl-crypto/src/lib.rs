@@ -20,8 +20,10 @@ pub use keys::{
     WrappedRootKeySlot, XWING_COMBINER_LABEL, XWING_ENC_LEN, XWING_PK_LEN, XWingEncapDebug,
     XWingKeyPair, hpke_key_schedule_base, hpke_xwing_open, hpke_xwing_seal,
     hpke_xwing_seal_deterministic, hpke_xwing_seal_with_context, opaque_3dh_derive,
-    opaque_build_envelope_deterministic, opaque_evaluate_oprf, opaque_finalize_oprf,
-    opaque_open_envelope, opaque_oprf_blind_deterministic, verify_ed25519_signature,
+    opaque_build_envelope_deterministic, opaque_client_build_registration,
+    opaque_client_finish_3dh, opaque_evaluate_oprf, opaque_finalize_oprf,
+    opaque_harden_randomized_pwd, opaque_open_envelope, opaque_oprf_blind_deterministic,
+    opaque_random_scalar_and_point, verify_ed25519_signature,
 };
 pub use pack::{
     MIN_BUCKET_BYTES, PackAad, PackCompartment, SPINE_EVENT_HASH_CONTEXT, SealedManifestEnvelope,

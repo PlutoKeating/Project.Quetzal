@@ -806,3 +806,33 @@ func (s *Service) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 		"device_id":     req.DeviceID,
 	})
 }
+
+func (s *Service) handleListDevices(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("agent_id")
+	if _, _, ok := s.requireAgentOwner(w, r, agentID); !ok {
+		return
+	}
+	devs, err := s.store.ListDevices(r.Context(), agentID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "STORAGE_ERROR", err.Error())
+		return
+	}
+	type devResp struct {
+		DeviceID         string `json:"device_id"`
+		Ed25519PubKeyHex string `json:"ed25519_pubkey_hex"`
+		XWingPubKeyHex   string `json:"xwing_pubkey_hex"`
+		Revoked          bool   `json:"revoked"`
+		CreatedAtMs      int64  `json:"created_at_ms"`
+	}
+	out := make([]devResp, 0, len(devs))
+	for _, d := range devs {
+		out = append(out, devResp{
+			DeviceID:         d.DeviceID,
+			Ed25519PubKeyHex: d.Ed25519PubKeyHex,
+			XWingPubKeyHex:   d.XWingPubKeyHex,
+			Revoked:          d.Revoked,
+			CreatedAtMs:      d.CreatedAtMs,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"devices": out})
+}

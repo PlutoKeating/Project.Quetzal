@@ -1,0 +1,37 @@
+[package]
+name = "quetzalcoatl-fabric"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.91"
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3.workspace = true
+ed25519-dalek.workspace = true
+iroh.workspace = true
+iroh-mdns-address-lookup.workspace = true
+iroh-relay.workspace = true
+quetzalcoatl-crypto.workspace = true
+quetzalcoatl-kernel.workspace = true
+quetzalcoatl-sandbox.workspace = true
+quetzalcoatl-spine.workspace = true
+quetzalcoatl-types.workspace = true
+rand_core.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+rustls-pki-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+rusqlite.workspace = true

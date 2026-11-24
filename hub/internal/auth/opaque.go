@@ -1116,14 +1116,26 @@ func (s *Service) handleOpaqueLoginStart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	mhfSalt, err := s.deriveAgentMHFSalt(req.AgentID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "STORAGE_ERROR", err.Error())
+		return
+	}
 	ke2 := make([]byte, 0, 320)
 	ke2 = append(ke2, credResp...)
 	ke2 = append(ke2, serverNonce[:]...)
 	ke2 = append(ke2, serverEphPK[:]...)
 	ke2 = append(ke2, serverMAC...)
-	writeJSON(w, http.StatusOK, map[string]string{
-		"login_id": loginID,
-		"ke2_hex":  hex.EncodeToString(ke2),
+	writeJSON(w, http.StatusOK, map[string]any{
+		"login_id":        loginID,
+		"ke2_hex":         hex.EncodeToString(ke2),
+		"server_identity": s.cfg.ServerIdentity,
+		"mhf": OpaqueMhfParams{
+			MemoryKiB:   65536,
+			Iterations:  3,
+			Parallelism: 1,
+			SaltHex:     hex.EncodeToString(mhfSalt[:]),
+		},
 	})
 }
 

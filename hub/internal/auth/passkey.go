@@ -143,6 +143,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/auth/slots/{agent_id}/hardware_local", s.handlePutHardwareSlot)
 	mux.HandleFunc("GET /v1/auth/slots/{agent_id}", s.handleListSlots)
 	mux.HandleFunc("POST /v1/auth/devices", s.handleAddDevice)
+	mux.HandleFunc("GET /v1/auth/devices/{agent_id}", s.handleListDevices)
 }
 
 // RequireAuth authenticates a Bearer session token and rejects unauthenticated (401) or revoked-device (403) callers.

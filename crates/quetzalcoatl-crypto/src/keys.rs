@@ -476,8 +476,18 @@ impl DeviceIdentity {
     }
 
     #[must_use]
+    pub const fn ed25519_seed(&self) -> &[u8; 32] {
+        &self.ed25519_seed
+    }
+
+    #[must_use]
     pub const fn ed25519_public_key(&self) -> &[u8; 32] {
         &self.ed25519_pubkey
+    }
+
+    #[must_use]
+    pub const fn xwing_seed(&self) -> &[u8; 32] {
+        self.xwing.seed()
     }
 
     #[must_use]
@@ -1156,6 +1166,231 @@ pub fn opaque_3dh_derive(
         server_mac,
         client_mac,
     })
+}
+
+/// 生成随机规范非零 Ristretto255 标量及其压缩公钥点 `(scalar_le, public_point)`。
+#[must_use]
+pub fn opaque_random_scalar_and_point() -> ([u8; 32], [u8; 32]) {
+    loop {
+        let mut wide = [0u8; 64];
+        fill_random(&mut wide);
+        let sc = Scalar::from_bytes_mod_order_wide(&wide);
+        wide.zeroize();
+        if sc != Scalar::ZERO {
+            let pk = (RISTRETTO_BASEPOINT_POINT * sc).compress().to_bytes();
+            return (sc.to_bytes(), pk);
+        }
+    }
+}
+
+/// 客户端执行 Argon2id 硬化并提取 `randomized_pwd`。
+pub fn opaque_harden_randomized_pwd(
+    oprf_output: &[u8; 64],
+    mhf: &OpaqueMhfParams,
+) -> Result<[u8; 64]> {
+    let params = Params::new(mhf.memory_kib, mhf.iterations, mhf.parallelism, Some(64))
+        .map_err(|e| integrity_err(format!("Argon2id 参数无效: {e}")))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let mut hardened_output = [0u8; 64];
+    argon2
+        .hash_password_into(oprf_output, &mhf.salt, &mut hardened_output)
+        .map_err(|e| integrity_err(format!("Argon2id 派生失败: {e}")))?;
+
+    let mut concat_pwd = [0u8; 128];
+    concat_pwd[0..64].copy_from_slice(oprf_output);
+    concat_pwd[64..128].copy_from_slice(&hardened_output);
+    let randomized_pwd = hkdf_extract_sha512(b"", &concat_pwd)?;
+    concat_pwd.zeroize();
+    hardened_output.zeroize();
+    Ok(randomized_pwd)
+}
+
+/// 客户端注册阶段构造 RFC 9807 `OpaqueEnvelopeBundle`（仅依赖服务端返回的 `server_public_key`，无需服务端私标量）。
+pub fn opaque_client_build_registration(
+    oprf_output: &[u8; 64],
+    mhf: &OpaqueMhfParams,
+    server_public_key: &[u8; 32],
+    server_identity: &[u8],
+    client_identity: &[u8],
+) -> Result<OpaqueEnvelopeBundle> {
+    let _ = decode_non_identity_ristretto("server_public_key", server_public_key)?;
+    let params = Params::new(mhf.memory_kib, mhf.iterations, mhf.parallelism, Some(64))
+        .map_err(|e| integrity_err(format!("Argon2id 参数无效: {e}")))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let mut hardened_output = [0u8; 64];
+    argon2
+        .hash_password_into(oprf_output, &mhf.salt, &mut hardened_output)
+        .map_err(|e| integrity_err(format!("Argon2id 派生失败: {e}")))?;
+
+    let mut concat_pwd = [0u8; 128];
+    concat_pwd[0..64].copy_from_slice(oprf_output);
+    concat_pwd[64..128].copy_from_slice(&hardened_output);
+    let randomized_pwd = hkdf_extract_sha512(b"", &concat_pwd)?;
+    concat_pwd.zeroize();
+
+    let mut envelope_nonce = [0u8; 32];
+    let mut masking_nonce = [0u8; 32];
+    fill_random(&mut envelope_nonce);
+    fill_random(&mut masking_nonce);
+
+    let masking_key = hkdf_expand_sha512_fixed::<64>(&randomized_pwd, b"MaskingKey")?;
+
+    let mut export_info = Vec::with_capacity(32 + 9);
+    export_info.extend_from_slice(&envelope_nonce);
+    export_info.extend_from_slice(b"ExportKey");
+    let export_key = hkdf_expand_sha512_fixed::<64>(&randomized_pwd, &export_info)?;
+
+    let mut auth_info = Vec::with_capacity(32 + 7);
+    auth_info.extend_from_slice(&envelope_nonce);
+    auth_info.extend_from_slice(b"AuthKey");
+    let auth_key = hkdf_expand_sha512_fixed::<64>(&randomized_pwd, &auth_info)?;
+
+    let mut priv_info = Vec::with_capacity(32 + 10);
+    priv_info.extend_from_slice(&envelope_nonce);
+    priv_info.extend_from_slice(b"PrivateKey");
+    let mut priv_wide = hkdf_expand_sha512_fixed::<64>(&randomized_pwd, &priv_info)?;
+    let client_sk = Scalar::from_bytes_mod_order_wide(&priv_wide);
+    priv_wide.zeroize();
+    let client_private_scalar = client_sk.to_bytes();
+    let client_public_key = (RISTRETTO_BASEPOINT_POINT * client_sk)
+        .compress()
+        .to_bytes();
+
+    let cleartext_credentials = build_cleartext_credentials(
+        server_public_key,
+        &client_public_key,
+        server_identity,
+        client_identity,
+    )?;
+
+    let mut mac = <HmacSha512 as Mac>::new_from_slice(&auth_key)
+        .map_err(|e| integrity_err(format!("Envelope HMAC 初始化失败: {e}")))?;
+    mac.update(&envelope_nonce);
+    mac.update(&cleartext_credentials);
+    let tag_bytes = mac.finalize().into_bytes();
+    let mut envelope_auth_tag = [0u8; 64];
+    envelope_auth_tag.copy_from_slice(&tag_bytes);
+
+    let mut envelope = Vec::with_capacity(96);
+    envelope.extend_from_slice(&envelope_nonce);
+    envelope.extend_from_slice(&envelope_auth_tag);
+
+    let mut pad_info = Vec::with_capacity(32 + 21);
+    pad_info.extend_from_slice(&masking_nonce);
+    pad_info.extend_from_slice(b"CredentialResponsePad");
+    let pad = hkdf_expand_sha512(&masking_key, &pad_info, 32 + envelope.len())?;
+
+    let mut plain_resp = Vec::with_capacity(32 + envelope.len());
+    plain_resp.extend_from_slice(server_public_key);
+    plain_resp.extend_from_slice(&envelope);
+
+    let masked_response: Vec<u8> = plain_resp
+        .iter()
+        .zip(pad.iter())
+        .map(|(&a, &b)| a ^ b)
+        .collect();
+
+    Ok(OpaqueEnvelopeBundle {
+        oprf_output: *oprf_output,
+        hardened_output,
+        randomized_pwd,
+        masking_key,
+        export_key,
+        auth_key,
+        client_private_scalar,
+        client_public_key,
+        server_public_key: *server_public_key,
+        cleartext_credentials,
+        envelope_nonce,
+        envelope_auth_tag,
+        envelope,
+        masked_response,
+    })
+}
+
+/// 客户端登录阶段完成 3DH 密钥协商并输出 `(client_mac_ke3, expected_server_mac)`（对齐 Go `OpaqueClientFinish3DH`）。
+#[allow(clippy::too_many_arguments)]
+pub fn opaque_client_finish_3dh(
+    context: &[u8],
+    client_identity: &[u8],
+    server_identity: &[u8],
+    ke1: &[u8],
+    client_private_scalar_le: &[u8; 32],
+    client_ephemeral_scalar_le: &[u8; 32],
+    credential_response: &[u8],
+    server_nonce: &[u8; 32],
+    server_public_key: &[u8; 32],
+    server_ephemeral_pk: &[u8; 32],
+) -> Result<([u8; 64], [u8; 64])> {
+    if ke1.len() != 96 || credential_response.len() != 192 {
+        return Err(integrity_err("OPAQUE KE1 或 CredentialResponse 长度非法"));
+    }
+    let client_sk = decode_canonical_scalar("client_private_scalar", client_private_scalar_le)?;
+    let client_eph_sk =
+        decode_canonical_scalar("client_ephemeral_scalar", client_ephemeral_scalar_le)?;
+    let server_pk_pt = decode_non_identity_ristretto("server_public_key", server_public_key)?;
+    let server_eph_pt = decode_non_identity_ristretto("server_ephemeral_pk", server_ephemeral_pk)?;
+
+    let client_pk = (RISTRETTO_BASEPOINT_POINT * client_sk)
+        .compress()
+        .to_bytes();
+    let effective_client_id = if client_identity.is_empty() {
+        &client_pk[..]
+    } else {
+        client_identity
+    };
+    let effective_server_id = if server_identity.is_empty() {
+        &server_public_key[..]
+    } else {
+        server_identity
+    };
+
+    let mut preamble = Vec::new();
+    preamble.extend_from_slice(b"RFC9807");
+    append_u16_prefixed(&mut preamble, context)?;
+    append_u16_prefixed(&mut preamble, effective_client_id)?;
+    preamble.extend_from_slice(ke1);
+    append_u16_prefixed(&mut preamble, effective_server_id)?;
+    preamble.extend_from_slice(credential_response);
+    preamble.extend_from_slice(server_nonce);
+    preamble.extend_from_slice(server_ephemeral_pk);
+
+    let preamble_digest = Sha512::digest(&preamble);
+    let mut preamble_sha512 = [0u8; 64];
+    preamble_sha512.copy_from_slice(&preamble_digest);
+
+    let dh1 = (server_eph_pt * client_eph_sk).compress().to_bytes();
+    let dh2 = (server_pk_pt * client_eph_sk).compress().to_bytes();
+    let dh3 = (server_eph_pt * client_sk).compress().to_bytes();
+    let mut dh_ikm = [0u8; 96];
+    dh_ikm[0..32].copy_from_slice(&dh1);
+    dh_ikm[32..64].copy_from_slice(&dh2);
+    dh_ikm[64..96].copy_from_slice(&dh3);
+
+    let prk = hkdf_extract_sha512(b"", &dh_ikm)?;
+    dh_ikm.zeroize();
+    let hs = opaque_expand_label_64(&prk, b"HandshakeSecret", &preamble_sha512)?;
+    let km2 = opaque_expand_label_64(&hs, b"ServerMAC", b"")?;
+    let km3 = opaque_expand_label_64(&hs, b"ClientMAC", b"")?;
+
+    let mut mac_s = <HmacSha512 as Mac>::new_from_slice(&km2)
+        .map_err(|e| integrity_err(format!("ServerMAC 初始化失败: {e}")))?;
+    mac_s.update(&preamble_sha512);
+    let mut server_mac = [0u8; 64];
+    server_mac.copy_from_slice(&mac_s.finalize().into_bytes());
+
+    let mut h3 = Sha512::new();
+    h3.update(&preamble);
+    h3.update(server_mac);
+    let t3_hash = h3.finalize();
+
+    let mut mac_c = <HmacSha512 as Mac>::new_from_slice(&km3)
+        .map_err(|e| integrity_err(format!("ClientMAC 初始化失败: {e}")))?;
+    mac_c.update(&t3_hash);
+    let mut client_mac = [0u8; 64];
+    client_mac.copy_from_slice(&mac_c.finalize().into_bytes());
+
+    Ok((client_mac, server_mac))
 }
 
 // --- GF(256) Shamir Secret Sharing (AES Irreducible Polynomial 0x11B) ---

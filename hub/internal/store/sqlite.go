@@ -274,6 +274,7 @@ type Store interface {
 
 	UpsertDevice(ctx context.Context, dev Device) error
 	GetDevice(ctx context.Context, agentID, deviceID string) (*Device, error)
+	ListDevices(ctx context.Context, agentID string) ([]Device, error)
 
 	CreateSession(ctx context.Context, sess Session) error
 	GetSession(ctx context.Context, tokenSHA256Hex string) (*Session, error)
@@ -735,6 +736,30 @@ func (s *SQLiteStore) GetDevice(ctx context.Context, agentID, deviceID string) (
 	}
 	dev.Revoked = rev != 0
 	return &dev, nil
+}
+
+func (s *SQLiteStore) ListDevices(ctx context.Context, agentID string) ([]Device, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT agent_id, device_id, account_id, ed25519_pubkey_hex, xwing_pubkey_hex, revoked, created_at_ms
+		FROM devices WHERE agent_id = ? ORDER BY created_at_ms ASC, device_id ASC
+	`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Device
+	for rows.Next() {
+		var dev Device
+		var rev int
+		if err := rows.Scan(&dev.AgentID, &dev.DeviceID, &dev.AccountID, &dev.Ed25519PubKeyHex, &dev.XWingPubKeyHex, &rev, &dev.CreatedAtMs); err != nil {
+			return nil, err
+		}
+		dev.Revoked = rev != 0
+		out = append(out, dev)
+	}
+	return out, rows.Err()
 }
 
 func (s *SQLiteStore) CreateSession(ctx context.Context, sess Session) error {

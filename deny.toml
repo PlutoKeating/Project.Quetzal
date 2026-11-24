@@ -25,7 +25,9 @@ allow = [
     "ISC",
     "Zlib",
     "0BSD",
+    "Unlicense",
     "CC0-1.0",
+    "CDLA-Permissive-2.0",
     "Unicode-3.0",
     "Unicode-DFS-2016",
 ]
