@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 
 use ed25519_dalek::SigningKey;
 use openmls::prelude::{
-    BasicCredential, Ciphersuite, Credential, CredentialType, CredentialWithKey, GroupId, MlsGroup,
-    MlsGroupCreateConfig, MlsGroupJoinConfig, MlsMessageIn, MlsMessageOut, ProcessedMessageContent,
-    RatchetTreeIn, StagedWelcome,
+    BasicCredential, Ciphersuite, ContentType, Credential, CredentialType, CredentialWithKey,
+    GroupId, MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, MlsMessageIn, MlsMessageOut,
+    ProcessedMessageContent, RatchetTreeIn, StagedWelcome,
     tls_codec::{Deserialize as _, DeserializeBytes as _, Serialize as _},
 };
 use openmls_memory_storage::MemoryStorage;
@@ -21,6 +21,14 @@ use quetzalcoatl_spine::MaterializedStore;
 use quetzalcoatl_types::{AgentId, QuetzalcoatlError, Result};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
+
+/// 入站 MLS 消息的类别（仅解析，不做任何状态变更）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IncomingMlsKind {
+    Application,
+    Proposal,
+    Commit,
+}
 
 /// 处理入站 MLS 控制消息后的结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -609,6 +617,21 @@ impl GroupRoomEngine {
                 detail: String::from("群同步消息不是可应用的 Commit/Proposal"),
             }),
         }
+    }
+
+    /// 只解析不处理：区分提案/提交/应用消息，并让损坏载荷立即可被识别。
+    pub fn inspect_incoming(message_bytes: &[u8]) -> Result<IncomingMlsKind> {
+        let mut cursor = message_bytes;
+        let message = MlsMessageIn::tls_deserialize(&mut cursor)
+            .map_err(|err| mls_error("解析群消息失败", err))?;
+        let protocol_message = message
+            .try_into_protocol_message()
+            .map_err(|err| mls_error("群消息不是可处理协议消息", err))?;
+        Ok(match protocol_message.content_type() {
+            ContentType::Application => IncomingMlsKind::Application,
+            ContentType::Proposal => IncomingMlsKind::Proposal,
+            ContentType::Commit => IncomingMlsKind::Commit,
+        })
     }
 
     /// 本地是否持有尚未合并的待定 Commit（发布后崩溃的恢复入口）。

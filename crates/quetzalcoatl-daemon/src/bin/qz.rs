@@ -1201,6 +1201,7 @@ fn run_group(args: &[String]) -> Result<()> {
     let mut kind = String::from("message");
     let mut parent_seq: u64 = 0;
     let mut ciphertext: Option<String> = None;
+    let mut peek = false;
     let mut human_typing = false;
     let mut sender_kind = GroupSenderWire::Owner;
     let mut as_steward = false;
@@ -1340,6 +1341,7 @@ fn run_group(args: &[String]) -> Result<()> {
                     .parse::<u64>()
                     .map_err(|err| QuetzalcoatlError::invalid_id("--parent", err.to_string()))?;
             }
+            "--peek" => peek = true,
             "--ciphertext" => {
                 i += 1;
                 ciphertext = Some(
@@ -1418,6 +1420,10 @@ fn run_group(args: &[String]) -> Result<()> {
             ciphertext_b64: ciphertext.ok_or_else(|| {
                 QuetzalcoatlError::invalid_id("qz group read", "缺少 --ciphertext <base64>")
             })?,
+            peek,
+        },
+        "claim-owner" => IpcRequest::GroupClaimOwner {
+            room_id: require_group_room(room)?,
         },
         "list" => IpcRequest::GroupList,
         "members" => IpcRequest::GroupMembers {

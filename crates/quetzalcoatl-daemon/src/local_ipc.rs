@@ -213,10 +213,17 @@ pub enum IpcRequest {
     GroupConsume {
         room_id: String,
     },
-    /// `qz group read --room <id> --ciphertext <b64>`：解密一条群应用消息。
+    /// `qz group read --room <id> --ciphertext <b64> [--peek]`：解密一条群应用消息。
     GroupRead {
         room_id: String,
         ciphertext_b64: String,
+        /// 只读不消费语义水位线（默认读取即消费）。
+        #[serde(default)]
+        peek: bool,
+    },
+    /// `qz group claim-owner --room <id>`：旧注册表升级时确认群主身份。
+    GroupClaimOwner {
+        room_id: String,
     },
     /// `qz group list`。
     GroupList,

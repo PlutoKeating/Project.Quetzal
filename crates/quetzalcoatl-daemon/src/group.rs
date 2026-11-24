@@ -131,8 +131,12 @@ pub struct GroupRoomSummary {
     pub last_seen_group_seq: u64,
     /// 已应用并持久化的 MLS 消息游标（心跳/同步的拉取起点）。
     pub mls_cursor_group_seq: u64,
+    /// 本机自己发布到的最大 server_seq（不参与已读判定）。
+    pub own_published_group_seq: u64,
     /// 最早的未消费语义行；`Some` 时发送必须冲突直到显式消费。
     pub pending_semantic_group_seq: Option<u64>,
+    /// 本机是否是群主（负责提交离群提案）。
+    pub is_owner: bool,
     pub hub_connected: bool,
 }
 
@@ -258,6 +262,20 @@ pub fn plan_epoch_write(
     }
 }
 
+/// 只有同一台设备才能把“本机待定 Commit”当作已发布行合并；跨设备合并会静默分叉。
+#[must_use]
+pub fn pending_commit_belongs_to_device(sender_device_id: &str, self_device: DeviceId) -> bool {
+    sender_device_id == self_device.to_string()
+}
+
+/// 未读语义冲突范围：保证 `head >= last_seen`，客户端做 `head - last_seen` 绝不溢出。
+fn pending_conflict(semantic_read: u64, pending: u64) -> QuetzalcoatlError {
+    QuetzalcoatlError::WatermarkConflict {
+        last_seen_seq: semantic_read.min(pending.saturating_sub(1)),
+        head_seq: pending,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupRevokeOutcome {
     pub room_id: String,
@@ -304,6 +322,8 @@ struct ManagedRoom {
     mls_cursor_seq: u64,
     /// 最早的未消费语义行（约束/点名追问/打断等）。
     pending_semantic_seq: Option<u64>,
+    /// 本机自己发布到的最大 server_seq（仅诊断/去重，不参与已读判定）。
+    own_published_seq: u64,
     /// 本机是否是群主（群主负责提交离群提案，使其真正生效）。
     is_owner: bool,
 }
@@ -419,9 +439,9 @@ impl GroupRoomRuntime {
 
     fn note_published_seq(&mut self, room_id: &str, seq: Option<u64>) {
         if let (Some(seq), Some(room)) = (seq, self.rooms.get_mut(room_id)) {
-            // 自己刚发布的行既已应用、也已读；两个游标同时推进。
-            room.mls_cursor_seq = room.mls_cursor_seq.max(seq);
-            room.semantic_read_seq = room.semantic_read_seq.max(seq);
+            // 自己发布的行只计入“己方已发布”游标：绝不推进 MLS 扫描游标或语义水位线，
+            // 否则会跳过同步尚未扫描到的对端约束（历史缺陷）。
+            room.own_published_seq = room.own_published_seq.max(seq);
         }
     }
 
@@ -466,6 +486,7 @@ impl GroupRoomRuntime {
                 last_seen_group_seq: room.semantic_read_seq,
                 mls_cursor_group_seq: room.mls_cursor_seq,
                 pending_semantic_group_seq: room.pending_semantic_seq,
+                own_published_group_seq: room.own_published_seq,
                 is_owner: room.is_owner,
             })
             .collect();
@@ -510,6 +531,7 @@ impl GroupRoomRuntime {
                     semantic_read_seq: entry.last_seen_group_seq,
                     mls_cursor_seq: entry.mls_cursor_group_seq,
                     pending_semantic_seq: entry.pending_semantic_group_seq,
+                    own_published_seq: entry.own_published_group_seq,
                     is_owner: entry.is_owner,
                 },
             );
@@ -549,6 +571,7 @@ impl GroupRoomRuntime {
                 semantic_read_seq: 0,
                 mls_cursor_seq: 0,
                 pending_semantic_seq: None,
+                own_published_seq: 0,
                 is_owner: true,
             },
         );
@@ -680,6 +703,7 @@ impl GroupRoomRuntime {
                 semantic_read_seq: 0,
                 mls_cursor_seq: 0,
                 pending_semantic_seq: None,
+                own_published_seq: 0,
                 is_owner: false,
             },
         );
@@ -835,6 +859,10 @@ impl GroupRoomRuntime {
                 }
                 if commit.kind == MLS_COMMIT_KIND {
                     let local_epoch = room.engine.mls_epoch();
+                    let from_self = commit.sender_agent_id == self_agent_str;
+                    // 只有“同设备”的待定 Commit 才能本地合并；跨设备合并会静默分叉。
+                    let same_device =
+                        pending_commit_belongs_to_device(&commit.sender_device_id, self.device_id);
                     if commit.mls_epoch > local_epoch {
                         if commit.mls_epoch != local_epoch.saturating_add(1) {
                             // MLS 纪元不得跳步应用：宁可冲突让上层重读，也不乱序合入。
@@ -843,10 +871,8 @@ impl GroupRoomRuntime {
                                 head_seq: prepared.head_group_seq,
                             });
                         }
-                        // 本机自己发布后崩溃：本地待定 Commit 就是这一行，直接合并即可收敛。
-                        if commit.sender_agent_id == self_agent_str
-                            && room.engine.has_pending_commit()
-                        {
+                        if from_self && same_device && room.engine.has_pending_commit() {
+                            // 本机（同一设备）发布后崩溃：待定 Commit 就是这一行。
                             room.engine.commit_pending()?;
                         } else {
                             room.engine
@@ -854,21 +880,29 @@ impl GroupRoomRuntime {
                         }
                         applied_any = true;
                     } else if commit.mls_epoch == local_epoch {
-                        // 当前纪元：只可能是提案（提交早已被本地合并）或重放。
-                        if commit.sender_agent_id == self_agent_str
-                            && room.engine.has_pending_commit()
-                        {
-                            room.engine.commit_pending()?;
-                            applied_any = true;
-                        } else {
-                            // 提案必须入队（openmls 不自动存储）；重放的历史提交/提案
-                            // 允许被忽略，绝不因幂等重读让同步永久卡死。
-                            let decoded = base64_decode(&commit.ciphertext_b64)?;
-                            if matches!(
-                                room.engine.process_incoming(&decoded),
-                                Ok(quetzalcoatl_group::mls_room::IncomingMlsOutcome::ProposalStaged)
-                            ) {
+                        if from_self {
+                            // 本机已发布的提交/提案在本地早已生效；同设备仍挂待定则合并收敛。
+                            if same_device && room.engine.has_pending_commit() {
+                                room.engine.commit_pending()?;
                                 applied_any = true;
+                            }
+                        } else {
+                            // 对端当前纪元：先解析（损坏载荷立即 fail closed），
+                            // 提案处理失败必须上抛；已合入的历史 Commit 允许幂等重放。
+                            use quetzalcoatl_group::mls_room::IncomingMlsKind;
+                            let decoded = base64_decode(&commit.ciphertext_b64)?;
+                            let kind =
+                                quetzalcoatl_group::mls_room::GroupRoomEngine::inspect_incoming(
+                                    &decoded,
+                                )?;
+                            match (kind, room.engine.process_incoming(&decoded)) {
+                                (IncomingMlsKind::Proposal, Ok(_)) => applied_any = true,
+                                (IncomingMlsKind::Proposal, Err(err)) => return Err(err),
+                                (IncomingMlsKind::Commit, Ok(_)) => applied_any = true,
+                                (IncomingMlsKind::Commit, Err(_)) => {
+                                    // 已在本纪元的 Commit（Welcome/本地合并已包含）：幂等重放。
+                                }
+                                (IncomingMlsKind::Application, _) => {}
                             }
                         }
                     }
@@ -998,24 +1032,63 @@ impl GroupRoomRuntime {
     }
 
     /// 解密一条群应用消息（仅在已应用对应纪元 Commit 后可解）。
+    ///
+    /// `consume = true`（默认行为）时同时把语义水位线推进到本次已扫描的位置：
+    /// 自动化循环“读 → 发”不再需要额外调用 `group consume`。`peek` 则只读不消费。
     pub fn decrypt_room_message<S: MaterializedStore + ?Sized>(
         &mut self,
         room_id: &str,
         ciphertext_b64: &str,
+        consume: bool,
         store: &mut S,
     ) -> Result<String> {
         let bytes = base64_decode(ciphertext_b64)?;
-        let room =
-            self.rooms
-                .get_mut(room_id)
-                .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
-                    detail: format!("群 {room_id} 未加入"),
-                })?;
-        let plaintext = room.engine.decrypt_application(&bytes)?;
-        room.engine.persist_to(store)?;
-        String::from_utf8(plaintext).map_err(|_| QuetzalcoatlError::SerializationError {
-            detail: String::from("群应用消息不是合法 UTF-8"),
-        })
+        let plaintext = {
+            let room =
+                self.rooms
+                    .get_mut(room_id)
+                    .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
+                        detail: format!("群 {room_id} 未加入"),
+                    })?;
+            let plaintext = room.engine.decrypt_application(&bytes)?;
+            room.engine.persist_to(store)?;
+            plaintext
+        };
+        let text =
+            String::from_utf8(plaintext).map_err(|_| QuetzalcoatlError::SerializationError {
+                detail: String::from("群应用消息不是合法 UTF-8"),
+            })?;
+        if consume {
+            self.consume_semantic_watermark(room_id)?;
+        }
+        Ok(text)
+    }
+
+    /// 确认本机是群主（旧注册表升级用）：Hub 建群对同 owner 幂等返回，据此补写 `is_owner`。
+    pub fn claim_owner(&mut self, room_id: &str) -> Result<GroupRoomSummary> {
+        self.refresh_hub_session()?;
+        let secrecy_level = self
+            .rooms
+            .get(room_id)
+            .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
+                detail: format!("群 {room_id} 未加入"),
+            })?
+            .secrecy_level;
+        let Some(client) = self
+            .hub_client
+            .as_ref()
+            .filter(|client| client.session_token().is_some())
+        else {
+            return Err(QuetzalcoatlError::StorageError {
+                detail: String::from("未配置 Hub 会话，无法确认群主身份"),
+            });
+        };
+        block_on(client.create_group_room(room_id, self.agent_id, secrecy_level))?;
+        if let Some(room) = self.rooms.get_mut(room_id) {
+            room.is_owner = true;
+        }
+        self.persist_registry()?;
+        self.summary(room_id)
     }
 
     pub fn summaries(&self) -> Vec<GroupRoomSummary> {
@@ -1039,7 +1112,9 @@ impl GroupRoomRuntime {
             secrecy_level: room.secrecy_level,
             last_seen_group_seq: room.semantic_read_seq,
             mls_cursor_group_seq: room.mls_cursor_seq,
+            own_published_group_seq: room.own_published_seq,
             pending_semantic_group_seq: room.pending_semantic_seq,
+            is_owner: room.is_owner,
             hub_connected: self
                 .hub_client
                 .as_ref()
@@ -1097,10 +1172,7 @@ impl GroupRoomRuntime {
                 })?;
         // 未消费的语义行（约束/点名追问/打断）必须先显式消费，绝不静默快进。
         if let Some(pending) = room.pending_semantic_seq {
-            return Err(QuetzalcoatlError::WatermarkConflict {
-                last_seen_seq: room.semantic_read_seq,
-                head_seq: pending,
-            });
+            return Err(pending_conflict(room.semantic_read_seq, pending));
         }
         let floor = room.gate.evaluate(&FloorInput {
             room_id: room_id.to_owned(),
@@ -1166,9 +1238,8 @@ impl GroupRoomRuntime {
             })?;
             if let Some(ref result) = applied {
                 room.engine.persist_to(store)?;
-                // 自己发出的提交既已应用也已读：两个游标都推进到该 server_seq。
-                room.mls_cursor_seq = room.mls_cursor_seq.max(result.server_seq);
-                room.semantic_read_seq = room.semantic_read_seq.max(result.server_seq);
+                // 自己发出的消息只记入己方游标：绝不越过尚未扫描的对端行。
+                room.own_published_seq = room.own_published_seq.max(result.server_seq);
             }
             GroupSendOutcome {
                 room_id: prepared.room_id,
@@ -1525,6 +1596,9 @@ struct RegistryEntry {
     /// 未消费的语义行（旧注册表缺省 None）。
     #[serde(default)]
     pending_semantic_group_seq: Option<u64>,
+    /// 己方发布游标（旧注册表缺省 0）。
+    #[serde(default)]
+    own_published_group_seq: u64,
     /// 群主标记（旧注册表缺省 false，绝不擅自替用户提交提案）。
     #[serde(default)]
     is_owner: bool,

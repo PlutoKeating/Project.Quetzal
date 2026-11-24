@@ -1049,9 +1049,9 @@ fn three_member_room() -> TwoMemberRoom {
 fn background_sync_never_consumes_pending_semantic_rows() {
     let mut room = three_member_room();
 
-    // A 发布过入群 Commit，两个游标都已到 2；记录基线后用“心跳同步”处理对端约束。
+    // 自己的发布会推进 MLS 游标但绝不推进语义水位线。
     let before = room.runtime_a.summary("room").expect("summary");
-    assert_eq!(before.last_seen_group_seq, 2);
+    assert_eq!(before.last_seen_group_seq, 0);
     let seq = post_as_peer(
         &room.mock,
         "room",
@@ -1068,7 +1068,7 @@ fn background_sync_never_consumes_pending_semantic_rows() {
         .sync_watermark("room", &mut room.store_a)
         .expect("sync");
     assert_eq!(synced.pending_semantic_group_seq, Some(seq));
-    assert_eq!(synced.last_seen_group_seq, 2, "语义水位线绝不能被心跳推进");
+    assert_eq!(synced.last_seen_group_seq, 0, "语义水位线绝不能被心跳推进");
 
     let err = room
         .runtime_a
@@ -1304,4 +1304,271 @@ fn same_agent_other_device_commit_is_applied_on_sync() {
         "same-agent commit from another device must advance A2's epoch"
     );
     assert!(synced.members.contains(&format!("agent:{agent_c}")));
+}
+
+#[test]
+fn invite_before_sync_still_surfaces_peer_constraint() {
+    let mut room = three_member_room();
+    // 对端先写入一条语义约束（seq 1，当前纪元）。
+    let seq = post_as_peer(
+        &room.mock,
+        "room",
+        room.agent_b,
+        room.device_b,
+        2,
+        "constraint_update",
+        "Y29uc3RyYWludA==",
+        false,
+        serde_json::json!([{"kind":"all_agents"}]),
+    );
+    // 群主在同步之前先邀请新成员（自己的发布绝不能被当成“已读”）。
+    let home_d = temp_home("invite-before-sync-d");
+    let agent_d = AgentId::new_v4();
+    let mut fresh_d = GroupRoomRuntime::new(home_d, agent_d, DeviceId::new_v4(), "5a".repeat(32));
+    let kp = fresh_d
+        .invite_key_package("room")
+        .expect("kp")
+        .key_package_b64
+        .expect("kp bytes");
+    room.runtime_a
+        .add_member("room", &kp, agent_d, false, &mut room.store_a)
+        .expect("invite");
+
+    let synced = room
+        .runtime_a
+        .sync_watermark("room", &mut room.store_a)
+        .expect("sync");
+    assert_eq!(
+        synced.pending_semantic_group_seq,
+        Some(seq),
+        "own publishes must never skip an unread peer constraint"
+    );
+    let err = room
+        .runtime_a
+        .send(
+            "room",
+            "blocked",
+            all_agents_mention(),
+            SenderKind::OwnerHuman,
+            0,
+            false,
+            &mut room.store_a,
+        )
+        .expect_err("pending constraint must block");
+    match err {
+        quetzalcoatl_types::QuetzalcoatlError::WatermarkConflict {
+            last_seen_seq,
+            head_seq,
+        } => assert!(
+            head_seq >= last_seen_seq,
+            "conflict range must never invert: last_seen={last_seen_seq} head={head_seq}"
+        ),
+        other => panic!("expected WatermarkConflict, got {other:?}"),
+    }
+}
+
+#[test]
+fn corrupted_proposal_fails_closed_without_advancing_cursor() {
+    let mut room = three_member_room();
+    // 当前纪元的 MLS 控制消息，但载荷是垃圾：必须报错且不得推进游标。
+    post_as_peer(
+        &room.mock,
+        "room",
+        room.agent_b,
+        room.device_b,
+        2,
+        "mls_commit",
+        "bm90LWFuLW1scy1wYXlsb2Fk",
+        false,
+        serde_json::json!([]),
+    );
+    let err = room
+        .runtime_a
+        .sync_watermark("room", &mut room.store_a)
+        .expect_err("corrupted proposal must fail closed");
+    assert!(
+        matches!(
+            err,
+            quetzalcoatl_types::QuetzalcoatlError::IntegrityViolation { .. }
+                | quetzalcoatl_types::QuetzalcoatlError::WatermarkConflict { .. }
+        ),
+        "expected a typed failure, got {err:?}"
+    );
+    assert_eq!(
+        room.runtime_a
+            .summary("room")
+            .expect("summary")
+            .mls_cursor_group_seq,
+        0,
+        "failed sync must not advance the MLS cursor"
+    );
+}
+
+#[test]
+fn read_consumes_by_default_so_read_send_loops_never_deadlock() {
+    let mut room = three_member_room();
+    room.runtime_b
+        .sync_watermark("room", &mut room.store_b)
+        .expect("b sync");
+    let peer_message = |runtime_b: &mut GroupRoomRuntime, text: &str| {
+        let prepared = runtime_b
+            .prepare_send(
+                "room",
+                text,
+                all_agents_mention(),
+                SenderKind::OwnerHuman,
+                0,
+                false,
+                "message",
+                0,
+            )
+            .expect("prepare peer message");
+        quetzalcoatl_daemon::base64_encode(&prepared.mls_ciphertext)
+    };
+    let app_peek = peer_message(&mut room.runtime_b, "peek-me");
+    let app_read = peer_message(&mut room.runtime_b, "read-me");
+
+    let seq = post_as_peer(
+        &room.mock,
+        "room",
+        room.agent_b,
+        room.device_b,
+        2,
+        "constraint_update",
+        "Y29uc3RyYWludA==",
+        false,
+        serde_json::json!([{"kind":"all_agents"}]),
+    );
+    let synced = room
+        .runtime_a
+        .sync_watermark("room", &mut room.store_a)
+        .expect("a sync");
+    assert_eq!(synced.pending_semantic_group_seq, Some(seq));
+
+    // peek 只读不消费：语义行仍待消费。
+    let peeked = room
+        .runtime_a
+        .decrypt_room_message("room", &app_peek, false, &mut room.store_a)
+        .expect("peek decrypts");
+    assert_eq!(peeked, "peek-me");
+    assert_eq!(
+        room.runtime_a
+            .summary("room")
+            .expect("summary")
+            .pending_semantic_group_seq,
+        Some(seq),
+        "peek must not consume the semantic watermark"
+    );
+
+    // 默认 read 即消费：自动化循环“读 → 发”不再卡在水位线冲突。
+    let text = room
+        .runtime_a
+        .decrypt_room_message("room", &app_read, true, &mut room.store_a)
+        .expect("read consumes and decrypts");
+    assert_eq!(text, "read-me");
+    let sent = room
+        .runtime_a
+        .send(
+            "room",
+            "auto-reply",
+            all_agents_mention(),
+            SenderKind::OwnerHuman,
+            0,
+            false,
+            &mut room.store_a,
+        )
+        .expect("send after read must succeed");
+    assert!(sent.server_seq.is_some());
+}
+
+#[test]
+fn pending_merge_only_for_same_device() {
+    let device = DeviceId::new_v4();
+    assert!(
+        quetzalcoatl_daemon::group::pending_commit_belongs_to_device(&device.to_string(), device)
+    );
+    assert!(
+        !quetzalcoatl_daemon::group::pending_commit_belongs_to_device(
+            &DeviceId::new_v4().to_string(),
+            device
+        )
+    );
+}
+
+#[test]
+fn legacy_registry_can_claim_ownership_and_then_commit_leaves() {
+    let home_a = temp_home("legacy-owner-a");
+    let home_b = temp_home("legacy-owner-b");
+    let mock = MockHub::start();
+    let agent_a = AgentId::new_v4();
+    let agent_b = AgentId::new_v4();
+    let device_a = DeviceId::new_v4();
+    let device_b = DeviceId::new_v4();
+    let mut store_a = open_store(&home_a);
+    let mut store_b = open_store(&home_b);
+    let mut runtime_a = GroupRoomRuntime::new(home_a.clone(), agent_a, device_a, "6a".repeat(32));
+    let mut runtime_b = GroupRoomRuntime::new(home_b.clone(), agent_b, device_b, "6b".repeat(32));
+    write_session(&home_a, mock.base_url(), agent_a, device_a);
+    write_session(&home_b, mock.base_url(), agent_b, device_b);
+    runtime_a.with_hub(mock.binding()).expect("hub a");
+    runtime_b.with_hub(mock.binding()).expect("hub b");
+
+    runtime_a.create("room", 1, &mut store_a).expect("create");
+    let kp = runtime_b
+        .invite_key_package("room")
+        .expect("kp")
+        .key_package_b64
+        .expect("kp bytes");
+    let handoff = runtime_a
+        .add_member("room", &kp, agent_b, true, &mut store_a)
+        .expect("add b");
+    runtime_b
+        .join(
+            "room",
+            handoff.welcome_b64.as_deref().expect("welcome"),
+            handoff.ratchet_tree_b64.as_deref().expect("tree"),
+            &mut store_b,
+        )
+        .expect("join");
+    runtime_b
+        .sync_watermark("room", &mut store_b)
+        .expect("b sync");
+
+    // 模拟旧注册表：抹掉 is_owner 后重启恢复。
+    let registry_path = home_a.join("group-rooms/registry.json");
+    let mut registry: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&registry_path).expect("registry"))
+            .expect("registry json");
+    if let Some(rooms) = registry["rooms"].as_array_mut() {
+        for entry in rooms {
+            if entry["room_id"] == "room" {
+                entry["is_owner"] = serde_json::json!(false);
+            }
+        }
+    }
+    std::fs::write(
+        &registry_path,
+        serde_json::to_vec(&registry).expect("encode"),
+    )
+    .expect("write registry");
+
+    drop(runtime_a);
+    let mut restored = GroupRoomRuntime::new(home_a.clone(), agent_a, device_a, "6a".repeat(32));
+    restored.restore(&store_a).expect("restore");
+    restored.with_hub(mock.binding()).expect("hub a restored");
+    assert!(
+        !restored.summary("room").expect("summary").is_owner,
+        "legacy registry must not assume ownership"
+    );
+
+    let claimed = restored.claim_owner("room").expect("claim owner");
+    assert!(claimed.is_owner);
+
+    // 升级后的房主必须能替离群成员提交，使其真正离开名单。
+    let identity_b = format!("agent:{agent_b}");
+    assert!(runtime_b.leave("room", &mut store_b).expect("leave").left);
+    let synced = restored
+        .sync_watermark("room", &mut store_a)
+        .expect("owner sync");
+    assert!(!synced.members.contains(&identity_b));
 }

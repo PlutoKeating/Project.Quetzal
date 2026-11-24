@@ -1798,6 +1798,7 @@ impl SharedDaemonCore {
             IpcRequest::GroupRead {
                 room_id,
                 ciphertext_b64,
+                peek,
             } => {
                 let Ok(mut guard) = self.state.lock() else {
                     return ipc_lock_error();
@@ -1810,9 +1811,19 @@ impl SharedDaemonCore {
                 match group.decrypt_room_message(
                     &room_id,
                     &ciphertext_b64,
+                    !peek,
                     kernel.spine_mut().store_mut(),
                 ) {
                     Ok(text) => (IpcResponse::GroupPlaintext { text }, false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupClaimOwner { room_id } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                match guard.group.claim_owner(&room_id) {
+                    Ok(summary) => (IpcResponse::GroupRoom(summary), false),
                     Err(err) => ipc_error_response(err),
                 }
             }

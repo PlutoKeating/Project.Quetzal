@@ -66,14 +66,42 @@ impl Drop for TempDirGuard {
     }
 }
 
-/// 清理历史按 PID 命名的缓存副本（仅本仓库自己的测试夹具产物）。
+/// 本进程专属的 Hub 二进制缓存名（PID + 启动随机后缀），并行 runner 绝不互相覆盖。
+fn hub_bin_name() -> &'static str {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos() as u64);
+        format!(
+            "quetzalcoatl-hub-{}-{:08x}",
+            std::process::id(),
+            nanos as u32
+        )
+    })
+}
+
+/// 清理陈旧缓存：仅删除 PID 已不存在的副本来；绝不碰其他进程或用例的文件。
 fn prune_stale_hub_binaries(dir: &Path) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
+    let self_name = hub_bin_name();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with("quetzalcoatl-hub-") {
+        if name == self_name {
+            continue;
+        }
+        if !name.starts_with("quetzalcoatl-hub") {
+            continue;
+        }
+        // 旧共享路径（quetzalcoatl-hub）与无法解析 PID 的历史文件一律清理。
+        let pid_alive = name
+            .strip_prefix("quetzalcoatl-hub-")
+            .and_then(|rest| rest.split('-').next())
+            .and_then(|pid| pid.parse::<u32>().ok())
+            .is_some_and(|pid| Path::new(&format!("/proc/{pid}")).exists());
+        if !pid_alive {
             let _ = fs::remove_file(entry.path());
         }
     }
@@ -88,39 +116,60 @@ fn repo_root() -> Result<PathBuf, BoxError> {
     Ok(root.to_path_buf())
 }
 
+fn build_hub_binary(bin_path: &Path) -> Result<(), String> {
+    let root = repo_root().map_err(|e| e.to_string())?;
+    let output = Command::new("go")
+        .current_dir(root.join("hub"))
+        .env("CGO_ENABLED", "0")
+        .args([
+            "build",
+            "-o",
+            &bin_path.to_string_lossy(),
+            "./cmd/quetzalcoatl-hub",
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "go build quetzalcoatl-hub failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
 fn compiled_go_hub_binary() -> Result<PathBuf, BoxError> {
     static HUB_BIN: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     let cached = HUB_BIN.get_or_init(|| {
-        let root = repo_root().map_err(|e| e.to_string())?;
         let out_dir = PathBuf::from("/tmp/opencode/qz_go_hub_bin_cache");
         fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-        // 固定共享路径：每个测试进程覆盖同一份二进制，绝不按 PID 累积副本。
+        // 进程唯一路径：并行 runner 不会互相覆盖/exec 同一文件，也不会无界累积。
         prune_stale_hub_binaries(&out_dir);
-        let bin_path = out_dir.join("quetzalcoatl-hub");
-        let output = Command::new("go")
-            .current_dir(root.join("hub"))
-            .env("CGO_ENABLED", "0")
-            .args([
-                "build",
-                "-o",
-                &bin_path.to_string_lossy(),
-                "./cmd/quetzalcoatl-hub",
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
-        if output.status.success() {
-            Ok(bin_path)
-        } else {
-            Err(format!(
-                "go build quetzalcoatl-hub failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
-        }
+        let bin_path = out_dir.join(hub_bin_name());
+        build_hub_binary(&bin_path).map(|()| bin_path)
     });
-    match cached {
-        Ok(p) => Ok(p.clone()),
-        Err(msg) => Err(msg.clone().into()),
+    let path = match cached {
+        Ok(p) => p.clone(),
+        Err(msg) => return Err(msg.clone().into()),
+    };
+    if !path.exists() {
+        // 上一次 spawn 后已 unlink 运行中的二进制：按需重建到同一路径。
+        build_hub_binary(&path)?;
     }
+    Ok(path)
+}
+
+/// 为单次 spawn 复制一份唯一可执行文件：并行测试绝不共享同一 inode/路径。
+fn spawn_copy_of_hub_binary(master: &Path) -> Result<PathBuf, BoxError> {
+    let unique = format!(
+        "{}-run-{}",
+        master.file_name().and_then(|n| n.to_str()).unwrap_or("hub"),
+        Uuid::new_v4()
+    );
+    let path = master.with_file_name(unique);
+    fs::copy(master, &path)?;
+    Ok(path)
 }
 
 fn reserve_tcp_port() -> Result<u16, BoxError> {
@@ -191,7 +240,8 @@ struct RunningGoHub {
 
 impl RunningGoHub {
     fn spawn() -> Result<Self, BoxError> {
-        let bin = compiled_go_hub_binary()?;
+        let master = compiled_go_hub_binary()?;
+        let bin = spawn_copy_of_hub_binary(&master)?;
         let tmp = TempDirGuard::new("qz_daemon_membership_hub")?;
         let data_dir = tmp.path().join("hub_data");
         fs::create_dir_all(&data_dir)?;
@@ -225,6 +275,8 @@ impl RunningGoHub {
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_err))
             .spawn()?;
+        // 二进制已映射进进程：立即 unlink，运行结束后不留副本。
+        let _ = fs::remove_file(&bin);
 
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
