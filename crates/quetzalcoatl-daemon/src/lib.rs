@@ -7,6 +7,7 @@ pub mod daemon;
 pub mod fabric;
 pub mod group;
 pub mod local_ipc;
+pub mod voice;
 
 pub use daemon::{
     ChatRequest, ChatResponse, DaemonConfig, DaemonHandle, DaemonRuntimeInfo, DaemonStatus,
@@ -23,3 +24,7 @@ pub use group::{
     GroupRoomRuntime, GroupRoomSummary, GroupSendOutcome, base64_decode, base64_encode,
 };
 pub use local_ipc::{IpcClient, IpcRequest, IpcResponse, validate_loopback_host_and_origin};
+pub use voice::{
+    DaemonVoiceEvent, VOICE_AI_ENV, VoiceActivityRuntime, VoiceAiConfig, VoiceTurnReport,
+    decode_audio_frame,
+};

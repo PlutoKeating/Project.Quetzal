@@ -263,6 +263,13 @@ pub enum IpcRequest {
         room_id: String,
         mls_identity: String,
     },
+    /// 送入一帧双工音频（320 样本小端 f32 的 base64），仅在 `QUETZALCOATL_VOICE_AI=1` 时可用。
+    VoiceFrame {
+        render_b64: String,
+        capture_b64: String,
+        /// 助手当前是否正在播报（决定是否产生打断事件）。
+        assistant_speaking: bool,
+    },
     Shutdown,
 }
 
@@ -308,6 +315,14 @@ pub enum IpcResponse {
     },
     /// 群历史行（密文与元数据）。
     GroupHistory(Vec<crate::group::GroupHistoryRow>),
+    /// 单帧声学判决（语音起止 / 打断已同步写入脊柱活动链）。
+    VoiceActivity {
+        frame_index: u64,
+        speech: bool,
+        vad_probability: f32,
+        barge_in: bool,
+        interrupting_frame_offset_ms: Option<u32>,
+    },
     Error {
         code: String,
         detail: String,

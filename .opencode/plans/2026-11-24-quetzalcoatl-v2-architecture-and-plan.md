@@ -488,10 +488,10 @@
 **Interfaces:**
 - Produces: `DuplexAudioGate`（`sonora-aec3` + `tract-onnx` 16kHz 折叠 VAD，`<3MB` 零外部动态库）与 `OnDemandAiPackManager`（验签拉取 `libonnxruntime` + SenseVoice/Kokoro + 多语种嵌入模型，强制环境与 API 双重关闭遥测）。
 
-- [ ] **Step 1: 编写混音回声不自激、真人 150ms 插嘴触发、二进制增量 `<3MB` 及零遥测断言测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现声学打断管线、按需动态 `ort` 加载器与 `reembed()` 升级联动**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写混音回声不自激、真人 150ms 插嘴触发、二进制增量 `<3MB` 及零遥测断言测试**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现声学打断管线、按需动态 `ort` 加载器与 `reembed()` 升级联动**
+- [x] **Step 4: 验证通过并提交**
 
 ---
 

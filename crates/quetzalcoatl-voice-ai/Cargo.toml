@@ -1,0 +1,28 @@
+[package]
+name = "quetzalcoatl-voice-ai"
+description = "Quetzalcoatl V2 纯 Rust 声学回声消除/16kHz VAD 与按需零遥测本地模型管线"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# 可选动态 ONNX Runtime 运行器：仅在宿主显式开启时链接 `ort`，并按双杀策略初始化。
+dynamic-ort = []
+
+[dependencies]
+blake3 = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand_core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sonora-aec3 = "0.3.0"
+quetzalcoatl-types = { workspace = true }
+
+[dev-dependencies]
+tract-onnx = { version = "0.23.10", default-features = false }

@@ -10,6 +10,7 @@ members = [
     "crates/quetzalcoatl-fabric",
     "crates/quetzalcoatl-group",
     "crates/quetzalcoatl-harness",
+    "crates/quetzalcoatl-voice-ai",
     "crates/quetzalcoatl-daemon",
 ]
 
@@ -55,6 +56,7 @@ quetzalcoatl-kernel = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-k
 quetzalcoatl-sandbox = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-sandbox" }
 quetzalcoatl-spine = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-spine" }
 quetzalcoatl-types = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-types" }
+quetzalcoatl-voice-ai = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-voice-ai" }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 rcgen = "0.14.10"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls-no-provider", "json"] }

@@ -86,6 +86,8 @@ pub struct DaemonConfig {
     pub discovery_search_paths: Option<Vec<PathBuf>>,
     /// 可选 `quetzalcoatl-fabric` 接入（默认 `None` 即完全关闭，不建节点、不写文件、零网络动作）。
     pub fabric: Option<DaemonFabricConfig>,
+    /// 可选声学语音门（默认关闭；`QUETZALCOATL_VOICE_AI=1` 时启用）。
+    pub voice_ai: crate::voice::VoiceAiConfig,
 }
 
 impl DaemonConfig {
@@ -107,6 +109,7 @@ impl DaemonConfig {
             .filter(|v| !v.is_empty())
             .map(PathBuf::from);
         let fabric = DaemonFabricConfig::resolve(&quetzalcoatl_home);
+        let voice_ai = crate::voice::VoiceAiConfig::from_process_env();
 
         Self {
             quetzalcoatl_home,
@@ -119,6 +122,7 @@ impl DaemonConfig {
             upstream_bearer_token: None,
             discovery_search_paths: None,
             fabric,
+            voice_ai,
         }
     }
 }
@@ -584,6 +588,8 @@ pub(crate) struct DaemonMutableState {
     _arbiter: ConscienceArbiter,
     pub(crate) persisted: PersistedSovereignState,
     pub(crate) group: crate::group::GroupRoomRuntime,
+    /// opt-in 声学语音门；`None` 时零 AEC/VAD 状态、零副作用。
+    pub(crate) voice: Option<crate::voice::VoiceActivityRuntime>,
     ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
@@ -1997,6 +2003,62 @@ impl SharedDaemonCore {
                     Err(err) => ipc_error_response(err),
                 }
             }
+            IpcRequest::VoiceFrame {
+                render_b64,
+                capture_b64,
+                assistant_speaking,
+            } => {
+                let render = match crate::voice::decode_audio_frame(&render_b64) {
+                    Ok(frame) => frame,
+                    Err(error) => return ipc_error_response(error),
+                };
+                let capture = match crate::voice::decode_audio_frame(&capture_b64) {
+                    Ok(frame) => frame,
+                    Err(error) => return ipc_error_response(error),
+                };
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                let DaemonMutableState {
+                    ref mut voice,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                let Some(runtime) = voice.as_mut() else {
+                    return (
+                        IpcResponse::Error {
+                            code: String::from("VOICE_AI_DISABLED"),
+                            detail: String::from(
+                                "声学语音门未启用：设置 QUETZALCOATL_VOICE_AI=1 后重启 quetzalcoatld",
+                            ),
+                        },
+                        false,
+                    );
+                };
+                match runtime.ingest(&render, &capture, assistant_speaking) {
+                    Ok(report) => {
+                        // 与群组审计/良知事件同源：语音起止与打断进入签名脊柱活动链。
+                        for payload in report.spine_payloads() {
+                            let _ = kernel.spine_mut().append_event(
+                                PackCompartment::Core,
+                                &payload,
+                                now_unix_ms(),
+                            );
+                        }
+                        (
+                            IpcResponse::VoiceActivity {
+                                frame_index: report.frame_index,
+                                speech: report.speech,
+                                vad_probability: report.vad_probability,
+                                barge_in: report.barge_in,
+                                interrupting_frame_offset_ms: report.interrupting_frame_offset_ms,
+                            },
+                            false,
+                        )
+                    }
+                    Err(error) => ipc_error_response(error),
+                }
+            }
             IpcRequest::Shutdown => {
                 if let Ok(mut guard) = self.state.lock() {
                     let _ = guard
@@ -2344,6 +2406,7 @@ impl QuetzalcoatlDaemon {
         };
 
         let qz_home = config.quetzalcoatl_home.clone();
+        let voice_runtime = crate::voice::VoiceActivityRuntime::from_config(config.voice_ai)?;
         let shared_core = Arc::new(SharedDaemonCore {
             config,
             runtime_info: runtime_info.clone(),
@@ -2359,6 +2422,7 @@ impl QuetzalcoatlDaemon {
                 _arbiter: arbiter,
                 persisted,
                 group: group_runtime,
+                voice: voice_runtime,
                 ewave_check_reports: Vec::new(),
             }),
             fabric: Mutex::new(fabric_runtime.clone()),
