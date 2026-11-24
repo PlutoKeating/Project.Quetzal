@@ -44,10 +44,11 @@ quetzalcoatl-voice-ai --example gen_vad_asset`）。`tests/model_asset.rs` 会�
   签名覆盖文件按路径排序后的规范化 JSON；每个文件绑定下载 URL、BLAKE3 与字节数。
 - 安装：验签 → 校验相对路径 → 逐文件校验大小/BLAKE3 → 私有暂存目录写入并 `fsync` →
   原子 `rename` 到目标目录；失败不残留、不改动既有版本。
-- 加载：重新验签；文件未变更时命中 `(pack, version, mtime, size)` 进程内缓存（O(1)），
+- 加载：重新验签；文件未变更时命中 `(pack, version, size/mtime/ctime/inode)` 进程内缓存（O(1)），
   变更后以 64 KiB 块**流式** BLAKE3 重校验，任何损坏直接 `IntegrityViolation`。
   `verification_stats()` 暴露 `verifications`/`cache_hits`，供回归测试证明“第二次加载不重哈希、
-  篡改后缓存失效并检出”。
+  篡改后缓存失效并检出”；unix 下 ctime/inode 参与指纹，同大小且 mtime 被恢复的原地改写仍会被
+  流式 BLAKE3 复检捕获。
 - 路径穿越：包名/版本仅允许 `[A-Za-z0-9._-]` 且不得以 `.` 开头；包内路径必须是纯相对
   `Normal` 组件（拒绝 `..`、绝对路径、反斜杠、NUL）。
 - 宿主通过 `PackSource` trait 注入下载实现，crate 自身零网络依赖。
@@ -56,10 +57,13 @@ quetzalcoatl-voice-ai --example gen_vad_asset`）。`tests/model_asset.rs` 会�
 
 初始化动态 ORT 的**唯一公开入口**是 `OrtInitializer::initialize()`（`tests/ort_initializer.rs`）：
 
-1. **环境轴**：初始化器自身持有并强制写入 `ORT_DISABLE_TELEMETRY=1` 的加载器环境，
-   通过 `OrtInitialization::apply_environment()` 注入任何承载 ORT 的加载器/子进程，关闭 POSIX 1DS。
+1. **环境轴**：`initialize()` 在调用桥接**之前**校验**当前进程**已导出
+   `ORT_DISABLE_TELEMETRY=1`，否则直接 `IntegrityViolation` fail-closed——绝不在未关闭遥测的进程里
+   初始化 ORT。**宿主必须自行导出该变量**（例如 `quetzalcoatld` 启动脚本或 systemd `Environment=`）。
+   初始化器同时持有 `ORT_DISABLE_TELEMETRY=1` 的加载器环境，经
+   `OrtInitialization::apply_environment()` 注入承载 ORT 的子进程，关闭 POSIX 1DS。
    （进程内 `std::env::set_var` 在 Rust 2024 是 `unsafe`，与本工作区 `forbid(unsafe_code)` 冲突；
-   因此环境轴以“自有加载器环境 + 子进程注入”的等价方式落地，失败路径同样保留该环境。）
+   因此无法由本 crate 代为设置进程环境，只能要求宿主导出并在入口 fail-closed 校验。）
 2. **API 轴**：以 `disable_telemetry = true` 调用注入的 `OrtRuntimeBridge::init`；
    桥接必须返回 `TelemetryStatus::Disabled`，否则 `IntegrityViolation` fail-closed。
    默认构建不链接 `ort`；`--features dynamic-ort` 时 `OrtCrateBridge` 调用
@@ -107,7 +111,7 @@ IPC 新增 `voice_frame`（`stream_id` / `frame_seq` / `render_b64` / `capture_b
 
 - 每个 `stream_id` 独占一份 `DuplexAudioGate`（独立 AEC/VAD/打断状态），最多 8 条流，超出按 LRU 逐出；
 - 流内 `frame_seq` 必须从 0 开始严格连续，缺口/回退返回类型化 `VoiceStreamError::NonContiguousFrameSeq`
-  （IPC 错误码 `VOICE_STREAM_SEQUENCE`）；
+  （IPC 错误码 `VOICE_STREAM_SEQUENCE`）；首帧校验先于注册/逐出，畸形首帧不会影响既有流的 AEC 状态；
 - 语音起止与打断事件以 `PackCompartment::Core` 签名脊柱事件写入既有活动链路，与群组审计同源；
   `append_event` 失败会作为 `VoiceStreamError::Spine` 上抛，**绝不**静默丢弃；
 - 禁用时该请求返回 `VOICE_AI_DISABLED`；默认禁用的配置保证既有守护进程行为与测试不变。

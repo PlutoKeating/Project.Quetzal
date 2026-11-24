@@ -321,3 +321,45 @@ fn installing_embedding_pack_enqueues_documents_for_reembed() {
     assert_eq!(guard.drain_reembed_batch(1).len(), 1, "必须是分批消费");
     assert_eq!(guard.pending_reembed(), 1);
 }
+
+/// 同大小、mtime 被恢复的原地改写仍必须被 ctime/inode 指纹检出（unix）。
+#[cfg(unix)]
+#[test]
+fn cache_detects_same_size_rewrite_with_restored_mtime() {
+    use std::time::SystemTime;
+
+    let home = temp_home("ctime");
+    let key = SigningKey::from_bytes(&[0x88; 32]);
+    let payload = b"same-size-payload-0123456789".to_vec();
+    let manifest = manifest_for(&key, "multilingual-embed", "7.7.7", "model.onnx", &payload);
+    let mgr = manager(&home, source_for(&manifest, &payload), &key);
+    let installed = mgr.install_pack(&manifest).expect("安装");
+    mgr.load_pack(AiPackKind::Embedding, "7.7.7")
+        .expect("首次加载命中缓存");
+
+    let path = installed.path.join("model.onnx");
+    let original_mtime = fs::metadata(&path)
+        .expect("原文件元数据")
+        .modified()
+        .expect("mtime");
+    assert!(original_mtime <= SystemTime::now());
+
+    let mut tampered = payload.clone();
+    tampered[0] ^= 0xff;
+    assert_eq!(tampered.len(), payload.len(), "必须保持同大小");
+    fs::write(&path, &tampered).expect("原地改写");
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .expect("打开以便恢复 mtime")
+        .set_modified(original_mtime)
+        .expect("恢复 mtime");
+
+    let error = mgr
+        .load_pack(AiPackKind::Embedding, "7.7.7")
+        .expect_err("同大小且恢复 mtime 的篡改仍必须检出");
+    assert!(matches!(
+        error,
+        QuetzalcoatlError::IntegrityViolation { .. }
+    ));
+}

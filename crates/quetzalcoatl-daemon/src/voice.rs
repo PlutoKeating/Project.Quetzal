@@ -319,6 +319,13 @@ impl VoiceActivitySessions {
         assistant_speaking: bool,
     ) -> std::result::Result<VoiceTurnReport, VoiceStreamError> {
         Self::validate_stream_id(stream_id)?;
+        // 先校验帧序号，再注册/逐出：畸形首帧不得让其他客户端丢失 AEC 状态。
+        if !self.streams.contains_key(stream_id) && frame_seq != 0 {
+            return Err(VoiceStreamError::NonContiguousFrameSeq {
+                expected: 0,
+                actual: frame_seq,
+            });
+        }
         if !self.streams.contains_key(stream_id) {
             while self.streams.len() >= self.max_streams {
                 let Some(evicted) = self.order.pop_front() else {

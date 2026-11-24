@@ -281,6 +281,7 @@ fn non_contiguous_frame_seq_is_rejected() {
         error,
         VoiceStreamError::NonContiguousFrameSeq { expected: 0, .. }
     ));
+    assert!(!sessions.contains_stream("mic-2"), "畸形首帧不得注册新流");
 }
 
 /// 流数量必须有界：超过上限按 LRU 逐出最久未用的流。
@@ -291,6 +292,23 @@ fn stream_count_is_bounded_with_lru_eviction() {
     sessions.ingest("a", 0, &frame, &frame, false).expect("a");
     sessions.ingest("b", 0, &frame, &frame, false).expect("b");
     assert_eq!(sessions.stream_count(), 2);
+
+    // 畸形首帧（seq=5）必须先被拒绝，绝不能先逐出 a/b 再失败。
+    let error = sessions
+        .ingest("c", 5, &frame, &frame, false)
+        .expect_err("新流非 0 首帧必须拒绝");
+    assert!(matches!(
+        error,
+        VoiceStreamError::NonContiguousFrameSeq {
+            expected: 0,
+            actual: 5
+        }
+    ));
+    assert_eq!(sessions.stream_count(), 2, "畸形首帧不得改变流集合");
+    assert!(
+        sessions.contains_stream("a") && sessions.contains_stream("b"),
+        "畸形首帧不得逐出既有流的 AEC 状态"
+    );
 
     sessions.ingest("c", 0, &frame, &frame, false).expect("c");
     assert_eq!(sessions.stream_count(), 2, "流数不得超过上限");

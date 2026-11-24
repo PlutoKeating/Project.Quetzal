@@ -364,7 +364,16 @@ impl PackSource for MemorySource {
     }
 }
 
-fn sample_pack() -> (OnDemandAiPackManager, PackManifest) {
+/// 临时 home 的 RAII 清理守卫（测试结束即删除，避免 `/tmp` 残留）。
+struct TempHome(PathBuf);
+
+impl Drop for TempHome {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn sample_pack() -> (OnDemandAiPackManager, PackManifest, TempHome) {
     let home = std::env::temp_dir().join(format!(
         "qz-voice-telemetry-{}-{}",
         std::process::id(),
@@ -403,12 +412,12 @@ fn sample_pack() -> (OnDemandAiPackManager, PackManifest) {
         key.verifying_key(),
     )
     .expect("构造按需模型管理器");
-    (manager, manifest)
+    (manager, manifest, TempHome(home))
 }
 
 #[test]
 fn ort_disable_telemetry_is_present_on_every_load_path() {
-    let (manager, manifest) = sample_pack();
+    let (manager, manifest, _home) = sample_pack();
     assert_eq!(
         manager
             .loader_environment()

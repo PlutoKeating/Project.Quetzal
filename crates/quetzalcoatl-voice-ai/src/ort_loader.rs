@@ -290,12 +290,24 @@ impl<B: OrtRuntimeBridge> OrtInitializer<B> {
     }
 
     /// 初始化动态 ORT：
-    /// 1. 写入（并保持）`ORT_DISABLE_TELEMETRY=1` 环境轴；
+    /// 1. 要求**当前进程**已导出 `ORT_DISABLE_TELEMETRY=1`（否则 fail-closed，绝不在未关闭
+    ///    遥测的进程里初始化 ORT）；同时保持加载器环境供子进程继承；
     /// 2. 以 `disable_telemetry = true` 调用宿主桥接（API 轴）；
     /// 3. 桥接报告遥测仍开启时返回 `IntegrityViolation`，绝不假成功。
     pub fn initialize(&mut self, library: &Path) -> Result<OrtInitialization> {
         self.environment
             .insert(String::from(ORT_DISABLE_TELEMETRY), String::from("1"));
+        // Rust 2024 中 `std::env::set_var` 为 `unsafe`，本 crate 禁止 unsafe：
+        // 因此只能要求宿主在启动本进程前导出该变量，并在此处 fail-closed 校验。
+        let process_axis_ready =
+            std::env::var(ORT_DISABLE_TELEMETRY).is_ok_and(|value| value.trim() == "1");
+        if !process_axis_ready {
+            return Err(QuetzalcoatlError::IntegrityViolation {
+                detail: format!(
+                    "当前进程未导出 {ORT_DISABLE_TELEMETRY}=1，无法保证 POSIX 1DS 遥测关闭，已按 fail-closed 拒绝初始化 ORT"
+                ),
+            });
+        }
         let telemetry = self.bridge.init(library, true)?;
         if telemetry != TelemetryStatus::Disabled {
             return Err(QuetzalcoatlError::IntegrityViolation {
@@ -343,9 +355,20 @@ impl OrtRuntimeBridge for OrtCrateBridge {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileFingerprint {
+    path: String,
+    size: u64,
+    mtime_nanos: u128,
+    /// 变更时间（unix 纳秒）；非 unix 平台为 0。
+    ctime_nanos: u128,
+    /// inode；非 unix 平台为 0。
+    inode: u64,
+}
+
 #[derive(Clone, Debug)]
 struct CachedVerification {
-    fingerprint: Vec<(String, u64, u128)>,
+    fingerprint: Vec<FileFingerprint>,
     pack: InstalledPack,
 }
 
@@ -561,7 +584,7 @@ impl OnDemandAiPackManager {
                 fs::metadata(&path).map_err(|error| QuetzalcoatlError::IntegrityViolation {
                     detail: format!("模型文件缺失 {}: {error}", path.display()),
                 })?;
-            fingerprint.push((file.path.clone(), metadata.len(), modified_nanos(&metadata)));
+            fingerprint.push(file_fingerprint(&file.path, &metadata));
         }
         let key = (manifest.pack.clone(), manifest.version.clone());
         if let Ok(cache) = self.cache.lock()
@@ -653,6 +676,31 @@ impl OnDemandAiPackManager {
             .ok_or_else(|| QuetzalcoatlError::IntegrityViolation {
                 detail: format!("未找到已验签的模型包 {}/{version}", kind.directory_name()),
             })
+    }
+}
+
+fn file_fingerprint(path: &str, metadata: &fs::Metadata) -> FileFingerprint {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        FileFingerprint {
+            path: path.to_string(),
+            size: metadata.len(),
+            mtime_nanos: modified_nanos(metadata),
+            ctime_nanos: u128::from(metadata.ctime().unsigned_abs()).saturating_mul(1_000_000_000)
+                + u128::from(metadata.ctime_nsec().unsigned_abs()),
+            inode: metadata.ino(),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        FileFingerprint {
+            path: path.to_string(),
+            size: metadata.len(),
+            mtime_nanos: modified_nanos(metadata),
+            ctime_nanos: 0,
+            inode: 0,
+        }
     }
 }
 
