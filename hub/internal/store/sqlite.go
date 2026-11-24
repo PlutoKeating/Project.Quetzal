@@ -21,6 +21,7 @@ var (
 	ErrNotImplemented  = errors.New("not implemented")
 	ErrNotFound        = errors.New("not found")
 	ErrConflict        = errors.New("conflict")
+	ErrEpochConflict   = errors.New("mls epoch conflict")
 	ErrQuotaExceeded   = errors.New("quota exceeded")
 	ErrStaleLeaseEpoch = errors.New("stale lease epoch")
 	ErrLocked          = errors.New("locked")
@@ -292,6 +293,22 @@ type GroupCommit struct {
 	AuthorKind      string `json:"author_kind"`
 	Hop             int    `json:"hop"`
 	CreatedAtMs     int64  `json:"created_at_ms"`
+	// ReencryptOnly 标记“同一密文纯密钥轮换”，仅用于纪元校验，不落库。
+	ReencryptOnly bool `json:"-"`
+}
+
+// validateEpochAdvance 是纪元写入门禁的唯一实现：只允许持平，或恰 +1 且显式纯密钥轮换。
+func validateEpochAdvance(current uint64, commit GroupCommit) error {
+	switch {
+	case commit.MLSEpoch < current:
+		return ErrEpochConflict
+	case commit.MLSEpoch == current:
+		return nil
+	case commit.MLSEpoch != current+1 || !commit.ReencryptOnly:
+		return ErrEpochConflict
+	default:
+		return nil
+	}
 }
 
 type Store interface {
@@ -365,7 +382,6 @@ type Store interface {
 	GetGroupCommit(ctx context.Context, groupID string, serverSeq uint64) (*GroupCommit, error)
 	ListGroupCommits(ctx context.Context, groupID string, afterSeq uint64, limit int) ([]GroupCommit, error)
 	GroupRoomHead(ctx context.Context, groupID string) (uint64, uint64, error)
-	SetGroupRoomEpoch(ctx context.Context, groupID string, epoch uint64) error
 }
 
 const sqliteSchemaDDL = `
@@ -641,7 +657,68 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("init sqlite schema: %w", err)
 	}
+	if err := migrateSQLiteGroupSchema(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate sqlite group schema: %w", err)
+	}
 	return &SQLiteStore{db: db}, nil
+}
+
+// migrateSQLiteGroupSchema 为 Fix Round 1 之前创建的旧数据目录补齐群组新列。
+// 迁移幂等：先查 PRAGMA table_info，缺列才 ALTER，重启多次也不会重复添加。
+func migrateSQLiteGroupSchema(db *sql.DB) error {
+	columns := []struct {
+		table  string
+		column string
+		ddl    string
+	}{
+		{"group_rooms", "current_mls_epoch",
+			`ALTER TABLE group_rooms ADD COLUMN current_mls_epoch INTEGER NOT NULL DEFAULT 0`},
+		{"group_commits", "kind",
+			`ALTER TABLE group_commits ADD COLUMN kind TEXT NOT NULL DEFAULT 'message'`},
+		{"group_commits", "author_kind",
+			`ALTER TABLE group_commits ADD COLUMN author_kind TEXT NOT NULL DEFAULT 'human'`},
+		{"group_commits", "hop",
+			`ALTER TABLE group_commits ADD COLUMN hop INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, col := range columns {
+		exists, err := sqliteTableHasColumn(db, col.table, col.column)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.Exec(col.ddl); err != nil {
+			return fmt.Errorf("add %s.%s: %w", col.table, col.column, err)
+		}
+	}
+	return nil
+}
+
+func sqliteTableHasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			columnTyp string
+			notNull   int
+			defaultV  any
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &columnTyp, &notNull, &defaultV, &pk); err != nil {
+			return false, fmt.Errorf("scan %s columns: %w", table, err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (s *SQLiteStore) Close() error {
@@ -1857,7 +1934,8 @@ func (s *SQLiteStore) ListGroupMembers(ctx context.Context, groupID string) ([]G
 	return out, rows.Err()
 }
 
-// AppendGroupCommit 在单事务内为该群原子分配严格单调的 server_seq。
+// AppendGroupCommit 在单事务内为该群原子分配严格单调的 server_seq，
+// 并在同一事务中校验/推进 MLS 纪元（避免陈旧纪元并发穿透）。
 func (s *SQLiteStore) AppendGroupCommit(ctx context.Context, commit GroupCommit) (*GroupCommit, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1866,6 +1944,19 @@ func (s *SQLiteStore) AppendGroupCommit(ctx context.Context, commit GroupCommit)
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	var currentEpoch uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT current_mls_epoch FROM group_rooms WHERE group_id = ?
+	`, commit.GroupID).Scan(&currentEpoch); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if err := validateEpochAdvance(currentEpoch, commit); err != nil {
+		return nil, err
+	}
 
 	var nextSeq uint64
 	if err := tx.QueryRowContext(ctx, `
@@ -1882,6 +1973,13 @@ func (s *SQLiteStore) AppendGroupCommit(ctx context.Context, commit GroupCommit)
 		commit.SenderDeviceID, commit.MentionsJSON, commit.CiphertextB64, commit.Kind,
 		commit.AuthorKind, commit.Hop, commit.CreatedAtMs); err != nil {
 		return nil, err
+	}
+	if commit.MLSEpoch > currentEpoch {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE group_rooms SET current_mls_epoch = ? WHERE group_id = ?
+		`, commit.MLSEpoch, commit.GroupID); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -1981,35 +2079,4 @@ func (s *SQLiteStore) GroupRoomHead(ctx context.Context, groupID string) (uint64
 		return 0, 0, err
 	}
 	return head, epoch, nil
-}
-
-// SetGroupRoomEpoch 推进群当前 MLS 纪元（仅允许上升）。
-func (s *SQLiteStore) SetGroupRoomEpoch(ctx context.Context, groupID string, epoch uint64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE group_rooms SET current_mls_epoch = ? WHERE group_id = ? AND current_mls_epoch < ?
-	`, epoch, groupID, epoch)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		// 要么已是该纪元，要么群不存在。
-		var existing uint64
-		err := s.db.QueryRowContext(ctx, `SELECT current_mls_epoch FROM group_rooms WHERE group_id = ?`, groupID).Scan(&existing)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if existing != epoch {
-			return ErrConflict
-		}
-	}
-	return nil
 }

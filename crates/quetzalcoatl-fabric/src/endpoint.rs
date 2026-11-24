@@ -2834,6 +2834,10 @@ impl HubClient {
             .map_err(|e| QuetzalcoatlError::StorageError {
                 detail: e.to_string(),
             })?;
+        // 删除成员是幂等语义：Hub 已无该成员（404）即视为撤销成功，保证失败重试可收敛。
+        if st == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
         if !st.is_success() {
             return Err(Self::parse_hub_error(st, &raw));
         }

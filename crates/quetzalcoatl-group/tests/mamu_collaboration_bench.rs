@@ -9,7 +9,8 @@ use std::path::PathBuf;
 
 use quetzalcoatl_group::commit_barrier::{
     BarrierResolution, GroupHead, InterveningEvent, SubmittedCommit, UnreadWatermarkBarrier,
-    decrypt_with_epoch_key, reencrypt_with_new_epoch,
+    decrypt_with_epoch_key, frame_epoch_ciphertext, reencrypt_with_new_epoch, seal_with_epoch_key,
+    unframe_epoch_ciphertext,
 };
 use quetzalcoatl_group::facilitator::{FacilitatorHolder, RoomFacilitator, SharedResourceRequest};
 use quetzalcoatl_group::floor_control::{
@@ -519,6 +520,37 @@ fn layer_one_reencrypts_without_touching_plaintext_or_model() {
         decrypt_with_epoch_key(&old_key, &rotated).is_err(),
         "old epoch key must not open the re-encrypted blob"
     );
+}
+
+#[test]
+fn framed_epoch_envelope_is_receiver_consumable_after_rotation() {
+    // 帧格式必须自带 epoch 与 nonce，接收方无需外部元数据即可解封。
+    let master = [7u8; 32];
+    let plaintext = b"mls ciphertext payload";
+    let sealed = seal_with_epoch_key(&master, 3, plaintext).expect("seal");
+    let framed = frame_epoch_ciphertext(&sealed);
+    let parsed = unframe_epoch_ciphertext(&framed).expect("unframe");
+    assert_eq!(parsed.epoch, 3);
+    assert_eq!(parsed.nonce, sealed.nonce);
+    assert_eq!(
+        decrypt_with_epoch_key(&master, &parsed).expect("receiver decrypts framed envelope"),
+        plaintext
+    );
+
+    // 轮换后的封套同样必须自描述且只被新纪元密钥解开。
+    let sealed = seal_with_epoch_key(&master, 3, plaintext).expect("seal");
+    let rotated = reencrypt_with_new_epoch(&master, &master, 4, &sealed).expect("reencrypt");
+    let framed = frame_epoch_ciphertext(&rotated);
+    let parsed = unframe_epoch_ciphertext(&framed).expect("unframe rotated");
+    assert_eq!(parsed.epoch, 4);
+    assert_eq!(
+        decrypt_with_epoch_key(&master, &parsed).expect("new epoch decrypts"),
+        plaintext
+    );
+
+    // 截断/空封套必须 fail closed。
+    assert!(unframe_epoch_ciphertext(&[]).is_err());
+    assert!(unframe_epoch_ciphertext(&framed[..20]).is_err());
 }
 
 #[test]

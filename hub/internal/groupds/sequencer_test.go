@@ -642,9 +642,109 @@ func TestDeleteGroupMemberRevokesCommitAccess(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("kicked member commit expected 403, got %d (%s)", resp.StatusCode, body)
 	}
+	// 已被踢出者重试自我离群：幂等，成员行已不存在 → 404（客户端视为撤销成功）。
+	resp, body = doJSON(t, h.srv.Client(), http.MethodDelete, h.srv.URL+"/v1/groups/revoke-room/members/agent-b", "token-b", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("idempotent self-leave expected 404, got %d (%s)", resp.StatusCode, body)
+	}
 	resp, body = doJSON(t, h.srv.Client(), http.MethodDelete, h.srv.URL+"/v1/groups/revoke-room/members/agent-c", "token-a", nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown member delete expected 404, got %d (%s)", resp.StatusCode, body)
+	}
+}
+
+func TestCommitSequencerRejectsEpochJumpBeyondOne(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "jump-room", "agent-a", 1)
+
+	// 任意大步长纪元跳跃（此处 0 -> 2）绝不能被 reencrypt_only 洗白。
+	resp, body := h.postCommit(t, "token-a", "jump-room", map[string]any{
+		"sender_agent_id":  "agent-a",
+		"sender_device_id": "dev-a",
+		"mls_epoch":        2,
+		"reencrypt_only":   true,
+	})
+	if resp.StatusCode != http.StatusConflict || !bytes.Contains(body, []byte("WATERMARK_CONFLICT")) {
+		t.Fatalf("two-epoch jump must be refused, got %d (%s)", resp.StatusCode, body)
+	}
+
+	// 恰 +1 的纯密钥轮换仍然允许。
+	resp, body = h.postCommit(t, "token-a", "jump-room", map[string]any{
+		"sender_agent_id":  "agent-a",
+		"sender_device_id": "dev-a",
+		"mls_epoch":        1,
+		"reencrypt_only":   true,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("single step rotation expected 201, got %d (%s)", resp.StatusCode, body)
+	}
+}
+
+func TestEpochValidationIsAtomicWithCommitAppend(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "atomic-epoch", "agent-a", 1)
+
+	const staleWriters = 12
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < staleWriters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _ = h.postCommit(t, "token-a", "atomic-epoch", map[string]any{
+				"sender_agent_id":  "agent-a",
+				"sender_device_id": "dev-a",
+				"mls_epoch":        0,
+			})
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		_, _ = h.postCommit(t, "token-a", "atomic-epoch", map[string]any{
+			"sender_agent_id":  "agent-a",
+			"sender_device_id": "dev-a",
+			"mls_epoch":        1,
+			"reencrypt_only":   true,
+		})
+	}()
+	close(start)
+	wg.Wait()
+
+	resp, body := doJSON(t, h.srv.Client(), http.MethodGet, h.srv.URL+"/v1/groups/atomic-epoch/commits?after_seq=0&limit=200", "token-a", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list commits: %d %s", resp.StatusCode, body)
+	}
+	var payload struct {
+		Commits []struct {
+			ServerSeq uint64 `json:"server_seq"`
+			MLSEpoch  uint64 `json:"mls_epoch"`
+		} `json:"commits"`
+		HeadGroupSeq    uint64 `json:"head_group_seq"`
+		CurrentMLSEpoch uint64 `json:"current_mls_epoch"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("parse commits: %v", err)
+	}
+	if payload.CurrentMLSEpoch != 1 {
+		t.Fatalf("room epoch must settle at 1, got %d", payload.CurrentMLSEpoch)
+	}
+	var rotationSeq uint64
+	for _, c := range payload.Commits {
+		if c.MLSEpoch == 1 && (rotationSeq == 0 || c.ServerSeq < rotationSeq) {
+			rotationSeq = c.ServerSeq
+		}
+	}
+	if rotationSeq == 0 {
+		t.Fatalf("rotation commit missing from %+v", payload.Commits)
+	}
+	for _, c := range payload.Commits {
+		// 纪元校验必须与追加同事务：轮换生效后，任何更旧纪元的提交都不得落库。
+		if c.MLSEpoch < 1 && c.ServerSeq > rotationSeq {
+			t.Fatalf("stale epoch commit accepted after rotation: %+v (rotation seq %d)", c, rotationSeq)
+		}
 	}
 }
 

@@ -260,7 +260,27 @@ func NewPostgresStore(dsn string) (*PostgresStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("init postgres schema: %w", err)
 	}
+	if err := migratePostgresGroupSchema(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate postgres group schema: %w", err)
+	}
 	return &PostgresStore{db: db}, nil
+}
+
+// migratePostgresGroupSchema 为 Fix Round 1 之前的旧库补齐群组新列（幂等）。
+func migratePostgresGroupSchema(db *sql.DB) error {
+	statements := []string{
+		`ALTER TABLE group_rooms ADD COLUMN IF NOT EXISTS current_mls_epoch BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE group_commits ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'message'`,
+		`ALTER TABLE group_commits ADD COLUMN IF NOT EXISTS author_kind TEXT NOT NULL DEFAULT 'human'`,
+		`ALTER TABLE group_commits ADD COLUMN IF NOT EXISTS hop BIGINT NOT NULL DEFAULT 0`,
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("exec %q: %w", stmt, err)
+		}
+	}
+	return nil
 }
 
 func (p *PostgresStore) Close() error {
@@ -1333,10 +1353,15 @@ func (p *PostgresStore) AppendGroupCommit(ctx context.Context, commit GroupCommi
 
 	// 行级锁串行化同一群的并发提交，保证 server_seq 严格单调且无空洞。
 	var lockedGroup string
-	if err := tx.QueryRowContext(ctx, `SELECT group_id FROM group_rooms WHERE group_id = $1 FOR UPDATE`, commit.GroupID).Scan(&lockedGroup); err != nil {
+	var currentEpoch uint64
+	if err := tx.QueryRowContext(ctx, `SELECT group_id, current_mls_epoch FROM group_rooms WHERE group_id = $1 FOR UPDATE`, commit.GroupID).Scan(&lockedGroup, &currentEpoch); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
+		return nil, err
+	}
+	// 纪元校验必须与追加同事务：持锁读取当前纪元后再判定，杜绝并发陈旧纪元穿透。
+	if err := validateEpochAdvance(currentEpoch, commit); err != nil {
 		return nil, err
 	}
 	var nextSeq uint64
@@ -1354,6 +1379,13 @@ func (p *PostgresStore) AppendGroupCommit(ctx context.Context, commit GroupCommi
 		commit.SenderDeviceID, commit.MentionsJSON, commit.CiphertextB64, commit.Kind,
 		commit.AuthorKind, commit.Hop, commit.CreatedAtMs); err != nil {
 		return nil, err
+	}
+	if commit.MLSEpoch > currentEpoch {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE group_rooms SET current_mls_epoch = $1 WHERE group_id = $2
+		`, commit.MLSEpoch, commit.GroupID); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -1441,31 +1473,4 @@ func (p *PostgresStore) GroupRoomHead(ctx context.Context, groupID string) (uint
 		return 0, 0, err
 	}
 	return head, epoch, nil
-}
-
-func (p *PostgresStore) SetGroupRoomEpoch(ctx context.Context, groupID string, epoch uint64) error {
-	res, err := p.db.ExecContext(ctx, `
-		UPDATE group_rooms SET current_mls_epoch = $1 WHERE group_id = $2 AND current_mls_epoch < $1
-	`, epoch, groupID)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		var existing uint64
-		err := p.db.QueryRowContext(ctx, `SELECT current_mls_epoch FROM group_rooms WHERE group_id = $1`, groupID).Scan(&existing)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if existing != epoch {
-			return ErrConflict
-		}
-	}
-	return nil
 }

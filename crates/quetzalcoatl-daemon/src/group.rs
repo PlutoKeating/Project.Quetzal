@@ -12,8 +12,7 @@ use std::sync::OnceLock;
 
 use quetzalcoatl_fabric::{GroupCommitRecord, HubClient, HubClientConfig};
 use quetzalcoatl_group::commit_barrier::{
-    GroupHead, InterveningEvent, SubmittedCommit, UnreadWatermarkBarrier, reencrypt_with_new_epoch,
-    seal_with_epoch_key,
+    GroupHead, InterveningEvent, SubmittedCommit, UnreadWatermarkBarrier,
 };
 use quetzalcoatl_group::facilitator::FacilitatorHolder;
 use quetzalcoatl_group::floor_control::{AnpP9FloorGate, FloorInput, Mention, SenderKind};
@@ -162,7 +161,6 @@ pub struct PreparedSend {
     pub room_id: String,
     pub mls_ciphertext: Vec<u8>,
     pub local_epoch: u64,
-    pub epoch_master: [u8; 32],
     pub last_seen_group_seq: u64,
     pub floor_action: String,
     pub authority_envelope: String,
@@ -183,6 +181,46 @@ pub struct AppliedSend {
     pub causal_parent_seq: Option<u64>,
     pub watermark_resolution: String,
     pub submitted_epoch: u64,
+    /// 真正提交到 Hub 的密文字节（发送结果必须回报它，而非本地待发布副本）。
+    pub appended_ciphertext: Vec<u8>,
+}
+
+/// 纪元写入决策：只区分“持平直发”与“本地恰领先 1 的纯密钥轮换”。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EpochWritePlan {
+    /// 本地与 Hub 纪元一致：直接发布 MLS 密文本体。
+    PublishCurrent { epoch: u64 },
+    /// 本地恰领先 1：标记 `reencrypt_only`，由 Hub 原子推进纪元。
+    PublishAdvance { epoch: u64 },
+}
+
+/// 纪元写入门禁（fail closed）。
+///
+/// 只有两种情形允许外发：
+/// * `local_epoch == hub_epoch`：正常提交；
+/// * `local_epoch == hub_epoch + 1`：本地已完成一次纯密钥轮换。
+///
+/// `hub_epoch > local_epoch` 说明本机尚未处理 Hub 的轮换 Commit，**没有** `EpochKey[e+1]`，
+/// 此时任何“重封”都会发布接收方无法解开的字节，因此必须返回 `WatermarkConflict`，
+/// 待拉取并处理 Commit 后再发。更大的本地领先同样视为真分歧。
+pub fn plan_epoch_write(
+    local_epoch: u64,
+    hub_epoch: u64,
+    last_seen_seq: u64,
+    head_seq: u64,
+) -> Result<EpochWritePlan> {
+    let conflict = || QuetzalcoatlError::WatermarkConflict {
+        last_seen_seq,
+        head_seq,
+    };
+    if hub_epoch > local_epoch {
+        return Err(conflict());
+    }
+    match local_epoch - hub_epoch {
+        0 => Ok(EpochWritePlan::PublishCurrent { epoch: hub_epoch }),
+        1 => Ok(EpochWritePlan::PublishAdvance { epoch: local_epoch }),
+        _ => Err(conflict()),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -520,26 +558,30 @@ impl GroupRoomRuntime {
         store: &mut S,
     ) -> Result<GroupLeaveOutcome> {
         self.refresh_hub_session()?;
+        if !self.rooms.contains_key(room_id) {
+            return Ok(GroupLeaveOutcome {
+                room_id: room_id.to_owned(),
+                left: false,
+            });
+        }
+        // Hub 先行：成员行未删掉就绝不丢弃本地房间，否则重试只会得到 left:false 而 Hub 权限仍在。
+        // 删除是幂等的（Hub 404 视为成功），因此“Hub 已删、本地未清”的崩溃可由下次调用收敛。
+        if let Some(client) = &self.hub_client
+            && client.session_token().is_some()
+        {
+            block_on(client.remove_group_member(room_id, self.agent_id))?;
+        }
         let Some(mut room) = self.rooms.remove(room_id) else {
             return Ok(GroupLeaveOutcome {
                 room_id: room_id.to_owned(),
                 left: false,
             });
         };
-        // MLS 自我移除必须以离群提案表达（协议禁止自提交移除）；Hub 成员行同步删除。
+        // MLS 自我移除必须以离群提案表达（协议禁止自提交移除）。
         let proposal = room.engine.leave_proposal()?;
         let proposal_path = format!("groups/leave/{room_id}");
         store.put_private_blob(&proposal_path, &base64_encode(&proposal))?;
         room.engine.persist_to(store)?;
-        if let Some(client) = &self.hub_client
-            && client.session_token().is_some()
-        {
-            // 已被踢出的成员再次 leave 属幂等成功；仅真正的授权错误才上抛。
-            match block_on(client.remove_group_member(room_id, self.agent_id)) {
-                Ok(()) | Err(QuetzalcoatlError::PermissionDenied { .. }) => {}
-                Err(err) => return Err(err),
-            }
-        }
         self.persist_registry()?;
         Ok(GroupLeaveOutcome {
             room_id: room_id.to_owned(),
@@ -670,7 +712,6 @@ impl GroupRoomRuntime {
             Vec::new()
         };
         let local_epoch = room.engine.mls_epoch();
-        let epoch_master = room.engine.epoch_secret()?;
         let author_kind = match sender_kind {
             SenderKind::PeerAgent => "agent",
             SenderKind::OwnerHuman | SenderKind::OtherHuman => "human",
@@ -679,7 +720,6 @@ impl GroupRoomRuntime {
             room_id: room_id.to_owned(),
             mls_ciphertext,
             local_epoch,
-            epoch_master,
             last_seen_group_seq: room.last_seen_group_seq,
             floor_action: floor.floor_action.as_wire_str().to_owned(),
             authority_envelope: floor.authority_envelope.as_wire_str().to_owned(),
@@ -721,7 +761,12 @@ impl GroupRoomRuntime {
                 floor_action: prepared.floor_action,
                 authority_envelope: prepared.authority_envelope,
                 ciphertext_b64: if prepared.should_speak {
-                    Some(base64_encode(&prepared.mls_ciphertext))
+                    let published = applied
+                        .as_ref()
+                        .map_or(prepared.mls_ciphertext.as_slice(), |result| {
+                            result.appended_ciphertext.as_slice()
+                        });
+                    Some(base64_encode(published))
                 } else {
                     None
                 },
@@ -736,7 +781,8 @@ impl GroupRoomRuntime {
         Ok(outcome)
     }
 
-    /// 兼容本地（无 Hub）与单元测试的一体化发送。
+    /// 兼容本地（无 Hub）与单元测试的一体化发送：与 `GroupSend` IPC 完全同一条
+    /// prepared → 网络 → finish 路径，绝不静默跳过 Hub 提交。
     #[allow(clippy::too_many_arguments)]
     pub fn send<S: MaterializedStore + ?Sized>(
         &mut self,
@@ -758,7 +804,11 @@ impl GroupRoomRuntime {
             "message",
             0,
         )?;
-        self.finish_send(prepared, None, store)
+        let pushed = push_prepared_to_hub(&prepared);
+        let applied = pushed.as_ref().ok().and_then(Clone::clone);
+        let outcome = self.finish_send(prepared, applied, store)?;
+        pushed?;
+        Ok(outcome)
     }
 
     /// 吊销协管授权：踢出 MLS 成员并轮换 `EpochKey[e+1]`。
@@ -781,7 +831,14 @@ impl GroupRoomRuntime {
         let identity_name = String::from_utf8(mls_identity.to_vec()).map_err(|_| {
             QuetzalcoatlError::invalid_id("revoke-steward", "MLS 成员身份不是合法 UTF-8")
         })?;
-        // 顺序：先 MLS 踢人 + 纪元轮换，再删除 Hub 成员行，最后持久化授权状态。
+        // Hub 先行：成员行还活着就绝不先踢 MLS/轮换纪元，否则 Hub 失败会让重试死在
+        // “目标成员不在群”，Hub 授权永久残留。DELETE 幂等（404 视为成功）保证重试收敛。
+        if let Some(client) = &self.hub_client
+            && client.session_token().is_some()
+        {
+            block_on(client.remove_group_member(room_id, grant.steward_agent_id))?;
+        }
+        // MLS 踢人 + 纪元轮换；若上次已踢成功（成员已不在群），则跳过以避免重复操作。
         let (rotated_epoch, revoked_epoch) = {
             let room =
                 self.rooms
@@ -789,17 +846,21 @@ impl GroupRoomRuntime {
                     .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
                         detail: format!("群 {room_id} 未加入"),
                     })?;
-            let revoked_epoch = room.engine.mls_epoch();
-            room.engine.remove_member(&identity_name)?;
-            room.engine.commit_pending()?;
-            room.engine.persist_to(store)?;
-            (room.engine.mls_epoch(), revoked_epoch)
+            let current = room.engine.mls_epoch();
+            if room
+                .engine
+                .members()
+                .iter()
+                .any(|member| member == &identity_name)
+            {
+                room.engine.remove_member(&identity_name)?;
+                room.engine.commit_pending()?;
+                room.engine.persist_to(store)?;
+                (room.engine.mls_epoch(), current)
+            } else {
+                (current, current)
+            }
         };
-        if let Some(client) = &self.hub_client
-            && client.session_token().is_some()
-        {
-            block_on(client.remove_group_member(room_id, grant.steward_agent_id))?;
-        }
         let revocation =
             self.stewards
                 .revoke(&grant.grant_id, revoked_epoch, crate::daemon::now_unix_ms())?;
@@ -910,26 +971,22 @@ pub fn push_prepared_to_hub(prepared: &PreparedSend) -> Result<Option<AppliedSen
     };
     let barrier = UnreadWatermarkBarrier::resolve(&head, &submitted, &events)?;
 
-    // Layer 1：真正把同一密文换封到目标纪元密钥；绝不重跑模型。
-    // 目标纪元 = max(本地, Hub)：Hub 领先 → 重封到 Hub 新纪元；本地领先 → 显式标记纯密钥轮换。
-    let target_epoch = prepared.local_epoch.max(hub_epoch);
-    let reencrypt_only = target_epoch != hub_epoch;
-    let payload = if target_epoch != prepared.local_epoch {
-        let sealed_local = seal_with_epoch_key(
-            &prepared.epoch_master,
-            prepared.local_epoch,
-            &prepared.mls_ciphertext,
-        )?;
-        reencrypt_with_new_epoch(
-            &prepared.epoch_master,
-            &prepared.epoch_master,
-            target_epoch,
-            &sealed_local,
-        )?
-        .ciphertext
-    } else {
-        prepared.mls_ciphertext.clone()
+    // Layer 1：纪元门禁 fail closed。Hub 领先说明本机还没处理轮换 Commit，缺 `EpochKey[e+1]`，
+    // 此时任何重封都会发布接收方无法解开的字节 → 必须冲突待重读；本地领先超过 1 同为真分歧。
+    // 只有“持平直发”与“本地恰领先 1 的纯密钥轮换”允许上线。
+    let plan = plan_epoch_write(
+        prepared.local_epoch,
+        hub_epoch,
+        prepared.last_seen_group_seq,
+        head_seq,
+    )?;
+    let (target_epoch, reencrypt_only) = match plan {
+        EpochWritePlan::PublishCurrent { epoch } => (epoch, false),
+        EpochWritePlan::PublishAdvance { epoch } => (epoch, true),
     };
+    // 两条可发布路径提交的都是 MLS 本体密文，绝不丢弃 nonce/epoch 再重封；
+    // 若将来必须重封，只能发布 `frame_epoch_ciphertext` 的自描述封套。
+    let payload = prepared.mls_ciphertext.clone();
     let mentions_json = serde_json::to_value(&prepared.mentions).map_err(|err| {
         QuetzalcoatlError::SerializationError {
             detail: err.to_string(),
@@ -957,6 +1014,7 @@ pub fn push_prepared_to_hub(prepared: &PreparedSend) -> Result<Option<AppliedSen
         causal_parent_seq: Some(causal_parent),
         watermark_resolution: barrier.resolution.as_wire_str().to_owned(),
         submitted_epoch: target_epoch,
+        appended_ciphertext: payload,
     }))
 }
 
@@ -1019,7 +1077,7 @@ pub fn registry_path_for(home: &Path) -> PathBuf {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use quetzalcoatl_group::floor_control::MentionKind;
@@ -1038,6 +1096,41 @@ mod tests {
             author_kind: String::from("agent"),
             hop: 2,
             created_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn epoch_write_plan_fails_closed_and_only_allows_single_step_advance() {
+        assert_eq!(
+            plan_epoch_write(0, 0, 3, 3),
+            Ok(EpochWritePlan::PublishCurrent { epoch: 0 })
+        );
+        assert_eq!(
+            plan_epoch_write(4, 4, 3, 3),
+            Ok(EpochWritePlan::PublishCurrent { epoch: 4 })
+        );
+        assert_eq!(
+            plan_epoch_write(5, 4, 3, 3),
+            Ok(EpochWritePlan::PublishAdvance { epoch: 5 })
+        );
+        // Hub 领先：本机没有 EpochKey[e+1]，绝不能重封后上线。
+        for (local, hub) in [(4u64, 5u64), (1, 9), (0, u64::MAX)] {
+            match plan_epoch_write(local, hub, 7, 11) {
+                Err(QuetzalcoatlError::WatermarkConflict {
+                    last_seen_seq,
+                    head_seq,
+                }) => {
+                    assert_eq!((last_seen_seq, head_seq), (7, 11));
+                }
+                other => panic!("hub-ahead must conflict, got {other:?}"),
+            }
+        }
+        // 本地领先超过 1：真分歧，同样冲突。
+        for (local, hub) in [(2u64, 0u64), (9, 4)] {
+            assert!(matches!(
+                plan_epoch_write(local, hub, 1, 2),
+                Err(QuetzalcoatlError::WatermarkConflict { .. })
+            ));
         }
     }
 

@@ -271,3 +271,38 @@ pub fn reencrypt_with_new_epoch(
     let plaintext = decrypt_with_epoch_key(old_master_key, sealed)?;
     seal_with_epoch_key(new_master_key, new_epoch, &plaintext)
 }
+
+/// 纪元密文的线格式封套长度：`epoch(8) + nonce(12)`。
+const EPOCH_ENVELOPE_HEADER_LEN: usize = 8 + 12;
+
+/// 把纪元密文编码为接收方可直接解封的线格式：
+/// `epoch(u64 BE) || nonce(12) || ciphertext`。
+///
+/// 任何“把已密封密文再次发布”的路径都必须使用本帧格式；只发裸 `ciphertext`
+/// 会丢掉 `nonce` 与 `epoch`，接收方无法重建 AEAD 参数（历史缺陷）。
+#[must_use]
+pub fn frame_epoch_ciphertext(sealed: &EpochCiphertext) -> Vec<u8> {
+    let mut out = Vec::with_capacity(EPOCH_ENVELOPE_HEADER_LEN + sealed.ciphertext.len());
+    out.extend_from_slice(&sealed.epoch.to_be_bytes());
+    out.extend_from_slice(&sealed.nonce);
+    out.extend_from_slice(&sealed.ciphertext);
+    out
+}
+
+/// 解析 [`frame_epoch_ciphertext`] 的线格式；截断或空载荷一律拒绝。
+pub fn unframe_epoch_ciphertext(bytes: &[u8]) -> Result<EpochCiphertext> {
+    if bytes.len() <= EPOCH_ENVELOPE_HEADER_LEN {
+        return Err(QuetzalcoatlError::SerializationError {
+            detail: String::from("纪元密文封套长度不足"),
+        });
+    }
+    let mut epoch_bytes = [0u8; 8];
+    epoch_bytes.copy_from_slice(&bytes[..8]);
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&bytes[8..EPOCH_ENVELOPE_HEADER_LEN]);
+    Ok(EpochCiphertext {
+        epoch: u64::from_be_bytes(epoch_bytes),
+        nonce,
+        ciphertext: bytes[EPOCH_ENVELOPE_HEADER_LEN..].to_vec(),
+    })
+}

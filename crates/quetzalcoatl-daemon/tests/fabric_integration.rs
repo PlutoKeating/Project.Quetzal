@@ -1071,21 +1071,22 @@ fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> Tes
     )?;
     assert!(group_json(&after_sync)?.is_object());
 
-    // 7. Hub 纪元领先 → 同密文重封到 EpochKey[e+1]，零模型重跑。
-    let (_, head, epoch) = rt.block_on(hub_client_a.list_group_commits("e2e-room", 0, 200))?;
+    // 7. Hub 纪元领先而本机未处理轮换 Commit：必须 fail closed，绝不上线无法解封的字节。
+    let (_, head_before_rotation, epoch) =
+        rt.block_on(hub_client_a.list_group_commits("e2e-room", 0, 200))?;
     rt.block_on(hub_client_a.append_group_commit(
         "e2e-room",
         agent_a,
         device_a.device_id(),
         epoch + 1,
-        head,
+        head_before_rotation,
         &serde_json::json!([]),
         "cm90YXRlZA==",
         "message",
         "human",
         true,
     ))?;
-    let rotated = run_qz(
+    let hub_ahead = run_qz(
         &home_a,
         &[
             "group",
@@ -1093,23 +1094,23 @@ fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> Tes
             "--room",
             "e2e-room",
             "--text",
-            "reencrypted",
+            "must-not-publish",
             "--to",
             &agent_a.to_string(),
             "--json",
         ],
     )?;
-    let rotated_json = group_json(&rotated)?;
-    assert_eq!(
-        group_data(&rotated_json)?["watermark_resolution"],
-        "REENCRYPT_WITH_NEW_MLS_EPOCH"
-    );
     assert!(
-        group_data(&rotated_json)?["server_seq"]
-            .as_u64()
-            .unwrap_or(0)
-            > 0
+        !hub_ahead.success && hub_ahead.stderr.contains("WATERMARK_CONFLICT"),
+        "hub-ahead epoch must fail closed, got {} {}",
+        hub_ahead.stdout,
+        hub_ahead.stderr
     );
+    // 失败的发送绝不能落库：真头保持在上一次人工轮换提交。
+    let (_, head_after_failed_send, hub_epoch_after) =
+        rt.block_on(hub_client_a.list_group_commits("e2e-room", 0, 200))?;
+    assert_eq!(head_after_failed_send, head_before_rotation + 1);
+    assert_eq!(hub_epoch_after, epoch + 1);
 
     // 8. Hub 黑洞时 Status 仍 <500ms（全局状态锁不得跨网络 I/O）。
     hub.pause()?;

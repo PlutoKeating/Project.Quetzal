@@ -253,21 +253,39 @@ func (s *Service) handleDeleteMember(w http.ResponseWriter, r *http.Request) {
 	}
 	groupID := strings.TrimSpace(r.PathValue("group_id"))
 	targetAgent := strings.TrimSpace(r.PathValue("agent_id"))
-	room, caller, ok := s.requireRoomMember(w, r, groupID, principal.AgentID)
-	if !ok {
-		return
-	}
 	if targetAgent == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_ID", "agent_id is required")
 		return
 	}
-	if targetAgent != principal.AgentID && !canInvite(caller.Role) {
-		writeError(w, http.StatusForbidden, "PERMISSION_DENIED", "only owner or steward may remove members")
+	room, err := s.store.GetGroupRoom(r.Context(), groupID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "PERMISSION_DENIED", "group not found")
 		return
 	}
-	if targetAgent == room.OwnerAgentID && targetAgent != principal.AgentID {
-		writeError(w, http.StatusForbidden, "PERMISSION_DENIED", "owner cannot be removed by another member")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "group lookup failed")
 		return
+	}
+	// 自我离群必须幂等：已被踢出的成员重试 leave 时不应再要求其仍是成员，
+	// 成员行不存在时统一回 404，客户端把 404 视为撤销成功。
+	if targetAgent != principal.AgentID {
+		caller, memberErr := s.store.GetGroupMember(r.Context(), groupID, principal.AgentID)
+		if errors.Is(memberErr, store.ErrNotFound) {
+			writeError(w, http.StatusForbidden, "PERMISSION_DENIED", "agent is not a member of this group")
+			return
+		}
+		if memberErr != nil {
+			writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "group membership lookup failed")
+			return
+		}
+		if !canInvite(caller.Role) {
+			writeError(w, http.StatusForbidden, "PERMISSION_DENIED", "only owner or steward may remove members")
+			return
+		}
+		if targetAgent == room.OwnerAgentID {
+			writeError(w, http.StatusForbidden, "PERMISSION_DENIED", "owner cannot be removed by another member")
+			return
+		}
 	}
 	if err := s.store.DeleteGroupMember(r.Context(), groupID, targetAgent); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -320,8 +338,7 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	groupID := strings.TrimSpace(r.PathValue("group_id"))
-	room, _, ok := s.requireRoomMember(w, r, groupID, principal.AgentID)
-	if !ok {
+	if _, _, ok = s.requireRoomMember(w, r, groupID, principal.AgentID); !ok {
 		return
 	}
 	var req appendCommitRequest
@@ -362,16 +379,8 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "SERIALIZATION_ERROR", "unknown author_kind")
 		return
 	}
-	if req.MLSEpoch < room.CurrentMLSEpoch {
-		writeError(w, http.StatusConflict, "WATERMARK_CONFLICT",
-			"stale submitted mls_epoch: re-read group state before resubmitting")
-		return
-	}
-	if req.MLSEpoch > room.CurrentMLSEpoch && !req.ReencryptOnly {
-		writeError(w, http.StatusConflict, "WATERMARK_CONFLICT",
-			"mls_epoch advanced without pure key-rotation reencryption")
-		return
-	}
+	// 纪元校验（含 +1 上限与 reencrypt_only 约束）在 `AppendGroupCommit` 的同一事务内完成，
+	// 这里绝不能再基于事务外的房间快照判定，否则陈旧纪元可并发穿透。
 	hop := 0
 	if authorKind == "agent" {
 		hop = 1
@@ -407,21 +416,21 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 		AuthorKind:      authorKind,
 		Hop:             hop,
 		CreatedAtMs:     s.clock().UnixMilli(),
+		ReencryptOnly:   req.ReencryptOnly,
 	}
 	stored, err := s.store.AppendGroupCommit(r.Context(), commit)
 	if err != nil {
+		if errors.Is(err, store.ErrEpochConflict) {
+			writeError(w, http.StatusConflict, "WATERMARK_CONFLICT",
+				"stale or over-jumping mls_epoch: re-read group state before resubmitting")
+			return
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "PERMISSION_DENIED", "group not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "append commit failed")
 		return
-	}
-	if stored.MLSEpoch > room.CurrentMLSEpoch {
-		if err := s.store.SetGroupRoomEpoch(r.Context(), groupID, stored.MLSEpoch); err != nil && !errors.Is(err, store.ErrConflict) {
-			writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "advance group mls epoch failed")
-			return
-		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"group_id":          stored.GroupID,
