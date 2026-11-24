@@ -29,7 +29,8 @@ use quetzalcoatl_fabric::{
     LeaseWitnessBackend, LeaseWitnessRecord, NodeCapabilityAnnouncement, NodeCapabilitySpec,
     OutboxReconcileOutcome, OutboxReconcilePlan, PairHpkeBundle, PeerPathKind, PeerSyncOutcome,
     PeerSyncPlan, RemoteWorkerPool, RouterLeaseState, SpineSyncActor, SpineSyncBackend,
-    StdMonotonicClock, enforce_remote_worker_lease_fence, execute_remote_worker_task_locally,
+    StdMonotonicClock, WebhookIngressBatch, WebhookIngressStatus,
+    enforce_remote_worker_lease_fence, execute_remote_worker_task_locally,
     parse_ca_certs_pem_or_der,
 };
 use quetzalcoatl_kernel::{LeasePosture, OutboxItem};
@@ -1576,6 +1577,38 @@ impl DaemonFabricRuntime {
                 .map(|id| hex_encode(id.as_bytes())),
             qad_port: Some(config.qad_port),
         }
+    }
+
+    /// 拉取已密封的 Webhook 入站信封（会话令牌只在本机内存使用）。
+    pub(crate) fn pull_webhook_ingress(
+        &self,
+        agent_id: AgentId,
+        after: i64,
+        limit: u32,
+    ) -> Result<WebhookIngressBatch> {
+        let session = self.require_session()?;
+        let client = self.hub_client(Some(&session.session_token))?;
+        self.rt
+            .block_on(client.pull_webhook_ingress(agent_id, after, limit))
+    }
+
+    /// 确认删除已成功落盘的密封信封。
+    pub(crate) fn ack_webhook_ingress(
+        &self,
+        agent_id: AgentId,
+        event_ids: &[String],
+    ) -> Result<u64> {
+        let session = self.require_session()?;
+        let client = self.hub_client(Some(&session.session_token))?;
+        self.rt
+            .block_on(client.ack_webhook_ingress(agent_id, event_ids))
+    }
+
+    /// 查询 Webhook 入站 key 登记与队列深度。
+    pub(crate) fn webhook_ingress_status(&self, agent_id: AgentId) -> Result<WebhookIngressStatus> {
+        let session = self.require_session()?;
+        let client = self.hub_client(Some(&session.session_token))?;
+        self.rt.block_on(client.webhook_ingress_status(agent_id))
     }
 
     pub(crate) fn nodes_report(&self) -> FabricNodesReport {

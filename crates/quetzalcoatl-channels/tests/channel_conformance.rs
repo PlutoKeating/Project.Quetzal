@@ -212,3 +212,96 @@ fn credentials_are_redacted_in_debug_and_never_in_errors() -> TestResult {
     assert!(!err.to_string().contains("CANARY-CHANNEL-TOKEN-998877"));
     Ok(())
 }
+
+#[test]
+fn outbound_request_builder_templates_urls_headers_and_tokens() -> TestResult {
+    use quetzalcoatl_channels::{ChannelCredentials, build_http_request};
+
+    let mut tg = BTreeMap::new();
+    tg.insert(String::from("token"), String::from("123:ABC"));
+    let spec = build_http_request(
+        "telegram",
+        &ChannelCredentials::new("telegram", tg),
+        "-10042",
+        r#"{"text":"hi"}"#,
+    )?;
+    assert_eq!(spec.url, "https://api.telegram.org/bot123:ABC/sendMessage");
+    assert!(spec.body.contains("\"chat_id\":\"-10042\""));
+
+    let mut feishu = BTreeMap::new();
+    feishu.insert(String::from("token"), String::from("tenant-token"));
+    feishu.insert(
+        String::from("url"),
+        String::from("https://open.feishu.cn/open-apis/bot/v2/hook/synthetic"),
+    );
+    let spec = build_http_request(
+        "feishu",
+        &ChannelCredentials::new("feishu", feishu),
+        "",
+        "{}",
+    )?;
+    assert_eq!(
+        spec.headers.get("Authorization").map(String::as_str),
+        Some("Bearer tenant-token")
+    );
+    assert!(spec.url.ends_with("/hook/synthetic"));
+
+    let mut ding = BTreeMap::new();
+    ding.insert(String::from("access_token"), String::from("ding-token"));
+    ding.insert(String::from("secret"), String::from("ding-secret"));
+    ding.insert(String::from("timestamp_ms"), String::from("1795400000000"));
+    let spec = build_http_request(
+        "dingtalk",
+        &ChannelCredentials::new("dingtalk", ding),
+        "",
+        "{}",
+    )?;
+    assert!(
+        spec.url
+            .starts_with("https://oapi.dingtalk.com/robot/send?access_token=ding-token")
+    );
+    assert!(spec.url.contains("timestamp=1795400000000"));
+    assert!(spec.url.contains("sign="));
+
+    let mut wh = BTreeMap::new();
+    wh.insert(
+        String::from("url"),
+        String::from("https://example.test/hook"),
+    );
+    wh.insert(String::from("secret"), String::from("hook-secret"));
+    let spec = build_http_request(
+        "webhook",
+        &ChannelCredentials::new("webhook", wh),
+        "",
+        r#"{"event_id":"out"}"#,
+    )?;
+    let sig = spec
+        .headers
+        .get("X-QZ-Signature")
+        .ok_or("missing signature")?;
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(b"hook-secret")?;
+    mac.update(br#"{"event_id":"out"}"#);
+    let mut want = String::from("sha256=");
+    for byte in mac.finalize().into_bytes() {
+        want.push_str(&format!("{byte:02x}"));
+    }
+    assert_eq!(sig, &want);
+    Ok(())
+}
+
+#[test]
+fn outbound_request_builder_fails_closed_without_credentials() -> TestResult {
+    use quetzalcoatl_channels::{ChannelCredentials, ChannelError, build_http_request};
+    let empty = ChannelCredentials::new("webhook", BTreeMap::new());
+    let err = build_http_request("webhook", &empty, "", "{}")
+        .err()
+        .ok_or("missing webhook url must fail")?;
+    assert!(matches!(err, ChannelError::MissingCredential(_)));
+    let err = build_http_request("email", &empty, "", "{}")
+        .err()
+        .ok_or("email SMTP transport is not wired")?;
+    assert_eq!(err, ChannelError::TransportUnavailable);
+    Ok(())
+}

@@ -12,12 +12,16 @@ package lease
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,9 +99,8 @@ func constantTimeEqualString(a, b []byte) bool {
 	return hmac.Equal(a, b)
 }
 
-// verifyPlatformHMAC 对原始请求体做常数时间 HMAC-SHA256 校验。
-// 支持 `X-QZ-Signature: sha256=<hex>` 与 GitHub/飞书风格 `X-Hub-Signature-256`。
-func verifyPlatformHMAC(secret, body []byte, headerValue string) bool {
+// verifyGenericHMAC 对原始请求体做常数时间 HMAC-SHA256 校验。
+func verifyGenericHMAC(secret, body []byte, headerValue string) bool {
 	value := strings.TrimSpace(headerValue)
 	if value == "" {
 		return false
@@ -112,12 +115,148 @@ func verifyPlatformHMAC(secret, body []byte, headerValue string) bool {
 	return constantTimeEqualString(mac.Sum(nil), want)
 }
 
+func withinSkew(raw string, now time.Time, maxSkew time.Duration) bool {
+	ts, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return false
+	}
+	if ts > 1_000_000_000_000 { // 毫秒时间戳
+		ts /= 1000
+	}
+	delta := now.Unix() - ts
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta <= int64(maxSkew.Seconds())
+}
+
+// verifyFeishu 校验 `X-Lark-Signature = sha256(timestamp + nonce + secret + body)`。
+func verifyFeishu(r *http.Request, body, secret []byte, now time.Time) bool {
+	ts := r.Header.Get("X-Lark-Request-Timestamp")
+	nonce := r.Header.Get("X-Lark-Request-Nonce")
+	sigHex := r.Header.Get("X-Lark-Signature")
+	if ts == "" || nonce == "" || sigHex == "" {
+		return verifyGenericHMAC(secret, body, r.Header.Get("X-QZ-Signature"))
+	}
+	if !withinSkew(ts, now, 5*time.Minute) {
+		return false
+	}
+	want, err := hex.DecodeString(sigHex)
+	if err != nil || len(want) != sha256.Size {
+		return false
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte(ts))
+	_, _ = h.Write([]byte(nonce))
+	_, _ = h.Write(secret)
+	_, _ = h.Write(body)
+	return constantTimeEqualString(h.Sum(nil), want)
+}
+
+// verifyDingTalk 校验 `sign = base64(hmac_sha256(secret, timestamp + "\n" + secret))`。
+func verifyDingTalk(r *http.Request, body, secret []byte, now time.Time) bool {
+	ts := r.Header.Get("timestamp")
+	sign := r.Header.Get("sign")
+	if ts == "" || sign == "" {
+		return verifyGenericHMAC(secret, body, r.Header.Get("X-QZ-Signature"))
+	}
+	if !withinSkew(ts, now, 5*time.Minute) {
+		return false
+	}
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(ts))
+	_, _ = mac.Write([]byte("\n"))
+	_, _ = mac.Write(secret)
+	want := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(sign), []byte(want))
+}
+
+// verifyWeCom 校验 SHA1(msg_signature) over sorted(token,timestamp,nonce,encrypt)。
+func verifyWeCom(r *http.Request, body, secret []byte, _ time.Time) bool {
+	q := r.URL.Query()
+	ts := q.Get("timestamp")
+	nonce := q.Get("nonce")
+	sig := q.Get("msg_signature")
+	encrypt := xmlTag(body, "Encrypt")
+	if ts == "" || nonce == "" || sig == "" || encrypt == "" {
+		return false
+	}
+	items := []string{string(secret), ts, nonce, encrypt}
+	sort.Strings(items)
+	h := sha1.New()
+	_, _ = h.Write([]byte(strings.Join(items, "")))
+	return hmac.Equal([]byte(strings.ToLower(sig)), []byte(hex.EncodeToString(h.Sum(nil))))
+}
+
+// verifyTelegram 校验固定 secret token 请求头。
+func verifyTelegram(r *http.Request, _ []byte, secret []byte, _ time.Time) bool {
+	got := r.Header.Get("X-Telegram-Bot-Api-Secret-Token")
+	if got == "" {
+		return false
+	}
+	return hmac.Equal([]byte(got), secret)
+}
+
+func (s *WebhookIngressService) verifyPlatformRequest(r *http.Request, channel string, body, secret []byte) bool {
+	switch channel {
+	case "feishu":
+		return verifyFeishu(r, body, secret, s.clock())
+	case "dingtalk":
+		return verifyDingTalk(r, body, secret, s.clock())
+	case "wecom":
+		return verifyWeCom(r, body, secret, s.clock())
+	case "telegram":
+		return verifyTelegram(r, body, secret, s.clock())
+	default:
+		sig := r.Header.Get("X-QZ-Signature")
+		if sig == "" {
+			sig = r.Header.Get("X-Hub-Signature-256")
+		}
+		return verifyGenericHMAC(secret, body, sig)
+	}
+}
+
+func xmlTag(body []byte, tag string) string {
+	text := string(body)
+	open := "<" + tag + ">"
+	close := "</" + tag + ">"
+	start := strings.Index(text, open)
+	if start < 0 {
+		return ""
+	}
+	rest := text[start+len(open):]
+	end := strings.Index(rest, close)
+	if end < 0 {
+		return ""
+	}
+	value := strings.TrimSpace(rest[:end])
+	value = strings.TrimPrefix(value, "<![CDATA[")
+	value = strings.TrimSuffix(value, "]]>")
+	return strings.TrimSpace(value)
+}
+
+func extractEventIDForChannel(channel string, body []byte) string {
+	if channel == "wecom" {
+		if id := xmlTag(body, "MsgId"); id != "" {
+			return id
+		}
+		if id := xmlTag(body, "EventKey"); id != "" {
+			return id
+		}
+		if encrypted := xmlTag(body, "Encrypt"); encrypted != "" {
+			sum := sha256.Sum256([]byte(encrypted))
+			return hex.EncodeToString(sum[:])
+		}
+	}
+	return extractEventID(body)
+}
+
 func extractEventID(body []byte) string {
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return ""
 	}
-	for _, key := range []string{"event_id", "update_id", "eventId", "id"} {
+	for _, key := range []string{"event_id", "update_id", "eventId", "msgId", "id"} {
 		if v, ok := raw[key]; ok {
 			switch t := v.(type) {
 			case string:
@@ -202,16 +341,12 @@ func (s *WebhookIngressService) handleIngress(w http.ResponseWriter, r *http.Req
 		webhookError(w, http.StatusUnauthorized, "INVALID_SIGNATURE", "platform signature rejected")
 		return
 	}
-	sig := r.Header.Get("X-QZ-Signature")
-	if sig == "" {
-		sig = r.Header.Get("X-Hub-Signature-256")
-	}
-	if !verifyPlatformHMAC(secret, body, sig) {
+	if !s.verifyPlatformRequest(r, channel, body, secret) {
 		webhookError(w, http.StatusUnauthorized, "INVALID_SIGNATURE", "platform signature rejected")
 		return
 	}
 
-	eventID := extractEventID(body)
+	eventID := extractEventIDForChannel(channel, body)
 	if eventID == "" {
 		webhookError(w, http.StatusBadRequest, "INVALID_ID", "missing platform event id")
 		return
@@ -278,5 +413,141 @@ func (s *WebhookIngressService) handleIngress(w http.ResponseWriter, r *http.Req
 		"status":    "accepted",
 		"duplicate": !inserted,
 		"depth":     depth,
+	})
+}
+
+// OwnerAuthorizer 是 Webhook 消费者路由的最小鉴权契约；生产由 auth.Service 实现。
+type OwnerAuthorizer interface {
+	RequireAgentOwner(w http.ResponseWriter, r *http.Request, agentID string) (*auth.Principal, *store.Agent, bool)
+}
+
+// RegisterOwnerRoutes 挂载 Agent 所有者专属的队列读取/确认/状态路由。
+// 所有路由复用 `RequireAgentOwner`，跨账号一律 403。
+func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz OwnerAuthorizer) {
+	mux.HandleFunc("GET /v1/webhook/{agent_id}/ingress", func(w http.ResponseWriter, r *http.Request) {
+		agentID := strings.TrimSpace(r.PathValue("agent_id"))
+		if _, _, ok := authz.RequireAgentOwner(w, r, agentID); !ok {
+			return
+		}
+		after := int64(0)
+		if raw := strings.TrimSpace(r.URL.Query().Get("after")); raw != "" {
+			parsed, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || parsed < 0 {
+				webhookError(w, http.StatusBadRequest, "INVALID_ID", "after must be a non-negative cursor")
+				return
+			}
+			after = parsed
+		}
+		limit := 100
+		if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed <= 0 || parsed > 500 {
+				webhookError(w, http.StatusBadRequest, "INVALID_ID", "limit must be 1..500")
+				return
+			}
+			limit = parsed
+		}
+		rows, err := s.store.ListWebhookIngress(r.Context(), agentID, after, limit)
+		if err != nil {
+			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress list failed")
+			return
+		}
+		events := make([]map[string]any, 0, len(rows))
+		nextCursor := after
+		for _, row := range rows {
+			if row.IngressID > nextCursor {
+				nextCursor = row.IngressID
+			}
+			events = append(events, map[string]any{
+				"event_id":       row.EventIDHash,
+				"cursor":         row.IngressID,
+				"channel":        row.Channel,
+				"received_at_ms": row.ReceivedAtMs,
+				"enc_hex":        row.HPKEEncHex,
+				"ciphertext_hex": row.CiphertextHex,
+				"aad_json":       row.AADUTF8,
+			})
+		}
+		depth, err := s.store.CountWebhookIngress(r.Context(), agentID)
+		if err != nil {
+			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress depth failed")
+			return
+		}
+		writeWebhookJSON(w, http.StatusOK, map[string]any{
+			"events":      events,
+			"next_cursor": nextCursor,
+			"queue_depth": depth,
+		})
+	})
+
+	mux.HandleFunc("POST /v1/webhook/{agent_id}/ingress/ack", func(w http.ResponseWriter, r *http.Request) {
+		agentID := strings.TrimSpace(r.PathValue("agent_id"))
+		if _, _, ok := authz.RequireAgentOwner(w, r, agentID); !ok {
+			return
+		}
+		var req struct {
+			EventIDs []string `json:"event_ids"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
+			webhookError(w, http.StatusBadRequest, "SERIALIZATION_ERROR", "invalid JSON body")
+			return
+		}
+		_ = r.Body.Close()
+		hashes := make([]string, 0, len(req.EventIDs))
+		for _, raw := range req.EventIDs {
+			hash := strings.ToLower(strings.TrimSpace(raw))
+			if len(hash) != 64 {
+				webhookError(w, http.StatusBadRequest, "INVALID_ID", "event_id must be a 64-char hash")
+				return
+			}
+			if _, err := hex.DecodeString(hash); err != nil {
+				webhookError(w, http.StatusBadRequest, "INVALID_ID", "event_id must be hex")
+				return
+			}
+			hashes = append(hashes, hash)
+		}
+		deleted, err := s.store.DeleteWebhookIngressByHashes(r.Context(), agentID, hashes)
+		if err != nil {
+			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress ack failed")
+			return
+		}
+		depth, _ := s.store.CountWebhookIngress(r.Context(), agentID)
+		writeWebhookJSON(w, http.StatusOK, map[string]any{
+			"deleted":     deleted,
+			"queue_depth": depth,
+		})
+	})
+
+	mux.HandleFunc("GET /v1/webhook/{agent_id}/status", func(w http.ResponseWriter, r *http.Request) {
+		agentID := strings.TrimSpace(r.PathValue("agent_id"))
+		if _, _, ok := authz.RequireAgentOwner(w, r, agentID); !ok {
+			return
+		}
+		keyID := ""
+		registered := false
+		slot, err := s.store.GetKeySlot(r.Context(), agentID, ChannelIngressSlotType)
+		if err == nil {
+			registered = true
+			var meta map[string]any
+			if json.Unmarshal([]byte(slot.MetadataJSON), &meta) == nil {
+				if v, ok := meta["key_id"].(string); ok {
+					keyID = v
+				}
+			}
+		} else if !errors.Is(err, store.ErrNotFound) {
+			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress key lookup failed")
+			return
+		}
+		depth, err := s.store.CountWebhookIngress(r.Context(), agentID)
+		if err != nil {
+			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress depth failed")
+			return
+		}
+		writeWebhookJSON(w, http.StatusOK, map[string]any{
+			"registered":  registered,
+			"key_id":      keyID,
+			"queue_depth": depth,
+			"max_queue":   s.cfg.MaxQueuePerAgent,
+		})
 	})
 }

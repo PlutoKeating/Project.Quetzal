@@ -79,6 +79,15 @@ pub fn load_credentials(
     Ok(Some(ChannelCredentials::new(channel, values)))
 }
 
+/// 最近一次出站投递状态。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryHealth {
+    pub ts_ms: u64,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
 /// 单通道健康状态。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +99,7 @@ pub struct ChannelHealth {
     pub requires_credentials: bool,
     pub bound_witness_epoch: Option<u64>,
     pub holder_device_id: Option<String>,
+    pub last_delivery: Option<DeliveryHealth>,
 }
 
 /// 单 `witness_epoch` 长连接监管器。
@@ -97,6 +107,7 @@ pub struct ChannelSupervisor {
     drivers: BTreeMap<String, Arc<dyn ChannelDriver>>,
     enabled: BTreeSet<String>,
     bindings: BTreeMap<String, (u64, String)>,
+    deliveries: BTreeMap<String, DeliveryHealth>,
 }
 
 impl ChannelSupervisor {
@@ -106,6 +117,7 @@ impl ChannelSupervisor {
             drivers,
             enabled: BTreeSet::new(),
             bindings: BTreeMap::new(),
+            deliveries: BTreeMap::new(),
         }
     }
 
@@ -186,6 +198,7 @@ impl ChannelSupervisor {
                     requires_credentials: descriptor.requires_credentials,
                     bound_witness_epoch: binding.map(|(epoch, _)| *epoch),
                     holder_device_id: binding.map(|(_, holder)| holder.clone()),
+                    last_delivery: self.deliveries.get(&descriptor.id).cloned(),
                 }
             })
             .collect()
@@ -194,5 +207,34 @@ impl ChannelSupervisor {
     #[must_use]
     pub fn driver(&self, channel: &str) -> Option<&Arc<dyn ChannelDriver>> {
         self.drivers.get(channel)
+    }
+
+    /// 出站发送门禁：通道必须显式启用；长连接通道必须已有 witness_epoch 持有者。
+    pub fn authorize_send(&self, channel: &str) -> Result<(), ChannelError> {
+        let Some(driver) = self.drivers.get(channel) else {
+            return Err(ChannelError::NotEnabled(String::from(channel)));
+        };
+        if !self.enabled.contains(channel) {
+            return Err(ChannelError::NotEnabled(String::from(channel)));
+        }
+        let descriptor = driver.descriptor();
+        if descriptor.long_lived && !descriptor.local_only && !self.bindings.contains_key(channel) {
+            return Err(ChannelError::PermissionDenied(format!(
+                "通道 {channel} 尚无 witness_epoch 持有者，拒绝外发"
+            )));
+        }
+        Ok(())
+    }
+
+    /// 记录最近一次投递结果（错误文本绝不含正文或令牌）。
+    pub fn record_delivery(&mut self, channel: &str, ts_ms: u64, ok: bool, error: Option<String>) {
+        self.deliveries.insert(
+            String::from(channel),
+            DeliveryHealth {
+                ts_ms,
+                ok,
+                error: error.map(|e| e.chars().take(200).collect()),
+            },
+        );
     }
 }

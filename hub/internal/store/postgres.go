@@ -1533,14 +1533,14 @@ func (p *PostgresStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIn
 	return true, depth + 1, nil
 }
 
-func (p *PostgresStore) ListWebhookIngress(ctx context.Context, agentID string, limit int) ([]WebhookIngressRecord, error) {
+func (p *PostgresStore) ListWebhookIngress(ctx context.Context, agentID string, after int64, limit int) ([]WebhookIngressRecord, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
 	rows, err := p.db.QueryContext(ctx, `
 		SELECT ingress_id, agent_id, channel, event_id_hash, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
-		FROM webhook_ingress_queue WHERE agent_id = $1 ORDER BY ingress_id ASC LIMIT $2
-	`, agentID, limit)
+		FROM webhook_ingress_queue WHERE agent_id = $1 AND ingress_id > $2 ORDER BY ingress_id ASC LIMIT $3
+	`, agentID, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1566,4 +1566,39 @@ func (p *PostgresStore) DeleteWebhookIngress(ctx context.Context, agentID string
 		return false, err
 	}
 	return affected > 0, nil
+}
+
+func (p *PostgresStore) CountWebhookIngress(ctx context.Context, agentID string) (int, error) {
+	var depth int
+	if err := p.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, agentID).Scan(&depth); err != nil {
+		return 0, err
+	}
+	return depth, nil
+}
+
+func (p *PostgresStore) DeleteWebhookIngressByHashes(ctx context.Context, agentID string, eventIDHashes []string) (int64, error) {
+	if len(eventIDHashes) == 0 {
+		return 0, nil
+	}
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var deleted int64
+	for _, hash := range eventIDHashes {
+		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND event_id_hash = $2`, agentID, hash)
+		if err != nil {
+			return 0, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		deleted += affected
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted, nil
 }

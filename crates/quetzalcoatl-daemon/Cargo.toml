@@ -41,7 +41,9 @@ uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+hmac.workspace = true
 iroh.workspace = true
 rcgen.workspace = true
+sha2.workspace = true
 zip.workspace = true
 zstd.workspace = true

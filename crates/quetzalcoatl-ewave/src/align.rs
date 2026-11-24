@@ -875,7 +875,11 @@ impl SerpentineGraph {
         snapshot: EwaveSnapshot,
         ctx: SayItIngestContext,
     ) -> Result<SayItIngestResult> {
-        let record_key = (ctx.sayit_user_hash.clone(), ctx.session_id.clone());
+        let record_key = (
+            ctx.sayit_user_hash.clone(),
+            ctx.slice_id.clone(),
+            ctx.session_id.clone(),
+        );
         let mut invalidated_node_ids = Vec::new();
         let is_refile;
 

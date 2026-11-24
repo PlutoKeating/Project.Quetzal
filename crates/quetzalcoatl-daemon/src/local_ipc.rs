@@ -27,7 +27,8 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use quetzalcoatl_capabilities::SayItBatchOutcome;
-use quetzalcoatl_channels::ChannelHealth;
+use quetzalcoatl_channels::{ChannelHealth, DeliveryReport};
+use quetzalcoatl_fabric::WebhookIngressStatus;
 
 use crate::daemon::{
     ChatRequest, ChatResponse, DaemonRuntimeInfo, DaemonStatus, ExploreWakeReport,
@@ -259,11 +260,24 @@ pub enum IpcRequest {
     ChannelDisable {
         channel: String,
     },
+    /// `qz channel send <channel> --text <...> [--to <dest>]`：商品化出站发送。
+    ChannelDeliver {
+        channel: String,
+        destination: Option<String>,
+        text: String,
+    },
     /// `qz sayit ingest --path <snapshot>` 或 `--batch <dir>`。
     SayItIngest {
         path: Option<PathBuf>,
         batch_dir: Option<PathBuf>,
     },
+    /// `qz webhook pull`：拉取、解封、落盘并确认 Hub 密封信封。
+    WebhookPull {
+        after: i64,
+        limit: u32,
+    },
+    /// `qz webhook status`：查看入站 key 登记与队列深度。
+    WebhookStatus,
     /// `qz group send --room <id> --text <...>`。
     GroupSend {
         room_id: String,
@@ -341,8 +355,14 @@ pub enum IpcResponse {
     Channels(Vec<ChannelHealth>),
     /// 单通道启用/停用后的最新健康行。
     ChannelUpdate(ChannelHealth),
+    /// 单次通道出站投递回执。
+    ChannelDelivery(DeliveryReport),
     /// SayIt 吸纳结果（单文件或批量）。
     SayItIngest(Vec<SayItBatchOutcome>),
+    /// Webhook 拉取/解封/落盘/确认回执。
+    WebhookPull(crate::webhook::WebhookPullReport),
+    /// Webhook 入站 key 与队列状态。
+    WebhookQueueStatus(WebhookIngressStatus),
     /// 单帧声学判决（语音起止 / 打断已同步写入脊柱活动链）。
     VoiceActivity {
         stream_id: String,

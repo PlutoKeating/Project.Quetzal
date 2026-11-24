@@ -134,3 +134,36 @@ fn path_derived_meta_uses_slice_session_and_snapshot_hash() -> TestResult {
     assert!(again.invalidated_node_ids.is_empty());
     Ok(())
 }
+
+#[test]
+fn rule3b_different_slice_same_session_stays_independent() -> TestResult {
+    let path = fixtures().join("u/demo/subtrees/slice-b/session-refile-v1.ewave.json");
+    let snapshot = read(&path)?;
+    let meta = SayItSnapshotMeta {
+        sayit_user_hash: String::from("u-demo"),
+        slice_id: String::from("slice-b"),
+        session_id: String::from("same-session"),
+        snapshot_sha256: String::from("sha-b"),
+    };
+    let mut ingestor = SayItIngestor::new(personal())?;
+    let first = ingestor.ingest_snapshot(&snapshot, &meta, 1_795_400_000_900, true)?;
+    assert_eq!(first.status, "ingested_new");
+    let other_slice = SayItSnapshotMeta {
+        slice_id: String::from("slice-c"),
+        snapshot_sha256: String::from("sha-c"),
+        ..meta
+    };
+    let second = ingestor.ingest_snapshot(&snapshot, &other_slice, 1_795_400_001_000, true)?;
+    assert_eq!(second.status, "ingested_new", "不同 slice 不得视为重归属");
+    assert!(
+        second.invalidated_node_ids.is_empty(),
+        "不同 slice 同 session 必须独立记录，不得失效其他切片"
+    );
+    let active_first = first
+        .exclusive_node_ids
+        .iter()
+        .filter(|id| ingestor.graph().get(id).is_some_and(|n| n.is_valid()))
+        .count();
+    assert!(active_first > 0, "原切片的独占节点必须保持有效");
+    Ok(())
+}

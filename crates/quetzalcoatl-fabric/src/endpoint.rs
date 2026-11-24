@@ -2828,6 +2828,186 @@ impl HubClient {
         Ok((commits, head, epoch))
     }
 
+    /// 登记本 Agent 的 Webhook 入站 X-Wing 公钥（零知识：仅公钥与 key id）。
+    pub async fn register_channel_ingress_key(
+        &self,
+        agent_id: AgentId,
+        xwing_pubkey: &[u8; XWING_PK_LEN],
+        key_id: &str,
+    ) -> Result<()> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .put(format!(
+                "{}/v1/auth/slots/{agent_id}/channel_ingress",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .json(&serde_json::json!({
+                "xwing_pubkey_hex": hex_encode(xwing_pubkey),
+                "key_id": key_id,
+            }))
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("channel_ingress key register 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        Ok(())
+    }
+
+    /// 拉取已密封的 Webhook 入站信封（仅所有者可读）。
+    pub async fn pull_webhook_ingress(
+        &self,
+        agent_id: AgentId,
+        after: i64,
+        limit: u32,
+    ) -> Result<WebhookIngressBatch> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/v1/webhook/{agent_id}/ingress?after={after}&limit={limit}",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("webhook ingress pull 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: format!("解析 webhook ingress 响应失败: {e}"),
+        })
+    }
+
+    /// 确认删除已成功落盘的密封信封（仅限调用者 Agent 自己的行）。
+    pub async fn ack_webhook_ingress(
+        &self,
+        agent_id: AgentId,
+        event_ids: &[String],
+    ) -> Result<u64> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .post(format!(
+                "{}/v1/webhook/{agent_id}/ingress/ack",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .json(&serde_json::json!({ "event_ids": event_ids }))
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("webhook ingress ack 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+                detail: format!("解析 webhook ack 响应失败: {e}"),
+            })?;
+        Ok(parsed
+            .get("deleted")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0))
+    }
+
+    /// 查询入站公钥登记状态与队列深度。
+    pub async fn webhook_ingress_status(&self, agent_id: AgentId) -> Result<WebhookIngressStatus> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/v1/webhook/{agent_id}/status",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("webhook ingress status 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: format!("解析 webhook status 响应失败: {e}"),
+        })
+    }
+
+    /// 以平台签名请求头投递一条 Webhook（供通道端到端测试与真实出站适配）。
+    pub async fn send_platform_webhook(
+        &self,
+        agent_id: AgentId,
+        channel: &str,
+        body: &[u8],
+        headers: &[(&str, &str)],
+    ) -> Result<()> {
+        let mut req = self
+            .http
+            .post(format!(
+                "{}/v1/webhook/{agent_id}/{channel}",
+                self.config.base_url
+            ))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body.to_vec());
+        for (name, value) in headers {
+            req = req.header(*name, *value);
+        }
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("platform webhook 投递网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        Ok(())
+    }
+
     /// 撤销群成员在 Hub 的提交权限（服务端 `DELETE /v1/groups/{id}/members/{agent_id}`）。
     pub async fn remove_group_member(&self, group_id: &str, agent_id: AgentId) -> Result<()> {
         let tok = self.require_token()?;
@@ -2859,6 +3039,35 @@ impl HubClient {
         }
         Ok(())
     }
+}
+
+/// 单条已密封的 Webhook 入站信封。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WebhookIngressEnvelope {
+    pub event_id: String,
+    pub cursor: i64,
+    pub channel: String,
+    pub received_at_ms: i64,
+    pub enc_hex: String,
+    pub ciphertext_hex: String,
+    pub aad_json: String,
+}
+
+/// Webhook 入站拉取批次。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WebhookIngressBatch {
+    pub events: Vec<WebhookIngressEnvelope>,
+    pub next_cursor: i64,
+    pub queue_depth: u64,
+}
+
+/// Webhook 入站 key/AAD 登记状态。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WebhookIngressStatus {
+    pub registered: bool,
+    pub key_id: String,
+    pub queue_depth: u64,
+    pub max_queue: u64,
 }
 
 /// 群房间元数据（零知识，仅 ID/所有者/保密等级）。

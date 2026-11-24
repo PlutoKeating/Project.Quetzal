@@ -9,6 +9,7 @@ pub mod fabric;
 pub mod group;
 pub mod local_ipc;
 pub mod voice;
+pub mod webhook;
 
 pub use channels::{ChannelRuntime, LocalIntentSpool};
 pub use daemon::{
@@ -30,3 +31,4 @@ pub use voice::{
     DaemonVoiceEvent, MAX_VOICE_STREAMS, VOICE_AI_ENV, VoiceActivityRuntime, VoiceActivitySessions,
     VoiceAiConfig, VoiceStreamError, VoiceTurnReport, decode_audio_frame,
 };
+pub use webhook::{WebhookPullFailure, WebhookPullReport, WebhookPulledEvent, decrypt_and_persist};

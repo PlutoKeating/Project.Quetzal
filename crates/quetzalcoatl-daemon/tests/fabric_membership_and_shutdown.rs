@@ -1191,3 +1191,134 @@ fn hex_encode_seed(seed: &[u8; 32]) -> String {
     }
     out
 }
+
+#[test]
+fn channel_send_under_partition_local_queues_outbox_and_refuses_public_send() -> TestResult {
+    let tmp = TempDirGuard::new("qz_channel_outbox_fence")?;
+    let qz_home = tmp.path().join("home");
+    fs::create_dir_all(qz_home.join("secrets"))?;
+    fs::write(
+        qz_home.join("secrets/webhook.json"),
+        serde_json::json!({"url": "https://127.0.0.1:9/hook"}).to_string(),
+    )?;
+
+    let blackhole = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?;
+    let blackhole_port = blackhole.local_addr()?.port();
+    let keep_alive: Arc<std::sync::Mutex<Vec<TcpStream>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let keep_clone = Arc::clone(&keep_alive);
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = Arc::clone(&stop);
+    blackhole.set_nonblocking(true)?;
+    let accept_thread = thread::spawn(move || {
+        while !stop_clone.load(Ordering::Relaxed) {
+            match blackhole.accept() {
+                Ok((stream, _)) => {
+                    if let Ok(mut guard) = keep_clone.lock() {
+                        guard.push(stream);
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    {
+        let mut genesis = QuetzalcoatlDaemon::start(disabled_config(&qz_home))?;
+        genesis.shutdown()?;
+    }
+    let identity = read_sovereign_identity(&qz_home)?;
+    let blackhole_url = format!("https://127.0.0.1:{blackhole_port}");
+    let session = serde_json::json!({
+        "hub_url": blackhole_url,
+        "hub_ca_file": null,
+        "relay_url": blackhole_url,
+        "qad_port": 7842,
+        "session_token": "synthetic-partition-token",
+        "account_id": "synthetic",
+        "agent_id": identity.agent_id.to_string(),
+        "device_id": identity.device.device_id().to_string(),
+    });
+    fs::create_dir_all(qz_home.join("fabric"))?;
+    fs::write(
+        qz_home.join("fabric/hub_session.json"),
+        serde_json::to_vec_pretty(&session)?,
+    )?;
+
+    let mut cfg = DaemonConfig::new(qz_home.clone());
+    cfg.fabric = Some(DaemonFabricConfig {
+        hub_url: blackhole_url.clone(),
+        hub_ca_file: None,
+        relay_url: blackhole_url,
+        qad_port: 7842,
+        enable_mdns: false,
+        tick_interval_ms: 250,
+    });
+    cfg.discovery_search_paths = Some(Vec::new());
+    let mut daemon = QuetzalcoatlDaemon::start(cfg)?;
+    let client = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+    for channel in ["webhook", "feishu"] {
+        match client.call(&IpcRequest::ChannelEnable {
+            channel: String::from(channel),
+        })? {
+            IpcResponse::ChannelUpdate(row) => assert!(row.enabled),
+            other => return Err(format!("unexpected channel enable: {other:?}").into()),
+        }
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if let IpcResponse::Status(st) = client.call(&IpcRequest::Status)?
+            && st.fabric.lease == "partition_local"
+        {
+            break;
+        }
+        if Instant::now() >= deadline {
+            return Err("fabric never entered partition_local".into());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    match client.call(&IpcRequest::Status)? {
+        IpcResponse::Status(st) => {
+            let feishu = st
+                .channels
+                .iter()
+                .find(|h| h.channel == "feishu")
+                .ok_or("missing feishu health")?;
+            assert_eq!(feishu.bound_witness_epoch, None);
+            assert!(feishu.holder_device_id.is_none());
+            assert_eq!(st.fabric.lease, "partition_local");
+        }
+        other => return Err(format!("unexpected status: {other:?}").into()),
+    }
+
+    match client.call(&IpcRequest::ChannelDeliver {
+        channel: String::from("webhook"),
+        destination: None,
+        text: String::from("CANARY-PARTITION-OUTBOX"),
+    })? {
+        IpcResponse::Error { code, .. } => assert_eq!(code, "PARTITION_RESTRICTED"),
+        other => return Err(format!("partition send must be refused, got {other:?}").into()),
+    }
+
+    let db = rusqlite::Connection::open(qz_home.join("spine/spine.sqlite"))?;
+    let payload: String = db.query_row(
+        "SELECT payload_utf8 FROM spine_events WHERE payload_utf8 LIKE '%outbox_queued%' ORDER BY seq DESC LIMIT 1",
+        [],
+        |row| row.get(0),
+    )?;
+    assert!(payload.contains("outbox_queued"));
+    assert!(
+        !payload.contains("CANARY-PARTITION-OUTBOX"),
+        "outbox must not persist plaintext body"
+    );
+
+    daemon.shutdown()?;
+    stop.store(true, Ordering::Relaxed);
+    let _ = accept_thread.join();
+    Ok(())
+}

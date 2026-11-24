@@ -11,6 +11,7 @@
 //! 4. 所有驱动均可注入 mock transport，CI 零真实网络。
 
 pub mod drivers;
+pub mod outbound;
 pub mod supervisor;
 
 pub use drivers::{
@@ -18,7 +19,10 @@ pub use drivers::{
     system_intents::SystemIntentsDriver, telegram::TelegramDriver, webhook::WebhookDriver,
     wecom::WeComDriver,
 };
-pub use supervisor::{ChannelCredentials, ChannelHealth, ChannelSupervisor, load_credentials};
+pub use outbound::{HttpRequestSpec, build_http_request, request_fingerprint};
+pub use supervisor::{
+    ChannelCredentials, ChannelHealth, ChannelSupervisor, DeliveryHealth, load_credentials,
+};
 
 use std::collections::BTreeMap;
 use std::fmt;

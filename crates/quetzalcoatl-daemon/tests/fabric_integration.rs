@@ -15,7 +15,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use quetzalcoatl_crypto::{AccountRootKey, DeviceIdentity};
+use quetzalcoatl_crypto::{AccountRootKey, DeviceIdentity, hex_encode};
 use quetzalcoatl_daemon::{
     DaemonConfig, DaemonFabricConfig, GroupRoomRuntime, IpcClient, IpcRequest, IpcResponse,
     QuetzalcoatlDaemon,
@@ -263,6 +263,10 @@ impl RunningGoHub {
             .env("QUETZALCOATL_HUB_PUBLIC_URL", &https_url)
             .env("QUETZALCOATL_HUB_DATA_DIR", &data_dir)
             .env("QUETZALCOATL_HUB_RP_ID", "localhost")
+            .env(
+                "QUETZALCOATL_HUB_WEBHOOK_SECRET_WEBHOOK",
+                "test-webhook-secret",
+            )
             .env(
                 "QUETZALCOATL_HUB_ALLOWED_ORIGINS",
                 format!("https://localhost,{https_url}"),
@@ -1720,5 +1724,210 @@ fn go_hub_binary_cache_is_bounded_to_one_copy() -> TestResult {
     assert!(!legacy.exists(), "legacy shared-path copy must be pruned");
     let _ = fs::remove_file(&master);
     let _ = fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+#[test]
+fn webhook_sealed_ingress_registration_pull_decrypt_ack_and_repost() -> TestResult {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    let hub = RunningGoHub::spawn()?;
+    let tmp = TempDirGuard::new("qz_webhook_pull_e2e")?;
+    let ca_pem_path = tmp.path().join("hub_ca.pem");
+    fs::write(&ca_pem_path, &hub.ca_cert_pem)?;
+    let home = tmp.path().join("home");
+    fs::create_dir_all(&home)?;
+
+    let (agent_id, device, root_key) = {
+        let mut daemon = QuetzalcoatlDaemon::start(fabric_disabled_config(&home))?;
+        let _ = daemon.shutdown();
+        read_sovereign_identity(&home)?
+    };
+    let token = register_daemon_agent_on_hub(&hub, agent_id, &device, &root_key)?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let hub_client = HubClient::new(HubClientConfig {
+        base_url: hub.https_url.clone(),
+        session_token: Some(token.clone()),
+        custom_ca_certs_der: vec![hub.ca_cert_der.clone()],
+    })?;
+
+    let body = br#"{"event_id":"ev_rust_e2e","sender":"ou_synthetic","text":"CANARY-WEBHOOK-BODY-998877"}"#;
+    let mut mac = Hmac::<Sha256>::new_from_slice(b"test-webhook-secret")?;
+    mac.update(body);
+    let sig = format!("sha256={}", hex_encode(&mac.finalize().into_bytes()));
+    let err = rt
+        .block_on(hub_client.send_platform_webhook(
+            agent_id,
+            "webhook",
+            body,
+            &[("X-QZ-Signature", sig.as_str())],
+        ))
+        .err()
+        .ok_or("未登记 ChannelIngressKey 前必须拒绝入站")?;
+    assert!(
+        err.to_string().contains("409"),
+        "expected 409 before key registration: {err}"
+    );
+
+    rt.block_on(hub_client.register_channel_ingress_key(
+        agent_id,
+        device.xwing_public_key(),
+        "kid-rust-e2e",
+    ))?;
+    rt.block_on(hub_client.send_platform_webhook(
+        agent_id,
+        "webhook",
+        body,
+        &[("X-QZ-Signature", sig.as_str())],
+    ))?;
+
+    // 启动一个真实 HTTP 200 接收端，验证 Witnessed 下 qz channel send 仅投递一次。
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let hook_port = listener.local_addr()?.port();
+    let hook_url = format!("http://127.0.0.1:{hook_port}/hook");
+    fs::create_dir_all(home.join("secrets"))?;
+    fs::write(
+        home.join("secrets/webhook.json"),
+        serde_json::json!({"url": hook_url}).to_string(),
+    )?;
+    let hook_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let Ok((mut stream, _)) = listener.accept() else {
+            return Vec::new();
+        };
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 2048];
+        while let Ok(n) = stream.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let _ = stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+        buf
+    });
+
+    let mut daemon = QuetzalcoatlDaemon::start(group_fabric_config(&home, &hub, &ca_pem_path))?;
+    login_with_token(&home, &hub, &ca_pem_path, &token)?;
+    let ipc = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+    let lease_deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if let IpcResponse::Status(st) = ipc.call(&IpcRequest::Status)?
+            && st.fabric.lease == "witnessed"
+        {
+            break;
+        }
+        if Instant::now() >= lease_deadline {
+            return Err("fabric never reached witnessed lease".into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let pulled = run_qz(&home, &["webhook", "pull", "--limit", "10", "--json"])?;
+    if !pulled.success {
+        return Err(format!(
+            "qz webhook pull failed: {} {}",
+            pulled.stdout, pulled.stderr
+        )
+        .into());
+    }
+    let report: serde_json::Value = serde_json::from_str(&pulled.stdout)?;
+    assert_eq!(
+        report["pulled"], 1,
+        "must pull one sealed envelope: {report}"
+    );
+    assert_eq!(
+        report["persisted"], 1,
+        "must decrypt and persist one event: {report}"
+    );
+    assert_eq!(
+        report["acked"], 1,
+        "must ack after successful persistence: {report}"
+    );
+
+    // 脊柱必须出现 channel.ingress 事件，且正文与原始 payload 完全一致。
+    let db = rusqlite::Connection::open(home.join("spine/spine.sqlite"))?;
+    let payload: String = db.query_row(
+        "SELECT payload_utf8 FROM spine_events WHERE payload_utf8 LIKE '%channel.ingress%' ORDER BY seq DESC LIMIT 1",
+        [],
+        |row| row.get(0),
+    )?;
+    assert!(
+        payload.contains("CANARY-WEBHOOK-BODY-998877"),
+        "decrypted payload persisted: {payload}"
+    );
+    assert!(payload.contains("\"channel\":\"webhook\""));
+
+    let status = run_qz(&home, &["webhook", "status", "--json"])?;
+    assert!(
+        status.success,
+        "qz webhook status failed: {}",
+        status.stderr
+    );
+    let status_json: serde_json::Value = serde_json::from_str(&status.stdout)?;
+    assert_eq!(status_json["registered"], true);
+    assert_eq!(status_json["key_id"], "kid-rust-e2e");
+    assert_eq!(status_json["queue_depth"], 0);
+
+    // ack 之后再次投递必须成功（队列可持续排空，不会永久 429）。
+    let body2 = br#"{"event_id":"ev_rust_e2e_2","sender":"ou_synthetic","text":"second"}"#;
+    let mut mac2 = Hmac::<Sha256>::new_from_slice(b"test-webhook-secret")?;
+    mac2.update(body2);
+    let sig2 = format!("sha256={}", hex_encode(&mac2.finalize().into_bytes()));
+    rt.block_on(hub_client.send_platform_webhook(
+        agent_id,
+        "webhook",
+        body2,
+        &[("X-QZ-Signature", sig2.as_str())],
+    ))?;
+    let pulled2 = run_qz(&home, &["webhook", "pull", "--json"])?;
+    assert!(pulled2.success, "second pull failed: {}", pulled2.stderr);
+    let report2: serde_json::Value = serde_json::from_str(&pulled2.stdout)?;
+    assert_eq!(report2["acked"], 1);
+
+    match ipc.call(&IpcRequest::ChannelEnable {
+        channel: String::from("webhook"),
+    })? {
+        IpcResponse::ChannelUpdate(row) => assert!(row.enabled),
+        other => return Err(format!("channel enable failed: {other:?}").into()),
+    }
+    let sent = run_qz(
+        &home,
+        &[
+            "channel",
+            "send",
+            "webhook",
+            "--text",
+            "CANARY-WITNESSED-SEND",
+            "--to",
+            &hook_url,
+            "--json",
+        ],
+    )?;
+    assert!(
+        sent.success,
+        "qz channel send failed: {} {}",
+        sent.stdout, sent.stderr
+    );
+    let request = hook_handle.join().map_err(|_| "hook join")?;
+    let wire = String::from_utf8_lossy(&request);
+    assert!(wire.contains("CANARY-WITNESSED-SEND"));
+    let channel_status = run_qz(&home, &["channel", "status", "--json"])?;
+    assert!(channel_status.success);
+    let rows: serde_json::Value = serde_json::from_str(&channel_status.stdout)?;
+    let webhook = rows
+        .as_array()
+        .and_then(|a| a.iter().find(|r| r["channel"] == "webhook"))
+        .ok_or("missing webhook health")?;
+    assert_eq!(webhook["lastDelivery"]["ok"], true);
+    let _ = daemon.shutdown();
     Ok(())
 }

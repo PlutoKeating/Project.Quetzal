@@ -668,11 +668,12 @@ impl SharedDaemonCore {
     fn channel_lease_anchor(&self) -> (u64, String) {
         if let Some(runtime) = self.fabric_runtime() {
             let report = runtime.nodes_report();
-            let holder = report
-                .router_holder
-                .map(|d| d.to_string())
-                .unwrap_or_default();
-            return (report.witness_epoch, holder);
+            let holder = report.router_holder.map(|d| d.to_string());
+            return crate::channels::resolve_lease_anchor(
+                Some(report.witness_epoch),
+                holder.as_deref(),
+                &self.runtime_info.device_id.to_string(),
+            );
         }
         (0, self.runtime_info.device_id.to_string())
     }
@@ -2145,6 +2146,51 @@ impl SharedDaemonCore {
                     Err(err) => ipc_error_response(err),
                 }
             }
+            IpcRequest::ChannelDeliver {
+                channel,
+                destination,
+                text,
+            } => {
+                let now_ms = now_unix_ms();
+                let (witness_epoch, lease_holder) = self.channel_lease_anchor();
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_error_response(QuetzalcoatlError::StorageError {
+                        detail: String::from("daemon lock poisoned"),
+                    });
+                };
+                if matches!(guard.kernel.lease_posture(), LeasePosture::PartitionLocal) {
+                    // 两态围栏：非幂等公网外发只入 Outbox，绝不在无见证纪元下发出。
+                    let invocation = CapabilityInvocation::new(
+                        "external.send",
+                        serde_json::json!({
+                            "channel": channel,
+                            "destination": destination,
+                            "text_bytes": text.len(),
+                        })
+                        .to_string(),
+                    );
+                    let _ = guard.kernel.authorize_capability(
+                        PrincipalRole::Worker,
+                        None,
+                        CapabilitySet::All,
+                        ScopeChain::unrestricted(),
+                        default_authored_bindings(),
+                        &invocation,
+                        now_ms,
+                    );
+                    return ipc_error_response(QuetzalcoatlError::PartitionRestricted {
+                        detail: format!(
+                            "通道 {channel} 外发已暂存 Outbox：当前处于断网分区本地租约，待重获 witness_epoch 后对账发送"
+                        ),
+                    });
+                }
+                let _ = guard.channels.reconcile_lease(witness_epoch, &lease_holder);
+                let destination = destination.unwrap_or_default();
+                match guard.channels.deliver(&channel, &destination, &text) {
+                    Ok(report) => (IpcResponse::ChannelDelivery(report), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
             IpcRequest::SayItIngest { path, batch_dir } => {
                 let now_ms = now_unix_ms();
                 let Ok(mut guard) = self.state.lock() else {
@@ -2180,6 +2226,50 @@ impl SharedDaemonCore {
                         "SayItPath",
                         String::from("必须提供 --path <snapshot> 或 --batch <dir>"),
                     ))
+                }
+            }
+            IpcRequest::WebhookPull { after, limit } => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return ipc_error_response(QuetzalcoatlError::PermissionDenied {
+                        detail: String::from("fabric 未启用，无法连接 Hub 拉取 Webhook"),
+                    });
+                };
+                let agent_id = self.runtime_info.agent_id;
+                let batch = match runtime.pull_webhook_ingress(agent_id, after, limit.clamp(1, 500))
+                {
+                    Ok(batch) => batch,
+                    Err(err) => return ipc_error_response(err),
+                };
+                let (ack_ids, mut report) = {
+                    let Ok(mut guard) = self.state.lock() else {
+                        return ipc_error_response(QuetzalcoatlError::StorageError {
+                            detail: String::from("daemon lock poisoned"),
+                        });
+                    };
+                    crate::webhook::decrypt_and_persist(
+                        guard.kernel.spine_mut(),
+                        &batch.events,
+                        now_unix_ms(),
+                    )
+                };
+                let acked = match runtime.ack_webhook_ingress(agent_id, &ack_ids) {
+                    Ok(deleted) => deleted,
+                    Err(err) => return ipc_error_response(err),
+                };
+                report.acked = acked;
+                report.next_cursor = batch.next_cursor;
+                report.queue_depth = batch.queue_depth.saturating_sub(acked);
+                (IpcResponse::WebhookPull(report), false)
+            }
+            IpcRequest::WebhookStatus => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return ipc_error_response(QuetzalcoatlError::PermissionDenied {
+                        detail: String::from("fabric 未启用，无法查询 Hub Webhook 状态"),
+                    });
+                };
+                match runtime.webhook_ingress_status(self.runtime_info.agent_id) {
+                    Ok(status) => (IpcResponse::WebhookQueueStatus(status), false),
+                    Err(err) => ipc_error_response(err),
                 }
             }
             IpcRequest::Shutdown => {

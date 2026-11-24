@@ -41,8 +41,9 @@ Commands:
   pair        Quantum-safe X-Wing device pairing (start | join | approve)
   nodes       List fabric peers, path kind, Router holder and witness_epoch
   group       openmls 群组：create | invite | join | leave | list | send | members | revoke-steward
-  channel     七大通道族：list | enable <name> | disable <name> | status（默认全部关闭）
+  channel     七大通道族：list | enable <name> | disable <name> | status | send <name> --text <...>
   sayit       SayIt v2.1 子树吸纳：ingest --path <snapshot> | --batch <dir>
+  webhook     零知识 Webhook 入站：pull [--limit N] | status
 ";
 
 fn locate_quetzalcoatld_binary() -> PathBuf {
@@ -977,10 +978,26 @@ fn run_channel(args: &[String]) -> Result<()> {
     let mut json_mode = false;
     let mut action: Option<String> = None;
     let mut channel: Option<String> = None;
+    let mut text: Option<String> = None;
+    let mut destination: Option<String> = None;
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
             "--json" => json_mode = true,
+            "--text" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--text 缺少正文"),
+                })?;
+                text = Some(v.clone());
+            }
+            "--to" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--to 缺少目标"),
+                })?;
+                destination = Some(v.clone());
+            }
             "--home" => {
                 i += 1;
                 let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
@@ -995,7 +1012,7 @@ fn run_channel(args: &[String]) -> Result<()> {
                 })?;
                 channel = Some(v.clone());
             }
-            other if matches!(other, "list" | "status" | "enable" | "disable") => {
+            other if matches!(other, "list" | "status" | "enable" | "disable" | "send") => {
                 action = Some(String::from(other));
             }
             other if !other.starts_with('-') && channel.is_none() => {
@@ -1027,6 +1044,24 @@ fn run_channel(args: &[String]) -> Result<()> {
                 client.call(&IpcRequest::ChannelDisable { channel: name })?
             }
         }
+        "send" => {
+            let name = channel.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id(
+                    "ChannelId",
+                    String::from(
+                        "必须提供通道名，例如 `qz channel send telegram --text hi --to 123`",
+                    ),
+                )
+            })?;
+            let text = text.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id("ChannelText", String::from("必须提供 --text <正文>"))
+            })?;
+            client.call(&IpcRequest::ChannelDeliver {
+                channel: name,
+                destination,
+                text,
+            })?
+        }
         other => {
             return Err(QuetzalcoatlError::StorageError {
                 detail: format!("未知 channel 子命令 `{other}`"),
@@ -1047,6 +1082,17 @@ fn run_channel(args: &[String]) -> Result<()> {
                 print_json(&row)?;
             } else {
                 print_channel_health_text(std::slice::from_ref(&row));
+            }
+            Ok(())
+        }
+        IpcResponse::ChannelDelivery(report) => {
+            if json_mode {
+                print_json(&report)?;
+            } else {
+                println!(
+                    "delivered channel={} destination={} parts={} truncated={}",
+                    report.channel, report.destination, report.parts, report.truncated
+                );
             }
             Ok(())
         }
@@ -1140,6 +1186,107 @@ fn run_sayit(args: &[String]) -> Result<()> {
         IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
         other => Err(QuetzalcoatlError::StorageError {
             detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
+fn run_webhook(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut json_mode = false;
+    let mut action: Option<String> = None;
+    let mut after = 0i64;
+    let mut limit = 100u32;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json_mode = true,
+            "--home" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--home 缺少目录参数"),
+                })?;
+                home = Some(PathBuf::from(v));
+            }
+            "--after" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--after 缺少游标"),
+                })?;
+                after = v
+                    .parse::<i64>()
+                    .map_err(|e| QuetzalcoatlError::StorageError {
+                        detail: format!("非法 --after: {e}"),
+                    })?;
+            }
+            "--limit" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--limit 缺少数量"),
+                })?;
+                limit = v
+                    .parse::<u32>()
+                    .map_err(|e| QuetzalcoatlError::StorageError {
+                        detail: format!("非法 --limit: {e}"),
+                    })?;
+            }
+            "pull" | "status" => action = Some(String::from(args[i].as_str())),
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("未知选项: {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?;
+    match action.as_deref().unwrap_or("status") {
+        "pull" => match client.call(&IpcRequest::WebhookPull { after, limit })? {
+            IpcResponse::WebhookPull(report) => {
+                if json_mode {
+                    print_json(&report)?;
+                } else {
+                    println!(
+                        "pulled={} persisted={} acked={} queue_depth={} next_cursor={}",
+                        report.pulled,
+                        report.persisted,
+                        report.acked,
+                        report.queue_depth,
+                        report.next_cursor
+                    );
+                    for failure in &report.failures {
+                        println!(
+                            "  - {} [{}] {}",
+                            failure.event_id, failure.error_code, failure.detail
+                        );
+                    }
+                }
+                Ok(())
+            }
+            IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+            other => Err(QuetzalcoatlError::StorageError {
+                detail: format!("未知的 IPC 响应: {other:?}"),
+            }),
+        },
+        "status" => match client.call(&IpcRequest::WebhookStatus)? {
+            IpcResponse::WebhookQueueStatus(status) => {
+                if json_mode {
+                    print_json(&status)?;
+                } else {
+                    println!(
+                        "registered={} key_id={} queue_depth={} max_queue={}",
+                        status.registered, status.key_id, status.queue_depth, status.max_queue
+                    );
+                }
+                Ok(())
+            }
+            IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+            other => Err(QuetzalcoatlError::StorageError {
+                detail: format!("未知的 IPC 响应: {other:?}"),
+            }),
+        },
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知 webhook 子命令 `{other}`"),
         }),
     }
 }
@@ -1316,6 +1463,7 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "group" => run_group(rest),
         "channel" => run_channel(rest),
         "sayit" => run_sayit(rest),
+        "webhook" => run_webhook(rest),
         other => Err(QuetzalcoatlError::StorageError {
             detail: format!("未知子命令 `{other}`\n{USAGE_TEXT}"),
         }),

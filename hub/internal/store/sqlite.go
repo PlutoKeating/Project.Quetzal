@@ -388,8 +388,10 @@ type Store interface {
 	ListSpinePacks(ctx context.Context, agentID string, afterSeq uint64, limit uint32) ([]SpinePackRecord, error)
 
 	EnqueueWebhookIngress(ctx context.Context, rec WebhookIngressRecord, maxPerAgent int) (bool, int, error)
-	ListWebhookIngress(ctx context.Context, agentID string, limit int) ([]WebhookIngressRecord, error)
+	ListWebhookIngress(ctx context.Context, agentID string, after int64, limit int) ([]WebhookIngressRecord, error)
 	DeleteWebhookIngress(ctx context.Context, agentID string, ingressID int64) (bool, error)
+	DeleteWebhookIngressByHashes(ctx context.Context, agentID string, eventIDHashes []string) (int64, error)
+	CountWebhookIngress(ctx context.Context, agentID string) (int, error)
 
 	AcquireLease(ctx context.Context, agentID, deviceID string, expectedEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
 	RenewLease(ctx context.Context, agentID, deviceID string, witnessEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
@@ -2174,7 +2176,7 @@ func (s *SQLiteStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIngr
 }
 
 // ListWebhookIngress 按入队顺序读取某 Agent 的待解密密文行。
-func (s *SQLiteStore) ListWebhookIngress(ctx context.Context, agentID string, limit int) ([]WebhookIngressRecord, error) {
+func (s *SQLiteStore) ListWebhookIngress(ctx context.Context, agentID string, after int64, limit int) ([]WebhookIngressRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if limit <= 0 || limit > 1000 {
@@ -2182,8 +2184,8 @@ func (s *SQLiteStore) ListWebhookIngress(ctx context.Context, agentID string, li
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT ingress_id, agent_id, channel, event_id_hash, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
-		FROM webhook_ingress_queue WHERE agent_id = ? ORDER BY ingress_id ASC LIMIT ?
-	`, agentID, limit)
+		FROM webhook_ingress_queue WHERE agent_id = ? AND ingress_id > ? ORDER BY ingress_id ASC LIMIT ?
+	`, agentID, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2212,4 +2214,45 @@ func (s *SQLiteStore) DeleteWebhookIngress(ctx context.Context, agentID string, 
 		return false, err
 	}
 	return affected > 0, nil
+}
+
+// CountWebhookIngress 返回某 Agent 的待解密密文队列深度。
+func (s *SQLiteStore) CountWebhookIngress(ctx context.Context, agentID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var depth int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ?`, agentID).Scan(&depth); err != nil {
+		return 0, err
+	}
+	return depth, nil
+}
+
+// DeleteWebhookIngressByHashes 仅删除调用者 Agent 拥有的已确认事件（以 event_id 哈希定位）。
+func (s *SQLiteStore) DeleteWebhookIngressByHashes(ctx context.Context, agentID string, eventIDHashes []string) (int64, error) {
+	if len(eventIDHashes) == 0 {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var deleted int64
+	for _, hash := range eventIDHashes {
+		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND event_id_hash = ?`, agentID, hash)
+		if err != nil {
+			return 0, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		deleted += affected
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted, nil
 }

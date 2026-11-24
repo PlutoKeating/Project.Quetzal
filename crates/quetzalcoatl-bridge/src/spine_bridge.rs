@@ -61,14 +61,89 @@ const FORBIDDEN_MARKERS: &[&str] = &[
     "lease",
     "steward",
     "group",
+    "relationship",
+    "authority",
+    "directive",
 ];
+const SECRET_KEY_MARKERS: &[&str] = &[
+    "secret",
+    "token",
+    "password",
+    "api_key",
+    "apikey",
+    "private_key",
+    "privatekey",
+    "credential",
+    "authorization",
+    "cookie",
+    "refresh_token",
+    "access_token",
+];
+
+fn contains_forbidden(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    FORBIDDEN_MARKERS.iter().any(|m| lower.contains(m))
+}
+
+fn looks_absolute_path(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.starts_with('/') || trimmed.starts_with("\\") {
+        return true;
+    }
+    let bytes = trimmed.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+}
+
+fn scan_json(value: &serde_json::Value, reason: &mut Option<&'static str>) -> bool {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                let lower_key = key.to_ascii_lowercase();
+                if contains_forbidden(&lower_key) {
+                    *reason = Some("payload key contains forbidden authority marker");
+                    return true;
+                }
+                if SECRET_KEY_MARKERS
+                    .iter()
+                    .any(|marker| lower_key.contains(marker))
+                {
+                    *reason = Some("payload key looks secret-bearing");
+                    return true;
+                }
+                if lower_key.contains("path") && child.as_str().is_some_and(looks_absolute_path) {
+                    *reason = Some("payload contains an absolute filesystem path");
+                    return true;
+                }
+                if scan_json(child, reason) {
+                    return true;
+                }
+            }
+            false
+        }
+        serde_json::Value::Array(items) => items.iter().any(|item| scan_json(item, reason)),
+        serde_json::Value::String(text) => {
+            if contains_forbidden(text) {
+                *reason = Some("payload value contains forbidden authority marker");
+                return true;
+            }
+            if looks_absolute_path(text) {
+                *reason = Some("payload contains an absolute filesystem path");
+                return true;
+            }
+            false
+        }
+        _ => false,
+    }
+}
 
 fn kind_allowed(kind: &str) -> bool {
     if !(kind.starts_with("memory.") || kind.starts_with("journal.")) {
         return false;
     }
-    let lower = kind.to_ascii_lowercase();
-    !FORBIDDEN_MARKERS.iter().any(|m| lower.contains(m))
+    !contains_forbidden(kind)
 }
 
 /// 受限脊柱桥接器。
@@ -144,15 +219,25 @@ impl<'a, S: MaterializedStore> SpineBridge<'a, S> {
         let Some(object) = payload.as_object() else {
             return self.deny(kind, body_id, "bridge payload must be a JSON object");
         };
-        if let Some(claimed_kind) = object.get("kind").and_then(serde_json::Value::as_str)
-            && claimed_kind != kind
-        {
+        let Some(claimed_kind) = object.get("kind").and_then(serde_json::Value::as_str) else {
+            return self.deny(kind, body_id, "payload must declare kind");
+        };
+        if claimed_kind != kind {
             return self.deny(kind, body_id, "payload kind does not match envelope kind");
         }
-        if let Some(claimed_body) = object.get("body").and_then(serde_json::Value::as_str)
-            && claimed_body != self.key.body_id
-        {
+        let Some(claimed_body) = object.get("body").and_then(serde_json::Value::as_str) else {
+            return self.deny(kind, body_id, "payload must declare body");
+        };
+        if claimed_body != self.key.body_id {
             return self.deny(kind, body_id, "payload body does not match bridge body");
+        }
+        let mut marker_reason: Option<&'static str> = None;
+        if scan_json(&payload, &mut marker_reason) {
+            return self.deny(
+                kind,
+                body_id,
+                marker_reason.unwrap_or("payload contains forbidden authority markers"),
+            );
         }
         if let Some(claimed_agent) = object
             .get("agent_id")
@@ -163,9 +248,10 @@ impl<'a, S: MaterializedStore> SpineBridge<'a, S> {
             return self.deny(kind, body_id, "payload agent does not match bridge agent");
         }
 
-        let event = self
-            .engine
-            .append_event(PackCompartment::Core, payload_json, now_ms)?;
+        // 桥接事件必须进入独立 external_channel 分舱，绝不可被下游误认为核心良知状态。
+        let event =
+            self.engine
+                .append_event(PackCompartment::ExternalChannel, payload_json, now_ms)?;
         self.audit.push(BridgeAuditEntry {
             allowed: true,
             kind: String::from(kind),
@@ -178,7 +264,10 @@ impl<'a, S: MaterializedStore> SpineBridge<'a, S> {
     /// 只读回自身 body 的 `memory.*` / `journal.*` 事件。
     pub fn read_own(&self) -> Result<Vec<BridgeEvent>> {
         let mut out = Vec::new();
-        for (event, _compartment) in self.engine.store().list_all_events()? {
+        for (event, compartment) in self.engine.store().list_all_events()? {
+            if compartment != PackCompartment::ExternalChannel {
+                continue;
+            }
             let Ok(payload) = serde_json::from_str::<serde_json::Value>(&event.payload_utf8) else {
                 continue;
             };

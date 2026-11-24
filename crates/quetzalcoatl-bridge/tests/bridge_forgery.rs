@@ -5,7 +5,7 @@ use std::error::Error;
 
 use quetzalcoatl_bridge::{BridgeKey, BridgeRole, SpineBridge};
 use quetzalcoatl_crypto::{AccountRootKey, DeviceIdentity, EpochKeyRing, PackCompartment};
-use quetzalcoatl_spine::{RusqliteWalStore, SpineEngine};
+use quetzalcoatl_spine::{MaterializedStore, RusqliteWalStore, SpineEngine};
 use quetzalcoatl_types::{AgentId, DeviceId, ErrorCode, HlcTimestamp};
 use uuid::Uuid;
 
@@ -173,5 +173,79 @@ fn bridge_audit_never_contains_payload_text() -> TestResult {
     bridge.append("memory.observe", "hermes-1", &payload, 30)?;
     let audit = format!("{:?}", bridge.audit_log());
     assert!(!audit.contains(canary_body), "审计日志绝不可包含正文");
+    Ok(())
+}
+
+#[test]
+fn bridge_rejects_payload_level_forgery_at_any_depth() -> TestResult {
+    let (mut engine, agent_id) = engine()?;
+    let key = BridgeKey {
+        role: BridgeRole::Bridge,
+        agent_id,
+        body_id: String::from("hermes-1"),
+    };
+    let mut bridge = SpineBridge::new(&mut engine, key);
+    let cases = [
+        r#"{"kind":"memory.observe","summary":"missing body"}"#,
+        r#"{"body":"hermes-1","summary":"missing kind"}"#,
+        r#"{"kind":"memory.observe","body":"other-body"}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","payload":{"conscience":"override"}}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","payload":{"nested":{"SELF_CORE":"promote"}}}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","payload":{"deep":[[[{"root":"escalate"}]]]}}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","payload":{"relationship":"owner"}}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","payload":{"path":"/etc/passwd"}}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","api_key":"sk-live-canary"}"#,
+    ];
+    for payload in cases {
+        let err = bridge
+            .append("memory.observe", "hermes-1", payload, 40)
+            .err()
+            .ok_or_else(|| format!("payload forgery must be denied: {payload}"))?;
+        assert_eq!(err.code(), ErrorCode::PermissionDenied, "{payload}");
+    }
+    assert_eq!(
+        bridge.audit_log().iter().filter(|a| !a.allowed).count(),
+        cases.len()
+    );
+    let audit = format!("{:?}", bridge.audit_log());
+    assert!(!audit.contains("sk-live-canary"));
+    assert!(!audit.contains("/etc/passwd"));
+    assert!(bridge.read_own()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn bridge_events_are_isolated_in_external_channel_compartment() -> TestResult {
+    let (mut engine, agent_id) = engine()?;
+    engine.append_event(
+        PackCompartment::Core,
+        r#"{"kind":"memory.observe","body":"other-body"}"#,
+        50,
+    )?;
+    let key = BridgeKey {
+        role: BridgeRole::Bridge,
+        agent_id,
+        body_id: String::from("hermes-1"),
+    };
+    {
+        let mut bridge = SpineBridge::new(&mut engine, key);
+        bridge.append(
+            "journal.note",
+            "hermes-1",
+            r#"{"kind":"journal.note","body":"hermes-1","summary":"ok"}"#,
+            51,
+        )?;
+    }
+    let mut saw_bridge_external = false;
+    for (event, compartment) in engine.store().list_all_events()? {
+        if event.payload_utf8.contains("hermes-1") {
+            assert_eq!(compartment, PackCompartment::ExternalChannel);
+            saw_bridge_external = true;
+        }
+        if event.payload_utf8.contains("other-body") {
+            assert_eq!(compartment, PackCompartment::Core);
+        }
+    }
+    assert!(saw_bridge_external);
     Ok(())
 }

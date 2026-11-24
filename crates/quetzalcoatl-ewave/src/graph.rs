@@ -1187,7 +1187,7 @@ pub struct SerpentineGraph {
     pub(crate) updated_at: u64,
     pub(crate) embedder_online: bool,
     pub(crate) pending_reembed: Vec<NodeId>,
-    pub(crate) sayit_records: BTreeMap<(String, String), SayItSessionRecord>,
+    pub(crate) sayit_records: BTreeMap<(String, String, String), SayItSessionRecord>,
 }
 
 impl Default for SerpentineGraph {
@@ -4106,6 +4106,7 @@ impl SerpentineGraph {
             let mut records: Vec<&SayItSessionRecord> = self.sayit_records.values().collect();
             records.sort_by(|a, b| {
                 cmp_utf16(&a.sayit_user_hash, &b.sayit_user_hash)
+                    .then_with(|| cmp_utf16(&a.slice_id, &b.slice_id))
                     .then_with(|| cmp_utf16(&a.session_id, &b.session_id))
             });
             if let Ok(serialized_records) = serde_json::to_value(&records)
@@ -4312,9 +4313,14 @@ impl SerpentineGraph {
                     detail: format!("EWAVE_SNAPSHOT: 解析 qz_sayit_records 失败: {e}"),
                 })?;
             for rec in parsed_records {
-                graph
-                    .sayit_records
-                    .insert((rec.sayit_user_hash.clone(), rec.session_id.clone()), rec);
+                graph.sayit_records.insert(
+                    (
+                        rec.sayit_user_hash.clone(),
+                        rec.slice_id.clone(),
+                        rec.session_id.clone(),
+                    ),
+                    rec,
+                );
             }
         }
 
