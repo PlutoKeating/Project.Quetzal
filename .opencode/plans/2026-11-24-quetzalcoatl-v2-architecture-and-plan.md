@@ -425,10 +425,10 @@
 **Interfaces:**
 - Produces: `:443/relay`（`iroh-relay-v2` 混合编码 + 反代 TLS Exporter 回退 `ServerChallenge`）、`:443/ping`、`:7842/udp`（ALPN `/iroh-qad/0` `OBSERVED_ADDRESS`）与可选 `/v1/llm/*`（`ResponseController` 超时防慢客户端 OOM + 多模态/推理两阶段配额结算）。
 
-- [ ] **Step 1: 编写 `iroh-relay-v2` 黄金字节帧编解码、慢速 SSE 断流取消及 `<|endoftext|>` 防崩测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 WSS 中继、QAD UDP 响应器与零日志流式模型代理**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写 `iroh-relay-v2` 黄金字节帧编解码、慢速 SSE 断流取消及 `<|endoftext|>` 防崩测试**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现 WSS 中继、QAD UDP 响应器与零日志流式模型代理**
+- [x] **Step 4: 验证通过并提交**
 
 ---
 

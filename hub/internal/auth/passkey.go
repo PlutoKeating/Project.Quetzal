@@ -145,6 +145,11 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/devices", s.handleAddDevice)
 }
 
+// RequireAuth authenticates a Bearer session token and rejects unauthenticated (401) or revoked-device (403) callers.
+func (s *Service) RequireAuth(w http.ResponseWriter, r *http.Request) (*Principal, bool) {
+	return s.requireAuth(w, r)
+}
+
 // RequireAgentOwner authenticates Bearer token and enforces strict resource ownership (HTTP 403 Forbidden on cross-account access).
 func (s *Service) RequireAgentOwner(w http.ResponseWriter, r *http.Request, agentID string) (*Principal, *store.Agent, bool) {
 	return s.requireAgentOwner(w, r, agentID)
