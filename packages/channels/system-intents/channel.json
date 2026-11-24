@@ -1,0 +1,17 @@
+{
+  "id": "system-intents",
+  "displayName": "系统本地意图",
+  "transport": "local_ipc",
+  "requiresCredentials": false,
+  "longLived": false,
+  "localOnly": true,
+  "limits": {
+    "maxInboundBytes": 65536,
+    "maxOutboundBytes": 8192,
+    "maxTextChars": 8000,
+    "maxSubjectChars": 0,
+    "maxAttachments": 0,
+    "maxAttachmentBytes": 0
+  },
+  "desc": "纯本地系统意图通道：零网络、零凭据、无外部服务依赖，禁止投递任何附件。"
+}

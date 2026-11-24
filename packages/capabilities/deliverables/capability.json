@@ -1,0 +1,20 @@
+{
+  "id": "deliverables",
+  "displayName": "交付物生成",
+  "description": "在受限工作区内生成文档、表格与演示文稿交付物并登记 ArtifactRef。",
+  "implementation": {
+    "crate": "quetzalcoatl-capabilities",
+    "module": "deliverables"
+  },
+  "permissions": {
+    "network": false,
+    "filesystem": [
+      "workspace/artifacts"
+    ],
+    "sinks": [
+      "file.write",
+      "artifact.register"
+    ]
+  },
+  "status": "declared"
+}

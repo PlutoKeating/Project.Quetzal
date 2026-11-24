@@ -41,6 +41,8 @@ Commands:
   pair        Quantum-safe X-Wing device pairing (start | join | approve)
   nodes       List fabric peers, path kind, Router holder and witness_epoch
   group       openmls 群组：create | invite | join | leave | list | send | members | revoke-steward
+  channel     七大通道族：list | enable <name> | disable <name> | status（默认全部关闭）
+  sayit       SayIt v2.1 子树吸纳：ingest --path <snapshot> | --batch <dir>
 ";
 
 fn locate_quetzalcoatld_binary() -> PathBuf {
@@ -307,6 +309,7 @@ fn run_status(args: &[String]) -> Result<()> {
                         st.spine_events_count
                     );
                     print_fabric_status_text(&st.fabric);
+                    print_channel_health_text(&st.channels);
                 }
                 return Ok(());
             }
@@ -950,6 +953,197 @@ fn map_ipc_error_code(code: &str, detail: String) -> QuetzalcoatlError {
     }
 }
 
+fn print_channel_health_text(rows: &[quetzalcoatl_channels::ChannelHealth]) {
+    if rows.is_empty() {
+        println!("channels: none");
+        return;
+    }
+    println!("channels:");
+    for row in rows {
+        let state = if row.enabled { "enabled" } else { "disabled" };
+        let binding = match (row.bound_witness_epoch, row.holder_device_id.as_deref()) {
+            (Some(epoch), Some(holder)) => format!("epoch={epoch} holder={holder}"),
+            _ => String::from("unbound"),
+        };
+        println!(
+            "  - {} [{}] transport_local={} credentials={} {}",
+            row.channel, state, row.local_only, row.requires_credentials, binding
+        );
+    }
+}
+
+fn run_channel(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut json_mode = false;
+    let mut action: Option<String> = None;
+    let mut channel: Option<String> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json_mode = true,
+            "--home" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--home 缺少目录参数"),
+                })?;
+                home = Some(PathBuf::from(v));
+            }
+            "--name" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--name 缺少通道名"),
+                })?;
+                channel = Some(v.clone());
+            }
+            other if matches!(other, "list" | "status" | "enable" | "disable") => {
+                action = Some(String::from(other));
+            }
+            other if !other.starts_with('-') && channel.is_none() => {
+                channel = Some(String::from(other));
+            }
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("未知选项: {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?;
+    let action = action.unwrap_or_else(|| String::from("list"));
+    let response = match action.as_str() {
+        "list" | "status" => client.call(&IpcRequest::ChannelList)?,
+        "enable" | "disable" => {
+            let name = channel.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id(
+                    "ChannelId",
+                    String::from("必须提供通道名，例如 `qz channel enable feishu`"),
+                )
+            })?;
+            if action == "enable" {
+                client.call(&IpcRequest::ChannelEnable { channel: name })?
+            } else {
+                client.call(&IpcRequest::ChannelDisable { channel: name })?
+            }
+        }
+        other => {
+            return Err(QuetzalcoatlError::StorageError {
+                detail: format!("未知 channel 子命令 `{other}`"),
+            });
+        }
+    };
+    match response {
+        IpcResponse::Channels(rows) => {
+            if json_mode {
+                print_json(&rows)?;
+            } else {
+                print_channel_health_text(&rows);
+            }
+            Ok(())
+        }
+        IpcResponse::ChannelUpdate(row) => {
+            if json_mode {
+                print_json(&row)?;
+            } else {
+                print_channel_health_text(std::slice::from_ref(&row));
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
+fn run_sayit(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut json_mode = false;
+    let mut path: Option<PathBuf> = None;
+    let mut batch_dir: Option<PathBuf> = None;
+    let mut action: Option<String> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json_mode = true,
+            "--home" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--home 缺少目录参数"),
+                })?;
+                home = Some(PathBuf::from(v));
+            }
+            "--path" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--path 缺少快照路径"),
+                })?;
+                path = Some(PathBuf::from(v));
+            }
+            "--batch" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--batch 缺少目录参数"),
+                })?;
+                batch_dir = Some(PathBuf::from(v));
+            }
+            "ingest" => action = Some(String::from("ingest")),
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("未知选项: {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+    if action.as_deref() != Some("ingest") {
+        return Err(QuetzalcoatlError::StorageError {
+            detail: String::from("用法: qz sayit ingest --path <snapshot> [--batch <dir>]"),
+        });
+    }
+    if path.is_none() && batch_dir.is_none() {
+        return Err(QuetzalcoatlError::invalid_id(
+            "SayItPath",
+            String::from("必须提供 --path <snapshot> 或 --batch <dir>"),
+        ));
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?;
+    match client.call(&IpcRequest::SayItIngest { path, batch_dir })? {
+        IpcResponse::SayItIngest(outcomes) => {
+            if json_mode {
+                print_json(&outcomes)?;
+            } else {
+                for outcome in &outcomes {
+                    if let Some(receipt) = &outcome.receipt {
+                        println!(
+                            "{}: {} (branches +{}, leaves +{}, reembed_queued={})",
+                            outcome.path.display(),
+                            receipt.status,
+                            receipt.added_branches,
+                            receipt.added_leaves,
+                            receipt.queued_reembed
+                        );
+                    } else {
+                        println!(
+                            "{}: {} {}",
+                            outcome.path.display(),
+                            outcome.error_code.as_deref().unwrap_or("ERROR"),
+                            outcome.error_detail.as_deref().unwrap_or("")
+                        );
+                    }
+                }
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
 fn run_export(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
     let mut include_sealed_spine = true;
@@ -1120,6 +1314,8 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "pair" => run_pair(rest),
         "nodes" => run_nodes(rest),
         "group" => run_group(rest),
+        "channel" => run_channel(rest),
+        "sayit" => run_sayit(rest),
         other => Err(QuetzalcoatlError::StorageError {
             detail: format!("未知子命令 `{other}`\n{USAGE_TEXT}"),
         }),

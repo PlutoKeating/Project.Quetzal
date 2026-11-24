@@ -1,0 +1,19 @@
+[package]
+name = "quetzalcoatl-capabilities"
+description = "Quetzalcoatl V2 基础能力包：SayIt v2.1 子树吸纳与确定性归并"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quetzalcoatl-ewave.workspace = true
+quetzalcoatl-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+uuid.workspace = true

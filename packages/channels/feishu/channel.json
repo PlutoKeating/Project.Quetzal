@@ -1,0 +1,17 @@
+{
+  "id": "feishu",
+  "displayName": "飞书",
+  "transport": "web_socket",
+  "requiresCredentials": true,
+  "longLived": true,
+  "localOnly": false,
+  "limits": {
+    "maxInboundBytes": 1048576,
+    "maxOutboundBytes": 30000,
+    "maxTextChars": 30000,
+    "maxSubjectChars": 0,
+    "maxAttachments": 10,
+    "maxAttachmentBytes": 31457280
+  },
+  "desc": "飞书事件订阅与卡片消息：长连接由单一 witness_epoch 持有；出站按卡片 30KB 字节上限分片。入站 JSON 事件仅在 Hub 内验签并 HPKE 密封。"
+}

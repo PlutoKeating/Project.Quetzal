@@ -1,0 +1,16 @@
+[package]
+name = "quetzalcoatl-channels"
+description = "Quetzalcoatl V2 七大标准外置通道描述符、约束驱动与单 witness_epoch 长连接监管"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quetzalcoatl-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true

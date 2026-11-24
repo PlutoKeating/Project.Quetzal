@@ -1,0 +1,20 @@
+{
+  "id": "sayit-ingestor",
+  "displayName": "SayIt 子树吸纳",
+  "description": "消费 SayIt v2.1 JSON-v2 子树快照，经 align()/merge() 归并入个人主权 SerpentineGraph。",
+  "implementation": {
+    "crate": "quetzalcoatl-capabilities",
+    "module": "sayit_ingestor"
+  },
+  "permissions": {
+    "network": false,
+    "filesystem": [
+      "QUETZALCOATL_HOME/ewave"
+    ],
+    "sinks": [
+      "memory.observe",
+      "journal.note"
+    ]
+  },
+  "status": "declared"
+}

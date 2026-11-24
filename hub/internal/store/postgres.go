@@ -243,6 +243,21 @@ CREATE TABLE IF NOT EXISTS group_commits (
 	created_at_ms BIGINT NOT NULL,
 	PRIMARY KEY (group_id, server_seq)
 );
+
+CREATE TABLE IF NOT EXISTS webhook_ingress_queue (
+	ingress_id BIGSERIAL PRIMARY KEY,
+	agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
+	channel TEXT NOT NULL,
+	event_id_hash TEXT NOT NULL,
+	hpke_enc_hex TEXT NOT NULL,
+	ciphertext_hex TEXT NOT NULL,
+	aad_utf8 TEXT NOT NULL,
+	received_at_ms BIGINT NOT NULL,
+	created_at_ms BIGINT NOT NULL,
+	UNIQUE (agent_id, channel, event_id_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_ingress_agent
+	ON webhook_ingress_queue(agent_id, ingress_id);
 `
 
 type PostgresStore struct {
@@ -1473,4 +1488,82 @@ func (p *PostgresStore) GroupRoomHead(ctx context.Context, groupID string) (uint
 		return 0, 0, err
 	}
 	return head, epoch, nil
+}
+
+func (p *PostgresStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIngressRecord, maxPerAgent int) (bool, int, error) {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var existing int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT ingress_id FROM webhook_ingress_queue
+		WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3
+	`, rec.AgentID, rec.Channel, rec.EventIDHash).Scan(&existing)
+	if err == nil {
+		var depth int
+		if countErr := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, rec.AgentID).Scan(&depth); countErr != nil {
+			return false, 0, countErr
+		}
+		return false, depth, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, 0, err
+	}
+
+	var depth int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, rec.AgentID).Scan(&depth); err != nil {
+		return false, 0, err
+	}
+	if maxPerAgent > 0 && depth >= maxPerAgent {
+		return false, depth, ErrQuotaExceeded
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO webhook_ingress_queue (
+			agent_id, channel, event_id_hash, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.HPKEEncHex, rec.CiphertextHex, rec.AADUTF8, rec.ReceivedAtMs, rec.CreatedAtMs); err != nil {
+		return false, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, 0, err
+	}
+	return true, depth + 1, nil
+}
+
+func (p *PostgresStore) ListWebhookIngress(ctx context.Context, agentID string, limit int) ([]WebhookIngressRecord, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT ingress_id, agent_id, channel, event_id_hash, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+		FROM webhook_ingress_queue WHERE agent_id = $1 ORDER BY ingress_id ASC LIMIT $2
+	`, agentID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WebhookIngressRecord
+	for rows.Next() {
+		var r WebhookIngressRecord
+		if err := rows.Scan(&r.IngressID, &r.AgentID, &r.Channel, &r.EventIDHash, &r.HPKEEncHex, &r.CiphertextHex, &r.AADUTF8, &r.ReceivedAtMs, &r.CreatedAtMs); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresStore) DeleteWebhookIngress(ctx context.Context, agentID string, ingressID int64) (bool, error) {
+	res, err := p.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND ingress_id = $2`, agentID, ingressID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
 }

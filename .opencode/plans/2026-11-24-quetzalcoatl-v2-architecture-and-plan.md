@@ -509,10 +509,11 @@
 **Interfaces:**
 - Produces: 7 大标准通道描述符与驱动（支持多信道带宽字数约束、长连接单 `witness_epoch` 持有、公网 Webhook 经 Hub 内存验签后 RFC 9180 HPKE 零知识密封入站）、仅绑定个人主权 Agent 的 `SayIt` JSON-v2 子树吸纳管线、以及持受限 `Role::Bridge` 密钥的 Hermes/OpenClaw 桥接器。
 
-- [ ] **Step 1: 编写 Webhook 零明文落盘、`Router` 漂移通道无缝交接、`SayIt` 子树 `align()/merge()` 归并与 `Role::Bridge` 越权写入拦截测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现全部外置通道、基础能力包、`SayIt` 吸纳器与 `spine-bridge`**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写 Webhook 零明文落盘、`Router` 漂移通道无缝交接、`SayIt` 子树 `align()/merge()` 归并与 `Role::Bridge` 越权写入拦截测试**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现全部外置通道、基础能力包、`SayIt` 吸纳器与 `spine-bridge`**
+- [x] **Step 4: 验证通过并提交**
+- Deferred: `deliverables` / `web-research` / `doc-reader` / `hands-desktop` / `artifacts` 五包按控制器裁决仅交付声明式 `capability.json` 最小权限面与实现模块占位，具体工具执行器留待后续 Runner/领域包任务落地。
 
 ---
 

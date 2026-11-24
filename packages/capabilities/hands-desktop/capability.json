@@ -1,0 +1,17 @@
+{
+  "id": "hands-desktop",
+  "displayName": "桌面操作",
+  "description": "在用户显式授权下经 OS 沙箱执行桌面自动化，所有高危动作强制二次确认。",
+  "implementation": {
+    "crate": "quetzalcoatl-capabilities",
+    "module": "hands_desktop"
+  },
+  "permissions": {
+    "network": false,
+    "filesystem": [],
+    "sinks": [
+      "desktop.interact"
+    ]
+  },
+  "status": "declared"
+}

@@ -15,6 +15,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use quetzalcoatl_capabilities::{
+    SayItBatchOutcome, SayItTarget, SovereignScope, ingest_batch_into_graph, ingest_file_into_graph,
+};
+use quetzalcoatl_channels::ChannelHealth;
 use quetzalcoatl_crypto::PackCompartment;
 use quetzalcoatl_crypto::{
     AccountRootKey, DeviceIdentity, EpochKey, EpochKeyRing, hex_decode_fixed, hex_encode,
@@ -156,6 +160,8 @@ pub struct DaemonStatus {
     pub fabric: FabricStatus,
     /// 当前已加入并构造 `openmls` 引擎的群房间数量。
     pub group_rooms: usize,
+    /// 七大通道族的显式 opt-in 健康状态（默认全部关闭）。
+    pub channels: Vec<ChannelHealth>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -590,6 +596,7 @@ pub(crate) struct DaemonMutableState {
     pub(crate) group: crate::group::GroupRoomRuntime,
     /// opt-in 声学语音门；`None` 时零 AEC/VAD 状态、零副作用。
     pub(crate) voice: Option<crate::voice::VoiceActivitySessions>,
+    pub(crate) channels: crate::channels::ChannelRuntime,
     ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
@@ -654,6 +661,20 @@ impl SharedDaemonCore {
 
     pub(crate) fn fabric_runtime(&self) -> Option<Arc<DaemonFabricRuntime>> {
         self.fabric.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// 通道长连接所有权锚点：有 fabric 时跟随 Hub `witness_epoch` 与 Router 持有者；
+    /// 无 fabric 时由本机守护进程独占。
+    fn channel_lease_anchor(&self) -> (u64, String) {
+        if let Some(runtime) = self.fabric_runtime() {
+            let report = runtime.nodes_report();
+            let holder = report
+                .router_holder
+                .map(|d| d.to_string())
+                .unwrap_or_default();
+            return (report.witness_epoch, holder);
+        }
+        (0, self.runtime_info.device_id.to_string())
     }
     /// 查找 `quetzalcoatl-sandbox-exec` 包装器并校验宿主沙箱后端可用性；缺失时严格 fail-closed 报错 `SandboxViolation`，绝不回退 `/bin/sh`。
     fn resolve_sandbox_exec_path(&self) -> Result<PathBuf> {
@@ -1420,7 +1441,8 @@ impl SharedDaemonCore {
                     .discover()
                     .map(|r| r.agents)
                     .unwrap_or_default();
-                let Ok(guard) = self.state.lock() else {
+                let (witness_epoch, lease_holder) = self.channel_lease_anchor();
+                let Ok(mut guard) = self.state.lock() else {
                     return (
                         IpcResponse::Error {
                             code: String::from("STORAGE_ERROR"),
@@ -1436,6 +1458,8 @@ impl SharedDaemonCore {
                     .list_all_events()
                     .map(|v| v.len())
                     .unwrap_or(0);
+                let _ = guard.channels.reconcile_lease(witness_epoch, &lease_holder);
+                let channel_health = guard.channels.health();
                 let status = DaemonStatus {
                     pid: self.runtime_info.pid,
                     agent_id: guard.kernel.spine().agent_id(),
@@ -1453,6 +1477,7 @@ impl SharedDaemonCore {
                         .fabric_runtime()
                         .map_or_else(FabricStatus::disabled, |rt| rt.status()),
                     group_rooms: guard.group.room_count(),
+                    channels: channel_health,
                 };
                 (IpcResponse::Status(Box::new(status)), false)
             }
@@ -2088,6 +2113,75 @@ impl SharedDaemonCore {
                     }
                 }
             }
+            IpcRequest::ChannelList => {
+                let (witness_epoch, lease_holder) = self.channel_lease_anchor();
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_error_response(QuetzalcoatlError::StorageError {
+                        detail: String::from("daemon lock poisoned"),
+                    });
+                };
+                let _ = guard.channels.reconcile_lease(witness_epoch, &lease_holder);
+                (IpcResponse::Channels(guard.channels.health()), false)
+            }
+            IpcRequest::ChannelEnable { channel } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_error_response(QuetzalcoatlError::StorageError {
+                        detail: String::from("daemon lock poisoned"),
+                    });
+                };
+                match guard.channels.enable(&channel) {
+                    Ok(health) => (IpcResponse::ChannelUpdate(health), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::ChannelDisable { channel } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_error_response(QuetzalcoatlError::StorageError {
+                        detail: String::from("daemon lock poisoned"),
+                    });
+                };
+                match guard.channels.disable(&channel) {
+                    Ok(health) => (IpcResponse::ChannelUpdate(health), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::SayItIngest { path, batch_dir } => {
+                let now_ms = now_unix_ms();
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_error_response(QuetzalcoatlError::StorageError {
+                        detail: String::from("daemon lock poisoned"),
+                    });
+                };
+                let target = SayItTarget {
+                    agent_id: guard.kernel.spine().agent_id(),
+                    scope: SovereignScope::PersonalSovereign,
+                };
+                if let Some(root) = batch_dir {
+                    match ingest_batch_into_graph(&mut guard.graph, &target, &root, now_ms, true) {
+                        Ok(outcomes) => (IpcResponse::SayItIngest(outcomes), false),
+                        Err(err) => ipc_error_response(err),
+                    }
+                } else if let Some(snapshot) = path {
+                    match ingest_file_into_graph(&mut guard.graph, &target, &snapshot, now_ms, true)
+                    {
+                        Ok(receipt) => (
+                            IpcResponse::SayItIngest(vec![SayItBatchOutcome {
+                                path: snapshot,
+                                receipt: Some(receipt),
+                                error_code: None,
+                                error_detail: None,
+                            }]),
+                            false,
+                        ),
+                        Err(err) => ipc_error_response(err),
+                    }
+                } else {
+                    ipc_error_response(QuetzalcoatlError::invalid_id(
+                        "SayItPath",
+                        String::from("必须提供 --path <snapshot> 或 --batch <dir>"),
+                    ))
+                }
+            }
             IpcRequest::Shutdown => {
                 if let Ok(mut guard) = self.state.lock() {
                     let _ = guard
@@ -2436,6 +2530,7 @@ impl QuetzalcoatlDaemon {
 
         let qz_home = config.quetzalcoatl_home.clone();
         let voice_runtime = crate::voice::VoiceActivitySessions::from_config(config.voice_ai)?;
+        let channel_runtime = crate::channels::ChannelRuntime::load(&config.quetzalcoatl_home)?;
         let shared_core = Arc::new(SharedDaemonCore {
             config,
             runtime_info: runtime_info.clone(),
@@ -2452,6 +2547,7 @@ impl QuetzalcoatlDaemon {
                 persisted,
                 group: group_runtime,
                 voice: voice_runtime,
+                channels: channel_runtime,
                 ewave_check_reports: Vec::new(),
             }),
             fabric: Mutex::new(fabric_runtime.clone()),

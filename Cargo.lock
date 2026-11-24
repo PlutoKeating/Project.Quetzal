@@ -3524,6 +3524,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "quetzalcoatl-bridge"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "quetzalcoatl-crypto",
+ "quetzalcoatl-spine",
+ "quetzalcoatl-types",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "quetzalcoatl-capabilities"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "quetzalcoatl-ewave",
+ "quetzalcoatl-types",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "uuid",
+]
+
+[[package]]
+name = "quetzalcoatl-channels"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "quetzalcoatl-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "quetzalcoatl-crypto"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -3552,6 +3585,9 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
  "iroh",
+ "quetzalcoatl-bridge",
+ "quetzalcoatl-capabilities",
+ "quetzalcoatl-channels",
  "quetzalcoatl-crypto",
  "quetzalcoatl-ewave",
  "quetzalcoatl-fabric",

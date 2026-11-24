@@ -308,6 +308,37 @@ func errOrNil(err error) error {
 	return err
 }
 
+// loadWebhookPlatformSecrets 只从环境变量或 0600 文件加载平台 HMAC 密钥；
+// 绝不写日志、绝不回显密钥内容。`system-intents` 是纯本地通道，无需密钥。
+func loadWebhookPlatformSecrets() (map[string][]byte, error) {
+	secrets := make(map[string][]byte)
+	channels := []string{"feishu", "wecom", "dingtalk", "telegram", "email", "webhook"}
+	filePath := strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_WEBHOOK_SECRETS_FILE"))
+	if filePath != "" {
+		raw, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("read webhook secrets file: %w", err)
+		}
+		var parsed map[string]string
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return nil, fmt.Errorf("parse webhook secrets file: %w", err)
+		}
+		for channel, value := range parsed {
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			secrets[channel] = []byte(value)
+		}
+	}
+	for _, channel := range channels {
+		envKey := "QUETZALCOATL_HUB_WEBHOOK_SECRET_" + strings.ToUpper(strings.ReplaceAll(channel, "-", "_"))
+		if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
+			secrets[channel] = []byte(value)
+		}
+	}
+	return secrets, nil
+}
+
 func loadPublicKeyEnv(jsonEnv, fileEnv string) (map[string]any, error) {
 	if raw := strings.TrimSpace(os.Getenv(jsonEnv)); raw != "" {
 		return auth.ParsePublicKeySetJSON(raw)
@@ -437,6 +468,18 @@ func main() {
 		log.Fatalf("quetzalcoatl-hub failed to initialize lease service: %v", err)
 	}
 
+	webhookSecrets, err := loadWebhookPlatformSecrets()
+	if err != nil {
+		log.Fatalf("quetzalcoatl-hub failed to load webhook platform secrets: %v", err)
+	}
+	webhookSvc, err := lease.NewWebhookIngressService(st, lease.WebhookIngressConfig{
+		Secrets:          webhookSecrets,
+		MaxQueuePerAgent: int(envInt64OrDefault("QUETZALCOATL_HUB_WEBHOOK_QUEUE_PER_AGENT", 1024)),
+	}, time.Now)
+	if err != nil {
+		log.Fatalf("quetzalcoatl-hub failed to initialize webhook ingress: %v", err)
+	}
+
 	groupSvc, err := groupds.NewService(st, authSvc, time.Now)
 	if err != nil {
 		log.Fatalf("quetzalcoatl-hub failed to initialize group sequencer service: %v", err)
@@ -484,6 +527,7 @@ func main() {
 	authSvc.RegisterRoutes(mux)
 	spineSvc.RegisterRoutes(mux)
 	leaseSvc.RegisterRoutes(mux)
+	webhookSvc.RegisterRoutes(mux)
 	groupSvc.RegisterRoutes(mux)
 	relaySvc.RegisterRoutes(mux)
 	llmSvc.RegisterRoutes(mux)

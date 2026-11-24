@@ -1,0 +1,17 @@
+{
+  "id": "dingtalk",
+  "displayName": "钉钉",
+  "transport": "web_socket",
+  "requiresCredentials": true,
+  "longLived": true,
+  "localOnly": false,
+  "limits": {
+    "maxInboundBytes": 2097152,
+    "maxOutboundBytes": 20000,
+    "maxTextChars": 20000,
+    "maxSubjectChars": 0,
+    "maxAttachments": 5,
+    "maxAttachmentBytes": 20971520
+  },
+  "desc": "钉钉机器人 JSON 回调与 markdown 出站：单条 20000 字节上限。"
+}

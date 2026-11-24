@@ -1,0 +1,17 @@
+{
+  "id": "telegram",
+  "displayName": "Telegram",
+  "transport": "webhook",
+  "requiresCredentials": true,
+  "longLived": false,
+  "localOnly": false,
+  "limits": {
+    "maxInboundBytes": 1048576,
+    "maxOutboundBytes": 100000,
+    "maxTextChars": 4096,
+    "maxSubjectChars": 0,
+    "maxAttachments": 10,
+    "maxAttachmentBytes": 52428800
+  },
+  "desc": "Telegram Bot API：文本硬上限 4096 字符，超出必须分片且末段带可见截断标记。"
+}

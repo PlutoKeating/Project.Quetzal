@@ -1,0 +1,17 @@
+{
+  "id": "wecom",
+  "displayName": "企业微信",
+  "transport": "web_socket",
+  "requiresCredentials": true,
+  "longLived": true,
+  "localOnly": false,
+  "limits": {
+    "maxInboundBytes": 2097152,
+    "maxOutboundBytes": 4096,
+    "maxTextChars": 4096,
+    "maxSubjectChars": 0,
+    "maxAttachments": 5,
+    "maxAttachmentBytes": 20971520
+  },
+  "desc": "企业微信回调 XML 与应用 markdown 消息：markdown 单条 4096 字节，超限显式分片并带截断标记。"
+}

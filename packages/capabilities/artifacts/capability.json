@@ -1,0 +1,20 @@
+{
+  "id": "artifacts",
+  "displayName": "产物登记",
+  "description": "以不可变 ArtifactRef 登记构建产物与 Git Tree 引用，供跨 Worktree 零拷贝交接。",
+  "implementation": {
+    "crate": "quetzalcoatl-capabilities",
+    "module": "artifacts"
+  },
+  "permissions": {
+    "network": false,
+    "filesystem": [
+      "workspace/artifacts"
+    ],
+    "sinks": [
+      "artifact.register",
+      "artifact.read"
+    ]
+  },
+  "status": "declared"
+}

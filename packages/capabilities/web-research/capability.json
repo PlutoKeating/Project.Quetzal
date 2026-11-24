@@ -1,0 +1,18 @@
+{
+  "id": "web-research",
+  "displayName": "联网研究",
+  "description": "经外部只读检索与抓取收敛来源，输出带引用的研究报告；写外发需 Router 授权。",
+  "implementation": {
+    "crate": "quetzalcoatl-capabilities",
+    "module": "web_research"
+  },
+  "permissions": {
+    "network": true,
+    "filesystem": [],
+    "sinks": [
+      "network.read",
+      "memory.observe"
+    ]
+  },
+  "status": "declared"
+}

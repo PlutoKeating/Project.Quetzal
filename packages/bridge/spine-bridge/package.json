@@ -1,0 +1,19 @@
+{
+  "id": "spine-bridge",
+  "displayName": "受限脊柱桥接器",
+  "description": "Hermes/OpenClaw 兼容桥接器，仅持 Role::Bridge 受限键，可追加/读回自身 body 的 memory.* 与 journal.* 事件。",
+  "implementation": {
+    "crate": "quetzalcoatl-bridge",
+    "module": "spine_bridge"
+  },
+  "permissions": {
+    "network": false,
+    "filesystem": [],
+    "sinks": [
+      "memory.observe",
+      "journal.note"
+    ]
+  },
+  "role": "bridge",
+  "status": "declared"
+}

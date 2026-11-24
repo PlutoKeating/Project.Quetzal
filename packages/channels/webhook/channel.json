@@ -1,0 +1,17 @@
+{
+  "id": "webhook",
+  "displayName": "公网 Webhook",
+  "transport": "webhook",
+  "requiresCredentials": true,
+  "longLived": false,
+  "localOnly": false,
+  "limits": {
+    "maxInboundBytes": 262144,
+    "maxOutboundBytes": 65536,
+    "maxTextChars": 60000,
+    "maxSubjectChars": 0,
+    "maxAttachments": 5,
+    "maxAttachmentBytes": 10485760
+  },
+  "desc": "公网 Webhook 入站由 quetzalcoatl-hub 内存验签后立即 HPKE 密封入队（零明文落盘）；出站为 HTTP POST。"
+}

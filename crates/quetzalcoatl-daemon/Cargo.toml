@@ -19,6 +19,9 @@ path = "src/bin/qz.rs"
 
 [dependencies]
 blake3.workspace = true
+quetzalcoatl-capabilities.workspace = true
+quetzalcoatl-channels.workspace = true
+quetzalcoatl-bridge.workspace = true
 quetzalcoatl-crypto.workspace = true
 quetzalcoatl-ewave.workspace = true
 quetzalcoatl-fabric.workspace = true

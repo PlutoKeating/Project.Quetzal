@@ -26,6 +26,9 @@ use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+use quetzalcoatl_capabilities::SayItBatchOutcome;
+use quetzalcoatl_channels::ChannelHealth;
+
 use crate::daemon::{
     ChatRequest, ChatResponse, DaemonRuntimeInfo, DaemonStatus, ExploreWakeReport,
 };
@@ -246,6 +249,21 @@ pub enum IpcRequest {
     GroupMembers {
         room_id: String,
     },
+    /// `qz channel list` / `qz channel status`：列出通道健康状态。
+    ChannelList,
+    /// `qz channel enable --name <channel>`：显式 opt-in 单通道。
+    ChannelEnable {
+        channel: String,
+    },
+    /// `qz channel disable --name <channel>`：显式停用并关闭长连接。
+    ChannelDisable {
+        channel: String,
+    },
+    /// `qz sayit ingest --path <snapshot>` 或 `--batch <dir>`。
+    SayItIngest {
+        path: Option<PathBuf>,
+        batch_dir: Option<PathBuf>,
+    },
     /// `qz group send --room <id> --text <...>`。
     GroupSend {
         room_id: String,
@@ -319,6 +337,12 @@ pub enum IpcResponse {
     },
     /// 群历史行（密文与元数据）。
     GroupHistory(Vec<crate::group::GroupHistoryRow>),
+    /// 通道健康行（默认全部关闭）。
+    Channels(Vec<ChannelHealth>),
+    /// 单通道启用/停用后的最新健康行。
+    ChannelUpdate(ChannelHealth),
+    /// SayIt 吸纳结果（单文件或批量）。
+    SayItIngest(Vec<SayItBatchOutcome>),
     /// 单帧声学判决（语音起止 / 打断已同步写入脊柱活动链）。
     VoiceActivity {
         stream_id: String,

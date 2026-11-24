@@ -1,0 +1,19 @@
+{
+  "id": "doc-reader",
+  "displayName": "文档读取",
+  "description": "解析用户授权目录内的 PDF/Office/文本，提取结构化内容，不修改原文件。",
+  "implementation": {
+    "crate": "quetzalcoatl-capabilities",
+    "module": "doc_reader"
+  },
+  "permissions": {
+    "network": false,
+    "filesystem": [
+      "workspace/read-only"
+    ],
+    "sinks": [
+      "file.read"
+    ]
+  },
+  "status": "declared"
+}
