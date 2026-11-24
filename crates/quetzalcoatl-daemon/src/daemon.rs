@@ -52,6 +52,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::fabric::{DaemonFabricConfig, DaemonFabricRuntime, FabricStatus};
 use crate::local_ipc::{
     IpcClient, IpcHandler, IpcRequest, IpcResponse, LocalIpcServerHandle, ScopedHookTokenRegistry,
     start_local_ipc_server,
@@ -82,6 +83,8 @@ pub struct DaemonConfig {
     pub sandbox_exec_override: Option<PathBuf>,
     pub upstream_bearer_token: Option<String>,
     pub discovery_search_paths: Option<Vec<PathBuf>>,
+    /// 可选 `quetzalcoatl-fabric` 接入（默认 `None` 即完全关闭，不建节点、不写文件、零网络动作）。
+    pub fabric: Option<DaemonFabricConfig>,
 }
 
 impl DaemonConfig {
@@ -102,6 +105,7 @@ impl DaemonConfig {
         let sandbox_exec_override = std::env::var_os("QUETZALCOATL_SANDBOX_EXEC_BIN")
             .filter(|v| !v.is_empty())
             .map(PathBuf::from);
+        let fabric = DaemonFabricConfig::resolve(&quetzalcoatl_home);
 
         Self {
             quetzalcoatl_home,
@@ -113,6 +117,7 @@ impl DaemonConfig {
             sandbox_exec_override,
             upstream_bearer_token: None,
             discovery_search_paths: None,
+            fabric,
         }
     }
 }
@@ -142,6 +147,8 @@ pub struct DaemonStatus {
     pub total_verifier_runs: u64,
     pub spine_events_count: usize,
     pub sleep_phase: SleepPhase,
+    /// 可选 fabric 段落（默认关闭时 `enabled=false, lease="disabled"`）。
+    pub fabric: FabricStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -231,10 +238,10 @@ impl ExclusiveSpineLock {
 }
 
 #[derive(Serialize, Deserialize)]
-struct PersistedSovereignState {
+pub(crate) struct PersistedSovereignState {
     agent_id: AgentId,
     device_id: DeviceId,
-    root_key_hex: String,
+    pub(crate) root_key_hex: String,
     ed25519_seed_hex: String,
     xwing_seed_hex: String,
     epoch1_key_hex: String,
@@ -242,7 +249,7 @@ struct PersistedSovereignState {
     graph_json_v2: String,
 }
 
-fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| QuetzalcoatlError::StorageError {
             detail: format!("创建目录失败 ({}): {e}", parent.display()),
@@ -564,27 +571,31 @@ fn is_executable_regular_file(path: &Path) -> bool {
     }
 }
 
-struct DaemonMutableState {
+pub(crate) struct DaemonMutableState {
     _spine_lock: ExclusiveSpineLock,
-    kernel: BlindKernel<RusqliteWalStore>,
+    pub(crate) kernel: BlindKernel<RusqliteWalStore>,
     conscience: Conscience,
     graph: SerpentineGraph,
     _arbiter: ConscienceArbiter,
-    persisted: PersistedSovereignState,
+    pub(crate) persisted: PersistedSovereignState,
     ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
-struct SharedDaemonCore {
+pub(crate) struct SharedDaemonCore {
     config: DaemonConfig,
     runtime_info: DaemonRuntimeInfo,
     worker_sandbox: Arc<SandboxManager>,
     hook_tokens: ScopedHookTokenRegistry,
     harness_host: HarnessHost,
     gateway_base_url: String,
-    state: Mutex<DaemonMutableState>,
+    pub(crate) state: Mutex<DaemonMutableState>,
+    fabric: Mutex<Option<Arc<DaemonFabricRuntime>>>,
 }
 
 impl SharedDaemonCore {
+    pub(crate) fn fabric_runtime(&self) -> Option<Arc<DaemonFabricRuntime>> {
+        self.fabric.lock().ok().and_then(|g| g.clone())
+    }
     /// 查找 `quetzalcoatl-sandbox-exec` 包装器并校验宿主沙箱后端可用性；缺失时严格 fail-closed 报错 `SandboxViolation`，绝不回退 `/bin/sh`。
     fn resolve_sandbox_exec_path(&self) -> Result<PathBuf> {
         let probe = self.worker_sandbox.probe()?;
@@ -1379,6 +1390,9 @@ impl SharedDaemonCore {
                     total_verifier_runs: guard.kernel.total_verifier_runs(),
                     spine_events_count: events_count,
                     sleep_phase: guard.kernel.heart().phase(),
+                    fabric: self
+                        .fabric_runtime()
+                        .map_or_else(FabricStatus::disabled, |rt| rt.status()),
                 };
                 (IpcResponse::Status(Box::new(status)), false)
             }
@@ -1536,6 +1550,82 @@ impl SharedDaemonCore {
                     ),
                 }
             }
+            IpcRequest::FabricLogin(req) => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return fabric_disabled_response();
+                };
+                match runtime.login(&self.config.quetzalcoatl_home, &req) {
+                    Ok(rep) => (IpcResponse::FabricLogin(rep), false),
+                    Err(err) => (
+                        IpcResponse::Error {
+                            code: String::from(err.code().as_str()),
+                            detail: err.to_string(),
+                        },
+                        false,
+                    ),
+                }
+            }
+            IpcRequest::FabricPairStart => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return fabric_disabled_response();
+                };
+                match runtime.pair_start(&self.config.quetzalcoatl_home) {
+                    Ok(rep) => (IpcResponse::FabricPairStart(Box::new(rep)), false),
+                    Err(err) => (
+                        IpcResponse::Error {
+                            code: String::from(err.code().as_str()),
+                            detail: err.to_string(),
+                        },
+                        false,
+                    ),
+                }
+            }
+            IpcRequest::FabricPairJoin {
+                pairing_id,
+                short_code,
+            } => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return fabric_disabled_response();
+                };
+                match runtime.pair_join(&self.config.quetzalcoatl_home, &pairing_id, &short_code) {
+                    Ok(rep) => (IpcResponse::FabricPairJoin(rep), false),
+                    Err(err) => (
+                        IpcResponse::Error {
+                            code: String::from(err.code().as_str()),
+                            detail: err.to_string(),
+                        },
+                        false,
+                    ),
+                }
+            }
+            IpcRequest::FabricPairApprove {
+                pairing_id,
+                short_code,
+            } => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return fabric_disabled_response();
+                };
+                match runtime.pair_approve(&self.config.quetzalcoatl_home, &pairing_id, &short_code)
+                {
+                    Ok(rep) => (IpcResponse::FabricPairApprove(Box::new(rep)), false),
+                    Err(err) => (
+                        IpcResponse::Error {
+                            code: String::from(err.code().as_str()),
+                            detail: err.to_string(),
+                        },
+                        false,
+                    ),
+                }
+            }
+            IpcRequest::FabricNodes => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return fabric_disabled_response();
+                };
+                (
+                    IpcResponse::FabricNodes(Box::new(runtime.nodes_report())),
+                    false,
+                )
+            }
             IpcRequest::Shutdown => {
                 if let Ok(mut guard) = self.state.lock() {
                     let _ = guard
@@ -1564,6 +1654,18 @@ impl SharedDaemonCore {
             }
         }
     }
+}
+
+fn fabric_disabled_response() -> (IpcResponse, bool) {
+    (
+        IpcResponse::Error {
+            code: String::from("PERMISSION_DENIED"),
+            detail: String::from(
+                "fabric 未启用：请设置 QUETZALCOATL_FABRIC_HUB_URL（或 qz up --fabric-hub）后重启 quetzalcoatld",
+            ),
+        },
+        false,
+    )
 }
 
 fn sync_imported_memories_into_ewave(state: &mut DaemonMutableState, now_ms: u64) {
@@ -1641,6 +1743,12 @@ impl DaemonHandle {
     pub fn shutdown(&mut self) -> Result<()> {
         self.ipc_handle.join_all();
         self.gateway_handle.shutdown();
+        if let Some(core) = self.core.take() {
+            // fabric 必须在脊柱锁释放前完成 `<100ms` 租约释放与节点关闭。
+            if let Some(runtime) = core.fabric_runtime() {
+                runtime.shutdown();
+            }
+        }
         let _ = fs::remove_file(self.qz_home.join("run/daemon.json"));
         let _ = fs::remove_file(self.qz_home.join("run/daemon.token"));
         let scratch_dir = sandbox_scratch_root(self.runtime_info.agent_id);
@@ -1748,6 +1856,39 @@ impl QuetzalcoatlDaemon {
         let arbiter = ConscienceArbiter::new(Epoch::new(1));
         let core_holder: Arc<Mutex<Option<Arc<SharedDaemonCore>>>> = Arc::new(Mutex::new(None));
 
+        // 3b. 可选 fabric 接入：在构建 core 之前先按内核身份启动 `iroh` 节点与入站 RPC 处理器。
+        let (fabric_runtime, fabric_core_slot) = if let Some(fabric_cfg) = config.fabric.clone() {
+            let (agent_id, device, epoch_ring) = {
+                let agent_id = kernel.spine().agent_id();
+                let device = kernel.spine().local_device().clone();
+                let ring = kernel.spine().epoch_ring().clone();
+                (agent_id, device, ring)
+            };
+            let sandbox_available = worker_sandbox.probe().is_ok_and(|p| p.available);
+            let discovered_harnesses: Vec<String> = harness_host
+                .discover()
+                .map(|r| {
+                    r.agents
+                        .iter()
+                        .map(|a| format!("{:?}", a.kind).to_lowercase())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let runtime = crate::fabric::start_runtime(
+                &config.quetzalcoatl_home,
+                fabric_cfg,
+                agent_id,
+                device,
+                epoch_ring,
+                sandbox_available,
+                discovered_harnesses,
+            )?;
+            let slot = runtime.core_slot();
+            (Some(runtime), Some(slot))
+        } else {
+            (None, None)
+        };
+
         struct DeferredHandler {
             slot: Arc<Mutex<Option<Arc<SharedDaemonCore>>>>,
         }
@@ -1802,10 +1943,21 @@ impl QuetzalcoatlDaemon {
                 persisted,
                 ewave_check_reports: Vec::new(),
             }),
+            fabric: Mutex::new(fabric_runtime.clone()),
         });
 
         if let Ok(mut guard) = core_holder.lock() {
             *guard = Some(Arc::clone(&shared_core));
+        }
+        // 挂上弱引用并启动心跳线程（仅当 fabric 已启用时需要）。
+        // 注意：必须先释放 core_slot 锁再调用 tick_now，否则会与 `core()` 的同一把锁自锁。
+        if let (Some(runtime), Some(slot)) = (&fabric_runtime, &fabric_core_slot) {
+            if let Ok(mut guard) = slot.lock() {
+                *guard = Some(Arc::downgrade(&shared_core));
+            }
+            runtime.start_ticker();
+            // 重启续用既有会话时立即抢占一次 witness_epoch，避免状态短暂停留在 Standby。
+            let _ = runtime.tick_now();
         }
 
         write_private_file(&run_dir.join("daemon.token"), ipc_token.as_bytes())?;

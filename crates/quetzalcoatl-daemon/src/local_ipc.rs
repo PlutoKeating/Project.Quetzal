@@ -28,6 +28,10 @@ use zeroize::Zeroizing;
 use crate::daemon::{
     ChatRequest, ChatResponse, DaemonRuntimeInfo, DaemonStatus, ExploreWakeReport,
 };
+use crate::fabric::{
+    FabricLoginRequest, FabricLoginResult, FabricNodesReport, FabricPairApproveResult,
+    FabricPairJoinResult, FabricPairStartResult,
+};
 
 const MAX_IPC_HEADER_BYTES: usize = 32 * 1024;
 const MAX_IPC_BODY_BYTES: usize = 8 * 1024 * 1024;
@@ -150,6 +154,22 @@ pub enum IpcRequest {
         soul_dir: PathBuf,
         db_paths: Vec<PathBuf>,
     },
+    /// `qz login`：对 Hub 执行 OPAQUE PIN 或 Bearer 令牌认证并持久化会话。
+    FabricLogin(FabricLoginRequest),
+    /// `qz pair start`：发起抗量子 X-Wing 设备配对。
+    FabricPairStart,
+    /// `qz pair join --code <pairing_id>.<short_code>`。
+    FabricPairJoin {
+        pairing_id: String,
+        short_code: String,
+    },
+    /// `qz pair approve --code <pairing_id>.<short_code>`。
+    FabricPairApprove {
+        pairing_id: String,
+        short_code: String,
+    },
+    /// `qz nodes`：列出 fabric 对等节点、路径类型与当前 Router 租约持有者。
+    FabricNodes,
     Shutdown,
 }
 
@@ -163,6 +183,11 @@ pub enum IpcResponse {
     ConsciencePinned { pinned_system_tail: String },
     Ack { detail: String },
     ImportV1(V1ImportReport),
+    FabricLogin(FabricLoginResult),
+    FabricPairStart(Box<FabricPairStartResult>),
+    FabricPairJoin(FabricPairJoinResult),
+    FabricPairApprove(Box<FabricPairApproveResult>),
+    FabricNodes(Box<FabricNodesReport>),
     Error { code: String, detail: String },
 }
 

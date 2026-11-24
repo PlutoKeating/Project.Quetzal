@@ -11,14 +11,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use quetzalcoatl_daemon::{
-    ChatRequest, DaemonConfig, IpcClient, IpcRequest, IpcResponse, QuetzalcoatlDaemon,
-    export_offline_or_via_ipc, import_v1_offline_or_via_ipc, resolve_quetzalcoatl_home,
+    ChatRequest, DaemonConfig, DaemonFabricConfig, FabricLoginRequest, IpcClient, IpcRequest,
+    IpcResponse, QuetzalcoatlDaemon, export_offline_or_via_ipc, import_v1_offline_or_via_ipc,
+    resolve_quetzalcoatl_home,
 };
 use quetzalcoatl_harness::{DiscoveryConfig, discover_coding_agents};
 use quetzalcoatl_kernel::CleanRoomVerifierDag;
 use quetzalcoatl_sandbox::SandboxCommand;
 use quetzalcoatl_spine::ZipExportOptions;
-use quetzalcoatl_types::{QuetzalcoatlError, Result};
+use quetzalcoatl_types::{AgentId, DeviceId, QuetzalcoatlError, Result};
 
 const VERSION_BANNER: &str = concat!("qz (Quetzalcoatl CLI) ", env!("CARGO_PKG_VERSION"));
 
@@ -29,11 +30,14 @@ Usage:
 Commands:
   up          Start local quetzalcoatld daemon and wait for health ready
   down        Gracefully shut down running quetzalcoatld
-  status      Show daemon, sovereign spine, and heart status
+  status      Show daemon, sovereign spine, heart and fabric status
   agents      Discover installed Coding Agents (<10ms parallel probe)
   chat        Send a message (--interactive or direct prompt)
   export      Export readable Markdown + Spine ZIP archive
   import-v1   Idempotently migrate legacy V1 soul repo and SQLite sessions
+  login       Authenticate against quetzalcoatl-hub (OPAQUE PIN or Bearer token)
+  pair        Quantum-safe X-Wing device pairing (start | join | approve)
+  nodes       List fabric peers, path kind, Router holder and witness_epoch
 ";
 
 fn locate_quetzalcoatld_binary() -> PathBuf {
@@ -68,6 +72,11 @@ fn run_up(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
     let mut foreground = false;
     let mut upstream_url: Option<String> = None;
+    let mut fabric_hub: Option<String> = None;
+    let mut fabric_ca_file: Option<PathBuf> = None;
+    let mut fabric_relay_url: Option<String> = None;
+    let mut fabric_qad_port: Option<u16> = None;
+    let mut fabric_mdns: Option<bool> = None;
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
@@ -85,6 +94,47 @@ fn run_up(args: &[String]) -> Result<()> {
                     detail: String::from("--upstream-url 缺少参数"),
                 })?;
                 upstream_url = Some(v.clone());
+            }
+            "--fabric-hub" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--fabric-hub 缺少 URL 参数"),
+                })?;
+                fabric_hub = Some(v.clone());
+            }
+            "--fabric-ca-file" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--fabric-ca-file 缺少路径参数"),
+                })?;
+                fabric_ca_file = Some(PathBuf::from(v));
+            }
+            "--fabric-relay-url" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--fabric-relay-url 缺少 URL 参数"),
+                })?;
+                fabric_relay_url = Some(v.clone());
+            }
+            "--fabric-qad-port" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--fabric-qad-port 缺少端口参数"),
+                })?;
+                fabric_qad_port =
+                    Some(
+                        v.parse::<u16>()
+                            .map_err(|e| QuetzalcoatlError::StorageError {
+                                detail: format!("非法 --fabric-qad-port: {e}"),
+                            })?,
+                    );
+            }
+            "--fabric-mdns" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--fabric-mdns 缺省 0|1 参数"),
+                })?;
+                fabric_mdns = Some(!matches!(v.trim(), "0" | "false" | "off"));
             }
             other => {
                 return Err(QuetzalcoatlError::StorageError {
@@ -106,6 +156,14 @@ fn run_up(args: &[String]) -> Result<()> {
         return Ok(());
     }
 
+    let explicit_fabric = fabric_hub.map(|hub| DaemonFabricConfig {
+        relay_url: fabric_relay_url.clone().unwrap_or_else(|| hub.clone()),
+        hub_url: hub,
+        hub_ca_file: fabric_ca_file.clone(),
+        qad_port: fabric_qad_port.unwrap_or(7842),
+        enable_mdns: fabric_mdns.unwrap_or(true),
+    });
+
     if foreground {
         let mut cfg = DaemonConfig::new(qz_home);
         if let Some(u) = upstream_url {
@@ -113,6 +171,9 @@ fn run_up(args: &[String]) -> Result<()> {
             cfg.upstream_endpoints.openai_base_url = u.clone();
             cfg.upstream_endpoints.codex_chatgpt_base_url = u.clone();
             cfg.upstream_endpoints.gemini_base_url = u;
+        }
+        if let Some(f) = explicit_fabric {
+            cfg.fabric = Some(f);
         }
         let mut handle = QuetzalcoatlDaemon::start(cfg)?;
         println!(
@@ -150,6 +211,16 @@ fn run_up(args: &[String]) -> Result<()> {
         .stderr(Stdio::from(stderr_log));
     if let Some(u) = upstream_url {
         cmd.arg("--upstream-url").arg(u);
+    }
+    if let Some(f) = &explicit_fabric {
+        cmd.arg("--fabric-hub").arg(&f.hub_url);
+        cmd.arg("--fabric-relay-url").arg(&f.relay_url);
+        cmd.arg("--fabric-qad-port").arg(f.qad_port.to_string());
+        if let Some(ca) = &f.hub_ca_file {
+            cmd.arg("--fabric-ca-file").arg(ca);
+        }
+        cmd.arg("--fabric-mdns")
+            .arg(if f.enable_mdns { "1" } else { "0" });
     }
 
     let mut child = cmd.spawn().map_err(|e| QuetzalcoatlError::StorageError {
@@ -231,6 +302,7 @@ fn run_status(args: &[String]) -> Result<()> {
                         st.total_verifier_runs,
                         st.spine_events_count
                     );
+                    print_fabric_status_text(&st.fabric);
                 }
                 return Ok(());
             }
@@ -247,6 +319,396 @@ fn run_status(args: &[String]) -> Result<()> {
         println!("online: false");
     }
     Ok(())
+}
+
+fn print_fabric_status_text(fabric: &quetzalcoatl_daemon::FabricStatus) {
+    if !fabric.enabled {
+        println!("fabric: disabled");
+        return;
+    }
+    let hub = fabric.hub_url.as_deref().unwrap_or("(unknown)");
+    let lease = match (fabric.lease.as_str(), fabric.witness_epoch) {
+        ("witnessed", Some(epoch)) => format!("Witnessed(epoch={epoch})"),
+        ("witnessed", None) => String::from("Witnessed"),
+        (other, _) => String::from(other),
+    };
+    println!("fabric: enabled");
+    println!("fabric_hub: {hub}");
+    println!("fabric_logged_in: {}", fabric.logged_in);
+    println!("fabric_peers: {}", fabric.peer_count);
+    println!("fabric_lease: {lease}");
+    println!("fabric_last_sync_cursor: {}", fabric.last_sync_cursor);
+}
+
+fn parse_flag_value<'a>(args: &'a [String], idx: &mut usize, flag: &str) -> Result<&'a String> {
+    *idx += 1;
+    args.get(*idx)
+        .ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: format!("{flag} 缺少参数"),
+        })
+}
+
+fn parse_pair_code(code: &str) -> Result<(String, String)> {
+    let trimmed = code.trim();
+    let split = trimmed.split_once('.').or_else(|| trimmed.split_once(':'));
+    match split {
+        Some((pairing_id, short_code))
+            if !pairing_id.trim().is_empty() && !short_code.trim().is_empty() =>
+        {
+            Ok((
+                String::from(pairing_id.trim()),
+                String::from(short_code.trim()),
+            ))
+        }
+        _ => Err(QuetzalcoatlError::CredentialRejected {
+            detail: String::from(
+                "配对码格式应为 `<pairing_id>.<short_code>`（直接复制 `qz pair start` 输出的 pair_code）",
+            ),
+        }),
+    }
+}
+
+fn require_daemon(qz_home: &Path) -> Result<IpcClient> {
+    IpcClient::connect_from_home(qz_home)?.ok_or_else(|| QuetzalcoatlError::StorageError {
+        detail: String::from("quetzalcoatld 尚未启动，请先运行 `qz up`"),
+    })
+}
+
+fn expect_fabric_hub(client: &IpcClient, hub_flag: Option<&String>) -> Result<()> {
+    let Some(expected) = hub_flag else {
+        return Ok(());
+    };
+    let status = client.call(&IpcRequest::Status)?;
+    match status {
+        IpcResponse::Status(st) => match st.fabric.hub_url.as_deref() {
+            Some(actual)
+                if actual.trim_end_matches('/') == expected.trim().trim_end_matches('/') =>
+            {
+                Ok(())
+            }
+            Some(actual) => Err(QuetzalcoatlError::StorageError {
+                detail: format!(
+                    "守护进程绑定的 Hub 为 `{actual}`，与 --hub `{expected}` 不一致；请用 `qz up --fabric-hub` 重启"
+                ),
+            }),
+            None => Err(QuetzalcoatlError::PermissionDenied {
+                detail: format!(
+                    "fabric 未启用，忽略的 --hub `{expected}`；请用 QUETZALCOATL_FABRIC_HUB_URL 或 `qz up --fabric-hub {expected}` 启动"
+                ),
+            }),
+        },
+        IpcResponse::Error { detail, .. } => Err(QuetzalcoatlError::StorageError { detail }),
+        _ => Err(QuetzalcoatlError::StorageError {
+            detail: String::from("无法读取守护进程状态"),
+        }),
+    }
+}
+
+fn run_login(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut hub_url: Option<String> = None;
+    let mut token: Option<String> = None;
+    let mut ca_file: Option<PathBuf> = None;
+    let mut pin: Option<String> = None;
+    let mut agent: Option<AgentId> = None;
+    let mut device: Option<DeviceId> = None;
+    let mut json_mode = false;
+
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json_mode = true,
+            "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
+            "--hub" => hub_url = Some(parse_flag_value(args, &mut i, "--hub")?.clone()),
+            "--token" => token = Some(parse_flag_value(args, &mut i, "--token")?.clone()),
+            "--ca-file" => {
+                ca_file = Some(PathBuf::from(parse_flag_value(args, &mut i, "--ca-file")?))
+            }
+            "--pin" => pin = Some(parse_flag_value(args, &mut i, "--pin")?.clone()),
+            "--agent" => {
+                let raw = parse_flag_value(args, &mut i, "--agent")?;
+                agent = Some(raw.parse::<AgentId>().map_err(|e| {
+                    QuetzalcoatlError::SerializationError {
+                        detail: format!("非法 --agent: {e}"),
+                    }
+                })?);
+            }
+            "--device" => {
+                let raw = parse_flag_value(args, &mut i, "--device")?;
+                device = Some(raw.parse::<DeviceId>().map_err(|e| {
+                    QuetzalcoatlError::SerializationError {
+                        detail: format!("非法 --device: {e}"),
+                    }
+                })?);
+            }
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("qz login 未知参数: {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+
+    let hub = hub_url.ok_or_else(|| QuetzalcoatlError::StorageError {
+        detail: String::from(
+            "用法: qz login --hub <url> (--pin <pin> | --token <token>) [--ca-file <pem>]",
+        ),
+    })?;
+    if token.is_none() && pin.is_none() {
+        return Err(QuetzalcoatlError::CredentialRejected {
+            detail: String::from("qz login 需要 --pin 或 --token 之一"),
+        });
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?;
+    let resp = client.call(&IpcRequest::FabricLogin(FabricLoginRequest {
+        hub_url: hub,
+        token,
+        ca_file,
+        pin,
+        agent_id: agent,
+        device_id: device,
+    }))?;
+    match resp {
+        IpcResponse::FabricLogin(res) => {
+            if json_mode {
+                let s = serde_json::to_string_pretty(&res).map_err(|e| {
+                    QuetzalcoatlError::SerializationError {
+                        detail: e.to_string(),
+                    }
+                })?;
+                println!("{s}");
+            } else {
+                println!(
+                    "logged in to {} as agent={} device={} (auth={})",
+                    res.hub_url, res.agent_id, res.device_id, res.auth_mode
+                );
+                println!(
+                    "lease={} witness_epoch={} peers={}",
+                    res.lease, res.witness_epoch, res.peer_count
+                );
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
+fn run_pair(args: &[String]) -> Result<()> {
+    let Some((sub, rest)) = args.split_first() else {
+        return Err(QuetzalcoatlError::StorageError {
+            detail: String::from(
+                "用法: qz pair <start|join|approve> [--code <pairing_id>.<short_code>]",
+            ),
+        });
+    };
+    match sub.as_str() {
+        "start" => run_pair_start(rest),
+        "join" => run_pair_join(rest),
+        "approve" => run_pair_approve(rest),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("qz pair 未知子命令: {other}（支持 start / join / approve）"),
+        }),
+    }
+}
+
+struct PairArgs {
+    home: Option<PathBuf>,
+    hub: Option<String>,
+    code: Option<String>,
+    json_mode: bool,
+}
+
+fn parse_pair_args(args: &[String], allow_code: bool) -> Result<PairArgs> {
+    let mut out = PairArgs {
+        home: None,
+        hub: None,
+        code: None,
+        json_mode: false,
+    };
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => out.json_mode = true,
+            "--home" => out.home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
+            "--hub" => out.hub = Some(parse_flag_value(args, &mut i, "--hub")?.clone()),
+            "--code" if allow_code => {
+                out.code = Some(parse_flag_value(args, &mut i, "--code")?.clone())
+            }
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("qz pair 未知参数: {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+    Ok(out)
+}
+
+fn run_pair_start(args: &[String]) -> Result<()> {
+    let parsed = parse_pair_args(args, false)?;
+    let qz_home = resolve_quetzalcoatl_home(parsed.home);
+    let client = require_daemon(&qz_home)?;
+    expect_fabric_hub(&client, parsed.hub.as_ref())?;
+    match client.call(&IpcRequest::FabricPairStart)? {
+        IpcResponse::FabricPairStart(res) => {
+            if parsed.json_mode {
+                print_json(&*res)?;
+            } else {
+                println!("pairing_id: {}", res.pairing_id);
+                println!("short_code: {}", res.short_code);
+                println!("pair_code: {}", res.pair_code);
+                println!("expires_at_ms: {}", res.expires_at_ms);
+                println!(
+                    "xwing_hpke_recipient_bundle: {{\"agent_id\":\"{}\",\"hub_url\":\"{}\",\"pairing_id\":\"{}\",\"short_code\":\"{}\",\"xwing_recipient_public_key_hex\":\"{}\"}}",
+                    res.agent_id,
+                    res.hub_url,
+                    res.pairing_id,
+                    res.short_code,
+                    res.xwing_recipient_public_key_hex
+                );
+                println!(
+                    "提示：把 `pair_code` 整段交给新设备的 `qz pair join --code <pair_code>`；审批用 `qz pair approve --code <pair_code>`"
+                );
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
+fn run_pair_join(args: &[String]) -> Result<()> {
+    let parsed = parse_pair_args(args, true)?;
+    let code = parsed.code.ok_or_else(|| QuetzalcoatlError::StorageError {
+        detail: String::from("用法: qz pair join --code <pairing_id>.<short_code>"),
+    })?;
+    let (pairing_id, short_code) = parse_pair_code(&code)?;
+    let qz_home = resolve_quetzalcoatl_home(parsed.home);
+    let client = require_daemon(&qz_home)?;
+    expect_fabric_hub(&client, parsed.hub.as_ref())?;
+    match client.call(&IpcRequest::FabricPairJoin {
+        pairing_id,
+        short_code,
+    })? {
+        IpcResponse::FabricPairJoin(res) => {
+            if parsed.json_mode {
+                print_json(&res)?;
+            } else {
+                println!(
+                    "paired joiner_device={} pairing_id={} hub={}",
+                    res.joiner_device_id, res.pairing_id, res.hub_url
+                );
+                println!("请回到已授权设备执行 `qz pair approve --code <pair_code>`");
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
+fn run_pair_approve(args: &[String]) -> Result<()> {
+    let parsed = parse_pair_args(args, true)?;
+    let code = parsed.code.ok_or_else(|| QuetzalcoatlError::StorageError {
+        detail: String::from("用法: qz pair approve --code <pairing_id>.<short_code>"),
+    })?;
+    let (pairing_id, short_code) = parse_pair_code(&code)?;
+    let qz_home = resolve_quetzalcoatl_home(parsed.home);
+    let client = require_daemon(&qz_home)?;
+    expect_fabric_hub(&client, parsed.hub.as_ref())?;
+    match client.call(&IpcRequest::FabricPairApprove {
+        pairing_id,
+        short_code,
+    })? {
+        IpcResponse::FabricPairApprove(res) => {
+            if parsed.json_mode {
+                print_json(&*res)?;
+            } else {
+                println!("pairing_id: {}", res.pairing_id);
+                println!("joiner_device_id: {}", res.joiner_device_id);
+                println!(
+                    "xwing_hpke_ciphertext_bundle: {{\"aad_utf8\":\"{}\",\"nonce_hex\":\"{}\",\"ciphertext_hex\":\"{}\",\"hpke_enc_hex\":\"{}\"}}",
+                    res.slot2_aad_utf8,
+                    res.slot2_nonce_hex,
+                    res.slot2_ciphertext_hex,
+                    res.slot2_hpke_enc_hex
+                );
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
+fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {
+    let s =
+        serde_json::to_string_pretty(value).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: e.to_string(),
+        })?;
+    println!("{s}");
+    Ok(())
+}
+
+fn run_nodes(args: &[String]) -> Result<()> {
+    let (home, json_mode) = parse_home_and_json_flags(args)?;
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?;
+    match client.call(&IpcRequest::FabricNodes)? {
+        IpcResponse::FabricNodes(report) => {
+            if json_mode {
+                print_json(&*report)?;
+                return Ok(());
+            }
+            let hub = report.hub_url.as_deref().unwrap_or("(unknown)");
+            let holder = report
+                .router_holder
+                .map(|d| d.to_string())
+                .unwrap_or_else(|| String::from("(none)"));
+            println!(
+                "fabric: enabled\nhub: {hub}\nrouter_holder: {holder}\nwitness_epoch: {}\nlease: {}\nlast_sync_cursor: {}\npeers: {}",
+                report.witness_epoch,
+                report.lease,
+                report.last_sync_cursor,
+                report.peers.len()
+            );
+            for p in &report.peers {
+                let path = if p.path_detail.is_empty() {
+                    p.path_kind.clone()
+                } else {
+                    format!("{}({})", p.path_kind, p.path_detail)
+                };
+                println!(
+                    "  - [{}] {} endpoint={} path={} tags=[{}] harnesses=[{}] {}/{} workers",
+                    p.role,
+                    p.device_id,
+                    p.endpoint_id_hex,
+                    path,
+                    p.capability_tags.join(","),
+                    p.available_harnesses.join(","),
+                    p.active_workers,
+                    p.max_workers
+                );
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
 }
 
 fn run_agents(args: &[String]) -> Result<()> {
@@ -435,6 +897,11 @@ fn map_ipc_error_code(code: &str, detail: String) -> QuetzalcoatlError {
         "VERIFICATION_FAILED" => QuetzalcoatlError::VerificationFailed { detail },
         "CONSCIENCE_VIOLATION" => QuetzalcoatlError::ConscienceViolation { detail },
         "SERIALIZATION_ERROR" => QuetzalcoatlError::SerializationError { detail },
+        "INTEGRITY_VIOLATION" => QuetzalcoatlError::IntegrityViolation { detail },
+        "STALE_LEASE_EPOCH" => QuetzalcoatlError::StaleLeaseEpoch {
+            provided: 0,
+            current: 0,
+        },
         _ => QuetzalcoatlError::StorageError { detail },
     }
 }
@@ -605,6 +1072,9 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "chat" => run_chat(rest),
         "export" => run_export(rest),
         "import-v1" => run_import_v1(rest),
+        "login" => run_login(rest),
+        "pair" => run_pair(rest),
+        "nodes" => run_nodes(rest),
         other => Err(QuetzalcoatlError::StorageError {
             detail: format!("未知子命令 `{other}`\n{USAGE_TEXT}"),
         }),

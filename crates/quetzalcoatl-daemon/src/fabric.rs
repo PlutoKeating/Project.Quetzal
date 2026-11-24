@@ -1,0 +1,1441 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
+
+//! `quetzalcoatld` 的 `quetzalcoatl-fabric` 可选接入层：`iroh` 节点、两态围栏租约、密文 Packfile 同步、
+//! Hub 认证会话（`OPAQUE` PIN / Bearer 令牌）、抗量子 `X-Wing` 设备配对与跨机 Worker 能力广播。
+//!
+//! 安全边界：本模块只做**可选**接入，默认完全关闭（不建节点、不写文件、不发任何网络包）；
+//! 会话令牌仅以 `0600` 权限落盘（`$QUETZALCOATL_HOME/fabric/hub_session.json`），
+//! 任何 `status` / `nodes` 输出与日志都绝不包含令牌、PIN 或私钥材料。
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
+use std::future::Future;
+use std::pin::Pin;
+
+use quetzalcoatl_crypto::{
+    AccountRootKey, DeviceIdentity, EpochKeyRing, SealedPackfile, hex_decode_fixed, hex_encode,
+};
+use quetzalcoatl_fabric::{
+    FabricNode, FabricNodeConfig, FabricRelaySettings, FabricRpcHandler, FabricRpcRequest,
+    FabricRpcResponse, FencedLeaseCoordinator, HubClient, HubClientConfig, LeaseCoordinatorConfig,
+    LeaseWitnessBackend, LeaseWitnessRecord, NodeCapabilityAnnouncement, NodeCapabilitySpec,
+    PairHpkeBundle, PeerPathKind, RemoteWorkerPool, RouterLeaseState, SpineSyncActor,
+    SpineSyncBackend, StdMonotonicClock, execute_remote_worker_task_locally,
+    parse_ca_certs_pem_or_der,
+};
+use quetzalcoatl_kernel::LeasePosture;
+use quetzalcoatl_spine::MaterializedStore;
+use quetzalcoatl_types::{AgentId, DeviceId, Epoch, QuetzalcoatlError, Result};
+use serde::{Deserialize, Serialize};
+
+use crate::daemon::{SharedDaemonCore, now_unix_ms, write_private_file};
+
+const FABRIC_SESSION_REL_PATH: &str = "fabric/hub_session.json";
+const FABRIC_JOINER_REL_PATH: &str = "fabric/pending_joiner.json";
+const FABRIC_TICK_INTERVAL: Duration = Duration::from_secs(10);
+const FABRIC_HUB_CALL_TIMEOUT: Duration = Duration::from_secs(3);
+const DEFAULT_QAD_PORT: u16 = 7842;
+const FABRIC_PAIRINGS_REL_PATH: &str = "fabric/pairing_sessions.json";
+const MAX_TRACKED_PAIRINGS: usize = 16;
+
+pub(crate) type SharedCoreSlot = Arc<Mutex<Option<Weak<SharedDaemonCore>>>>;
+
+/// 守护进程侧 `quetzalcoatl-fabric` 接入配置（默认 `None` 即完全关闭）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DaemonFabricConfig {
+    pub hub_url: String,
+    pub hub_ca_file: Option<PathBuf>,
+    pub relay_url: String,
+    pub qad_port: u16,
+    pub enable_mdns: bool,
+}
+
+fn env_map(pairs: &[(String, String)]) -> BTreeMap<&str, &str> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
+}
+
+impl DaemonFabricConfig {
+    /// 从 `QUETZALCOATL_FABRIC_*` 环境变量解析（纯函数，便于单元测试且不触碰进程环境）。
+    #[must_use]
+    pub fn from_env_pairs(pairs: &[(String, String)]) -> Option<Self> {
+        let map = env_map(pairs);
+        let hub_url = map
+            .get("QUETZALCOATL_FABRIC_HUB_URL")
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())?
+            .to_owned();
+        let relay_url = map
+            .get("QUETZALCOATL_FABRIC_RELAY_URL")
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .map_or_else(|| hub_url.clone(), String::from);
+        let qad_port = map
+            .get("QUETZALCOATL_FABRIC_QAD_PORT")
+            .and_then(|v| v.trim().parse::<u16>().ok())
+            .filter(|p| *p > 0)
+            .unwrap_or(DEFAULT_QAD_PORT);
+        let hub_ca_file = map
+            .get("QUETZALCOATL_FABRIC_HUB_CA_FILE")
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from);
+        let enable_mdns = map
+            .get("QUETZALCOATL_FABRIC_MDNS")
+            .is_none_or(|v| !matches!(v.trim(), "0" | "false" | "FALSE" | "off"));
+        Some(Self {
+            hub_url,
+            hub_ca_file,
+            relay_url,
+            qad_port,
+            enable_mdns,
+        })
+    }
+
+    #[must_use]
+    pub fn from_env() -> Option<Self> {
+        let pairs: Vec<(String, String)> = std::env::vars().collect();
+        Self::from_env_pairs(&pairs)
+    }
+
+    /// 读取既有 Hub 会话后重建配置（守护进程重启后自动续用同一 Hub，避免重复登录）。
+    #[must_use]
+    pub fn from_persisted_session(session: &PersistedFabricSession) -> Self {
+        Self {
+            hub_url: session.hub_url.clone(),
+            hub_ca_file: session.hub_ca_file.clone(),
+            relay_url: session.relay_url.clone(),
+            qad_port: session.qad_port,
+            enable_mdns: true,
+        }
+    }
+
+    /// 进程启动时优先使用显式环境变量，其次回退到已落盘 Hub 会话。
+    #[must_use]
+    pub fn resolve(qz_home: &Path) -> Option<Self> {
+        Self::from_env()
+            .or_else(|| load_persisted_session(qz_home).map(|s| Self::from_persisted_session(&s)))
+    }
+}
+
+/// 已认证 `quetzalcoatl-hub` 会话（含令牌，文件权限严格 `0600`，绝不出现在 IPC 状态回执中）。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PersistedFabricSession {
+    pub hub_url: String,
+    pub hub_ca_file: Option<PathBuf>,
+    pub relay_url: String,
+    pub qad_port: u16,
+    pub session_token: String,
+    pub account_id: String,
+    pub agent_id: AgentId,
+    pub device_id: DeviceId,
+}
+
+fn load_json_private<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
+    let raw = fs::read(path).ok()?;
+    serde_json::from_slice(&raw).ok()
+}
+
+#[must_use]
+pub fn load_persisted_session(qz_home: &Path) -> Option<PersistedFabricSession> {
+    load_json_private(&qz_home.join(FABRIC_SESSION_REL_PATH))
+}
+
+fn save_persisted_session(qz_home: &Path, session: &PersistedFabricSession) -> Result<()> {
+    let bytes =
+        serde_json::to_vec_pretty(session).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: format!("编码 fabric Hub 会话失败: {e}"),
+        })?;
+    write_private_file(&qz_home.join(FABRIC_SESSION_REL_PATH), &bytes)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct PersistedJoinerIdentity {
+    agent_id: AgentId,
+    device_id: DeviceId,
+    ed25519_seed_hex: String,
+    xwing_seed_hex: String,
+}
+
+fn load_or_create_joiner_identity(qz_home: &Path, agent_id: AgentId) -> Result<DeviceIdentity> {
+    let path = qz_home.join(FABRIC_JOINER_REL_PATH);
+    if let Some(p) = load_json_private::<PersistedJoinerIdentity>(&path) {
+        let ed = hex_decode_fixed::<32>("joiner.ed25519_seed_hex", &p.ed25519_seed_hex)?;
+        let xw = hex_decode_fixed::<32>("joiner.xwing_seed_hex", &p.xwing_seed_hex)?;
+        return DeviceIdentity::from_seeds(p.device_id, ed, xw);
+    }
+    let identity = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let persisted = PersistedJoinerIdentity {
+        agent_id,
+        device_id: identity.device_id(),
+        ed25519_seed_hex: hex_encode(identity.ed25519_seed()),
+        xwing_seed_hex: hex_encode(identity.xwing_seed()),
+    };
+    let bytes = serde_json::to_vec_pretty(&persisted).map_err(|e| {
+        QuetzalcoatlError::SerializationError {
+            detail: format!("编码待配对设备身份失败: {e}"),
+        }
+    })?;
+    write_private_file(&path, &bytes)?;
+    DeviceIdentity::from_seeds(
+        identity.device_id(),
+        *identity.ed25519_seed(),
+        *identity.xwing_seed(),
+    )
+}
+
+/// `qz login` 请求载荷。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricLoginRequest {
+    pub hub_url: String,
+    pub token: Option<String>,
+    pub ca_file: Option<PathBuf>,
+    pub pin: Option<String>,
+    pub agent_id: Option<AgentId>,
+    pub device_id: Option<DeviceId>,
+}
+
+/// `qz login` 结果（零令牌泄漏）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricLoginResult {
+    pub hub_url: String,
+    pub agent_id: AgentId,
+    pub device_id: DeviceId,
+    pub account_id: String,
+    pub auth_mode: String,
+    pub lease: String,
+    pub witness_epoch: u64,
+    pub peer_count: usize,
+}
+
+/// `qz pair start` 结果（含 X-Wing 收件人公钥，供二维码承载）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricPairStartResult {
+    pub hub_url: String,
+    pub agent_id: AgentId,
+    pub pairing_id: String,
+    pub short_code: String,
+    pub pair_code: String,
+    pub expires_at_ms: i64,
+    pub xwing_recipient_public_key_hex: String,
+}
+
+/// `qz pair join` 结果。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricPairJoinResult {
+    pub pairing_id: String,
+    pub joiner_device_id: DeviceId,
+    pub hub_url: String,
+}
+
+/// `qz pair approve` 结果（含 Slot 2 X-Wing HPKE 密文信封）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricPairApproveResult {
+    pub pairing_id: String,
+    pub joiner_device_id: DeviceId,
+    pub slot2_aad_utf8: String,
+    pub slot2_nonce_hex: String,
+    pub slot2_ciphertext_hex: String,
+    pub slot2_hpke_enc_hex: String,
+}
+
+impl From<PairHpkeBundle> for FabricPairApproveResult {
+    fn from(b: PairHpkeBundle) -> Self {
+        Self {
+            pairing_id: b.pairing_id,
+            joiner_device_id: b.joiner_device_id,
+            slot2_aad_utf8: b.slot2_aad_utf8,
+            slot2_nonce_hex: b.slot2_nonce_hex,
+            slot2_ciphertext_hex: b.slot2_ciphertext_hex,
+            slot2_hpke_enc_hex: b.slot2_hpke_enc_hex,
+        }
+    }
+}
+
+/// `qz status` 中的 fabric 段落。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricStatus {
+    pub enabled: bool,
+    pub logged_in: bool,
+    pub hub_url: Option<String>,
+    pub peer_count: usize,
+    pub lease: String,
+    pub witness_epoch: Option<u64>,
+    pub highest_seen_epoch: u64,
+    pub last_sync_cursor: u64,
+    pub endpoint_id_hex: Option<String>,
+    pub qad_port: Option<u16>,
+}
+
+impl FabricStatus {
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            logged_in: false,
+            hub_url: None,
+            peer_count: 0,
+            lease: String::from("disabled"),
+            witness_epoch: None,
+            highest_seen_epoch: 0,
+            last_sync_cursor: 0,
+            endpoint_id_hex: None,
+            qad_port: None,
+        }
+    }
+}
+
+/// `qz nodes` 单行节点视图（`direct` / `relay` / `disconnected` / `self`）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricPeerRow {
+    pub device_id: String,
+    pub endpoint_id_hex: String,
+    pub role: String,
+    pub authorized: bool,
+    pub path_kind: String,
+    pub path_detail: String,
+    pub capability_tags: Vec<String>,
+    pub available_harnesses: Vec<String>,
+    pub os: String,
+    pub arch: String,
+    pub sandbox_available: bool,
+    pub active_workers: u32,
+    pub max_workers: u32,
+}
+
+/// `qz nodes` 汇总视图。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricNodesReport {
+    pub enabled: bool,
+    pub hub_url: Option<String>,
+    pub local_device_id: Option<DeviceId>,
+    pub local_endpoint_id_hex: Option<String>,
+    pub router_holder: Option<DeviceId>,
+    pub witness_epoch: u64,
+    pub lease: String,
+    pub last_sync_cursor: u64,
+    pub peers: Vec<FabricPeerRow>,
+}
+
+impl FabricNodesReport {
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            hub_url: None,
+            local_device_id: None,
+            local_endpoint_id_hex: None,
+            router_holder: None,
+            witness_epoch: 0,
+            lease: String::from("disabled"),
+            last_sync_cursor: 0,
+            peers: Vec::new(),
+        }
+    }
+}
+
+fn router_holder(state: &RouterLeaseState, local: DeviceId) -> Option<DeviceId> {
+    match state {
+        RouterLeaseState::ActiveRouter { .. } => Some(local),
+        RouterLeaseState::Standby { known_holder, .. } => *known_holder,
+        RouterLeaseState::PartitionLocal { .. } => None,
+    }
+}
+
+fn lock_or_storage<T>(m: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
+    m.lock().map_err(|_| QuetzalcoatlError::StorageError {
+        detail: String::from("fabric 运行时锁异常"),
+    })
+}
+
+/// 最近一次租约心跳的只读快照（供 `qz status` / `qz nodes` 非阻塞读取，绝不与心跳线程抢锁）。
+#[derive(Clone, Debug, Default)]
+struct LeaseView {
+    label: String,
+    witness_epoch: Option<u64>,
+    highest_seen_epoch: u64,
+    holder: Option<DeviceId>,
+}
+
+fn capture_lease_view(
+    coordinator: &FencedLeaseCoordinator<StdMonotonicClock>,
+    local_device: DeviceId,
+) -> LeaseView {
+    let (label, witness_epoch) = match coordinator.state() {
+        RouterLeaseState::ActiveRouter { witness_epoch, .. } => {
+            (String::from("witnessed"), Some(witness_epoch.get()))
+        }
+        RouterLeaseState::Standby { .. } => (String::from("standby"), None),
+        RouterLeaseState::PartitionLocal { .. } => (String::from("partition_local"), None),
+    };
+    LeaseView {
+        label,
+        witness_epoch,
+        highest_seen_epoch: coordinator.highest_seen_epoch(),
+        holder: router_holder(coordinator.state(), local_device),
+    }
+}
+
+/// `quetzalcoatl-hub` 调用硬超时垫片：Hub 不可达时最多阻塞 `FABRIC_HUB_CALL_TIMEOUT`，
+/// 避免心跳线程在断网时长期霸占守护进程内核锁。
+struct BoundedHub {
+    hub: HubClient,
+}
+
+impl BoundedHub {
+    fn new(hub: HubClient) -> Self {
+        Self { hub }
+    }
+
+    async fn bound<T>(fut: impl Future<Output = Result<T>>) -> Result<T> {
+        match tokio::time::timeout(FABRIC_HUB_CALL_TIMEOUT, fut).await {
+            Ok(res) => res,
+            Err(_) => Err(QuetzalcoatlError::StorageError {
+                detail: String::from("quetzalcoatl-hub 调用超时（网络分区或不可达）"),
+            }),
+        }
+    }
+}
+
+impl LeaseWitnessBackend for BoundedHub {
+    fn acquire_lease<'a>(
+        &'a self,
+        agent_id: AgentId,
+        device_id: DeviceId,
+        expected_epoch: u64,
+        ttl_ms: u64,
+    ) -> Pin<Box<dyn Future<Output = Result<LeaseWitnessRecord>> + Send + 'a>> {
+        Box::pin(Self::bound(HubClient::acquire_lease(
+            &self.hub,
+            agent_id,
+            device_id,
+            expected_epoch,
+            ttl_ms,
+        )))
+    }
+
+    fn renew_lease<'a>(
+        &'a self,
+        agent_id: AgentId,
+        device_id: DeviceId,
+        witness_epoch: u64,
+        ttl_ms: u64,
+    ) -> Pin<Box<dyn Future<Output = Result<LeaseWitnessRecord>> + Send + 'a>> {
+        Box::pin(Self::bound(HubClient::renew_lease(
+            &self.hub,
+            agent_id,
+            device_id,
+            witness_epoch,
+            ttl_ms,
+        )))
+    }
+
+    fn release_lease<'a>(
+        &'a self,
+        agent_id: AgentId,
+        device_id: DeviceId,
+        witness_epoch: u64,
+    ) -> Pin<Box<dyn Future<Output = Result<LeaseWitnessRecord>> + Send + 'a>> {
+        Box::pin(Self::bound(HubClient::release_lease(
+            &self.hub,
+            agent_id,
+            device_id,
+            witness_epoch,
+        )))
+    }
+}
+
+impl SpineSyncBackend for BoundedHub {
+    fn upload_pack<'a>(
+        &'a self,
+        agent_id: AgentId,
+        _device_id: DeviceId,
+        pack: &'a SealedPackfile,
+    ) -> Pin<Box<dyn Future<Output = Result<u64>> + Send + 'a>> {
+        Box::pin(Self::bound(HubClient::upload_packfile(
+            &self.hub, agent_id, pack,
+        )))
+    }
+
+    fn fetch_packs_after<'a>(
+        &'a self,
+        agent_id: AgentId,
+        _device_id: DeviceId,
+        after_seq: u64,
+    ) -> Pin<Box<dyn Future<Output = Result<(u64, Vec<SealedPackfile>)>> + Send + 'a>> {
+        Box::pin(Self::bound(HubClient::list_and_download_packfiles(
+            &self.hub, agent_id, after_seq, 200,
+        )))
+    }
+}
+
+/// `tick_inflight` 原子门闩的 RAII 复位器（任何提前返回都会解除占用）。
+struct TickInflightGuard<'a>(&'a AtomicBool);
+
+impl Drop for TickInflightGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// 本机发起的配对会话（仅存短码用于本地二次校验，绝不含根密钥材料）。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct PersistedPairingSession {
+    pairing_id: String,
+    short_code: String,
+    expires_at_ms: i64,
+}
+
+fn load_tracked_pairings(qz_home: &Path) -> Vec<PersistedPairingSession> {
+    load_json_private::<Vec<PersistedPairingSession>>(&qz_home.join(FABRIC_PAIRINGS_REL_PATH))
+        .unwrap_or_default()
+}
+
+fn track_pairing(qz_home: &Path, new_session: &PersistedPairingSession) -> Result<()> {
+    let mut sessions = load_tracked_pairings(qz_home);
+    sessions.retain(|s| s.pairing_id != new_session.pairing_id);
+    sessions.push(new_session.clone());
+    if sessions.len() > MAX_TRACKED_PAIRINGS {
+        let excess = sessions.len() - MAX_TRACKED_PAIRINGS;
+        sessions.drain(0..excess);
+    }
+    let bytes = serde_json::to_vec_pretty(&sessions).map_err(|e| {
+        QuetzalcoatlError::SerializationError {
+            detail: format!("编码本机配对会话索引失败: {e}"),
+        }
+    })?;
+    write_private_file(&qz_home.join(FABRIC_PAIRINGS_REL_PATH), &bytes)
+}
+
+fn validate_pair_code_locally(qz_home: &Path, pairing_id: &str, short_code: &str) -> Result<()> {
+    let Some(tracked) = load_tracked_pairings(qz_home)
+        .into_iter()
+        .find(|s| s.pairing_id == pairing_id)
+    else {
+        return Ok(());
+    };
+    if tracked.short_code != short_code {
+        return Err(QuetzalcoatlError::CredentialRejected {
+            detail: String::from("配对短码与本机发起记录不匹配"),
+        });
+    }
+    let now_ms = now_unix_ms();
+    #[allow(clippy::cast_possible_wrap)]
+    let now_i64 = now_ms as i64;
+    if tracked.expires_at_ms <= now_i64 {
+        return Err(QuetzalcoatlError::CredentialRejected {
+            detail: String::from("配对会话已过期，请重新执行 `qz pair start`"),
+        });
+    }
+    Ok(())
+}
+
+/// 守护进程独占的 fabric 运行时（自有 `tokio` 运行时 + `iroh` 节点 + 围栏租约 + 同步器 + 能力池）。
+pub(crate) struct DaemonFabricRuntime {
+    rt: tokio::runtime::Runtime,
+    node: FabricNode,
+    config: Mutex<DaemonFabricConfig>,
+    ca_certs_der: Mutex<Vec<Vec<u8>>>,
+    announcement: NodeCapabilityAnnouncement,
+    session: Mutex<Option<PersistedFabricSession>>,
+    lease: Mutex<FencedLeaseCoordinator<StdMonotonicClock>>,
+    sync: Mutex<SpineSyncActor>,
+    pool: Mutex<RemoteWorkerPool>,
+    last_sync_cursor: AtomicU64,
+    lease_view: Mutex<LeaseView>,
+    tick_inflight: AtomicBool,
+    core_slot: SharedCoreSlot,
+    stop: Arc<AtomicBool>,
+    ticker: Mutex<Option<JoinHandle<()>>>,
+}
+
+struct FabricBootInput {
+    config: DaemonFabricConfig,
+    agent_id: AgentId,
+    device: DeviceIdentity,
+    epoch_ring: EpochKeyRing,
+    capability_spec: NodeCapabilitySpec,
+    core_slot: SharedCoreSlot,
+    persisted_session: Option<PersistedFabricSession>,
+}
+
+fn read_ca_certs(config: &DaemonFabricConfig) -> Result<Vec<Vec<u8>>> {
+    let Some(path) = &config.hub_ca_file else {
+        return Ok(Vec::new());
+    };
+    let raw = fs::read(path).map_err(|e| QuetzalcoatlError::StorageError {
+        detail: format!("读取 Hub CA 证书失败 ({}): {e}", path.display()),
+    })?;
+    parse_ca_certs_pem_or_der(&raw)
+}
+
+impl DaemonFabricRuntime {
+    fn boot(input: FabricBootInput) -> Result<Arc<Self>> {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("quetzalcoatld-fabric")
+            .enable_all()
+            .build()
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("创建 fabric tokio 运行时失败: {e}"),
+            })?;
+
+        let ca_certs_der = read_ca_certs(&input.config)?;
+        let announcement = NodeCapabilityAnnouncement::sign_new(
+            input.agent_id,
+            &input.device,
+            &input.capability_spec,
+            0,
+            now_unix_ms(),
+        )?;
+
+        let handler_slot = Arc::clone(&input.core_slot);
+        let handler: Arc<dyn FabricRpcHandler> = Arc::new(DaemonFabricRpcHandler {
+            core_slot: handler_slot,
+        });
+
+        let node_config = FabricNodeConfig {
+            agent_id: input.agent_id,
+            device: input.device.clone(),
+            epoch_ring: input.epoch_ring,
+            bind_ipv4: None,
+            enable_mdns: input.config.enable_mdns,
+            discover_overlay_interfaces: true,
+            relay: Some(FabricRelaySettings {
+                relay_url: input.config.relay_url.clone(),
+                qad_port: input.config.qad_port,
+                auth_token: None,
+                custom_ca_certs_der: ca_certs_der.clone(),
+            }),
+            local_capabilities: Some(input.capability_spec.clone()),
+        };
+        let node = rt.block_on(FabricNode::bind(node_config, Some(handler)))?;
+
+        let session = input.persisted_session;
+        let runtime = Arc::new(Self {
+            rt,
+            node,
+            config: Mutex::new(input.config),
+            ca_certs_der: Mutex::new(ca_certs_der),
+            announcement,
+            session: Mutex::new(session),
+            lease: Mutex::new(FencedLeaseCoordinator::new(
+                StdMonotonicClock::new(),
+                LeaseCoordinatorConfig::default(),
+            )),
+            sync: Mutex::new(SpineSyncActor::new()),
+            pool: Mutex::new(RemoteWorkerPool::new()),
+            last_sync_cursor: AtomicU64::new(0),
+            lease_view: Mutex::new(LeaseView {
+                label: String::from("standby"),
+                ..LeaseView::default()
+            }),
+            tick_inflight: AtomicBool::new(false),
+            core_slot: input.core_slot,
+            stop: Arc::new(AtomicBool::new(false)),
+            ticker: Mutex::new(None),
+        });
+        Ok(runtime)
+    }
+
+    fn core(&self) -> Option<Arc<SharedDaemonCore>> {
+        self.core_slot
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().and_then(Weak::upgrade))
+    }
+
+    pub(crate) fn core_slot(&self) -> SharedCoreSlot {
+        Arc::clone(&self.core_slot)
+    }
+
+    fn config_snapshot(&self) -> DaemonFabricConfig {
+        match self.config.lock() {
+            Ok(g) => g.clone(),
+            Err(_) => DaemonFabricConfig {
+                hub_url: String::new(),
+                hub_ca_file: None,
+                relay_url: String::new(),
+                qad_port: DEFAULT_QAD_PORT,
+                enable_mdns: false,
+            },
+        }
+    }
+
+    fn session_token(&self) -> Option<String> {
+        self.session
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|s| s.session_token.clone()))
+    }
+
+    fn hub_client(&self, token: Option<&str>) -> Result<HubClient> {
+        let config = self.config_snapshot();
+        let ca = lock_or_storage(&self.ca_certs_der)?.clone();
+        HubClient::new(HubClientConfig {
+            base_url: config.hub_url,
+            session_token: token.map(String::from),
+            custom_ca_certs_der: ca,
+        })
+    }
+
+    fn require_session(&self) -> Result<PersistedFabricSession> {
+        lock_or_storage(&self.session)?.clone().ok_or_else(|| {
+            QuetzalcoatlError::CredentialRejected {
+                detail: String::from("fabric 尚未登录 Hub，请先执行 `qz login --hub <url>`"),
+            }
+        })
+    }
+
+    fn local_identity(&self) -> Result<(AgentId, DeviceId, AccountRootKey, Epoch)> {
+        let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("fabric 运行时尚未绑定守护进程内核"),
+        })?;
+        let guard = lock_or_storage(&core.state)?;
+        let root_bytes = hex_decode_fixed::<32>("root_key_hex", &guard.persisted.root_key_hex)?;
+        Ok((
+            guard.kernel.spine().agent_id(),
+            guard.kernel.spine().local_device().device_id(),
+            AccountRootKey::from_bytes(root_bytes),
+            guard.kernel.spine().epoch_ring().current_epoch(),
+        ))
+    }
+
+    /// 周期性 / 手动租约续期与 `Outbox` 对账（严格的"先读单调时钟再发网络包"顺序）。
+    /// 通过 `tick_inflight` 原子门闩保证同一时刻最多一个心跳在网络中，避免锁堆积。
+    pub(crate) fn tick_now(&self) -> Result<()> {
+        if self.stop.load(Ordering::Relaxed) || self.session_token().is_none() {
+            return Ok(());
+        }
+        if self
+            .tick_inflight
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let guard = TickInflightGuard(&self.tick_inflight);
+        let Some(core) = self.core() else {
+            return Ok(());
+        };
+        let token = self.session_token().unwrap_or_default();
+        let hub = BoundedHub::new(self.hub_client(Some(&token))?);
+        let mut lease = lock_or_storage(&self.lease)?;
+        let mut sync = lock_or_storage(&self.sync)?;
+        let mut state = lock_or_storage(&core.state)?;
+        let local_device = state.kernel.spine().local_device().device_id();
+        let wall = now_unix_ms();
+        let tick_res = self.rt.block_on(lease.tick_and_reconcile(
+            &mut state.kernel,
+            &mut sync,
+            &hub,
+            &hub,
+            wall,
+            |capability_id, idempotency_key, _args, _epoch| {
+                Err(QuetzalcoatlError::DeliveryRefused {
+                    detail: format!(
+                        "外部通道尚未在本构建中启用，外发项 {capability_id}/{idempotency_key} 暂存 Outbox 待对账"
+                    ),
+                })
+            },
+        ));
+        let cursor = sync.hub_cursor_seq();
+        let view = capture_lease_view(&lease, local_device);
+        drop(state);
+        drop(sync);
+        drop(lease);
+        drop(guard);
+        self.last_sync_cursor.store(cursor, Ordering::SeqCst);
+        *lock_or_storage(&self.lease_view)? = view;
+        tick_res.map(|_posture| ())
+    }
+
+    fn refresh_lease_view(&self) {
+        let Ok(lease) = self.lease.lock() else {
+            return;
+        };
+        let Some(core) = self.core() else {
+            return;
+        };
+        let local_device = core
+            .state
+            .lock()
+            .map(|s| s.kernel.spine().local_device().device_id());
+        if let Ok(local_device) = local_device
+            && let Ok(mut view) = self.lease_view.lock()
+        {
+            *view = capture_lease_view(&lease, local_device);
+        }
+    }
+
+    pub(crate) fn start_ticker(self: &Arc<Self>) {
+        let Ok(mut slot) = self.ticker.lock() else {
+            return;
+        };
+        if slot.is_some() {
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let stop = Arc::clone(&self.stop);
+        let join = thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                thread::sleep(FABRIC_TICK_INTERVAL);
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                let Some(runtime) = weak.upgrade() else {
+                    break;
+                };
+                let _ = runtime.tick_now();
+            }
+        });
+        *slot = Some(join);
+    }
+
+    /// 合盖 / 优雅退出时 `<100ms` 主动释放 `witness_epoch` 并停止心跳线程。
+    /// 任何一步失败都不会阻断后续的节点关闭与弱引用清理。
+    pub(crate) fn shutdown(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut slot) = self.ticker.lock()
+            && let Some(join) = slot.take()
+        {
+            let _ = join.join();
+        }
+        self.release_active_lease();
+        self.refresh_lease_view();
+        self.rt.block_on(self.node.shutdown());
+    }
+
+    fn release_active_lease(&self) {
+        let (Some(token), Some(core)) = (self.session_token(), self.core()) else {
+            return;
+        };
+        let Ok(hub) = self.hub_client(Some(&token)) else {
+            return;
+        };
+        let active_epoch = {
+            let Ok(lease) = self.lease.lock() else {
+                return;
+            };
+            match lease.state() {
+                RouterLeaseState::ActiveRouter { witness_epoch, .. } => Some(witness_epoch.get()),
+                _ => None,
+            }
+        };
+        let Some(epoch) = active_epoch else {
+            return;
+        };
+        let (agent, dev) = {
+            let Ok(state) = core.state.lock() else {
+                return;
+            };
+            (
+                state.kernel.spine().agent_id(),
+                state.kernel.spine().local_device().device_id(),
+            )
+        };
+        let bounded = BoundedHub::new(hub);
+        if self
+            .rt
+            .block_on(LeaseWitnessBackend::release_lease(
+                &bounded, agent, dev, epoch,
+            ))
+            .is_ok()
+            && let Ok(mut state) = core.state.lock()
+        {
+            state.kernel.set_lease_posture(LeasePosture::PartitionLocal);
+        }
+    }
+
+    pub(crate) fn login(
+        &self,
+        qz_home: &Path,
+        req: &FabricLoginRequest,
+    ) -> Result<FabricLoginResult> {
+        let config = self.config_snapshot();
+        if req.hub_url.trim_end_matches('/') != config.hub_url.trim_end_matches('/') {
+            return Err(QuetzalcoatlError::StorageError {
+                detail: format!(
+                    "守护进程已绑定 Hub `{}`，与 `{}` 不一致；请以 `QUETZALCOATL_FABRIC_HUB_URL` 重启 quetzalcoatld 后再登录",
+                    config.hub_url, req.hub_url
+                ),
+            });
+        }
+        if let Some(ca_file) = &req.ca_file {
+            let raw = fs::read(ca_file).map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("读取 --ca-file 失败 ({}): {e}", ca_file.display()),
+            })?;
+            let der = parse_ca_certs_pem_or_der(&raw)?;
+            if !der.is_empty() {
+                *lock_or_storage(&self.ca_certs_der)? = der;
+            }
+            *lock_or_storage(&self.config)? = DaemonFabricConfig {
+                hub_ca_file: Some(ca_file.clone()),
+                ..config.clone()
+            };
+        }
+
+        let (agent_id, device_id, local_root, _epoch) = self.local_identity()?;
+        if req.agent_id.is_some_and(|a| a != agent_id) {
+            return Err(QuetzalcoatlError::PermissionDenied {
+                detail: String::from("--agent 与本地主权 Agent 不一致，拒绝登录他人脊柱"),
+            });
+        }
+        if req.device_id.is_some_and(|d| d != device_id) {
+            return Err(QuetzalcoatlError::PermissionDenied {
+                detail: String::from("--device 与本地设备身份不一致"),
+            });
+        }
+
+        let (auth_mode, session_token, account_id) = if let Some(token) = &req.token {
+            let client = self.hub_client(Some(token))?;
+            let devices = self.rt.block_on(client.list_active_devices(agent_id))?;
+            if !devices.iter().any(|d| d.device_id == device_id) {
+                return Err(QuetzalcoatlError::PermissionDenied {
+                    detail: String::from("提供的 Hub 会话令牌未包含本机设备授权"),
+                });
+            }
+            (
+                String::from("token"),
+                token.clone(),
+                String::from("bearer-session"),
+            )
+        } else if let Some(pin) = &req.pin {
+            let anon = self.hub_client(None)?;
+            let login_res =
+                self.rt
+                    .block_on(anon.login_opaque_pin(agent_id, device_id, pin.as_bytes()));
+            let (session, recovered_root) = match login_res {
+                Ok(pair) => pair,
+                // 错误 PIN 会在 OPAQUE Envelope 认证标签处失败：对用户必须呈现为凭据被拒而非存储故障。
+                Err(QuetzalcoatlError::IntegrityViolation { detail }) => {
+                    return Err(QuetzalcoatlError::CredentialRejected {
+                        detail: format!("PIN 不正确或 OPAQUE 凭据不匹配: {detail}"),
+                    });
+                }
+                Err(other) => return Err(other),
+            };
+            if recovered_root.verifying_key_bytes()? != local_root.verifying_key_bytes()? {
+                return Err(QuetzalcoatlError::IntegrityViolation {
+                    detail: String::from("OPAQUE 登录解封的根密钥与本地主权根密钥不一致"),
+                });
+            }
+            if session.session_token.is_empty() {
+                return Err(QuetzalcoatlError::CredentialRejected {
+                    detail: String::from("Hub 返回了空会话令牌"),
+                });
+            }
+            (
+                String::from("opaque_pin"),
+                session.session_token,
+                session.account_id,
+            )
+        } else {
+            return Err(QuetzalcoatlError::CredentialRejected {
+                detail: String::from("qz login 需要 --pin 或 --token 之一"),
+            });
+        };
+
+        let persisted = PersistedFabricSession {
+            hub_url: config.hub_url.clone(),
+            hub_ca_file: config.hub_ca_file.clone(),
+            relay_url: config.relay_url.clone(),
+            qad_port: config.qad_port,
+            session_token,
+            account_id: account_id.clone(),
+            agent_id,
+            device_id,
+        };
+        save_persisted_session(qz_home, &persisted)?;
+        *lock_or_storage(&self.session)? = Some(persisted);
+
+        self.tick_now()?;
+        self.refresh_lease_view();
+        let view = lock_or_storage(&self.lease_view)?.clone();
+        Ok(FabricLoginResult {
+            hub_url: config.hub_url,
+            agent_id,
+            device_id,
+            account_id,
+            auth_mode,
+            lease: view.label,
+            witness_epoch: view.witness_epoch.unwrap_or(0),
+            peer_count: self.node.peer_statuses().len(),
+        })
+    }
+
+    pub(crate) fn pair_start(&self, qz_home: &Path) -> Result<FabricPairStartResult> {
+        let session = self.require_session()?;
+        let client = self.hub_client(Some(&session.session_token))?;
+        let init = self.rt.block_on(client.pair_initiate(session.agent_id))?;
+        track_pairing(
+            qz_home,
+            &PersistedPairingSession {
+                pairing_id: init.pairing_id.clone(),
+                short_code: init.short_code.clone(),
+                expires_at_ms: init.expires_at_ms,
+            },
+        )?;
+        let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("fabric 运行时尚未绑定守护进程内核"),
+        })?;
+        let xwing_pk = {
+            let guard = lock_or_storage(&core.state)?;
+            hex_encode(guard.kernel.spine().local_device().xwing_public_key())
+        };
+        Ok(FabricPairStartResult {
+            hub_url: session.hub_url,
+            agent_id: session.agent_id,
+            pair_code: format!("{}.{}", init.pairing_id, init.short_code),
+            pairing_id: init.pairing_id,
+            short_code: init.short_code,
+            expires_at_ms: init.expires_at_ms,
+            xwing_recipient_public_key_hex: xwing_pk,
+        })
+    }
+
+    pub(crate) fn pair_join(
+        &self,
+        qz_home: &Path,
+        pairing_id: &str,
+        short_code: &str,
+    ) -> Result<FabricPairJoinResult> {
+        validate_pair_code_locally(qz_home, pairing_id, short_code)?;
+        let session = self.require_session().ok();
+        let agent_id = if let Some(s) = &session {
+            s.agent_id
+        } else {
+            self.local_identity()?.0
+        };
+        let joiner = load_or_create_joiner_identity(qz_home, agent_id)?;
+        let client = self.hub_client(None)?;
+        self.rt
+            .block_on(client.pair_join(pairing_id, short_code, &joiner))?;
+        Ok(FabricPairJoinResult {
+            pairing_id: String::from(pairing_id),
+            joiner_device_id: joiner.device_id(),
+            hub_url: self.config_snapshot().hub_url,
+        })
+    }
+
+    pub(crate) fn pair_approve(
+        &self,
+        qz_home: &Path,
+        pairing_id: &str,
+        short_code: &str,
+    ) -> Result<FabricPairApproveResult> {
+        let session = self.require_session()?;
+        if short_code.trim().is_empty() {
+            return Err(QuetzalcoatlError::CredentialRejected {
+                detail: String::from("qz pair approve 需要配对短码"),
+            });
+        }
+        validate_pair_code_locally(qz_home, pairing_id, short_code)?;
+        let (_, _, root_key, epoch) = self.local_identity()?;
+        let client = self.hub_client(Some(&session.session_token))?;
+        let status = self.rt.block_on(client.pair_get(pairing_id))?;
+        if status.agent_id != session.agent_id {
+            return Err(QuetzalcoatlError::PermissionDenied {
+                detail: String::from("配对会话不属于本地主权 Agent"),
+            });
+        }
+        let bundle = self.rt.block_on(client.pair_approve_with_hpke_bundle(
+            pairing_id,
+            session.agent_id,
+            epoch,
+            &root_key,
+            &status,
+        ))?;
+        Ok(bundle.into())
+    }
+
+    pub(crate) fn status(&self) -> FabricStatus {
+        let config = self.config_snapshot();
+        let logged_in = self.session_token().is_some();
+        let view = self
+            .lease_view
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| LeaseView {
+                label: String::from("partition_local"),
+                ..LeaseView::default()
+            });
+        FabricStatus {
+            enabled: true,
+            logged_in,
+            hub_url: Some(config.hub_url),
+            peer_count: self.node.peer_statuses().len(),
+            lease: view.label,
+            witness_epoch: view.witness_epoch,
+            highest_seen_epoch: view.highest_seen_epoch,
+            last_sync_cursor: self.last_sync_cursor.load(Ordering::SeqCst),
+            endpoint_id_hex: self
+                .node
+                .endpoint_id()
+                .ok()
+                .map(|id| hex_encode(id.as_bytes())),
+            qad_port: Some(config.qad_port),
+        }
+    }
+
+    pub(crate) fn nodes_report(&self) -> FabricNodesReport {
+        let config = self.config_snapshot();
+        let local_device = self.node.device_id();
+        let view = self
+            .lease_view
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let lease = if view.label.is_empty() {
+            String::from("standby")
+        } else {
+            view.label
+        };
+        let witness_epoch = view.witness_epoch.unwrap_or(view.highest_seen_epoch);
+        let holder = view.holder;
+
+        let mut peers = Vec::new();
+        peers.push(FabricPeerRow {
+            device_id: local_device.to_string(),
+            endpoint_id_hex: self
+                .node
+                .endpoint_id()
+                .ok()
+                .map(|id| hex_encode(id.as_bytes()))
+                .unwrap_or_default(),
+            role: String::from("self"),
+            authorized: true,
+            path_kind: String::from("self"),
+            path_detail: String::new(),
+            capability_tags: self.announcement.capability_tags.iter().cloned().collect(),
+            available_harnesses: self.announcement.available_harnesses.clone(),
+            os: self.announcement.os.clone(),
+            arch: self.announcement.arch.clone(),
+            sandbox_available: self.announcement.sandbox_available,
+            active_workers: self.announcement.active_workers,
+            max_workers: self.announcement.max_workers,
+        });
+
+        for peer in self.node.peer_statuses() {
+            let (kind, detail) = match &peer.path {
+                PeerPathKind::DirectIp { addr, rtt_ms } => {
+                    (String::from("direct"), format!("{addr} rtt={rtt_ms}ms"))
+                }
+                PeerPathKind::Relay { relay_url, rtt_ms } => {
+                    (String::from("relay"), format!("{relay_url} rtt={rtt_ms}ms"))
+                }
+                PeerPathKind::Disconnected => (String::from("disconnected"), String::new()),
+            };
+            let cap = peer.capabilities.as_ref();
+            peers.push(FabricPeerRow {
+                device_id: peer.device_id.to_string(),
+                endpoint_id_hex: peer.endpoint_id_hex,
+                role: String::from("peer"),
+                authorized: peer.authorized,
+                path_kind: kind,
+                path_detail: detail,
+                capability_tags: cap
+                    .map(|c| c.capability_tags.iter().cloned().collect())
+                    .unwrap_or_default(),
+                available_harnesses: cap
+                    .map(|c| c.available_harnesses.clone())
+                    .unwrap_or_default(),
+                os: cap.map(|c| c.os.clone()).unwrap_or_default(),
+                arch: cap.map(|c| c.arch.clone()).unwrap_or_default(),
+                sandbox_available: cap.is_some_and(|c| c.sandbox_available),
+                active_workers: cap.map_or(0, |c| c.active_workers),
+                max_workers: cap.map_or(0, |c| c.max_workers),
+            });
+        }
+
+        FabricNodesReport {
+            enabled: true,
+            hub_url: Some(config.hub_url),
+            local_device_id: Some(local_device),
+            local_endpoint_id_hex: self
+                .node
+                .endpoint_id()
+                .ok()
+                .map(|id| hex_encode(id.as_bytes())),
+            router_holder: holder,
+            witness_epoch,
+            lease,
+            last_sync_cursor: self.last_sync_cursor.load(Ordering::SeqCst),
+            peers,
+        }
+    }
+}
+
+fn load_persisted_session_for(
+    qz_home: &Path,
+    config: &DaemonFabricConfig,
+) -> Option<PersistedFabricSession> {
+    // 只有 Hub 完全一致才复用既有会话令牌，防止把令牌误发给另一个 Hub。
+    load_persisted_session(qz_home)
+        .filter(|s| s.hub_url.trim_end_matches('/') == config.hub_url.trim_end_matches('/'))
+}
+
+/// 守护进程内 fabric 入站 RPC 处理器（跨机 Packfile 同步、能力广播、远程 Worker 任务与租约接班）。
+struct DaemonFabricRpcHandler {
+    core_slot: SharedCoreSlot,
+}
+
+impl DaemonFabricRpcHandler {
+    fn core(&self) -> Option<Arc<SharedDaemonCore>> {
+        self.core_slot
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().and_then(Weak::upgrade))
+    }
+
+    fn error_response(err: &QuetzalcoatlError) -> FabricRpcResponse {
+        FabricRpcResponse::Error {
+            code: String::from(err.code().as_str()),
+            detail: err.to_string(),
+        }
+    }
+}
+
+impl FabricRpcHandler for DaemonFabricRpcHandler {
+    fn handle_rpc(
+        &self,
+        authenticated_peer_device: DeviceId,
+        req: FabricRpcRequest,
+    ) -> FabricRpcResponse {
+        let Some(core) = self.core() else {
+            return FabricRpcResponse::Error {
+                code: String::from("STORAGE_ERROR"),
+                detail: String::from("守护进程内核尚未就绪"),
+            };
+        };
+        let Some(fabric) = core.fabric_runtime() else {
+            return FabricRpcResponse::Error {
+                code: String::from("PERMISSION_DENIED"),
+                detail: String::from("fabric 未启用"),
+            };
+        };
+        match req {
+            FabricRpcRequest::Ping { .. } => FabricRpcResponse::Pong {
+                responder_device_id: authenticated_peer_device,
+                capability: None,
+            },
+            FabricRpcRequest::PushPackfiles { packs, .. } => {
+                let Ok(mut state) = core.state.lock() else {
+                    return FabricRpcResponse::Error {
+                        code: String::from("STORAGE_ERROR"),
+                        detail: String::from("daemon lock poisoned"),
+                    };
+                };
+                match SpineSyncActor::ingest_packfiles_and_rehydrate(
+                    &mut state.kernel,
+                    &packs,
+                    now_unix_ms(),
+                ) {
+                    Ok((ingested, _)) => FabricRpcResponse::PackfilesAck {
+                        ingested_events: ingested,
+                    },
+                    Err(e) => Self::error_response(&e),
+                }
+            }
+            FabricRpcRequest::PullPackfiles { known_heads, .. } => {
+                let Ok(state) = core.state.lock() else {
+                    return FabricRpcResponse::Error {
+                        code: String::from("STORAGE_ERROR"),
+                        detail: String::from("daemon lock poisoned"),
+                    };
+                };
+                let heads: BTreeMap<DeviceId, u64> = known_heads.into_iter().collect();
+                let packs = state
+                    .kernel
+                    .spine()
+                    .store()
+                    .list_packfiles()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|p| {
+                        let peer_seq = heads.get(&p.aad.device_id).copied().unwrap_or(0);
+                        p.aad.last_seq > peer_seq
+                    })
+                    .collect();
+                FabricRpcResponse::PackfilesBatch { packs }
+            }
+            FabricRpcRequest::VoluntaryLeaseHandoff {
+                agent_id,
+                released_epoch,
+                latest_packs,
+                ..
+            } => {
+                let (local_dev, ingest_err) = {
+                    let Ok(mut state) = core.state.lock() else {
+                        return FabricRpcResponse::Error {
+                            code: String::from("STORAGE_ERROR"),
+                            detail: String::from("daemon lock poisoned"),
+                        };
+                    };
+                    let ingest_err = if latest_packs.is_empty() {
+                        None
+                    } else {
+                        SpineSyncActor::ingest_packfiles_and_rehydrate(
+                            &mut state.kernel,
+                            &latest_packs,
+                            now_unix_ms(),
+                        )
+                        .err()
+                    };
+                    (state.kernel.spine().local_device().device_id(), ingest_err)
+                };
+                if let Some(err) = ingest_err {
+                    return Self::error_response(&err);
+                }
+
+                let acquired = {
+                    let token = fabric.session_token();
+                    let hub_res = token
+                        .ok_or_else(|| QuetzalcoatlError::CredentialRejected {
+                            detail: String::from("fabric 尚未登录 Hub，无法接班"),
+                        })
+                        .and_then(|tok| fabric.hub_client(Some(&tok)));
+                    match hub_res {
+                        Ok(hub) => thread::spawn(move || {
+                            tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .map_err(|e| QuetzalcoatlError::StorageError {
+                                    detail: e.to_string(),
+                                })
+                                .and_then(|rt| {
+                                    rt.block_on(
+                                        quetzalcoatl_fabric::LeaseWitnessBackend::acquire_lease(
+                                            &hub,
+                                            agent_id,
+                                            local_dev,
+                                            released_epoch,
+                                            30_000,
+                                        ),
+                                    )
+                                })
+                        })
+                        .join()
+                        .ok(),
+                        Err(e) => return Self::error_response(&e),
+                    }
+                };
+
+                match acquired {
+                    Some(Ok(rec)) => {
+                        // 严格保持 "lease -> state" 加锁顺序，与 tick_now / shutdown 一致，杜绝 ABBA 死锁。
+                        if let Ok(mut lease) = fabric.lease.lock()
+                            && let Ok(mut state) = core.state.lock()
+                        {
+                            let epoch = Epoch::new(rec.witness_epoch);
+                            state.kernel.set_lease_posture(LeasePosture::Witnessed {
+                                witness_epoch: epoch,
+                            });
+                            let _ = lease.observe_remote_epoch(
+                                rec.witness_epoch,
+                                Some(local_dev),
+                                &mut state.kernel,
+                            );
+                        }
+                        FabricRpcResponse::LeaseHandoffAccepted {
+                            new_holder_device_id: local_dev,
+                            new_witness_epoch: rec.witness_epoch,
+                        }
+                    }
+                    Some(Err(e)) => Self::error_response(&e),
+                    None => FabricRpcResponse::Error {
+                        code: String::from("STORAGE_ERROR"),
+                        detail: String::from("租约接班线程异常退出"),
+                    },
+                }
+            }
+            FabricRpcRequest::AnnounceCapabilities { announcement } => {
+                let ring = core
+                    .state
+                    .lock()
+                    .map(|s| s.kernel.spine().epoch_ring().clone());
+                let Ok(ring) = ring else {
+                    return FabricRpcResponse::Error {
+                        code: String::from("STORAGE_ERROR"),
+                        detail: String::from("daemon lock poisoned"),
+                    };
+                };
+                if let Ok(mut pool) = fabric.pool.lock()
+                    && let Err(e) = pool.ingest_announcement(announcement, &ring)
+                {
+                    return Self::error_response(&e);
+                }
+                FabricRpcResponse::CapabilityAck
+            }
+            FabricRpcRequest::ExecuteRemoteWorkerTask { task, .. } => {
+                let Ok(mut state) = core.state.lock() else {
+                    return FabricRpcResponse::Error {
+                        code: String::from("STORAGE_ERROR"),
+                        detail: String::from("daemon lock poisoned"),
+                    };
+                };
+                match execute_remote_worker_task_locally(&mut state.kernel, &task, now_unix_ms()) {
+                    Ok(result) => FabricRpcResponse::RemoteWorkerTaskCompleted {
+                        result: Box::new(result),
+                    },
+                    Err(e) => Self::error_response(&e),
+                }
+            }
+        }
+    }
+}
+
+/// 依据守护进程内核身份、沙箱可用性与已发现 Harness 广播本机能力，启动真实 `iroh` fabric 节点。
+pub(crate) fn start_runtime(
+    qz_home: &Path,
+    config: DaemonFabricConfig,
+    agent_id: AgentId,
+    device: DeviceIdentity,
+    epoch_ring: EpochKeyRing,
+    sandbox_available: bool,
+    discovered_harnesses: Vec<String>,
+) -> Result<Arc<DaemonFabricRuntime>> {
+    let mut tags = BTreeSet::from([
+        String::from("quetzalcoatl"),
+        String::from(std::env::consts::OS),
+        String::from(std::env::consts::ARCH),
+    ]);
+    if sandbox_available {
+        tags.insert(String::from("sandbox"));
+    }
+    for h in &discovered_harnesses {
+        tags.insert(h.to_lowercase());
+    }
+    let capability_spec = NodeCapabilitySpec {
+        os: String::from(std::env::consts::OS),
+        arch: String::from(std::env::consts::ARCH),
+        available_harnesses: discovered_harnesses,
+        capability_tags: tags,
+        sandbox_available,
+        max_workers: 4,
+    };
+    let persisted_session = load_persisted_session_for(qz_home, &config);
+    let core_slot: SharedCoreSlot = Arc::new(Mutex::new(None));
+    let runtime = DaemonFabricRuntime::boot(FabricBootInput {
+        config,
+        agent_id,
+        device,
+        epoch_ring,
+        capability_spec,
+        core_slot,
+        persisted_session,
+    })?;
+    if runtime.session_token().is_some() {
+        let _ = runtime.tick_now();
+    }
+    Ok(runtime)
+}

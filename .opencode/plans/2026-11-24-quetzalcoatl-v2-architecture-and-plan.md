@@ -442,11 +442,11 @@
 - Consumes: `quetzalcoatl-kernel`, `quetzalcoatl-spine`, Go `quetzalcoatl-hub`
 - Produces: `FabricNode`（自动整合 LAN mDNS、Tailscale/WireGuard 直连、`quetzalcoatl-hub` WSS/QAD 穿透）、`FencedLeaseCoordinator`（`witness_epoch` 联网全权态 vs `Partition-Local Lease` 离线受限态 + `<100ms` 主动释放）与 `RemoteWorkerPool`（按能力标签跨机调度异构 Harness）。
 
-- [ ] **Step 1: 编写双进程真实 `iroh 1.5 <-> Go quetzalcoatl-hub` 打洞直连测试与 100 种子分区混沌测试**
+- [x] **Step 1: 编写双进程真实 `iroh 1.5 <-> Go quetzalcoatl-hub` 打洞直连测试与 100 种子分区混沌测试**
   断言禁用 n0 官方中继后仅靠自建 Go Hub 即可测出 `global_v4` 并打洞升级为直连 QUIC；断言合盖 `<100ms` 移交、旧主苏醒被 `StaleLeaseEpoch` 拒斥自降级、断网分区零外部动作双发。
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 `quetzalcoatl-fabric` 并接入 `quetzalcoatld` 与 `qz pair / status / nodes`**
-- [ ] **Step 4: 验证 Rust + Go 联调全绿并提交**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现 `quetzalcoatl-fabric` 并接入 `quetzalcoatld` 与 `qz pair / status / nodes`**
+- [x] **Step 4: 验证 Rust + Go 联调全绿并提交**
 
 ---
 
