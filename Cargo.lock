@@ -645,6 +645,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "quetzalcoatl-kernel"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "blake3",
+ "quetzalcoatl-crypto",
+ "quetzalcoatl-sandbox",
+ "quetzalcoatl-spine",
+ "quetzalcoatl-types",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "quetzalcoatl-sandbox"
 version = "2.0.0-alpha.1"
 dependencies = [

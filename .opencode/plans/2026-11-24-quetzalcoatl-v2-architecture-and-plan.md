@@ -353,12 +353,12 @@
 - Consumes: `quetzalcoatl_types::*`, `quetzalcoatl_spine::*`, `quetzalcoatl_sandbox::SandboxManager`
 - Produces: `BlindKernel`、`HeartScheduler`（双过程 `S - C` 生物钟）、`RunStateMachine`（`Explore` 硬禁外部写 ↔ `Commit` 写前幂等锁 + CoW 即时技能自演化）与 `CleanRoomVerifierDag`（按目标能力汇点 Sink 自动触发）。
 
-- [ ] **Step 1: 编写盲内核静态依赖测试与 Verifier 防作弊红队测试**
+- [x] **Step 1: 编写盲内核静态依赖测试与 Verifier 防作弊红队测试**
   在 `blind_boundary.rs` 中解析 `cargo metadata` 断言 `quetzalcoatl-kernel` 零上层/供应商依赖；在 `dual_mode_and_verifier.rs` 中断言：① `Explore Run` 自由新增沙箱本地技能立即可用，但发起外发消息被 `Grant` 拒绝；② 触及代码仓库变更的 `Commit Run` 若篡改工作区内测试脚本或跑出 0 用例，洁净室 `Verifier` 拒绝签发 `Mark`；③ 日常问答 `Commit Run` 零 `Verifier` 子进程开销直接结项。
-- [ ] **Step 2: 运行测试确认红灯**
+- [x] **Step 2: 运行测试确认红灯**
   Run: `cargo test -p quetzalcoatl-kernel` -> Expected: FAIL
-- [ ] **Step 3: 实现盲内核、生物钟、双态状态机与洁净室 `Verifier DAG`**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 3: 实现盲内核、生物钟、双态状态机与洁净室 `Verifier DAG`**
+- [x] **Step 4: 验证通过并提交**
   Run: `cargo clippy --workspace -- -D warnings && cargo test -p quetzalcoatl-kernel` -> Expected: PASS，原子提交。
 
 ---

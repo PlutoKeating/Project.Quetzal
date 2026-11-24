@@ -1,0 +1,21 @@
+[package]
+name = "quetzalcoatl-kernel"
+description = "Quetzalcoatl V2 盲微内核：接口与产物清单、确定性能力授权交集、双过程生物钟、探索/承诺双态状态机与洁净室客观校验器"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3 = { workspace = true }
+quetzalcoatl-crypto = { workspace = true }
+quetzalcoatl-sandbox = { workspace = true }
+quetzalcoatl-spine = { workspace = true }
+quetzalcoatl-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
