@@ -217,9 +217,24 @@ pub enum IpcRequest {
     GroupRead {
         room_id: String,
         ciphertext_b64: String,
+        /// 该密文在 Hub 群日志中的 server_seq（消费只推进到该行）。
+        #[serde(default)]
+        delivered_seq: Option<u64>,
         /// 只读不消费语义水位线（默认读取即消费）。
         #[serde(default)]
         peek: bool,
+    },
+    /// `qz group history --room <id> --after <seq> --limit <n>`：取回历史密文行。
+    GroupHistory {
+        room_id: String,
+        after: u64,
+        limit: u32,
+    },
+    /// `qz group quarantine --room <id> --seq <n> --reason <text>`：群主审计隔离坏提交。
+    GroupQuarantine {
+        room_id: String,
+        server_seq: u64,
+        reason: String,
     },
     /// `qz group claim-owner --room <id>`：旧注册表升级时确认群主身份。
     GroupClaimOwner {
@@ -291,6 +306,8 @@ pub enum IpcResponse {
     GroupPlaintext {
         text: String,
     },
+    /// 群历史行（密文与元数据）。
+    GroupHistory(Vec<crate::group::GroupHistoryRow>),
     Error {
         code: String,
         detail: String,

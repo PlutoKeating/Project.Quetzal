@@ -133,6 +133,8 @@ pub struct GroupRoomSummary {
     pub mls_cursor_group_seq: u64,
     /// 本机自己发布到的最大 server_seq（不参与已读判定）。
     pub own_published_group_seq: u64,
+    /// 群主显式隔离的提交（同步跳过，状态必须可见）。
+    pub quarantined: Vec<GroupQuarantineRecord>,
     /// 最早的未消费语义行；`Some` 时发送必须冲突直到显式消费。
     pub pending_semantic_group_seq: Option<u64>,
     /// 本机是否是群主（负责提交离群提案）。
@@ -200,6 +202,31 @@ pub struct PreparedSync {
     pub commits: Vec<GroupCommitRecord>,
     pub head_group_seq: u64,
     pub after_seq: u64,
+}
+
+/// 被群主显式隔离（跳过）的 Hub 提交：审计记录，绝不允许静默忽略。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupQuarantineRecord {
+    pub server_seq: u64,
+    pub reason: String,
+    pub actor_agent_id: Option<AgentId>,
+    pub created_at_ms: i64,
+}
+
+/// 群历史行：供成员取回对端的应用消息密文并自行解密。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupHistoryRow {
+    pub server_seq: u64,
+    pub kind: String,
+    pub author_device_id: String,
+    pub mls_epoch: u64,
+    pub ciphertext_b64: String,
+}
+
+/// 历史拉取计划（短锁快照，零锁执行）。
+pub struct HistoryPlan {
+    pub room_id: String,
+    pub client: HubClient,
 }
 
 /// 群主提交暂存提案的计划（短锁创建 → 零锁发布 → 短锁合并）。
@@ -324,6 +351,8 @@ struct ManagedRoom {
     pending_semantic_seq: Option<u64>,
     /// 本机自己发布到的最大 server_seq（仅诊断/去重，不参与已读判定）。
     own_published_seq: u64,
+    /// 群主显式隔离的提交（同步时跳过，但必须在状态里可见）。
+    quarantined: Vec<GroupQuarantineRecord>,
     /// 本机是否是群主（群主负责提交离群提案，使其真正生效）。
     is_owner: bool,
 }
@@ -487,6 +516,7 @@ impl GroupRoomRuntime {
                 mls_cursor_group_seq: room.mls_cursor_seq,
                 pending_semantic_group_seq: room.pending_semantic_seq,
                 own_published_group_seq: room.own_published_seq,
+                quarantined: room.quarantined.clone(),
                 is_owner: room.is_owner,
             })
             .collect();
@@ -532,6 +562,7 @@ impl GroupRoomRuntime {
                     mls_cursor_seq: entry.mls_cursor_group_seq,
                     pending_semantic_seq: entry.pending_semantic_group_seq,
                     own_published_seq: entry.own_published_group_seq,
+                    quarantined: entry.quarantined,
                     is_owner: entry.is_owner,
                 },
             );
@@ -572,6 +603,7 @@ impl GroupRoomRuntime {
                 mls_cursor_seq: 0,
                 pending_semantic_seq: None,
                 own_published_seq: 0,
+                quarantined: Vec::new(),
                 is_owner: true,
             },
         );
@@ -704,6 +736,7 @@ impl GroupRoomRuntime {
                 mls_cursor_seq: 0,
                 pending_semantic_seq: None,
                 own_published_seq: 0,
+                quarantined: Vec::new(),
                 is_owner: false,
             },
         );
@@ -857,6 +890,15 @@ impl GroupRoomRuntime {
                         head_seq: prepared.head_group_seq,
                     });
                 }
+                if room
+                    .quarantined
+                    .iter()
+                    .any(|record| record.server_seq == commit.server_seq)
+                {
+                    // 群主已审计隔离：跳过但绝不推进语义水位线，且在 summary 中持续可见。
+                    expected = commit.server_seq.saturating_add(1);
+                    continue;
+                }
                 if commit.kind == MLS_COMMIT_KIND {
                     let local_epoch = room.engine.mls_epoch();
                     let from_self = commit.sender_agent_id == self_agent_str;
@@ -880,9 +922,11 @@ impl GroupRoomRuntime {
                         }
                         applied_any = true;
                     } else if commit.mls_epoch == local_epoch {
-                        if from_self {
-                            // 本机已发布的提交/提案在本地早已生效；同设备仍挂待定则合并收敛。
-                            if same_device && room.engine.has_pending_commit() {
+                        if from_self && same_device {
+                            // 只有“本设备”发布的当前纪元行才是本地已生效的重复；
+                            // 同一 Agent 的另一台设备的提案必须照常入队，否则群主按引用
+                            // 提交时该设备无法解析引用，会永久卡死同步。
+                            if room.engine.has_pending_commit() {
                                 room.engine.commit_pending()?;
                                 applied_any = true;
                             }
@@ -1033,12 +1077,14 @@ impl GroupRoomRuntime {
 
     /// 解密一条群应用消息（仅在已应用对应纪元 Commit 后可解）。
     ///
-    /// `consume = true`（默认行为）时同时把语义水位线推进到本次已扫描的位置：
-    /// 自动化循环“读 → 发”不再需要额外调用 `group consume`。`peek` 则只读不消费。
+    /// `delivered_seq` 是这条密文在 Hub 群日志中的 `server_seq`。`consume = true` 时，
+    /// 语义水位线只会推进到该行：**没有交付并解密到未读语义行，就绝不越过它**。
+    /// `peek`（`consume = false`）只读不消费。
     pub fn decrypt_room_message<S: MaterializedStore + ?Sized>(
         &mut self,
         room_id: &str,
         ciphertext_b64: &str,
+        delivered_seq: Option<u64>,
         consume: bool,
         store: &mut S,
     ) -> Result<String> {
@@ -1058,10 +1104,147 @@ impl GroupRoomRuntime {
             String::from_utf8(plaintext).map_err(|_| QuetzalcoatlError::SerializationError {
                 detail: String::from("群应用消息不是合法 UTF-8"),
             })?;
-        if consume {
-            self.consume_semantic_watermark(room_id)?;
+        if consume && let Some(seq) = delivered_seq {
+            self.acknowledge_delivered(room_id, seq)?;
         }
         Ok(text)
+    }
+
+    /// 确认“已交付并解密到 `delivered_seq`”：只推进到该行，且必须先越过未读语义行。
+    pub fn acknowledge_delivered(&mut self, room_id: &str, delivered_seq: u64) -> Result<()> {
+        {
+            let room =
+                self.rooms
+                    .get_mut(room_id)
+                    .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
+                        detail: format!("群 {room_id} 未加入"),
+                    })?;
+            let target = delivered_seq.min(room.mls_cursor_seq);
+            room.semantic_read_seq = room.semantic_read_seq.max(target);
+            // 只有当场交付到未读语义行（或更后）才允许清除 pending。
+            if room
+                .pending_semantic_seq
+                .is_some_and(|pending| delivered_seq >= pending)
+            {
+                room.pending_semantic_seq = None;
+            }
+        }
+        self.persist_registry()?;
+        Ok(())
+    }
+
+    /// 群主显式隔离一条无法处理的提交（审计 + 注册表记录），之后同步可越过该行。
+    pub fn quarantine_commit<S: MaterializedStore + ?Sized>(
+        &mut self,
+        room_id: &str,
+        server_seq: u64,
+        reason: &str,
+        store: &mut S,
+    ) -> Result<GroupRoomSummary> {
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(QuetzalcoatlError::invalid_id(
+                "quarantine",
+                "隔离原因不能为空",
+            ));
+        }
+        let is_owner = self
+            .rooms
+            .get(room_id)
+            .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
+                detail: format!("群 {room_id} 未加入"),
+            })?
+            .is_owner;
+        if !is_owner {
+            return Err(QuetzalcoatlError::PermissionDenied {
+                detail: String::from("只有群主可以隔离群提交"),
+            });
+        }
+        let record = GroupQuarantineRecord {
+            server_seq,
+            reason: reason.to_owned(),
+            actor_agent_id: Some(self.agent_id),
+            created_at_ms: i64::try_from(crate::daemon::now_unix_ms()).unwrap_or(i64::MAX),
+        };
+        // 先写脊柱审计（追加式私有块），再落注册表：审计失败则不生效。
+        let audit_path = format!("groups/audit/quarantine/{room_id}");
+        let mut audit = store.get_private_blob(&audit_path)?.unwrap_or_default();
+        let line = serde_json::to_string(&record).map_err(|err| {
+            QuetzalcoatlError::SerializationError {
+                detail: err.to_string(),
+            }
+        })?;
+        audit.push_str(&line);
+        audit.push('\n');
+        store.put_private_blob(&audit_path, &audit)?;
+        if let Some(room) = self.rooms.get_mut(room_id)
+            && !room
+                .quarantined
+                .iter()
+                .any(|existing| existing.server_seq == server_seq)
+        {
+            room.quarantined.push(record);
+        }
+        self.persist_registry()?;
+        self.summary(room_id)
+    }
+
+    /// 短锁阶段：历史拉取计划（零锁执行，绝不在锁内做网络 I/O）。
+    pub fn history_plan(&mut self, room_id: &str) -> Result<Option<HistoryPlan>> {
+        self.refresh_hub_session()?;
+        let Some(client) = self
+            .hub_client
+            .as_ref()
+            .filter(|client| client.session_token().is_some())
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        if !self.rooms.contains_key(room_id) {
+            return Err(QuetzalcoatlError::PermissionDenied {
+                detail: format!("群 {room_id} 未加入"),
+            });
+        }
+        Ok(Some(HistoryPlan {
+            room_id: room_id.to_owned(),
+            client,
+        }))
+    }
+
+    /// 零锁阶段：取回 Hub 群日志中的历史行（含对端应用消息密文）。
+    pub fn fetch_history(
+        plan: &HistoryPlan,
+        after: u64,
+        limit: u32,
+    ) -> Result<Vec<GroupHistoryRow>> {
+        let (commits, _, _) = block_on(plan.client.list_group_commits(
+            &plan.room_id,
+            after,
+            limit.clamp(1, 500),
+        ))?;
+        Ok(commits
+            .into_iter()
+            .map(|commit| GroupHistoryRow {
+                server_seq: commit.server_seq,
+                kind: commit.kind,
+                author_device_id: commit.sender_device_id,
+                mls_epoch: commit.mls_epoch,
+                ciphertext_b64: commit.ciphertext_b64,
+            })
+            .collect())
+    }
+
+    /// 便捷封装：历史拉取（单次调用，可能阻塞）。
+    pub fn history(
+        &mut self,
+        room_id: &str,
+        after: u64,
+        limit: u32,
+    ) -> Result<Vec<GroupHistoryRow>> {
+        let Some(plan) = self.history_plan(room_id)? else {
+            return Ok(Vec::new());
+        };
+        Self::fetch_history(&plan, after, limit)
     }
 
     /// 确认本机是群主（旧注册表升级用）：Hub 建群对同 owner 幂等返回，据此补写 `is_owner`。
@@ -1113,6 +1296,7 @@ impl GroupRoomRuntime {
             last_seen_group_seq: room.semantic_read_seq,
             mls_cursor_group_seq: room.mls_cursor_seq,
             own_published_group_seq: room.own_published_seq,
+            quarantined: room.quarantined.clone(),
             pending_semantic_group_seq: room.pending_semantic_seq,
             is_owner: room.is_owner,
             hub_connected: self
@@ -1599,6 +1783,9 @@ struct RegistryEntry {
     /// 己方发布游标（旧注册表缺省 0）。
     #[serde(default)]
     own_published_group_seq: u64,
+    /// 群主隔离记录（旧注册表缺省为空）。
+    #[serde(default)]
+    quarantined: Vec<GroupQuarantineRecord>,
     /// 群主标记（旧注册表缺省 false，绝不擅自替用户提交提案）。
     #[serde(default)]
     is_owner: bool,

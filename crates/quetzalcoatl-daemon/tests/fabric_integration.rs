@@ -1518,7 +1518,30 @@ fn group_mls_commit_distribution_lets_offline_member_catch_up() -> TestResult {
         "kicked member must be gone from C's roster after sync"
     );
 
-    // C 能解密 A 的新消息（B 不能，见下）。
+    // C 通过 history 取回该消息的 server_seq，再带 --seq 解密（消费只推进到该行）。
+    let history = run_qz(
+        &home_c,
+        &[
+            "group",
+            "history",
+            "--room",
+            "dist-room",
+            "--after",
+            "0",
+            "--limit",
+            "500",
+            "--json",
+        ],
+    )?;
+    let history_json = group_json(&history)?;
+    let delivered_seq = group_data(&history_json)?
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row["ciphertext_b64"].as_str() == Some(ciphertext.as_str()))
+        })
+        .and_then(|row| row["server_seq"].as_u64())
+        .ok_or("history must expose the peer application row")?;
     let read = run_qz(
         &home_c,
         &[
@@ -1528,6 +1551,8 @@ fn group_mls_commit_distribution_lets_offline_member_catch_up() -> TestResult {
             "dist-room",
             "--ciphertext",
             &ciphertext,
+            "--seq",
+            &delivered_seq.to_string(),
         ],
     )?;
     assert!(read.success, "C must decrypt after sync: {}", read.stderr);

@@ -1202,6 +1202,10 @@ fn run_group(args: &[String]) -> Result<()> {
     let mut parent_seq: u64 = 0;
     let mut ciphertext: Option<String> = None;
     let mut peek = false;
+    let mut delivered_seq: Option<u64> = None;
+    let mut after: u64 = 0;
+    let mut limit: u32 = 50;
+    let mut reason: Option<String> = None;
     let mut human_typing = false;
     let mut sender_kind = GroupSenderWire::Owner;
     let mut as_steward = false;
@@ -1342,6 +1346,39 @@ fn run_group(args: &[String]) -> Result<()> {
                     .map_err(|err| QuetzalcoatlError::invalid_id("--parent", err.to_string()))?;
             }
             "--peek" => peek = true,
+            "--seq" => {
+                i += 1;
+                delivered_seq = Some(
+                    rest.get(i)
+                        .ok_or_else(|| QuetzalcoatlError::invalid_id("--seq", "缺少序号"))?
+                        .parse::<u64>()
+                        .map_err(|err| QuetzalcoatlError::invalid_id("--seq", err.to_string()))?,
+                );
+            }
+            "--after" => {
+                i += 1;
+                after = rest
+                    .get(i)
+                    .ok_or_else(|| QuetzalcoatlError::invalid_id("--after", "缺少起始序号"))?
+                    .parse::<u64>()
+                    .map_err(|err| QuetzalcoatlError::invalid_id("--after", err.to_string()))?;
+            }
+            "--limit" => {
+                i += 1;
+                limit = rest
+                    .get(i)
+                    .ok_or_else(|| QuetzalcoatlError::invalid_id("--limit", "缺少条数"))?
+                    .parse::<u32>()
+                    .map_err(|err| QuetzalcoatlError::invalid_id("--limit", err.to_string()))?;
+            }
+            "--reason" => {
+                i += 1;
+                reason = Some(
+                    rest.get(i)
+                        .ok_or_else(|| QuetzalcoatlError::invalid_id("--reason", "缺少原因"))?
+                        .clone(),
+                );
+            }
             "--ciphertext" => {
                 i += 1;
                 ciphertext = Some(
@@ -1420,7 +1457,22 @@ fn run_group(args: &[String]) -> Result<()> {
             ciphertext_b64: ciphertext.ok_or_else(|| {
                 QuetzalcoatlError::invalid_id("qz group read", "缺少 --ciphertext <base64>")
             })?,
+            delivered_seq,
             peek,
+        },
+        "history" => IpcRequest::GroupHistory {
+            room_id: require_group_room(room)?,
+            after,
+            limit,
+        },
+        "quarantine" => IpcRequest::GroupQuarantine {
+            room_id: require_group_room(room)?,
+            server_seq: delivered_seq.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id("qz group quarantine", "缺少 --seq <序号>")
+            })?,
+            reason: reason.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id("qz group quarantine", "缺少 --reason <原因>")
+            })?,
         },
         "claim-owner" => IpcRequest::GroupClaimOwner {
             room_id: require_group_room(room)?,
@@ -1545,6 +1597,18 @@ fn run_group(args: &[String]) -> Result<()> {
         }
         IpcResponse::GroupPlaintext { text } => {
             println!("{text}");
+        }
+        IpcResponse::GroupHistory(rows) => {
+            for row in rows {
+                println!(
+                    "seq={} kind={} device={} epoch={} ciphertext_b64={}",
+                    row.server_seq,
+                    row.kind,
+                    row.author_device_id,
+                    row.mls_epoch,
+                    row.ciphertext_b64
+                );
+            }
         }
         IpcResponse::GroupRevokeSteward(outcome) => {
             println!(

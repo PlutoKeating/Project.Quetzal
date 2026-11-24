@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use quetzalcoatl_crypto::PackCompartment;
 use quetzalcoatl_crypto::{
     AccountRootKey, DeviceIdentity, EpochKey, EpochKeyRing, hex_decode_fixed, hex_encode,
 };
@@ -1798,6 +1799,7 @@ impl SharedDaemonCore {
             IpcRequest::GroupRead {
                 room_id,
                 ciphertext_b64,
+                delivered_seq,
                 peek,
             } => {
                 let Ok(mut guard) = self.state.lock() else {
@@ -1811,10 +1813,73 @@ impl SharedDaemonCore {
                 match group.decrypt_room_message(
                     &room_id,
                     &ciphertext_b64,
+                    delivered_seq,
                     !peek,
                     kernel.spine_mut().store_mut(),
                 ) {
                     Ok(text) => (IpcResponse::GroupPlaintext { text }, false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupHistory {
+                room_id,
+                after,
+                limit,
+            } => {
+                // 短锁取计划 → 零锁拉取：Hub 网络 I/O 绝不在内核状态锁内。
+                let plan = {
+                    let Ok(mut guard) = self.state.lock() else {
+                        return ipc_lock_error();
+                    };
+                    match guard.group.history_plan(&room_id) {
+                        Ok(plan) => plan,
+                        Err(err) => return ipc_error_response(err),
+                    }
+                };
+                let Some(plan) = plan else {
+                    return (IpcResponse::GroupHistory(Vec::new()), false);
+                };
+                match crate::group::GroupRoomRuntime::fetch_history(&plan, after, limit) {
+                    Ok(rows) => (IpcResponse::GroupHistory(rows), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupQuarantine {
+                room_id,
+                server_seq,
+                reason,
+            } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                let outcome = group.quarantine_commit(
+                    &room_id,
+                    server_seq,
+                    &reason,
+                    kernel.spine_mut().store_mut(),
+                );
+                if outcome.is_ok() {
+                    // 签名脊柱审计：与私有块同源内容，进入单写者事件链。
+                    let payload = serde_json::json!({
+                        "kind": "group_quarantine",
+                        "room_id": room_id,
+                        "server_seq": server_seq,
+                        "reason": reason,
+                    })
+                    .to_string();
+                    let _ = kernel.spine_mut().append_event(
+                        PackCompartment::Core,
+                        &payload,
+                        now_unix_ms(),
+                    );
+                }
+                match outcome {
+                    Ok(summary) => (IpcResponse::GroupRoom(summary), false),
                     Err(err) => ipc_error_response(err),
                 }
             }
