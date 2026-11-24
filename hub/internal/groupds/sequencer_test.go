@@ -870,6 +870,74 @@ func TestCommitSequencerAcceptsOpaqueMlsCommitWithoutHopInflation(t *testing.T) 
 	}
 }
 
+func TestEpochAdvanceIsExclusivePerEpoch(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "fork-room", "agent-a", 1)
+	h.addMember(t, "token-a", "fork-room", "agent-b", "member")
+
+	// 两个成员同时声称建立 E+1：只允许一个成功，另一个必须拿到类型化冲突。
+	start := make(chan struct{})
+	statuses := make(chan int, 2)
+	var wg sync.WaitGroup
+	for _, bearer := range []struct{ token, agent, device string }{
+		{"token-a", "agent-a", "dev-a"},
+		{"token-b", "agent-b", "dev-b"},
+	} {
+		wg.Add(1)
+		go func(token, agent, device string) {
+			defer wg.Done()
+			<-start
+			status, _, err := h.doJSONWorker(http.MethodPost, "/v1/groups/fork-room/commits", token, commitBody(map[string]any{
+				"sender_agent_id":  agent,
+				"sender_device_id": device,
+				"mls_epoch":        1,
+				"reencrypt_only":   true,
+				"kind":             "mls_commit",
+				"author_kind":      "agent",
+				"ciphertext_b64":   base64.StdEncoding.EncodeToString([]byte("opaque-mls-commit")),
+			}))
+			if err != nil {
+				status = -1
+			}
+			statuses <- status
+		}(bearer.token, bearer.agent, bearer.device)
+	}
+	close(start)
+	wg.Wait()
+	close(statuses)
+
+	created, conflicted := 0, 0
+	for status := range statuses {
+		switch status {
+		case http.StatusCreated:
+			created++
+		case http.StatusConflict:
+			conflicted++
+		default:
+			t.Fatalf("unexpected status %d", status)
+		}
+	}
+	if created != 1 || conflicted != 1 {
+		t.Fatalf("epoch advance must be exclusive: created=%d conflicted=%d", created, conflicted)
+	}
+
+	// 房间纪元只能前进一次，且只有一条提交落到日志里。
+	resp, body := doJSON(t, h.srv.Client(), http.MethodGet, h.srv.URL+"/v1/groups/fork-room/commits?after_seq=0&limit=50", "token-a", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list commits: %d %s", resp.StatusCode, body)
+	}
+	var payload struct {
+		Commits         []any  `json:"commits"`
+		CurrentMLSEpoch uint64 `json:"current_mls_epoch"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("parse commits: %v", err)
+	}
+	if payload.CurrentMLSEpoch != 1 || len(payload.Commits) != 1 {
+		t.Fatalf("fork detected: epoch=%d commits=%d", payload.CurrentMLSEpoch, len(payload.Commits))
+	}
+}
+
 func TestCommitSequencerRejectsUnknownKindAndAuthorKind(t *testing.T) {
 	h := newHarness(t)
 	h.createRoom(t, "token-a", "kind-room", "agent-a", 1)

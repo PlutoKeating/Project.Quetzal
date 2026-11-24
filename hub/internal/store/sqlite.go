@@ -297,12 +297,18 @@ type GroupCommit struct {
 	ReencryptOnly bool `json:"-"`
 }
 
-// validateEpochAdvance 是纪元写入门禁的唯一实现：只允许持平，或恰 +1 且显式纯密钥轮换。
+// validateEpochAdvance 是纪元写入门禁的唯一实现：
+//   - 持平只允许普通提交（`reencrypt_only = false`）；
+//   - 恰 +1 必须标记纯密钥轮换，且每个纪元只允许被建立一个——后来者一律冲突，
+//     否则两个成员可各自落到不同的 E+1 提交上，群会永久分叉。
 func validateEpochAdvance(current uint64, commit GroupCommit) error {
 	switch {
 	case commit.MLSEpoch < current:
 		return ErrEpochConflict
 	case commit.MLSEpoch == current:
+		if commit.ReencryptOnly {
+			return ErrEpochConflict
+		}
 		return nil
 	case commit.MLSEpoch != current+1 || !commit.ReencryptOnly:
 		return ErrEpochConflict

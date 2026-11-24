@@ -279,8 +279,29 @@ fn route(
             serde_json::json!({"code": "STORAGE_ERROR", "detail": "injected"}),
         );
     }
-    if method == "POST" && (target == "/v1/groups" || target.ends_with("/members")) {
-        return (201, serde_json::json!({"ok": true}));
+    if method == "POST" && target == "/v1/groups" {
+        return (
+            201,
+            serde_json::json!({
+                "group_id": target.trim_start_matches('/').split('/').nth(2).unwrap_or("room"),
+                "owner_agent_id": "agent",
+                "secrecy_level": 1,
+                "current_mls_epoch": 0,
+                "created_at_ms": 1,
+            }),
+        );
+    }
+    if method == "POST" && target.ends_with("/members") {
+        let parsed: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+        return (
+            201,
+            serde_json::json!({
+                "group_id": target.trim_start_matches('/').split('/').nth(2).unwrap_or("room"),
+                "agent_id": parsed["agent_id"],
+                "role": parsed["role"],
+                "added_at_ms": 1,
+            }),
+        );
     }
     (404, serde_json::json!({"code": "NOT_FOUND"}))
 }
@@ -762,7 +783,7 @@ fn apply_sync_rejects_gaps_and_skips_duplicates() {
         room_id: String::from("room"),
         commits: vec![peer_commit(2, 1, "mls_commit", AgentId::new_v4(), "AA==")],
         head_group_seq: 2,
-        last_seen_group_seq: 0,
+        after_seq: 0,
     };
     assert!(matches!(
         runtime.apply_sync(gap, &mut store),
@@ -774,7 +795,7 @@ fn apply_sync_rejects_gaps_and_skips_duplicates() {
         room_id: String::from("room"),
         commits: vec![peer_commit(1, 3, "mls_commit", AgentId::new_v4(), "AA==")],
         head_group_seq: 1,
-        last_seen_group_seq: 0,
+        after_seq: 0,
     };
     assert!(matches!(
         runtime.apply_sync(jump, &mut store),
@@ -786,13 +807,15 @@ fn apply_sync_rejects_gaps_and_skips_duplicates() {
         room_id: String::from("room"),
         commits: vec![peer_commit(1, 1, "mls_commit", AgentId::new_v4(), "AA==")],
         head_group_seq: 1,
-        last_seen_group_seq: 1,
+        after_seq: 1,
     };
     let summary = runtime
         .apply_sync(duplicate, &mut store)
         .expect("duplicate is skipped");
     assert_eq!(summary.mls_epoch, 0);
-    assert_eq!(summary.last_seen_group_seq, 1);
+    assert_eq!(summary.mls_cursor_group_seq, 1);
+    // 重复行只是被跳过，绝不能推进语义水位线。
+    assert_eq!(summary.last_seen_group_seq, 0);
 }
 
 #[test]
@@ -886,4 +909,399 @@ fn revoke_retry_after_publish_failure_converges_in_process() {
             .count(),
         1
     );
+}
+
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime")
+        .block_on(future)
+}
+
+fn hub_client(mock: &MockHub) -> quetzalcoatl_fabric::HubClient {
+    quetzalcoatl_fabric::HubClient::new(quetzalcoatl_fabric::HubClientConfig {
+        base_url: mock.base_url().to_owned(),
+        session_token: Some(String::from("mock-token")),
+        custom_ca_certs_der: Vec::new(),
+    })
+    .expect("hub client")
+}
+
+/// 以“对端成员”的身份直接往群日志写一行（绕过本地运行时）。
+#[allow(clippy::too_many_arguments)]
+fn post_as_peer(
+    mock: &MockHub,
+    room: &str,
+    agent: AgentId,
+    device: DeviceId,
+    epoch: u64,
+    kind: &str,
+    ciphertext_b64: &str,
+    reencrypt_only: bool,
+    mentions: serde_json::Value,
+) -> u64 {
+    block_on(hub_client(mock).append_group_commit(
+        room,
+        agent,
+        device,
+        epoch,
+        0,
+        &mentions,
+        ciphertext_b64,
+        kind,
+        "human",
+        reencrypt_only,
+    ))
+    .expect("peer append")
+    .server_seq
+}
+
+struct TwoMemberRoom {
+    mock: MockHub,
+    home_c: PathBuf,
+    agent_b: AgentId,
+    agent_c: AgentId,
+    device_b: DeviceId,
+    device_c: DeviceId,
+    runtime_a: GroupRoomRuntime,
+    runtime_b: GroupRoomRuntime,
+    runtime_c: GroupRoomRuntime,
+    store_a: RusqliteWalStore,
+    store_b: RusqliteWalStore,
+    store_c: RusqliteWalStore,
+}
+
+/// A（群主）+ B（协管）+ C（普通成员）的本地三人群，尚未接 Hub。
+fn three_member_room() -> TwoMemberRoom {
+    let home_a = temp_home("tm-a");
+    let home_b = temp_home("tm-b");
+    let home_c = temp_home("tm-c");
+    let mock = MockHub::start();
+    let agent_a = AgentId::new_v4();
+    let agent_b = AgentId::new_v4();
+    let agent_c = AgentId::new_v4();
+    let device_a = DeviceId::new_v4();
+    let device_b = DeviceId::new_v4();
+    let device_c = DeviceId::new_v4();
+    let mut store_a = open_store(&home_a);
+    let mut store_b = open_store(&home_b);
+    let mut store_c = open_store(&home_c);
+    let mut runtime_a = GroupRoomRuntime::new(home_a.clone(), agent_a, device_a, "11".repeat(32));
+    let mut runtime_b = GroupRoomRuntime::new(home_b.clone(), agent_b, device_b, "22".repeat(32));
+    let mut runtime_c = GroupRoomRuntime::new(home_c.clone(), agent_c, device_c, "33".repeat(32));
+    write_session(&home_a, mock.base_url(), agent_a, device_a);
+    write_session(&home_b, mock.base_url(), agent_b, device_b);
+    write_session(&home_c, mock.base_url(), agent_c, device_c);
+    runtime_a.with_hub(mock.binding()).expect("hub a");
+    runtime_b.with_hub(mock.binding()).expect("hub b");
+    runtime_c.with_hub(mock.binding()).expect("hub c");
+    runtime_a.create("room", 1, &mut store_a).expect("create");
+    let kp_b = runtime_b
+        .invite_key_package("room")
+        .expect("kp b")
+        .key_package_b64
+        .expect("kp b");
+    let handoff_b = runtime_a
+        .add_member("room", &kp_b, agent_b, true, &mut store_a)
+        .expect("add b");
+    runtime_b
+        .join(
+            "room",
+            handoff_b.welcome_b64.as_deref().expect("welcome"),
+            handoff_b.ratchet_tree_b64.as_deref().expect("tree"),
+            &mut store_b,
+        )
+        .expect("join b");
+    let kp_c = runtime_c
+        .invite_key_package("room")
+        .expect("kp c")
+        .key_package_b64
+        .expect("kp c");
+    let handoff_c = runtime_a
+        .add_member("room", &kp_c, agent_c, false, &mut store_a)
+        .expect("add c");
+    runtime_c
+        .join(
+            "room",
+            handoff_c.welcome_b64.as_deref().expect("welcome"),
+            handoff_c.ratchet_tree_b64.as_deref().expect("tree"),
+            &mut store_c,
+        )
+        .expect("join c");
+    TwoMemberRoom {
+        mock,
+        home_c,
+        agent_b,
+        agent_c,
+        device_b,
+        device_c,
+        runtime_a,
+        runtime_b,
+        runtime_c,
+        store_a,
+        store_b,
+        store_c,
+    }
+}
+
+#[test]
+fn background_sync_never_consumes_pending_semantic_rows() {
+    let mut room = three_member_room();
+
+    // A 发布过入群 Commit，两个游标都已到 2；记录基线后用“心跳同步”处理对端约束。
+    let before = room.runtime_a.summary("room").expect("summary");
+    assert_eq!(before.last_seen_group_seq, 2);
+    let seq = post_as_peer(
+        &room.mock,
+        "room",
+        room.agent_b,
+        room.device_b,
+        2,
+        "constraint_update",
+        "Y29uc3RyYWludA==",
+        false,
+        serde_json::json!([{"kind":"all_agents"}]),
+    );
+    let synced = room
+        .runtime_a
+        .sync_watermark("room", &mut room.store_a)
+        .expect("sync");
+    assert_eq!(synced.pending_semantic_group_seq, Some(seq));
+    assert_eq!(synced.last_seen_group_seq, 2, "语义水位线绝不能被心跳推进");
+
+    let err = room
+        .runtime_a
+        .send(
+            "room",
+            "must-block",
+            all_agents_mention(),
+            SenderKind::OwnerHuman,
+            0,
+            false,
+            &mut room.store_a,
+        )
+        .expect_err("pending semantic row must block sending");
+    assert!(matches!(
+        err,
+        quetzalcoatl_types::QuetzalcoatlError::WatermarkConflict { .. }
+    ));
+
+    let consumed = room
+        .runtime_a
+        .consume_semantic_watermark("room")
+        .expect("consume");
+    assert_eq!(consumed.pending_semantic_group_seq, None);
+    assert_eq!(consumed.last_seen_group_seq, seq);
+    let sent = room
+        .runtime_a
+        .send(
+            "room",
+            "after-consume",
+            all_agents_mention(),
+            SenderKind::OwnerHuman,
+            0,
+            false,
+            &mut room.store_a,
+        )
+        .expect("send after consume");
+    assert!(sent.server_seq.is_some());
+}
+
+#[test]
+fn leave_proposal_is_applied_and_owner_commit_drops_the_leaver() {
+    let mut room = three_member_room();
+    // B 先追平到当前纪元（否则其离群提案属于旧纪元，按协议本就不能应用）。
+    room.runtime_b
+        .sync_watermark("room", &mut room.store_b)
+        .expect("b sync");
+    let identity_b = format!("agent:{}", room.agent_b);
+    let epoch_before = room.runtime_a.summary("room").expect("summary").mls_epoch;
+
+    // B 自愿离群：只发布 SelfRemove 提案（协议禁止自提交移除）。
+    assert!(
+        room.runtime_b
+            .leave("room", &mut room.store_b)
+            .expect("leave")
+            .left
+    );
+    let after_leave = room.runtime_a.summary("room").expect("summary");
+    assert!(
+        after_leave.members.contains(&identity_b),
+        "提案尚未提交前，A 的名单里仍应有 B"
+    );
+
+    // A（群主）同步：应用提案并由群主提交，名单必须真正移除 B。
+    let synced = room
+        .runtime_a
+        .sync_watermark("room", &mut room.store_a)
+        .expect("owner sync");
+    assert!(!synced.members.contains(&identity_b));
+    assert_eq!(synced.mls_epoch, epoch_before + 1);
+}
+
+#[test]
+fn restart_keeps_staged_proposals() {
+    let mut room = three_member_room();
+    room.runtime_b
+        .sync_watermark("room", &mut room.store_b)
+        .expect("b sync");
+    assert!(
+        room.runtime_b
+            .leave("room", &mut room.store_b)
+            .expect("leave")
+            .left
+    );
+    // C 不是群主：只暂存提案并持久化，不替群主提交。
+    let synced = room
+        .runtime_c
+        .sync_watermark("room", &mut room.store_c)
+        .expect("c sync");
+    assert!(synced.pending_semantic_group_seq.is_none());
+    assert!(
+        room.runtime_c.has_staged_proposals("room"),
+        "提案必须进入 MLS 提案队列"
+    );
+
+    // 重启：从脊柱恢复后提案仍在（否则 server_seq 已标记已读却丢提案）。
+    drop(room.runtime_c);
+    let mut restored = GroupRoomRuntime::new(
+        room.home_c.clone(),
+        room.agent_c,
+        room.device_c,
+        "33".repeat(32),
+    );
+    restored.restore(&room.store_c).expect("restore");
+    assert!(
+        restored.has_staged_proposals("room"),
+        "重启后已应用的提案必须仍可恢复"
+    );
+}
+
+#[test]
+fn revoke_selects_newest_active_grant_after_reinvite() {
+    let home_a = temp_home("reinvite-a");
+    let home_b1 = temp_home("reinvite-b1");
+    let home_b2 = temp_home("reinvite-b2");
+    let mock = MockHub::start();
+    let agent_a = AgentId::new_v4();
+    let agent_b = AgentId::new_v4();
+    let device_a = DeviceId::new_v4();
+    let mut store_a = open_store(&home_a);
+    let mut store_b1 = open_store(&home_b1);
+    let mut store_b2 = open_store(&home_b2);
+    let mut runtime_a = GroupRoomRuntime::new(home_a.clone(), agent_a, device_a, "44".repeat(32));
+    let mut runtime_b1 =
+        GroupRoomRuntime::new(home_b1, agent_b, DeviceId::new_v4(), "45".repeat(32));
+    let mut runtime_b2 =
+        GroupRoomRuntime::new(home_b2, agent_b, DeviceId::new_v4(), "46".repeat(32));
+    runtime_a.create("room", 1, &mut store_a).expect("create");
+    let identity = format!("agent:{agent_b}");
+
+    let invite = |runtime_b: &mut GroupRoomRuntime,
+                  store_b: &mut RusqliteWalStore,
+                  store_a: &mut RusqliteWalStore,
+                  runtime_a: &mut GroupRoomRuntime| {
+        let key_package = runtime_b
+            .invite_key_package("room")
+            .expect("kp")
+            .key_package_b64
+            .expect("kp bytes");
+        let handoff = runtime_a
+            .add_member("room", &key_package, agent_b, true, store_a)
+            .expect("add");
+        runtime_b
+            .join(
+                "room",
+                handoff.welcome_b64.as_deref().expect("welcome"),
+                handoff.ratchet_tree_b64.as_deref().expect("tree"),
+                store_b,
+            )
+            .expect("join");
+    };
+    invite(&mut runtime_b1, &mut store_b1, &mut store_a, &mut runtime_a);
+
+    write_session(&home_a, mock.base_url(), agent_a, device_a);
+    runtime_a.with_hub(mock.binding()).expect("attach hub");
+
+    runtime_a
+        .revoke_steward("room", identity.as_bytes(), &mut store_a)
+        .expect("first revoke");
+    assert_eq!(mock.delete_calls(), 1);
+
+    // 重新邀请同一 MLS 身份（新叶子、新授权），再吊销必须命中 Hub + MLS。
+    invite(&mut runtime_b2, &mut store_b2, &mut store_a, &mut runtime_a);
+    let before_second = runtime_a.summary("room").expect("summary").mls_epoch;
+    let second = runtime_a
+        .revoke_steward("room", identity.as_bytes(), &mut store_a)
+        .expect("second revoke must target the active grant");
+    assert_eq!(
+        mock.delete_calls(),
+        2,
+        "re-invite revoke must hit the Hub again"
+    );
+    assert_eq!(second.rotated_epoch, before_second + 1);
+    assert!(
+        !runtime_a
+            .summary("room")
+            .expect("summary")
+            .members
+            .contains(&identity)
+    );
+}
+
+#[test]
+fn same_agent_other_device_commit_is_applied_on_sync() {
+    let home_a1 = temp_home("samedev-a1");
+    let home_a2 = temp_home("samedev-a2");
+    let home_c = temp_home("samedev-c");
+    let mock = MockHub::start();
+    let agent_a = AgentId::new_v4();
+    let device_a1 = DeviceId::new_v4();
+    let device_a2 = DeviceId::new_v4();
+    let mut store_a1 = open_store(&home_a1);
+    let mut store_a2 = open_store(&home_a2);
+    let mut store_c = open_store(&home_c);
+    let mut a1 = GroupRoomRuntime::new(home_a1.clone(), agent_a, device_a1, "2a".repeat(32));
+    let mut a2 = GroupRoomRuntime::new(home_a2.clone(), agent_a, device_a2, "2b".repeat(32));
+    let agent_c = AgentId::new_v4();
+    let mut c = GroupRoomRuntime::new(home_c, agent_c, DeviceId::new_v4(), "2c".repeat(32));
+    a1.create("room", 1, &mut store_a1).expect("create");
+    let kp_a2 = a2
+        .invite_key_package("room")
+        .expect("kp a2")
+        .key_package_b64
+        .expect("kp a2");
+    let handoff = a1
+        .add_member("room", &kp_a2, agent_a, false, &mut store_a1)
+        .expect("add a2");
+    a2.join(
+        "room",
+        handoff.welcome_b64.as_deref().expect("welcome"),
+        handoff.ratchet_tree_b64.as_deref().expect("tree"),
+        &mut store_a2,
+    )
+    .expect("a2 join");
+
+    write_session(&home_a1, mock.base_url(), agent_a, device_a1);
+    write_session(&home_a2, mock.base_url(), agent_a, device_a2);
+    a1.with_hub(mock.binding()).expect("hub a1");
+    a2.with_hub(mock.binding()).expect("hub a2");
+
+    // A1 邀请 C：该 MLS Commit 的 sender_agent_id 与 A2 相同（同一 Agent 的另一台设备）。
+    let kp_c = c
+        .invite_key_package("room")
+        .expect("kp c")
+        .key_package_b64
+        .expect("kp c");
+    a1.add_member("room", &kp_c, agent_c, false, &mut store_a1)
+        .expect("add c");
+    let _ = &mut store_c;
+
+    let synced = a2.sync_watermark("room", &mut store_a2).expect("a2 sync");
+    assert_eq!(
+        synced.mls_epoch, 2,
+        "same-agent commit from another device must advance A2's epoch"
+    );
+    assert!(synced.members.contains(&format!("agent:{agent_c}")));
 }

@@ -17,7 +17,8 @@ use std::time::{Duration, Instant};
 
 use quetzalcoatl_crypto::{AccountRootKey, DeviceIdentity};
 use quetzalcoatl_daemon::{
-    DaemonConfig, DaemonFabricConfig, IpcClient, IpcRequest, IpcResponse, QuetzalcoatlDaemon,
+    DaemonConfig, DaemonFabricConfig, GroupRoomRuntime, IpcClient, IpcRequest, IpcResponse,
+    QuetzalcoatlDaemon,
 };
 use quetzalcoatl_fabric::{HubClient, HubClientConfig};
 use quetzalcoatl_types::{AgentId, DeviceId};
@@ -57,6 +58,19 @@ impl Drop for TempDirGuard {
     }
 }
 
+/// 清理历史按 PID 命名的缓存副本（仅本仓库自己的测试夹具产物）。
+fn prune_stale_hub_binaries(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("quetzalcoatl-hub-") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 fn repo_root() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir
@@ -77,7 +91,9 @@ fn compiled_go_hub_binary() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
         if let Err(e) = fs::create_dir_all(&out_dir) {
             return Err(format!("create hub bin cache dir failed: {e}"));
         }
-        let bin_path = out_dir.join(format!("quetzalcoatl-hub-daemon-{}", std::process::id()));
+        // 固定共享路径：每个测试进程覆盖同一份二进制，绝不按 PID 累积副本。
+        prune_stale_hub_binaries(&out_dir);
+        let bin_path = out_dir.join("quetzalcoatl-hub");
         let output = Command::new("go")
             .current_dir(root.join("hub"))
             .env("CGO_ENABLED", "0")
@@ -276,6 +292,7 @@ fn qz_bin() -> PathBuf {
 
 struct QzOutput {
     success: bool,
+    args: String,
     stdout: String,
     stderr: String,
 }
@@ -287,6 +304,7 @@ fn run_qz(qz_home: &Path, args: &[&str]) -> Result<QzOutput, Box<dyn Error + Sen
         .output()?;
     Ok(QzOutput {
         success: out.status.success(),
+        args: args.join(" "),
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
     })
@@ -806,8 +824,8 @@ fn qz_login_pair_nodes_and_status_against_live_go_hub_through_daemon_ipc() -> Te
 fn group_json(output: &QzOutput) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
     if !output.success {
         return Err(format!(
-            "qz command failed: stdout={} stderr={}",
-            output.stdout, output.stderr
+            "qz command failed: `qz {}` stdout={} stderr={}",
+            output.args, output.stdout, output.stderr
         )
         .into());
     }
@@ -1053,9 +1071,39 @@ fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> Tes
         conflict.stdout,
         conflict.stderr
     );
-    // 人工确认重读后推进水位线。
+    // 心跳/同步只应用 MLS 消息，绝不消费未读语义行：sync 后必须仍处于待消费状态。
     let synced = run_qz(&home_b, &["group", "sync", "--room", "e2e-room", "--json"])?;
-    assert!(group_json(&synced)?.is_object());
+    let synced_json = group_json(&synced)?;
+    assert!(
+        !group_data(&synced_json)?["pending_semantic_group_seq"].is_null(),
+        "sync must surface the unconsumed constraint instead of swallowing it"
+    );
+    let still_blocked = run_qz(
+        &home_b,
+        &[
+            "group",
+            "send",
+            "--room",
+            "e2e-room",
+            "--text",
+            "still-stale",
+            "--to",
+            &agent_b.to_string(),
+            "--json",
+        ],
+    )?;
+    assert!(
+        !still_blocked.success && still_blocked.stderr.contains("WATERMARK_CONFLICT"),
+        "sync alone must never clear a pending semantic row: {} {}",
+        still_blocked.stdout,
+        still_blocked.stderr
+    );
+    // 显式消费后发送恢复。
+    let consumed = run_qz(
+        &home_b,
+        &["group", "consume", "--room", "e2e-room", "--json"],
+    )?;
+    assert!(group_data(&group_json(&consumed)?)?["pending_semantic_group_seq"].is_null());
     let after_sync = run_qz(
         &home_b,
         &[
@@ -1072,46 +1120,88 @@ fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> Tes
     )?;
     assert!(group_json(&after_sync)?.is_object());
 
-    // 7. Hub 纪元领先而本机未处理轮换 Commit：必须 fail closed，绝不上线无法解封的字节。
-    let (_, head_before_rotation, epoch) =
-        rt.block_on(hub_client_a.list_group_commits("e2e-room", 0, 200))?;
-    rt.block_on(hub_client_a.append_group_commit(
-        "e2e-room",
-        agent_a,
-        device_a.device_id(),
-        epoch + 1,
-        head_before_rotation,
-        &serde_json::json!([]),
-        "cm90YXRlZA==",
-        "message",
-        "human",
-        true,
-    ))?;
-    let hub_ahead = run_qz(
+    // 7. A 真实轮换纪元（邀请 D）；B 未同步前必须 fail closed，sync 追平后恢复。
+    let home_d = tmp.path().join("home_d");
+    fs::create_dir_all(&home_d)?;
+    let (agent_d, device_d, root_d) = {
+        let mut genesis = QuetzalcoatlDaemon::start(fabric_disabled_config(&home_d))?;
+        genesis.shutdown()?;
+        read_sovereign_identity(&home_d)?
+    };
+    // D 必须在 Hub 注册（成员表对 agents 有外键），但只用于制造一次真实纪元轮换。
+    let _token_d = register_daemon_agent_on_hub(&hub, agent_d, &device_d, &root_d)?;
+    let mut fresh_d = GroupRoomRuntime::new(
+        home_d,
+        agent_d,
+        device_d.device_id(),
+        String::from("77").repeat(32),
+    );
+    let kp_d = fresh_d
+        .invite_key_package("e2e-room")?
+        .key_package_b64
+        .ok_or("missing key package for D")?;
+    let add_d = run_qz(
         &home_a,
+        &[
+            "group",
+            "invite",
+            "--room",
+            "e2e-room",
+            "--key-package",
+            &kp_d,
+            "--agent",
+            &agent_d.to_string(),
+            "--json",
+        ],
+    )?;
+    assert!(group_json(&add_d)?.is_object());
+    let stale_epoch = run_qz(
+        &home_b,
         &[
             "group",
             "send",
             "--room",
             "e2e-room",
             "--text",
-            "must-not-publish",
+            "stale-epoch",
             "--to",
-            &agent_a.to_string(),
+            &agent_b.to_string(),
             "--json",
         ],
     )?;
     assert!(
-        !hub_ahead.success && hub_ahead.stderr.contains("WATERMARK_CONFLICT"),
-        "hub-ahead epoch must fail closed, got {} {}",
-        hub_ahead.stdout,
-        hub_ahead.stderr
+        !stale_epoch.success && stale_epoch.stderr.contains("WATERMARK_CONFLICT"),
+        "member behind the hub epoch must fail closed: {} {}",
+        stale_epoch.stdout,
+        stale_epoch.stderr
     );
-    // 失败的发送绝不能落库：真头保持在上一次人工轮换提交。
-    let (_, head_after_failed_send, hub_epoch_after) =
-        rt.block_on(hub_client_a.list_group_commits("e2e-room", 0, 200))?;
-    assert_eq!(head_after_failed_send, head_before_rotation + 1);
-    assert_eq!(hub_epoch_after, epoch + 1);
+    // sync 应用真实的 MLS Commit 后，同一发送必须恢复。
+    let recovered_sync = run_qz(&home_b, &["group", "sync", "--room", "e2e-room", "--json"])?;
+    let recovered_json = group_json(&recovered_sync)?;
+    assert_eq!(
+        group_data(&recovered_json)?["mls_epoch"].as_u64(),
+        Some(2),
+        "sync must apply the real rotation commit"
+    );
+    let recovered = run_qz(
+        &home_b,
+        &[
+            "group",
+            "send",
+            "--room",
+            "e2e-room",
+            "--text",
+            "recovered",
+            "--to",
+            &agent_b.to_string(),
+            "--json",
+        ],
+    )?;
+    assert!(
+        recovered.success,
+        "sync must recover a member that was behind: {} {}",
+        recovered.stdout, recovered.stderr
+    );
 
     // 8. Hub 黑洞时 Status 仍 <500ms（全局状态锁不得跨网络 I/O）。
     hub.pause()?;
@@ -1397,7 +1487,58 @@ fn group_mls_commit_distribution_lets_offline_member_catch_up() -> TestResult {
         read.stdout
     );
 
-    // C 冲突后重试发送必须成功（不得永久 WATERMARK_CONFLICT）。
+    // 9. 真正的“失败 → 消费 → 重试”：对端先写入语义约束，C 的发送必须冲突；
+    //    显式消费未读水位线后同一条发送必须成功（证明冲突恢复可用，而非首次发送成功）。
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let hub_client_a = HubClient::new(HubClientConfig {
+        base_url: hub.https_url.clone(),
+        session_token: Some(tokens[0].clone()),
+        custom_ca_certs_der: vec![hub.ca_cert_der.clone()],
+    })?;
+    let (_, head_now, epoch_now) =
+        rt.block_on(hub_client_a.list_group_commits("dist-room", 0, 200))?;
+    rt.block_on(hub_client_a.append_group_commit(
+        "dist-room",
+        agent_a,
+        devices[0].device_id(),
+        epoch_now,
+        head_now,
+        &serde_json::json!([{"kind":"all_agents"}]),
+        "Y29uc3RyYWludA==",
+        "constraint_update",
+        "human",
+        false,
+    ))?;
+    let blocked = run_qz(
+        &home_c,
+        &[
+            "group",
+            "send",
+            "--room",
+            "dist-room",
+            "--text",
+            "c-blocked",
+            "--to",
+            &agent_c.to_string(),
+            "--json",
+        ],
+    )?;
+    assert!(
+        !blocked.success && blocked.stderr.contains("WATERMARK_CONFLICT"),
+        "unconsumed constraint must block sending: {} {}",
+        blocked.stdout,
+        blocked.stderr
+    );
+    let consumed = run_qz(
+        &home_c,
+        &["group", "consume", "--room", "dist-room", "--json"],
+    )?;
+    assert!(
+        group_data(&group_json(&consumed)?)?["pending_semantic_group_seq"].is_null(),
+        "consume must clear the pending semantic row"
+    );
     let retry = run_qz(
         &home_c,
         &[
@@ -1414,7 +1555,7 @@ fn group_mls_commit_distribution_lets_offline_member_catch_up() -> TestResult {
     )?;
     assert!(
         retry.success,
-        "C must be able to send after sync: {} {}",
+        "C must send after consuming the pending constraint: {} {}",
         retry.stdout, retry.stderr
     );
 
@@ -1437,8 +1578,47 @@ fn group_mls_commit_distribution_lets_offline_member_catch_up() -> TestResult {
         "kicked member must not decrypt post-rotation traffic: {}",
         b_read.stdout
     );
+    // 失败必须是类型化错误（纪元/解密失败或已被撤销权限），而不是静默成功。
+    assert!(
+        b_read.stderr.contains("INTEGRITY_VIOLATION")
+            || b_read.stderr.contains("PERMISSION_DENIED"),
+        "expected a typed decryption/permission error, got: {}",
+        b_read.stderr
+    );
+    // B 的本机房间仍然存在（只是无法解密新纪元流量），不得被静默删除。
+    let list_b = run_qz(&home_b, &["group", "list", "--json"])?;
+    let b_rooms = group_json(&list_b)?;
+    assert!(
+        group_data(&b_rooms)?
+            .as_array()
+            .is_some_and(|rooms| rooms.iter().any(|room| room["room_id"] == "dist-room")),
+        "kicked member must keep its local room entry"
+    );
     daemon_b.shutdown()?;
     daemon_a.shutdown()?;
     let _ = devices;
+    Ok(())
+}
+
+#[test]
+fn go_hub_binary_cache_is_bounded_to_one_copy() -> TestResult {
+    // 测试夹具的 Hub 二进制缓存必须只有一个副本，绝不按 PID 无界累积到 tmpfs。
+    let bin = compiled_go_hub_binary()?;
+    assert!(bin.exists(), "hub binary must exist: {}", bin.display());
+    let dir = bin.parent().ok_or("hub binary has no parent dir")?;
+    let copies = fs::read_dir(dir)?
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("quetzalcoatl-hub")
+        })
+        .count();
+    assert!(
+        copies <= 1,
+        "hub binary cache must hold at most one copy, found {copies} in {}",
+        dir.display()
+    );
     Ok(())
 }

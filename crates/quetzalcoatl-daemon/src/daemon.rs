@@ -598,6 +598,53 @@ pub(crate) struct SharedDaemonCore {
 }
 
 impl SharedDaemonCore {
+    /// 三段式群同步：短锁取计划 → 零锁拉取 → 短锁应用，再以同样形状完成群主提案提交。
+    /// Hub 网络 I/O 绝不在 `self.state` 锁内发生（保持 status/chat 亚秒响应）。
+    fn sync_group_room_phased(&self, room_id: &str) -> Result<crate::group::GroupRoomSummary> {
+        let lock_error = || QuetzalcoatlError::StorageError {
+            detail: String::from("群状态锁中毒"),
+        };
+        let plan = {
+            let mut guard = self.state.lock().map_err(|_| lock_error())?;
+            guard.group.sync_plan(room_id)?
+        };
+        let Some(plan) = plan else {
+            let guard = self.state.lock().map_err(|_| lock_error())?;
+            return guard.group.summary(room_id);
+        };
+        let prepared = crate::group::GroupRoomRuntime::fetch_sync(&plan)?;
+        {
+            let mut guard = self.state.lock().map_err(|_| lock_error())?;
+            let DaemonMutableState {
+                ref mut group,
+                ref mut kernel,
+                ..
+            } = *guard;
+            group.apply_sync(prepared, kernel.spine_mut().store_mut())?;
+        }
+        let owner_plan = {
+            let mut guard = self.state.lock().map_err(|_| lock_error())?;
+            let DaemonMutableState {
+                ref mut group,
+                ref mut kernel,
+                ..
+            } = *guard;
+            group.plan_owner_commit(room_id, kernel.spine_mut().store_mut())?
+        };
+        if let Some(owner_plan) = owner_plan {
+            let published = crate::group::GroupRoomRuntime::publish_owner_commit(&owner_plan);
+            let mut guard = self.state.lock().map_err(|_| lock_error())?;
+            let DaemonMutableState {
+                ref mut group,
+                ref mut kernel,
+                ..
+            } = *guard;
+            group.finish_owner_commit(owner_plan, published, kernel.spine_mut().store_mut())?;
+        }
+        let guard = self.state.lock().map_err(|_| lock_error())?;
+        guard.group.summary(room_id)
+    }
+
     pub(crate) fn fabric_runtime(&self) -> Option<Arc<DaemonFabricRuntime>> {
         self.fabric.lock().ok().and_then(|g| g.clone())
     }
@@ -1735,38 +1782,15 @@ impl SharedDaemonCore {
                     Err(err) => ipc_error_response(err),
                 }
             }
-            IpcRequest::GroupSync { room_id } => {
-                let plan = {
-                    let Ok(mut guard) = self.state.lock() else {
-                        return ipc_lock_error();
-                    };
-                    match guard.group.sync_plan(&room_id) {
-                        Ok(plan) => plan,
-                        Err(err) => return ipc_error_response(err),
-                    }
-                };
-                let Some(plan) = plan else {
-                    let Ok(guard) = self.state.lock() else {
-                        return ipc_lock_error();
-                    };
-                    return match guard.group.summary(&room_id) {
-                        Ok(summary) => (IpcResponse::GroupRoom(summary), false),
-                        Err(err) => ipc_error_response(err),
-                    };
-                };
-                let prepared = match crate::group::GroupRoomRuntime::fetch_sync(&plan) {
-                    Ok(prepared) => prepared,
-                    Err(err) => return ipc_error_response(err),
-                };
+            IpcRequest::GroupSync { room_id } => match self.sync_group_room_phased(&room_id) {
+                Ok(summary) => (IpcResponse::GroupRoom(summary), false),
+                Err(err) => ipc_error_response(err),
+            },
+            IpcRequest::GroupConsume { room_id } => {
                 let Ok(mut guard) = self.state.lock() else {
                     return ipc_lock_error();
                 };
-                let DaemonMutableState {
-                    ref mut group,
-                    ref mut kernel,
-                    ..
-                } = *guard;
-                match group.apply_sync(prepared, kernel.spine_mut().store_mut()) {
+                match guard.group.consume_semantic_watermark(&room_id) {
                     Ok(summary) => (IpcResponse::GroupRoom(summary), false),
                     Err(err) => ipc_error_response(err),
                 }
@@ -1861,14 +1885,13 @@ impl SharedDaemonCore {
                         ref mut kernel,
                         ..
                     } = *guard;
-                    let outcome =
-                        group.finish_send(prepared, applied, kernel.spine_mut().store_mut());
-                    if matches!(&pushed, Err(QuetzalcoatlError::WatermarkConflict { .. })) {
-                        // 冲突后立即重读：把对端 MLS Commit 应用进来，下一次发送才能对齐纪元。
-                        let _ = group.sync_watermark(&room_id, kernel.spine_mut().store_mut());
-                    }
-                    outcome
+                    group.finish_send(prepared, applied, kernel.spine_mut().store_mut())
                 };
+                if matches!(&pushed, Err(QuetzalcoatlError::WatermarkConflict { .. })) {
+                    // 冲突后立即重读：三段式同步（短锁计划 → 零锁拉取 → 短锁应用），
+                    // 绝不把 Hub 网络 I/O 塞进内核状态锁。
+                    let _ = self.sync_group_room_phased(&room_id);
+                }
                 match pushed {
                     Err(err) => ipc_error_response(err),
                     Ok(_) => match finished {

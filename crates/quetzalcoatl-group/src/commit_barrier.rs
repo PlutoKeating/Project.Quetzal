@@ -67,7 +67,10 @@ pub struct InterveningEvent {
 }
 
 impl InterveningEvent {
-    fn is_semantic_for(&self, submitting_agent_id: AgentId, last_seen_group_seq: u64) -> bool {
+    /// 该增量是否要求提交者重读（语义约束/点名/同父实质追问/打断）。
+    /// 群运行时用它判定“未读语义行”，从而不把未消费的约束冲进水位线。
+    #[must_use]
+    pub fn is_semantic_for(&self, submitting_agent_id: AgentId, last_seen_group_seq: u64) -> bool {
         if self.sender_agent_id == Some(submitting_agent_id) {
             // 自己写的消息不构成需要重读的新约束。
             return false;

@@ -1131,15 +1131,32 @@ fn parse_uuid_agent(raw: &str, flag: &str) -> Result<AgentId> {
         .map_err(|err| QuetzalcoatlError::invalid_id(flag, format!("非法 Agent ID `{raw}`: {err}")))
 }
 
+/// 从守护进程的 `WatermarkConflict` 展示文本里还原 (last_seen, head)。
+fn parse_watermark_seqs(detail: &str) -> (u64, u64) {
+    let extract = |key: &str| -> u64 {
+        detail
+            .split(key)
+            .nth(1)
+            .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+            .and_then(|digits| digits.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    (extract("last_seen="), extract("head="))
+}
+
 fn group_ipc_error(code: &str, detail: &str) -> QuetzalcoatlError {
     match code {
         "FLOOR_SILENCED" => QuetzalcoatlError::FloorSilenced {
             detail: String::from(detail),
         },
-        "WATERMARK_CONFLICT" => QuetzalcoatlError::WatermarkConflict {
-            last_seen_seq: 0,
-            head_seq: 0,
-        },
+        "WATERMARK_CONFLICT" => {
+            // 保留守护进程回报的真实序号，绝不退化成 (0,0)。
+            let (last_seen_seq, head_seq) = parse_watermark_seqs(detail);
+            QuetzalcoatlError::WatermarkConflict {
+                last_seen_seq,
+                head_seq,
+            }
+        }
         "PERMISSION_DENIED" => QuetzalcoatlError::PermissionDenied {
             detail: String::from(detail),
         },
@@ -1391,6 +1408,9 @@ fn run_group(args: &[String]) -> Result<()> {
             room_id: require_group_room(room)?,
         },
         "sync" => IpcRequest::GroupSync {
+            room_id: require_group_room(room)?,
+        },
+        "consume" => IpcRequest::GroupConsume {
             room_id: require_group_room(room)?,
         },
         "read" => IpcRequest::GroupRead {

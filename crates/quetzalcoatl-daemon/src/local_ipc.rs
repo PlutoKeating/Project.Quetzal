@@ -205,8 +205,12 @@ pub enum IpcRequest {
     GroupLeave {
         room_id: String,
     },
-    /// `qz group sync --room <id>`：重读至 Hub 真头并推进本地水位线。
+    /// `qz group sync --room <id>`：重读至 Hub 真头并应用 MLS 消息。
     GroupSync {
+        room_id: String,
+    },
+    /// `qz group consume --room <id>`：显式消费未读语义行（约束/点名追问/打断）。
+    GroupConsume {
         room_id: String,
     },
     /// `qz group read --room <id> --ciphertext <b64>`：解密一条群应用消息。

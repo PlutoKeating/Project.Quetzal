@@ -22,6 +22,15 @@ use quetzalcoatl_types::{AgentId, QuetzalcoatlError, Result};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
+/// 处理入站 MLS 控制消息后的结果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IncomingMlsOutcome {
+    /// 合并了一个 Commit，群纪元已推进。
+    CommitApplied,
+    /// 暂存了一个提案，群纪元不变（需群主提交后才生效）。
+    ProposalStaged,
+}
+
 const GROUP_CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const EPOCH_SECRET_LABEL: &str = "quetzalcoatl/v2/group-epoch-key-v1";
 const PERSIST_VERSION: u32 = 1;
@@ -568,7 +577,7 @@ impl GroupRoomEngine {
     }
 
     /// 处理其他成员下发的 Commit / Proposal。
-    pub fn process_incoming(&mut self, message_bytes: &[u8]) -> Result<()> {
+    pub fn process_incoming(&mut self, message_bytes: &[u8]) -> Result<IncomingMlsOutcome> {
         let mut message_cursor = message_bytes;
         let message = MlsMessageIn::tls_deserialize(&mut message_cursor)
             .map_err(|err| mls_error("解析群消息失败", err))?;
@@ -579,12 +588,48 @@ impl GroupRoomEngine {
             .group
             .process_message(&self.provider, protocol_message)
             .map_err(|err| mls_error("处理群消息失败", err))?;
-        if let ProcessedMessageContent::StagedCommitMessage(staged) = processed.into_content() {
-            self.group
-                .merge_staged_commit(&self.provider, *staged)
-                .map_err(|err| mls_error("合并群 Commit 失败", err))?;
+        match processed.into_content() {
+            ProcessedMessageContent::StagedCommitMessage(staged) => {
+                self.group
+                    .merge_staged_commit(&self.provider, *staged)
+                    .map_err(|err| mls_error("合并群 Commit 失败", err))?;
+                Ok(IncomingMlsOutcome::CommitApplied)
+            }
+            ProcessedMessageContent::ProposalMessage(proposal) => {
+                // openmls 不自动入队：必须显式存储提案，后续由群主提交生效。
+                self.group
+                    .store_pending_proposal(self.provider.storage(), *proposal)
+                    .map_err(|err| mls_error("暂存群提案失败", err))?;
+                Ok(IncomingMlsOutcome::ProposalStaged)
+            }
+            ProcessedMessageContent::ExternalJoinProposalMessage(_) => {
+                Ok(IncomingMlsOutcome::ProposalStaged)
+            }
+            _ => Err(QuetzalcoatlError::IntegrityViolation {
+                detail: String::from("群同步消息不是可应用的 Commit/Proposal"),
+            }),
         }
-        Ok(())
+    }
+
+    /// 本地是否持有尚未合并的待定 Commit（发布后崩溃的恢复入口）。
+    #[must_use]
+    pub fn has_pending_commit(&self) -> bool {
+        self.group.pending_commit().is_some()
+    }
+
+    /// 本地是否持有已暂存、待提交的提案（群主据此提交离群等提案）。
+    #[must_use]
+    pub fn has_staged_proposals(&self) -> bool {
+        self.group.pending_proposals().next().is_some()
+    }
+
+    /// 把已暂存的提案组装成一次 Commit（群主提交离群提案用），返回序列化消息。
+    pub fn commit_pending_proposals(&mut self) -> Result<Vec<u8>> {
+        let (commit, _welcome, _group_info) = self
+            .group
+            .commit_to_pending_proposals(&self.provider, &self.signer)
+            .map_err(|err| mls_error("提交暂存提案失败", err))?;
+        serialize_message(&commit)
     }
 
     /// 加密应用消息（仅密文，永不写 Hub 明文）。

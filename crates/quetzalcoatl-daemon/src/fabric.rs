@@ -1033,15 +1033,46 @@ impl DaemonFabricRuntime {
             let Ok(prepared) = crate::group::GroupRoomRuntime::fetch_sync(&plan) else {
                 continue;
             };
-            let Ok(mut state) = lock_or_storage(&core.state) else {
-                continue;
+            {
+                let Ok(mut state) = lock_or_storage(&core.state) else {
+                    continue;
+                };
+                let crate::daemon::DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *state;
+                let _ = group.apply_sync(prepared, kernel.spine_mut().store_mut());
+            }
+            // 阶段 2c：群主提交已暂存提案（如成员离群），同样短锁创建 → 零锁发布 → 短锁合并。
+            let owner_plan = match lock_or_storage(&core.state) {
+                Ok(mut state) => {
+                    let crate::daemon::DaemonMutableState {
+                        ref mut group,
+                        ref mut kernel,
+                        ..
+                    } = *state;
+                    group
+                        .plan_owner_commit(&room_id, kernel.spine_mut().store_mut())
+                        .unwrap_or_default()
+                }
+                Err(_) => None,
             };
-            let crate::daemon::DaemonMutableState {
-                ref mut group,
-                ref mut kernel,
-                ..
-            } = *state;
-            let _ = group.apply_sync(prepared, kernel.spine_mut().store_mut());
+            if let Some(owner_plan) = owner_plan {
+                let published = crate::group::GroupRoomRuntime::publish_owner_commit(&owner_plan);
+                if let Ok(mut state) = lock_or_storage(&core.state) {
+                    let crate::daemon::DaemonMutableState {
+                        ref mut group,
+                        ref mut kernel,
+                        ..
+                    } = *state;
+                    let _ = group.finish_owner_commit(
+                        owner_plan,
+                        published,
+                        kernel.spine_mut().store_mut(),
+                    );
+                }
+            }
         }
 
         // 阶段 3：零内核锁执行真实外部投递（外部通道尚未启用 → 全部拒收并保持待投递）。

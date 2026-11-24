@@ -66,6 +66,19 @@ impl Drop for TempDirGuard {
     }
 }
 
+/// 清理历史按 PID 命名的缓存副本（仅本仓库自己的测试夹具产物）。
+fn prune_stale_hub_binaries(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("quetzalcoatl-hub-") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 fn repo_root() -> Result<PathBuf, BoxError> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root = manifest_dir
@@ -81,10 +94,9 @@ fn compiled_go_hub_binary() -> Result<PathBuf, BoxError> {
         let root = repo_root().map_err(|e| e.to_string())?;
         let out_dir = PathBuf::from("/tmp/opencode/qz_go_hub_bin_cache");
         fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-        let bin_path = out_dir.join(format!(
-            "quetzalcoatl-hub-membership-{}",
-            std::process::id()
-        ));
+        // 固定共享路径：每个测试进程覆盖同一份二进制，绝不按 PID 累积副本。
+        prune_stale_hub_binaries(&out_dir);
+        let bin_path = out_dir.join("quetzalcoatl-hub");
         let output = Command::new("go")
             .current_dir(root.join("hub"))
             .env("CGO_ENABLED", "0")
