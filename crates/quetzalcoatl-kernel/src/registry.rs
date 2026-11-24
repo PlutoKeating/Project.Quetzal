@@ -86,10 +86,16 @@ pub struct EvolvedSkillSpec {
     pub description: String,
 }
 
+fn default_evolved_interface_id() -> String {
+    String::from("sandbox.evolved")
+}
+
 /// 已注册并计算内容哈希锁定的沙箱本地自演化技能描述符。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvolvedSkillDescriptor {
     pub skill_id: String,
+    #[serde(default = "default_evolved_interface_id")]
+    pub interface_id: String,
     pub run_id: RunId,
     pub relative_script_path: PathBuf,
     pub interpreter: String,
@@ -455,12 +461,29 @@ impl InterfaceRegistry {
                 "自演化技能解释器路径不能为空",
             ));
         }
-        if let Some(existing) = self.capabilities.get(&spec.skill_id)
-            && matches!(existing.origin, CapabilityOrigin::HostRegistered)
-        {
-            return Err(QuetzalcoatlError::PermissionDenied {
-                detail: format!("禁止自演化技能覆盖宿主已注册的固定能力 `{}`", spec.skill_id),
-            });
+        if let Some(existing) = self.capabilities.get(&spec.skill_id) {
+            match &existing.origin {
+                CapabilityOrigin::HostRegistered => {
+                    return Err(QuetzalcoatlError::PermissionDenied {
+                        detail: format!(
+                            "禁止自演化技能覆盖宿主已注册的固定能力 `{}`",
+                            spec.skill_id
+                        ),
+                    });
+                }
+                CapabilityOrigin::SandboxEvolved {
+                    run_id: owner_run_id,
+                    ..
+                } if *owner_run_id != run_id => {
+                    return Err(QuetzalcoatlError::PermissionDenied {
+                        detail: format!(
+                            "禁止跨 Run 覆盖他人已注册的沙箱自演化技能 `{}` (owner={owner_run_id}, caller={run_id})",
+                            spec.skill_id
+                        ),
+                    });
+                }
+                CapabilityOrigin::SandboxEvolved { .. } => {}
+            }
         }
 
         let (_, script_blake3) =
@@ -468,6 +491,7 @@ impl InterfaceRegistry {
 
         let evolved = EvolvedSkillDescriptor {
             skill_id: spec.skill_id.clone(),
+            interface_id: spec.interface_id.clone(),
             run_id,
             relative_script_path: spec.relative_script_path.clone(),
             interpreter: spec.interpreter.clone(),
@@ -495,11 +519,18 @@ impl InterfaceRegistry {
         Ok(evolved)
     }
 
+    /// 重水合前清空内存中全部自演化技能条目（完整保留宿主级固定能力注册）。
+    pub(crate) fn clear_evolved_skills_for_rehydrate(&mut self) {
+        self.evolved_skills.clear();
+        self.capabilities
+            .retain(|_, desc| matches!(desc.origin, CapabilityOrigin::HostRegistered));
+    }
+
     /// 重水合恢复已持久化的自演化技能注册项。
     pub(crate) fn restore_evolved_skill(&mut self, skill: EvolvedSkillDescriptor) {
         let cap_desc = CapabilityDescriptor {
             capability_id: skill.skill_id.clone(),
-            interface_id: String::from("sandbox.evolved"),
+            interface_id: skill.interface_id.clone(),
             sink_class: SinkClass::SandboxSelfEvolution,
             surface: ExecutionSurface::SandboxShell,
             idempotent: false,

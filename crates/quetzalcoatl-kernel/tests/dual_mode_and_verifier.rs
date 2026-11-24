@@ -989,3 +989,359 @@ fn cross_run_evolved_skill_isolation_dag_cycle_guard_and_full_kernel_rehydration
 
     Ok(())
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn regression_round1_finding1_partition_outbox_enforces_clean_room_verifier_and_reconciles_completed_marked_runs()
+-> TestResult {
+    let tmp = TempDirGuard::new("qz_r1_f1_outbox_verify")?;
+    let mut kernel = build_test_kernel(&tmp, LeasePosture::PartitionLocal)?;
+
+    let ws_ok = tmp.path().join("ws_verified");
+    let ws_aborted = tmp.path().join("ws_aborted");
+    let suite_dir = tmp.path().join("locked_suite");
+    fs::create_dir_all(&ws_ok)?;
+    fs::create_dir_all(&ws_aborted)?;
+    fs::create_dir_all(&suite_dir)?;
+    fs::write(ws_ok.join("payload.txt"), "APPROVED_ARTIFACT\n")?;
+    fs::write(ws_aborted.join("payload.txt"), "ABORTED_ARTIFACT\n")?;
+    fs::write(
+        suite_dir.join("verify.sh"),
+        "#!/bin/sh\ntest -f \"$QUETZALCOATL_CANDIDATE_WORKSPACE/payload.txt\"\necho 'test result: ok. 2 passed; 0 failed; 0 ignored;'\n",
+    )?;
+
+    let dag = CleanRoomVerifierDag::single(
+        "offline_clean_room",
+        suite_dir.clone(),
+        SandboxCommand::new(
+            "/bin/sh",
+            vec![suite_dir.join("verify.sh").to_string_lossy().into_owned()],
+        ),
+    );
+
+    let run_ok = kernel.spawn_commit_run("离线高危外发待验任务", Some(ws_ok), 1_795_400_010_000)?;
+    let run_aborted =
+        kernel.spawn_commit_run("离线高危中途放弃任务", Some(ws_aborted), 1_795_400_010_050)?;
+
+    // 先让 run_ok 进入 VerifiedPendingMark，再在 PartitionLocal 下触发 HighRiskExternalWrite：
+    // 必须记录 touched_sinks 并将 VerifiedPendingMark 退回 Active！
+    let pre_receipt = kernel.verify_commit_candidate(run_ok.run_id, &dag, 1_795_400_010_100)?;
+    assert_eq!(
+        kernel.runs().get_run(run_ok.run_id).map(|r| r.status),
+        Some(RunStatus::VerifiedPendingMark)
+    );
+
+    let bindings = BTreeSet::from([String::from("world.public_dispatch")]);
+    let mut call_ok =
+        CapabilityInvocation::new("world.public_dispatch", r#"{"target":"partner_a"}"#);
+    call_ok.idempotency_key = Some(String::from("idem-r1-ok"));
+
+    let part_err_1 = kernel
+        .authorize_capability(
+            PrincipalRole::Worker,
+            Some(run_ok.run_id),
+            CapabilitySet::All,
+            ScopeChain::unrestricted(),
+            bindings.clone(),
+            &call_ok,
+            1_795_400_010_200,
+        )
+        .err()
+        .ok_or("断网分区下必须暂存 Outbox 并返回 PartitionRestricted")?;
+    assert_eq!(part_err_1.code(), ErrorCode::PartitionRestricted);
+
+    // 1a. 离线入队高危动作后，VerifiedPendingMark 必须已降级回 Active（旧 pre_receipt 失效）且严禁免检结项！
+    let after_queue = kernel.runs().get_run(run_ok.run_id).ok_or("缺少 run_ok")?;
+    assert_eq!(after_queue.status, RunStatus::Active);
+    assert!(after_queue.requires_clean_room_verifier());
+
+    let stale_finalize_err = kernel
+        .finalize_commit_with_receipt(&pre_receipt, 1_795_400_010_250)
+        .err()
+        .ok_or("入队新外部写后旧候选收据必须失效")?;
+    assert_eq!(stale_finalize_err.code(), ErrorCode::VerificationFailed);
+
+    let bypass_err = kernel
+        .complete_commit_run_without_verifier(run_ok.run_id, 1_795_400_010_300)
+        .err()
+        .ok_or("存在断网暂存高危动作的 Commit Run 严禁免检直接结项")?;
+    assert_eq!(bypass_err.code(), ErrorCode::VerificationFailed);
+
+    // 1b. run_aborted 也在离线时暂存一条高危动作，随后被中止 Aborted
+    let mut call_aborted =
+        CapabilityInvocation::new("world.public_dispatch", r#"{"target":"partner_abort"}"#);
+    call_aborted.idempotency_key = Some(String::from("idem-r1-abort"));
+    let _ = kernel.authorize_capability(
+        PrincipalRole::Worker,
+        Some(run_aborted.run_id),
+        CapabilitySet::All,
+        ScopeChain::unrestricted(),
+        bindings,
+        &call_aborted,
+        1_795_400_010_350,
+    );
+    let aborted_rec = kernel.abort_run(run_aborted.run_id, "用户取消任务", 1_795_400_010_400)?;
+    assert_eq!(aborted_rec.status, RunStatus::Aborted);
+
+    // 1c. 离线状态下，run_ok 通过断网洁净室 DAG 完成验收并签发 VerificationMark 进入 Completed
+    let completion = kernel.complete_commit_run(run_ok.run_id, Some(&dag), 1_795_400_010_500)?;
+    assert_eq!(completion.final_status, RunStatus::Completed);
+    assert!(completion.verification_mark.is_some());
+
+    // 1d. 恢复联网 Witnessed 纪元后排空 Outbox 并逐条对账签发写前幂等锁：
+    //     已通过洁净室签发 Mark 的 Completed Run 允许签发幂等令牌（重复提交自动幂等去重）；
+    //     已 Aborted 的 Run 条目必须被硬拒绝！
+    let witness_ep = Epoch::new(5);
+    kernel.set_lease_posture(LeasePosture::Witnessed {
+        witness_epoch: witness_ep,
+    });
+    let drained = kernel.drain_reconciled_outbox(witness_ep)?;
+    assert_eq!(drained.len(), 2);
+
+    let first_disp =
+        kernel.commit_reconciled_outbox_item(&drained[0], witness_ep, 1_795_400_010_600)?;
+    assert!(matches!(
+        first_disp,
+        ExternalWriteDisposition::PermittedNew { .. }
+    ));
+    let dup_disp =
+        kernel.commit_reconciled_outbox_item(&drained[0], witness_ep, 1_795_400_010_650)?;
+    assert!(matches!(
+        dup_disp,
+        ExternalWriteDisposition::DuplicateSuppressed { .. }
+    ));
+
+    let aborted_err = kernel
+        .commit_reconciled_outbox_item(&drained[1], witness_ep, 1_795_400_010_700)
+        .err()
+        .ok_or("已中止 Aborted Run 的暂存外发项必须被拒绝")?;
+    assert_eq!(aborted_err.code(), ErrorCode::VerificationFailed);
+
+    Ok(())
+}
+
+#[test]
+fn regression_round1_finding2_no_unpersisted_hlc_drift_and_rehydrate_resets_evolved_registry_and_checks_schema()
+-> TestResult {
+    let tmp = TempDirGuard::new("qz_r1_f2_hlc_rehydrate")?;
+    let mut kernel = build_test_kernel(
+        &tmp,
+        LeasePosture::Witnessed {
+            witness_epoch: Epoch::new(1),
+        },
+    )?;
+
+    let ws = tmp.path().join("ws_drift");
+    fs::create_dir_all(ws.join("skills"))?;
+    fs::write(
+        ws.join("skills/ephemeral.sh"),
+        "#!/bin/sh\necho EPHEMERAL\n",
+    )?;
+
+    let run = kernel.spawn_commit_run(
+        "检查 HLC 无漂移与重水合清理",
+        Some(ws.clone()),
+        1_795_400_020_000,
+    )?;
+    let bindings = BTreeSet::from([String::from("fs.local_read")]);
+
+    // 第一次调用 fs.local_read 会将 LocalRead 插入 touched_sinks 并持久化 RunRecord
+    kernel.authorize_capability(
+        PrincipalRole::Worker,
+        Some(run.run_id),
+        CapabilitySet::All,
+        ScopeChain::unrestricted(),
+        bindings.clone(),
+        &CapabilityInvocation::new("fs.local_read", r#"{"n":1}"#),
+        1_795_400_020_100,
+    )?;
+
+    // 第二次重复调用同一汇点（sink_inserted == false）：内存中的 RunRecord.updated_hlc 严禁产生未落盘漂移！
+    kernel.authorize_capability(
+        PrincipalRole::Worker,
+        Some(run.run_id),
+        CapabilitySet::All,
+        ScopeChain::unrestricted(),
+        bindings,
+        &CapabilityInvocation::new("fs.local_read", r#"{"n":2}"#),
+        1_795_400_020_200,
+    )?;
+
+    let in_mem_before = kernel
+        .runs()
+        .get_run(run.run_id)
+        .cloned()
+        .ok_or("缺少内存 RunRecord")?;
+    let mat_runs = kernel.spine().store().list_runs()?;
+    let mat_run = mat_runs
+        .iter()
+        .find(|r| r.run_id == run.run_id)
+        .ok_or("缺少 SQLite 物化 Run")?;
+    assert_eq!(
+        in_mem_before.updated_hlc, mat_run.updated_hlc,
+        "内存 RunRecord.updated_hlc 必须与 SQLite 物化表严格一致，禁止未落盘内存自增"
+    );
+
+    // 向脊柱追加一条异构 schema 的伪事件，并向注册表注入一条未持久化的陈旧自演化技能；
+    // 执行 rehydrate_from_spine 后：伪 schema 事件必须被忽略，未持久化的陈旧自演化技能必须被清空，而宿主固定能力保留！
+    let foreign_schema_json = serde_json::json!({
+        "schema": "other.subsystem.v99",
+        "event": {
+            "kind": "skill_synthesized",
+            "skill": {
+                "skill_id": "skill.foreign_injected",
+                "run_id": run.run_id,
+                "relative_script_path": "skills/ephemeral.sh",
+                "interpreter": "/bin/sh",
+                "description": "foreign schema",
+                "script_blake3": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+        }
+    })
+    .to_string();
+    kernel.spine_mut().append_event(
+        quetzalcoatl_crypto::PackCompartment::Core,
+        &foreign_schema_json,
+        1_795_400_020_300,
+    )?;
+
+    // 向内存注册表直接插入一条未落盘的陈旧自演化技能，并向脊柱写入一条异构 schema 的伪事件：
+    // 执行 rehydrate_from_spine 后，未落盘自演化技能必须被清空、异构 schema 事件必须被忽略、宿主固定能力完整保留！
+    kernel.registry_mut().register_evolved_skill(
+        run.run_id,
+        &ws,
+        EvolvedSkillSpec {
+            skill_id: String::from("skill.unpersisted_stale"),
+            interface_id: String::from("sandbox.evolved"),
+            relative_script_path: PathBuf::from("skills/ephemeral.sh"),
+            interpreter: String::from("/bin/sh"),
+            description: String::from("未持久化至脊柱的内存残留技能"),
+        },
+    )?;
+    assert!(
+        kernel
+            .registry()
+            .get_capability("skill.unpersisted_stale")
+            .is_some()
+    );
+
+    let _ = kernel.rehydrate_from_spine()?;
+    assert!(
+        kernel
+            .registry()
+            .get_capability("skill.unpersisted_stale")
+            .is_none(),
+        "rehydrate_from_spine 必须先清空内存中旧的 SandboxEvolved 条目再从脊柱回放"
+    );
+    assert!(
+        kernel
+            .registry()
+            .get_capability("skill.foreign_injected")
+            .is_none(),
+        "rehydrate_from_spine 必须严格校验 schema == quetzalcoatl.kernel.v1"
+    );
+    assert!(
+        kernel.registry().get_capability("fs.local_read").is_some(),
+        "rehydrate_from_spine 必须完整保留宿主注册能力"
+    );
+    assert_eq!(kernel.runs().get_run(run.run_id), Some(&in_mem_before));
+
+    Ok(())
+}
+
+#[test]
+fn regression_round1_finding3_register_evolved_skill_blocks_cross_run_clobber_while_allowing_same_run_refinement()
+-> TestResult {
+    let tmp = TempDirGuard::new("qz_r1_f3_skill_clobber")?;
+    let mut kernel = build_test_kernel(
+        &tmp,
+        LeasePosture::Witnessed {
+            witness_epoch: Epoch::new(1),
+        },
+    )?;
+
+    let ws_a = tmp.path().join("ws_run_a");
+    let ws_b = tmp.path().join("ws_run_b");
+    fs::create_dir_all(ws_a.join("skills"))?;
+    fs::create_dir_all(ws_b.join("skills"))?;
+    fs::write(
+        ws_a.join("skills/shared_name.sh"),
+        "#!/bin/sh\necho RUN_A_V1\n",
+    )?;
+    fs::write(
+        ws_b.join("skills/shared_name.sh"),
+        "#!/bin/sh\necho RUN_B_HIJACK\n",
+    )?;
+
+    let run_a = kernel.spawn_explore_run("探索 Run A", Some(ws_a.clone()), 1_795_400_030_000)?;
+    let run_b = kernel.spawn_explore_run("探索 Run B", Some(ws_b), 1_795_400_030_100)?;
+    let bindings = BTreeSet::from([String::from("sandbox.self_evolve")]);
+
+    let v1 = kernel.synthesize_evolved_skill(
+        run_a.run_id,
+        &CapabilitySet::All,
+        &ScopeChain::unrestricted(),
+        &bindings,
+        EvolvedSkillSpec {
+            skill_id: String::from("skill.shared_name"),
+            interface_id: String::from("sandbox.evolved"),
+            relative_script_path: PathBuf::from("skills/shared_name.sh"),
+            interpreter: String::from("/bin/sh"),
+            description: String::from("Run A 初版技能"),
+        },
+        1_795_400_030_200,
+    )?;
+    assert_eq!(v1.run_id, run_a.run_id);
+
+    // Run B 企图注册同名 skill.shared_name 覆盖窃取 Run A 的技能槽位 -> 必须被拒绝 PermissionDenied！
+    let clobber_err = kernel
+        .synthesize_evolved_skill(
+            run_b.run_id,
+            &CapabilitySet::All,
+            &ScopeChain::unrestricted(),
+            &bindings,
+            EvolvedSkillSpec {
+                skill_id: String::from("skill.shared_name"),
+                interface_id: String::from("sandbox.evolved"),
+                relative_script_path: PathBuf::from("skills/shared_name.sh"),
+                interpreter: String::from("/bin/sh"),
+                description: String::from("Run B 恶意同名覆盖"),
+            },
+            1_795_400_030_300,
+        )
+        .err()
+        .ok_or("禁止不同 Run 覆盖同名自演化技能")?;
+    assert_eq!(clobber_err.code(), ErrorCode::PermissionDenied);
+
+    // 确认注册表中仍归属 Run A 未被篡改
+    let preserved = kernel
+        .registry()
+        .get_evolved_skill("skill.shared_name")
+        .ok_or("Run A 技能不应丢失")?;
+    assert_eq!(preserved.run_id, run_a.run_id);
+    assert_eq!(preserved.script_blake3, v1.script_blake3);
+
+    // 同一 Run A 迭代修改自身脚本后允许原地重合成更新哈希！
+    fs::write(
+        ws_a.join("skills/shared_name.sh"),
+        "#!/bin/sh\necho RUN_A_V2\n",
+    )?;
+    let v2 = kernel.synthesize_evolved_skill(
+        run_a.run_id,
+        &CapabilitySet::All,
+        &ScopeChain::unrestricted(),
+        &bindings,
+        EvolvedSkillSpec {
+            skill_id: String::from("skill.shared_name"),
+            interface_id: String::from("sandbox.evolved"),
+            relative_script_path: PathBuf::from("skills/shared_name.sh"),
+            interpreter: String::from("/bin/sh"),
+            description: String::from("Run A 迭代升级版技能"),
+        },
+        1_795_400_030_400,
+    )?;
+    assert_eq!(v2.run_id, run_a.run_id);
+    assert_ne!(v2.script_blake3, v1.script_blake3);
+
+    Ok(())
+}

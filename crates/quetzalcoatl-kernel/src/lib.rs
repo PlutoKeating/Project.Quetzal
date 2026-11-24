@@ -47,7 +47,7 @@ use quetzalcoatl_spine::{MaterializedStore, SpineEngine};
 use quetzalcoatl_types::{Epoch, HlcTimestamp, QuetzalcoatlError, Result, RunId};
 
 use crate::registry::validate_and_hash_evolved_skill_script;
-use crate::run_machine::{KernelSpineEnvelope, KernelSpinePayload};
+use crate::run_machine::{KERNEL_SPINE_SCHEMA, KernelSpineEnvelope, KernelSpinePayload};
 
 /// 能力调用与写前幂等综合核准结果。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -107,6 +107,10 @@ impl<S: MaterializedStore> BlindKernel<S> {
     #[must_use]
     pub const fn registry(&self) -> &InterfaceRegistry {
         &self.registry
+    }
+
+    pub fn registry_mut(&mut self) -> &mut InterfaceRegistry {
+        &mut self.registry
     }
 
     #[must_use]
@@ -578,6 +582,15 @@ impl<S: MaterializedStore> BlindKernel<S> {
                 },
                 local_wall_ms,
             )?;
+            // 断网分区下即使返回 PartitionRestricted，只要能力已暂存入队，
+            // 必须立即将权威汇点记入所属 Run（若此前处于 VerifiedPendingMark 且触及高危汇点则同步退回 Active 强制重验）！
+            if let Some(rid) = run_id
+                && let Ok(queued_sink) = self
+                    .registry
+                    .resolve_authoritative_sink(&invocation.capability_id)
+            {
+                self.record_run_touched_sink(rid, queued_sink, local_wall_ms)?;
+            }
         }
 
         let granted = eval_res?;
@@ -609,22 +622,9 @@ impl<S: MaterializedStore> BlindKernel<S> {
             write_ahead = Some(disposition);
         }
 
-        // 将内核权威判定的 SinkClass 记入对应 Run 的触达汇点集合；
-        // 若此前处于 VerifiedPendingMark 状态且新触发了高危/代码变更动作，立即退回 Active 强制重验！
-        if let Some(rid) = run_id
-            && let Some(mut rec) = self.runs.get_run(rid).cloned()
-        {
-            let sink_inserted = rec.touched_sinks.insert(granted.resolved_sink);
-            let invalidated_pending = rec.status == RunStatus::VerifiedPendingMark
-                && granted.resolved_sink.requires_clean_room_verifier();
-            if invalidated_pending {
-                rec.status = RunStatus::Active;
-            }
-            if sink_inserted || invalidated_pending {
-                let _ = self.persist_run_record(rec, local_wall_ms)?;
-            } else if let Some(in_mem) = self.runs.get_run_mut(rid) {
-                in_mem.updated_hlc = self.spine.local_hlc();
-            }
+        // 将内核权威判定的 SinkClass 记入对应 Run 的触达汇点集合（未发生状态变更时绝不在内存单独篡改 updated_hlc）
+        if let Some(rid) = run_id {
+            self.record_run_touched_sink(rid, granted.resolved_sink, local_wall_ms)?;
         }
 
         Ok(KernelDispatchDecision {
@@ -633,7 +633,38 @@ impl<S: MaterializedStore> BlindKernel<S> {
         })
     }
 
-    /// 日常对话 / 生活陪伴 / 普通伴学 `Commit Run` 免检结项（0 次洁净室子进程开销；若曾触及代码或高危汇点则硬拦截）。
+    fn record_run_touched_sink(
+        &mut self,
+        run_id: RunId,
+        sink: SinkClass,
+        local_wall_ms: u64,
+    ) -> Result<()> {
+        if let Some(mut rec) = self.runs.get_run(run_id).cloned() {
+            let sink_inserted = rec.touched_sinks.insert(sink);
+            let invalidated_pending =
+                rec.status == RunStatus::VerifiedPendingMark && sink.requires_clean_room_verifier();
+            if invalidated_pending {
+                rec.status = RunStatus::Active;
+            }
+            if sink_inserted || invalidated_pending {
+                let _ = self.persist_run_record(rec, local_wall_ms)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn has_high_risk_outbox_for_run(&self, run_id: RunId) -> bool {
+        self.ledger.outbox().iter().any(|item| {
+            item.run_id == Some(run_id)
+                && self
+                    .registry
+                    .resolve_authoritative_sink(&item.capability_id)
+                    .map(SinkClass::requires_clean_room_verifier)
+                    .unwrap_or(true)
+        })
+    }
+
+    /// 日常对话 / 生活陪伴 / 普通伴学 `Commit Run` 免检结项（0 次洁净室子进程开销；若曾触及或暂存高危/代码汇点则硬拦截）。
     pub fn complete_commit_run_without_verifier(
         &mut self,
         run_id: RunId,
@@ -647,10 +678,10 @@ impl<S: MaterializedStore> BlindKernel<S> {
                 detail: format!("Run `{run_id}` 非 Commit 模式，无法执行 Commit 结项"),
             });
         }
-        if run.requires_clean_room_verifier() {
+        if run.requires_clean_room_verifier() || self.has_high_risk_outbox_for_run(run_id) {
             return Err(QuetzalcoatlError::VerificationFailed {
                 detail: format!(
-                    "Commit Run `{run_id}` 触及高危或代码变更汇点 ({:?})，强制要求通过断网洁净室 CleanRoomVerifierDag 验收",
+                    "Commit Run `{run_id}` 触及或暂存了高危/代码变更汇点 ({:?})，强制要求通过断网洁净室 CleanRoomVerifierDag 验收",
                     run.touched_sinks
                 ),
             });
@@ -763,7 +794,8 @@ impl<S: MaterializedStore> BlindKernel<S> {
             .runs
             .get_run(run_id)
             .map(RunRecord::requires_clean_room_verifier)
-            .unwrap_or(false);
+            .unwrap_or(false)
+            || self.has_high_risk_outbox_for_run(run_id);
 
         match (requires_verifier, dag) {
             (false, None) => self.complete_commit_run_without_verifier(run_id, local_wall_ms),
@@ -773,7 +805,7 @@ impl<S: MaterializedStore> BlindKernel<S> {
             }
             (true, None) => Err(QuetzalcoatlError::VerificationFailed {
                 detail: format!(
-                    "Commit Run `{run_id}` 触及高危或代码变更汇点，必须提供 CleanRoomVerifierDag"
+                    "Commit Run `{run_id}` 触及或暂存了高危/代码变更汇点，必须提供 CleanRoomVerifierDag"
                 ),
             }),
         }
@@ -782,11 +814,15 @@ impl<S: MaterializedStore> BlindKernel<S> {
     /// 从状态脊柱确定性重水合 `Run`、动作账本、断网 Outbox、写前幂等令牌与自演化技能记录。
     pub fn rehydrate_from_spine(&mut self) -> Result<usize> {
         self.ledger.clear_for_rehydrate();
+        self.registry.clear_evolved_skills_for_rehydrate();
         let all_events = self.spine.store().list_all_events()?;
         for (ev, _) in all_events {
             let Ok(env) = serde_json::from_str::<KernelSpineEnvelope>(&ev.payload_utf8) else {
                 continue;
             };
+            if env.schema != KERNEL_SPINE_SCHEMA {
+                continue;
+            }
             match env.event {
                 KernelSpinePayload::SkillSynthesized { skill } => {
                     self.registry.restore_evolved_skill(skill);
@@ -805,6 +841,129 @@ impl<S: MaterializedStore> BlindKernel<S> {
             }
         }
         self.runs.rehydrate_from_spine(&self.spine)
+    }
+
+    /// 中止未结项的 `Run`（使其状态持久化为 `Aborted`，后续排空 Outbox 对账时自动拒收其遗留高危项）。
+    pub fn abort_run(
+        &mut self,
+        run_id: RunId,
+        reason: impl Into<String>,
+        local_wall_ms: u64,
+    ) -> Result<RunRecord> {
+        let mut run = self.runs.get_run(run_id).cloned().ok_or_else(|| {
+            QuetzalcoatlError::invalid_id("RunId", format!("未知的 Run `{run_id}`"))
+        })?;
+        if run.status == RunStatus::Completed {
+            return Err(QuetzalcoatlError::PermissionDenied {
+                detail: format!("已结项 Completed 的 Run `{run_id}` 无法逆向中止"),
+            });
+        }
+        run.status = RunStatus::Aborted;
+        run.title = format!("{} [aborted: {}]", run.title, reason.into());
+        self.persist_run_record(run, local_wall_ms)
+    }
+
+    /// 在联网 `Witnessed` 纪元下核验并对账提交已排空的断网 `OutboxItem`：
+    /// 仅当归属 `Commit Run` 处于 `Active` 或已持有合法 `VerificationMark` 结项（`Completed`）时签发并持久化写前幂等锁，
+    /// 硬拒来自 `Aborted` 或未经客观校验结项的遗留外发项。
+    pub fn commit_reconciled_outbox_item(
+        &mut self,
+        item: &OutboxItem,
+        witness_epoch: Epoch,
+        local_wall_ms: u64,
+    ) -> Result<ExternalWriteDisposition> {
+        match self.lease_posture {
+            LeasePosture::PartitionLocal => {
+                return Err(QuetzalcoatlError::PartitionRestricted {
+                    detail: String::from("当前仍处于断网分区受限租约，禁止提交 Outbox 外发项"),
+                });
+            }
+            LeasePosture::Witnessed {
+                witness_epoch: current_epoch,
+            } => {
+                if witness_epoch < current_epoch {
+                    return Err(QuetzalcoatlError::StaleLeaseEpoch {
+                        provided: witness_epoch.get(),
+                        current: current_epoch.get(),
+                    });
+                }
+            }
+        }
+
+        let desc = self
+            .registry
+            .get_capability(&item.capability_id)
+            .cloned()
+            .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
+                detail: format!("Outbox 引用了未注册能力 `{}`", item.capability_id),
+            })?;
+
+        if let Some(rid) = item.run_id {
+            let run = self.runs.get_run(rid).cloned().ok_or_else(|| {
+                QuetzalcoatlError::invalid_id("RunId", format!("Outbox 指向未知的 Run `{rid}`"))
+            })?;
+            if run.mode != RunMode::Commit {
+                return Err(QuetzalcoatlError::DeliveryRefused {
+                    detail: format!("拒绝重放非 Commit 模式 Run `{rid}` 的外发项"),
+                });
+            }
+            match run.status {
+                RunStatus::Active => {
+                    self.record_run_touched_sink(rid, desc.sink_class, local_wall_ms)?;
+                }
+                RunStatus::Completed => {
+                    if run.requires_clean_room_verifier()
+                        || desc.sink_class.requires_clean_room_verifier()
+                    {
+                        let mark = run.verification_mark.as_ref().ok_or_else(|| {
+                            QuetzalcoatlError::VerificationFailed {
+                                detail: format!(
+                                    "拒绝重放缺少 VerificationMark 的高危已结项 Run `{rid}` 外发项"
+                                ),
+                            }
+                        })?;
+                        mark.verify_integrity()?;
+                    }
+                }
+                RunStatus::Aborted
+                | RunStatus::SuspendedCheckpoint
+                | RunStatus::VerifiedPendingMark => {
+                    return Err(QuetzalcoatlError::VerificationFailed {
+                        detail: format!(
+                            "拒绝重放处于 {:?} 状态的 Run `{rid}` 遗留外发项",
+                            run.status
+                        ),
+                    });
+                }
+            }
+        }
+
+        let target_run_id = item.run_id.unwrap_or_else(RunId::nil);
+        let idem_key = item
+            .idempotency_key
+            .clone()
+            .unwrap_or_else(|| format!("outbox:{}", item.outbox_id));
+        let token_hlc = self.spine.local_hlc().tick(
+            local_wall_ms,
+            self.spine.local_device().device_id().hlc_node_tag(),
+        )?;
+        let disposition = self.runs.check_or_issue_write_ahead_token(
+            target_run_id,
+            &item.capability_id,
+            &idem_key,
+            &item.arguments_json,
+            token_hlc,
+        )?;
+        if let ExternalWriteDisposition::PermittedNew { ref token } = disposition {
+            let _ = self.append_kernel_payload(
+                KernelSpinePayload::WriteAheadTokenIssued {
+                    token: token.clone(),
+                },
+                local_wall_ms,
+            )?;
+        }
+
+        Ok(disposition)
     }
 }
 

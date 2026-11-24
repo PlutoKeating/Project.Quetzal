@@ -14,7 +14,7 @@ use crate::grant::{MovementRecord, OutboxItem};
 use crate::registry::{EvolvedSkillDescriptor, SinkClass};
 use crate::verifier::VerificationMark;
 
-const KERNEL_SPINE_SCHEMA: &str = "quetzalcoatl.kernel.v1";
+pub(crate) const KERNEL_SPINE_SCHEMA: &str = "quetzalcoatl.kernel.v1";
 const IDEMPOTENCY_PAYLOAD_DOMAIN: &str = "quetzalcoatl/v2/kernel-idempotency-payload-v1";
 const IDEMPOTENCY_TOKEN_DOMAIN: &str = "quetzalcoatl/v2/kernel-idempotency-token-v1";
 
@@ -207,10 +207,6 @@ impl RunStateMachine {
     #[must_use]
     pub fn get_run(&self, run_id: RunId) -> Option<&RunRecord> {
         self.runs.get(&run_id)
-    }
-
-    pub(crate) fn get_run_mut(&mut self, run_id: RunId) -> Option<&mut RunRecord> {
-        self.runs.get_mut(&run_id)
     }
 
     pub(crate) fn put_run(&mut self, record: RunRecord) {
