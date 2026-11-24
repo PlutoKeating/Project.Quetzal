@@ -244,6 +244,25 @@ impl RunningGoHub {
     }
 }
 
+impl RunningGoHub {
+    fn signal(&self, signal: &str) -> TestResult {
+        let pid = self.child.id().to_string();
+        let status = Command::new("kill").args([signal, &pid]).status()?;
+        if !status.success() {
+            return Err(format!("kill {signal} {pid} failed").into());
+        }
+        Ok(())
+    }
+
+    fn pause(&self) -> TestResult {
+        self.signal("-STOP")
+    }
+
+    fn resume(&self) -> TestResult {
+        self.signal("-CONT")
+    }
+}
+
 impl Drop for RunningGoHub {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -781,5 +800,404 @@ fn qz_login_pair_nodes_and_status_against_live_go_hub_through_daemon_ipc() -> Te
     assert!(restarted_nodes.success, "{}", restarted_nodes.stderr);
     restarted.shutdown()?;
 
+    Ok(())
+}
+
+fn group_json(output: &QzOutput) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
+    if !output.success {
+        return Err(format!(
+            "qz command failed: stdout={} stderr={}",
+            output.stdout, output.stderr
+        )
+        .into());
+    }
+    Ok(serde_json::from_str(&output.stdout)?)
+}
+
+fn group_data(
+    value: &serde_json::Value,
+) -> Result<&serde_json::Value, Box<dyn Error + Send + Sync>> {
+    value
+        .get("data")
+        .ok_or_else(|| "missing IpcResponse data".into())
+}
+
+fn group_fabric_config(qz_home: &Path, hub: &RunningGoHub, ca_pem: &Path) -> DaemonConfig {
+    let mut cfg = DaemonConfig::new(qz_home.to_path_buf());
+    cfg.fabric = Some(DaemonFabricConfig {
+        hub_url: hub.https_url.clone(),
+        hub_ca_file: Some(ca_pem.to_path_buf()),
+        relay_url: hub.https_url.clone(),
+        qad_port: hub.qad_port,
+        enable_mdns: false,
+        tick_interval_ms: 1_000,
+    });
+    cfg.discovery_search_paths = Some(Vec::new());
+    cfg
+}
+
+fn login_with_token(qz_home: &Path, hub: &RunningGoHub, ca_pem: &Path, token: &str) -> TestResult {
+    let out = run_qz(
+        qz_home,
+        &[
+            "login",
+            "--hub",
+            &hub.https_url,
+            "--ca-file",
+            &ca_pem.to_string_lossy(),
+            "--token",
+            token,
+            "--json",
+        ],
+    )?;
+    if !out.success {
+        return Err(format!("qz login --token failed: {} {}", out.stdout, out.stderr).into());
+    }
+    Ok(())
+}
+
+#[test]
+fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> TestResult {
+    let hub = RunningGoHub::spawn()?;
+    let tmp = TempDirGuard::new("qz_group_hub_e2e")?;
+    let ca_pem_path = tmp.path().join("hub_ca.pem");
+    fs::write(&ca_pem_path, &hub.ca_cert_pem)?;
+    let home_a = tmp.path().join("home_a");
+    let home_b = tmp.path().join("home_b");
+    fs::create_dir_all(&home_a)?;
+    fs::create_dir_all(&home_b)?;
+
+    // 1. 两个独立主权 Agent 先离线生成身份，再注册到真实 Go Hub。
+    let (agent_a, device_a, root_a) = {
+        let mut genesis = QuetzalcoatlDaemon::start(fabric_disabled_config(&home_a))?;
+        genesis.shutdown()?;
+        read_sovereign_identity(&home_a)?
+    };
+    let (agent_b, device_b, root_b) = {
+        let mut genesis = QuetzalcoatlDaemon::start(fabric_disabled_config(&home_b))?;
+        genesis.shutdown()?;
+        read_sovereign_identity(&home_b)?
+    };
+    let token_a = register_daemon_agent_on_hub(&hub, agent_a, &device_a, &root_a)?;
+    let token_b = register_daemon_agent_on_hub(&hub, agent_b, &device_b, &root_b)?;
+
+    let mut daemon_a = QuetzalcoatlDaemon::start(group_fabric_config(&home_a, &hub, &ca_pem_path))?;
+    let mut daemon_b = QuetzalcoatlDaemon::start(group_fabric_config(&home_b, &hub, &ca_pem_path))?;
+    login_with_token(&home_a, &hub, &ca_pem_path, &token_a)?;
+    login_with_token(&home_b, &hub, &ca_pem_path, &token_b)?;
+
+    // 2. 建群（跨 Rust → Go：owner 不再被重复添加）。
+    let create = run_qz(
+        &home_a,
+        &[
+            "group", "create", "--room", "e2e-room", "--level", "1", "--json",
+        ],
+    )?;
+    let create_json = group_json(&create)?;
+    assert_eq!(group_data(&create_json)?["room_id"], "e2e-room");
+
+    // 3. 双阶段邀请：B 出 KeyPackage，A 消费并回 Welcome，B 入群。
+    let invite_b = run_qz(
+        &home_b,
+        &["group", "invite", "--room", "e2e-room", "--json"],
+    )?;
+    let invite_b_json = group_json(&invite_b)?;
+    let key_package = group_data(&invite_b_json)?["key_package_b64"]
+        .as_str()
+        .ok_or("missing key_package_b64")?
+        .to_owned();
+    let add_b = run_qz(
+        &home_a,
+        &[
+            "group",
+            "invite",
+            "--room",
+            "e2e-room",
+            "--key-package",
+            &key_package,
+            "--agent",
+            &agent_b.to_string(),
+            "--steward",
+            "--json",
+        ],
+    )?;
+    let add_b_json = group_json(&add_b)?;
+    let welcome = group_data(&add_b_json)?["welcome_b64"]
+        .as_str()
+        .ok_or("missing welcome_b64")?
+        .to_owned();
+    let ratchet = group_data(&add_b_json)?["ratchet_tree_b64"]
+        .as_str()
+        .ok_or("missing ratchet_tree_b64")?
+        .to_owned();
+    let join_b = run_qz(
+        &home_b,
+        &[
+            "group",
+            "join",
+            "--room",
+            "e2e-room",
+            "--welcome",
+            &welcome,
+            "--ratchet-tree",
+            &ratchet,
+            "--json",
+        ],
+    )?;
+    assert!(group_json(&join_b)?.is_object());
+
+    // 4. 第一次发送：本地纪元 1 > Hub 0，必须标记纯密钥轮换并被接受（seq=1）。
+    let send1 = run_qz(
+        &home_a,
+        &[
+            "group",
+            "send",
+            "--room",
+            "e2e-room",
+            "--text",
+            "hello",
+            "--to",
+            &agent_a.to_string(),
+            "--json",
+        ],
+    )?;
+    let send1_json = group_json(&send1)?;
+    assert_eq!(group_data(&send1_json)?["server_seq"], 1);
+
+    // 5. 并发发送：跨两个守护进程并发，server_seq 无缺口无重复。
+    let mut handles = Vec::new();
+    for idx in 0..6 {
+        let home = if idx % 2 == 0 {
+            home_a.clone()
+        } else {
+            home_b.clone()
+        };
+        let self_agent = if idx % 2 == 0 { agent_a } else { agent_b };
+        handles.push(std::thread::spawn(move || {
+            run_qz(
+                &home,
+                &[
+                    "group",
+                    "send",
+                    "--room",
+                    "e2e-room",
+                    "--text",
+                    &format!("chatter-{idx}"),
+                    "--to",
+                    &self_agent.to_string(),
+                    "--kind",
+                    "chatter",
+                    "--json",
+                ],
+            )
+        }));
+    }
+    let mut seqs = Vec::new();
+    for handle in handles {
+        let out = handle.join().map_err(|_| "sender thread panicked")??;
+        let json = group_json(&out)?;
+        let data = group_data(&json)?;
+        if let Some(seq) = data["server_seq"].as_u64() {
+            seqs.push(seq);
+        } else {
+            return Err(format!(
+                "concurrent send failed: stdout={} stderr={}",
+                out.stdout, out.stderr
+            )
+            .into());
+        }
+    }
+    seqs.sort_unstable();
+    assert_eq!(seqs, (2..=7).collect::<Vec<u64>>(), "unique monotonic seqs");
+
+    // 6. 旧水位线遇到 constraint_update：必须 WATERMARK_CONFLICT。
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let hub_client_a = HubClient::new(HubClientConfig {
+        base_url: hub.https_url.clone(),
+        session_token: Some(token_a.clone()),
+        custom_ca_certs_der: vec![hub.ca_cert_der.clone()],
+    })?;
+    let (_, head, epoch) = rt.block_on(hub_client_a.list_group_commits("e2e-room", 0, 200))?;
+    rt.block_on(hub_client_a.append_group_commit(
+        "e2e-room",
+        agent_a,
+        device_a.device_id(),
+        epoch,
+        head,
+        &serde_json::json!([{"kind":"all_agents"}]),
+        "Y29uc3RyYWludA==",
+        "constraint_update",
+        "human",
+        false,
+    ))?;
+    let conflict = run_qz(
+        &home_b,
+        &[
+            "group",
+            "send",
+            "--room",
+            "e2e-room",
+            "--text",
+            "stale",
+            "--to",
+            &agent_b.to_string(),
+            "--json",
+        ],
+    )?;
+    assert!(
+        !conflict.success && conflict.stderr.contains("WATERMARK_CONFLICT"),
+        "expected WATERMARK_CONFLICT, got {} {}",
+        conflict.stdout,
+        conflict.stderr
+    );
+    // 人工确认重读后推进水位线。
+    let synced = run_qz(&home_b, &["group", "sync", "--room", "e2e-room", "--json"])?;
+    assert!(group_json(&synced)?.is_object());
+    let after_sync = run_qz(
+        &home_b,
+        &[
+            "group",
+            "send",
+            "--room",
+            "e2e-room",
+            "--text",
+            "after-sync",
+            "--to",
+            &agent_b.to_string(),
+            "--json",
+        ],
+    )?;
+    assert!(group_json(&after_sync)?.is_object());
+
+    // 7. Hub 纪元领先 → 同密文重封到 EpochKey[e+1]，零模型重跑。
+    let (_, head, epoch) = rt.block_on(hub_client_a.list_group_commits("e2e-room", 0, 200))?;
+    rt.block_on(hub_client_a.append_group_commit(
+        "e2e-room",
+        agent_a,
+        device_a.device_id(),
+        epoch + 1,
+        head,
+        &serde_json::json!([]),
+        "cm90YXRlZA==",
+        "message",
+        "human",
+        true,
+    ))?;
+    let rotated = run_qz(
+        &home_a,
+        &[
+            "group",
+            "send",
+            "--room",
+            "e2e-room",
+            "--text",
+            "reencrypted",
+            "--to",
+            &agent_a.to_string(),
+            "--json",
+        ],
+    )?;
+    let rotated_json = group_json(&rotated)?;
+    assert_eq!(
+        group_data(&rotated_json)?["watermark_resolution"],
+        "REENCRYPT_WITH_NEW_MLS_EPOCH"
+    );
+    assert!(
+        group_data(&rotated_json)?["server_seq"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0
+    );
+
+    // 8. Hub 黑洞时 Status 仍 <500ms（全局状态锁不得跨网络 I/O）。
+    hub.pause()?;
+    let home_for_send = home_a.clone();
+    let agent_for_send = agent_a;
+    let blocked_send = std::thread::spawn(move || {
+        run_qz(
+            &home_for_send,
+            &[
+                "group",
+                "send",
+                "--room",
+                "e2e-room",
+                "--text",
+                "blocked",
+                "--to",
+                &agent_for_send.to_string(),
+            ],
+        )
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    let status_started = Instant::now();
+    let ipc_status = {
+        let client =
+            IpcClient::from_runtime_info(daemon_a.runtime_info(), daemon_a.ipc_token().to_owned());
+        client.call(&IpcRequest::Status)?
+    };
+    let status_elapsed = status_started.elapsed();
+    hub.resume()?;
+    let _ = blocked_send.join();
+    assert!(
+        matches!(ipc_status, IpcResponse::Status(_)),
+        "status must stay responsive while group send blocks"
+    );
+    assert!(
+        status_elapsed < Duration::from_millis(500),
+        "status blocked for {status_elapsed:?} during group Hub I/O"
+    );
+
+    // 9. 吊销协管：MLS 踢人 + 纪元轮换 + Hub 成员行删除 → 被踢成员提交 403。
+    let revoke = run_qz(
+        &home_a,
+        &[
+            "group",
+            "revoke-steward",
+            "--room",
+            "e2e-room",
+            "--identity",
+            &format!("agent:{agent_b}"),
+            "--json",
+        ],
+    )?;
+    let revoke_json = group_json(&revoke)?;
+    assert_eq!(group_data(&revoke_json)?["dropped_management_rights"], true);
+    let kicked = run_qz(
+        &home_b,
+        &[
+            "group",
+            "send",
+            "--room",
+            "e2e-room",
+            "--text",
+            "still-here?",
+            "--to",
+            &agent_b.to_string(),
+            "--json",
+        ],
+    )?;
+    assert!(
+        !kicked.success && kicked.stderr.contains("PERMISSION_DENIED"),
+        "kicked member must be denied by Hub: {} {}",
+        kicked.stdout,
+        kicked.stderr
+    );
+
+    // 10. leave：本地 MLS 自移除 + Hub 成员行删除。
+    let leave_b = run_qz(&home_b, &["group", "leave", "--room", "e2e-room", "--json"])?;
+    assert_eq!(group_data(&group_json(&leave_b)?)?["left"], true);
+    let list_b = run_qz(&home_b, &["group", "list", "--json"])?;
+    assert_eq!(
+        group_data(&group_json(&list_b)?)?
+            .as_array()
+            .map_or(1, Vec::len),
+        0,
+        "left room must disappear locally"
+    );
+
+    daemon_a.shutdown()?;
+    daemon_b.shutdown()?;
     Ok(())
 }

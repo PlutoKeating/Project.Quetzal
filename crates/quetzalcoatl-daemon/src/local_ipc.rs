@@ -205,6 +205,10 @@ pub enum IpcRequest {
     GroupLeave {
         room_id: String,
     },
+    /// `qz group sync --room <id>`：重读至 Hub 真头并推进本地水位线。
+    GroupSync {
+        room_id: String,
+    },
     /// `qz group list`。
     GroupList,
     /// `qz group members --room <id>`。
@@ -217,8 +221,11 @@ pub enum IpcRequest {
         text: String,
         mentions: Vec<Mention>,
         sender_kind: GroupSenderWire,
+        /// 已废弃的客户端跳数（仅兼容旧客户端；权威跳数由 Hub 服务端派生）。
         consecutive_agent_hops: u32,
         human_typing_active: bool,
+        kind: String,
+        parent_seq: u64,
     },
     /// `qz group revoke-steward --room <id> --identity <mls-identity>`。
     GroupRevokeSteward {

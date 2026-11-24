@@ -46,6 +46,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/groups", s.handleListGroups)
 	mux.HandleFunc("POST /v1/groups/{group_id}/members", s.handleAddMember)
 	mux.HandleFunc("GET /v1/groups/{group_id}/members", s.handleListMembers)
+	mux.HandleFunc("DELETE /v1/groups/{group_id}/members/{agent_id}", s.handleDeleteMember)
 	mux.HandleFunc("POST /v1/groups/{group_id}/commits", s.handleAppendCommit)
 	mux.HandleFunc("GET /v1/groups/{group_id}/commits", s.handleListCommits)
 }
@@ -129,14 +130,24 @@ func (s *Service) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	nowMs := s.clock().UnixMilli()
 	room := store.GroupRoom{
-		GroupID:      groupID,
-		OwnerAgentID: owner,
-		SecrecyLevel: req.SecrecyLevel,
-		CreatedAtMs:  nowMs,
+		GroupID:         groupID,
+		OwnerAgentID:    owner,
+		SecrecyLevel:    req.SecrecyLevel,
+		CurrentMLSEpoch: 0,
+		CreatedAtMs:     nowMs,
 	}
 	if err := s.store.CreateGroupRoom(r.Context(), room); err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			writeError(w, http.StatusConflict, "PERMISSION_DENIED", "group already exists")
+			existing, lookupErr := s.store.GetGroupRoom(r.Context(), groupID)
+			if lookupErr != nil {
+				writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "group lookup failed")
+				return
+			}
+			if existing.OwnerAgentID != owner {
+				writeError(w, http.StatusForbidden, "PERMISSION_DENIED", "group is owned by another agent")
+				return
+			}
+			writeJSON(w, http.StatusOK, existing)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "create group failed")
@@ -235,6 +246,40 @@ func (s *Service) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"members": members})
 }
 
+func (s *Service) handleDeleteMember(w http.ResponseWriter, r *http.Request) {
+	principal, ok := s.auth.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+	groupID := strings.TrimSpace(r.PathValue("group_id"))
+	targetAgent := strings.TrimSpace(r.PathValue("agent_id"))
+	room, caller, ok := s.requireRoomMember(w, r, groupID, principal.AgentID)
+	if !ok {
+		return
+	}
+	if targetAgent == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_ID", "agent_id is required")
+		return
+	}
+	if targetAgent != principal.AgentID && !canInvite(caller.Role) {
+		writeError(w, http.StatusForbidden, "PERMISSION_DENIED", "only owner or steward may remove members")
+		return
+	}
+	if targetAgent == room.OwnerAgentID && targetAgent != principal.AgentID {
+		writeError(w, http.StatusForbidden, "PERMISSION_DENIED", "owner cannot be removed by another member")
+		return
+	}
+	if err := s.store.DeleteGroupMember(r.Context(), groupID, targetAgent); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "PERMISSION_DENIED", "member not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "delete member failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"group_id": groupID, "agent_id": targetAgent, "deleted": true})
+}
+
 type appendCommitRequest struct {
 	MLSEpoch        uint64          `json:"mls_epoch"`
 	CausalParentSeq uint64          `json:"causal_parent_seq"`
@@ -242,6 +287,31 @@ type appendCommitRequest struct {
 	SenderDeviceID  string          `json:"sender_device_id"`
 	Mentions        json.RawMessage `json:"mentions"`
 	CiphertextB64   string          `json:"ciphertext_b64"`
+	Kind            string          `json:"kind"`
+	AuthorKind      string          `json:"author_kind"`
+	ReencryptOnly   bool            `json:"reencrypt_only"`
+}
+
+func normalizeKind(raw string) (string, bool) {
+	switch strings.TrimSpace(raw) {
+	case "", "message":
+		return "message", true
+	case "constraint_update", "cancel", "steer", "question", "chatter", "reaction":
+		return strings.TrimSpace(raw), true
+	default:
+		return "", false
+	}
+}
+
+func normalizeAuthorKind(raw string) (string, bool) {
+	switch strings.TrimSpace(raw) {
+	case "", "human":
+		return "human", true
+	case "agent":
+		return "agent", true
+	default:
+		return "", false
+	}
 }
 
 func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +320,7 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	groupID := strings.TrimSpace(r.PathValue("group_id"))
-	_, _, ok = s.requireRoomMember(w, r, groupID, principal.AgentID)
+	room, _, ok := s.requireRoomMember(w, r, groupID, principal.AgentID)
 	if !ok {
 		return
 	}
@@ -282,6 +352,49 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 		}
 		mentionsJSON = string(normalized)
 	}
+	kind, kindOK := normalizeKind(req.Kind)
+	if !kindOK {
+		writeError(w, http.StatusBadRequest, "SERIALIZATION_ERROR", "unknown commit kind")
+		return
+	}
+	authorKind, authorOK := normalizeAuthorKind(req.AuthorKind)
+	if !authorOK {
+		writeError(w, http.StatusBadRequest, "SERIALIZATION_ERROR", "unknown author_kind")
+		return
+	}
+	if req.MLSEpoch < room.CurrentMLSEpoch {
+		writeError(w, http.StatusConflict, "WATERMARK_CONFLICT",
+			"stale submitted mls_epoch: re-read group state before resubmitting")
+		return
+	}
+	if req.MLSEpoch > room.CurrentMLSEpoch && !req.ReencryptOnly {
+		writeError(w, http.StatusConflict, "WATERMARK_CONFLICT",
+			"mls_epoch advanced without pure key-rotation reencryption")
+		return
+	}
+	hop := 0
+	if authorKind == "agent" {
+		hop = 1
+		if req.CausalParentSeq > 0 {
+			parent, err := s.store.GetGroupCommit(r.Context(), groupID, req.CausalParentSeq)
+			if errors.Is(err, store.ErrNotFound) {
+				writeError(w, http.StatusBadRequest, "INVALID_ID", "causal_parent_seq does not exist in this group")
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "parent commit lookup failed")
+				return
+			}
+			if parent.AuthorKind == "agent" {
+				hop = parent.Hop + 1
+			}
+		}
+		if hop > 3 {
+			writeError(w, http.StatusConflict, "FLOOR_SILENCED",
+				"agent-to-agent hop limit exceeded: max_consecutive_agent_hops=3")
+			return
+		}
+	}
 	commit := store.GroupCommit{
 		GroupID:         groupID,
 		MLSEpoch:        req.MLSEpoch,
@@ -290,6 +403,9 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 		SenderDeviceID:  principal.DeviceID,
 		MentionsJSON:    mentionsJSON,
 		CiphertextB64:   base64.StdEncoding.EncodeToString(ciphertext),
+		Kind:            kind,
+		AuthorKind:      authorKind,
+		Hop:             hop,
 		CreatedAtMs:     s.clock().UnixMilli(),
 	}
 	stored, err := s.store.AppendGroupCommit(r.Context(), commit)
@@ -301,6 +417,12 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "append commit failed")
 		return
 	}
+	if stored.MLSEpoch > room.CurrentMLSEpoch {
+		if err := s.store.SetGroupRoomEpoch(r.Context(), groupID, stored.MLSEpoch); err != nil && !errors.Is(err, store.ErrConflict) {
+			writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "advance group mls epoch failed")
+			return
+		}
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"group_id":          stored.GroupID,
 		"server_seq":        stored.ServerSeq,
@@ -308,6 +430,9 @@ func (s *Service) handleAppendCommit(w http.ResponseWriter, r *http.Request) {
 		"causal_parent_seq": stored.CausalParentSeq,
 		"sender_agent_id":   stored.SenderAgentID,
 		"sender_device_id":  stored.SenderDeviceID,
+		"kind":              stored.Kind,
+		"author_kind":       stored.AuthorKind,
+		"hop":               stored.Hop,
 		"created_at_ms":     stored.CreatedAtMs,
 	})
 }
@@ -348,6 +473,11 @@ func (s *Service) handleListCommits(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "list commits failed")
 		return
 	}
+	headSeq, currentEpoch, err := s.store.GroupRoomHead(r.Context(), groupID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "STORAGE_ERROR", "group head lookup failed")
+		return
+	}
 	rows := make([]map[string]any, 0, len(commits))
 	for _, commit := range commits {
 		rows = append(rows, map[string]any{
@@ -359,18 +489,15 @@ func (s *Service) handleListCommits(w http.ResponseWriter, r *http.Request) {
 			"sender_device_id":  commit.SenderDeviceID,
 			"mentions":          json.RawMessage(commit.MentionsJSON),
 			"ciphertext_b64":    commit.CiphertextB64,
+			"kind":              commit.Kind,
+			"author_kind":       commit.AuthorKind,
+			"hop":               commit.Hop,
 			"created_at_ms":     commit.CreatedAtMs,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"commits": rows, "head_group_seq": headSeq(commits, afterSeq)})
-}
-
-func headSeq(commits []store.GroupCommit, afterSeq uint64) uint64 {
-	head := afterSeq
-	for _, commit := range commits {
-		if commit.ServerSeq > head {
-			head = commit.ServerSeq
-		}
-	}
-	return head
+	writeJSON(w, http.StatusOK, map[string]any{
+		"commits":           rows,
+		"head_group_seq":    headSeq,
+		"current_mls_epoch": currentEpoch,
+	})
 }

@@ -1725,8 +1725,22 @@ impl SharedDaemonCore {
                 let Ok(mut guard) = self.state.lock() else {
                     return ipc_lock_error();
                 };
-                match guard.group.leave(&room_id) {
+                let DaemonMutableState {
+                    ref mut group,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match group.leave(&room_id, kernel.spine_mut().store_mut()) {
                     Ok(outcome) => (IpcResponse::GroupLeave(outcome), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::GroupSync { room_id } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                match guard.group.sync_watermark(&room_id) {
+                    Ok(summary) => (IpcResponse::GroupRoom(summary), false),
                     Err(err) => ipc_error_response(err),
                 }
             }
@@ -1750,8 +1764,11 @@ impl SharedDaemonCore {
                 text,
                 mentions,
                 sender_kind,
-                consecutive_agent_hops,
+                // 客户端跳数仅保留线格式兼容，权威路径一律由 Hub 服务端派生。
+                consecutive_agent_hops: _,
                 human_typing_active,
+                kind,
+                parent_seq,
             } => {
                 let sender_kind = match sender_kind {
                     crate::local_ipc::GroupSenderWire::Owner => {
@@ -1764,25 +1781,46 @@ impl SharedDaemonCore {
                         quetzalcoatl_group::floor_control::SenderKind::PeerAgent
                     }
                 };
-                let Ok(mut guard) = self.state.lock() else {
-                    return ipc_lock_error();
+                // 阶段 1：短持锁完成纯本地准备。
+                let prepared = {
+                    let Ok(mut guard) = self.state.lock() else {
+                        return ipc_lock_error();
+                    };
+                    match guard.group.prepare_send(
+                        &room_id,
+                        &text,
+                        mentions,
+                        sender_kind,
+                        0,
+                        human_typing_active,
+                        &kind,
+                        parent_seq,
+                    ) {
+                        Ok(prepared) => prepared,
+                        Err(err) => return ipc_error_response(err),
+                    }
                 };
-                let DaemonMutableState {
-                    ref mut group,
-                    ref mut kernel,
-                    ..
-                } = *guard;
-                match group.send(
-                    &room_id,
-                    &text,
-                    mentions,
-                    sender_kind,
-                    consecutive_agent_hops,
-                    human_typing_active,
-                    kernel.spine_mut().store_mut(),
-                ) {
-                    Ok(outcome) => (IpcResponse::GroupSend(outcome), false),
+                // 阶段 2：释放全局状态锁做网络 I/O，Hub 黑洞时不得阻塞 status/chat。
+                let pushed = crate::group::push_prepared_to_hub(&prepared);
+                let applied = pushed.as_ref().ok().and_then(|value| value.clone());
+                // 阶段 3：短持锁应用结果并持久化。
+                let finished = {
+                    let Ok(mut guard) = self.state.lock() else {
+                        return ipc_lock_error();
+                    };
+                    let DaemonMutableState {
+                        ref mut group,
+                        ref mut kernel,
+                        ..
+                    } = *guard;
+                    group.finish_send(prepared, applied, kernel.spine_mut().store_mut())
+                };
+                match pushed {
                     Err(err) => ipc_error_response(err),
+                    Ok(_) => match finished {
+                        Ok(outcome) => (IpcResponse::GroupSend(outcome), false),
+                        Err(err) => ipc_error_response(err),
+                    },
                 }
             }
             IpcRequest::GroupRevokeSteward {

@@ -1181,6 +1181,8 @@ fn run_group(args: &[String]) -> Result<()> {
     let mut identity: Option<String> = None;
     let mut mentions: Vec<Mention> = Vec::new();
     let mut hops: u32 = 0;
+    let mut kind = String::from("message");
+    let mut parent_seq: u64 = 0;
     let mut human_typing = false;
     let mut sender_kind = GroupSenderWire::Owner;
     let mut as_steward = false;
@@ -1305,6 +1307,21 @@ fn run_group(args: &[String]) -> Result<()> {
                     .parse::<u32>()
                     .map_err(|err| QuetzalcoatlError::invalid_id("--hops", err.to_string()))?;
             }
+            "--kind" => {
+                i += 1;
+                kind = rest
+                    .get(i)
+                    .ok_or_else(|| QuetzalcoatlError::invalid_id("--kind", "缺少 kind"))?
+                    .clone();
+            }
+            "--parent" => {
+                i += 1;
+                parent_seq = rest
+                    .get(i)
+                    .ok_or_else(|| QuetzalcoatlError::invalid_id("--parent", "缺少父序号"))?
+                    .parse::<u64>()
+                    .map_err(|err| QuetzalcoatlError::invalid_id("--parent", err.to_string()))?;
+            }
             "--human-typing" => human_typing = true,
             "--steward" => as_steward = true,
             "--peer" => sender_kind = GroupSenderWire::PeerAgent,
@@ -1362,6 +1379,9 @@ fn run_group(args: &[String]) -> Result<()> {
         "leave" => IpcRequest::GroupLeave {
             room_id: require_group_room(room)?,
         },
+        "sync" => IpcRequest::GroupSync {
+            room_id: require_group_room(room)?,
+        },
         "list" => IpcRequest::GroupList,
         "members" => IpcRequest::GroupMembers {
             room_id: require_group_room(room)?,
@@ -1373,6 +1393,8 @@ fn run_group(args: &[String]) -> Result<()> {
             sender_kind,
             consecutive_agent_hops: hops,
             human_typing_active: human_typing,
+            kind,
+            parent_seq,
         },
         "revoke-steward" => IpcRequest::GroupRevokeSteward {
             room_id: require_group_room(room)?,

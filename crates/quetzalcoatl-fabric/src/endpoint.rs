@@ -2710,13 +2710,19 @@ impl HubClient {
     }
 
     /// 向 Hub 原子定序器提交 openmls 密文（只含密文与元数据）。
+    #[allow(clippy::too_many_arguments)]
     pub async fn append_group_commit(
         &self,
         group_id: &str,
+        sender_agent_id: AgentId,
+        sender_device_id: DeviceId,
         mls_epoch: u64,
         causal_parent_seq: u64,
         mentions: &serde_json::Value,
         ciphertext_b64: &str,
+        kind: &str,
+        author_kind: &str,
+        reencrypt_only: bool,
     ) -> Result<GroupCommitReceipt> {
         let tok = self.require_token()?;
         let resp = self
@@ -2729,8 +2735,13 @@ impl HubClient {
             .json(&serde_json::json!({
                 "mls_epoch": mls_epoch,
                 "causal_parent_seq": causal_parent_seq,
+                "sender_agent_id": sender_agent_id.to_string(),
+                "sender_device_id": sender_device_id.to_string(),
                 "mentions": mentions,
                 "ciphertext_b64": ciphertext_b64,
+                "kind": kind,
+                "author_kind": author_kind,
+                "reencrypt_only": reencrypt_only,
             }))
             .send()
             .await
@@ -2757,12 +2768,13 @@ impl HubClient {
         &self,
         group_id: &str,
         after_seq: u64,
-    ) -> Result<(Vec<GroupCommitRecord>, u64)> {
+        limit: u32,
+    ) -> Result<(Vec<GroupCommitRecord>, u64, u64)> {
         let tok = self.require_token()?;
         let resp = self
             .http
             .get(format!(
-                "{}/v1/groups/{group_id}/commits?after_seq={after_seq}",
+                "{}/v1/groups/{group_id}/commits?after_seq={after_seq}&limit={limit}",
                 self.config.base_url
             ))
             .bearer_auth(tok)
@@ -2796,7 +2808,36 @@ impl HubClient {
             }
         }
         let head = val["head_group_seq"].as_u64().unwrap_or(after_seq);
-        Ok((commits, head))
+        let epoch = val["current_mls_epoch"].as_u64().unwrap_or(0);
+        Ok((commits, head, epoch))
+    }
+
+    /// 撤销群成员在 Hub 的提交权限（服务端 `DELETE /v1/groups/{id}/members/{agent_id}`）。
+    pub async fn remove_group_member(&self, group_id: &str, agent_id: AgentId) -> Result<()> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .delete(format!(
+                "{}/v1/groups/{group_id}/members/{agent_id}",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("groups/members delete 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        Ok(())
     }
 }
 
@@ -2827,6 +2868,9 @@ pub struct GroupCommitReceipt {
     pub causal_parent_seq: u64,
     pub sender_agent_id: String,
     pub sender_device_id: String,
+    pub kind: String,
+    pub author_kind: String,
+    pub hop: u32,
     pub created_at_ms: i64,
 }
 
@@ -2841,5 +2885,8 @@ pub struct GroupCommitRecord {
     pub sender_device_id: String,
     pub mentions: serde_json::Value,
     pub ciphertext_b64: String,
+    pub kind: String,
+    pub author_kind: String,
+    pub hop: u32,
     pub created_at_ms: i64,
 }

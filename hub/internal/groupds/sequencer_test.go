@@ -195,7 +195,7 @@ func TestCommitSequencerAllocatesMonotonicPerGroupSequenceAtomically(t *testing.
 			defer wg.Done()
 			ciphertext := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("opaque-ciphertext-%02d", idx)))
 			resp, body := doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups/family/commits", "token-b", map[string]any{
-				"mls_epoch":         1,
+				"mls_epoch":         0,
 				"causal_parent_seq": 0,
 				"sender_agent_id":   "agent-b",
 				"sender_device_id":  "dev-b",
@@ -257,7 +257,7 @@ func TestCommitSequencerAllocatesMonotonicPerGroupSequenceAtomically(t *testing.
 		if c.ServerSeq != uint64(10+idx) {
 			t.Fatalf("commits not strictly ordered after watermark: %+v", listed.Commits)
 		}
-		if c.MLSEpoch != 1 {
+		if c.MLSEpoch != 0 {
 			t.Fatalf("mls_epoch not preserved: %+v", c)
 		}
 	}
@@ -354,7 +354,7 @@ func TestGroupCommitStoreIsZeroKnowledgeAndSchemaHasNoPlaintextColumns(t *testin
 	canaryMemory := "CANARY-MEMORY-主人过敏史-绝不可落盘-112233"
 	ciphertext := []byte("opaque-mls-ciphertext-bytes")
 	resp, body := doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups/canary-room/commits", "token-b", map[string]any{
-		"mls_epoch":         2,
+		"mls_epoch":         0,
 		"causal_parent_seq": 0,
 		"sender_agent_id":   "agent-b",
 		"sender_device_id":  "dev-b",
@@ -380,7 +380,8 @@ func TestGroupCommitStoreIsZeroKnowledgeAndSchemaHasNoPlaintextColumns(t *testin
 	allowed := map[string]bool{
 		"group_id": true, "server_seq": true, "mls_epoch": true, "causal_parent_seq": true,
 		"sender_agent_id": true, "sender_device_id": true, "mentions_json": true,
-		"ciphertext_b64": true, "created_at_ms": true,
+		"ciphertext_b64": true, "kind": true, "author_kind": true, "hop": true,
+		"created_at_ms": true,
 	}
 	found := 0
 	for rows.Next() {
@@ -408,7 +409,7 @@ func TestGroupCommitDiskCanaryScanFindsNoPlaintext(t *testing.T) {
 
 	canary := "CANARY-GROUP-PLAINTEXT-NEVER-ON-DISK-556677"
 	resp, body := doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups/canary-disk/commits", "token-b", map[string]any{
-		"mls_epoch":         1,
+		"mls_epoch":         0,
 		"causal_parent_seq": 0,
 		"sender_agent_id":   "agent-b",
 		"sender_device_id":  "dev-b",
@@ -438,6 +439,231 @@ func TestGroupCommitDiskCanaryScanFindsNoPlaintext(t *testing.T) {
 		}
 		if bytes.Contains(raw, []byte(canary)) {
 			t.Fatalf("ZERO-KNOWLEDGE VIOLATION: plaintext prompt/memory canary found in %s", filepath.Base(path))
+		}
+	}
+}
+
+func (h *harness) postCommit(t *testing.T, bearer, groupID string, body map[string]any) (*http.Response, []byte) {
+	t.Helper()
+	base := map[string]any{
+		"mls_epoch":         0,
+		"causal_parent_seq": 0,
+		"sender_agent_id":   "",
+		"sender_device_id":  "",
+		"mentions":          []any{},
+		"kind":              "message",
+		"author_kind":       "human",
+		"reencrypt_only":    false,
+		"ciphertext_b64":    base64.StdEncoding.EncodeToString([]byte("opaque-ct")),
+	}
+	for k, v := range body {
+		base[k] = v
+	}
+	return doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups/"+groupID+"/commits", bearer, base)
+}
+
+func TestCreateGroupIsIdempotentForOwner(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "idem-room", "agent-a", 1)
+	resp, body := doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups", "token-a", map[string]any{
+		"group_id":       "idem-room",
+		"owner_agent_id": "agent-a",
+		"secrecy_level":  1,
+	})
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		t.Fatalf("idempotent create expected 2xx, got %d (%s)", resp.StatusCode, body)
+	}
+	// A different owner must be rejected.
+	resp, body = doJSON(t, h.srv.Client(), http.MethodPost, h.srv.URL+"/v1/groups", "token-b", map[string]any{
+		"group_id":       "idem-room",
+		"owner_agent_id": "agent-b",
+		"secrecy_level":  1,
+	})
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusConflict {
+		t.Fatalf("foreign owner recreate expected 4xx, got %d (%s)", resp.StatusCode, body)
+	}
+}
+
+func TestCommitSequencerDerivesHopAndSilencesFourthAgentHop(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "hop-room", "agent-a", 1)
+	h.addMember(t, "token-a", "hop-room", "agent-b", "member")
+
+	parent := uint64(0)
+	for hop := 1; hop <= 3; hop++ {
+		resp, body := h.postCommit(t, "token-b", "hop-room", map[string]any{
+			"sender_agent_id":   "agent-b",
+			"sender_device_id":  "dev-b",
+			"author_kind":       "agent",
+			"kind":              "message",
+			"causal_parent_seq": parent,
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("hop %d expected 201, got %d (%s)", hop, resp.StatusCode, body)
+		}
+		var out struct {
+			ServerSeq uint64 `json:"server_seq"`
+			Hop       int    `json:"hop"`
+		}
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Fatalf("parse hop response: %v", err)
+		}
+		if out.Hop != hop {
+			t.Fatalf("server-derived hop mismatch: got %d want %d", out.Hop, hop)
+		}
+		parent = out.ServerSeq
+	}
+	resp, body := h.postCommit(t, "token-b", "hop-room", map[string]any{
+		"sender_agent_id":   "agent-b",
+		"sender_device_id":  "dev-b",
+		"author_kind":       "agent",
+		"kind":              "message",
+		"causal_parent_seq": parent,
+	})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("fourth agent hop expected conflict, got %d (%s)", resp.StatusCode, body)
+	}
+	if !bytes.Contains(body, []byte("FLOOR_SILENCED")) {
+		t.Fatalf("expected FLOOR_SILENCED error code, got %s", body)
+	}
+	// Human speech resets the agent hop counter.
+	resp, body = h.postCommit(t, "token-a", "hop-room", map[string]any{
+		"sender_agent_id":   "agent-a",
+		"sender_device_id":  "dev-a",
+		"author_kind":       "human",
+		"kind":              "message",
+		"causal_parent_seq": parent,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("human reset expected 201, got %d (%s)", resp.StatusCode, body)
+	}
+}
+
+func TestCommitSequencerValidatesEpochRotation(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "epoch-room", "agent-a", 1)
+
+	// Local epoch ahead of the Hub without reencrypt flag = genuine divergence.
+	resp, body := h.postCommit(t, "token-a", "epoch-room", map[string]any{
+		"sender_agent_id":  "agent-a",
+		"sender_device_id": "dev-a",
+		"mls_epoch":        1,
+	})
+	if resp.StatusCode != http.StatusConflict || !bytes.Contains(body, []byte("WATERMARK_CONFLICT")) {
+		t.Fatalf("unflagged epoch bump expected WATERMARK_CONFLICT, got %d (%s)", resp.StatusCode, body)
+	}
+
+	// Pure key rotation: re-encrypted payload under EpochKey[e+1] is accepted and bumps the room epoch.
+	resp, body = h.postCommit(t, "token-a", "epoch-room", map[string]any{
+		"sender_agent_id":  "agent-a",
+		"sender_device_id": "dev-a",
+		"mls_epoch":        1,
+		"reencrypt_only":   true,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("reencrypt epoch rotation expected 201, got %d (%s)", resp.StatusCode, body)
+	}
+
+	// A stale epoch after rotation must be rejected.
+	resp, body = h.postCommit(t, "token-a", "epoch-room", map[string]any{
+		"sender_agent_id":  "agent-a",
+		"sender_device_id": "dev-a",
+		"mls_epoch":        0,
+	})
+	if resp.StatusCode != http.StatusConflict || !bytes.Contains(body, []byte("WATERMARK_CONFLICT")) {
+		t.Fatalf("stale epoch expected WATERMARK_CONFLICT, got %d (%s)", resp.StatusCode, body)
+	}
+
+	// The Hub exposes the authoritative head + epoch.
+	resp, body = doJSON(t, h.srv.Client(), http.MethodGet, h.srv.URL+"/v1/groups/epoch-room/commits?after_seq=0&limit=2", "token-a", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("head query failed: %d %s", resp.StatusCode, body)
+	}
+	var head struct {
+		HeadGroupSeq    uint64 `json:"head_group_seq"`
+		CurrentMLSEpoch uint64 `json:"current_mls_epoch"`
+	}
+	if err := json.Unmarshal(body, &head); err != nil {
+		t.Fatalf("parse head: %v", err)
+	}
+	if head.HeadGroupSeq != 1 || head.CurrentMLSEpoch != 1 {
+		t.Fatalf("unexpected head/epoch: %+v", head)
+	}
+}
+
+func TestCommitSequencerHeadIsTrueMaxNotPageMax(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "head-room", "agent-a", 1)
+	for i := 0; i < 7; i++ {
+		resp, body := h.postCommit(t, "token-a", "head-room", map[string]any{
+			"sender_agent_id":  "agent-a",
+			"sender_device_id": "dev-a",
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("seed commit %d failed: %d %s", i, resp.StatusCode, body)
+		}
+	}
+	resp, body := doJSON(t, h.srv.Client(), http.MethodGet, h.srv.URL+"/v1/groups/head-room/commits?after_seq=0&limit=2", "token-a", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("head query failed: %d %s", resp.StatusCode, body)
+	}
+	var page struct {
+		Commits      []any  `json:"commits"`
+		HeadGroupSeq uint64 `json:"head_group_seq"`
+	}
+	if err := json.Unmarshal(body, &page); err != nil {
+		t.Fatalf("parse page: %v", err)
+	}
+	if len(page.Commits) != 2 {
+		t.Fatalf("expected truncated page of 2, got %d", len(page.Commits))
+	}
+	if page.HeadGroupSeq != 7 {
+		t.Fatalf("head must be true MAX(server_seq)=7, got %d", page.HeadGroupSeq)
+	}
+}
+
+func TestDeleteGroupMemberRevokesCommitAccess(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "revoke-room", "agent-a", 1)
+	h.addMember(t, "token-a", "revoke-room", "agent-b", "member")
+
+	resp, body := doJSON(t, h.srv.Client(), http.MethodDelete, h.srv.URL+"/v1/groups/revoke-room/members/agent-a", "token-b", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-admin delete expected 403, got %d (%s)", resp.StatusCode, body)
+	}
+	resp, body = doJSON(t, h.srv.Client(), http.MethodDelete, h.srv.URL+"/v1/groups/revoke-room/members/agent-b", "token-a", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("owner delete expected 200, got %d (%s)", resp.StatusCode, body)
+	}
+	resp, body = h.postCommit(t, "token-b", "revoke-room", map[string]any{
+		"sender_agent_id":  "agent-b",
+		"sender_device_id": "dev-b",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("kicked member commit expected 403, got %d (%s)", resp.StatusCode, body)
+	}
+	resp, body = doJSON(t, h.srv.Client(), http.MethodDelete, h.srv.URL+"/v1/groups/revoke-room/members/agent-c", "token-a", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown member delete expected 404, got %d (%s)", resp.StatusCode, body)
+	}
+}
+
+func TestCommitSequencerRejectsUnknownKindAndAuthorKind(t *testing.T) {
+	h := newHarness(t)
+	h.createRoom(t, "token-a", "kind-room", "agent-a", 1)
+	cases := []struct{ kind, authorKind string }{
+		{"bogus-kind", "human"},
+		{"message", "robot"},
+	}
+	for _, tc := range cases {
+		resp, body := h.postCommit(t, "token-a", "kind-room", map[string]any{
+			"sender_agent_id":  "agent-a",
+			"sender_device_id": "dev-a",
+			"kind":             tc.kind,
+			"author_kind":      tc.authorKind,
+		})
+		if resp.StatusCode != http.StatusBadRequest || !bytes.Contains(body, []byte("SERIALIZATION_ERROR")) {
+			t.Fatalf("unknown kind/author_kind must fail closed with 400, got %d (%s)", resp.StatusCode, body)
 		}
 	}
 }

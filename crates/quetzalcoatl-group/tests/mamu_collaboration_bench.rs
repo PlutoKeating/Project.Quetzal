@@ -430,6 +430,7 @@ fn watermark_barrier_golden_vector_cases_resolve_exactly() {
                         parent_seq: e.get("parent_seq").and_then(Value::as_u64),
                         summary: e.get("summary").and_then(Value::as_str).map(str::to_owned),
                         emoji: e.get("emoji").and_then(Value::as_str).map(str::to_owned),
+                        sender_agent_id: None,
                     })
                     .collect()
             })
@@ -558,6 +559,7 @@ fn mamu_bench_with_facilitator_and_barrier_swallows_zero_constraints() {
         parent_seq: Some(1),
         summary: Some(String::from("严禁含花生与麸质食材")),
         emoji: None,
+        sender_agent_id: None,
     };
     let head = GroupHead {
         group_id: String::from("mamu-bench"),
@@ -642,6 +644,63 @@ fn mamu_bench_with_facilitator_and_barrier_swallows_zero_constraints() {
     assert!(successor.pending_queue_is_empty());
     assert_eq!(successor.replayed_history_len(), 0);
     assert_eq!(successor.routed_task_count(), MEMBERS);
+}
+
+#[test]
+fn concurrent_plain_chatter_on_same_watermark_never_conflicts() {
+    let head = GroupHead {
+        group_id: String::from("chatter-room"),
+        head_group_seq: 8,
+        current_mls_epoch: 1,
+    };
+    // 8 个 Peer 在同一 last_seen=0 水位线上并发闲聊，父消息互相指向。
+    let events: Vec<InterveningEvent> = (1..=8)
+        .map(|seq| InterveningEvent {
+            seq,
+            kind: String::from("chatter"),
+            mentions: vec![Mention {
+                kind: MentionKind::Addressee,
+                target_agent_id: Some(AgentId::new_v4()),
+            }],
+            parent_seq: Some(seq.saturating_sub(1)),
+            summary: Some(String::from("plain concurrent chatter")),
+            emoji: None,
+            sender_agent_id: None,
+        })
+        .collect();
+    for peer in 0..8 {
+        let submitted = SubmittedCommit {
+            last_seen_group_seq: 0,
+            mls_epoch: 1,
+            submitting_agent_id: AgentId::new_v4(),
+        };
+        let outcome = UnreadWatermarkBarrier::resolve(&head, &submitted, &events)
+            .unwrap_or_else(|err| panic!("peer {peer} must fast-forward, got {err:?}"));
+        assert_eq!(
+            outcome.resolution,
+            BarrierResolution::FastForwardCausalParent
+        );
+        assert_eq!(outcome.attached_causal_parent_seq, Some(0));
+    }
+    // 同父实质追问仍然必须冲突（防漏水）。
+    let question = InterveningEvent {
+        seq: 3,
+        kind: String::from("question"),
+        mentions: Vec::new(),
+        parent_seq: Some(0),
+        summary: None,
+        emoji: None,
+        sender_agent_id: None,
+    };
+    let submitted = SubmittedCommit {
+        last_seen_group_seq: 0,
+        mls_epoch: 1,
+        submitting_agent_id: AgentId::new_v4(),
+    };
+    assert!(matches!(
+        UnreadWatermarkBarrier::resolve(&head, &submitted, &[question]),
+        Err(QuetzalcoatlError::WatermarkConflict { .. })
+    ));
 }
 
 #[test]

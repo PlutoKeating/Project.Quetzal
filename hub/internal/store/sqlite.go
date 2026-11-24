@@ -263,10 +263,11 @@ type LeaseRecord struct {
 
 // GroupRoom 是零知识群房间元数据（无任何明文提示词、记忆或人格内容）。
 type GroupRoom struct {
-	GroupID      string `json:"group_id"`
-	OwnerAgentID string `json:"owner_agent_id"`
-	SecrecyLevel int    `json:"secrecy_level"`
-	CreatedAtMs  int64  `json:"created_at_ms"`
+	GroupID         string `json:"group_id"`
+	OwnerAgentID    string `json:"owner_agent_id"`
+	SecrecyLevel    int    `json:"secrecy_level"`
+	CurrentMLSEpoch uint64 `json:"current_mls_epoch"`
+	CreatedAtMs     int64  `json:"created_at_ms"`
 }
 
 // GroupMember 绑定群房间与主权 Agent 成员身份。
@@ -287,6 +288,9 @@ type GroupCommit struct {
 	SenderDeviceID  string `json:"sender_device_id"`
 	MentionsJSON    string `json:"mentions"`
 	CiphertextB64   string `json:"ciphertext_b64"`
+	Kind            string `json:"kind"`
+	AuthorKind      string `json:"author_kind"`
+	Hop             int    `json:"hop"`
 	CreatedAtMs     int64  `json:"created_at_ms"`
 }
 
@@ -356,8 +360,12 @@ type Store interface {
 	AddGroupMember(ctx context.Context, member GroupMember) error
 	GetGroupMember(ctx context.Context, groupID, agentID string) (*GroupMember, error)
 	ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error)
+	DeleteGroupMember(ctx context.Context, groupID, agentID string) error
 	AppendGroupCommit(ctx context.Context, commit GroupCommit) (*GroupCommit, error)
+	GetGroupCommit(ctx context.Context, groupID string, serverSeq uint64) (*GroupCommit, error)
 	ListGroupCommits(ctx context.Context, groupID string, afterSeq uint64, limit int) ([]GroupCommit, error)
+	GroupRoomHead(ctx context.Context, groupID string) (uint64, uint64, error)
+	SetGroupRoomEpoch(ctx context.Context, groupID string, epoch uint64) error
 }
 
 const sqliteSchemaDDL = `
@@ -562,6 +570,7 @@ CREATE TABLE IF NOT EXISTS group_rooms (
 	group_id TEXT PRIMARY KEY,
 	owner_agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
 	secrecy_level INTEGER NOT NULL,
+	current_mls_epoch INTEGER NOT NULL DEFAULT 0,
 	created_at_ms INTEGER NOT NULL
 );
 
@@ -582,6 +591,9 @@ CREATE TABLE IF NOT EXISTS group_commits (
 	sender_device_id TEXT NOT NULL,
 	mentions_json TEXT NOT NULL,
 	ciphertext_b64 TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'message',
+	author_kind TEXT NOT NULL DEFAULT 'human',
+	hop INTEGER NOT NULL DEFAULT 0,
 	created_at_ms INTEGER NOT NULL,
 	PRIMARY KEY (group_id, server_seq)
 );
@@ -1739,9 +1751,9 @@ func (s *SQLiteStore) CreateGroupRoom(ctx context.Context, room GroupRoom) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO group_rooms (group_id, owner_agent_id, secrecy_level, created_at_ms)
-		VALUES (?, ?, ?, ?)
-	`, room.GroupID, room.OwnerAgentID, room.SecrecyLevel, room.CreatedAtMs)
+		INSERT INTO group_rooms (group_id, owner_agent_id, secrecy_level, current_mls_epoch, created_at_ms)
+		VALUES (?, ?, ?, ?, ?)
+	`, room.GroupID, room.OwnerAgentID, room.SecrecyLevel, room.CurrentMLSEpoch, room.CreatedAtMs)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return ErrConflict
@@ -1757,9 +1769,9 @@ func (s *SQLiteStore) GetGroupRoom(ctx context.Context, groupID string) (*GroupR
 	defer s.mu.Unlock()
 	var room GroupRoom
 	err := s.db.QueryRowContext(ctx, `
-		SELECT group_id, owner_agent_id, secrecy_level, created_at_ms
+		SELECT group_id, owner_agent_id, secrecy_level, current_mls_epoch, created_at_ms
 		FROM group_rooms WHERE group_id = ?
-	`, groupID).Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CreatedAtMs)
+	`, groupID).Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CurrentMLSEpoch, &room.CreatedAtMs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1774,7 +1786,7 @@ func (s *SQLiteStore) ListGroupRooms(ctx context.Context) ([]GroupRoom, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT group_id, owner_agent_id, secrecy_level, created_at_ms
+		SELECT group_id, owner_agent_id, secrecy_level, current_mls_epoch, created_at_ms
 		FROM group_rooms ORDER BY group_id ASC
 	`)
 	if err != nil {
@@ -1784,7 +1796,7 @@ func (s *SQLiteStore) ListGroupRooms(ctx context.Context) ([]GroupRoom, error) {
 	var out []GroupRoom
 	for rows.Next() {
 		var room GroupRoom
-		if err := rows.Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CreatedAtMs); err != nil {
+		if err := rows.Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CurrentMLSEpoch, &room.CreatedAtMs); err != nil {
 			return nil, err
 		}
 		out = append(out, room)
@@ -1864,10 +1876,11 @@ func (s *SQLiteStore) AppendGroupCommit(ctx context.Context, commit GroupCommit)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO group_commits (
 			group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
-			sender_device_id, mentions_json, ciphertext_b64, created_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			sender_device_id, mentions_json, ciphertext_b64, kind, author_kind, hop, created_at_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, commit.GroupID, nextSeq, commit.MLSEpoch, commit.CausalParentSeq, commit.SenderAgentID,
-		commit.SenderDeviceID, commit.MentionsJSON, commit.CiphertextB64, commit.CreatedAtMs); err != nil {
+		commit.SenderDeviceID, commit.MentionsJSON, commit.CiphertextB64, commit.Kind,
+		commit.AuthorKind, commit.Hop, commit.CreatedAtMs); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1886,7 +1899,7 @@ func (s *SQLiteStore) ListGroupCommits(ctx context.Context, groupID string, afte
 	defer s.mu.Unlock()
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
-		       sender_device_id, mentions_json, ciphertext_b64, created_at_ms
+		       sender_device_id, mentions_json, ciphertext_b64, kind, author_kind, hop, created_at_ms
 		FROM group_commits
 		WHERE group_id = ? AND server_seq > ?
 		ORDER BY server_seq ASC
@@ -1901,10 +1914,102 @@ func (s *SQLiteStore) ListGroupCommits(ctx context.Context, groupID string, afte
 		var commit GroupCommit
 		if err := rows.Scan(&commit.GroupID, &commit.ServerSeq, &commit.MLSEpoch, &commit.CausalParentSeq,
 			&commit.SenderAgentID, &commit.SenderDeviceID, &commit.MentionsJSON, &commit.CiphertextB64,
-			&commit.CreatedAtMs); err != nil {
+			&commit.Kind, &commit.AuthorKind, &commit.Hop, &commit.CreatedAtMs); err != nil {
 			return nil, err
 		}
 		out = append(out, commit)
 	}
 	return out, rows.Err()
+}
+
+// DeleteGroupMember 删除群成员关系，立即撤销其提交权限。
+func (s *SQLiteStore) DeleteGroupMember(ctx context.Context, groupID, agentID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ? AND agent_id = ?`, groupID, agentID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetGroupCommit 读取单条密文提交（用于服务端派生跳数）。
+func (s *SQLiteStore) GetGroupCommit(ctx context.Context, groupID string, serverSeq uint64) (*GroupCommit, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var commit GroupCommit
+	err := s.db.QueryRowContext(ctx, `
+		SELECT group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
+		       sender_device_id, mentions_json, ciphertext_b64, kind, author_kind, hop, created_at_ms
+		FROM group_commits WHERE group_id = ? AND server_seq = ?
+	`, groupID, serverSeq).Scan(&commit.GroupID, &commit.ServerSeq, &commit.MLSEpoch,
+		&commit.CausalParentSeq, &commit.SenderAgentID, &commit.SenderDeviceID,
+		&commit.MentionsJSON, &commit.CiphertextB64, &commit.Kind, &commit.AuthorKind,
+		&commit.Hop, &commit.CreatedAtMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &commit, nil
+}
+
+// GroupRoomHead 返回真实 MAX(server_seq) 与群当前 MLS 纪元（不受分页截断影响）。
+func (s *SQLiteStore) GroupRoomHead(ctx context.Context, groupID string) (uint64, uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var head uint64
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(server_seq), 0) FROM group_commits WHERE group_id = ?
+	`, groupID).Scan(&head); err != nil {
+		return 0, 0, err
+	}
+	var epoch uint64
+	err := s.db.QueryRowContext(ctx, `SELECT current_mls_epoch FROM group_rooms WHERE group_id = ?`, groupID).Scan(&epoch)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	return head, epoch, nil
+}
+
+// SetGroupRoomEpoch 推进群当前 MLS 纪元（仅允许上升）。
+func (s *SQLiteStore) SetGroupRoomEpoch(ctx context.Context, groupID string, epoch uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE group_rooms SET current_mls_epoch = ? WHERE group_id = ? AND current_mls_epoch < ?
+	`, epoch, groupID, epoch)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		// 要么已是该纪元，要么群不存在。
+		var existing uint64
+		err := s.db.QueryRowContext(ctx, `SELECT current_mls_epoch FROM group_rooms WHERE group_id = ?`, groupID).Scan(&existing)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if existing != epoch {
+			return ErrConflict
+		}
+	}
+	return nil
 }

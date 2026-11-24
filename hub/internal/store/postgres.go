@@ -216,6 +216,7 @@ CREATE TABLE IF NOT EXISTS group_rooms (
 	group_id TEXT PRIMARY KEY,
 	owner_agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
 	secrecy_level BIGINT NOT NULL,
+	current_mls_epoch BIGINT NOT NULL DEFAULT 0,
 	created_at_ms BIGINT NOT NULL
 );
 
@@ -236,6 +237,9 @@ CREATE TABLE IF NOT EXISTS group_commits (
 	sender_device_id TEXT NOT NULL,
 	mentions_json TEXT NOT NULL,
 	ciphertext_b64 TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'message',
+	author_kind TEXT NOT NULL DEFAULT 'human',
+	hop BIGINT NOT NULL DEFAULT 0,
 	created_at_ms BIGINT NOT NULL,
 	PRIMARY KEY (group_id, server_seq)
 );
@@ -1229,9 +1233,9 @@ func (p *PostgresStore) ReleaseLease(ctx context.Context, agentID, deviceID stri
 
 func (p *PostgresStore) CreateGroupRoom(ctx context.Context, room GroupRoom) error {
 	_, err := p.db.ExecContext(ctx, `
-		INSERT INTO group_rooms (group_id, owner_agent_id, secrecy_level, created_at_ms)
-		VALUES ($1, $2, $3, $4)
-	`, room.GroupID, room.OwnerAgentID, room.SecrecyLevel, room.CreatedAtMs)
+		INSERT INTO group_rooms (group_id, owner_agent_id, secrecy_level, current_mls_epoch, created_at_ms)
+		VALUES ($1, $2, $3, $4, $5)
+	`, room.GroupID, room.OwnerAgentID, room.SecrecyLevel, room.CurrentMLSEpoch, room.CreatedAtMs)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 			return ErrConflict
@@ -1244,9 +1248,9 @@ func (p *PostgresStore) CreateGroupRoom(ctx context.Context, room GroupRoom) err
 func (p *PostgresStore) GetGroupRoom(ctx context.Context, groupID string) (*GroupRoom, error) {
 	var room GroupRoom
 	err := p.db.QueryRowContext(ctx, `
-		SELECT group_id, owner_agent_id, secrecy_level, created_at_ms
+		SELECT group_id, owner_agent_id, secrecy_level, current_mls_epoch, created_at_ms
 		FROM group_rooms WHERE group_id = $1
-	`, groupID).Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CreatedAtMs)
+	`, groupID).Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CurrentMLSEpoch, &room.CreatedAtMs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1258,7 +1262,7 @@ func (p *PostgresStore) GetGroupRoom(ctx context.Context, groupID string) (*Grou
 
 func (p *PostgresStore) ListGroupRooms(ctx context.Context) ([]GroupRoom, error) {
 	rows, err := p.db.QueryContext(ctx, `
-		SELECT group_id, owner_agent_id, secrecy_level, created_at_ms
+		SELECT group_id, owner_agent_id, secrecy_level, current_mls_epoch, created_at_ms
 		FROM group_rooms ORDER BY group_id ASC
 	`)
 	if err != nil {
@@ -1268,7 +1272,7 @@ func (p *PostgresStore) ListGroupRooms(ctx context.Context) ([]GroupRoom, error)
 	var out []GroupRoom
 	for rows.Next() {
 		var room GroupRoom
-		if err := rows.Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CreatedAtMs); err != nil {
+		if err := rows.Scan(&room.GroupID, &room.OwnerAgentID, &room.SecrecyLevel, &room.CurrentMLSEpoch, &room.CreatedAtMs); err != nil {
 			return nil, err
 		}
 		out = append(out, room)
@@ -1344,10 +1348,11 @@ func (p *PostgresStore) AppendGroupCommit(ctx context.Context, commit GroupCommi
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO group_commits (
 			group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
-			sender_device_id, mentions_json, ciphertext_b64, created_at_ms
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			sender_device_id, mentions_json, ciphertext_b64, kind, author_kind, hop, created_at_ms
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`, commit.GroupID, nextSeq, commit.MLSEpoch, commit.CausalParentSeq, commit.SenderAgentID,
-		commit.SenderDeviceID, commit.MentionsJSON, commit.CiphertextB64, commit.CreatedAtMs); err != nil {
+		commit.SenderDeviceID, commit.MentionsJSON, commit.CiphertextB64, commit.Kind,
+		commit.AuthorKind, commit.Hop, commit.CreatedAtMs); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1363,7 +1368,7 @@ func (p *PostgresStore) ListGroupCommits(ctx context.Context, groupID string, af
 	}
 	rows, err := p.db.QueryContext(ctx, `
 		SELECT group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
-		       sender_device_id, mentions_json, ciphertext_b64, created_at_ms
+		       sender_device_id, mentions_json, ciphertext_b64, kind, author_kind, hop, created_at_ms
 		FROM group_commits
 		WHERE group_id = $1 AND server_seq > $2
 		ORDER BY server_seq ASC
@@ -1378,10 +1383,89 @@ func (p *PostgresStore) ListGroupCommits(ctx context.Context, groupID string, af
 		var commit GroupCommit
 		if err := rows.Scan(&commit.GroupID, &commit.ServerSeq, &commit.MLSEpoch, &commit.CausalParentSeq,
 			&commit.SenderAgentID, &commit.SenderDeviceID, &commit.MentionsJSON, &commit.CiphertextB64,
-			&commit.CreatedAtMs); err != nil {
+			&commit.Kind, &commit.AuthorKind, &commit.Hop, &commit.CreatedAtMs); err != nil {
 			return nil, err
 		}
 		out = append(out, commit)
 	}
 	return out, rows.Err()
+}
+
+func (p *PostgresStore) DeleteGroupMember(ctx context.Context, groupID, agentID string) error {
+	res, err := p.db.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = $1 AND agent_id = $2`, groupID, agentID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (p *PostgresStore) GetGroupCommit(ctx context.Context, groupID string, serverSeq uint64) (*GroupCommit, error) {
+	var commit GroupCommit
+	err := p.db.QueryRowContext(ctx, `
+		SELECT group_id, server_seq, mls_epoch, causal_parent_seq, sender_agent_id,
+		       sender_device_id, mentions_json, ciphertext_b64, kind, author_kind, hop, created_at_ms
+		FROM group_commits WHERE group_id = $1 AND server_seq = $2
+	`, groupID, serverSeq).Scan(&commit.GroupID, &commit.ServerSeq, &commit.MLSEpoch,
+		&commit.CausalParentSeq, &commit.SenderAgentID, &commit.SenderDeviceID,
+		&commit.MentionsJSON, &commit.CiphertextB64, &commit.Kind, &commit.AuthorKind,
+		&commit.Hop, &commit.CreatedAtMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &commit, nil
+}
+
+func (p *PostgresStore) GroupRoomHead(ctx context.Context, groupID string) (uint64, uint64, error) {
+	var head uint64
+	if err := p.db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(server_seq), 0) FROM group_commits WHERE group_id = $1
+	`, groupID).Scan(&head); err != nil {
+		return 0, 0, err
+	}
+	var epoch uint64
+	err := p.db.QueryRowContext(ctx, `SELECT current_mls_epoch FROM group_rooms WHERE group_id = $1`, groupID).Scan(&epoch)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	return head, epoch, nil
+}
+
+func (p *PostgresStore) SetGroupRoomEpoch(ctx context.Context, groupID string, epoch uint64) error {
+	res, err := p.db.ExecContext(ctx, `
+		UPDATE group_rooms SET current_mls_epoch = $1 WHERE group_id = $2 AND current_mls_epoch < $1
+	`, epoch, groupID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		var existing uint64
+		err := p.db.QueryRowContext(ctx, `SELECT current_mls_epoch FROM group_rooms WHERE group_id = $1`, groupID).Scan(&existing)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if existing != epoch {
+			return ErrConflict
+		}
+	}
+	return nil
 }

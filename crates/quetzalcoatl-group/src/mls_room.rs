@@ -522,6 +522,16 @@ impl GroupRoomEngine {
         Ok(self.mls_epoch())
     }
 
+    /// 生成 MLS `Leave`（SelfRemove/Remove）提案；自我移除必须由其他成员提交，
+    /// 因此本方法只产出提案，Hub 侧成员撤销由守护进程另行执行。
+    pub fn leave_proposal(&mut self) -> Result<Vec<u8>> {
+        let proposal = self
+            .group
+            .leave_group(&self.provider, &self.signer)
+            .map_err(|err| mls_error("生成离群提案失败", err))?;
+        serialize_message(&proposal)
+    }
+
     /// 踢出成员：生成待合并 Commit 并返回新纪元编号。
     pub fn remove_member(&mut self, member_identity: &str) -> Result<RemovalHandoff> {
         let target = member_identity.as_bytes();

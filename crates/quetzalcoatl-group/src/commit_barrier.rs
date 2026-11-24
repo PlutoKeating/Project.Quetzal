@@ -62,10 +62,16 @@ pub struct InterveningEvent {
     pub parent_seq: Option<u64>,
     pub summary: Option<String>,
     pub emoji: Option<String>,
+    /// 事件作者；作者本人的既往提交不需要重读（`None` 视为他人，保守判语义）。
+    pub sender_agent_id: Option<AgentId>,
 }
 
 impl InterveningEvent {
     fn is_semantic_for(&self, submitting_agent_id: AgentId, last_seen_group_seq: u64) -> bool {
+        if self.sender_agent_id == Some(submitting_agent_id) {
+            // 自己写的消息不构成需要重读的新约束。
+            return false;
+        }
         let normalized_kind = self.kind.trim().to_ascii_lowercase();
         if matches!(
             normalized_kind.as_str(),
@@ -81,13 +87,13 @@ impl InterveningEvent {
         if mentions_self_or_all {
             return true;
         }
-        // 同父话题追问：追加事件直接挂在本次产物所基于的消息上。
+        // 同父话题的**实质追问/约束**才强制重读；普通 chatter 即便同父也必须快进，
+        // 否则并发闲聊会被误判为恒定冲突（WATERMARK_CONFLICT 风暴）。
         self.parent_seq == Some(last_seen_group_seq)
             && matches!(
                 normalized_kind.as_str(),
-                "question" | "follow_up" | "followup" | "reply" | "chatter"
+                "question" | "follow_up" | "followup" | "constraint"
             )
-            && self.parent_seq.is_some()
     }
 }
 
