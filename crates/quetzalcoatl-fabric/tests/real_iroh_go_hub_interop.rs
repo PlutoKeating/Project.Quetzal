@@ -490,7 +490,17 @@ impl FabricRpcHandler for NodeRuntimeHarness {
                         detail: String::from("kernel lock poisoned"),
                     };
                 };
-                match execute_remote_worker_task_locally(&mut k, &task, now_wall_ms()) {
+                // Critical #1：本机执行远端任务必须携带与自身 Witnessed 纪元一致的 fence。
+                let expected_epoch = match k.lease_posture() {
+                    LeasePosture::Witnessed { witness_epoch } => witness_epoch,
+                    LeasePosture::PartitionLocal => Epoch::new(0),
+                };
+                match execute_remote_worker_task_locally(
+                    &mut k,
+                    &task,
+                    expected_epoch,
+                    now_wall_ms(),
+                ) {
                     Ok(res) => FabricRpcResponse::RemoteWorkerTaskCompleted {
                         result: Box::new(res),
                     },

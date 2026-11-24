@@ -12,13 +12,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use iroh::EndpointAddr;
-use quetzalcoatl_crypto::PackCompartment;
+use quetzalcoatl_crypto::{PackCompartment, SealedPackfile};
 use quetzalcoatl_kernel::{
     BlindKernel, CapabilityInvocation, CapabilitySet, ExternalWriteDisposition, LeasePosture,
     OutboxItem, PrincipalRole, ScopeChain,
 };
 use quetzalcoatl_spine::MaterializedStore;
-use quetzalcoatl_types::{AgentId, DeviceId, Epoch, QuetzalcoatlError, Result, RunId};
+use quetzalcoatl_types::{AgentId, ArtifactId, DeviceId, Epoch, QuetzalcoatlError, Result, RunId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -221,6 +221,46 @@ pub enum FencedDeliveryOutcome {
     QueuedInOutbox,
 }
 
+/// 单次"网络阶段"租约结果（完全不接触 `BlindKernel`，供守护进程在不持有内核锁时执行）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LeaseNetworkOutcome {
+    Renewed { witness_epoch: Epoch },
+    Acquired { witness_epoch: Epoch },
+    Stale { current: u64 },
+    Unreachable,
+    Skipped,
+}
+
+/// 网络阶段产物：待合入内核的远端 `SealedPackfile` 与同步游标。
+#[derive(Clone, Debug)]
+pub struct LeaseNetworkReport {
+    pub outcome: LeaseNetworkOutcome,
+    pub fetched_packs: Vec<SealedPackfile>,
+    pub uploaded_packs: usize,
+    pub new_cursor: u64,
+}
+
+/// `Outbox` 对账计划中的单条待投递外发项。
+#[derive(Clone, Debug)]
+pub struct OutboxReconcileItem {
+    pub item: OutboxItem,
+    pub idempotency_key: String,
+}
+
+/// `Outbox` 对账计划（内核侧完成扫链与写前令牌核验，零网络）。
+#[derive(Clone, Debug, Default)]
+pub struct OutboxReconcilePlan {
+    pub witness_epoch: Option<Epoch>,
+    pub items: Vec<OutboxReconcileItem>,
+}
+
+/// 单条外发项的真实投递结果。
+#[derive(Clone, Debug)]
+pub struct OutboxReconcileOutcome {
+    pub entry: OutboxReconcileItem,
+    pub delivered: bool,
+}
+
 /// 两态围栏动态 `Router` 租约协调器。
 pub struct FencedLeaseCoordinator<C: MonotonicClock = StdMonotonicClock> {
     clock: C,
@@ -293,6 +333,15 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
         &mut self,
         kernel: &mut BlindKernel<S>,
     ) -> bool {
+        let demoted = self.demote_if_monotonic_expired();
+        if demoted {
+            kernel.set_lease_posture(LeasePosture::PartitionLocal);
+        }
+        demoted
+    }
+
+    /// 零内核依赖的单调时钟过期自检（仅推进协调器状态，由调用方在短锁内应用内核姿态）。
+    fn demote_if_monotonic_expired(&mut self) -> bool {
         let now_mono = self.clock.now_millis();
         if let RouterLeaseState::ActiveRouter {
             witness_epoch,
@@ -305,7 +354,6 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
                 known_holder: None,
                 highest_seen_epoch: witness_epoch.get(),
             };
-            kernel.set_lease_posture(LeasePosture::PartitionLocal);
             return true;
         }
         false
@@ -367,6 +415,13 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
         kernel: &mut BlindKernel<S>,
         now_mono: u64,
     ) {
+        if self.classify_hub_unreachable(now_mono) {
+            kernel.set_lease_posture(LeasePosture::PartitionLocal);
+        }
+    }
+
+    /// 零内核依赖的网络不可达分类（返回是否应回落 `PartitionLocal`）。
+    fn classify_hub_unreachable(&mut self, now_mono: u64) -> bool {
         let highest = self.highest_seen_epoch();
         let beyond_grace = match self.last_hub_contact_mono_ms {
             Some(last) => now_mono.saturating_sub(last) >= self.config.offline_grace_ms,
@@ -383,8 +438,9 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
                 entered_mono_ms: entered,
                 highest_seen_epoch: highest,
             };
-            kernel.set_lease_posture(LeasePosture::PartitionLocal);
+            return true;
         }
+        false
     }
 
     /// 扫描状态脊柱提取全局已提交公网投递的幂等键集合与跨设备历史 `OutboxQueued` 待对账列表。
@@ -435,6 +491,110 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
         Ok((committed_keys, pending))
     }
 
+    fn has_abort_record<S: MaterializedStore>(
+        kernel: &BlindKernel<S>,
+        idempotency_key: &str,
+    ) -> Result<bool> {
+        for (ev, _) in kernel.spine().store().list_all_events()? {
+            if let Ok(rec) = serde_json::from_str::<FabricDeliverySpineRecord>(&ev.payload_utf8)
+                && rec.schema == FABRIC_DELIVERY_SCHEMA
+                && rec.aborted_before_send
+                && rec.idempotency_key == idempotency_key
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// 内核侧 `Outbox` 对账准备（零网络）：扫链、跳过已见证幂等键、核验 Run 洁净室状态并签发写前令牌。
+    pub fn prepare_outbox_reconcile<S: MaterializedStore>(
+        &mut self,
+        kernel: &mut BlindKernel<S>,
+        local_wall_ms: u64,
+    ) -> Result<OutboxReconcilePlan> {
+        let RouterLeaseState::ActiveRouter { witness_epoch, .. } = self.state else {
+            return Ok(OutboxReconcilePlan::default());
+        };
+        if !kernel.ledger().outbox().is_empty() {
+            let _ = kernel.drain_reconciled_outbox(witness_epoch)?;
+        }
+        let (committed_keys, pending_items) = Self::scan_spine_delivery_state(kernel)?;
+        // 同一幂等键可能对应多条 Outbox 行（分区重试/跨设备重建）：必须只保留一条，杜绝同键双发。
+        let mut claimed_keys = committed_keys;
+        let mut items = Vec::new();
+        for item in pending_items {
+            if self.check_monotonic_expiry_before_io(kernel) {
+                break;
+            }
+            let idem_key = item
+                .idempotency_key
+                .clone()
+                .unwrap_or_else(|| format!("outbox:{}", item.outbox_id));
+            if !claimed_keys.insert(idem_key.clone()) {
+                continue;
+            }
+            if kernel
+                .commit_reconciled_outbox_item(&item, witness_epoch, local_wall_ms)
+                .is_err()
+            {
+                continue;
+            }
+            items.push(OutboxReconcileItem {
+                item,
+                idempotency_key: idem_key,
+            });
+        }
+        Ok(OutboxReconcilePlan {
+            witness_epoch: Some(witness_epoch),
+            items,
+        })
+    }
+
+    /// 内核侧记录真实投递结果（零网络）：成功写 delivered、失败写 `aborted_before_send=true` 补偿记录，
+    /// 返回需上传 Hub 见证的新密封 `SealedPackfile`，由调用方在零内核锁阶段上传。
+    pub fn record_outbox_outcomes<S: MaterializedStore>(
+        &self,
+        kernel: &mut BlindKernel<S>,
+        plan: &OutboxReconcilePlan,
+        outcomes: &[OutboxReconcileOutcome],
+        local_wall_ms: u64,
+    ) -> Result<Vec<SealedPackfile>> {
+        let Some(witness_epoch) = plan.witness_epoch else {
+            return Ok(Vec::new());
+        };
+        let mut packs = Vec::new();
+        for outcome in outcomes {
+            let entry = &outcome.entry;
+            if !outcome.delivered && Self::has_abort_record(kernel, &entry.idempotency_key)? {
+                // 已存在同键补偿记录：通道持续拒收时不再重复写盘，避免脊柱无界膨胀。
+                continue;
+            }
+            let delivery_record = FabricDeliverySpineRecord {
+                schema: String::from(FABRIC_DELIVERY_SCHEMA),
+                capability_id: entry.item.capability_id.clone(),
+                idempotency_key: entry.idempotency_key.clone(),
+                witness_epoch: witness_epoch.get(),
+                outbox_id: Some(entry.item.outbox_id),
+                aborted_before_send: !outcome.delivered,
+            };
+            let encoded = serde_json::to_string(&delivery_record).map_err(|e| {
+                QuetzalcoatlError::SerializationError {
+                    detail: e.to_string(),
+                }
+            })?;
+            let _ =
+                kernel
+                    .spine_mut()
+                    .append_event(PackCompartment::Core, &encoded, local_wall_ms)?;
+            let sealed = kernel
+                .spine_mut()
+                .seal_checkpoint(entry.item.run_id, local_wall_ms)?;
+            packs.extend(sealed);
+        }
+        Ok(packs)
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn reconcile_pending_outbox<S: MaterializedStore, F>(
         &mut self,
@@ -449,152 +609,20 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
     where
         F: FnMut(&str, &str, &str, Epoch) -> Result<()>,
     {
-        if !kernel.ledger().outbox().is_empty() {
-            let _ = kernel.drain_reconciled_outbox(witness_epoch)?;
-        }
-
-        let (mut committed_keys, pending_items) = Self::scan_spine_delivery_state(kernel)?;
-        if pending_items.is_empty() {
+        let plan = self.prepare_outbox_reconcile(kernel, local_wall_ms)?;
+        if plan.items.is_empty() {
             return Ok(());
         }
-
         let agent_id = kernel.spine().agent_id();
         let local_dev_id = kernel.spine().local_device().device_id();
 
-        for item in pending_items {
+        let mut outcomes = Vec::new();
+        for entry in plan.items.clone() {
             if self.check_monotonic_expiry_before_io(kernel) {
-                return Ok(());
+                break;
             }
-            let idem_key = item
-                .idempotency_key
-                .clone()
-                .unwrap_or_else(|| format!("outbox:{}", item.outbox_id));
-            if committed_keys.contains(&idem_key) {
-                continue;
-            }
-
-            // 1. 先在 Hub 上续租核验 witness_epoch 仍归本机所有（失败则不触碰任何本地幂等状态，留待下次重试）
+            // 逐条在 Hub 上续租核验 witness_epoch 仍归本机所有（失败则不触碰任何本地幂等状态）。
             let pre_mono = self.clock.now_millis();
-            match lease_backend
-                .renew_lease(
-                    agent_id,
-                    local_dev_id,
-                    witness_epoch.get(),
-                    self.config.ttl_ms,
-                )
-                .await
-            {
-                Ok(rec) => {
-                    self.last_hub_contact_mono_ms = Some(pre_mono);
-                    self.state = RouterLeaseState::ActiveRouter {
-                        witness_epoch: Epoch::new(rec.witness_epoch),
-                        expires_mono_ms: pre_mono.saturating_add(self.effective_local_ttl_ms()),
-                    };
-                }
-                Err(QuetzalcoatlError::StaleLeaseEpoch { current, .. }) => {
-                    self.stale_epoch_demotions = self.stale_epoch_demotions.saturating_add(1);
-                    self.state = RouterLeaseState::Standby {
-                        known_holder: None,
-                        highest_seen_epoch: current,
-                    };
-                    kernel.set_lease_posture(LeasePosture::PartitionLocal);
-                    return Ok(());
-                }
-                Err(_) => {
-                    self.handle_hub_unreachable(kernel, pre_mono);
-                    return Ok(());
-                }
-            }
-
-            // 2. 通过盲内核核验所属 Commit Run 状态与洁净室 VerificationMark 完整性
-            if kernel
-                .commit_reconciled_outbox_item(&item, witness_epoch, local_wall_ms)
-                .is_err()
-            {
-                continue;
-            }
-
-            // 3. 写入投递提交记录并上传至 Hub 见证后，执行唯一一次外部投递
-            let delivery_record = FabricDeliverySpineRecord {
-                schema: String::from(FABRIC_DELIVERY_SCHEMA),
-                capability_id: item.capability_id.clone(),
-                idempotency_key: idem_key.clone(),
-                witness_epoch: witness_epoch.get(),
-                outbox_id: Some(item.outbox_id),
-                aborted_before_send: false,
-            };
-            let encoded = serde_json::to_string(&delivery_record).map_err(|e| {
-                QuetzalcoatlError::SerializationError {
-                    detail: e.to_string(),
-                }
-            })?;
-            let _ =
-                kernel
-                    .spine_mut()
-                    .append_event(PackCompartment::Core, &encoded, local_wall_ms)?;
-            let new_packs = kernel
-                .spine_mut()
-                .seal_checkpoint(item.run_id, local_wall_ms)?;
-
-            for p in &new_packs {
-                if sync_backend
-                    .upload_pack(agent_id, local_dev_id, p)
-                    .await
-                    .is_err()
-                {
-                    let abort_rec = FabricDeliverySpineRecord {
-                        schema: String::from(FABRIC_DELIVERY_SCHEMA),
-                        capability_id: item.capability_id.clone(),
-                        idempotency_key: idem_key.clone(),
-                        witness_epoch: witness_epoch.get(),
-                        outbox_id: Some(item.outbox_id),
-                        aborted_before_send: true,
-                    };
-                    if let Ok(abort_json) = serde_json::to_string(&abort_rec) {
-                        let _ = kernel.spine_mut().append_event(
-                            PackCompartment::Core,
-                            &abort_json,
-                            local_wall_ms,
-                        );
-                    }
-                    self.handle_hub_unreachable(kernel, self.clock.now_millis());
-                    return Ok(());
-                }
-                sync_actor.mark_pack_uploaded(p.pack_id);
-            }
-
-            outbox_deliver_fn(
-                &item.capability_id,
-                &idem_key,
-                &item.arguments_json,
-                witness_epoch,
-            )?;
-            committed_keys.insert(idem_key);
-        }
-
-        Ok(())
-    }
-
-    /// 执行一次租约续期/竞选与断网 `Outbox` 对账周期。
-    pub async fn tick_and_reconcile<S: MaterializedStore, F>(
-        &mut self,
-        kernel: &mut BlindKernel<S>,
-        sync_actor: &mut SpineSyncActor,
-        lease_backend: &dyn LeaseWitnessBackend,
-        sync_backend: &dyn SpineSyncBackend,
-        local_wall_ms: u64,
-        outbox_deliver_fn: F,
-    ) -> Result<LeasePosture>
-    where
-        F: FnMut(&str, &str, &str, Epoch) -> Result<()>,
-    {
-        let _ = self.check_monotonic_expiry_before_io(kernel);
-
-        let agent_id = kernel.spine().agent_id();
-        let local_dev_id = kernel.spine().local_device().device_id();
-        let pre_mono = self.clock.now_millis();
-
-        if let RouterLeaseState::ActiveRouter { witness_epoch, .. } = self.state {
             match lease_backend
                 .renew_lease(
                     agent_id,
@@ -612,24 +640,6 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
                         expires_mono_ms: pre_mono.saturating_add(self.effective_local_ttl_ms()),
                     };
                     kernel.set_lease_posture(LeasePosture::Witnessed { witness_epoch: ep });
-                    if sync_actor
-                        .sync_via_hub(kernel, sync_backend, local_wall_ms)
-                        .await
-                        .is_ok()
-                    {
-                        let _ = self
-                            .reconcile_pending_outbox(
-                                kernel,
-                                sync_actor,
-                                lease_backend,
-                                sync_backend,
-                                ep,
-                                local_wall_ms,
-                                outbox_deliver_fn,
-                            )
-                            .await;
-                    }
-                    return Ok(kernel.lease_posture());
                 }
                 Err(QuetzalcoatlError::StaleLeaseEpoch { current, .. }) => {
                     self.stale_epoch_demotions = self.stale_epoch_demotions.saturating_add(1);
@@ -638,69 +648,270 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
                         highest_seen_epoch: current,
                     };
                     kernel.set_lease_posture(LeasePosture::PartitionLocal);
-                    return Ok(kernel.lease_posture());
+                    break;
                 }
                 Err(_) => {
                     self.handle_hub_unreachable(kernel, pre_mono);
-                    return Ok(kernel.lease_posture());
+                    break;
                 }
             }
+
+            let delivered = outbox_deliver_fn(
+                &entry.item.capability_id,
+                &entry.idempotency_key,
+                &entry.item.arguments_json,
+                witness_epoch,
+            )
+            .is_ok();
+            outcomes.push(OutboxReconcileOutcome { entry, delivered });
         }
 
-        // 当前处于 Standby 或 PartitionLocal：先尝试上传/拉取密文包，再尝试 CAS 竞选租约
-        let _ = kernel.spine_mut().seal_checkpoint(None, local_wall_ms);
-        let _ = sync_actor
-            .sync_via_hub(kernel, sync_backend, local_wall_ms)
-            .await;
+        let packs = self.record_outbox_outcomes(kernel, &plan, &outcomes, local_wall_ms)?;
+        for p in &packs {
+            if sync_backend
+                .upload_pack(agent_id, local_dev_id, p)
+                .await
+                .is_err()
+            {
+                self.handle_hub_unreachable(kernel, self.clock.now_millis());
+                return Ok(());
+            }
+            sync_actor.mark_pack_uploaded(p.pack_id);
+        }
+        Ok(())
+    }
 
-        let acquire_mono = self.clock.now_millis();
-        match lease_backend
-            .acquire_lease(agent_id, local_dev_id, 0, self.config.ttl_ms)
+    /// 阶段一（零内核锁）：纯网络心跳——上传本地密文包、增量拉取远端包、续租或 CAS 竞选 `witness_epoch`。
+    /// 调用方必须在**不持有** `BlindKernel` 锁的情况下执行本方法，随后用 `apply_network_report` 短锁落库。
+    #[allow(clippy::too_many_arguments)]
+    pub async fn network_tick(
+        &mut self,
+        agent_id: AgentId,
+        local_device: DeviceId,
+        sync_actor: &mut SpineSyncActor,
+        lease_backend: &dyn LeaseWitnessBackend,
+        sync_backend: &dyn SpineSyncBackend,
+        local_packs: &[SealedPackfile],
+        existing_pack_ids: &BTreeSet<ArtifactId>,
+    ) -> LeaseNetworkReport {
+        let _ = self.demote_if_monotonic_expired();
+        let mut uploaded_packs = 0usize;
+        let mut new_cursor = sync_actor.hub_cursor_seq();
+        let mut fetched_packs: Vec<SealedPackfile> = Vec::new();
+        let mut seen_ids: BTreeSet<ArtifactId> = existing_pack_ids.clone();
+
+        for pack in local_packs {
+            if !sync_actor.should_upload(pack.pack_id) {
+                continue;
+            }
+            if sync_backend
+                .upload_pack(agent_id, local_device, pack)
+                .await
+                .is_err()
+            {
+                self.classify_hub_unreachable(self.clock.now_millis());
+                return LeaseNetworkReport {
+                    outcome: LeaseNetworkOutcome::Unreachable,
+                    fetched_packs,
+                    uploaded_packs,
+                    new_cursor,
+                };
+            }
+            sync_actor.mark_pack_uploaded(pack.pack_id);
+            uploaded_packs = uploaded_packs.saturating_add(1);
+        }
+
+        match sync_backend
+            .fetch_packs_after(agent_id, local_device, new_cursor)
             .await
         {
-            Ok(rec) => {
-                // 成功取得全新 witness_epoch！激活前强制从 Hub 拉取全量历史 Packfile 重水合，杜绝跨纪元漏看幂等令牌！
-                if sync_actor
-                    .sync_via_hub(kernel, sync_backend, local_wall_ms)
-                    .await
-                    .is_err()
-                {
-                    self.handle_hub_unreachable(kernel, acquire_mono);
-                    return Ok(kernel.lease_posture());
+            Ok((next, packs)) => {
+                new_cursor = next;
+                for p in packs {
+                    if p.aad.device_id != local_device && seen_ids.insert(p.pack_id) {
+                        fetched_packs.push(p);
+                    }
                 }
-                let ep = Epoch::new(rec.witness_epoch);
-                self.last_hub_contact_mono_ms = Some(acquire_mono);
-                self.state = RouterLeaseState::ActiveRouter {
-                    witness_epoch: ep,
-                    expires_mono_ms: acquire_mono.saturating_add(self.effective_local_ttl_ms()),
-                };
-                kernel.set_lease_posture(LeasePosture::Witnessed { witness_epoch: ep });
-                self.reconcile_pending_outbox(
-                    kernel,
-                    sync_actor,
-                    lease_backend,
-                    sync_backend,
-                    ep,
-                    local_wall_ms,
-                    outbox_deliver_fn,
-                )
-                .await?;
-                Ok(kernel.lease_posture())
-            }
-            Err(QuetzalcoatlError::StaleLeaseEpoch { current, .. }) => {
-                self.last_hub_contact_mono_ms = Some(acquire_mono);
-                self.state = RouterLeaseState::Standby {
-                    known_holder: None,
-                    highest_seen_epoch: current.max(self.highest_seen_epoch()),
-                };
-                kernel.set_lease_posture(LeasePosture::PartitionLocal);
-                Ok(kernel.lease_posture())
             }
             Err(_) => {
-                self.handle_hub_unreachable(kernel, acquire_mono);
-                Ok(kernel.lease_posture())
+                self.classify_hub_unreachable(self.clock.now_millis());
+                return LeaseNetworkReport {
+                    outcome: LeaseNetworkOutcome::Unreachable,
+                    fetched_packs,
+                    uploaded_packs,
+                    new_cursor,
+                };
             }
         }
+
+        let now_mono = self.clock.now_millis();
+        let outcome = if let RouterLeaseState::ActiveRouter { witness_epoch, .. } = self.state {
+            match lease_backend
+                .renew_lease(
+                    agent_id,
+                    local_device,
+                    witness_epoch.get(),
+                    self.config.ttl_ms,
+                )
+                .await
+            {
+                Ok(rec) => {
+                    let ep = Epoch::new(rec.witness_epoch);
+                    self.last_hub_contact_mono_ms = Some(now_mono);
+                    self.state = RouterLeaseState::ActiveRouter {
+                        witness_epoch: ep,
+                        expires_mono_ms: now_mono.saturating_add(self.effective_local_ttl_ms()),
+                    };
+                    LeaseNetworkOutcome::Renewed { witness_epoch: ep }
+                }
+                Err(QuetzalcoatlError::StaleLeaseEpoch { current, .. }) => {
+                    self.stale_epoch_demotions = self.stale_epoch_demotions.saturating_add(1);
+                    self.state = RouterLeaseState::Standby {
+                        known_holder: None,
+                        highest_seen_epoch: current,
+                    };
+                    LeaseNetworkOutcome::Stale { current }
+                }
+                Err(_) => {
+                    self.classify_hub_unreachable(now_mono);
+                    LeaseNetworkOutcome::Unreachable
+                }
+            }
+        } else {
+            match lease_backend
+                .acquire_lease(agent_id, local_device, 0, self.config.ttl_ms)
+                .await
+            {
+                Ok(rec) => {
+                    let ep = Epoch::new(rec.witness_epoch);
+                    self.last_hub_contact_mono_ms = Some(now_mono);
+                    self.state = RouterLeaseState::ActiveRouter {
+                        witness_epoch: ep,
+                        expires_mono_ms: now_mono.saturating_add(self.effective_local_ttl_ms()),
+                    };
+                    // 取得新纪元激活前再拉一次增量，杜绝跨纪元漏看幂等令牌。
+                    match sync_backend
+                        .fetch_packs_after(agent_id, local_device, new_cursor)
+                        .await
+                    {
+                        Ok((next, packs)) => {
+                            new_cursor = next;
+                            for p in packs {
+                                if p.aad.device_id != local_device && seen_ids.insert(p.pack_id) {
+                                    fetched_packs.push(p);
+                                }
+                            }
+                            LeaseNetworkOutcome::Acquired { witness_epoch: ep }
+                        }
+                        Err(_) => {
+                            self.state = RouterLeaseState::PartitionLocal {
+                                entered_mono_ms: now_mono,
+                                highest_seen_epoch: ep.get(),
+                            };
+                            LeaseNetworkOutcome::Unreachable
+                        }
+                    }
+                }
+                Err(QuetzalcoatlError::StaleLeaseEpoch { current, .. }) => {
+                    self.last_hub_contact_mono_ms = Some(now_mono);
+                    self.state = RouterLeaseState::Standby {
+                        known_holder: None,
+                        highest_seen_epoch: current.max(self.highest_seen_epoch()),
+                    };
+                    LeaseNetworkOutcome::Stale { current }
+                }
+                Err(_) => {
+                    self.classify_hub_unreachable(now_mono);
+                    LeaseNetworkOutcome::Unreachable
+                }
+            }
+        };
+
+        LeaseNetworkReport {
+            outcome,
+            fetched_packs,
+            uploaded_packs,
+            new_cursor,
+        }
+    }
+
+    /// 阶段二（短锁）：把网络结果合入内核——解密重水合远端 Packfile、更新游标并落定两态姿态。
+    pub fn apply_network_report<S: MaterializedStore>(
+        &mut self,
+        kernel: &mut BlindKernel<S>,
+        sync_actor: &mut SpineSyncActor,
+        report: &LeaseNetworkReport,
+        local_wall_ms: u64,
+    ) -> Result<LeasePosture> {
+        if !report.fetched_packs.is_empty()
+            && let Err(err) = SpineSyncActor::ingest_packfiles_and_rehydrate(
+                kernel,
+                &report.fetched_packs,
+                local_wall_ms,
+            )
+        {
+            // 合入失败必须 fail-closed 回落分区受限，严禁带着不完整历史继续当 Router。
+            kernel.set_lease_posture(LeasePosture::PartitionLocal);
+            return Err(err);
+        }
+        sync_actor.set_hub_cursor_seq(report.new_cursor);
+        match report.outcome {
+            LeaseNetworkOutcome::Renewed { witness_epoch }
+            | LeaseNetworkOutcome::Acquired { witness_epoch } => {
+                kernel.set_lease_posture(LeasePosture::Witnessed { witness_epoch });
+            }
+            LeaseNetworkOutcome::Stale { .. } | LeaseNetworkOutcome::Unreachable => {
+                kernel.set_lease_posture(LeasePosture::PartitionLocal);
+            }
+            LeaseNetworkOutcome::Skipped => {}
+        }
+        Ok(kernel.lease_posture())
+    }
+
+    /// 执行一次租约续期/竞选与断网 `Outbox` 对账周期（单线程测试与离线工具使用的组合编排）。
+    pub async fn tick_and_reconcile<S: MaterializedStore, F>(
+        &mut self,
+        kernel: &mut BlindKernel<S>,
+        sync_actor: &mut SpineSyncActor,
+        lease_backend: &dyn LeaseWitnessBackend,
+        sync_backend: &dyn SpineSyncBackend,
+        local_wall_ms: u64,
+        outbox_deliver_fn: F,
+    ) -> Result<LeasePosture>
+    where
+        F: FnMut(&str, &str, &str, Epoch) -> Result<()>,
+    {
+        let _ = self.check_monotonic_expiry_before_io(kernel);
+        let agent_id = kernel.spine().agent_id();
+        let local_dev_id = kernel.spine().local_device().device_id();
+        let _ = kernel.spine_mut().seal_checkpoint(None, local_wall_ms);
+        let local_packs = kernel.spine().store().list_packfiles()?;
+        let existing_ids: BTreeSet<ArtifactId> = local_packs.iter().map(|p| p.pack_id).collect();
+        let report = self
+            .network_tick(
+                agent_id,
+                local_dev_id,
+                sync_actor,
+                lease_backend,
+                sync_backend,
+                &local_packs,
+                &existing_ids,
+            )
+            .await;
+        let posture = self.apply_network_report(kernel, sync_actor, &report, local_wall_ms)?;
+        if let LeasePosture::Witnessed { witness_epoch } = posture {
+            self.reconcile_pending_outbox(
+                kernel,
+                sync_actor,
+                lease_backend,
+                sync_backend,
+                witness_epoch,
+                local_wall_ms,
+                outbox_deliver_fn,
+            )
+            .await?;
+        }
+        Ok(kernel.lease_posture())
     }
 
     /// 合盖/挂起/优雅退出 `<100ms` 主动租约释放与在线对等节点无缝接班。

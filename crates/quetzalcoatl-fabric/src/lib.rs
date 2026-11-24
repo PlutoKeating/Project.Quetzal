@@ -16,11 +16,13 @@ pub use endpoint::{
     PeerStatusSnapshot, QadReportSnapshot, parse_ca_certs_pem_or_der,
 };
 pub use lease_router::{
-    FencedDeliveryOutcome, FencedLeaseCoordinator, LeaseCoordinatorConfig, LeaseWitnessBackend,
-    MonotonicClock, RouterLeaseState, SimulatedMonotonicClock, StdMonotonicClock,
+    FencedDeliveryOutcome, FencedLeaseCoordinator, LeaseCoordinatorConfig, LeaseNetworkOutcome,
+    LeaseNetworkReport, LeaseWitnessBackend, MonotonicClock, OutboxReconcileItem,
+    OutboxReconcileOutcome, OutboxReconcilePlan, RouterLeaseState, SimulatedMonotonicClock,
+    StdMonotonicClock,
 };
-pub use sync_actor::{SpineSyncActor, SpineSyncBackend, SyncReport};
+pub use sync_actor::{PeerSyncOutcome, PeerSyncPlan, SpineSyncActor, SpineSyncBackend, SyncReport};
 pub use worker_pool::{
     NodeCapabilityAnnouncement, NodeCapabilitySpec, RemoteWorkerPool, RemoteWorkerTaskResult,
-    RemoteWorkerTaskSpec, execute_remote_worker_task_locally,
+    RemoteWorkerTaskSpec, enforce_remote_worker_lease_fence, execute_remote_worker_task_locally,
 };

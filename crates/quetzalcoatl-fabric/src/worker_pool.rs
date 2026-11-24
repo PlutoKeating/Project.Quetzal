@@ -17,11 +17,11 @@ use quetzalcoatl_crypto::{
 };
 use quetzalcoatl_kernel::{
     ArtifactEntryKind, BlindKernel, CapabilityInvocation, CapabilitySet, CleanRoomVerifierDag,
-    PrincipalRole, ScopeChain, VerificationMark, compute_workspace_tree_manifest,
+    LeasePosture, PrincipalRole, ScopeChain, VerificationMark, compute_workspace_tree_manifest,
 };
 use quetzalcoatl_sandbox::{NetworkPolicy, SandboxCommand, SandboxMode, TicketRequest};
 use quetzalcoatl_spine::MaterializedStore;
-use quetzalcoatl_types::{AgentId, ArtifactId, DeviceId, QuetzalcoatlError, Result, RunId};
+use quetzalcoatl_types::{AgentId, ArtifactId, DeviceId, Epoch, QuetzalcoatlError, Result, RunId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -359,12 +359,35 @@ impl Drop for ScratchDirCleanup {
     }
 }
 
+/// 跨机远程 Worker 任务的两态围栏闸门（Fix Round 1 / Critical #1）：
+/// 只有本机当前处于 `LeasePosture::Witnessed { witness_epoch }` 且与派发方声明的 `witness_epoch`
+/// 严格一致时才允许执行；断网 `PartitionLocal` 或纪元陈旧一律在触碰脊柱/沙箱之前拒绝。
+pub fn enforce_remote_worker_lease_fence<S: MaterializedStore>(
+    kernel: &BlindKernel<S>,
+    expected_witness_epoch: Epoch,
+) -> Result<()> {
+    match kernel.lease_posture() {
+        LeasePosture::PartitionLocal => Err(QuetzalcoatlError::PartitionRestricted {
+            detail: String::from("本机处于断网分区受限租约，拒绝执行任何跨机远程 Worker 任务"),
+        }),
+        LeasePosture::Witnessed { witness_epoch } if witness_epoch != expected_witness_epoch => {
+            Err(QuetzalcoatlError::StaleLeaseEpoch {
+                provided: expected_witness_epoch.get(),
+                current: witness_epoch.get(),
+            })
+        }
+        LeasePosture::Witnessed { .. } => Ok(()),
+    }
+}
+
 /// 在远端 Worker 节点本机无容器沙箱与断网洁净室校验器中执行任务并密封返回 `SealedPackfile`。
 pub fn execute_remote_worker_task_locally<S: MaterializedStore>(
     kernel: &mut BlindKernel<S>,
     task: &RemoteWorkerTaskSpec,
+    expected_witness_epoch: Epoch,
     local_wall_ms: u64,
 ) -> Result<RemoteWorkerTaskResult> {
+    enforce_remote_worker_lease_fence(kernel, expected_witness_epoch)?;
     let probe = kernel.sandbox().probe()?;
     if !probe.available {
         return Err(QuetzalcoatlError::SandboxViolation {

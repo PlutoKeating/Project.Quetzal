@@ -118,7 +118,7 @@ fn workspace_enforces_forbid_unsafe_and_naming_conventions() -> TestResult {
     );
     assert_eq!(
         ws_pkg.get("rust-version").and_then(toml::Value::as_str),
-        Some("1.88")
+        Some("1.91")
     );
     assert_eq!(
         ws_pkg.get("license").and_then(toml::Value::as_str),

@@ -20,7 +20,7 @@ use std::time::Duration;
 use quetzalcoatl_crypto::hex_encode;
 use quetzalcoatl_harness::DiscoveryReport;
 use quetzalcoatl_spine::V1ImportReport;
-use quetzalcoatl_types::{QuetzalcoatlError, Result, RunId};
+use quetzalcoatl_types::{DeviceId, QuetzalcoatlError, Result, RunId};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -30,7 +30,7 @@ use crate::daemon::{
 };
 use crate::fabric::{
     FabricLoginRequest, FabricLoginResult, FabricNodesReport, FabricPairApproveResult,
-    FabricPairJoinResult, FabricPairStartResult,
+    FabricPairJoinResult, FabricPairStartResult, FabricRevokeResult,
 };
 
 const MAX_IPC_HEADER_BYTES: usize = 32 * 1024;
@@ -170,6 +170,10 @@ pub enum IpcRequest {
     },
     /// `qz nodes`：列出 fabric 对等节点、路径类型与当前 Router 租约持有者。
     FabricNodes,
+    /// `qz pair revoke --device <id>`：吊销已配对设备并前向轮换纪元密钥。
+    FabricRevokeDevice {
+        device_id: DeviceId,
+    },
     Shutdown,
 }
 
@@ -188,6 +192,7 @@ pub enum IpcResponse {
     FabricPairJoin(FabricPairJoinResult),
     FabricPairApprove(Box<FabricPairApproveResult>),
     FabricNodes(Box<FabricNodesReport>),
+    FabricRevokeDevice(FabricRevokeResult),
     Error { code: String, detail: String },
 }
 

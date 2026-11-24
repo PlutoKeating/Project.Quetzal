@@ -395,6 +395,8 @@ fn load_or_init_sovereign_bundle(
     let mut ring =
         EpochKeyRing::new_genesis(persisted.agent_id, &root_key, device.public_record())?;
     ring.insert_epoch_key(Epoch::new(1), EpochKey::from_bytes(ep1_bytes));
+    // Important #4：重放已持久化的新增设备与踢人后的新纪元密钥，保证重启后鉴权目录与本地成员一致。
+    crate::fabric::apply_persisted_membership(qz_home, &mut ring, &root_key)?;
 
     let store = RusqliteWalStore::open(&sqlite_path)?;
     let initial_hlc = store
@@ -1625,6 +1627,21 @@ impl SharedDaemonCore {
                     IpcResponse::FabricNodes(Box::new(runtime.nodes_report())),
                     false,
                 )
+            }
+            IpcRequest::FabricRevokeDevice { device_id } => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return fabric_disabled_response();
+                };
+                match runtime.revoke_device(&self.config.quetzalcoatl_home, device_id) {
+                    Ok(rep) => (IpcResponse::FabricRevokeDevice(rep), false),
+                    Err(err) => (
+                        IpcResponse::Error {
+                            code: String::from(err.code().as_str()),
+                            detail: err.to_string(),
+                        },
+                        false,
+                    ),
+                }
             }
             IpcRequest::Shutdown => {
                 if let Ok(mut guard) = self.state.lock() {

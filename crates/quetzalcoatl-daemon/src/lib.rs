@@ -15,6 +15,6 @@ pub use daemon::{
 pub use fabric::{
     DaemonFabricConfig, FabricLoginRequest, FabricLoginResult, FabricNodesReport,
     FabricPairApproveResult, FabricPairJoinResult, FabricPairStartResult, FabricPeerRow,
-    FabricStatus, PersistedFabricSession, load_persisted_session,
+    FabricRevokeResult, FabricStatus, PersistedFabricSession, load_persisted_session,
 };
 pub use local_ipc::{IpcClient, IpcRequest, IpcResponse, validate_loopback_host_and_origin};

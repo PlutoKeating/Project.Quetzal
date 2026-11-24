@@ -20,19 +20,21 @@ use std::future::Future;
 use std::pin::Pin;
 
 use quetzalcoatl_crypto::{
-    AccountRootKey, DeviceIdentity, EpochKeyRing, SealedPackfile, hex_decode_fixed, hex_encode,
+    AccountRootKey, DeviceIdentity, DevicePublicRecord, EpochKey, EpochKeyRing, SealedPackfile,
+    hex_decode, hex_decode_fixed, hex_encode,
 };
 use quetzalcoatl_fabric::{
     FabricNode, FabricNodeConfig, FabricRelaySettings, FabricRpcHandler, FabricRpcRequest,
     FabricRpcResponse, FencedLeaseCoordinator, HubClient, HubClientConfig, LeaseCoordinatorConfig,
     LeaseWitnessBackend, LeaseWitnessRecord, NodeCapabilityAnnouncement, NodeCapabilitySpec,
-    PairHpkeBundle, PeerPathKind, RemoteWorkerPool, RouterLeaseState, SpineSyncActor,
-    SpineSyncBackend, StdMonotonicClock, execute_remote_worker_task_locally,
+    OutboxReconcileOutcome, OutboxReconcilePlan, PairHpkeBundle, PeerPathKind, PeerSyncOutcome,
+    PeerSyncPlan, RemoteWorkerPool, RouterLeaseState, SpineSyncActor, SpineSyncBackend,
+    StdMonotonicClock, enforce_remote_worker_lease_fence, execute_remote_worker_task_locally,
     parse_ca_certs_pem_or_der,
 };
-use quetzalcoatl_kernel::LeasePosture;
+use quetzalcoatl_kernel::{LeasePosture, OutboxItem};
 use quetzalcoatl_spine::MaterializedStore;
-use quetzalcoatl_types::{AgentId, DeviceId, Epoch, QuetzalcoatlError, Result};
+use quetzalcoatl_types::{AgentId, ArtifactId, DeviceId, Epoch, QuetzalcoatlError, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::{SharedDaemonCore, now_unix_ms, write_private_file};
@@ -158,6 +160,72 @@ fn save_persisted_session(qz_home: &Path, session: &PersistedFabricSession) -> R
     write_private_file(&qz_home.join(FABRIC_SESSION_REL_PATH), &bytes)
 }
 
+#[derive(Default, Serialize, Deserialize)]
+struct PersistedMembershipState {
+    #[serde(default)]
+    extra_epoch_keys: Vec<(u64, String)>,
+    #[serde(default)]
+    peer_devices: Vec<DevicePublicRecord>,
+}
+
+const FABRIC_MEMBERSHIP_REL_PATH: &str = "fabric/membership_state.json";
+
+/// 启动时把已持久化的成员变更（新增设备 + 踢人后的新纪元密钥）重放进本地 `EpochKeyRing`。
+/// 每次重放都会用根密钥重新签发成员变更审计记录，因此无需持久化易失效的旧签名。
+pub(crate) fn apply_persisted_membership(
+    qz_home: &Path,
+    ring: &mut EpochKeyRing,
+    root_key: &AccountRootKey,
+) -> Result<()> {
+    let Some(state) =
+        load_json_private::<PersistedMembershipState>(&qz_home.join(FABRIC_MEMBERSHIP_REL_PATH))
+    else {
+        return Ok(());
+    };
+    for (epoch, key_hex) in state.extra_epoch_keys {
+        if epoch <= 1 {
+            continue;
+        }
+        let key = hex_decode_fixed::<32>("membership.extra_epoch_key", &key_hex)?;
+        ring.insert_epoch_key(Epoch::new(epoch), EpochKey::from_bytes(key));
+    }
+    for record in state.peer_devices {
+        if !ring.is_device_active(record.device_id) {
+            ring.add_device(root_key, record)?;
+        }
+    }
+    Ok(())
+}
+
+/// 持久化当前活跃成员设备（不含本机）与踢人轮换后的全部纪元密钥；文件权限严格 `0600`。
+pub(crate) fn persist_membership(
+    qz_home: &Path,
+    ring: &EpochKeyRing,
+    local_device: DeviceId,
+) -> Result<()> {
+    let mut extra_epoch_keys = Vec::new();
+    for epoch in 2..=ring.current_epoch().get() {
+        if let Some(key) = ring.epoch_key(Epoch::new(epoch)) {
+            extra_epoch_keys.push((epoch, hex_encode(key.as_bytes())));
+        }
+    }
+    let peer_devices: Vec<DevicePublicRecord> = ring
+        .active_devices()
+        .iter()
+        .filter(|(id, _)| **id != local_device)
+        .map(|(_, rec)| rec.clone())
+        .collect();
+    let state = PersistedMembershipState {
+        extra_epoch_keys,
+        peer_devices,
+    };
+    let bytes =
+        serde_json::to_vec_pretty(&state).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: format!("编码 fabric 成员状态失败: {e}"),
+        })?;
+    write_private_file(&qz_home.join(FABRIC_MEMBERSHIP_REL_PATH), &bytes)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct PersistedJoinerIdentity {
     agent_id: AgentId,
@@ -246,6 +314,13 @@ pub struct FabricPairApproveResult {
     pub slot2_nonce_hex: String,
     pub slot2_ciphertext_hex: String,
     pub slot2_hpke_enc_hex: String,
+}
+
+/// `qz pair revoke` 结果（踢人后纪元已前向轮换）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FabricRevokeResult {
+    pub device_id: DeviceId,
+    pub new_epoch: u64,
 }
 
 impl From<PairHpkeBundle> for FabricPairApproveResult {
@@ -355,6 +430,15 @@ fn lock_or_storage<T>(m: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
     m.lock().map_err(|_| QuetzalcoatlError::StorageError {
         detail: String::from("fabric 运行时锁异常"),
     })
+}
+
+/// 单次心跳阶段 0 的只读快照（内核锁内构造，随后全程零锁使用）。
+struct SyncSnapshot {
+    agent_id: AgentId,
+    local_device: DeviceId,
+    local_packs: Vec<SealedPackfile>,
+    existing: BTreeSet<ArtifactId>,
+    peer_plan: PeerSyncPlan,
 }
 
 /// 最近一次租约心跳的只读快照（供 `qz status` / `qz nodes` 非阻塞读取，绝不与心跳线程抢锁）。
@@ -710,8 +794,9 @@ impl DaemonFabricRuntime {
         ))
     }
 
-    /// 周期性 / 手动租约续期与 `Outbox` 对账（严格的"先读单调时钟再发网络包"顺序）。
-    /// 通过 `tick_inflight` 原子门闩保证同一时刻最多一个心跳在网络中，避免锁堆积。
+    /// 分阶段心跳（Fix Round 1 / Important #3）：**任何 `core.state` 内核锁都绝不跨网络 I/O 持有**。
+    /// 阶段 0（短锁）快照 → 阶段 1（零锁）Hub 心跳 + 逐对等节点直连同步 → 阶段 2（短锁）合入 →
+    /// 阶段 3（零锁）真实外部投递 → 阶段 4（短锁）写见证记录 → 阶段 5（零锁）上传见证包。
     pub(crate) fn tick_now(&self) -> Result<()> {
         if self.stop.load(Ordering::Relaxed) || self.session_token().is_none() {
             return Ok(());
@@ -723,40 +808,127 @@ impl DaemonFabricRuntime {
         {
             return Ok(());
         }
-        let guard = TickInflightGuard(&self.tick_inflight);
+        let inflight = TickInflightGuard(&self.tick_inflight);
         let Some(core) = self.core() else {
             return Ok(());
         };
         let token = self.session_token().unwrap_or_default();
         let hub = BoundedHub::new(self.hub_client(Some(&token))?);
+        let wall = now_unix_ms();
+
+        // 阶段 0：短锁快照（本地密封检查点、待上传/既有包、逐对等节点同步计划）。
+        let snapshot = {
+            let mut state = lock_or_storage(&core.state)?;
+            let _ = state.kernel.spine_mut().seal_checkpoint(None, wall);
+            let all_packs = state.kernel.spine().store().list_packfiles()?;
+            let agent_id = state.kernel.spine().agent_id();
+            let local_device = state.kernel.spine().local_device().device_id();
+            let local_packs: Vec<SealedPackfile> = all_packs
+                .iter()
+                .filter(|p| p.aad.device_id == local_device)
+                .cloned()
+                .collect();
+            let existing: BTreeSet<ArtifactId> = all_packs.iter().map(|p| p.pack_id).collect();
+            let peer_plan = SpineSyncActor::collect_peer_sync_plan(&state.kernel)?;
+            SyncSnapshot {
+                agent_id,
+                local_device,
+                local_packs,
+                existing,
+                peer_plan,
+            }
+        };
+
         let mut lease = lock_or_storage(&self.lease)?;
         let mut sync = lock_or_storage(&self.sync)?;
-        let mut state = lock_or_storage(&core.state)?;
-        let local_device = state.kernel.spine().local_device().device_id();
-        let wall = now_unix_ms();
-        let tick_res = self.rt.block_on(lease.tick_and_reconcile(
-            &mut state.kernel,
+
+        // 阶段 1a：零内核锁的 Hub 心跳（续租/竞选 + 包上传下载）。
+        let report = self.rt.block_on(lease.network_tick(
+            snapshot.agent_id,
+            snapshot.local_device,
             &mut sync,
             &hub,
             &hub,
-            wall,
-            |capability_id, idempotency_key, _args, _epoch| {
-                Err(QuetzalcoatlError::DeliveryRefused {
-                    detail: format!(
-                        "外部通道尚未在本构建中启用，外发项 {capability_id}/{idempotency_key} 暂存 Outbox 待对账"
-                    ),
-                })
-            },
+            &snapshot.local_packs,
+            &snapshot.existing,
         ));
+
+        // 阶段 1b：零内核锁的逐对等节点直连 Packfile 同步（Hub 不可达时仍可收敛）。
+        let mut peer_pulled = Vec::new();
+        for addr in self.node.peer_endpoint_addrs() {
+            if let Ok(outcome) = self.rt.block_on(SpineSyncActor::exchange_with_peer(
+                &self.node,
+                addr,
+                snapshot.agent_id,
+                snapshot.local_device,
+                &snapshot.peer_plan,
+            )) {
+                peer_pulled.extend(outcome.pulled_packs);
+            }
+        }
+
+        // 阶段 2：短锁合入远端包、落定姿态并准备 Outbox 投递计划。
+        let plan = {
+            let mut state = lock_or_storage(&core.state)?;
+            let posture =
+                lease.apply_network_report(&mut state.kernel, &mut sync, &report, wall)?;
+            if !peer_pulled.is_empty() {
+                let outcome = PeerSyncOutcome {
+                    uploaded_packs: 0,
+                    pulled_packs: peer_pulled,
+                };
+                let _ = SpineSyncActor::apply_peer_sync(&mut state.kernel, &outcome, wall);
+            }
+            if matches!(posture, LeasePosture::Witnessed { .. }) {
+                lease.prepare_outbox_reconcile(&mut state.kernel, wall)?
+            } else {
+                OutboxReconcilePlan::default()
+            }
+        };
+
+        // 阶段 3：零内核锁执行真实外部投递（外部通道尚未启用 → 全部拒收并保持待投递）。
+        let mut outcomes = Vec::new();
+        for entry in plan.items.clone() {
+            let delivered = self
+                .deliver_outbox_item(&entry.item, &entry.idempotency_key)
+                .is_ok();
+            outcomes.push(OutboxReconcileOutcome { entry, delivered });
+        }
+
+        // 阶段 4：短锁写真实投递见证记录；阶段 5：零内核锁上传见证 Packfile。
+        if !outcomes.is_empty() {
+            let packs = {
+                let mut state = lock_or_storage(&core.state)?;
+                lease.record_outbox_outcomes(&mut state.kernel, &plan, &outcomes, wall)?
+            };
+            for p in &packs {
+                let _ = self.rt.block_on(SpineSyncBackend::upload_pack(
+                    &hub,
+                    snapshot.agent_id,
+                    snapshot.local_device,
+                    p,
+                ));
+            }
+        }
+
         let cursor = sync.hub_cursor_seq();
-        let view = capture_lease_view(&lease, local_device);
-        drop(state);
+        let view = capture_lease_view(&lease, snapshot.local_device);
         drop(sync);
         drop(lease);
-        drop(guard);
+        drop(inflight);
         self.last_sync_cursor.store(cursor, Ordering::SeqCst);
         *lock_or_storage(&self.lease_view)? = view;
-        tick_res.map(|_posture| ())
+        Ok(())
+    }
+
+    /// 外部通道投递边界（Sprint 3 前一律 fail-closed 拒收，宁可留队也不伪签投递成功）。
+    fn deliver_outbox_item(&self, item: &OutboxItem, idempotency_key: &str) -> Result<()> {
+        Err(QuetzalcoatlError::DeliveryRefused {
+            detail: format!(
+                "外部通道尚未在本构建中启用，外发项 {}/{idempotency_key} 暂存 Outbox 待对账",
+                item.capability_id
+            ),
+        })
     }
 
     fn refresh_lease_view(&self) {
@@ -810,9 +982,48 @@ impl DaemonFabricRuntime {
         {
             let _ = join.join();
         }
-        self.release_active_lease();
+        // Important #5（后半）：先尝试 `<100ms` 主动移交给在线对等节点，失败再回退为 Hub 直接释放。
+        if !self.try_voluntary_handoff() {
+            self.release_active_lease();
+        }
         self.refresh_lease_view();
         self.rt.block_on(self.node.shutdown());
+    }
+
+    /// 优雅退出时把当前 `witness_epoch` 连同最新检查点移交在线对等节点（返回是否移交成功）。
+    fn try_voluntary_handoff(&self) -> bool {
+        let (Some(token), Some(core)) = (self.session_token(), self.core()) else {
+            return false;
+        };
+        let Ok(hub) = self.hub_client(Some(&token)) else {
+            return false;
+        };
+        let Some(target) = self.node.peer_endpoint_addrs().into_iter().next() else {
+            return false;
+        };
+        let Ok(mut lease) = self.lease.lock() else {
+            return false;
+        };
+        if !matches!(lease.state(), RouterLeaseState::ActiveRouter { .. }) {
+            return false;
+        }
+        let Ok(mut sync) = self.sync.lock() else {
+            return false;
+        };
+        let Ok(mut state) = core.state.lock() else {
+            return false;
+        };
+        let bounded = BoundedHub::new(hub);
+        self.rt
+            .block_on(lease.voluntary_handoff(
+                &mut state.kernel,
+                &mut sync,
+                &bounded,
+                Some(&bounded),
+                Some((&self.node, target)),
+                now_unix_ms(),
+            ))
+            .is_ok()
     }
 
     fn release_active_lease(&self) {
@@ -1055,7 +1266,86 @@ impl DaemonFabricRuntime {
             &root_key,
             &status,
         ))?;
+
+        // Important #4：批准后必须把新设备真实写入本地 EpochKeyRing（含绑定纪元密钥）并让
+        // `SovereignAuthHook` 立即放行该 EndpointId，同时 `0600` 持久化以便重启后续用。
+        let joiner_record = DevicePublicRecord {
+            device_id: bundle.joiner_device_id,
+            ed25519_pubkey: hex_decode_fixed::<32>(
+                "new_device_ed25519_hex",
+                &status.new_device_ed25519_hex,
+            )?,
+            xwing_pubkey: hex_decode("new_device_xwing_pk_hex", &status.new_device_xwing_pk_hex)?,
+        };
+        let (ring_snapshot, local_device) = {
+            let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
+                detail: String::from("fabric 运行时尚未绑定守护进程内核"),
+            })?;
+            let mut state = lock_or_storage(&core.state)?;
+            let local_device = state.kernel.spine().local_device().device_id();
+            let root = AccountRootKey::from_bytes(hex_decode_fixed::<32>(
+                "root_key_hex",
+                &state.persisted.root_key_hex,
+            )?);
+            {
+                let ring = state.kernel.spine_mut().epoch_ring_mut();
+                if !ring.is_device_active(joiner_record.device_id) {
+                    ring.add_device(&root, joiner_record.clone())?;
+                }
+            }
+            state
+                .kernel
+                .spine_mut()
+                .store_mut()
+                .register_device_pubkey(joiner_record.device_id, &joiner_record.ed25519_pubkey)?;
+            let ring_snapshot = state.kernel.spine().epoch_ring().clone();
+            (ring_snapshot, local_device)
+        };
+        persist_membership(qz_home, &ring_snapshot, local_device)?;
+        self.node.sync_membership(&ring_snapshot);
         Ok(bundle.into())
+    }
+
+    /// 吊销一台已配对设备：先在本地轮换 `EpochKey[e+1]` 并写回成员状态，再同步鉴权目录并主动断开在线连接。
+    pub(crate) fn revoke_device(
+        &self,
+        qz_home: &Path,
+        device_id: DeviceId,
+    ) -> Result<FabricRevokeResult> {
+        if self.session_token().is_none() {
+            return Err(QuetzalcoatlError::CredentialRejected {
+                detail: String::from("fabric 尚未登录 Hub，请先执行 `qz login`"),
+            });
+        }
+        let (new_epoch, ring_snapshot, local_device) = {
+            let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
+                detail: String::from("fabric 运行时尚未绑定守护进程内核"),
+            })?;
+            let mut state = lock_or_storage(&core.state)?;
+            let local_device = state.kernel.spine().local_device().device_id();
+            let root = AccountRootKey::from_bytes(hex_decode_fixed::<32>(
+                "root_key_hex",
+                &state.persisted.root_key_hex,
+            )?);
+            let (new_epoch, _change) = state
+                .kernel
+                .spine_mut()
+                .epoch_ring_mut()
+                .revoke_device(&root, device_id)?;
+            let ring_snapshot = state.kernel.spine().epoch_ring().clone();
+            (new_epoch, ring_snapshot, local_device)
+        };
+        persist_membership(qz_home, &ring_snapshot, local_device)?;
+        self.node.sync_membership(&ring_snapshot);
+        self.rt
+            .block_on(self.node.revoke_peer_and_disconnect(device_id));
+        if let Ok(mut pool) = self.pool.lock() {
+            pool.remove_device(device_id);
+        }
+        Ok(FabricRevokeResult {
+            device_id,
+            new_epoch: new_epoch.get(),
+        })
     }
 
     pub(crate) fn status(&self) -> FabricStatus {
@@ -1376,14 +1666,29 @@ impl FabricRpcHandler for DaemonFabricRpcHandler {
                 }
                 FabricRpcResponse::CapabilityAck
             }
-            FabricRpcRequest::ExecuteRemoteWorkerTask { task, .. } => {
+            FabricRpcRequest::ExecuteRemoteWorkerTask {
+                witness_epoch,
+                task,
+                ..
+            } => {
                 let Ok(mut state) = core.state.lock() else {
                     return FabricRpcResponse::Error {
                         code: String::from("STORAGE_ERROR"),
                         detail: String::from("daemon lock poisoned"),
                     };
                 };
-                match execute_remote_worker_task_locally(&mut state.kernel, &task, now_unix_ms()) {
+                // Critical #1：先做两态围栏门禁（断网 PartitionLocal 或纪元不一致一律硬拒），
+                // 再进入内核 + 沙箱 + 洁净室执行路径；围栏失败不得触碰任何脊柱/沙箱状态。
+                let expected_epoch = Epoch::new(witness_epoch);
+                if let Err(e) = enforce_remote_worker_lease_fence(&state.kernel, expected_epoch) {
+                    return Self::error_response(&e);
+                }
+                match execute_remote_worker_task_locally(
+                    &mut state.kernel,
+                    &task,
+                    expected_epoch,
+                    now_unix_ms(),
+                ) {
                     Ok(result) => FabricRpcResponse::RemoteWorkerTaskCompleted {
                         result: Box::new(result),
                     },

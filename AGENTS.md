@@ -49,7 +49,7 @@
 
 本项目以第一性原理选择各层最优语言，并启用最高等级编译期静态检查辅助 AI Agent 自校正；**100% 放弃跨平台 UI 框架（Flutter / React Native / Compose Desktop）与桌面 WebView 套壳（Electron / Tauri）**：
 
-1. **Rust（`edition = "2024"`, `rust-version = "1.88"`）**：
+1. **Rust（`edition = "2024"`, `rust-version = "1.91"`）**：
    - 覆盖范围：盲微内核、密码学与签名 HLC 脊柱、`quetzalcoatl-ewave`、`iroh v1.5` 组网、OS 沙箱与零凭据代理、桌面通用双模 Harness 宿主、`<3MB` 纯 Rust AEC/VAD、`quetzalcoatl-client-core`、`qz` CLI 及 Linux 原生 `gtk4-rs / relm4` 客户端。
    - **强制门禁**：`[workspace.lints]` 全局开启 `unsafe_code = "forbid"` 与 `clippy::{unwrap_used, expect_used, panic, todo} = "deny"`，所有业务 crate 必须声明 `lints.workspace = true`（仅极少数底层 OS FFI 垫片可在独立受控边界内经显式审计豁免，核心业务 crate 一律 `#![forbid(unsafe_code)]`）。
    - 每次提交前必跑：`cargo deny check licenses bans sources && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`。

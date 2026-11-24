@@ -510,8 +510,9 @@ fn run_pair(args: &[String]) -> Result<()> {
         "start" => run_pair_start(rest),
         "join" => run_pair_join(rest),
         "approve" => run_pair_approve(rest),
+        "revoke" => run_pair_revoke(rest),
         other => Err(QuetzalcoatlError::StorageError {
-            detail: format!("qz pair 未知子命令: {other}（支持 start / join / approve）"),
+            detail: format!("qz pair 未知子命令: {other}（支持 start / join / approve / revoke）"),
         }),
     }
 }
@@ -520,6 +521,7 @@ struct PairArgs {
     home: Option<PathBuf>,
     hub: Option<String>,
     code: Option<String>,
+    device: Option<DeviceId>,
     json_mode: bool,
 }
 
@@ -528,6 +530,7 @@ fn parse_pair_args(args: &[String], allow_code: bool) -> Result<PairArgs> {
         home: None,
         hub: None,
         code: None,
+        device: None,
         json_mode: false,
     };
     let mut i = 0usize;
@@ -538,6 +541,14 @@ fn parse_pair_args(args: &[String], allow_code: bool) -> Result<PairArgs> {
             "--hub" => out.hub = Some(parse_flag_value(args, &mut i, "--hub")?.clone()),
             "--code" if allow_code => {
                 out.code = Some(parse_flag_value(args, &mut i, "--code")?.clone())
+            }
+            "--device" => {
+                let raw = parse_flag_value(args, &mut i, "--device")?;
+                out.device = Some(raw.parse::<DeviceId>().map_err(|e| {
+                    QuetzalcoatlError::SerializationError {
+                        detail: format!("非法 --device: {e}"),
+                    }
+                })?);
             }
             other => {
                 return Err(QuetzalcoatlError::StorageError {
@@ -642,6 +653,35 @@ fn run_pair_approve(args: &[String]) -> Result<()> {
                     res.slot2_nonce_hex,
                     res.slot2_ciphertext_hex,
                     res.slot2_hpke_enc_hex
+                );
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
+fn run_pair_revoke(args: &[String]) -> Result<()> {
+    let parsed = parse_pair_args(args, false)?;
+    let device = parsed
+        .device
+        .ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("用法: qz pair revoke --device <device_id>"),
+        })?;
+    let qz_home = resolve_quetzalcoatl_home(parsed.home);
+    let client = require_daemon(&qz_home)?;
+    expect_fabric_hub(&client, parsed.hub.as_ref())?;
+    match client.call(&IpcRequest::FabricRevokeDevice { device_id: device })? {
+        IpcResponse::FabricRevokeDevice(res) => {
+            if parsed.json_mode {
+                print_json(&res)?;
+            } else {
+                println!(
+                    "revoked device={} (epoch rotated to {})",
+                    res.device_id, res.new_epoch
                 );
             }
             Ok(())

@@ -36,6 +36,7 @@ uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+iroh.workspace = true
 rcgen.workspace = true
 zip.workspace = true
 zstd.workspace = true

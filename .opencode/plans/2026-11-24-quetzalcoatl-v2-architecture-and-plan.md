@@ -8,7 +8,7 @@
 - **唯一简写规范**：仅终端 CLI 命令简写为 **`qz`**；守护进程（`quetzalcoatld`）、引导服（`quetzalcoatl-hub`）、沙箱包装器（`quetzalcoatl-sandbox-exec`）、默认家目录（`~/.quetzalcoatl` / `%LOCALAPPDATA%\Quetzalcoatl`）及全部代码包名（`quetzalcoatl-*`）一律采用全拼。
 - **核心目标（Goal）**：将项目从 V1 单机/多身体串行接力的自研 Agent 循环彻底重构为**与具体 Coding Agent 完全解耦、以 `eWave` 两段式良知与蛇形四维记忆为灵魂、以 `Super-Group-Agent` 物理隔离多主体协同为核心壁垒、覆盖全行业/全年龄段/全受众的五端纯原生自主生命操作系统**。
 - **核心技术栈（Tech Stack）**：
-  - **Rust（2024 Edition, MSRV 1.88+）**：盲微内核、密码学与 E2EE 状态脊柱、`quetzalcoatl-ewave`、`iroh v1.5` P2P、OS 沙箱与零凭据代理、桌面通用双模 Harness 宿主、`<3MB` 纯 Rust 声学回声消除/VAD、共享客户端核心 `quetzalcoatl-client-core`、`qz` CLI，以及 **Linux 纯原生桌面端（`gtk4-rs / relm4` + 动态链接 `libadwaita`）**。
+  - **Rust（2024 Edition, MSRV 1.91+）**：盲微内核、密码学与 E2EE 状态脊柱、`quetzalcoatl-ewave`、`iroh v1.5` P2P、OS 沙箱与零凭据代理、桌面通用双模 Harness 宿主、`<3MB` 纯 Rust 声学回声消除/VAD、共享客户端核心 `quetzalcoatl-client-core`、`qz` CLI，以及 **Linux 纯原生桌面端（`gtk4-rs / relm4` + 动态链接 `libadwaita`）**。
   - **Go（Go 1.26+, `CGO_ENABLED=0`）**：零算力零知识引导服 **`quetzalcoatl-hub`**（单静态二进制）。
   - **Swift（Swift 6.2+ Strict Concurrency）**：**iOS 18–26**（内嵌 `SwiftAgent` + `FoundationModels`）与 **macOS 14+** 纯原生 `SwiftUI` 客户端。
   - **Kotlin（Kotlin 2.2+）**：**Android 10–17（API 29–36）** 纯原生 `Jetpack Compose` 客户端（内嵌 **JetBrains `Koog v1.3`**，`store` 合规包 / `full` 增强包）。

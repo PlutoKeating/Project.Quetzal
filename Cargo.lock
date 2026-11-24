@@ -2620,6 +2620,7 @@ name = "quetzalcoatl-daemon"
 version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
+ "iroh",
  "quetzalcoatl-crypto",
  "quetzalcoatl-ewave",
  "quetzalcoatl-fabric",

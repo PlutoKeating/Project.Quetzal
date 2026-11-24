@@ -605,6 +605,7 @@ pub struct FabricNode {
     weak_conns: Arc<Mutex<BTreeMap<EndpointId, Vec<WeakConnectionHandle>>>>,
     pooled_conns: Arc<Mutex<BTreeMap<EndpointId, Connection>>>,
     overlay_addrs: Vec<SocketAddr>,
+    relay_url: Option<String>,
     accept_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
@@ -683,6 +684,7 @@ impl FabricNode {
                 detail: format!("启动 iroh 1.5 Endpoint 失败: {e}"),
             })?;
 
+        let configured_relay_url = config.relay.as_ref().map(|r| r.relay_url.clone());
         let mut overlay_addrs = Vec::new();
         if config.discover_overlay_interfaces {
             let bound_v4_port = endpoint
@@ -856,6 +858,7 @@ impl FabricNode {
             weak_conns,
             pooled_conns: Arc::new(Mutex::new(BTreeMap::new())),
             overlay_addrs,
+            relay_url: configured_relay_url,
             accept_task: Arc::new(Mutex::new(Some(accept_join))),
         })
     }
@@ -1119,6 +1122,28 @@ impl FabricNode {
                 self.send_rpc_over_conn(&fresh_conn, req).await
             }
         }
+    }
+
+    /// 返回当前已连接且已授权对等节点的可拨号地址（含自建 Hub RelayUrl，供 P2P Packfile 同步与
+    /// 优雅退出 `<100ms` 租约移交使用）。
+    #[must_use]
+    pub fn peer_endpoint_addrs(&self) -> Vec<EndpointAddr> {
+        let relay = self
+            .relay_url
+            .as_deref()
+            .and_then(|raw| RelayUrl::from_str(raw).ok());
+        self.peer_statuses()
+            .into_iter()
+            .filter(|p| p.authorized && !matches!(p.path, PeerPathKind::Disconnected))
+            .filter_map(|p| EndpointId::from_str(&p.endpoint_id_hex).ok())
+            .map(|id| {
+                let mut addr = EndpointAddr::new(id);
+                if let Some(relay_url) = relay.clone() {
+                    addr = addr.with_relay_url(relay_url);
+                }
+                addr
+            })
+            .collect()
     }
 
     #[must_use]

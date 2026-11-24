@@ -29,6 +29,20 @@ pub struct SyncReport {
 pub type PackfileBatchFuture<'a> =
     Pin<Box<dyn Future<Output = Result<(u64, Vec<SealedPackfile>)>> + Send + 'a>>;
 
+/// 逐对等节点直连同步的只读计划（可在不持有内核锁的线程内构造并执行网络交换）。
+#[derive(Clone, Debug)]
+pub struct PeerSyncPlan {
+    pub local_packs: Vec<SealedPackfile>,
+    pub known_heads: Vec<(DeviceId, u64)>,
+}
+
+/// 逐对等节点直连网络交换结果（尚未合入内核）。
+#[derive(Clone, Debug, Default)]
+pub struct PeerSyncOutcome {
+    pub uploaded_packs: usize,
+    pub pulled_packs: Vec<SealedPackfile>,
+}
+
 /// 异步 Packfile 远端暂存后端抽象（生产绑定 `HubClient`，混沌仿真可挂载带故障注入的零知识 Hub）。
 pub trait SpineSyncBackend: Send + Sync {
     fn upload_pack<'a>(
@@ -99,6 +113,15 @@ impl SpineSyncActor {
         self.uploaded_pack_ids.insert(pack_id);
     }
 
+    #[must_use]
+    pub(crate) fn should_upload(&self, pack_id: ArtifactId) -> bool {
+        !self.uploaded_pack_ids.contains(&pack_id)
+    }
+
+    pub(crate) fn set_hub_cursor_seq(&mut self, seq: u64) {
+        self.hub_cursor_seq = seq;
+    }
+
     /// 经由零知识 `quetzalcoatl-hub` 执行双向错峰同步（先上传本机新增密文 Packfile，再按 `server_seq` 游标增量拉取远端 Packfile 解密重水合）。
     pub async fn sync_via_hub<S: MaterializedStore>(
         &mut self,
@@ -152,15 +175,10 @@ impl SpineSyncActor {
         })
     }
 
-    /// 经由 `iroh` 直连流与在线对等节点双向同步 `SealedPackfile`。
-    pub async fn sync_with_peer<S: MaterializedStore>(
-        &mut self,
-        kernel: &mut BlindKernel<S>,
-        fabric: &FabricNode,
-        peer_addr: EndpointAddr,
-        local_trusted_wall_ms: u64,
-    ) -> Result<SyncReport> {
-        let agent_id = kernel.spine().agent_id();
+    /// 构造逐对等节点同步计划（仅本地脊柱读取，零网络）。
+    pub fn collect_peer_sync_plan<S: MaterializedStore>(
+        kernel: &BlindKernel<S>,
+    ) -> Result<PeerSyncPlan> {
         let local_dev_id = kernel.spine().local_device().device_id();
         let local_packs: Vec<SealedPackfile> = kernel
             .spine()
@@ -169,25 +187,6 @@ impl SpineSyncActor {
             .into_iter()
             .filter(|p| p.aad.device_id == local_dev_id)
             .collect();
-
-        let mut uploaded_packs = 0usize;
-        if !local_packs.is_empty() {
-            let push_resp = fabric
-                .send_rpc(
-                    peer_addr.clone(),
-                    &FabricRpcRequest::PushPackfiles {
-                        agent_id,
-                        sender_device_id: local_dev_id,
-                        packs: local_packs.clone(),
-                    },
-                )
-                .await?;
-            if let FabricRpcResponse::Error { detail, .. } = push_resp {
-                return Err(QuetzalcoatlError::StorageError { detail });
-            }
-            uploaded_packs = local_packs.len();
-        }
-
         let mut known_heads = Vec::new();
         for &dev_id in kernel.spine().epoch_ring().active_devices().keys() {
             let seq = kernel
@@ -198,18 +197,48 @@ impl SpineSyncActor {
                 .unwrap_or(0);
             known_heads.push((dev_id, seq));
         }
+        Ok(PeerSyncPlan {
+            local_packs,
+            known_heads,
+        })
+    }
+
+    /// 只做 `iroh` 直连网络交换（零内核锁、零脊柱写入）：推送本地新包 + 拉取远端缺包。
+    pub async fn exchange_with_peer(
+        fabric: &FabricNode,
+        peer_addr: EndpointAddr,
+        agent_id: AgentId,
+        sender_device_id: DeviceId,
+        plan: &PeerSyncPlan,
+    ) -> Result<PeerSyncOutcome> {
+        let mut uploaded_packs = 0usize;
+        if !plan.local_packs.is_empty() {
+            let push_resp = fabric
+                .send_rpc(
+                    peer_addr.clone(),
+                    &FabricRpcRequest::PushPackfiles {
+                        agent_id,
+                        sender_device_id,
+                        packs: plan.local_packs.clone(),
+                    },
+                )
+                .await?;
+            if let FabricRpcResponse::Error { detail, .. } = push_resp {
+                return Err(QuetzalcoatlError::StorageError { detail });
+            }
+            uploaded_packs = plan.local_packs.len();
+        }
 
         let pull_resp = fabric
             .send_rpc(
                 peer_addr,
                 &FabricRpcRequest::PullPackfiles {
                     agent_id,
-                    sender_device_id: local_dev_id,
-                    known_heads,
+                    sender_device_id,
+                    known_heads: plan.known_heads.clone(),
                 },
             )
             .await?;
-
         let pulled_packs = match pull_resp {
             FabricRpcResponse::PackfilesBatch { packs } => packs,
             FabricRpcResponse::Error { detail, .. } => {
@@ -221,17 +250,42 @@ impl SpineSyncActor {
                 });
             }
         };
-
-        let downloaded_packs = pulled_packs.len();
-        let (ingested_events, rehydrated_runs) = if pulled_packs.is_empty() {
-            (0, 0)
-        } else {
-            Self::ingest_packfiles_and_rehydrate(kernel, &pulled_packs, local_trusted_wall_ms)?
-        };
-
-        Ok(SyncReport {
+        Ok(PeerSyncOutcome {
             uploaded_packs,
-            downloaded_packs,
+            pulled_packs,
+        })
+    }
+
+    /// 将逐对等节点网络交换结果合入本地脊柱并重水合（零网络）。
+    pub fn apply_peer_sync<S: MaterializedStore>(
+        kernel: &mut BlindKernel<S>,
+        outcome: &PeerSyncOutcome,
+        local_trusted_wall_ms: u64,
+    ) -> Result<(usize, usize)> {
+        if outcome.pulled_packs.is_empty() {
+            return Ok((0, 0));
+        }
+        Self::ingest_packfiles_and_rehydrate(kernel, &outcome.pulled_packs, local_trusted_wall_ms)
+    }
+
+    /// 经由 `iroh` 直连流与在线对等节点双向同步 `SealedPackfile`（计划 → 网络 → 合入三阶段编排）。
+    pub async fn sync_with_peer<S: MaterializedStore>(
+        &mut self,
+        kernel: &mut BlindKernel<S>,
+        fabric: &FabricNode,
+        peer_addr: EndpointAddr,
+        local_trusted_wall_ms: u64,
+    ) -> Result<SyncReport> {
+        let agent_id = kernel.spine().agent_id();
+        let local_dev_id = kernel.spine().local_device().device_id();
+        let plan = Self::collect_peer_sync_plan(kernel)?;
+        let outcome =
+            Self::exchange_with_peer(fabric, peer_addr, agent_id, local_dev_id, &plan).await?;
+        let (ingested_events, rehydrated_runs) =
+            Self::apply_peer_sync(kernel, &outcome, local_trusted_wall_ms)?;
+        Ok(SyncReport {
+            uploaded_packs: outcome.uploaded_packs,
+            downloaded_packs: outcome.pulled_packs.len(),
             ingested_events,
             rehydrated_runs,
             new_hub_cursor_seq: self.hub_cursor_seq,
