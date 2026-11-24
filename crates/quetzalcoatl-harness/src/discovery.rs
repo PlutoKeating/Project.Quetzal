@@ -172,7 +172,15 @@ pub fn matches_agent_version_signature(binary_name: &str, version_output: &str) 
             lower.contains("claude") || lower.chars().next().is_some_and(|c| c.is_ascii_digit())
         }
         "codex" => lower.contains("codex"),
-        "goose" => lower.contains("goose"),
+        "goose" => {
+            if lower.contains("pressly")
+                || lower.contains("database migration")
+                || lower.contains("goose version:")
+            {
+                return false;
+            }
+            lower.contains("goose")
+        }
         "hermes" => lower.contains("hermes"),
         "agy" => lower.contains("agy") || lower.contains("antigravity"),
         _ => false,
@@ -215,7 +223,7 @@ fn find_executable_in_paths(binary_name: &str, search_paths: &[PathBuf]) -> Opti
     None
 }
 
-/// 零进程开销快速提取符号链接或安装布局中的版本提示（适用于 `claude`、`opencode`、`codex` 等非撞车大体积运行时）。
+/// 零进程开销快速提取符号链接或受管安装目录中的版本提示（仅在命中已知规范安装布局时生效；任何未知路径一律返回 `None` 强制走 `--version` 校验）。
 fn fast_filesystem_banner_hint(kind: CodingAgentKind, binary_path: &Path) -> Option<String> {
     if kind.requires_strict_version_fingerprint() {
         return None;
@@ -230,14 +238,14 @@ fn fast_filesystem_banner_hint(kind: CodingAgentKind, binary_path: &Path) -> Opt
                 return Some(format!("{ver} (Claude Code)"));
             }
         }
-        if kind == CodingAgentKind::Codex && canon_str.contains(".codex/") {
+        if kind == CodingAgentKind::Codex && canon_str.contains("/.codex/") {
             return Some(String::from("codex-cli (verified install)"));
         }
-        if kind == CodingAgentKind::OpenCode && canon_str.contains(".opencode/") {
+        if kind == CodingAgentKind::OpenCode && canon_str.contains("/.opencode/") {
             return Some(String::from("opencode (verified install)"));
         }
     }
-    Some(format!("{} (detected)", kind.binary_name()))
+    None
 }
 
 enum ProbeOutcome {

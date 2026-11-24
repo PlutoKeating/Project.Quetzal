@@ -8,7 +8,7 @@ use std::fmt;
 use std::fs;
 use std::hint::black_box;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -19,9 +19,10 @@ use std::time::Duration;
 
 use quetzalcoatl_crypto::hex_encode;
 use quetzalcoatl_ewave::AssembledContext;
-use quetzalcoatl_sandbox::{UpstreamRequest, UpstreamTransport};
+use quetzalcoatl_sandbox::{UpstreamRequest, UpstreamResponse, UpstreamTransport};
 use quetzalcoatl_types::{QuetzalcoatlError, Result, RunId};
 use rand_core::{OsRng, RngCore};
+use rustls::pki_types::{CertificateDer, ServerName};
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -446,7 +447,7 @@ impl LoopbackGateway {
             Some(v) => decode_hex_32_constant_shape(v),
             None => ([0u8; 32], false),
         };
-        let stub_candidate_hex = extract_stub_token_hex(&req.headers);
+        let stub_candidate_hex = extract_stub_token_hex(&req.headers, sub_target);
         let (cand_stub, has_valid_stub_syntax) = match stub_candidate_hex {
             Some(h) => decode_hex_32_constant_shape(h),
             None => ([0u8; 32], false),
@@ -604,7 +605,7 @@ impl LoopbackGateway {
                 };
                 (
                     self.inner.config.endpoints.gemini_base_url.clone(),
-                    String::from(sub_target),
+                    strip_stub_key_from_target(sub_target),
                     gemini_bearer,
                     None,
                     rewritten,
@@ -762,7 +763,10 @@ fn find_header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a st
         .map(|(_, v)| v.as_str())
 }
 
-fn extract_stub_token_hex(headers: &[(String, String)]) -> Option<&str> {
+fn extract_stub_token_hex<'a>(
+    headers: &'a [(String, String)],
+    sub_target: &'a str,
+) -> Option<&'a str> {
     for (k, v) in headers {
         if k.eq_ignore_ascii_case("authorization") {
             let trimmed = v.trim();
@@ -779,7 +783,40 @@ fn extract_stub_token_hex(headers: &[(String, String)]) -> Option<&str> {
             return Some(hex_part);
         }
     }
+
+    if let Some((_, query)) = sub_target.split_once('?') {
+        for pair in query.split('&') {
+            if let Some((qk, qv)) = pair.split_once('=')
+                && qk == "key"
+                && let Some(hex_part) = qv.trim().strip_prefix(STUB_TOKEN_PREFIX)
+            {
+                return Some(hex_part);
+            }
+        }
+    }
+
     None
+}
+
+fn strip_stub_key_from_target(sub_target: &str) -> String {
+    let Some((path, query)) = sub_target.split_once('?') else {
+        return String::from(sub_target);
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|pair| {
+            if let Some((qk, qv)) = pair.split_once('=') {
+                !(qk == "key" && qv.trim().starts_with(STUB_TOKEN_PREFIX))
+            } else {
+                !pair.is_empty()
+            }
+        })
+        .collect();
+    if kept.is_empty() {
+        String::from(path)
+    } else {
+        format!("{path}?{}", kept.join("&"))
+    }
 }
 
 struct ParsedEndpointBase {
@@ -1596,11 +1633,288 @@ pub fn prepare_stripped_oauth_stubs(
     })
 }
 
-/// 防坑规范 #4：生成 Gemini CLI 所需的双环境变量（自动剥离尾部 `/v1` 后缀）。
+/// 支持真实 HTTPS（`rustls` + 系统根证书）与回环 HTTP、支持 `chunked` 解码且严格禁用跨源 `3xx` 自动重定向的上游传输器。
+#[derive(Clone)]
+pub struct HttpsUpstreamTransport {
+    tls_config: Arc<rustls::ClientConfig>,
+}
+
+impl HttpsUpstreamTransport {
+    pub fn new() -> Result<Self> {
+        Self::with_extra_root_der_certs(Vec::new())
+    }
+
+    pub fn with_extra_root_der_certs(certs_der: Vec<Vec<u8>>) -> Result<Self> {
+        let mut root_store = rustls::RootCertStore::empty();
+        let native_res = rustls_native_certs::load_native_certs();
+        for cert in native_res.certs {
+            let _ = root_store.add(cert);
+        }
+        for der in certs_der {
+            root_store.add(CertificateDer::from(der)).map_err(|e| {
+                QuetzalcoatlError::CredentialRejected {
+                    detail: format!("加载自定义 TLS 根证书失败: {e}"),
+                }
+            })?;
+        }
+
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let tls_config = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("初始化 rustls 协议版本配置失败: {e}"),
+            })?
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+        Ok(Self {
+            tls_config: Arc::new(tls_config),
+        })
+    }
+}
+
+impl UpstreamTransport for HttpsUpstreamTransport {
+    fn roundtrip(&self, request: &UpstreamRequest) -> Result<UpstreamResponse> {
+        let scheme = request.scheme.trim().to_ascii_lowercase();
+        if scheme != "http" && scheme != "https" {
+            return Err(QuetzalcoatlError::CredentialRejected {
+                detail: format!("HttpsUpstreamTransport 仅支持 http/https，拒绝: {scheme}"),
+            });
+        }
+
+        let addr_spec = format!("{}:{}", request.host, request.port);
+        let mut addrs =
+            addr_spec
+                .to_socket_addrs()
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                    detail: format!("解析上游主机地址失败 ({addr_spec}): {e}"),
+                })?;
+        let sock_addr = addrs
+            .next()
+            .ok_or_else(|| QuetzalcoatlError::StorageError {
+                detail: format!("上游地址无可用 IP 记录: {addr_spec}"),
+            })?;
+
+        let tcp_stream =
+            TcpStream::connect_timeout(&sock_addr, Duration::from_secs(10)).map_err(|e| {
+                QuetzalcoatlError::StorageError {
+                    detail: format!("连接上游 {sock_addr} 失败: {e}"),
+                }
+            })?;
+        let _ = tcp_stream.set_read_timeout(Some(Duration::from_secs(30)));
+        let _ = tcp_stream.set_write_timeout(Some(Duration::from_secs(30)));
+
+        let wire = build_upstream_http11_wire(request);
+
+        if scheme == "https" {
+            let clean_host = request
+                .host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_owned();
+            let server_name = ServerName::try_from(clean_host).map_err(|e| {
+                QuetzalcoatlError::CredentialRejected {
+                    detail: format!("非法的 TLS SNI 主机名 `{}`: {e}", request.host),
+                }
+            })?;
+            let conn = rustls::ClientConnection::new(Arc::clone(&self.tls_config), server_name)
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                    detail: format!("创建 TLS 客户端连接失败: {e}"),
+                })?;
+            let mut tls_stream = rustls::StreamOwned::new(conn, tcp_stream);
+            tls_stream
+                .write_all(&wire)
+                .and_then(|()| tls_stream.flush())
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                    detail: format!("通过 TLS 发送上游请求失败: {e}"),
+                })?;
+            read_upstream_http11_response(&mut tls_stream)
+        } else {
+            let mut plain_stream = tcp_stream;
+            plain_stream
+                .write_all(&wire)
+                .and_then(|()| plain_stream.flush())
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                    detail: format!("发送上游 HTTP 请求失败: {e}"),
+                })?;
+            read_upstream_http11_response(&mut plain_stream)
+        }
+    }
+}
+
+fn build_upstream_http11_wire(request: &UpstreamRequest) -> Vec<u8> {
+    let mut wire = Vec::with_capacity(512 + request.body.len());
+    let host_hdr = if (request.scheme == "http" && request.port == 80)
+        || (request.scheme == "https" && request.port == 443)
+    {
+        request.host.clone()
+    } else {
+        format!("{}:{}", request.host, request.port)
+    };
+    wire.extend_from_slice(
+        format!("{} {} HTTP/1.1\r\n", request.method, request.path_and_query).as_bytes(),
+    );
+    wire.extend_from_slice(format!("Host: {host_hdr}\r\n").as_bytes());
+    wire.extend_from_slice(b"Connection: close\r\n");
+    for (name, val) in &request.headers {
+        if name.eq_ignore_ascii_case("host")
+            || name.eq_ignore_ascii_case("connection")
+            || name.eq_ignore_ascii_case("content-length")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+        {
+            continue;
+        }
+        if !name.contains('\r')
+            && !name.contains('\n')
+            && !val.contains('\r')
+            && !val.contains('\n')
+        {
+            wire.extend_from_slice(format!("{name}: {val}\r\n").as_bytes());
+        }
+    }
+    if !request.body.is_empty()
+        || request.method.eq_ignore_ascii_case("POST")
+        || request.method.eq_ignore_ascii_case("PUT")
+        || request.method.eq_ignore_ascii_case("PATCH")
+    {
+        wire.extend_from_slice(format!("Content-Length: {}\r\n", request.body.len()).as_bytes());
+    }
+    wire.extend_from_slice(b"\r\n");
+    wire.extend_from_slice(&request.body);
+    wire
+}
+
+fn read_upstream_http11_response<R: Read>(stream: &mut R) -> Result<UpstreamResponse> {
+    let mut raw = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                if raw.len().saturating_add(n) > MAX_GATEWAY_BODY_BYTES + MAX_GATEWAY_HEADER_BYTES {
+                    return Err(QuetzalcoatlError::StorageError {
+                        detail: String::from("上游 HTTP 响应超出大小上限"),
+                    });
+                }
+                raw.extend_from_slice(&chunk[..n]);
+            }
+            // 部分 HTTPS 服务器在发送完 Connection: close 响应体后不发 close_notify 直接断开 TCP，若已收妥响应头则容忍 UnexpectedEof
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof && !raw.is_empty() => break,
+            Err(e) => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("读取上游响应失败: {e}"),
+                });
+            }
+        }
+    }
+
+    let sep = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| QuetzalcoatlError::SerializationError {
+            detail: String::from("上游响应缺少完整 HTTP 头部"),
+        })?;
+    let head_str =
+        std::str::from_utf8(&raw[..sep]).map_err(|_| QuetzalcoatlError::SerializationError {
+            detail: String::from("上游响应头不是合法 UTF-8"),
+        })?;
+    let mut lines = head_str.split("\r\n");
+    let status_line = lines
+        .next()
+        .ok_or_else(|| QuetzalcoatlError::SerializationError {
+            detail: String::from("上游响应缺少状态行"),
+        })?;
+    let status = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or_else(|| QuetzalcoatlError::SerializationError {
+            detail: format!("解析上游 HTTP 状态码失败: `{status_line}`"),
+        })?;
+
+    let mut headers = Vec::new();
+    let mut is_chunked = false;
+    let mut content_len_opt: Option<usize> = None;
+    for line in lines {
+        if let Some((k, v)) = line.split_once(':') {
+            let name = k.trim();
+            let val = v.trim();
+            if name.eq_ignore_ascii_case("transfer-encoding")
+                && val.to_ascii_lowercase().contains("chunked")
+            {
+                is_chunked = true;
+            } else if name.eq_ignore_ascii_case("content-length")
+                && let Ok(cl) = val.parse::<usize>()
+            {
+                content_len_opt = Some(cl);
+            }
+            headers.push((String::from(name), String::from(val)));
+        }
+    }
+
+    let raw_body = &raw[sep + 4..];
+    let body = if is_chunked {
+        decode_http_chunked_body(raw_body)?
+    } else if let Some(cl) = content_len_opt {
+        raw_body[..raw_body.len().min(cl)].to_vec()
+    } else {
+        raw_body.to_vec()
+    };
+
+    Ok(UpstreamResponse {
+        status,
+        headers,
+        body,
+    })
+}
+
+fn decode_http_chunked_body(raw: &[u8]) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    while pos < raw.len() {
+        let Some(rel_crlf) = raw[pos..].windows(2).position(|w| w == b"\r\n") else {
+            break;
+        };
+        let size_line = std::str::from_utf8(&raw[pos..pos + rel_crlf]).map_err(|_| {
+            QuetzalcoatlError::SerializationError {
+                detail: String::from("非法 chunked 长度行编码"),
+            }
+        })?;
+        let hex_size = size_line.split(';').next().unwrap_or("").trim();
+        let chunk_len = usize::from_str_radix(hex_size, 16).map_err(|_| {
+            QuetzalcoatlError::SerializationError {
+                detail: format!("非法 chunked 十六进制长度 `{hex_size}`"),
+            }
+        })?;
+        pos += rel_crlf + 2;
+        if chunk_len == 0 {
+            break;
+        }
+        if pos + chunk_len > raw.len() {
+            return Err(QuetzalcoatlError::SerializationError {
+                detail: String::from("截断的 HTTP chunked 响应体"),
+            });
+        }
+        out.extend_from_slice(&raw[pos..pos + chunk_len]);
+        pos += chunk_len;
+        if raw.get(pos..pos + 2) == Some(b"\r\n") {
+            pos += 2;
+        }
+    }
+    Ok(out)
+}
+
+/// 防坑规范 #4：生成 Gemini CLI 所需的双环境变量（自动剥离尾部 `/v1` 后缀，并签发网关可常量时间验证的 `qz_stub_*` 密钥）。
 #[must_use]
-pub fn gemini_cli_env(run_base_url: &str, qz_token: &str) -> BTreeMap<String, String> {
+pub fn gemini_cli_env(run_base_url: &str, stub_or_token: &str) -> BTreeMap<String, String> {
     let trimmed = run_base_url.trim().trim_end_matches('/');
     let without_v1 = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
+    let clean_tok = stub_or_token.trim();
+    let auth_key = if clean_tok.starts_with(STUB_TOKEN_PREFIX) {
+        String::from(clean_tok)
+    } else {
+        format!("{STUB_TOKEN_PREFIX}{clean_tok}")
+    };
     let mut env = BTreeMap::new();
     env.insert(
         String::from("CODE_ASSIST_ENDPOINT"),
@@ -1610,10 +1924,8 @@ pub fn gemini_cli_env(run_base_url: &str, qz_token: &str) -> BTreeMap<String, St
         String::from("GOOGLE_GEMINI_BASE_URL"),
         String::from(without_v1),
     );
-    env.insert(
-        String::from("GEMINI_API_KEY"),
-        format!("qz-session:{qz_token}"),
-    );
+    env.insert(String::from("GEMINI_API_KEY"), auth_key.clone());
+    env.insert(String::from("GOOGLE_API_KEY"), auth_key);
     env
 }
 

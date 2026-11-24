@@ -420,10 +420,22 @@ fn send_single_chat_turn(
             let _ = io::stdout().flush();
             Ok(())
         }
-        IpcResponse::Error { detail, .. } => Err(QuetzalcoatlError::VerificationFailed { detail }),
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
         other => Err(QuetzalcoatlError::StorageError {
             detail: format!("未知的 IPC 响应: {other:?}"),
         }),
+    }
+}
+
+fn map_ipc_error_code(code: &str, detail: String) -> QuetzalcoatlError {
+    match code {
+        "SANDBOX_VIOLATION" => QuetzalcoatlError::SandboxViolation { detail },
+        "CREDENTIAL_REJECTED" => QuetzalcoatlError::CredentialRejected { detail },
+        "PERMISSION_DENIED" => QuetzalcoatlError::PermissionDenied { detail },
+        "VERIFICATION_FAILED" => QuetzalcoatlError::VerificationFailed { detail },
+        "CONSCIENCE_VIOLATION" => QuetzalcoatlError::ConscienceViolation { detail },
+        "SERIALIZATION_ERROR" => QuetzalcoatlError::SerializationError { detail },
+        _ => QuetzalcoatlError::StorageError { detail },
     }
 }
 

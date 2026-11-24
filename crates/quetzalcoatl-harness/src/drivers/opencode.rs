@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
 
-//! OpenCode V2 驱动（`OPENCODE_CONFIG_PROJECT_DISABLE=1`、禁 `--service`、屏蔽 `/api/pty*`）。
+//! OpenCode V2 驱动（`OPENCODE_CONFIG_PROJECT_DISABLE=1`、禁 `--service`、屏蔽 `/api/pty*` 与目录级插件挂载）。
 
 use quetzalcoatl_types::{QuetzalcoatlError, Result};
 
@@ -90,6 +90,20 @@ impl HarnessDriver for OpenCodeDriver {
             String::from("OPENAI_API_KEY"),
             ctx.gateway_grant.ephemeral_stub_token.clone(),
         );
+        if let Some(enh_root) = &ctx.enhancers_root_dir {
+            let plugin_dir = enh_root.join("opencode-v2-plugin/.opencode");
+            env.insert(
+                String::from("OPENCODE_CONFIG_DIR"),
+                plugin_dir.to_string_lossy().into_owned(),
+            );
+            env.insert(
+                String::from("QUETZALCOATL_OPENCODE_PLUGIN_DIR"),
+                plugin_dir
+                    .join("plugins/quetzalcoatl")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+        }
 
         let plan = HarnessLaunchPlan {
             program: ctx.binary_path.clone(),
@@ -108,6 +122,10 @@ impl HarnessDriver for OpenCodeDriver {
 
     fn execute_turn(&self, ctx: &HarnessLaunchContext, prompt: &str) -> Result<HarnessRunOutcome> {
         let plan = self.build_launch_plan(ctx, prompt)?;
-        run_plan_and_collect_events(CodingAgentKind::OpenCode, &plan)
+        run_plan_and_collect_events(
+            CodingAgentKind::OpenCode,
+            &plan,
+            ctx.sandbox_binding.as_ref(),
+        )
     }
 }

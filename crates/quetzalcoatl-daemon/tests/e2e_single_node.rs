@@ -704,3 +704,206 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
     let _ = GatewayUpstreamEndpoints::default();
     Ok(())
 }
+
+#[test]
+fn regression_r1_finding1_6_and_8_worker_runs_inside_os_sandbox_scoped_hook_token_mcp_and_routine_error_propagation()
+-> TestResult {
+    let tmp = TempDirGuard::new("qz_r1_sandbox_worker_e2e")?;
+    let qz_home = tmp.path().join("qz_home");
+
+    // 1. Finding 1b: 当配置了不存在的 sandbox_exec_override 时，必须硬失败 SandboxViolation，绝不可静默回退 /bin/sh！
+    let project_repo = tmp.path().join("repo");
+    fs::create_dir_all(project_repo.join("src"))?;
+    fs::write(project_repo.join("src/lib.rs"), "pub fn v() -> u32 { 0 }\n")?;
+    assert!(
+        Command::new("git")
+            .current_dir(&project_repo)
+            .args(["init", "-q"])
+            .status()?
+            .success()
+    );
+    let _ = Command::new("git")
+        .current_dir(&project_repo)
+        .args(["config", "user.email", "r1@quetzalcoatl.test"])
+        .status()?;
+    let _ = Command::new("git")
+        .current_dir(&project_repo)
+        .args(["config", "user.name", "R1"])
+        .status()?;
+    let _ = Command::new("git")
+        .current_dir(&project_repo)
+        .args(["add", "."])
+        .status()?;
+    assert!(
+        Command::new("git")
+            .current_dir(&project_repo)
+            .args(["commit", "-q", "-m", "init"])
+            .status()?
+            .success()
+    );
+
+    let bad_sandbox_home = tmp.path().join("bad_sbx_home");
+    let mut bad_cfg = DaemonConfig::new(bad_sandbox_home);
+    bad_cfg.sandbox_exec_override = Some(tmp.path().join("nonexistent-quetzalcoatl-sandbox-exec"));
+    bad_cfg.worker_binary_override = Some(PathBuf::from("/bin/true"));
+    let mut bad_daemon = QuetzalcoatlDaemon::start(bad_cfg)?;
+    let bad_client =
+        IpcClient::from_runtime_info(bad_daemon.runtime_info(), bad_daemon.ipc_token().to_owned());
+    let fail_closed_res = bad_client.call(&IpcRequest::Chat(ChatRequest {
+        message: String::from("must fail closed without /bin/sh fallback"),
+        thread_id: None,
+        peer_id: None,
+        workspace_dir: Some(project_repo.clone()),
+        verifier_dag: None,
+        router_attempted_forbidden_tools: Vec::new(),
+    }))?;
+    match fail_closed_res {
+        IpcResponse::Error { code, .. } => {
+            assert_eq!(
+                code, "SANDBOX_VIOLATION",
+                "缺失沙箱包装器时必须 fail-closed 返回 SANDBOX_VIOLATION"
+            );
+        }
+        other => {
+            return Err(
+                format!("缺失沙箱包装器时严禁静默回退 /bin/sh，实际返回: {other:?}").into(),
+            );
+        }
+    }
+    bad_daemon.shutdown()?;
+
+    // 2. Finding 1a/1c/1d + Finding 6:
+    // Worker 必须在真实 OS 沙箱 (bwrap) 内执行：
+    // - 读取 $QUETZALCOATL_HOME/identity/sovereign_state.json 与 daemon.token 必须失败（被空 tmpfs 遮蔽）！
+    // - 读取剥离后的 CLAUDE_CONFIG_DIR / CODEX_HOME 存根目录必须成功（不被 bwrap --tmpfs /tmp 抹掉）！
+    // - QUETZALCOATL_MCP_URL 必须已挂载并绑定，且 QUETZALCOATL_IPC_TOKEN 为单次 Run 作用域受限令牌：
+    //   用该令牌调用 Shutdown 必须被守护进程拒绝（403），而调用 ewave_check_report 允许（200）！
+    let mock_upstream = MockUpstreamServer::start()?;
+    let sandbox_exec_bin = PathBuf::from(env!("CARGO_BIN_EXE_qz"))
+        .parent()
+        .ok_or("bin parent")?
+        .join("quetzalcoatl-sandbox-exec");
+
+    let verifier_suite = tmp.path().join("suite");
+    fs::create_dir_all(&verifier_suite)?;
+    let verify_sh = verifier_suite.join("verify.sh");
+    #[cfg(unix)]
+    write_executable_script(
+        &verify_sh,
+        "#!/bin/sh\ngrep -q 'sandbox_confined' \"$QUETZALCOATL_CANDIDATE_WORKSPACE/src/lib.rs\"\necho 'QZ_VERIFIER_REPORT: {\"executed_tests\": 2, \"passed_tests\": 2, \"failed_tests\": 0}'\n",
+    )?;
+
+    let probing_worker = tmp.path().join("probing_worker.sh");
+    #[cfg(unix)]
+    write_executable_script(
+        &probing_worker,
+        &format!(
+            r#"#!/bin/sh
+set -e
+# (A) 断言当前运行在真实无容器沙箱内，$QUETZALCOATL_HOME 被遮蔽不可读！
+if [ -f "{qz_home}/identity/sovereign_state.json" ]; then
+  echo "CRITICAL LEAK: Worker read sovereign_state.json!" >&2
+  exit 71
+fi
+if [ -f "{qz_home}/run/daemon.token" ]; then
+  echo "CRITICAL LEAK: Worker read master daemon.token!" >&2
+  exit 72
+fi
+# (B) 断言 CLAUDE_CONFIG_DIR 与 CODEX_HOME 存根目录在 bwrap 内真实存在且可读！
+if [ ! -d "$CLAUDE_CONFIG_DIR" ] || [ ! -d "$CODEX_HOME" ]; then
+  echo "MISSING OAuth stub dirs inside sandbox: CLAUDE=$CLAUDE_CONFIG_DIR CODEX=$CODEX_HOME" >&2
+  exit 73
+fi
+# (C) 断言会话级 MCP URL 已分配且在沙箱内可调用！
+if [ -z "$QUETZALCOATL_MCP_URL" ]; then
+  echo "MISSING QUETZALCOATL_MCP_URL" >&2
+  exit 74
+fi
+MCP_OUT=$(/usr/bin/curl -s -f -X POST "$QUETZALCOATL_MCP_URL" -H "Content-Type: application/json" -d '{{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{{}}}}')
+echo "$MCP_OUT" | grep -q 'ewave.recall' || exit 75
+
+# (D) 断言注入的 QUETZALCOATL_IPC_TOKEN 是仅限该 Run 的受限钩子令牌：调用管理员 shutdown 必须返回 403，调用 ewave_check_report 返回 200！
+SHUTDOWN_CODE=$(/usr/bin/curl -s -o /dev/null -w '%{{http_code}}' -X POST "$QUETZALCOATL_DAEMON_URL/v1/rpc" -H "x-qz-ipc-token: $QUETZALCOATL_IPC_TOKEN" -H "Content-Type: application/json" -d '{{"method":"shutdown"}}')
+if [ "$SHUTDOWN_CODE" != "403" ]; then
+  echo "CRITICAL: Worker hook token allowed or unexpected code on shutdown: $SHUTDOWN_CODE" >&2
+  exit 76
+fi
+HOOK_CODE=$(/usr/bin/curl -s -o /dev/null -w '%{{http_code}}' -X POST "$QUETZALCOATL_DAEMON_URL/v1/rpc" -H "x-qz-ipc-token: $QUETZALCOATL_IPC_TOKEN" -H "Content-Type: application/json" -d '{{"method":"ewave_check_report","params":{{"conflict":"none","ids":[]}}}}')
+if [ "$HOOK_CODE" != "200" ]; then
+  echo "Expected 200 for ewave_check_report with hook token, got $HOOK_CODE" >&2
+  exit 77
+fi
+printf 'pub fn v() -> u32 {{ 99 }} // sandbox_confined\n' > src/lib.rs
+echo "SAND_HOOK_TOKEN=$QUETZALCOATL_IPC_TOKEN" > src/hook_tok.tmp
+rm -f src/hook_tok.tmp
+echo '{{"type":"text","part":{{"type":"text","text":"Worker confined inside OS sandbox <ewave_check conflict=\"none\" ids=\"\"/>"}}}}'
+echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
+"#,
+            qz_home = qz_home.display()
+        ),
+    )?;
+
+    let mut cfg = DaemonConfig::new(qz_home.clone());
+    cfg.upstream_endpoints.anthropic_base_url = mock_upstream.base_url();
+    cfg.upstream_endpoints.openai_base_url = mock_upstream.base_url();
+    cfg.upstream_endpoints.codex_chatgpt_base_url = mock_upstream.base_url();
+    cfg.upstream_endpoints.gemini_base_url = mock_upstream.base_url();
+    cfg.worker_binary_override = Some(probing_worker);
+    if sandbox_exec_bin.is_file() {
+        cfg.sandbox_exec_override = Some(sandbox_exec_bin);
+    }
+
+    let mut daemon = QuetzalcoatlDaemon::start(cfg)?;
+    let client = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+
+    let code_res = client.call(&IpcRequest::Chat(ChatRequest {
+        message: String::from("run confined worker probe"),
+        thread_id: None,
+        peer_id: None,
+        workspace_dir: Some(project_repo.clone()),
+        verifier_dag: Some(CleanRoomVerifierDag::single(
+            "sbx-suite",
+            verifier_suite,
+            SandboxCommand::new("/bin/sh", vec![verify_sh.to_string_lossy().into_owned()]),
+        )),
+        router_attempted_forbidden_tools: Vec::new(),
+    }))?;
+    match code_res {
+        IpcResponse::Chat(resp) => {
+            assert!(resp.delegated_to_worker);
+            assert!(resp.reply.contains("Worker confined inside OS sandbox"));
+            assert!(resp.verification_mark.is_some());
+        }
+        other => {
+            return Err(format!("沙箱内 Worker 执行应成功，实际返回: {other:?}").into());
+        }
+    }
+    assert!(
+        fs::read_to_string(project_repo.join("src/lib.rs"))?.contains("sandbox_confined"),
+        "Worker 在真实 bwrap 沙箱内完成修改并通过洁净室校验"
+    );
+
+    daemon.shutdown()?;
+
+    // 3. Finding 8: Routine `qz chat` 当上游不可达或返回错误时，必须返回结构化错误而非静默吞掉伪装为 "Ack: ..."
+    let dead_port_home = tmp.path().join("dead_upstream_home");
+    let mut dead_cfg = DaemonConfig::new(dead_port_home);
+    let dead_ep = String::from("http://127.0.0.1:9");
+    dead_cfg.upstream_endpoints.anthropic_base_url = dead_ep.clone();
+    dead_cfg.upstream_endpoints.openai_base_url = dead_ep;
+    let mut dead_daemon = QuetzalcoatlDaemon::start(dead_cfg)?;
+    let dead_client = IpcClient::from_runtime_info(
+        dead_daemon.runtime_info(),
+        dead_daemon.ipc_token().to_owned(),
+    );
+    let dead_chat_res = dead_client.call(&IpcRequest::Chat(ChatRequest::simple(
+        "should not swallow upstream error as Ack",
+    )))?;
+    assert!(
+        matches!(dead_chat_res, IpcResponse::Error { .. }),
+        "上游失败时日常对话必须返回明确错误，严禁静默伪装成 Ack: ...，实际为: {dead_chat_res:?}"
+    );
+    dead_daemon.shutdown()?;
+
+    Ok(())
+}

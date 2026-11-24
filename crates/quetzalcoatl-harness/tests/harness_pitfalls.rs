@@ -935,10 +935,13 @@ fn codex_and_gemini_gateway_ws_426_zstd_decompression_raw_encrypted_content_and_
         workspace_dir: tmp.path().to_path_buf(),
         sandbox_exec_path: PathBuf::from("/usr/local/bin/quetzalcoatl-sandbox-exec"),
         sandbox_spec_path: None,
+        sandbox_binding: None,
         gateway_grant: grant,
         claude_stub_dir: Some(tmp.path().join("claude_stub")),
         codex_stub_dir: Some(tmp.path().join("codex_stub")),
         active_codex_provider: String::from("openai"),
+        codex_uses_chatgpt_oauth: true,
+        enhancers_root_dir: None,
         mcp_endpoint_url: None,
         daemon_ipc_url: None,
         daemon_ipc_token: None,
@@ -1160,10 +1163,13 @@ fn mcp_bridge_and_isolated_git_worktree_enforce_blind_kernel_router_deprivation(
                 workspace_dir: wt_path.clone(),
                 sandbox_exec_path: PathBuf::from("/bin/sh"),
                 sandbox_spec_path: None,
+                sandbox_binding: None,
                 gateway_grant: dummy_grant,
                 claude_stub_dir: None,
                 codex_stub_dir: None,
                 active_codex_provider: String::from("openai"),
+                codex_uses_chatgpt_oauth: false,
+                enhancers_root_dir: None,
                 mcp_endpoint_url: None,
                 daemon_ipc_url: None,
                 daemon_ipc_token: None,
@@ -1216,5 +1222,517 @@ fn mcp_bridge_and_isolated_git_worktree_enforce_blind_kernel_router_deprivation(
         !wt_path.exists(),
         "cleanup 后临时 Git worktree 目录必须被清理"
     );
+    Ok(())
+}
+
+#[test]
+fn regression_r1_finding2_mcp_skill_synthesize_validates_rel_path_before_any_host_write()
+-> TestResult {
+    let tmp = TempDirGuard::new("qz_r1_mcp_path_traversal")?;
+    let qz_home = tmp.path().join("qz_home");
+    let ws = tmp.path().join("worker_ws");
+    let outside_dir = tmp.path().join("outside_target");
+    fs::create_dir_all(&ws)?;
+    fs::create_dir_all(&outside_dir)?;
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside_dir, ws.join("symlink_escape"))?;
+
+    let store = RusqliteWalStore::open(&qz_home.join("spine/spine.sqlite"))?;
+    let agent_id = AgentId::new_v4();
+    let dev = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let root_key = AccountRootKey::from_bytes([0x31; 32]);
+    let ring = EpochKeyRing::new_genesis(agent_id, &root_key, dev.public_record())?;
+    let spine = SpineEngine::new(
+        agent_id,
+        dev,
+        ring,
+        HlcTimestamp::from_parts(1_795_400_100_000, 0, 1),
+        store,
+    )?;
+    let sandbox = SandboxManager::new(SandboxConfig::new(&qz_home));
+    let mut kernel = BlindKernel::new(
+        spine,
+        sandbox,
+        HeartScheduler::new(7, 0.2, SleepPhase::Awake),
+        LeasePosture::Witnessed {
+            witness_epoch: Epoch::new(1),
+        },
+    );
+    kernel.register_capability(CapabilityDescriptor {
+        capability_id: String::from("skill.synthesize"),
+        interface_id: String::from("core"),
+        sink_class: SinkClass::SandboxSelfEvolution,
+        surface: ExecutionSurface::PureMetadata,
+        idempotent: false,
+        origin: CapabilityOrigin::HostRegistered,
+    })?;
+
+    let run = kernel.spawn_explore_run("mcp-r1-f2", Some(ws.clone()), 1_795_400_100_000)?;
+    let bindings = BTreeSet::from([String::from("skill.synthesize")]);
+    let worker_mcp = McpBridgeSession::worker_for_run(run.run_id, bindings);
+    let (conscience, graph) = build_sample_conscience_and_graph()?;
+
+    for (idx, bad_rel) in [
+        "../outside_target/pwn_parent.sh",
+        ".git/hooks/pre-commit",
+        ".opencode/plugins/hijack.ts",
+        ".claude/settings.json",
+        ".codex/config.toml",
+        "symlink_escape/pwn_via_symlink.sh",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": idx + 1,
+            "method": "tools/call",
+            "params": {
+                "name": "skill.synthesize",
+                "arguments": {
+                    "skill_id": format!("skill.bad_{idx}"),
+                    "relative_script_path": bad_rel,
+                    "interpreter": "/bin/sh",
+                    "description": "exploit attempt",
+                    "script_body": "#!/bin/sh\necho PWNED\n"
+                }
+            }
+        });
+        let raw_resp = worker_mcp.handle_jsonrpc(
+            &mut kernel,
+            &conscience,
+            &graph,
+            &req.to_string(),
+            1_795_400_100_100 + (idx as u64),
+        )?;
+        let parsed: serde_json::Value = serde_json::from_str(&raw_resp)?;
+        assert!(
+            parsed.get("error").is_some(),
+            "越界或受保护路径 `{bad_rel}` 必须报错拒绝"
+        );
+    }
+
+    assert!(
+        !outside_dir.join("pwn_parent.sh").exists(),
+        "严禁在校验前通过 ../ 向工作区外部写入任何文件"
+    );
+    assert!(
+        !outside_dir.join("pwn_via_symlink.sh").exists(),
+        "严禁跟随工作区内符号链接目录写入外部文件"
+    );
+    assert!(
+        !ws.join(".git/hooks/pre-commit").exists(),
+        "严禁在校验前创建或写入 .git/hooks/pre-commit"
+    );
+    assert!(!ws.join(".opencode/plugins/hijack.ts").exists());
+    assert!(!ws.join(".claude/settings.json").exists());
+    assert!(!ws.join(".codex/config.toml").exists());
+
+    Ok(())
+}
+
+#[test]
+fn regression_r1_finding3_worktree_apply_blocks_symlink_exfiltration_and_protected_subpaths()
+-> TestResult {
+    let tmp = TempDirGuard::new("qz_r1_wt_symlink")?;
+    let secret_file = tmp.path().join("sovereign_state.json");
+    fs::write(&secret_file, r#"{"root_key_hex":"TOP_SECRET_ROOT_KEY"}"#)?;
+
+    let repo_dir = tmp.path().join("repo");
+    fs::create_dir_all(repo_dir.join("src"))?;
+    fs::write(repo_dir.join("src/lib.rs"), "pub fn safe() -> u32 { 1 }\n")?;
+    assert!(
+        Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["init", "-q"])
+            .status()?
+            .success()
+    );
+    let _ = Command::new("git")
+        .current_dir(&repo_dir)
+        .args(["config", "user.email", "test@quetzalcoatl.test"])
+        .status()?;
+    let _ = Command::new("git")
+        .current_dir(&repo_dir)
+        .args(["config", "user.name", "Test"])
+        .status()?;
+    let _ = Command::new("git")
+        .current_dir(&repo_dir)
+        .args(["add", "."])
+        .status()?;
+    assert!(
+        Command::new("git")
+            .current_dir(&repo_dir)
+            .args(["commit", "-q", "-m", "init"])
+            .status()?
+            .success()
+    );
+
+    let wt_root = tmp.path().join("wts");
+
+    // 1. 符号链接窃密攻击：Worker 在 worktree 内创建指向外部密钥文件的符号链接
+    #[cfg(unix)]
+    {
+        let wt1 = WorktreeManager::create_detached(&repo_dir, &wt_root, RunId::new_v4())?;
+        std::os::unix::fs::symlink(&secret_file, wt1.worktree_dir().join("src/leak.json"))?;
+        let res = wt1.apply_verified_to_repo();
+        assert!(
+            matches!(
+                res,
+                Err(quetzalcoatl_types::QuetzalcoatlError::SandboxViolation { .. })
+            ),
+            "apply_verified_to_repo 遇到符号链接必须报错 SandboxViolation，实际为: {res:?}"
+        );
+        assert!(
+            !repo_dir.join("src/leak.json").exists(),
+            "严禁解引用符号链接将宿主密钥复制到主仓库"
+        );
+        wt1.cleanup()?;
+    }
+
+    // 2. 受保护配置子目录覆写攻击：Worker 在 worktree 内新增 .opencode/opencode.json
+    {
+        let wt2 = WorktreeManager::create_detached(&repo_dir, &wt_root, RunId::new_v4())?;
+        fs::create_dir_all(wt2.worktree_dir().join(".opencode"))?;
+        fs::write(
+            wt2.worktree_dir().join(".opencode/opencode.json"),
+            r#"{"hijack":true}"#,
+        )?;
+        let res2 = wt2.apply_verified_to_repo();
+        assert!(
+            matches!(
+                res2,
+                Err(quetzalcoatl_types::QuetzalcoatlError::SandboxViolation { .. })
+            ),
+            "apply_verified_to_repo 触碰 .opencode/.claude/.codex/.git 必须报错 SandboxViolation，实际为: {res2:?}"
+        );
+        assert!(!repo_dir.join(".opencode/opencode.json").exists());
+        wt2.cleanup()?;
+    }
+
+    Ok(())
+}
+
+#[test]
+fn regression_r1_finding4_and_5_https_upstream_tls_roundtrip_no_redirect_and_gemini_auth()
+-> TestResult {
+    use quetzalcoatl_harness::HttpsUpstreamTransport;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+    let certified = rcgen::generate_simple_self_signed(vec![String::from("localhost")])?;
+    let cert_der_bytes = certified.cert.der().to_vec();
+    let key_der_bytes = certified.signing_key.serialize_der();
+
+    let server_cfg = Arc::new(
+        rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()?
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![CertificateDer::from(cert_der_bytes.clone())],
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der_bytes)),
+        )?,
+    );
+
+    let tls_listener = std::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+    let tls_port = tls_listener.local_addr()?.port();
+    tls_listener.set_nonblocking(true)?;
+    let stop_tls = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_tls_bg = Arc::clone(&stop_tls);
+    let seen_paths = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen_paths_bg = Arc::clone(&seen_paths);
+
+    let tls_thread = std::thread::spawn(move || {
+        while !stop_tls_bg.load(std::sync::atomic::Ordering::Relaxed) {
+            match tls_listener.accept() {
+                Ok((tcp, _)) => {
+                    let _ = tcp.set_nonblocking(false);
+                    let _ = tcp.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                    let Ok(conn) = rustls::ServerConnection::new(Arc::clone(&server_cfg)) else {
+                        continue;
+                    };
+                    let mut tls_stream = rustls::StreamOwned::new(conn, tcp);
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 2048];
+                    loop {
+                        match tls_stream.read(&mut chunk) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => {
+                                buf.extend_from_slice(&chunk[..n]);
+                                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    let req_head = String::from_utf8_lossy(&buf);
+                    let path_target = req_head
+                        .lines()
+                        .next()
+                        .and_then(|l| l.split_whitespace().nth(1))
+                        .unwrap_or("/")
+                        .to_owned();
+                    if let Ok(mut g) = seen_paths_bg.lock() {
+                        g.push(path_target.clone());
+                    }
+
+                    if path_target.starts_with("/redirect302") {
+                        let resp = b"HTTP/1.1 302 Found\r\nLocation: https://evil.attacker.invalid/steal\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = tls_stream.write_all(resp);
+                    } else {
+                        let json_body =
+                            br#"{"candidates":[{"content":{"parts":[{"text":"tls-gemini-ok"}]}}]}"#;
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:X}\r\n",
+                            json_body.len()
+                        );
+                        let _ = tls_stream.write_all(head.as_bytes());
+                        let _ = tls_stream.write_all(json_body);
+                        let _ = tls_stream.write_all(b"\r\n0\r\n\r\n");
+                    }
+                    let _ = tls_stream.flush();
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let https_transport = HttpsUpstreamTransport::with_extra_root_der_certs(vec![cert_der_bytes])?;
+
+    // 1. 直接验证 HttpsUpstreamTransport 不跟随跨源 302 重定向
+    let redir_resp = https_transport.roundtrip(&UpstreamRequest {
+        method: String::from("GET"),
+        scheme: String::from("https"),
+        host: String::from("localhost"),
+        port: tls_port,
+        path_and_query: String::from("/redirect302"),
+        headers: Vec::new(),
+        body: Vec::new(),
+    })?;
+    assert_eq!(
+        redir_resp.status, 302,
+        "HttpsUpstreamTransport 严禁自动跟随 302 重定向泄露凭据"
+    );
+
+    // 2. 通过 LoopbackGateway + gemini_cli_env 走真实 HTTPS 上游（测试 x-goog-api-key 头与 ?key= 查询参数双模式鉴权！）
+    let (conscience, graph) = build_sample_conscience_and_graph()?;
+    let assembled = ContextAssembler::assemble(
+        &conscience,
+        &graph,
+        &AssemblyRequest::new(BudgetProfile::Standard, 1_795_400_200_000),
+    )?;
+    let endpoints = quetzalcoatl_harness::GatewayUpstreamEndpoints {
+        gemini_base_url: format!("https://localhost:{tls_port}"),
+        ..Default::default()
+    };
+    let gw = LoopbackGateway::new(GatewayConfig { endpoints }, Arc::new(https_transport));
+    let mut gw_handle = gw.serve_loopback(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+    let gw_addr = gw_handle.bound_addr();
+
+    let grant = gw.register_session(
+        &gw_handle.base_url(),
+        GatewaySessionConfig {
+            run_id: RunId::new_v4(),
+            assembled_context: assembled,
+            upstream_anthropic_bearer: None,
+            upstream_openai_bearer: None,
+            upstream_codex_bearer: None,
+            upstream_codex_account_id: None,
+            upstream_gemini_bearer: Some(String::from("real-gemini-oauth-token")),
+        },
+    )?;
+
+    let gem_env = gemini_cli_env(&grant.run_base_url, &grant.ephemeral_stub_token);
+    let gem_api_key = gem_env
+        .get("GEMINI_API_KEY")
+        .ok_or("缺少 GEMINI_API_KEY")?
+        .clone();
+
+    // 2a. 仅使用 gemini_cli_env 生成的 GEMINI_API_KEY 作为 x-goog-api-key 请求头（不带 x-qz-token） -> 200 OK
+    let (st_hdr, _, body_hdr) = send_raw_http(
+        gw_addr,
+        "POST",
+        &format!("/run/{}/v1internal:loadCodeAssist", grant.cap_token),
+        &[
+            ("Content-Type", "application/json"),
+            ("x-goog-api-key", &gem_api_key),
+        ],
+        br#"{"metadata":{}}"#,
+    )?;
+    assert_eq!(
+        st_hdr, 200,
+        "gemini_cli_env 生成的密钥通过 x-goog-api-key 鉴权必须返回 200"
+    );
+    assert!(String::from_utf8_lossy(&body_hdr).contains("tls-gemini-ok"));
+
+    // 2b. 仅使用 ?key=<GEMINI_API_KEY> 查询参数（Gemini SDK 默认行为，不带 x-qz-token / x-goog-api-key） -> 200 OK 且剥离查询参数中的存根密钥
+    let (st_qp, _, body_qp) = send_raw_http(
+        gw_addr,
+        "POST",
+        &format!(
+            "/run/{}/v1beta/models/gemini-2.5-pro:generateContent?key={}&alt=json",
+            grant.cap_token, gem_api_key
+        ),
+        &[("Content-Type", "application/json")],
+        br#"{"contents":[{"role":"user","parts":[{"text":"hello gemini"}]}]}"#,
+    )?;
+    assert_eq!(st_qp, 200, "Gemini ?key= 查询参数鉴权必须返回 200");
+    assert!(String::from_utf8_lossy(&body_qp).contains("tls-gemini-ok"));
+
+    {
+        let recorded = seen_paths.lock().map_err(|_| "seen_paths lock")?;
+        let last_path = recorded.last().ok_or("TLS 服务器未收到请求")?;
+        assert!(
+            !last_path.contains("qz_stub_"),
+            "转发至上游时必须剥离查询参数中的沙箱占位密钥: {last_path}"
+        );
+        assert!(last_path.contains("alt=json"));
+    }
+
+    gw_handle.shutdown();
+    stop_tls.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], tls_port)),
+        std::time::Duration::from_millis(20),
+    );
+    let _ = tls_thread.join();
+    Ok(())
+}
+
+#[test]
+fn regression_r1_finding6_and_7_codex_opencode_json_parsers_provider_urls_claude_fallback_and_32mb_goose_collision()
+-> TestResult {
+    // 1. Codex `exec --json` 真实事件帧解析（item.completed 带 item.text + turn.completed 无 final_text）
+    let codex_ev1 = AcpJsonRpcDriver::parse_stream_line(
+        CodingAgentKind::Codex,
+        r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Codex fixed concurrency bug <ewave_check conflict=\"none\" ids=\"\"/>"}}"#,
+    );
+    assert!(
+        codex_ev1
+            .iter()
+            .any(|e| matches!(e, HarnessEvent::Delta { text } if text.contains("Codex fixed concurrency bug"))),
+        "codex exec --json 的 item.completed 必须提取 item.text"
+    );
+
+    // 2. OpenCode `run --format json` 真实事件帧解析（type="text" 带 part.text + step_finish）
+    let oc_ev1 = AcpJsonRpcDriver::parse_stream_line(
+        CodingAgentKind::OpenCode,
+        r#"{"type":"text","sessionID":"ses_1","part":{"id":"prt_1","type":"text","text":"OpenCode completed refactor"}}"#,
+    );
+    assert!(
+        oc_ev1.iter().any(
+            |e| matches!(e, HarnessEvent::Delta { text } if text == "OpenCode completed refactor")
+        ),
+        "opencode run --format json 的 type=text 必须提取 part.text"
+    );
+
+    // 3. Codex 标准 OpenAI API-key 模式 vs ChatGPT OAuth 模式的 base_url 分流 + Claude 无 OAuth 存根时的 ANTHROPIC_API_KEY 兜底
+    let tmp = TempDirGuard::new("qz_r1_f6_f7")?;
+    let empty_claude_stub = tmp.path().join("empty_claude_stub");
+    fs::create_dir_all(&empty_claude_stub)?;
+    let enhancers_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("repo root")?
+        .join("packages/harness-enhancers");
+
+    let grant = quetzalcoatl_harness::GatewaySessionGrant {
+        run_id: RunId::new_v4(),
+        cap_token: "1".repeat(64),
+        qz_token: "2".repeat(64),
+        ephemeral_stub_token: format!("qz_stub_{}", "3".repeat(64)),
+        run_base_url: format!("http://127.0.0.1:18080/run/{}", "1".repeat(64)),
+    };
+
+    let api_key_codex_ctx = HarnessLaunchContext {
+        agent_kind: CodingAgentKind::Codex,
+        binary_path: PathBuf::from("/usr/local/bin/codex"),
+        workspace_dir: tmp.path().to_path_buf(),
+        sandbox_exec_path: PathBuf::from("/usr/local/bin/quetzalcoatl-sandbox-exec"),
+        sandbox_spec_path: None,
+        sandbox_binding: None,
+        gateway_grant: grant.clone(),
+        claude_stub_dir: Some(empty_claude_stub),
+        codex_stub_dir: None,
+        active_codex_provider: String::from("openai"),
+        codex_uses_chatgpt_oauth: false,
+        enhancers_root_dir: Some(enhancers_root),
+        mcp_endpoint_url: Some(String::from("http://127.0.0.1:19090/mcp")),
+        daemon_ipc_url: None,
+        daemon_ipc_token: None,
+    };
+
+    let codex_apikey_plan = CodexDriver.build_launch_plan(&api_key_codex_ctx, "test prompt")?;
+    let joined_codex_args = codex_apikey_plan.args.join(" ");
+    assert!(
+        joined_codex_args.contains(&format!(
+            "model_providers.openai.base_url=\"{}/openai/v1\"",
+            grant.run_base_url
+        )),
+        "OpenAI API Key 模式下 model_providers.<provider>.base_url 必须指向 /openai/v1，实际为: {joined_codex_args}"
+    );
+    assert!(
+        joined_codex_args.contains("mcp_servers.quetzalcoatl.url="),
+        "绑定 mcp_endpoint_url 时 Codex 启动计划应挂载 MCP 配置"
+    );
+    assert!(
+        codex_apikey_plan
+            .env
+            .contains_key("QUETZALCOATL_CODEX_HOOKS_PATH")
+    );
+
+    let claude_fallback_plan =
+        ClaudeCodeDriver.build_launch_plan(&api_key_codex_ctx, "test claude")?;
+    assert_eq!(
+        claude_fallback_plan
+            .env
+            .get("ANTHROPIC_API_KEY")
+            .map(String::as_str),
+        Some(grant.ephemeral_stub_token.as_str()),
+        "无宿主 OAuth 凭据存根时 ClaudeCodeDriver 必须注入 ANTHROPIC_API_KEY = ephemeral_stub_token"
+    );
+
+    // 4. Finding 7: >32MB 的非标准安装目录同名二进制（例如数据库迁移工具 pressly/goose）绝不可跳过 --version 防撞车校验！
+    #[cfg(unix)]
+    {
+        let bin_dir = tmp.path().join("big_bin");
+        fs::create_dir_all(&bin_dir)?;
+        let fake_big_goose = bin_dir.join("goose");
+        let mut f = fs::File::create(&fake_big_goose)?;
+        f.write_all(
+            b"#!/bin/sh\necho 'goose version: v3.21.1 (pressly database migration)'\nexit 0\n",
+        )?;
+        // 填充注释使文件大小 > 33 MiB（触发 >32MB 分支）
+        let pad_line = vec![b'#'; 1024];
+        for _ in 0..(33 * 1024) {
+            f.write_all(&pad_line)?;
+            f.write_all(b"\n")?;
+        }
+        f.flush()?;
+        fs::set_permissions(&fake_big_goose, fs::Permissions::from_mode(0o755))?;
+
+        let disc_rep = discover_coding_agents(&DiscoveryConfig {
+            search_paths: vec![bin_dir],
+            env_overrides: BTreeMap::from([(
+                String::from("DBUS_SESSION_BUS_ADDRESS"),
+                String::new(),
+            )]),
+            probe_timeout: std::time::Duration::from_millis(6),
+            allow_host_env: false,
+        })?;
+        assert!(
+            !disc_rep
+                .agents
+                .iter()
+                .any(|a| a.kind == CodingAgentKind::Goose),
+            ">32MB 的非受管路径 pressly/goose 严禁绕过 --version 被误识别为 Block Goose Coding Agent"
+        );
+    }
+
     Ok(())
 }

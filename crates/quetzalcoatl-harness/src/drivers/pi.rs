@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
 
-//! Pi `v1.6+` RPC 驱动（`pi --mode rpc`）。
+//! Pi `v1.6+` RPC 驱动（`pi --mode rpc` 与渐进扩展绑定）。
 
 use quetzalcoatl_types::Result;
 
@@ -34,14 +34,25 @@ impl HarnessDriver for PiDriver {
             String::from("ANTHROPIC_API_KEY"),
             ctx.gateway_grant.ephemeral_stub_token.clone(),
         );
+
+        let mut args = vec![String::from("--mode"), String::from("rpc")];
+        if let Some(enh_root) = &ctx.enhancers_root_dir {
+            let ext_file = enh_root.join("pi-extension/src/index.ts");
+            env.insert(
+                String::from("QUETZALCOATL_PI_EXTENSION_PATH"),
+                ext_file.to_string_lossy().into_owned(),
+            );
+            if ext_file.is_file() {
+                args.push(String::from("--extension"));
+                args.push(ext_file.to_string_lossy().into_owned());
+            }
+        }
+        args.push(String::from("-p"));
+        args.push(String::from(prompt));
+
         Ok(HarnessLaunchPlan {
             program: ctx.binary_path.clone(),
-            args: vec![
-                String::from("--mode"),
-                String::from("rpc"),
-                String::from("-p"),
-                String::from(prompt),
-            ],
+            args,
             cwd: ctx.workspace_dir.clone(),
             env,
         })
@@ -49,6 +60,6 @@ impl HarnessDriver for PiDriver {
 
     fn execute_turn(&self, ctx: &HarnessLaunchContext, prompt: &str) -> Result<HarnessRunOutcome> {
         let plan = self.build_launch_plan(ctx, prompt)?;
-        run_plan_and_collect_events(CodingAgentKind::Pi, &plan)
+        run_plan_and_collect_events(CodingAgentKind::Pi, &plan, ctx.sandbox_binding.as_ref())
     }
 }

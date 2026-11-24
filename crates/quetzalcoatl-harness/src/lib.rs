@@ -14,16 +14,19 @@ pub use discovery::{
 };
 pub use drivers::{
     EwaveCheckTag, HarnessDriver, HarnessEvent, HarnessLaunchContext, HarnessLaunchPlan,
-    HarnessRunOutcome, WorktreeLease, WorktreeManager, acp::AcpJsonRpcDriver,
+    HarnessRunOutcome, SandboxLaunchBinding, WorktreeLease, WorktreeManager, acp::AcpJsonRpcDriver,
     claude::ClaudeCodeDriver, codex::CodexDriver, opencode::OpenCodeDriver, parse_ewave_check_tag,
     pi::PiDriver,
 };
 pub use gateway::{
     ExtractedOAuthCredentials, GatewayConfig, GatewayServerHandle, GatewaySessionConfig,
-    GatewaySessionGrant, GatewayUpstreamEndpoints, LoopbackGateway, StrippedOAuthStubBundle,
-    count_anthropic_cache_controls, gemini_cli_env, prepare_stripped_oauth_stubs,
+    GatewaySessionGrant, GatewayUpstreamEndpoints, HttpsUpstreamTransport, LoopbackGateway,
+    StrippedOAuthStubBundle, count_anthropic_cache_controls, gemini_cli_env,
+    prepare_stripped_oauth_stubs,
 };
-pub use mcp_bridge::{McpBridgeSession, McpToolDescriptor};
+pub use mcp_bridge::{
+    McpBridgeSession, McpHttpServerHandle, McpToolDescriptor, serve_mcp_http_loopback,
+};
 
 use std::sync::Arc;
 

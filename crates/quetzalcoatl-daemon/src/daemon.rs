@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
 
-//! `quetzalcoatld` 核心守护进程编排器（唯一脊柱锁、`Router ↔ Worker` 分层派发、独立 Git Worktree 与洁净室 `Verifier` 闭环）。
+//! `quetzalcoatld` 核心守护进程编排器（唯一脊柱锁、`Router ↔ Worker` OS 沙箱隔离派发、独立 Git Worktree 与洁净室 `Verifier` 闭环）。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -26,9 +26,10 @@ use quetzalcoatl_ewave::{
 use quetzalcoatl_harness::{
     AcpJsonRpcDriver, ClaudeCodeDriver, CodexDriver, CodingAgentKind, DiscoveredAgent,
     DiscoveryConfig, GatewayConfig, GatewayServerHandle, GatewaySessionConfig,
-    GatewayUpstreamEndpoints, HarnessDriver, HarnessHost, HarnessLaunchContext, LoopbackGateway,
-    OpenCodeDriver, PiDriver, WorktreeManager, discover_coding_agents,
-    prepare_stripped_oauth_stubs,
+    GatewayUpstreamEndpoints, HarnessDriver, HarnessHost, HarnessLaunchContext,
+    HttpsUpstreamTransport, LoopbackGateway, McpBridgeSession, OpenCodeDriver, PiDriver,
+    SandboxLaunchBinding, WorktreeManager, discover_coding_agents, prepare_stripped_oauth_stubs,
+    serve_mcp_http_loopback,
 };
 use quetzalcoatl_kernel::{
     BlindKernel, CapabilityDescriptor, CapabilityInvocation, CapabilityOrigin, CapabilitySet,
@@ -36,7 +37,7 @@ use quetzalcoatl_kernel::{
     PrincipalRole, ScopeChain, SinkClass, SleepPhase, VerificationMark,
 };
 use quetzalcoatl_sandbox::{
-    NetworkPolicy, SandboxConfig, SandboxExecSpec, SandboxManager, SandboxMode, StdHttpTransport,
+    NetworkPolicy, SandboxConfig, SandboxExecSpec, SandboxManager, SandboxMode, TicketRequest,
     default_quetzalcoatl_home,
 };
 use quetzalcoatl_spine::{
@@ -52,7 +53,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::local_ipc::{
-    IpcClient, IpcHandler, IpcRequest, IpcResponse, LocalIpcServerHandle, start_local_ipc_server,
+    IpcClient, IpcHandler, IpcRequest, IpcResponse, LocalIpcServerHandle, ScopedHookTokenRegistry,
+    start_local_ipc_server,
 };
 
 #[must_use]
@@ -187,7 +189,6 @@ pub struct ExploreWakeReport {
 }
 
 /// 防坑规范 #13：跨进程内核级文件独占锁（`$QUETZALCOATL_HOME/spine/daemon.lock`）。
-/// 基于 SQLite `PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;` 持有 OS 字节域写锁，进程崩溃或退出时由内核立即自动释放。
 struct ExclusiveSpineLock {
     _conn: Connection,
 }
@@ -513,6 +514,56 @@ fn default_authored_bindings() -> BTreeSet<String> {
     ])
 }
 
+/// 选择位于 `$QUETZALCOATL_HOME` 与 `/tmp` 之外的隔离临时根目录（优先 `/var/tmp`），避免 `bwrap --tmpfs /tmp` 抹除 OAuth 存根。
+fn sandbox_scratch_root(agent_id: AgentId) -> PathBuf {
+    let var_tmp = Path::new("/var/tmp");
+    let base = if !cfg!(windows) && var_tmp.is_dir() {
+        var_tmp.to_path_buf()
+    } else {
+        std::env::temp_dir()
+    };
+    base.join(format!("quetzalcoatl-scratch-{agent_id}"))
+}
+
+fn locate_enhancers_root() -> Option<PathBuf> {
+    if let Ok(env_dir) = std::env::var("QUETZALCOATL_ENHANCERS_DIR") {
+        let p = PathBuf::from(env_dir);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cursor = exe.parent();
+        for _ in 0..5 {
+            if let Some(dir) = cursor {
+                let cand = dir.join("packages/harness-enhancers");
+                if cand.is_dir() {
+                    return Some(cand);
+                }
+                cursor = dir.parent();
+            }
+        }
+    }
+    None
+}
+
+fn is_executable_regular_file(path: &Path) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        (meta.permissions().mode() & 0o111) != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 struct DaemonMutableState {
     _spine_lock: ExclusiveSpineLock,
     kernel: BlindKernel<RusqliteWalStore>,
@@ -523,60 +574,95 @@ struct DaemonMutableState {
     ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
-fn sandbox_scratch_root(agent_id: AgentId) -> PathBuf {
-    let opencode_tmp = PathBuf::from("/tmp/opencode");
-    let base = if opencode_tmp.is_dir() {
-        opencode_tmp
-    } else {
-        std::env::temp_dir()
-    };
-    base.join(format!("quetzalcoatl-scratch-{agent_id}"))
-}
-
 struct SharedDaemonCore {
     config: DaemonConfig,
     runtime_info: DaemonRuntimeInfo,
-    ipc_token_hex: String,
+    worker_sandbox: Arc<SandboxManager>,
+    hook_tokens: ScopedHookTokenRegistry,
     harness_host: HarnessHost,
     gateway_base_url: String,
     state: Mutex<DaemonMutableState>,
 }
 
 impl SharedDaemonCore {
-    fn resolve_sandbox_exec_path(&self) -> PathBuf {
-        if let Some(p) = &self.config.sandbox_exec_override {
-            return p.clone();
+    /// 查找 `quetzalcoatl-sandbox-exec` 包装器并校验宿主沙箱后端可用性；缺失时严格 fail-closed 报错 `SandboxViolation`，绝不回退 `/bin/sh`。
+    fn resolve_sandbox_exec_path(&self) -> Result<PathBuf> {
+        let probe = self.worker_sandbox.probe()?;
+        if !probe.available {
+            return Err(QuetzalcoatlError::SandboxViolation {
+                detail: format!(
+                    "当前宿主无容器 OS 沙箱不可用，拒绝无沙箱执行 Worker: {}",
+                    probe.detail
+                ),
+            });
         }
+
+        if let Some(explicit) = &self.config.sandbox_exec_override {
+            let fname = explicit.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(
+                fname,
+                "sh" | "bash" | "zsh" | "dash" | "cmd.exe" | "powershell.exe"
+            ) {
+                return Err(QuetzalcoatlError::SandboxViolation {
+                    detail: format!(
+                        "严禁将裸系统 Shell ({}) 配置为沙箱包装器",
+                        explicit.display()
+                    ),
+                });
+            }
+            if !is_executable_regular_file(explicit) {
+                return Err(QuetzalcoatlError::SandboxViolation {
+                    detail: format!(
+                        "指定的 quetzalcoatl-sandbox-exec 包装器不存在或不可执行: {}",
+                        explicit.display()
+                    ),
+                });
+            }
+            return Ok(explicit.clone());
+        }
+
+        let bin_name = if cfg!(windows) {
+            "quetzalcoatl-sandbox-exec.exe"
+        } else {
+            "quetzalcoatl-sandbox-exec"
+        };
+
         if let Ok(curr) = std::env::current_exe()
             && let Some(dir) = curr.parent()
         {
-            let sibling = dir.join(if cfg!(windows) {
-                "quetzalcoatl-sandbox-exec.exe"
-            } else {
-                "quetzalcoatl-sandbox-exec"
-            });
-            if sibling.is_file() {
-                return sibling;
+            let sibling = dir.join(bin_name);
+            if is_executable_regular_file(&sibling) {
+                return Ok(sibling);
             }
             if let Some(parent_dir) = dir.parent() {
-                let deps_sibling = parent_dir.join(if cfg!(windows) {
-                    "quetzalcoatl-sandbox-exec.exe"
-                } else {
-                    "quetzalcoatl-sandbox-exec"
-                });
-                if deps_sibling.is_file() {
-                    return deps_sibling;
+                let parent_sibling = parent_dir.join(bin_name);
+                if is_executable_regular_file(&parent_sibling) {
+                    return Ok(parent_sibling);
                 }
             }
         }
-        PathBuf::from(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" })
+
+        if let Some(path_os) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path_os) {
+                let cand = dir.join(bin_name);
+                if is_executable_regular_file(&cand) {
+                    return Ok(cand);
+                }
+            }
+        }
+
+        Err(QuetzalcoatlError::SandboxViolation {
+            detail: String::from(
+                "未找到 quetzalcoatl-sandbox-exec 可执行文件，已按安全红线硬阻断（严禁回退至 /bin/sh 或 cmd.exe）",
+            ),
+        })
     }
 
     fn execute_routine_gateway_turn(
         &self,
         grant: &quetzalcoatl_harness::GatewaySessionGrant,
         user_message: &str,
-    ) -> String {
+    ) -> Result<String> {
         let req_payload = serde_json::json!({
             "model": "claude-sonnet-4-5",
             "max_tokens": 512,
@@ -593,16 +679,21 @@ impl SharedDaemonCore {
                 }
             ]
         });
-        let Ok(req_bytes) = serde_json::to_vec(&req_payload) else {
-            return format!("Ack: {user_message}");
-        };
+        let req_bytes = serde_json::to_vec(&req_payload).map_err(|e| {
+            QuetzalcoatlError::SerializationError {
+                detail: format!("编码日常对话网关请求失败: {e}"),
+            }
+        })?;
 
         let gw_addr = self.runtime_info.gateway_addr;
-        let Ok(mut stream) = TcpStream::connect_timeout(&gw_addr, Duration::from_secs(2)) else {
-            return format!("Ack: {user_message}");
-        };
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-        let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+        let mut stream =
+            TcpStream::connect_timeout(&gw_addr, Duration::from_secs(3)).map_err(|e| {
+                QuetzalcoatlError::StorageError {
+                    detail: format!("连接回环 LLM 网关 ({gw_addr}) 失败: {e}"),
+                }
+            })?;
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
 
         let head = format!(
             "POST /run/{}/v1/messages HTTP/1.1\r\nHost: {}\r\nx-qz-token: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -611,28 +702,71 @@ impl SharedDaemonCore {
             grant.qz_token,
             req_bytes.len()
         );
-        if stream.write_all(head.as_bytes()).is_err() || stream.write_all(&req_bytes).is_err() {
-            return format!("Ack: {user_message}");
-        }
+        stream
+            .write_all(head.as_bytes())
+            .and_then(|()| stream.write_all(&req_bytes))
+            .and_then(|()| stream.flush())
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("向回环网关发送日常对话请求失败: {e}"),
+            })?;
+
         let mut raw_resp = Vec::new();
-        if stream.read_to_end(&mut raw_resp).is_err() {
-            return format!("Ack: {user_message}");
+        stream
+            .read_to_end(&mut raw_resp)
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("读取回环网关日常对话响应失败: {e}"),
+            })?;
+
+        let sep = raw_resp
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .ok_or_else(|| QuetzalcoatlError::SerializationError {
+                detail: String::from("回环网关日常对话响应缺少完整 HTTP 头"),
+            })?;
+        let head_str = std::str::from_utf8(&raw_resp[..sep]).map_err(|_| {
+            QuetzalcoatlError::SerializationError {
+                detail: String::from("回环网关响应头不是合法 UTF-8"),
+            }
+        })?;
+        let status_code = head_str
+            .lines()
+            .next()
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(500);
+
+        let body_slice = &raw_resp[sep + 4..];
+        if status_code != 200 {
+            let err_summary = String::from_utf8_lossy(body_slice).into_owned();
+            if status_code == 401 || status_code == 403 {
+                return Err(QuetzalcoatlError::CredentialRejected {
+                    detail: format!("上游模型认证失败 (HTTP {status_code}): {err_summary}"),
+                });
+            }
+            return Err(QuetzalcoatlError::StorageError {
+                detail: format!("上游模型请求失败 (HTTP {status_code}): {err_summary}"),
+            });
         }
-        if let Some(sep) = raw_resp.windows(4).position(|w| w == b"\r\n\r\n")
-            && let Ok(json) = serde_json::from_slice::<serde_json::Value>(&raw_resp[sep + 4..])
-            && let Some(text) = json
-                .get("content")
-                .and_then(serde_json::Value::as_array)
-                .and_then(|arr| arr.first())
-                .and_then(|b| b.get("text"))
-                .and_then(serde_json::Value::as_str)
-        {
-            return String::from(text);
-        }
-        format!("Ack: {user_message}")
+
+        let json: serde_json::Value = serde_json::from_slice(body_slice).map_err(|e| {
+            QuetzalcoatlError::SerializationError {
+                detail: format!("解析上游模型 JSON 响应失败: {e}"),
+            }
+        })?;
+        let text = json
+            .get("content")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|arr| arr.first())
+            .and_then(|b| b.get("text"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| QuetzalcoatlError::SerializationError {
+                detail: String::from("上游模型响应缺少 content[0].text 字段"),
+            })?;
+
+        Ok(String::from(text))
     }
 
-    fn handle_chat(&self, req: ChatRequest) -> Result<ChatResponse> {
+    fn handle_chat(self: &Arc<Self>, req: ChatRequest) -> Result<ChatResponse> {
         let now_ms = now_unix_ms();
         let bindings = default_authored_bindings();
 
@@ -670,6 +804,10 @@ impl SharedDaemonCore {
         router_denied.sort();
         router_denied.dedup();
 
+        let host_home = std::env::var_os("HOME").map(PathBuf::from);
+        let host_claude = host_home.as_ref().map(|h| h.join(".claude"));
+        let host_codex = host_home.as_ref().map(|h| h.join(".codex"));
+
         // 分支 A：日常对话 / 生活陪伴（不涉及工程工作区变更 -> Router 免校验零延迟结项，verifier_runs == 0）
         let Some(target_repo) = req.workspace_dir.clone() else {
             let run_id = {
@@ -706,8 +844,38 @@ impl SharedDaemonCore {
                     upstream_gemini_bearer: self.config.upstream_bearer_token.clone(),
                 },
             )?;
-            let reply_text = self.execute_routine_gateway_turn(&grant, &req.message);
+
+            // 提取并挂载宿主 ~/.claude / ~/.codex OAuth 令牌供日常对话出站使用
+            let routine_stub_tmp = sandbox_scratch_root(self.runtime_info.agent_id)
+                .join(format!("routine-stubs/{run_id}"));
+            if let Ok(routine_oauth) = prepare_stripped_oauth_stubs(
+                host_claude.as_deref(),
+                host_codex.as_deref(),
+                &routine_stub_tmp,
+                &grant.ephemeral_stub_token,
+            ) {
+                let _ = self
+                    .harness_host
+                    .gateway()
+                    .attach_extracted_oauth(&grant.cap_token, &routine_oauth.extracted);
+            }
+            let _ = fs::remove_dir_all(&routine_stub_tmp);
+
+            let turn_res = self.execute_routine_gateway_turn(&grant, &req.message);
             let _ = self.harness_host.gateway().revoke_session(&grant.cap_token);
+
+            let reply_text = match turn_res {
+                Ok(txt) => txt,
+                Err(err) => {
+                    if let Ok(mut guard) = self.state.lock() {
+                        let _ =
+                            guard
+                                .kernel
+                                .abort_run(run_id, "routine upstream error", now_unix_ms());
+                    }
+                    return Err(err);
+                }
+            };
 
             let report = {
                 let mut guard = self
@@ -794,8 +962,12 @@ impl SharedDaemonCore {
             });
         };
 
-        // 分支 B：研发代码工程任务 -> Router 剥夺改代码权限，派发隔离 Git Worktree Worker，经断网洁净室 Verifier 签发 Mark 后合并
-        let wt_root = sandbox_scratch_root(self.runtime_info.agent_id).join("worktrees");
+        // 分支 B：研发代码工程任务
+        // 1. 先强制校验沙箱包装器与 OS 沙箱后端可用性（缺失立即 fail-closed 返回 SandboxViolation！）
+        let sandbox_exec_path = self.resolve_sandbox_exec_path()?;
+
+        let scratch_base = sandbox_scratch_root(self.runtime_info.agent_id);
+        let wt_root = scratch_base.join("worktrees");
         let worktree_seed_id = RunId::new_v4();
         let wt_lease = WorktreeManager::create_detached(&target_repo, &wt_root, worktree_seed_id)?;
         let wt_dir = wt_lease.worktree_dir().to_path_buf();
@@ -833,12 +1005,7 @@ impl SharedDaemonCore {
             run.run_id
         };
 
-        let stub_root =
-            sandbox_scratch_root(self.runtime_info.agent_id).join(format!("stubs/{run_id}"));
-        let host_home = std::env::var_os("HOME").map(PathBuf::from);
-        let host_claude = host_home.as_ref().map(|h| h.join(".claude"));
-        let host_codex = host_home.as_ref().map(|h| h.join(".codex"));
-
+        let stub_root = scratch_base.join(format!("stubs/{run_id}"));
         let temp_grant = self.harness_host.gateway().register_session(
             &self.gateway_base_url,
             GatewaySessionConfig {
@@ -861,7 +1028,7 @@ impl SharedDaemonCore {
             .gateway()
             .attach_extracted_oauth(&temp_grant.cap_token, &oauth_stubs.extracted)?;
 
-        let specs_dir = sandbox_scratch_root(self.runtime_info.agent_id).join("specs");
+        let specs_dir = scratch_base.join("specs");
         fs::create_dir_all(&specs_dir).map_err(|e| QuetzalcoatlError::StorageError {
             detail: format!("创建沙箱规格临时目录失败: {e}"),
         })?;
@@ -886,6 +1053,56 @@ impl SharedDaemonCore {
         })?;
         write_private_file(&spec_file_path, &spec_json_bytes)?;
 
+        // 签发绑定单次 Run 的最小权限钩子令牌（绝不将守护进程管理员主令牌注入 Worker 沙箱！）
+        let scoped_hook_token = self.hook_tokens.mint_for_run(run_id)?;
+
+        // 启动绑定当前 Worker Run 的会话级本地 MCP JSON-RPC 服务
+        let weak_core = Arc::downgrade(self);
+        let mcp_bindings = bindings.clone();
+        let mut mcp_server = serve_mcp_http_loopback(move |raw_rpc| {
+            let Some(core_arc) = weak_core.upgrade() else {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: String::from("daemon core closed"),
+                });
+            };
+            let mut guard = core_arc
+                .state
+                .lock()
+                .map_err(|_| QuetzalcoatlError::StorageError {
+                    detail: String::from("daemon state lock poisoned"),
+                })?;
+            let mcp_session = McpBridgeSession::worker_for_run(run_id, mcp_bindings.clone());
+            let DaemonMutableState {
+                ref mut kernel,
+                ref conscience,
+                ref graph,
+                ..
+            } = *guard;
+            mcp_session.handle_jsonrpc(kernel, conscience, graph, raw_rpc, now_unix_ms())
+        })?;
+
+        // 签发强制约束该 Worker 子进程运行于无容器 OS 沙箱内的单次密码学票据
+        let worker_ticket = self.worker_sandbox.mint_ticket(TicketRequest {
+            run_id,
+            workspace_dir: wt_dir.clone(),
+            mode: SandboxMode::WorkspaceWritable,
+            network_policy: NetworkPolicy::AllowHostNetwork,
+            ttl_ms: Some(120_000),
+            now_wall_ms: now_unix_ms(),
+        })?;
+
+        let enhancers_root = locate_enhancers_root();
+        let mut extra_ro_mounts = vec![stub_root.clone(), spec_file_path.clone()];
+        let main_git_dir = target_repo.join(".git");
+        if main_git_dir.exists() {
+            extra_ro_mounts.push(main_git_dir);
+        }
+        if let Some(enh) = &enhancers_root
+            && enh.exists()
+        {
+            extra_ro_mounts.push(enh.clone());
+        }
+
         let (selected_kind, worker_bin) = if let Some(override_bin) =
             &self.config.worker_binary_override
         {
@@ -898,13 +1115,15 @@ impl SharedDaemonCore {
         } else {
             let disc = self.harness_host.discover()?;
             let chosen = self
-                .config
-                .preferred_worker_agent
-                .and_then(|pref| disc.agents.iter().find(|a| a.kind == pref))
-                .or_else(|| disc.agents.first())
-                .ok_or_else(|| QuetzalcoatlError::StorageError {
-                    detail: String::from("本机未探测到可用 Coding Agent，请安装 opencode 或配置 worker_binary_override"),
-                })?;
+                    .config
+                    .preferred_worker_agent
+                    .and_then(|pref| disc.agents.iter().find(|a| a.kind == pref))
+                    .or_else(|| disc.agents.first())
+                    .ok_or_else(|| QuetzalcoatlError::StorageError {
+                        detail: String::from(
+                            "本机未探测到可用 Coding Agent，请安装 opencode 或配置 worker_binary_override",
+                        ),
+                    })?;
             (chosen.kind, chosen.binary_path.clone())
         };
 
@@ -912,15 +1131,22 @@ impl SharedDaemonCore {
             agent_kind: selected_kind,
             binary_path: worker_bin,
             workspace_dir: wt_dir,
-            sandbox_exec_path: self.resolve_sandbox_exec_path(),
+            sandbox_exec_path,
             sandbox_spec_path: Some(spec_file_path.clone()),
+            sandbox_binding: Some(SandboxLaunchBinding {
+                manager: Arc::clone(&self.worker_sandbox),
+                ticket: worker_ticket,
+                extra_ro_mounts,
+            }),
             gateway_grant: temp_grant.clone(),
             claude_stub_dir: Some(oauth_stubs.claude_config_dir),
             codex_stub_dir: Some(oauth_stubs.codex_home_dir),
             active_codex_provider: String::from("openai"),
-            mcp_endpoint_url: None,
+            codex_uses_chatgpt_oauth: oauth_stubs.extracted.codex_account_id.is_some(),
+            enhancers_root_dir: enhancers_root,
+            mcp_endpoint_url: Some(mcp_server.endpoint_url().to_owned()),
             daemon_ipc_url: Some(format!("http://{}", self.runtime_info.ipc_http_addr)),
-            daemon_ipc_token: Some(self.ipc_token_hex.clone()),
+            daemon_ipc_token: Some(scoped_hook_token),
         };
 
         let worker_outcome_res = if self.config.worker_binary_override.is_some() {
@@ -937,6 +1163,9 @@ impl SharedDaemonCore {
             }
         };
 
+        // Worker 回合结束立即吊销会话能力令牌、钩子令牌与本地 MCP 服务
+        self.hook_tokens.revoke_for_run(run_id);
+        mcp_server.shutdown();
         let _ = self
             .harness_host
             .gateway()
@@ -993,7 +1222,6 @@ impl SharedDaemonCore {
                             .kernel
                             .abort_run(run_id, "clean-room verifier failed", now_unix_ms());
                 }
-                // 验收失败：立即清理临时 worktree，主仓库保持零改动！
                 let _ = wt_lease.cleanup();
                 return Err(verify_err);
             }
@@ -1110,10 +1338,8 @@ impl SharedDaemonCore {
             external_write_refused,
         })
     }
-}
 
-impl IpcHandler for SharedDaemonCore {
-    fn handle(&self, req: IpcRequest) -> (IpcResponse, bool) {
+    fn dispatch_ipc(self: &Arc<Self>, req: IpcRequest) -> (IpcResponse, bool) {
         match req {
             IpcRequest::Status => {
                 let disc = self
@@ -1418,7 +1644,6 @@ impl DaemonHandle {
         if let Some(sock) = &self.runtime_info.unix_socket_path {
             let _ = fs::remove_file(sock);
         }
-        // 显式释放 core（内含 ExclusiveSpineLock 与 RusqliteWalStore 连接）
         self.core = None;
         Ok(())
     }
@@ -1443,10 +1668,14 @@ impl QuetzalcoatlDaemon {
         let agent_id = spine.agent_id();
         let device_id = spine.local_device().device_id();
 
-        let sandbox = SandboxManager::new(SandboxConfig::new(&config.quetzalcoatl_home));
+        let kernel_sandbox = SandboxManager::new(SandboxConfig::new(&config.quetzalcoatl_home));
+        let worker_sandbox = Arc::new(SandboxManager::new(SandboxConfig::new(
+            &config.quetzalcoatl_home,
+        )));
+
         let mut kernel = BlindKernel::new(
             spine,
-            sandbox,
+            kernel_sandbox,
             HeartScheduler::new(1, 0.15, SleepPhase::Awake),
             LeasePosture::Witnessed {
                 witness_epoch: Epoch::new(1),
@@ -1455,26 +1684,28 @@ impl QuetzalcoatlDaemon {
         register_standard_capabilities(&mut kernel)?;
         let _ = kernel.rehydrate_from_spine()?;
 
-        // 3. 启动回环安全 LLM 网关
+        // 3. 启动支持真实 TLS HTTPS 上游（rustls + 系统根证书，禁止自动跟随跨源重定向）的回环 LLM 网关
         let mut disc_cfg = DiscoveryConfig::default();
         if let Some(paths) = &config.discovery_search_paths {
             disc_cfg.search_paths = paths.clone();
         }
+        let https_transport = HttpsUpstreamTransport::new()?;
         let gateway = LoopbackGateway::new(
             GatewayConfig {
                 endpoints: config.upstream_endpoints.clone(),
             },
-            Arc::new(StdHttpTransport),
+            Arc::new(https_transport),
         );
         let gateway_handle = gateway.serve_loopback(config.gateway_bind_addr)?;
         let gateway_addr = gateway_handle.bound_addr();
         let gateway_base_url = gateway_handle.base_url();
         let harness_host = HarnessHost::new(disc_cfg, gateway);
 
-        // 4. 生成 256-bit 本地 IPC 鉴权令牌并启动防 DNS 重绑定的 UDS (`0600`) + Loopback HTTP IPC
+        // 4. 生成 256-bit 管理员主令牌与单次 Run 受限钩子令牌表，启动防 DNS 重绑定本地 IPC
         let mut ipc_token_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut ipc_token_bytes);
         let ipc_token = hex_encode(&ipc_token_bytes);
+        let hook_tokens = ScopedHookTokenRegistry::new();
 
         let run_dir = config.quetzalcoatl_home.join("run");
         fs::create_dir_all(&run_dir).map_err(|e| QuetzalcoatlError::StorageError {
@@ -1495,7 +1726,6 @@ impl QuetzalcoatlDaemon {
             None
         };
 
-        // 先绑定回环占位获取最终地址后注入 SharedDaemonCore
         let started_ms = now_unix_ms();
         let placeholder_info = DaemonRuntimeInfo {
             pid: std::process::id(),
@@ -1517,7 +1747,7 @@ impl QuetzalcoatlDaemon {
             fn handle(&self, req: IpcRequest) -> (IpcResponse, bool) {
                 let core_opt = self.slot.lock().ok().and_then(|g| g.clone());
                 match core_opt {
-                    Some(c) => c.handle(req),
+                    Some(c) => c.dispatch_ipc(req),
                     None => (
                         IpcResponse::Error {
                             code: String::from("STORAGE_ERROR"),
@@ -1534,6 +1764,7 @@ impl QuetzalcoatlDaemon {
             config.ipc_bind_addr,
             uds_target,
             ipc_token_bytes,
+            hook_tokens.clone(),
             stop,
             Arc::new(DeferredHandler {
                 slot: Arc::clone(&core_holder),
@@ -1550,7 +1781,8 @@ impl QuetzalcoatlDaemon {
         let shared_core = Arc::new(SharedDaemonCore {
             config,
             runtime_info: runtime_info.clone(),
-            ipc_token_hex: ipc_token.clone(),
+            worker_sandbox,
+            hook_tokens,
             harness_host,
             gateway_base_url,
             state: Mutex::new(DaemonMutableState {
