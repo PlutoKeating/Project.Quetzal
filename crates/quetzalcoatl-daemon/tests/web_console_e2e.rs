@@ -4,6 +4,8 @@
 //! Task 4.2 验收：`quetzalcoatld` 同源静态托管 + `/auth/local` + `/health` + WebSocket `/rpc`
 //! 与 HTTP `/rpc` 兜底。使用真实守护进程、真实回环 TCP 与手写 WebSocket 客户端。
 
+mod common;
+
 use std::error::Error;
 use std::fs;
 use std::io::{Read, Write};
@@ -12,7 +14,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use quetzalcoatl_daemon::{DaemonConfig, QuetzalcoatlDaemon};
-use uuid::Uuid;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -22,14 +23,7 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> Result<Self, Box<dyn Error>> {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
-        fs::create_dir_all(&path)?;
+        let path = common::temp_root(prefix)?;
         Ok(Self { path })
     }
 

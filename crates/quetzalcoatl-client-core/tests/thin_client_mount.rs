@@ -24,13 +24,9 @@ struct TempHome {
 
 impl TempHome {
     fn new() -> Self {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("qz_client_core_{}", Uuid::new_v4().simple()));
+        let parent = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+        let uid = Uuid::new_v4().simple().to_string();
+        let path = parent.join(format!("qz_client_core_{}", &uid[..12]));
         fs::create_dir_all(&path).expect("create temp home");
         Self { path }
     }

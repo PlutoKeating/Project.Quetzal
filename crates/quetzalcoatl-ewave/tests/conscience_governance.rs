@@ -17,11 +17,22 @@ use quetzalcoatl_types::{AgentId, DeviceId, Epoch, ErrorCode, HlcTimestamp, Thre
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-fn temp_spine_db_path(tag: &str) -> Result<PathBuf, Box<dyn Error>> {
+/// 测试临时存储目录守卫：测试结束（含提前返回）即清理本测试独占目录。
+struct TempDbGuard {
+    dir: PathBuf,
+}
+
+impl Drop for TempDbGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn temp_spine_db_path(tag: &str) -> Result<(PathBuf, TempDbGuard), Box<dyn Error>> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = PathBuf::from("/tmp/opencode").join(format!(
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
         "qz_ewave_test_{}_{}_{}",
         tag,
         std::process::id(),
@@ -31,17 +42,18 @@ fn temp_spine_db_path(tag: &str) -> Result<PathBuf, Box<dyn Error>> {
         fs::remove_dir_all(&dir)?;
     }
     fs::create_dir_all(&dir)?;
-    Ok(dir.join("spine.sqlite"))
+    Ok((dir.join("spine.sqlite"), TempDbGuard { dir }))
 }
 
 fn make_test_spine(
     tag: &str,
-) -> Result<(AccountRootKey, SpineEngine<RusqliteWalStore>), Box<dyn Error>> {
+) -> Result<(AccountRootKey, SpineEngine<RusqliteWalStore>, TempDbGuard), Box<dyn Error>> {
     let agent_id = AgentId::new_v4();
     let root_key = AccountRootKey::from_bytes([0x42u8; 32]);
     let dev = DeviceIdentity::from_seeds(DeviceId::new_v4(), [0x11u8; 32], [0x22u8; 32])?;
     let epoch_ring = EpochKeyRing::new_genesis(agent_id, &root_key, dev.public_record())?;
-    let store = RusqliteWalStore::open(&temp_spine_db_path(tag)?)?;
+    let (db_path, guard) = temp_spine_db_path(tag)?;
+    let store = RusqliteWalStore::open(&db_path)?;
     let spine = SpineEngine::new(
         agent_id,
         dev,
@@ -49,7 +61,7 @@ fn make_test_spine(
         HlcTimestamp::from_parts(1_795_400_000_000, 0, 1),
         store,
     )?;
-    Ok((root_key, spine))
+    Ok((root_key, spine, guard))
 }
 
 fn make_sample_conscience(
@@ -219,7 +231,7 @@ fn cloud_reflector(tag: &str, model_hash: &str) -> ModelRef {
 #[test]
 fn assembler_verifies_root_operator_manifest_and_pins_anti_mind_virus_immunity() -> TestResult {
     let base_ms = 1_795_400_000_000;
-    let (root_key, _spine) = make_test_spine("assembler")?;
+    let (root_key, _spine, _guard) = make_test_spine("assembler")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     conscience.verify_signature_and_hashes()?;
 
@@ -333,7 +345,7 @@ fn assembler_verifies_root_operator_manifest_and_pins_anti_mind_virus_immunity()
 fn arbiter_rejects_root_operator_writes_stale_lease_epoch_and_parks_small_on_device_reflector()
 -> TestResult {
     let base_ms = 1_795_400_000_000;
-    let (root_key, mut spine) = make_test_spine("arbiter_guards")?;
+    let (root_key, mut spine, _guard) = make_test_spine("arbiter_guards")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     let mut graph = SerpentineGraph::new(GraphOptions::default())?;
 
@@ -509,7 +521,7 @@ fn arbiter_rejects_root_operator_writes_stale_lease_epoch_and_parks_small_on_dev
 fn single_session_15_turn_s5_pressure_attack_cannot_tamper_self_core_or_drift_focus() -> TestResult
 {
     let base_ms = 1_795_400_000_000;
-    let (root_key, mut spine) = make_test_spine("s5_pressure_15_turns")?;
+    let (root_key, mut spine, _guard) = make_test_spine("s5_pressure_15_turns")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     let mut graph = SerpentineGraph::new(GraphOptions::default())?;
     let mut arbiter = ConscienceArbiter::new(Epoch::new(1));
@@ -605,7 +617,7 @@ fn c_tier_auto_promotion_succeeds_across_3_independent_thread_clusters_after_coo
 -> TestResult {
     let day_ms: u64 = 86_400_000;
     let base_ms: u64 = 1_795_400_000_000;
-    let (root_key, mut spine) = make_test_spine("c_tier_promote")?;
+    let (root_key, mut spine, _guard) = make_test_spine("c_tier_promote")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     let mut graph = SerpentineGraph::new(GraphOptions::default())?;
     let mut arbiter = ConscienceArbiter::new(Epoch::new(1));
@@ -836,7 +848,7 @@ fn c_tier_auto_promotion_succeeds_across_3_independent_thread_clusters_after_coo
 #[test]
 fn group_non_owner_spoofing_grant_revocation_and_operator_delegation_verification() -> TestResult {
     let base_ms = 1_795_400_000_000;
-    let (root_key, mut spine) = make_test_spine("group_and_grants")?;
+    let (root_key, mut spine, _guard) = make_test_spine("group_and_grants")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     let mut graph = SerpentineGraph::new(GraphOptions::default())?;
     let mut arbiter = ConscienceArbiter::new(Epoch::new(1));
@@ -1008,7 +1020,7 @@ fn group_non_owner_spoofing_grant_revocation_and_operator_delegation_verificatio
 #[test]
 fn regression_critical_1_bounded_proposals_cannot_tombstone_or_downgrade_self_core() -> TestResult {
     let base_ms = 1_795_400_000_000;
-    let (root_key, mut spine) = make_test_spine("crit1_self_core_shield")?;
+    let (root_key, mut spine, _guard) = make_test_spine("crit1_self_core_shield")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     let mut graph = SerpentineGraph::new(GraphOptions::default())?;
     let mut arbiter = ConscienceArbiter::new(Epoch::new(1));
@@ -1111,7 +1123,7 @@ fn regression_critical_1_bounded_proposals_cannot_tombstone_or_downgrade_self_co
 fn regression_critical_2_delegated_operator_manifest_verifies_and_cannot_tamper_root() -> TestResult
 {
     let base_ms = 1_795_400_000_000;
-    let (root_key, _spine) = make_test_spine("crit2_operator_delegation")?;
+    let (root_key, _spine, _guard) = make_test_spine("crit2_operator_delegation")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     let graph = SerpentineGraph::new(GraphOptions::default())?;
 
@@ -1185,7 +1197,7 @@ fn regression_critical_2_delegated_operator_manifest_verifies_and_cannot_tamper_
 #[test]
 fn regression_important_1_xml_breakout_escaping_and_persona_grant_field_peer_scope() -> TestResult {
     let base_ms = 1_795_400_000_000;
-    let (root_key, _spine) = make_test_spine("imp1_xml_and_grant_scope")?;
+    let (root_key, _spine, _guard) = make_test_spine("imp1_xml_and_grant_scope")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     let graph = SerpentineGraph::new(GraphOptions::default())?;
 
@@ -1308,7 +1320,7 @@ fn regression_important_3_and_4_strict_heterogeneous_reflector_non_burning_coold
 -> TestResult {
     let day_ms: u64 = 86_400_000;
     let base_ms: u64 = 1_795_400_000_000;
-    let (root_key, mut spine) = make_test_spine("imp3_imp4_arbiter_graph")?;
+    let (root_key, mut spine, _guard) = make_test_spine("imp3_imp4_arbiter_graph")?;
     let mut conscience = make_sample_conscience(&root_key, base_ms)?;
     let mut graph = SerpentineGraph::new(GraphOptions::default())?;
     let mut arbiter = ConscienceArbiter::new(Epoch::new(1));

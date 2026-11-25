@@ -190,16 +190,36 @@ pub fn find_tool(candidates: &[&str]) -> Option<PathBuf> {
     None
 }
 
-pub fn temp_dir(prefix: &str) -> PathBuf {
-    let base = PathBuf::from("/tmp/opencode");
-    let parent = if base.is_dir() {
-        base
-    } else {
-        std::env::temp_dir()
-    };
+/// 测试独占临时目录守卫：Drop 时递归清理，覆盖断言失败与提前返回路径。
+pub struct TempDir(PathBuf);
+
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for TempDir {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+pub fn temp_dir(prefix: &str) -> TempDir {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    parent.join(format!("{prefix}_{nonce}_{}", std::process::id()))
+    TempDir(
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("{prefix}_{nonce}_{}", std::process::id())),
+    )
 }

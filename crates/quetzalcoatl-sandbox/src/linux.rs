@@ -120,12 +120,7 @@ struct EphemeralSeccompFile {
 
 impl EphemeralSeccompFile {
     fn create() -> Result<Self> {
-        let base_candidate = PathBuf::from("/tmp/opencode");
-        let dir = if base_candidate.is_dir() {
-            base_candidate
-        } else {
-            std::env::temp_dir()
-        };
+        let dir = std::env::temp_dir();
         let path = dir.join(format!(
             "quetzalcoatl_seccomp_{}.bpf",
             Uuid::new_v4().simple()

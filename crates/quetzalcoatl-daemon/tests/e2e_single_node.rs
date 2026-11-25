@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
 
+mod common;
+
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -22,7 +24,6 @@ use quetzalcoatl_kernel::CleanRoomVerifierDag;
 use quetzalcoatl_sandbox::SandboxCommand;
 use quetzalcoatl_spine::{MaterializedStore, RusqliteWalStore};
 use rusqlite::Connection;
-use uuid::Uuid;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -32,14 +33,7 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> Result<Self, Box<dyn Error>> {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
-        fs::create_dir_all(&path)?;
+        let path = common::temp_root(prefix)?;
         Ok(Self { path })
     }
 
@@ -288,7 +282,7 @@ fn daemon_exclusive_spine_lock_and_dns_rebinding_host_origin_403_and_token_401_g
 fn full_single_node_e2e_router_worker_worktree_clean_room_verifier_explore_and_qz_cli() -> TestResult
 {
     let tmp = TempDirGuard::new("qz_e2e_single_node")?;
-    let qz_home = tmp.path().join("quetzalcoatl_home");
+    let qz_home = tmp.path().join("home");
     let mock_upstream = MockUpstreamServer::start()?;
 
     // 准备假 Coding Agent 可执行进程：
@@ -886,7 +880,7 @@ echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
     daemon.shutdown()?;
 
     // 3. Finding 8: Routine `qz chat` 当上游不可达或返回错误时，必须返回结构化错误而非静默吞掉伪装为 "Ack: ..."
-    let dead_port_home = tmp.path().join("dead_upstream_home");
+    let dead_port_home = tmp.path().join("dead_home");
     let mut dead_cfg = DaemonConfig::new(dead_port_home);
     let dead_ep = String::from("http://127.0.0.1:9");
     dead_cfg.upstream_endpoints.anthropic_base_url = dead_ep.clone();

@@ -45,13 +45,9 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
+        let parent = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+        let uid = Uuid::new_v4().simple().to_string();
+        let path = parent.join(format!("{prefix}_{}", &uid[..12]));
         fs::create_dir_all(&path)?;
         Ok(Self { path })
     }
@@ -83,7 +79,7 @@ fn compiled_go_hub_binary() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
             Ok(r) => r,
             Err(e) => return Err(e.to_string()),
         };
-        let out_dir = PathBuf::from("/tmp/opencode/qz_go_hub_bin_cache");
+        let out_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("qz_go_hub_bin_cache");
         if let Err(e) = fs::create_dir_all(&out_dir) {
             return Err(format!("create hub bin cache dir failed: {e}"));
         }

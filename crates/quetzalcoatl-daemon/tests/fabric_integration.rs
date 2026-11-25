@@ -6,6 +6,8 @@
 //! 2. 对接真实 Go `quetzalcoatl-hub` 子进程，验证 `qz login` / `qz pair start|join|approve` / `qz nodes` / `qz status`；
 //! 3. 错误 PIN 与非法配对短码必须返回类型化错误码，绝不出现 `Ack: ...` 伪装。
 
+mod common;
+
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fs;
@@ -36,14 +38,7 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
-        fs::create_dir_all(&path)?;
+        let path = common::temp_root(prefix)?;
         Ok(Self { path })
     }
 
@@ -134,7 +129,7 @@ fn build_hub_binary(bin_path: &Path) -> Result<(), String> {
 fn compiled_go_hub_binary() -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
     static HUB_BIN: OnceLock<std::result::Result<PathBuf, String>> = OnceLock::new();
     let cached = HUB_BIN.get_or_init(|| {
-        let out_dir = PathBuf::from("/tmp/opencode/qz_go_hub_bin_cache");
+        let out_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("qz_go_hub_bin_cache");
         if let Err(e) = fs::create_dir_all(&out_dir) {
             return Err(format!("create hub bin cache dir failed: {e}"));
         }

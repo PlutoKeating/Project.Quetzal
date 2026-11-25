@@ -44,13 +44,9 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> Result<Self, Box<dyn Error>> {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
+        let parent = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+        let uid = Uuid::new_v4().simple().to_string();
+        let path = parent.join(format!("{prefix}_{}", &uid[..12]));
         fs::create_dir_all(&path)?;
         Ok(Self { path })
     }

@@ -6,6 +6,8 @@
 //! - Important #4：`qz pair approve` 后新设备真实加入本地 `EpochKeyRing` 并可握手，`qz pair revoke` 后立即被拒；
 //! - Important #5：优雅退出时把 `witness_epoch` 主动移交给在线对等节点。
 
+mod common;
+
 use std::error::Error;
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -44,14 +46,7 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> Result<Self, BoxError> {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
-        fs::create_dir_all(&path)?;
+        let path = common::temp_root(prefix)?;
         Ok(Self { path })
     }
 
@@ -142,7 +137,7 @@ fn build_hub_binary(bin_path: &Path) -> Result<(), String> {
 fn compiled_go_hub_binary() -> Result<PathBuf, BoxError> {
     static HUB_BIN: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     let cached = HUB_BIN.get_or_init(|| {
-        let out_dir = PathBuf::from("/tmp/opencode/qz_go_hub_bin_cache");
+        let out_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("qz_go_hub_bin_cache");
         fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
         // 进程唯一路径：并行 runner 不会互相覆盖/exec 同一文件，也不会无界累积。
         prune_stale_hub_binaries(&out_dir);

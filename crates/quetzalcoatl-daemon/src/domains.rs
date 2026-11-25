@@ -347,18 +347,22 @@ mod tests {
     const NOW_MS: u64 = 1_795_400_000_000;
 
     fn temp_home(tag: &str) -> PathBuf {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
+        let parent = std::env::temp_dir().join("quetzalcoatl-tests");
+        let _ = fs::create_dir_all(&parent);
         let path = parent.join(format!(
             "qz_domain_rt_{tag}_{}",
             uuid::Uuid::new_v4().simple()
         ));
         let _ = fs::create_dir_all(&path);
         path
+    }
+
+    /// 清理测试独占 home，并尽力移除已空的共享根目录，避免测试后残留 `quetzalcoatl-tests`。
+    fn cleanup_home(home: &Path) {
+        let _ = fs::remove_dir_all(home);
+        if let Some(root) = home.parent() {
+            let _ = fs::remove_dir(root);
+        }
     }
 
     fn temp_spine(
@@ -449,7 +453,7 @@ mod tests {
                 .any(|r| r.kind_str() == "competence_boundary")
         );
 
-        let _ = fs::remove_dir_all(&home);
+        cleanup_home(&home);
         Ok(())
     }
 
@@ -489,7 +493,7 @@ mod tests {
         assert_eq!(stable.active_pack_id(), "eldercare-guardian");
         assert!(stable.repair_report().is_none());
 
-        let _ = fs::remove_dir_all(&home);
+        cleanup_home(&home);
         Ok(())
     }
 
@@ -524,7 +528,7 @@ mod tests {
             "修复结果必须重新落盘"
         );
 
-        let _ = fs::remove_dir_all(&home);
+        cleanup_home(&home);
         Ok(())
     }
 }

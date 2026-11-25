@@ -3,6 +3,8 @@
 
 //! Task 3.4 端到端：`IpcRequest::Domain*`（`qz domain list|show|use`）在真实 `quetzalcoatld` 上的行为。
 
+mod common;
+
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +13,6 @@ use quetzalcoatl_daemon::{
     DaemonConfig, DomainPackSummary, IpcClient, IpcRequest, IpcResponse, QuetzalcoatlDaemon,
 };
 use quetzalcoatl_domains::PackSwitchOutcome;
-use uuid::Uuid;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -21,14 +22,7 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> Result<Self, Box<dyn Error>> {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
-        fs::create_dir_all(&path)?;
+        let path = common::temp_root(prefix)?;
         Ok(Self { path })
     }
 

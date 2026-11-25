@@ -34,13 +34,9 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> Result<Self, Box<dyn Error>> {
-        let base = PathBuf::from("/tmp/opencode");
-        let base_dir = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = base_dir.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
+        let base_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+        let uid = Uuid::new_v4().simple().to_string();
+        let path = base_dir.join(format!("{prefix}_{}", &uid[..12]));
         fs::create_dir_all(&path)?;
         Ok(Self { path })
     }
@@ -996,12 +992,7 @@ fn loopback_tcp_broker_rejects_wildcard_bind_and_scrubs_chunked_secret_echoes() 
 #[test]
 fn regression_critical_1_workspace_at_user_home_masks_all_secrets_and_mounts_nested_broker_socket()
 -> TestResult {
-    let base = PathBuf::from("/tmp/opencode");
-    let root = if base.is_dir() {
-        base
-    } else {
-        std::env::temp_dir()
-    };
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let short_dir = root.join(format!("c1_{}", &Uuid::new_v4().simple().to_string()[..8]));
     fs::create_dir_all(&short_dir)?;
     let tmp = TempDirGuard { path: short_dir };

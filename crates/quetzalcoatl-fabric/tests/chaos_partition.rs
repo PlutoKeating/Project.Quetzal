@@ -68,13 +68,9 @@ struct TempDirGuard {
 
 impl TempDirGuard {
     fn new(prefix: &str) -> std::result::Result<Self, Box<dyn Error + Send + Sync>> {
-        let base = PathBuf::from("/tmp/opencode");
-        let parent = if base.is_dir() {
-            base
-        } else {
-            std::env::temp_dir()
-        };
-        let path = parent.join(format!("{prefix}_{}", Uuid::new_v4().simple()));
+        let parent = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+        let uid = Uuid::new_v4().simple().to_string();
+        let path = parent.join(format!("{prefix}_{}", &uid[..12]));
         std::fs::create_dir_all(&path)?;
         Ok(Self { path })
     }
@@ -822,6 +818,11 @@ async fn deterministic_100_seeds_chaos_partition_clock_jump_zero_double_send_and
                 );
             }
         }
+
+        // 每个种子断言完成后立即清理其独占存储目录，把峰值磁盘占用限定在少数种子而非 100 个；
+        // 聚合计数器已累加完毕，清理不影响终局断言。
+        drop(nodes);
+        let _ = std::fs::remove_dir_all(&seed_dir);
     }
 
     assert!(
