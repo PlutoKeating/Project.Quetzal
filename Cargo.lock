@@ -3629,6 +3629,7 @@ dependencies = [
  "quetzalcoatl-crypto",
  "quetzalcoatl-ewave",
  "quetzalcoatl-kernel",
+ "quetzalcoatl-spine",
  "quetzalcoatl-types",
  "serde",
  "serde_json",

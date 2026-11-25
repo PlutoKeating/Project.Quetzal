@@ -45,6 +45,8 @@ Commands:
   sayit       SayIt v2.1 子树吸纳：ingest --path <snapshot> | --batch <dir>
   webhook     零知识 Webhook 入站：pull [--limit N] | status | register | rotate
   domain      五大首发领域包：list | show <id> | use <id>
+              本版本仅完成领域包的声明、校验与切换审计；
+              实机执行（紧急告警、引用强制、答案拦截）随 Runner 接入生效
 ";
 
 fn locate_quetzalcoatld_binary() -> PathBuf {
@@ -1104,7 +1106,22 @@ fn run_channel(args: &[String]) -> Result<()> {
     }
 }
 
-fn run_domain(args: &[String]) -> Result<()> {
+const DOMAIN_USAGE_TEXT: &str = "\
+Usage: qz domain <list | show <id> | use <id>> [--json] [--home <dir>]
+
+本版本仅完成领域包的声明、校验与切换审计；
+实机执行（紧急告警、引用强制、答案拦截）随 Runner 接入生效。
+";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum DomainCommand {
+    List,
+    Show(String),
+    Use(String),
+}
+
+/// 严格解析 `qz domain` 参数：`list` 不接受额外位置参数（避免静默忽略用户输入）。
+fn parse_domain_command(args: &[String]) -> Result<(DomainCommand, bool, Option<PathBuf>)> {
     let mut home: Option<PathBuf> = None;
     let mut json_mode = false;
     let mut action: Option<String> = None;
@@ -1135,39 +1152,72 @@ fn run_domain(args: &[String]) -> Result<()> {
         i += 1;
     }
 
-    let qz_home = resolve_quetzalcoatl_home(home);
-    let client = require_daemon(&qz_home)?;
     let action = action.unwrap_or_else(|| String::from("list"));
-
-    let response = match action.as_str() {
-        "list" => client.call(&IpcRequest::DomainList)?,
-        "show" | "use" => {
-            let id = pack.ok_or_else(|| {
-                QuetzalcoatlError::invalid_id(
+    let command = match action.as_str() {
+        "list" => {
+            if let Some(extra) = pack {
+                return Err(QuetzalcoatlError::invalid_id(
                     "DomainPackId",
-                    format!("必须提供领域包 ID，例如 `qz domain {action} eldercare-guardian`"),
-                )
-            })?;
-            if action == "show" {
-                client.call(&IpcRequest::DomainShow { id })?
-            } else {
-                client.call(&IpcRequest::DomainUse { id })?
+                    format!(
+                        "qz domain list 不接受额外参数 `{extra}`；查看单个领域包请用 `qz domain show {extra}`"
+                    ),
+                ));
             }
+            DomainCommand::List
         }
+        "show" => DomainCommand::Show(pack.ok_or_else(|| {
+            QuetzalcoatlError::invalid_id(
+                "DomainPackId",
+                String::from("必须提供领域包 ID，例如 `qz domain show eldercare-guardian`"),
+            )
+        })?),
+        "use" => DomainCommand::Use(pack.ok_or_else(|| {
+            QuetzalcoatlError::invalid_id(
+                "DomainPackId",
+                String::from("必须提供领域包 ID，例如 `qz domain use eldercare-guardian`"),
+            )
+        })?),
         other => {
             return Err(QuetzalcoatlError::StorageError {
                 detail: format!("qz domain 未知子命令: {other}（支持 list / show / use）"),
             });
         }
     };
+    Ok((command, json_mode, home))
+}
+
+fn run_domain(args: &[String]) -> Result<()> {
+    if args
+        .iter()
+        .any(|a| matches!(a.as_str(), "-h" | "--help" | "help"))
+    {
+        print!("{DOMAIN_USAGE_TEXT}");
+        return Ok(());
+    }
+
+    let (command, json_mode, home) = parse_domain_command(args)?;
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?;
+
+    let response = match command {
+        DomainCommand::List => client.call(&IpcRequest::DomainList)?,
+        DomainCommand::Show(id) => client.call(&IpcRequest::DomainShow { id })?,
+        DomainCommand::Use(id) => client.call(&IpcRequest::DomainUse { id })?,
+    };
 
     match response {
-        IpcResponse::DomainPacks(rows) => {
+        IpcResponse::DomainPacks {
+            packs,
+            repair_report,
+        } => {
             if json_mode {
-                print_json(&rows)?;
+                print_json(&serde_json::json!({
+                    "packs": packs,
+                    "repairReport": repair_report,
+                }))?;
             } else {
-                println!("domain packs ({}):", rows.len());
-                for row in &rows {
+                println!("domain packs ({}):", packs.len());
+                for row in &packs {
                     println!(
                         "  {} {} v{} {}{}",
                         if row.active { "*" } else { "-" },
@@ -1183,6 +1233,12 @@ fn run_domain(args: &[String]) -> Result<()> {
                         row.verifier_rule_kinds.join(",")
                     );
                 }
+                if let Some(report) = repair_report {
+                    println!("audit repaired from spine: {report}");
+                }
+                println!(
+                    "note: 本版本仅完成领域包的声明、校验与切换审计；实机执行（紧急告警、引用强制、答案拦截）随 Runner 接入生效"
+                );
             }
             Ok(())
         }
@@ -1231,17 +1287,25 @@ fn run_domain(args: &[String]) -> Result<()> {
                     "  immutable fields: {}",
                     view.envelope.immutable_fields.join(",")
                 );
+                println!(
+                    "note: 本版本仅完成领域包的声明、校验与切换审计；实机执行（紧急告警、引用强制、答案拦截）随 Runner 接入生效"
+                );
             }
             Ok(())
         }
-        IpcResponse::DomainActivated(audit) => {
+        IpcResponse::DomainActivated(outcome) => {
             if json_mode {
-                print_json(audit.as_ref())?;
+                print_json(outcome.as_ref())?;
             } else {
-                println!(
-                    "domain activated: {} -> {} (guardian={}, at={})",
-                    audit.from_pack_id, audit.to_pack_id, audit.guardian_label, audit.at_ms
-                );
+                match outcome.as_ref() {
+                    quetzalcoatl_domains::PackSwitchOutcome::Activated(audit) => println!(
+                        "domain activated: {} -> {} (guardian={}, at={})",
+                        audit.from_pack_id, audit.to_pack_id, audit.guardian_label, audit.at_ms
+                    ),
+                    quetzalcoatl_domains::PackSwitchOutcome::Unchanged { active_pack_id } => {
+                        println!("domain unchanged: {active_pack_id} (no audit appended)")
+                    }
+                }
             }
             Ok(())
         }
@@ -2157,5 +2221,61 @@ fn main() -> ExitCode {
             eprintln!("qz error [{}]: {err}", err.code());
             ExitCode::from(1)
         }
+    }
+}
+
+#[cfg(test)]
+mod domain_cli_tests {
+    use super::*;
+
+    fn args(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| String::from(*s)).collect()
+    }
+
+    #[test]
+    fn usage_banners_state_the_real_runtime_boundary() {
+        let marker = "本版本仅完成领域包的声明、校验与切换审计";
+        assert!(USAGE_TEXT.contains(marker), "全局帮助必须说明实机执行边界");
+        assert!(
+            DOMAIN_USAGE_TEXT.contains(marker),
+            "qz domain 帮助必须说明实机执行边界"
+        );
+        assert!(
+            DOMAIN_USAGE_TEXT.contains("随 Runner 接入生效"),
+            "qz domain 帮助必须说明何时真正生效"
+        );
+    }
+
+    #[test]
+    fn list_rejects_extra_positional_argument_instead_of_silently_ignoring()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let err = parse_domain_command(&args(&["list", "eldercare-guardian"]))
+            .err()
+            .ok_or("多余参数必须报错")?;
+        assert_eq!(err.code().as_str(), "INVALID_ID");
+        assert!(
+            err.to_string().contains("show eldercare-guardian"),
+            "错误信息必须指引正确用法，实际: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn show_and_use_require_exactly_one_pack_id() {
+        assert!(matches!(
+            parse_domain_command(&args(&["show", "eldercare-guardian"])),
+            Ok((DomainCommand::Show(_), false, None))
+        ));
+        assert!(matches!(
+            parse_domain_command(&args(&["use", "personal-companion"])),
+            Ok((DomainCommand::Use(_), false, None))
+        ));
+        assert!(parse_domain_command(&args(&["show"])).is_err());
+        assert!(parse_domain_command(&args(&["use"])).is_err());
+        assert!(parse_domain_command(&args(&["show", "a", "b"])).is_err());
+        assert!(matches!(
+            parse_domain_command(&args(&["--json", "list"])),
+            Ok((DomainCommand::List, true, None))
+        ));
     }
 }

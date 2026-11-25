@@ -20,21 +20,23 @@ pub mod safety;
 pub mod verifier;
 
 pub use canonical::{
-    blake3_jcs_digest, blake3_jcs_digest_hex, canonicalize_json_str, canonicalize_json_value,
+    MAX_SAFE_INTEGER, blake3_jcs_digest, blake3_jcs_digest_hex, canonicalize_json_str,
+    canonicalize_json_value,
 };
 pub use demo_keys::{
-    DEMO_GUARDIAN_DERIVE_CONTEXT, FLAGSHIP_DOMAIN_IDS, builtin_guardian_keys, builtin_pack_json,
-    demo_guardian_key, demo_guardian_seed,
+    BUILTIN_TRUSTED_BODY_DIGESTS, DEMO_GUARDIAN_DERIVE_CONTEXT, FLAGSHIP_DOMAIN_IDS,
+    builtin_guardian_keys, builtin_pack_json, demo_guardian_key, demo_guardian_seed,
 };
 pub use manifest::{
     BudgetPolicy, ChannelCap, ConscienceSeed, ConscienceSeedEntry, DEFAULT_DOMAIN_PACK_ID,
     DOMAIN_PACK_SCHEMA, DeliverableKind, DomainPack, DomainPackId, EmergencyPolicy, GuardianKey,
-    OutboundPolicy, QuietHours, SAFETY_ENVELOPE_SCHEMA, SafetyEnvelope, SafetyEnvelopePayload,
-    SafetyEventPolicy, SeedSource, SeedTier, VerifierRule, parse_sink_class,
+    GuardianKeySource, OutboundPolicy, QuietHours, SAFETY_ENVELOPE_SCHEMA, SafetyEnvelope,
+    SafetyEnvelopePayload, SafetyEventPolicy, SeedSource, SeedTier, VerifierRule, parse_sink_class,
 };
-pub use registry::{DomainPackRegistry, InstalledPack, PackSwitchAudit};
+pub use registry::{DomainPackRegistry, InstalledPack, PackSwitchAudit, PackSwitchOutcome};
 pub use safety::{
-    OutboundDecision, OutboundKind, OutboundOutcome, OutboundRequest, SafetyEvent, SafetyEventKind,
-    SafetySupervisor, SuppressionReason,
+    MemorySafetySink, OutboundContext, OutboundDecision, OutboundKind, OutboundOutcome,
+    OutboundRequest, SAFETY_STATE_SCHEMA, SafetyEvent, SafetyEventKind, SafetyPersistedState,
+    SafetyStateSink, SafetySupervisor, SpineSafetySink, SuppressionReason,
 };
 pub use verifier::{Citation, Claim, DeliverableCandidate};

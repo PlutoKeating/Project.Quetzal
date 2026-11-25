@@ -52,6 +52,42 @@ const BUILTIN_PACK_DOCUMENTS: [(&str, &str); 5] = [
     ),
 ];
 
+/// 演示信任锚的钉扎摘要表：每个合成演示监护人公钥**只**被授权为这里列出的
+/// 正式规范化正文背书。修改任何内置 `pack.json` 后必须重新运行
+/// `cargo run -p quetzalcoatl-domains --example sign_domain_packs` 并同步本表，
+/// 否则 `embedded_pack_documents_and_demo_trust_table_are_in_sync` 契约测试会失败。
+pub const BUILTIN_TRUSTED_BODY_DIGESTS: [(&str, &str); 5] = [
+    (
+        "eldercare-guardian",
+        "67810ab7368aba0b786917dedc53b86f5e5dc7677487c2144ce3a217a44a0d73",
+    ),
+    (
+        "personal-companion",
+        "a681b5e2f41a924e7f56e244f33aade915b173f68796c0e3ad5746f30b35a758",
+    ),
+    (
+        "regulated-professional",
+        "32a61cec93278fc1e2e2da12a8a191530732974a9b537bcdae3de28c45a6097e",
+    ),
+    (
+        "software-engineering",
+        "311202d6a32d904e74e2f4b65d5ba3a4316cf593425bab149aa8b16fa81b2599",
+    ),
+    (
+        "youth-socratic-tutor",
+        "1bd564886d58d632c29a9ca1fcb3acc95d6086507947552ed9614a21304e0c29",
+    ),
+];
+
+/// 取某一内置领域包被演示锚钉扎的正文规范化摘要。
+#[must_use]
+pub fn builtin_trusted_body_digest(domain_id: &str) -> Option<&'static str> {
+    BUILTIN_TRUSTED_BODY_DIGESTS
+        .iter()
+        .find(|(id, _)| *id == domain_id)
+        .map(|(_, digest)| *digest)
+}
+
 /// 由领域包 ID 确定性派生合成演示监护人种子（非机密，仅供示范与测试）。
 #[must_use]
 pub fn demo_guardian_seed(domain_id: &str) -> [u8; 32] {
@@ -60,13 +96,17 @@ pub fn demo_guardian_seed(domain_id: &str) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-/// 取某一领域包对应的合成演示监护人公钥。
+/// 取某一领域包对应的合成演示监护人公钥（仅钉扎在该包内置正文上）。
 #[must_use]
 pub fn demo_guardian_key(domain_id: &str) -> GuardianKey {
     let signing_key = SigningKey::from_bytes(&demo_guardian_seed(domain_id));
-    GuardianKey::new(
+    let pinned = builtin_trusted_body_digest(domain_id)
+        .map(|digest| vec![String::from(digest)])
+        .unwrap_or_default();
+    GuardianKey::demo(
         hex_encode(signing_key.verifying_key().as_bytes()),
         format!("guardian:demo-{domain_id}"),
+        pinned,
     )
 }
 

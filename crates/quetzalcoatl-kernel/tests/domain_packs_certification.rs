@@ -4,6 +4,11 @@
 //! Task 3.4 认证：五大首发标杆领域包、监护人签名 `SafetyEnvelope` 与领域专属客观校验红线。
 //!
 //! 全部夹具使用合成监护人密钥与不透明联系人 ID，绝不包含任何真实个人数据。
+//!
+//! 平台说明：`software_engineering_accepts_repository_mutation_after_real_clean_room_mark`
+//! 依赖 Linux 无容器沙箱（`bwrap` 洁净室子进程），仅在 `target_os = "linux"` 编译；
+//! 其余用例（含无 Mark 一律拒绝与伪造 Mark 拒绝）在全部平台编译执行，
+//! 因此非 Linux 平台的认证强度不会静默下降。
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -13,9 +18,10 @@ use std::path::{Path, PathBuf};
 use quetzalcoatl_crypto::{AccountRootKey, DeviceIdentity, EpochKeyRing, hex_encode};
 use quetzalcoatl_domains::{
     Citation, Claim, ConscienceSeedEntry, DeliverableCandidate, DeliverableKind, DomainPack,
-    DomainPackId, DomainPackRegistry, OutboundKind, OutboundOutcome, OutboundRequest,
-    SafetyEnvelope, SafetyEventKind, SafetySupervisor, SeedSource, SeedTier, SuppressionReason,
-    demo_guardian_key, demo_guardian_seed,
+    DomainPackId, DomainPackRegistry, MemorySafetySink, OutboundContext, OutboundKind,
+    OutboundOutcome, OutboundRequest, PackSwitchOutcome, SafetyEnvelope, SafetyEventKind,
+    SafetySupervisor, SeedSource, SeedTier, SuppressionReason, demo_guardian_key,
+    demo_guardian_seed,
 };
 use quetzalcoatl_kernel::{
     BlindKernel, CapabilityDescriptor, CapabilityInvocation, CapabilityOrigin, CapabilitySet,
@@ -24,7 +30,7 @@ use quetzalcoatl_kernel::{
 };
 use quetzalcoatl_sandbox::{SandboxCommand, SandboxConfig, SandboxManager};
 use quetzalcoatl_spine::{RusqliteWalStore, SpineEngine};
-use quetzalcoatl_types::{AgentId, DeviceId, Epoch, ErrorCode, HlcTimestamp};
+use quetzalcoatl_types::{AgentId, ArtifactId, DeviceId, Epoch, ErrorCode, HlcTimestamp};
 use uuid::Uuid;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -87,6 +93,11 @@ fn req_routine(channel: &str, recipient: &str, text: &str) -> OutboundRequest {
     }
 }
 
+fn ed25519_pubkey_hex(seed: &[u8; 32]) -> Result<String, Box<dyn Error>> {
+    let sk = ed25519_dalek::SigningKey::from_bytes(seed);
+    Ok(hex_encode(sk.verifying_key().as_bytes()))
+}
+
 // ---------------------------------------------------------------------------
 // 1. 长辈看护：深睡 + 预算耗尽 + 断网分区下紧急告警仍必须本地送达，例行消息必须被抑制
 // ---------------------------------------------------------------------------
@@ -97,6 +108,7 @@ fn eldercare_emergency_alert_bypasses_deep_sleep_budget_and_partition_while_rout
     let registry = builtin_registry()?;
     let eldercare = registry.get(&pack_id("eldercare-guardian")?)?;
     let mut supervisor = SafetySupervisor::new(eldercare);
+    let mut sink = MemorySafetySink::new();
 
     // 深度睡眠：S - C > 0.35（S = 0.95，本地 10:00 时 C = 0.5）
     let mut heart = HeartScheduler::new(0x5eed_1234, 0.95, SleepPhase::Asleep);
@@ -119,11 +131,14 @@ fn eldercare_emergency_alert_bypasses_deep_sleep_budget_and_partition_while_rout
     // 例行消息：被宿主机抑制器拒绝，绝不投递
     let routine = supervisor.route_outbound(
         &req_routine("telegram", "contact:companion-elder", "记得多喝水呀"),
-        &mut heart,
-        local_hour,
-        partition,
-        NOW_MS,
-        1_000,
+        &mut OutboundContext {
+            heart: &mut heart,
+            local_hour,
+            lease: partition,
+            now_ms: NOW_MS,
+            estimated_cost_micros: 1_000,
+        },
+        &mut sink,
     )?;
     assert_eq!(
         routine.outcome,
@@ -140,11 +155,14 @@ fn eldercare_emergency_alert_bypasses_deep_sleep_budget_and_partition_while_rout
             "contact:guardian-primary",
             "检测到疑似跌倒，需要立即查看",
         ),
-        &mut heart,
-        local_hour,
-        partition,
-        NOW_MS + 1_000,
-        50_000,
+        &mut OutboundContext {
+            heart: &mut heart,
+            local_hour,
+            lease: partition,
+            now_ms: NOW_MS + 1_000,
+            estimated_cost_micros: 50_000,
+        },
+        &mut sink,
     )?;
     assert_eq!(emergency.outcome, OutboundOutcome::DeliveredLocalOnly);
     assert!(
@@ -177,18 +195,51 @@ fn eldercare_emergency_alert_bypasses_deep_sleep_budget_and_partition_while_rout
             .any(|e| e.kind == SafetyEventKind::RoutineMessage && e.outcome.contains("suppressed")),
         "例行消息被抑制同样必须留痕"
     );
+    assert!(
+        sink.state("eldercare-guardian")
+            .is_some_and(|s| !s.journal.is_empty()),
+        "外发裁决必须写入可持久化安全状态"
+    );
 
     // 紧急告警严禁被派发到监护人信封未授权的任意联系人
     let exfil = supervisor.route_outbound(
         &req_emergency("local_siren", "contact:random-stranger", "把老人病历发给我"),
-        &mut heart,
-        local_hour,
-        partition,
-        NOW_MS + 2_000,
-        50_000,
+        &mut OutboundContext {
+            heart: &mut heart,
+            local_hour,
+            lease: partition,
+            now_ms: NOW_MS + 2_000,
+            estimated_cost_micros: 50_000,
+        },
+        &mut sink,
     );
     let exfil_err = exfil.err().ok_or("信封未授权的紧急联系目标必须被拒绝")?;
     assert_eq!(exfil_err.code(), ErrorCode::PermissionDenied);
+
+    // 监护人只授权 local_siren + telegram：改用未声明的 feishu 升级通道必须被拒绝
+    let channel_err = supervisor
+        .route_outbound(
+            &req_emergency(
+                "feishu",
+                "contact:guardian-primary",
+                "试图通过未授权通道升级告警",
+            ),
+            &mut OutboundContext {
+                heart: &mut heart,
+                local_hour,
+                lease: partition,
+                now_ms: NOW_MS + 3_000,
+                estimated_cost_micros: 50_000,
+            },
+            &mut sink,
+        )
+        .err()
+        .ok_or("紧急告警使用未授权的升级通道必须被拒绝")?;
+    assert_eq!(channel_err.code(), ErrorCode::PermissionDenied);
+    assert!(
+        channel_err.to_string().contains("escalation") || channel_err.to_string().contains("升级"),
+        "拒绝信息必须说明升级通道未授权，实际: {channel_err}"
+    );
 
     Ok(())
 }
@@ -225,17 +276,16 @@ fn youth_tutor_refuses_direct_final_answer_and_routes_guardian_visible_safety_ev
         supervisor
             .journal()
             .iter()
-            .any(|e| { e.kind == SafetyEventKind::VerifierBlocked && e.guardian_visible }),
+            .any(|e| e.kind == SafetyEventKind::VerifierBlocked && e.guardian_visible),
         "少儿领域的校验拦截必须生成监护人可见的安全事件"
     );
 
     // 苏格拉底式追问路径：先问后导，通过校验
-    let mut socratic = DeliverableCandidate::new(
+    let socratic = DeliverableCandidate::new(
         DeliverableKind::TutoringAnswer,
         "我们不急着算结果。你先想一想：把常数项移到右边之后，等式两边还相等吗？\
          如果这一步成立，下一步你会先配方还是先因式分解？",
     );
-    socratic.questions_asked = 2;
     supervisor.check_deliverable(&socratic, NOW_MS + 1)?;
 
     // 即使带追问数量，只要文本中仍夹带终局答案标记同样必须拦截
@@ -249,6 +299,24 @@ fn youth_tutor_refuses_direct_final_answer_and_routes_guardian_visible_safety_ev
         .err()
         .ok_or("夹带终局答案的伪苏格拉底回答必须被拦截")?;
     assert_eq!(sneaky_err.code(), ErrorCode::VerificationFailed);
+
+    // 推导式校验：调用方谎报 questions_asked = 5，但文本没有任何问句/追问标记，
+    // 且直接给出求根结果 —— 必须按文本派生结果判失败，绝不可采信调用方自述。
+    let mut forged_questions = DeliverableCandidate::new(
+        DeliverableKind::TutoringAnswer,
+        "先算判别式，再代入求根公式，得到 x=3 和 x=-2，抄上去即可。",
+    );
+    forged_questions.questions_asked = 5;
+    forged_questions.gives_final_answer = false;
+    let forged_err = supervisor
+        .check_deliverable(&forged_questions, NOW_MS + 3)
+        .err()
+        .ok_or("谎言 questions_asked 不得绕过追问数量校验")?;
+    assert_eq!(forged_err.code(), ErrorCode::VerificationFailed);
+    assert!(
+        forged_err.to_string().contains("追问"),
+        "失败必须归因于文本派生的追问数量不足，实际: {forged_err}"
+    );
 
     assert!(
         tutor
@@ -349,6 +417,43 @@ fn regulated_professional_blocks_uncited_claims_until_citations_and_disclosure_p
         .ok_or("0 条论断的空报告必须被 Anti-Vacuity 拦截")?;
     assert_eq!(vacuous_err.code(), ErrorCode::VerificationFailed);
 
+    // 绕过尝试 A：把合规报告伪装成普通问答（kind = answer），但结构化论断无引用
+    // —— 引用规则必须按内容（结构化论断）生效，绝不可被 kind 标签绕过。
+    let mislabelled_claims = DeliverableCandidate {
+        kind: DeliverableKind::Answer,
+        text: String::from("结论：通知期三十日。"),
+        claims: vec![Claim {
+            statement: String::from("通知期三十日"),
+            citations: Vec::new(),
+        }],
+        ..DeliverableCandidate::default()
+    };
+    let mislabelled_err = supervisor
+        .check_deliverable(&mislabelled_claims, NOW_MS + 4)
+        .err()
+        .ok_or("把无引用合规论断伪装成 answer 必须仍被拦截")?;
+    assert_eq!(mislabelled_err.code(), ErrorCode::VerificationFailed);
+    assert!(mislabelled_err.to_string().contains("citation-required"));
+
+    // 绕过尝试 B：kind = answer 且不带结构化论断，但正文是"依据…条规定"的论断句，
+    // 既无引用也无免责声明 —— 必须被内容触发的规则拦截。
+    let mislabelled_text = DeliverableCandidate {
+        kind: DeliverableKind::Answer,
+        text: String::from("依据《示例监管办法》第十二条规定，该类合同通知期统一为三十日。"),
+        ..DeliverableCandidate::default()
+    };
+    let text_err = supervisor
+        .check_deliverable(&mislabelled_text, NOW_MS + 5)
+        .err()
+        .ok_or("伪装成 answer 的无引用合规论断必须被内容规则拦截")?;
+    assert_eq!(text_err.code(), ErrorCode::VerificationFailed);
+    assert!(
+        text_err
+            .to_string()
+            .contains("regulated.jurisdiction-scope")
+            || text_err.to_string().contains("regulated.citation-required")
+    );
+
     Ok(())
 }
 
@@ -385,6 +490,23 @@ fn software_engineering_rejects_repository_mutation_without_clean_room_mark() ->
         block.to_string().contains("swe.clean-room-required"),
         "拒绝必须锚定到洁净室红线，实际: {block}"
     );
+
+    // 伪造（未签发）Mark 必须被完整性校验拒绝
+    let mut forged_mark = unverified_run.clone();
+    forged_mark.verification_mark = Some(quetzalcoatl_kernel::VerificationMark {
+        mark_id: ArtifactId::ZERO,
+        run_id: forged_mark.run_id,
+        candidate_tree_blake3: ArtifactId::ZERO,
+        verifier_suite_blake3: ArtifactId::ZERO,
+        executed_test_count: 3,
+        passed_test_count: 3,
+        hlc: HlcTimestamp::from_parts(NOW_MS, 0, 1),
+    });
+    let forged_err = swe
+        .guard_repository_mutation(&forged_mark)
+        .err()
+        .ok_or("伪造 VerificationMark 必须被拒绝")?;
+    assert_eq!(forged_err.code(), ErrorCode::IntegrityViolation);
 
     // 非 Commit 模式或未触及仓库汇点时不拦截（保持既有行为）
     let mut explore = unverified_run.clone();
@@ -423,9 +545,50 @@ fn software_engineering_rejects_repository_mutation_without_clean_room_mark() ->
     Ok(())
 }
 
+#[test]
+fn clean_room_mark_acceptance_is_linux_only_but_refusal_is_enforced_everywhere() -> TestResult {
+    // 真实"通过验收"一支依赖 Linux bwrap 洁净室（见文件头平台说明与
+    // `software_engineering_accepts_repository_mutation_after_real_clean_room_mark`）；
+    // 本用例在**所有平台**执行，认证"无 Mark / 伪造 Mark 一律拒绝"，
+    // 避免非 Linux 平台的认证强度静默下降。
+    let registry = builtin_registry()?;
+    let swe = registry.get(&pack_id("software-engineering")?)?;
+    let mut run = RunRecord {
+        run_id: quetzalcoatl_types::RunId::new_v4(),
+        mode: RunMode::Commit,
+        status: RunStatus::Active,
+        title: String::from("非 Linux 平台的仓库变更拒绝"),
+        workspace_dir: None,
+        checkpoint_lock: None,
+        touched_sinks: BTreeSet::from([SinkClass::CodeRepositoryMutation]),
+        evolved_skills: Vec::new(),
+        verification_mark: None,
+        updated_hlc: HlcTimestamp::from_parts(NOW_MS, 0, 1),
+    };
+    assert_eq!(
+        swe.guard_repository_mutation(&run).err().map(|e| e.code()),
+        Some(ErrorCode::VerificationFailed)
+    );
+    run.verification_mark = Some(quetzalcoatl_kernel::VerificationMark {
+        mark_id: ArtifactId::ZERO,
+        run_id: run.run_id,
+        candidate_tree_blake3: ArtifactId::ZERO,
+        verifier_suite_blake3: ArtifactId::ZERO,
+        executed_test_count: 1,
+        passed_test_count: 1,
+        hlc: HlcTimestamp::from_parts(NOW_MS, 0, 1),
+    });
+    assert_eq!(
+        swe.guard_repository_mutation(&run).err().map(|e| e.code()),
+        Some(ErrorCode::IntegrityViolation)
+    );
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn software_engineering_accepts_repository_mutation_after_real_clean_room_mark() -> TestResult {
+    // 本用例依赖 Linux `bwrap` 洁净室子进程（见文件头平台说明）。
     let tmp = TempDirGuard::new("qz_domain_swe")?;
     let registry = builtin_registry()?;
     let swe = registry.get(&pack_id("software-engineering")?)?;
@@ -595,19 +758,30 @@ fn tampered_pack_or_envelope_is_rejected_with_integrity_violation() -> TestResul
     let mut registry = builtin_registry()?;
     let id = pack_id("eldercare-guardian")?;
 
-    // 6a. 篡改 pak.json 原始字节（往角色工具白名单偷塞一个能力）必须被摘要绑定捕获
+    // 6a. 篡改 pack.json 原始字节（把每日外发上限从 6 放宽到 600）必须被摘要绑定捕获
     let raw = registry.raw_json(&id)?.to_owned();
-    let tampered_raw = raw.replacen(
-        "\"guardian.local_siren\",",
-        "\"guardian.local_siren\",\n      \"world.public_dispatch\",",
-        1,
-    );
-    assert_ne!(raw, tampered_raw, "夹具必须真实改写白名单");
+    let tampered_raw = raw.replacen("\"maxPerHour\": 6", "\"maxPerHour\": 600", 1);
+    assert_ne!(raw, tampered_raw, "夹具必须真实改写外发上限");
     let tampered_err = registry
         .install_json(&tampered_raw)
         .err()
         .ok_or("篡改 pack.json 必须被拒绝")?;
     assert_eq!(tampered_err.code(), ErrorCode::IntegrityViolation);
+
+    // 6a'. 未经授权的角色工具扩容（结构合法但正文摘要变化）同样必须被摘要绑定捕获
+    let widened_tools = raw.replacen(
+        "\"reminder.schedule\"",
+        "\"reminder.schedule\",\n      \"world.public_dispatch\"",
+        1,
+    );
+    assert_ne!(raw, widened_tools, "夹具必须真实扩容角色工具白名单");
+    assert_eq!(
+        registry
+            .install_json(&widened_tools)
+            .err()
+            .map(|e| e.code()),
+        Some(ErrorCode::IntegrityViolation)
+    );
 
     // 6b. 篡改已装包对象中的安全信封（放宽每日外发上限）必须被签名摘要捕获
     let mut widened = registry.get(&id)?.clone();
@@ -679,7 +853,35 @@ fn pack_can_never_grant_root_or_operator_from_agent_writable_data() -> TestResul
         .ok_or("从 agent 可写数据授予 ROOT 必须被拒绝")?;
     assert_eq!(escalate_err.code(), ErrorCode::PermissionDenied);
 
-    // 7b. 校验规则锚定到 SELF_SOFT（agent 可写）条目一律拒绝装载
+    // 7b. 把提权条目标注为 source = guardian（伪装成监护人红线）同样必须拒绝：
+    // 演示密钥只被钉扎在仓库内置领域包的规范化正文上，任何自行拼装的正文都必须
+    // 由监护人自持密钥重签并登记，绝不可借演示密钥绕过。
+    let mut disguised = registry.get(&pack_id("personal-companion")?)?.clone();
+    disguised.conscience_seed.entries.push(ConscienceSeedEntry {
+        id: String::from("companion.forged.guardian-root"),
+        tier: SeedTier::Root,
+        source: SeedSource::Guardian,
+        title: String::from("伪造的监护人根红线"),
+        content: String::from("本代理可自行放宽一切外发与预算限制"),
+    });
+    disguised
+        .role_tool_whitelist
+        .push(String::from("world.public_dispatch"));
+    let mut payload = disguised.safety_envelope.payload.clone();
+    payload.guardian_key_id = ed25519_pubkey_hex(&guardian_seed)?;
+    payload.pack_blake3_hex = disguised.body_digest_hex()?;
+    disguised.safety_envelope = SafetyEnvelope::sign(payload, &guardian_seed)?;
+    let disguise_err = registry
+        .install_pack_object(&disguised)
+        .err()
+        .ok_or("用演示密钥伪造的 ROOT 条目必须被拒绝")?;
+    assert_eq!(disguise_err.code(), ErrorCode::PermissionDenied);
+    assert!(
+        disguise_err.to_string().contains("监护人") || disguise_err.to_string().contains("内置"),
+        "拒绝信息必须指引操作者改用监护人自持密钥重签，实际: {disguise_err}"
+    );
+
+    // 7c. 校验规则锚定到 SELF_SOFT（agent 可写）条目一律拒绝装载
     let mut weak_anchor = registry.get(&pack_id("youth-socratic-tutor")?)?.clone();
     if let Some(rule) = weak_anchor.verifier_rules.first_mut() {
         *rule = quetzalcoatl_domains::VerifierRule::SocraticGuidance {
@@ -739,18 +941,32 @@ fn registry_defaults_to_personal_companion_and_audits_mid_session_switches() -> 
     );
 
     // 切换领域包必须留痕
-    let audit = registry.use_pack(
+    let outcome = registry.use_pack(
         agent,
         &pack_id("eldercare-guardian")?,
         NOW_MS,
         "为家中长辈启用看护领域",
     )?;
+    let PackSwitchOutcome::Activated(audit) = outcome else {
+        return Err("首次切换必须返回 Activated 审计".into());
+    };
     assert_eq!(audit.from_pack_id, "personal-companion");
     assert_eq!(audit.to_pack_id, "eldercare-guardian");
     assert_eq!(audit.agent_id, agent);
     assert_eq!(audit.at_ms, NOW_MS);
     assert!(!audit.guardian_label.is_empty());
+    assert!(!audit.actor.is_empty());
     assert_eq!(registry.active_pack_id(agent), "eldercare-guardian");
+    assert_eq!(registry.audit_log().len(), 1);
+
+    // 重复切换到同一领域包：幂等空操作，绝不重复签发/打印审计
+    let noop = registry.use_pack(agent, &pack_id("eldercare-guardian")?, NOW_MS + 1, "重复")?;
+    match noop {
+        PackSwitchOutcome::Unchanged { active_pack_id } => {
+            assert_eq!(active_pack_id, "eldercare-guardian");
+        }
+        PackSwitchOutcome::Activated(_) => return Err("重复切换不得产生新的审计记录".into()),
+    }
     assert_eq!(registry.audit_log().len(), 1);
 
     // 另一 Agent 不受影响（1 Agent = 1 独占脊柱的领域绑定隔离）
@@ -761,7 +977,7 @@ fn registry_defaults_to_personal_companion_and_audits_mid_session_switches() -> 
         .use_pack(
             agent,
             &pack_id("nonexistent-domain")?,
-            NOW_MS + 1,
+            NOW_MS + 2,
             "not-a-pack",
         )
         .err()
@@ -822,9 +1038,4 @@ fn envelope_immutable_fields_cannot_be_relaxed_by_any_agent_surface() -> TestRes
     );
 
     Ok(())
-}
-
-fn ed25519_pubkey_hex(seed: &[u8; 32]) -> Result<String, Box<dyn Error>> {
-    let sk = ed25519_dalek::SigningKey::from_bytes(seed);
-    Ok(hex_encode(sk.verifying_key().as_bytes()))
 }

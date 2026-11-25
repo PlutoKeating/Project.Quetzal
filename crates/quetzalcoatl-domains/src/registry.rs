@@ -31,7 +31,7 @@ impl InstalledPack {
     }
 }
 
-/// 领域包切换审计记录（每次 `qz domain use` 必然留痕）。
+/// 领域包切换审计记录（每次真实切换必然留痕）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackSwitchAudit {
@@ -41,6 +41,34 @@ pub struct PackSwitchAudit {
     pub at_ms: u64,
     pub reason: String,
     pub guardian_label: String,
+    /// 触发切换的执行者（`agent` / `quetzalcoatld` 等），用于事后追责。
+    pub actor: String,
+}
+
+/// 领域包切换裁决：真实切换返回审计，重复切换为幂等空操作。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum PackSwitchOutcome {
+    Activated(PackSwitchAudit),
+    Unchanged { active_pack_id: String },
+}
+
+impl PackSwitchOutcome {
+    #[must_use]
+    pub fn audit(&self) -> Option<&PackSwitchAudit> {
+        match self {
+            Self::Activated(audit) => Some(audit),
+            Self::Unchanged { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub fn active_pack_id(&self) -> &str {
+        match self {
+            Self::Activated(audit) => &audit.to_pack_id,
+            Self::Unchanged { active_pack_id } => active_pack_id,
+        }
+    }
 }
 
 /// 领域包注册表（1 Agent = 1 活动领域包绑定，未显式选择者默认私人伴生）。
@@ -129,10 +157,26 @@ impl DomainPackRegistry {
 
     fn install_parsed(&mut self, pack: DomainPack, raw_json: String) -> Result<DomainPackId> {
         let id = pack.pack_id()?;
-        let guardian_label = pack.verify(&self.guardians)?.label.clone();
+        let body_digest = pack.body_digest_hex()?;
+        let (guardian_label, guards_this_document) = {
+            let guardian = pack.verify(&self.guardians)?;
+            (
+                guardian.label.clone(),
+                guardian.guards_document(&body_digest),
+            )
+        };
         if guardian_label.trim().is_empty() {
             return Err(QuetzalcoatlError::IntegrityViolation {
                 detail: format!("领域包 `{id}` 的监护人标签不得为空"),
+            });
+        }
+        // 合成演示密钥只信任仓库内置的规范化正文；任何自行拼装的正文都必须由
+        // 监护人自持离线密钥重签并 trust_guardian 登记，绝不可借演示密钥背书。
+        if !guards_this_document {
+            return Err(QuetzalcoatlError::PermissionDenied {
+                detail: format!(
+                    "领域包 `{id}` 的规范化正文未被监护人 `{guardian_label}` 钉扎授权：合成演示密钥仅信任仓库内置领域包正文，请由监护人自持离线 Ed25519 密钥重签 SafetyEnvelope 并经 trust_guardian 登记公钥"
+                ),
             });
         }
         self.packs
@@ -258,10 +302,27 @@ impl DomainPackRegistry {
         id: &DomainPackId,
         at_ms: u64,
         reason: impl Into<String>,
-    ) -> Result<PackSwitchAudit> {
-        let guardian_label = self.get(id)?.safety_envelope.payload.guardian_label.clone();
+    ) -> Result<PackSwitchOutcome> {
+        self.use_pack_as(agent, id, at_ms, reason, "agent")
+    }
+
+    /// 与 [`Self::use_pack`] 相同，但显式记录执行者（守护进程 / CLI 等）。
+    pub fn use_pack_as(
+        &mut self,
+        agent: AgentId,
+        id: &DomainPackId,
+        at_ms: u64,
+        reason: impl Into<String>,
+        actor: impl Into<String>,
+    ) -> Result<PackSwitchOutcome> {
         let from_pack_id = self.active_pack_id(agent);
-        let changed = from_pack_id != id.as_str();
+        if from_pack_id == id.as_str() {
+            // 幂等空操作：绝不重复签发审计，也不向调用方伪造一次"切换"
+            return Ok(PackSwitchOutcome::Unchanged {
+                active_pack_id: from_pack_id,
+            });
+        }
+        let guardian_label = self.get(id)?.safety_envelope.payload.guardian_label.clone();
         let audit = PackSwitchAudit {
             agent_id: agent,
             from_pack_id,
@@ -269,12 +330,11 @@ impl DomainPackRegistry {
             at_ms,
             reason: reason.into(),
             guardian_label,
+            actor: actor.into(),
         };
-        if changed {
-            self.active_by_agent.insert(agent, id.as_str().to_owned());
-            self.audit.push(audit.clone());
-        }
-        Ok(audit)
+        self.active_by_agent.insert(agent, id.as_str().to_owned());
+        self.audit.push(audit.clone());
+        Ok(PackSwitchOutcome::Activated(audit))
     }
 
     /// 从持久化状态恢复 Agent 绑定（不产生新的审计记录）。

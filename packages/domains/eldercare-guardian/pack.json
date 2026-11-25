@@ -52,7 +52,7 @@
     "fs.local_read"
   ],
   "safetyEnvelope": {
-    "digestHex": "4db2366fec9ace92d10aa60fcb84842fad391585d8322b706dcdd0e0e5157199",
+    "digestHex": "d6923b484ddc0952361ecb5af354e1edf1e9fa7d03fc7923b1fb67f39b5b8f7d",
     "guardianPubkeyHex": "973c3f9c6f14d872bb26bfb233de28b0c16ba5c88272a37a177b84c1bfacea3d",
     "payload": {
       "budget": {
@@ -107,9 +107,9 @@
           "startLocalHour": 21
         }
       },
-      "packBlake3Hex": "0e919e613b1725396871441f54ce46c1a89cdb18f4006379b1ffe0f5ccbb755f",
+      "packBlake3Hex": "67810ab7368aba0b786917dedc53b86f5e5dc7677487c2144ce3a217a44a0d73",
       "packId": "eldercare-guardian",
-      "packVersion": "1.0.0",
+      "packVersion": "1.0.1",
       "safetyEvents": {
         "guardianVisibleEventKinds": [
           "emergency_alert",
@@ -120,7 +120,7 @@
       },
       "schema": "quetzalcoatl.domain-safety-envelope.v1"
     },
-    "sigHex": "7344702ed5e1791443181bd5c58fe8bcd261aee5a714f41c19d2a00ada2bf7ffc3a47d5b6a7908e9cea104c6ece798490c9bb6747df560c2e05ac3d1372d2e04"
+    "sigHex": "8bcce279f7cf17e6f7618e8480a53d167a2499417d4be2cc5a545bea1d58088317bcc9430d47616a3cc3b88e9aa1c8cf9c7c2197caec2da255ad226ab4572c0c"
   },
   "schema": "quetzalcoatl.domain-pack.v1",
   "verifierRules": [
@@ -147,5 +147,5 @@
       ]
     }
   ],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

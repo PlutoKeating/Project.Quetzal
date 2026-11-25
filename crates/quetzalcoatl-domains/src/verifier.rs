@@ -85,13 +85,19 @@ impl DomainPack {
                     directive_id,
                     min_citations_per_claim,
                     applies_to,
+                    content_triggers,
                 } => {
-                    if !applies_to_candidate(applies_to, candidate.kind) {
+                    let by_kind = applies_to_candidate(applies_to, candidate.kind);
+                    let by_content = content_triggers
+                        .iter()
+                        .any(|trigger| candidate.contains_marker(trigger));
+                    let has_claims = !candidate.claims.is_empty();
+                    if !(by_kind || by_content || has_claims) {
                         continue;
                     }
-                    if candidate.claims.is_empty() {
+                    if !has_claims {
                         violations.push(format!(
-                            "{directive_id}: Anti-Vacuity 拦截：交付物未包含任何可核验论断，禁止空交付"
+                            "{directive_id}: 交付物未包含任何可核验论断（kind 标签不得绕过引用红线），禁止无引用交付"
                         ));
                         continue;
                     }
@@ -110,23 +116,24 @@ impl DomainPack {
                     min_questions,
                     final_answer_markers,
                 } => {
+                    // 追问数量一律由候选文本派生，绝不采信调用方自述
+                    let derived_questions = count_interrogatives(&candidate.text);
+                    let marker_hit = final_answer_markers
+                        .iter()
+                        .find(|m| candidate.contains_marker(m));
                     if candidate.gives_final_answer {
                         violations.push(format!(
-                            "{directive_id}: 候选直接交付终局答案，违反苏格拉底引导红线"
+                            "{directive_id}: 候选声明自己直接交付了终局答案，违反苏格拉底引导红线"
                         ));
                     }
-                    if let Some(marker) = final_answer_markers
-                        .iter()
-                        .find(|m| candidate.contains_marker(m))
-                    {
+                    if let Some(marker) = marker_hit {
                         violations.push(format!(
                             "{directive_id}: 候选文本命中终局答案标记「{marker}」"
                         ));
                     }
-                    if candidate.questions_asked < *min_questions {
+                    if derived_questions < *min_questions {
                         violations.push(format!(
-                            "{directive_id}: 仅含 {} 个引导性追问，低于要求的 {min_questions} 个",
-                            candidate.questions_asked
+                            "{directive_id}: 候选文本仅含 {derived_questions} 个引导性追问（问号/疑问措辞派生），低于要求的 {min_questions} 个"
                         ));
                     }
                 }
@@ -160,12 +167,15 @@ impl DomainPack {
                     directive_id,
                     marker,
                     applies_to,
+                    content_triggers,
                 } => {
-                    if applies_to_candidate(applies_to, candidate.kind)
-                        && !candidate.text.contains(marker)
-                    {
+                    let by_kind = applies_to_candidate(applies_to, candidate.kind);
+                    let by_content = content_triggers
+                        .iter()
+                        .any(|trigger| candidate.contains_marker(trigger));
+                    if (by_kind || by_content) && !candidate.text.contains(marker) {
                         violations.push(format!(
-                            "{directive_id}: 交付物缺失必要声明「{marker}」（辖区/执业范围披露）"
+                            "{directive_id}: 交付物缺失必要声明「{marker}」（辖区/执业范围披露，kind 标签不得绕过）"
                         ));
                     }
                 }
@@ -247,6 +257,14 @@ impl DomainPack {
 
 fn applies_to_candidate(applies_to: &[DeliverableKind], kind: DeliverableKind) -> bool {
     applies_to.is_empty() || applies_to.contains(&kind)
+}
+
+/// 从候选文本派生引导性追问数量（问号 + 中文疑问措辞），绝不采信调用方自述字段。
+fn count_interrogatives(text: &str) -> u32 {
+    const INTERROGATIVES: [&str; 7] = ["吗", "呢", "为什么", "怎么", "如何", "是否", "哪一"];
+    let marks = text.chars().filter(|c| *c == '?' || *c == '？').count();
+    let hits = INTERROGATIVES.iter().filter(|w| text.contains(**w)).count();
+    u32::try_from(marks.max(hits)).unwrap_or(u32::MAX)
 }
 
 fn truncate_for_error(text: &str, limit: usize) -> String {

@@ -413,12 +413,30 @@ impl SafetyEnvelope {
     }
 }
 
+/// 监护人公钥来源：真实监护人自持密钥，或仓库内置的合成演示锚。
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardianKeySource {
+    /// 真实监护人自持离线密钥（可为其签名的任意领域包背书）。
+    #[default]
+    Guardian,
+    /// 仓库内置合成演示密钥（公钥由领域包 ID 派生，**非机密**）：
+    /// 只被钉扎在仓库内置领域包的规范化正文摘要上，绝不为其签名的其他正文背书。
+    Demo,
+}
+
 /// 已登记的监护人公钥。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GuardianKey {
     pub pubkey_hex: String,
     pub label: String,
+    /// 受信来源（缺省按真实监护人处理）。
+    #[serde(default)]
+    pub source: GuardianKeySource,
+    /// 演示锚钉扎的领域包正文规范化摘要（仅 `Demo` 来源使用）。
+    #[serde(default)]
+    pub pinned_pack_body_digests: Vec<String>,
 }
 
 impl GuardianKey {
@@ -427,6 +445,26 @@ impl GuardianKey {
         Self {
             pubkey_hex: pubkey_hex.into().trim().to_ascii_lowercase(),
             label: label.into(),
+            source: GuardianKeySource::Guardian,
+            pinned_pack_body_digests: Vec::new(),
+        }
+    }
+
+    /// 构造只信任指定正文摘要的合成演示锚。
+    #[must_use]
+    pub fn demo(
+        pubkey_hex: impl Into<String>,
+        label: impl Into<String>,
+        pinned_pack_body_digests: Vec<String>,
+    ) -> Self {
+        Self {
+            pubkey_hex: pubkey_hex.into().trim().to_ascii_lowercase(),
+            label: label.into(),
+            source: GuardianKeySource::Demo,
+            pinned_pack_body_digests: pinned_pack_body_digests
+                .into_iter()
+                .map(|d| d.trim().to_ascii_lowercase())
+                .collect(),
         }
     }
 
@@ -434,43 +472,83 @@ impl GuardianKey {
     pub fn normalized(&self) -> String {
         self.pubkey_hex.trim().to_ascii_lowercase()
     }
+
+    #[must_use]
+    pub fn is_demo(&self) -> bool {
+        self.source == GuardianKeySource::Demo
+    }
+
+    /// 该监护人是否有权为给定规范化正文摘要背书。
+    #[must_use]
+    pub fn guards_document(&self, body_digest_hex: &str) -> bool {
+        match self.source {
+            GuardianKeySource::Guardian => true,
+            GuardianKeySource::Demo => self
+                .pinned_pack_body_digests
+                .iter()
+                .any(|pinned| pinned.eq_ignore_ascii_case(body_digest_hex.trim())),
+        }
+    }
 }
 
 /// 单条领域校验规则（红线的可执行形态）。
+///
+/// 字段统一以 `snake_case` 序列化；为兼容早期手写领域包，反序列化同时接受
+/// `camelCase` 别名（见各字段 `#[serde(alias = ...)]`）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VerifierRule {
     /// 每条事实性论断必须携带最少 N 条可核验引用。
     CitationRequired {
+        #[serde(alias = "directiveId")]
         directive_id: String,
+        #[serde(alias = "minCitationsPerClaim")]
         min_citations_per_claim: u32,
+        #[serde(default, alias = "appliesTo")]
         applies_to: Vec<DeliverableKind>,
+        /// 内容触发词：即使调用方把交付物标成别的 `kind`，只要正文命中这些
+        /// 论断措辞，引用规则同样生效（防 kind 标签绕过）。
+        #[serde(default, alias = "contentTriggers")]
+        content_triggers: Vec<String>,
     },
     /// 苏格拉底式引导：先追问后引导，禁止直接交付终局答案。
     SocraticGuidance {
+        #[serde(alias = "directiveId")]
         directive_id: String,
+        #[serde(alias = "minQuestions")]
         min_questions: u32,
+        #[serde(alias = "finalAnswerMarkers")]
         final_answer_markers: Vec<String>,
     },
     /// 能力边界：越界专业建议必须显式转介专业人士。
     CompetenceBoundary {
+        #[serde(alias = "directiveId")]
         directive_id: String,
+        #[serde(alias = "topicKeywords")]
         topic_keywords: Vec<String>,
+        #[serde(alias = "deferralMarkers")]
         deferral_markers: Vec<String>,
     },
     /// 必须包含指定免责/适用范围声明。
     RequiredDisclosure {
+        #[serde(alias = "directiveId")]
         directive_id: String,
         marker: String,
+        #[serde(default, alias = "appliesTo")]
         applies_to: Vec<DeliverableKind>,
+        #[serde(default, alias = "contentTriggers")]
+        content_triggers: Vec<String>,
     },
     /// 仓库变更必须持有洁净室 `VerificationMark`。
     CleanRoomMarkRequired {
+        #[serde(alias = "directiveId")]
         directive_id: String,
+        #[serde(alias = "repositoryMutation")]
         repository_mutation: bool,
     },
     /// 禁止的危险命令模式（强推、绕过钩子、密钥外泄等）。
     ForbiddenCommandPatterns {
+        #[serde(alias = "directiveId")]
         directive_id: String,
         patterns: Vec<String>,
     },
@@ -567,10 +645,18 @@ impl DomainPack {
         &self,
         guardians: &'a BTreeMap<String, GuardianKey>,
     ) -> Result<&'a GuardianKey> {
-        self.validate_structure()?;
-        self.conscience_seed.validate_authority_sanity()?;
-        self.validate_verifier_anchors()?;
+        // 0. 最小 schema / ID 前置检查，保证后续绑定比较有意义
+        if self.schema != DOMAIN_PACK_SCHEMA {
+            return Err(QuetzalcoatlError::IntegrityViolation {
+                detail: format!(
+                    "领域包 schema 非法：期望 {DOMAIN_PACK_SCHEMA}，实际 {}",
+                    self.schema
+                ),
+            });
+        }
+        self.pack_id()?;
 
+        // 1. 密码学绑定优先：正文摘要与信封签名先行，任何字节篡改一律 IntegrityViolation
         if self.safety_envelope.payload.schema != SAFETY_ENVELOPE_SCHEMA {
             return Err(QuetzalcoatlError::IntegrityViolation {
                 detail: String::from("安全信封 schema 非法"),
@@ -606,8 +692,15 @@ impl DomainPack {
                 ),
             });
         }
+        let guardian = self.safety_envelope.verify(guardians)?;
 
-        self.safety_envelope.verify(guardians)
+        // 2. 语义校验（签名已确认后，结构越界记为明确的字段错误）
+        self.validate_structure()?;
+        self.validate_envelope()?;
+        self.conscience_seed.validate_authority_sanity()?;
+        self.validate_verifier_anchors()?;
+
+        Ok(guardian)
     }
 
     fn validate_structure(&self) -> Result<()> {
@@ -672,6 +765,148 @@ impl DomainPack {
                 "DomainVerifierRule",
                 String::from("领域包必须声明至少一条客观校验规则"),
             ));
+        }
+
+        // 必需能力必须是角色工具白名单的子集（领域包不得声明未下发给角色的能力）
+        for capability in &self.required_capabilities {
+            if !self.role_tool_whitelist.contains(capability) {
+                return Err(QuetzalcoatlError::invalid_id(
+                    "DomainPackCapability",
+                    format!(
+                        "requiredCapabilities 中的 `{capability}` 不在 roleToolWhitelist 内：领域包不得声明未下发给角色的能力"
+                    ),
+                ));
+            }
+        }
+
+        // 签署信封的主语言必须落在声明语言集合内（不得宣称未签署的语言）
+        let envelope_locale = self.safety_envelope.payload.locale.trim();
+        if envelope_locale.is_empty() {
+            return Err(QuetzalcoatlError::invalid_id(
+                "DomainPackLocale",
+                String::from("安全信封必须声明主语言 locale"),
+            ));
+        }
+        if !self.locales.iter().any(|l| l.trim() == envelope_locale) {
+            return Err(QuetzalcoatlError::invalid_id(
+                "DomainPackLocale",
+                format!(
+                    "安全信封主语言 `{envelope_locale}` 不在领域包 locales {:?} 内：请对齐声明语言与签署语言",
+                    self.locales
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// 安全信封字段的语义校验（越界值一律拒绝，绝不静默归一化）。
+    fn validate_envelope(&self) -> Result<()> {
+        let payload = &self.safety_envelope.payload;
+
+        let quiet = &payload.outbound.quiet_hours;
+        if quiet.start_local_hour > 23 || quiet.end_local_hour > 23 {
+            return Err(QuetzalcoatlError::invalid_id(
+                "QuietHours",
+                format!(
+                    "QuietHours 必须落在 0..=23 本地小时，实际 start={} end={}（起始等于结束表示关闭）",
+                    quiet.start_local_hour, quiet.end_local_hour
+                ),
+            ));
+        }
+
+        if payload.outbound.per_channel_caps.is_empty() {
+            return Err(QuetzalcoatlError::invalid_id(
+                "OutboundPolicy",
+                String::from("安全信封必须声明至少一条每通道外发频率上限"),
+            ));
+        }
+        let mut channel_ids = std::collections::BTreeSet::<&str>::new();
+        for cap in &payload.outbound.per_channel_caps {
+            let channel = cap.channel_id.trim();
+            if channel.is_empty() {
+                return Err(QuetzalcoatlError::invalid_id(
+                    "OutboundPolicy",
+                    String::from("外发频率上限的 channelId 不得为空"),
+                ));
+            }
+            if !channel_ids.insert(channel) {
+                return Err(QuetzalcoatlError::invalid_id(
+                    "OutboundPolicy",
+                    format!("外发频率上限重复声明通道 `{channel}`"),
+                ));
+            }
+            if cap.max_per_hour == 0 || cap.max_per_day == 0 || cap.max_per_day < cap.max_per_hour {
+                return Err(QuetzalcoatlError::invalid_id(
+                    "OutboundPolicy",
+                    format!(
+                        "通道 `{channel}` 的外发上限非法：maxPerHour={} maxPerDay={}（必须为正且每日不小于每小时）",
+                        cap.max_per_hour, cap.max_per_day
+                    ),
+                ));
+            }
+        }
+
+        if payload.outbound.max_recipients_per_message == 0 {
+            return Err(QuetzalcoatlError::invalid_id(
+                "OutboundPolicy",
+                String::from("maxRecipientsPerMessage 必须至少为 1"),
+            ));
+        }
+        if payload.budget.ceiling_micros == 0 {
+            return Err(QuetzalcoatlError::invalid_id(
+                "BudgetPolicy",
+                String::from("预算硬上限 ceilingMicros 必须大于 0"),
+            ));
+        }
+
+        if payload.emergency.enabled {
+            if payload.emergency.contacts.is_empty() {
+                return Err(QuetzalcoatlError::invalid_id(
+                    "EmergencyPolicy",
+                    String::from("启用紧急告警必须至少配置一个不透明联系人 ID"),
+                ));
+            }
+            for contact in &payload.emergency.contacts {
+                if !contact.trim().starts_with("contact:") || contact.contains('@') {
+                    return Err(QuetzalcoatlError::invalid_id(
+                        "EmergencyPolicy",
+                        format!(
+                            "紧急联系人必须以不透明 `contact:` 前缀标识且不得包含真实联系方式：`{contact}`"
+                        ),
+                    ));
+                }
+            }
+            if payload.emergency.escalation_channels.is_empty() {
+                return Err(QuetzalcoatlError::invalid_id(
+                    "EmergencyPolicy",
+                    String::from("启用紧急告警必须声明升级通道白名单 escalationChannels"),
+                ));
+            }
+            for channel in &payload.emergency.escalation_channels {
+                if !channel_ids.contains(channel.as_str()) {
+                    return Err(QuetzalcoatlError::invalid_id(
+                        "EmergencyPolicy",
+                        format!(
+                            "紧急升级通道 `{channel}` 未在 outbound.perChannelCaps 中声明频率上限"
+                        ),
+                    ));
+                }
+            }
+        }
+
+        if payload.immutable_fields.is_empty() {
+            return Err(QuetzalcoatlError::invalid_id(
+                "SafetyEnvelope",
+                String::from("安全信封必须显式声明 immutableFields 不可变字段列表"),
+            ));
+        }
+        for field in &payload.immutable_fields {
+            if payload.field_value(field).is_none() {
+                return Err(QuetzalcoatlError::invalid_id(
+                    "SafetyEnvelope",
+                    format!("immutableFields 指向了不存在的信封字段路径 `{field}`"),
+                ));
+            }
         }
         Ok(())
     }

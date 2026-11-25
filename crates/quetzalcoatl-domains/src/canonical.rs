@@ -13,6 +13,10 @@ use quetzalcoatl_crypto::hex_encode;
 use quetzalcoatl_types::{QuetzalcoatlError, Result};
 use serde_json::Value;
 
+/// RFC 8785 允许的 IEEE-754 双精度安全整数上限（2^53）。超出该值的整数在跨语言
+/// 解析为双精度时会被静默截断，因此安全信封一律拒绝。
+pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_992;
+
 /// 将 `serde_json::Value` 序列化为 RFC 8785 规范化 JSON 文本。
 pub fn canonicalize_json_value(value: &Value) -> Result<String> {
     let mut out = String::new();
@@ -52,6 +56,17 @@ fn write_value(value: &Value, out: &mut String) -> Result<()> {
                 return Err(QuetzalcoatlError::SerializationError {
                     detail: String::from(
                         "JCS 规范化拒绝浮点数：安全信封仅允许整数微秒/次数/毫秒以消除跨语言数字格式化分歧",
+                    ),
+                });
+            }
+            let magnitude = number
+                .as_u64()
+                .or_else(|| number.as_i64().map(i64::unsigned_abs))
+                .unwrap_or(0);
+            if magnitude > MAX_SAFE_INTEGER {
+                return Err(QuetzalcoatlError::SerializationError {
+                    detail: format!(
+                        "JCS 规范化拒绝超出 IEEE-754 安全整数 2^53 ({MAX_SAFE_INTEGER}) 的整数 {number}：跨语言解析会被静默截断"
                     ),
                 });
             }

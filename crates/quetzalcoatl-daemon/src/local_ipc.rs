@@ -377,12 +377,16 @@ pub enum IpcResponse {
     WebhookPull(crate::webhook::WebhookPullReport),
     /// Webhook 入站 key 与队列状态。
     WebhookQueueStatus(WebhookIngressStatus),
-    /// 已装载领域包摘要列表（含当前活动标记）。
-    DomainPacks(Vec<crate::domains::DomainPackSummary>),
+    /// 已装载领域包摘要列表（含当前活动标记与可能的审计修复说明）。
+    DomainPacks {
+        packs: Vec<crate::domains::DomainPackSummary>,
+        #[serde(default)]
+        repair_report: Option<String>,
+    },
     /// 领域包完整视图（良知种子 + 校验规则 + 监护人信封）。
     DomainPack(Box<crate::domains::DomainPackView>),
-    /// 领域包切换审计回执。
-    DomainActivated(Box<quetzalcoatl_domains::PackSwitchAudit>),
+    /// 领域包切换裁决回执（真实切换带审计，重复切换为幂等空操作）。
+    DomainActivated(Box<quetzalcoatl_domains::PackSwitchOutcome>),
     /// 单帧声学判决（语音起止 / 打断已同步写入脊柱活动链）。
     VoiceActivity {
         stream_id: String,

@@ -42,8 +42,7 @@
   "displayName": "软件工程",
   "id": "software-engineering",
   "locales": [
-    "zh-CN",
-    "en-US"
+    "zh-CN"
   ],
   "requiredCapabilities": [
     "repo.apply_patch",
@@ -60,7 +59,7 @@
     "artifact.register"
   ],
   "safetyEnvelope": {
-    "digestHex": "c832250806f149f9cddb1143644978622e7dc52ee7e45082f9d900a1449deb2a",
+    "digestHex": "711b1efb754dcaf2d76d9eb537cc0293a42ae0172c3e839027d5396536d185c1",
     "guardianPubkeyHex": "77ebed8241af172a6ca5562bbcff65a8c0348415492a1127ac9ca1dab8eb45d9",
     "payload": {
       "budget": {
@@ -102,9 +101,9 @@
           "startLocalHour": 0
         }
       },
-      "packBlake3Hex": "322d6fe439b427370dd2a7684e125e44969fe6c5849b5c5f0709402ddca5e0f5",
+      "packBlake3Hex": "311202d6a32d904e74e2f4b65d5ba3a4316cf593425bab149aa8b16fa81b2599",
       "packId": "software-engineering",
-      "packVersion": "1.0.0",
+      "packVersion": "1.0.1",
       "safetyEvents": {
         "guardianVisibleEventKinds": [
           "verifier_blocked"
@@ -112,7 +111,7 @@
       },
       "schema": "quetzalcoatl.domain-safety-envelope.v1"
     },
-    "sigHex": "e9770a86d75526428136feef0ee6bbb3fd8ecf4d36e87634477b3e6803a83784e7a5e42a581889798f8e60985a699b438c58b671d68c324f3f79ed662233dc0f"
+    "sigHex": "c0f2b3e6e71839b4e4faec4d30ab2ccd0bcf057a31d96aca8ebb8863f683cbe52c9eb2d8e121a846cb20b28d33953627f6af9c3e413be604b14e6ccef623640a"
   },
   "schema": "quetzalcoatl.domain-pack.v1",
   "verifierRules": [
@@ -135,5 +134,5 @@
       ]
     }
   ],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

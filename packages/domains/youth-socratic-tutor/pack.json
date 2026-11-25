@@ -42,8 +42,7 @@
   "displayName": "少儿苏格拉底导师",
   "id": "youth-socratic-tutor",
   "locales": [
-    "zh-CN",
-    "en-US"
+    "zh-CN"
   ],
   "requiredCapabilities": [
     "thread.voice_reply",
@@ -59,7 +58,7 @@
     "tutor.socratic_probe"
   ],
   "safetyEnvelope": {
-    "digestHex": "e1b728b77e8990787587afc403623ea01aac385a9865bbb6088c62c6a3854f7c",
+    "digestHex": "b961d08b03af0e00395a1775fe3372325d0c16371ee89c9dbbbf382cefecb31f",
     "guardianPubkeyHex": "ce35875f189a2adc190f8277728f6d4f26abe5959e4e59230aa28f772060387e",
     "payload": {
       "budget": {
@@ -106,9 +105,9 @@
           "startLocalHour": 21
         }
       },
-      "packBlake3Hex": "df9124fd3342f41404afae55104e049c1ffd3348398d6036a630ba4be35b6549",
+      "packBlake3Hex": "1bd564886d58d632c29a9ca1fcb3acc95d6086507947552ed9614a21304e0c29",
       "packId": "youth-socratic-tutor",
-      "packVersion": "1.0.0",
+      "packVersion": "1.0.1",
       "safetyEvents": {
         "guardianVisibleEventKinds": [
           "verifier_blocked",
@@ -119,7 +118,7 @@
       },
       "schema": "quetzalcoatl.domain-safety-envelope.v1"
     },
-    "sigHex": "2d6ef2b75227daa779bbb7ebafc0427945db3a7a1150affabda044b8453a0fdf9dfc6675192daa13cd9c0804248f9ae67a5885c1c529c2248cba639dc7f7dd07"
+    "sigHex": "1ddee94aa9a7c67d5d2e8b1d089e89e2d0f3438d9feda50f3d8d1672a5e673945e0f6e71b14009b42677129e3346344de683ab5abd6a2018352482055aeac106"
   },
   "schema": "quetzalcoatl.domain-pack.v1",
   "verifierRules": [
@@ -137,5 +136,5 @@
       "min_questions": 2
     }
   ],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

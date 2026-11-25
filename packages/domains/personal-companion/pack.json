@@ -42,8 +42,7 @@
   "displayName": "私人伴生",
   "id": "personal-companion",
   "locales": [
-    "zh-CN",
-    "en-US"
+    "zh-CN"
   ],
   "requiredCapabilities": [
     "thread.voice_reply",
@@ -59,7 +58,7 @@
     "memory.observe"
   ],
   "safetyEnvelope": {
-    "digestHex": "85e4d14b902db96c8b2639c2ca27d7e6c9ae7a6e1186859421daec3a5ef44694",
+    "digestHex": "4369cc9ef2909467cd4be78944cad2c9bf3a5cafc6e63c5e6a6a156e7e38913c",
     "guardianPubkeyHex": "85d4ce36e7372f1c9e72d58801b0768eb04ff4701a81269f713a5e470046a2c3",
     "payload": {
       "budget": {
@@ -106,9 +105,9 @@
           "startLocalHour": 22
         }
       },
-      "packBlake3Hex": "b111c192ebae6f46099cd72d4e07b0ee8363add4edf4eb2600fc5ac419cd7f21",
+      "packBlake3Hex": "a681b5e2f41a924e7f56e244f33aade915b173f68796c0e3ad5746f30b35a758",
       "packId": "personal-companion",
-      "packVersion": "1.0.0",
+      "packVersion": "1.0.1",
       "safetyEvents": {
         "guardianVisibleEventKinds": [
           "verifier_blocked"
@@ -116,7 +115,7 @@
       },
       "schema": "quetzalcoatl.domain-safety-envelope.v1"
     },
-    "sigHex": "5fd3f0f3435206b5f186e4ed7662c8f60e8122bcb98e7daf56b14e37d8218daa4c3f905d2be4e928bd768bce8d44de22eb11671e82b29a7944477adeceffd10c"
+    "sigHex": "065887fad7248567585896c3f88b759870427a353dc4ffc408fa55a24da44bd7d30c2ccb70ca9258a2a2fc3bf5e087015d5af03f8d94df962f152278f7d4150a"
   },
   "schema": "quetzalcoatl.domain-pack.v1",
   "verifierRules": [
@@ -148,5 +147,5 @@
       ]
     }
   ],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

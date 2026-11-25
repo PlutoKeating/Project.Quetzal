@@ -1,5 +1,7 @@
 # 软件工程领域包（`software-engineering`）
 
+> **实机执行边界（必读）**：本版本仅完成领域包的声明、校验与切换审计；实机执行（紧急告警、引用强制、答案拦截）随 Runner 接入生效。
+
 ## 适合谁
 
 - 用 Quetzalcoatl 托管 OpenCode / Claude Code / Codex 等成熟 Coding Agent 的研发者；
@@ -31,3 +33,7 @@ qz domain show software-engineering
 ```
 
 本包不需要紧急联系人（`emergency.enabled = false`），也不需要静默时段（`0->0` 表示关闭）。
+
+## 关于签名密钥
+
+本仓库内置的 `safetyEnvelope` 使用**由领域包 ID 经 BLAKE3 派生的合成演示监护人密钥**签名（非机密，任何人可重算）。演示密钥只信任仓库内置领域包的规范化正文；生产部署请用监护人自持的离线 Ed25519 密钥重签信封并通过 `trust_guardian` 登记公钥，未登记密钥签署的领域包会被 `PermissionDenied` 拒绝。

@@ -2407,7 +2407,13 @@ impl SharedDaemonCore {
                 let Ok(guard) = self.state.lock() else {
                     return ipc_lock_error();
                 };
-                (IpcResponse::DomainPacks(guard.domains.list()), false)
+                (
+                    IpcResponse::DomainPacks {
+                        packs: guard.domains.list(),
+                        repair_report: guard.domains.repair_report().map(String::from),
+                    },
+                    false,
+                )
             }
             IpcRequest::DomainShow { id } => {
                 let Ok(guard) = self.state.lock() else {
@@ -2422,8 +2428,13 @@ impl SharedDaemonCore {
                 let Ok(mut guard) = self.state.lock() else {
                     return ipc_lock_error();
                 };
-                match guard.domains.use_pack(&id, now_unix_ms(), "qz domain use") {
-                    Ok(audit) => (IpcResponse::DomainActivated(Box::new(audit)), false),
+                let DaemonMutableState {
+                    ref mut domains,
+                    ref mut kernel,
+                    ..
+                } = *guard;
+                match domains.use_pack(&id, now_unix_ms(), "qz domain use", kernel.spine_mut()) {
+                    Ok(outcome) => (IpcResponse::DomainActivated(Box::new(outcome)), false),
                     Err(err) => ipc_error_response(err),
                 }
             }
@@ -2776,7 +2787,11 @@ impl QuetzalcoatlDaemon {
         let qz_home = config.quetzalcoatl_home.clone();
         let voice_runtime = crate::voice::VoiceActivitySessions::from_config(config.voice_ai)?;
         let channel_runtime = crate::channels::ChannelRuntime::load(&config.quetzalcoatl_home)?;
-        let domain_runtime = crate::domains::DomainRuntime::load_or_init(&qz_home, agent_id)?;
+        let domain_runtime =
+            crate::domains::DomainRuntime::load_or_init(&qz_home, agent_id, kernel.spine_mut())?;
+        if let Some(report) = domain_runtime.repair_report() {
+            eprintln!("quetzalcoatld: 领域包审计已按脊柱签名事件重建: {report}");
+        }
         let shared_core = Arc::new(SharedDaemonCore {
             config,
             runtime_info: runtime_info.clone(),

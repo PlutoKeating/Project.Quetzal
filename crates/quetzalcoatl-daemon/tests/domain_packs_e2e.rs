@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use quetzalcoatl_daemon::{
     DaemonConfig, DomainPackSummary, IpcClient, IpcRequest, IpcResponse, QuetzalcoatlDaemon,
 };
+use quetzalcoatl_domains::PackSwitchOutcome;
 use uuid::Uuid;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -44,7 +45,7 @@ impl Drop for TempDirGuard {
 
 fn expect_packs(response: IpcResponse) -> Result<Vec<DomainPackSummary>, Box<dyn Error>> {
     match response {
-        IpcResponse::DomainPacks(rows) => Ok(rows),
+        IpcResponse::DomainPacks { packs, .. } => Ok(packs),
         other => Err(format!("期望 DomainPacks，实际为 {other:?}").into()),
     }
 }
@@ -92,16 +93,36 @@ fn domain_ipc_defaults_to_personal_companion_switches_with_audit_and_persists_ac
         other => return Err(format!("期望 DomainPack，实际为 {other:?}").into()),
     }
 
-    // 3. use：切换并返回审计回执（from -> to + 监护人标签）
+    // 3. use：切换并返回审计回执（from -> to + 监护人标签 + actor）
     match client.call(&IpcRequest::DomainUse {
         id: String::from("eldercare-guardian"),
     })? {
-        IpcResponse::DomainActivated(audit) => {
-            assert_eq!(audit.from_pack_id, "personal-companion");
-            assert_eq!(audit.to_pack_id, "eldercare-guardian");
-            assert!(audit.guardian_label.starts_with("guardian:"));
-            assert!(audit.at_ms > 0);
-        }
+        IpcResponse::DomainActivated(outcome) => match outcome.as_ref() {
+            PackSwitchOutcome::Activated(audit) => {
+                assert_eq!(audit.from_pack_id, "personal-companion");
+                assert_eq!(audit.to_pack_id, "eldercare-guardian");
+                assert!(audit.guardian_label.starts_with("guardian:"));
+                assert!(audit.at_ms > 0);
+                assert!(!audit.actor.is_empty());
+            }
+            other => {
+                return Err(format!("期望 Activated 审计，实际为 {other:?}").into());
+            }
+        },
+        other => return Err(format!("期望 DomainActivated，实际为 {other:?}").into()),
+    }
+    // 3b. 重复切换到同一领域包必须是幂等空操作（不重复签发审计）
+    match client.call(&IpcRequest::DomainUse {
+        id: String::from("eldercare-guardian"),
+    })? {
+        IpcResponse::DomainActivated(outcome) => match outcome.as_ref() {
+            PackSwitchOutcome::Unchanged { active_pack_id } => {
+                assert_eq!(active_pack_id, "eldercare-guardian");
+            }
+            other => {
+                return Err(format!("期望 Unchanged 空操作，实际为 {other:?}").into());
+            }
+        },
         other => return Err(format!("期望 DomainActivated，实际为 {other:?}").into()),
     }
     let rows = expect_packs(client.call(&IpcRequest::DomainList)?)?;

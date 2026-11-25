@@ -92,5 +92,6 @@ fn sign_pack(pack_path: &Path) -> ToolResult<()> {
     println!(
         "signed pack={pack_id} guardian={guardian_label} pubkey={pubkey_hex} packBlake3={pack_digest_hex}"
     );
+    println!("    (\n        \"{pack_id}\",\n        \"{pack_digest_hex}\",\n    ),");
     Ok(())
 }
