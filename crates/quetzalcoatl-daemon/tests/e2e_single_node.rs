@@ -739,6 +739,9 @@ fn regression_r1_finding1_6_and_8_worker_runs_inside_os_sandbox_scoped_hook_toke
 
     let bad_sandbox_home = tmp.path().join("bad_sbx_home");
     let mut bad_cfg = DaemonConfig::new(bad_sandbox_home);
+    // 本用例校验的是沙箱缺失时的 fail-closed，而不是模型配置；
+    // 显式给一个凭据，避免结果取决于运行机器上是否存在 ~/.claude / ~/.codex。
+    bad_cfg.upstream_bearer_token = Some(String::from("test-upstream-token"));
     bad_cfg.sandbox_exec_override = Some(tmp.path().join("nonexistent-quetzalcoatl-sandbox-exec"));
     bad_cfg.worker_binary_override = Some(PathBuf::from("/bin/true"));
     let mut bad_daemon = QuetzalcoatlDaemon::start(bad_cfg)?;

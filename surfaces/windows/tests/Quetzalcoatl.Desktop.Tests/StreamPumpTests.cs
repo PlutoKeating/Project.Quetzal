@@ -219,7 +219,15 @@ public sealed class StreamPumpTests
         using var pump = new StreamPump(new ThrowingSource(), viewModel, harness, 8);
 
         pump.Start();
-        WaitUntil(() => pump.Stats.Faulted && harness.PendingCallbacks == 0, TimeSpan.FromSeconds(5), "故障回调");
+        // 只等 `Stats.Faulted` 会有窗口期：pump 先置位再投递 UI 回调，
+        // 轮询线程可能正好卡在两者之间，于是断言到空的 TechnicalLog。
+        // 这里改为等待可观察结果本身落地（CI 上曾因此单点失败）。
+        WaitUntil(
+            () => pump.Stats.Faulted
+                && harness.PendingCallbacks == 0
+                && viewModel.TechnicalLog.Any(line => line.Contains("NativeFailure", StringComparison.Ordinal)),
+            TimeSpan.FromSeconds(5),
+            "故障回调");
 
         Assert.Contains(viewModel.TechnicalLog, line => line.Contains("NativeFailure", StringComparison.Ordinal));
         Assert.Contains("这次没有收到回复，请稍后重试。", viewModel.Notices);

@@ -72,8 +72,18 @@ const makeEnv = (route: Route, over: Partial<Env> = {}): Env & { cache: MemoryCa
   return env;
 };
 
-const run = (path: string, env: Env, method = "GET"): Promise<Response> =>
-  handle(new Request(`${ORIGIN}${path}`, { method }), env, { waitUntil: (p: Promise<unknown>) => void p });
+// `Cache.put` 在 Workers 里是 `ctx.waitUntil` 的后台工作；测试必须等这些 promise 落地后再断言，
+// 否则「缓存写了几次」取决于运行时的微任务时序（Node 22 与 24 上曾因此出现红绿不一致）。
+const run = async (path: string, env: Env, method = "GET"): Promise<Response> => {
+  const pending: Promise<unknown>[] = [];
+  const res = await handle(new Request(`${ORIGIN}${path}`, { method }), env, {
+    waitUntil: (p: Promise<unknown>) => {
+      pending.push(p.catch(() => undefined));
+    },
+  });
+  await Promise.all(pending);
+  return res;
+};
 
 const json = async (res: Response): Promise<unknown> => JSON.parse(await res.text());
 
