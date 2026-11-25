@@ -34,7 +34,7 @@ use quetzalcoatl_harness::{
     GatewayUpstreamEndpoints, HarnessDriver, HarnessHost, HarnessLaunchContext,
     HttpsUpstreamTransport, LoopbackGateway, McpBridgeSession, OpenCodeDriver, PiDriver,
     SandboxLaunchBinding, WorktreeManager, discover_coding_agents, ensure_secure_private_dir,
-    prepare_stripped_oauth_stubs, serve_mcp_http_loopback,
+    host_oauth_available, prepare_stripped_oauth_stubs, serve_mcp_http_loopback,
 };
 use quetzalcoatl_kernel::{
     BlindKernel, CapabilityDescriptor, CapabilityInvocation, CapabilityOrigin, CapabilitySet,
@@ -75,6 +75,20 @@ pub(crate) fn now_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or(1_795_400_000_000)
+}
+
+/// 「模型未配置」的唯一错误出口：只说真实可行的三条路径，绝不引导用户去并不存在的控制台设置页。
+fn model_not_configured_error(console_addr: std::net::SocketAddr) -> QuetzalcoatlError {
+    QuetzalcoatlError::ModelNotConfigured {
+        detail: format!(
+            "未配置模型。Quetzalcoatl 直接复用你本机已有的订阅凭据，任选一种后重试：\
+             ① 在本机登录 Claude Code（终端运行 `claude`，再输入 /login）；\
+             ② 在本机登录 Codex（终端运行 `codex login`）；\
+             ③ 设置环境变量 QUETZALCOATL_UPSTREAM_BEARER_TOKEN（自建 OpenAI/Anthropic 兼容网关可填任意占位值），\
+             然后重启 `qz up`。安装与配置说明：https://quetzal.plutokeating.beer/docs/install ；\
+             本机 Web 控制台：http://{console_addr}/（`qz open`，无桌面时只打印地址）"
+        ),
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1294,6 +1308,16 @@ impl SharedDaemonCore {
         let host_claude = host_home.as_ref().map(|h| h.join(".claude"));
         let host_codex = host_home.as_ref().map(|h| h.join(".codex"));
 
+        // 无任何模型凭据时在创建 worktree / 沙箱 / 网关会话之前就拒绝：
+        // 日常对话与工程工作区两条分支共用同一判定，绝不把「没配模型」伪装成上游 403。
+        let upstream_configured = self.config.upstream_bearer_token.is_some();
+        if !upstream_configured && !host_oauth_available(host_claude.as_deref(), host_codex.as_deref())
+        {
+            return Err(model_not_configured_error(
+                self.runtime_info.ipc_http_addr,
+            ));
+        }
+
         // 分支 A：日常对话 / 生活陪伴（不涉及工程工作区变更 -> Router 免校验零延迟结项，verifier_runs == 0）
         let Some(target_repo) = req.workspace_dir.clone() else {
             let run_id = {
@@ -1335,26 +1359,23 @@ impl SharedDaemonCore {
             let scratch_base = sandbox_scratch_root(self.runtime_info.agent_id);
             ensure_secure_private_dir(&scratch_base, Some(&self.config.quetzalcoatl_home))?;
             let routine_stub_tmp = scratch_base.join(format!("routine-stubs/{run_id}"));
-            let mut host_oauth_available = false;
-            if let Ok(routine_oauth) = prepare_stripped_oauth_stubs(
+            let routine_oauth = prepare_stripped_oauth_stubs(
                 host_claude.as_deref(),
                 host_codex.as_deref(),
                 &routine_stub_tmp,
                 &grant.ephemeral_stub_token,
-            ) {
-                host_oauth_available = routine_oauth.extracted.claude_access_token.is_some()
-                    || routine_oauth.extracted.codex_access_token.is_some();
-                let _ = self
-                    .harness_host
-                    .gateway()
-                    .attach_extracted_oauth(&grant.cap_token, &routine_oauth.extracted);
-            }
+            )?;
+            let host_oauth_available = routine_oauth.extracted.claude_access_token.is_some()
+                || routine_oauth.extracted.codex_access_token.is_some();
+            let _ = self
+                .harness_host
+                .gateway()
+                .attach_extracted_oauth(&grant.cap_token, &routine_oauth.extracted);
             let _ = fs::remove_dir_all(&routine_stub_tmp);
 
             // 零上游凭据时绝不打真实云端：无 Bearer（QUETZALCOATL_UPSTREAM_BEARER_TOKEN）
             // 且无宿主 Claude/Codex OAuth 就等于「模型未配置」。自建代理也必须显式给凭据（可任意占位值），
             // 这样「没有模型」永远不会被误报成上游 403。
-            let upstream_configured = self.config.upstream_bearer_token.is_some();
             if !upstream_configured && !host_oauth_available {
                 if let Ok(mut guard) = self.state.lock() {
                     let _ = guard
@@ -1362,12 +1383,9 @@ impl SharedDaemonCore {
                         .abort_run(run_id, "model not configured", now_unix_ms());
                 }
                 let _ = self.harness_host.gateway().revoke_session(&grant.cap_token);
-                return Err(QuetzalcoatlError::ModelNotConfigured {
-                    detail: format!(
-                        "打开控制台 → 模型，填入 API Key，或在终端设置 QUETZALCOATL_UPSTREAM_BEARER_TOKEN 后重启 `qz up`。Web 控制台：http://{}/（也可运行 `qz open`，无桌面时会打印地址）",
-                        self.runtime_info.ipc_http_addr
-                    ),
-                });
+                return Err(model_not_configured_error(
+                    self.runtime_info.ipc_http_addr,
+                ));
             }
 
             let turn_res = self.execute_routine_gateway_turn(&grant, &req.message);

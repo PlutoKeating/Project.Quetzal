@@ -14,7 +14,7 @@ use std::fs;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use quetzalcoatl_crypto::{AccountRootKey, DeviceIdentity, hex_encode};
@@ -54,6 +54,16 @@ impl Drop for TempDirGuard {
 }
 
 /// 本进程专属的 Hub 二进制缓存名（PID + 启动随机后缀），并行 runner 绝不互相覆盖。
+/// Go Hub 集成用例共享本机端口与 Go 构建缓存：并行跑会互相抢端口，
+/// 表现为偶发的 `address already in use` / `quetzalcoatl-hub exited early`。
+/// 用例串行化后 CI 结果才确定；单跑与串行跑语义完全一致。
+fn hub_serial() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn hub_bin_name() -> &'static str {
     static NAME: OnceLock<String> = OnceLock::new();
     NAME.get_or_init(|| {
@@ -447,6 +457,7 @@ fn fabric_disabled_config(qz_home: &Path) -> DaemonConfig {
 
 #[test]
 fn fabric_disabled_by_default_keeps_daemon_behavior_and_home_untouched() -> TestResult {
+    let _serial = hub_serial();
     // 1. 空环境变量绝不激活 fabric；显式覆盖项按契约解析。
     assert!(DaemonFabricConfig::from_env_pairs(&[]).is_none());
     let enabled = DaemonFabricConfig::from_env_pairs(&[
@@ -535,6 +546,7 @@ fn fabric_disabled_by_default_keeps_daemon_behavior_and_home_untouched() -> Test
 
 #[test]
 fn qz_login_pair_nodes_and_status_against_live_go_hub_through_daemon_ipc() -> TestResult {
+    let _serial = hub_serial();
     let hub = RunningGoHub::spawn()?;
     let tmp = TempDirGuard::new("qz_daemon_fabric_live")?;
     let qz_home = tmp.path().join("home");
@@ -925,6 +937,7 @@ fn login_with_token(qz_home: &Path, hub: &RunningGoHub, ca_pem: &Path, token: &s
 
 #[test]
 fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> TestResult {
+    let _serial = hub_serial();
     let hub = RunningGoHub::spawn()?;
     let tmp = TempDirGuard::new("qz_group_hub_e2e")?;
     let ca_pem_path = tmp.path().join("hub_ca.pem");
@@ -1345,6 +1358,7 @@ fn group_hub_cross_boundary_e2e_create_invite_join_send_barriers_revoke() -> Tes
 
 #[test]
 fn group_mls_commit_distribution_lets_offline_member_catch_up() -> TestResult {
+    let _serial = hub_serial();
     // 验收：A/B/C 三人，B 离线期间被 A 踢出并轮换纪元；C 离线 → 重连 sync →
     // 应用 mls_commit 追平纪元、能解密新消息，而 B 不能；随后 C 重试发送成功。
     let hub = RunningGoHub::spawn()?;
@@ -1676,6 +1690,7 @@ fn group_mls_commit_distribution_lets_offline_member_catch_up() -> TestResult {
 
 #[test]
 fn go_hub_binary_cache_is_bounded_to_one_copy() -> TestResult {
+    let _serial = hub_serial();
     // 生命周期：构建 1 份主副本 → 每次 spawn 用唯一副本（spawn 后立即 unlink）
     // → 进程内始终只有 1 份；死 PID 与旧共享路径在下次启动被清理。
     let dir = std::env::temp_dir().join(format!("qz-hub-cache-{}", Uuid::new_v4()));
@@ -1724,6 +1739,7 @@ fn go_hub_binary_cache_is_bounded_to_one_copy() -> TestResult {
 
 #[test]
 fn webhook_sealed_ingress_registration_pull_decrypt_ack_and_repost() -> TestResult {
+    let _serial = hub_serial();
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 

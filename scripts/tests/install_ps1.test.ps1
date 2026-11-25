@@ -69,13 +69,14 @@ $pub = [Convert]::ToBase64String($raw).Replace('+', '-').Replace('/', '_').TrimE
 
 # ---------------------------------------------------------------- fake releases
 function New-Release {
-  param([string]$Version, [bool]$Healthy, [string]$TargetDir)
+  param([string]$Version, [bool]$Healthy, [string]$TargetDir, [string]$ReportVersion = '')
   if (-not $TargetDir) { $TargetDir = Join-Path $srv ("v" + $Version) }
   New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+  $reported = if ($ReportVersion) { $ReportVersion } else { $Version }
   $stage = Join-Path $work ("stage-" + $Version)
   New-Item -ItemType Directory -Path (Join-Path $stage 'bin') -Force | Out-Null
   if ($Healthy) {
-    $stub = "#!/bin/sh`nif [ `"`${1:-}`" = `"--version`" ]; then printf 'qz $Version`n'; exit 0; fi`nexit 0`n"
+    $stub = "#!/bin/sh`nif [ `"`${1:-}`" = `"--version`" ]; then printf 'qz $reported`n'; exit 0; fi`nexit 0`n"
   } else {
     $stub = "#!/bin/sh`nif [ `"`${1:-}`" = `"--version`" ]; then printf 'qz ${Version}: unusable`n'; exit 3; fi`nexit 0`n"
   }
@@ -301,6 +302,18 @@ try {
     } finally {
       $env:QUETZALCOATL_ALLOW_TEST_PUBKEY = '1'
     }
+  }
+
+  # -------------------------------------------------------------- 6e. exact version token
+  $c10 = Join-Path $work 'c10'
+  New-Release -Version '2.0.0' -Healthy $true -ReportVersion '2.0.0-alpha.2' | Out-Null
+  Check 'a prerelease binary never satisfies a stable version health check' {
+    Set-InstallerEnv (Join-Path $c10 'root') (Join-Path $c10 'home') "$base/v2.0.0"
+    $r = Invoke-Installer @('-Version', '2.0.0', '-NoDesktop')
+    Assert ($r.Code -ne 0) 'expected a non-zero exit when the binary reports a prerelease'
+  }
+  Check 'the mismatched install left nothing active' {
+    Assert (-not (Test-Installed (Join-Path $c10 'root'))) 'binaries were installed anyway'
   }
 
   # -------------------------------------------------------------- 7. uninstall

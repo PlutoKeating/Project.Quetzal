@@ -17,7 +17,7 @@
   On a failed health check (qz.exe --version) the previous version is restored.
 
 .PARAMETER Version
-  Version to install, e.g. 0.1.0. Default: the latest signed release.
+  Version to install, e.g. 2.0.0-alpha.2. Default: the latest signed release.
   Also read from $env:QUETZALCOATL_VERSION.
 
 .PARAMETER Prefix
@@ -330,7 +330,11 @@ function Test-Health([string]$ExpectedVersion) {
     if ($env:OS -eq 'Windows_NT') { $out = & $exe --version 2>&1 }
     else { $out = & bash $exe --version 2>&1 }
     if ($LASTEXITCODE -ne 0) { return $false }
-    return ([string]($out | Out-String)) -match [regex]::Escape($ExpectedVersion)
+    # Exact version token: accepts `qz 2.0.0` / `qz (Quetzalcoatl CLI) 2.0.0` / `v2.0.0`,
+    # but a prerelease such as `2.0.0-alpha.1` must never satisfy `2.0.0`.
+    $esc = [regex]::Escape($ExpectedVersion)
+    $pattern = "(^|[^0-9A-Za-z.+-])v?$esc([^0-9A-Za-z.+-]|`$)"
+    return ([string]($out | Out-String)) -match $pattern
   } catch { return $false }
 }
 

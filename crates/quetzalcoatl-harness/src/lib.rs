@@ -22,7 +22,7 @@ pub use gateway::{
     ExtractedOAuthCredentials, GatewayConfig, GatewayServerHandle, GatewaySessionConfig,
     GatewaySessionGrant, GatewayUpstreamEndpoints, HttpsUpstreamTransport, LoopbackGateway,
     StrippedOAuthStubBundle, count_anthropic_cache_controls, gemini_cli_env,
-    prepare_stripped_oauth_stubs,
+    host_oauth_available, prepare_stripped_oauth_stubs,
 };
 pub use mcp_bridge::{
     McpBridgeSession, McpHttpServerHandle, McpToolDescriptor, serve_mcp_http_loopback,

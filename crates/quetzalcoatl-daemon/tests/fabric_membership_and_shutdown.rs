@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -62,6 +62,15 @@ impl Drop for TempDirGuard {
 }
 
 /// 本进程专属的 Hub 二进制缓存名（PID + 启动随机后缀），并行 runner 绝不互相覆盖。
+/// Go Hub 集成用例共享本机端口：并行跑会偶发抢端口（`address already in use` /
+/// `hub exited early`）。用例串行化，保证 CI 确定性。
+fn hub_serial() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn hub_bin_name() -> &'static str {
     static NAME: OnceLock<String> = OnceLock::new();
     NAME.get_or_init(|| {
@@ -547,6 +556,7 @@ impl FabricRpcHandler for HandoffProbe {
 
 #[test]
 fn unreachable_hub_keeps_daemon_status_responsive_while_tick_is_in_flight() -> TestResult {
+    let _serial = hub_serial();
     let tmp = TempDirGuard::new("qz_daemon_fabric_responsive")?;
     let qz_home = tmp.path().join("home");
     fs::create_dir_all(&qz_home)?;
@@ -650,6 +660,7 @@ fn unreachable_hub_keeps_daemon_status_responsive_while_tick_is_in_flight() -> T
 
 #[test]
 fn paired_device_is_authorized_locally_and_revocation_refuses_it_at_runtime() -> TestResult {
+    let _serial = hub_serial();
     let hub = RunningGoHub::spawn()?;
     let tmp = TempDirGuard::new("qz_daemon_membership")?;
     let qz_home = tmp.path().join("home");
@@ -810,6 +821,7 @@ fn paired_device_is_authorized_locally_and_revocation_refuses_it_at_runtime() ->
 
 #[test]
 fn graceful_shutdown_hands_lease_off_to_online_peer() -> TestResult {
+    let _serial = hub_serial();
     let hub = RunningGoHub::spawn()?;
     let tmp = TempDirGuard::new("qz_daemon_handoff")?;
     let qz_home = tmp.path().join("home");
@@ -910,6 +922,7 @@ fn graceful_shutdown_hands_lease_off_to_online_peer() -> TestResult {
 
 #[test]
 fn revoke_of_unknown_device_is_a_typed_error_not_a_silent_ack() -> TestResult {
+    let _serial = hub_serial();
     let hub = RunningGoHub::spawn()?;
     let tmp = TempDirGuard::new("qz_daemon_revoke_unknown")?;
     let qz_home = tmp.path().join("home");
@@ -936,6 +949,7 @@ fn revoke_of_unknown_device_is_a_typed_error_not_a_silent_ack() -> TestResult {
 
 #[test]
 fn corrupt_or_tampered_membership_state_is_quarantined_and_daemon_still_starts() -> TestResult {
+    let _serial = hub_serial();
     let tmp = TempDirGuard::new("qz_membership_corrupt")?;
     let qz_home = tmp.path().join("home");
     fs::create_dir_all(&qz_home)?;
@@ -1002,6 +1016,7 @@ fn corrupt_or_tampered_membership_state_is_quarantined_and_daemon_still_starts()
 /// 自行建立 P2P 直连；Hub 被杀后仍能仅靠 P2P 收敛脊柱事件（证明生产拨号路径真实生效）。
 #[test]
 fn two_idle_daemons_dial_via_hub_discovery_and_converge_peer_only_after_hub_loss() -> TestResult {
+    let _serial = hub_serial();
     let mut hub = RunningGoHub::spawn()?;
     let tmp = TempDirGuard::new("qz_daemon_peer_convergence")?;
     let home_a = tmp.path().join("home_a");
@@ -1268,6 +1283,7 @@ fn hex_encode_seed(seed: &[u8; 32]) -> String {
 
 #[test]
 fn channel_send_under_partition_local_queues_outbox_and_refuses_public_send() -> TestResult {
+    let _serial = hub_serial();
     let tmp = TempDirGuard::new("qz_channel_outbox_fence")?;
     let qz_home = tmp.path().join("home");
     fs::create_dir_all(qz_home.join("secrets"))?;

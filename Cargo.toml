@@ -23,7 +23,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0"
@@ -56,22 +56,22 @@ openmls = { version = "=0.8.1", default-features = false }
 openmls_memory_storage = { version = "=0.5.0", default-features = false }
 openmls_rust_crypto = { version = "=0.5.1", default-features = false }
 openmls_traits = { version = "=0.5.0", default-features = false }
-quetzalcoatl-capabilities = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-capabilities" }
-quetzalcoatl-bridge = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-bridge" }
-quetzalcoatl-channels = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-channels" }
-quetzalcoatl-crypto = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-crypto" }
-quetzalcoatl-daemon = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-daemon" }
-quetzalcoatl-domains = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-domains" }
-quetzalcoatl-ewave = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-ewave" }
-quetzalcoatl-fabric = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-fabric" }
-quetzalcoatl-group = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-group" }
-quetzalcoatl-harness = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-harness" }
-quetzalcoatl-kernel = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-kernel" }
-quetzalcoatl-sandbox = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-sandbox" }
-quetzalcoatl-client-core = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-client-core" }
-quetzalcoatl-spine = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-spine" }
-quetzalcoatl-types = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-types" }
-quetzalcoatl-voice-ai = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-voice-ai" }
+quetzalcoatl-capabilities = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-capabilities" }
+quetzalcoatl-bridge = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-bridge" }
+quetzalcoatl-channels = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-channels" }
+quetzalcoatl-crypto = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-crypto" }
+quetzalcoatl-daemon = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-daemon" }
+quetzalcoatl-domains = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-domains" }
+quetzalcoatl-ewave = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-ewave" }
+quetzalcoatl-fabric = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-fabric" }
+quetzalcoatl-group = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-group" }
+quetzalcoatl-harness = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-harness" }
+quetzalcoatl-kernel = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-kernel" }
+quetzalcoatl-sandbox = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-sandbox" }
+quetzalcoatl-client-core = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-client-core" }
+quetzalcoatl-spine = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-spine" }
+quetzalcoatl-types = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-types" }
+quetzalcoatl-voice-ai = { version = "2.0.0-alpha.2", path = "crates/quetzalcoatl-voice-ai" }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 rcgen = "0.14.10"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls-no-provider", "json"] }

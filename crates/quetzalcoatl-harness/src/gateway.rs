@@ -1582,6 +1582,67 @@ fn copy_and_strip_cred_dir(
     Ok(())
 }
 
+/// 只读探测宿主 `~/.claude` / `~/.codex` 是否已经带有可直接复用的短期访问令牌。
+///
+/// 该函数不创建任何目录、不写任何存根、不读取或返回令牌本身，仅回答「这台机器上是否已有可用订阅凭据」。
+/// 用于在创建 worktree / 沙箱 / 网关会话之前快速判定「模型未配置」，从而绝不向真实上游发出无凭据请求。
+#[must_use]
+pub fn host_oauth_available(
+    host_claude_dir: Option<&Path>,
+    host_codex_dir: Option<&Path>,
+) -> bool {
+    fn dir_has_token(dir: &Path, is_claude: bool) -> bool {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_json = path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+            if !is_json {
+                continue;
+            }
+            let Ok(raw) = fs::read(&path) else {
+                continue;
+            };
+            let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            if json_has_access_token(&parsed, is_claude) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn json_has_access_token(value: &serde_json::Value, is_claude: bool) -> bool {
+        match value {
+            serde_json::Value::Object(map) => {
+                let direct = map.iter().any(|(key, value)| {
+                    let non_empty = value
+                        .as_str()
+                        .is_some_and(|text| !text.trim().is_empty());
+                    non_empty
+                        && if is_claude {
+                            key == "accessToken" || key == "access_token"
+                        } else {
+                            key == "access_token" || key == "accessToken" || key == "OPENAI_API_KEY"
+                        }
+                });
+                direct || map.values().any(|v| json_has_access_token(v, is_claude))
+            }
+            serde_json::Value::Array(items) => {
+                items.iter().any(|v| json_has_access_token(v, is_claude))
+            }
+            _ => false,
+        }
+    }
+
+    host_claude_dir.is_some_and(|dir| dir_has_token(dir, true))
+        || host_codex_dir.is_some_and(|dir| dir_has_token(dir, false))
+}
+
 /// 防坑规范 #1：在沙箱外读取宿主 `~/.claude` 与 `~/.codex` 凭据，生成彻底剥离 `refresh_token` 且权限严格 `0600` 的临时存根目录。
 pub fn prepare_stripped_oauth_stubs(
     host_claude_dir: Option<&Path>,

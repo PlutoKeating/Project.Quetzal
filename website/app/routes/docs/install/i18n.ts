@@ -9,6 +9,11 @@ export const messages: Messages = {
       lead:
         "安装器的信任根是发布签名，不是下载地址。它用内置的 Ed25519 公钥验证 SHA256SUMS，确认清单里的哈希，再安装二进制；任何一步失败都会把上一个版本放回去。",
       blocks: [
+        {
+          kind: "note",
+          tone: "warn",
+          text: "**当前预发布（2.0.0-alpha.2）只提供 Linux x64 / arm64 安装包**：`install.sh` 一键安装、`qz up` 后即带 Web 控制台。macOS 与 Windows 的原生客户端随正式版发布，在此之前请从源码构建（见仓库 `docs/RELEASE.md`）；在 macOS / Windows 上运行安装器会因为缺少对应产物而失败，这是预期行为，不是配置错误。",
+        },
         { kind: "h2", id: "requirements", text: "安装之前" },
         {
           kind: "ul",
@@ -31,7 +36,7 @@ export const messages: Messages = {
           text: `curl -fsSL https://quetzal.plutokeating.beer/install | bash
 
 # 指定版本与安装前缀
-curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --version 0.1.0 --prefix "$HOME/.local"`,
+curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --version 2.0.0-alpha.2 --prefix "$HOME/.local"`,
         },
         {
           kind: "p",
@@ -45,7 +50,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --version 0.1.
           text: `irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 # 指定版本
-$env:QUETZALCOATL_VERSION = '0.1.0'; irm https://quetzal.plutokeating.beer/install.ps1 | iex`,
+$env:QUETZALCOATL_VERSION = '2.0.0-alpha.2'; irm https://quetzal.plutokeating.beer/install.ps1 | iex`,
         },
         {
           kind: "p",
@@ -101,6 +106,24 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall --
           tone: "warn",
           text: "`--purge` 会删除 `QUETZALCOATL_HOME` 下的脊柱、记忆与设置。请先用 `qz export` 导出一份可读 ZIP。",
         },
+        { kind: "h2", id: "model", text: "启动并配置模型" },
+        {
+          kind: "code",
+          title: "shell",
+          text: `qz up                 # 启动 quetzalcoatld（唯一脊柱持有者）
+qz open               # 打开 Web 控制台（无桌面时只打印地址）
+qz chat "你好"        # 第一次对话`,
+        },
+        {
+          kind: "p",
+          text:
+            "模型凭据只来自三条真实路径：① 本机已登录 Claude Code（终端运行 `claude`，再输入 `/login`）；② 本机已登录 Codex（`codex login`）；③ 显式设置 `QUETZALCOATL_UPSTREAM_BEARER_TOKEN`（自建 OpenAI / Anthropic 兼容网关可填任意占位值）。三者都没有时，`qz chat` 直接返回 `MODEL_NOT_CONFIGURED` 并列出这三条路径，不会向任何上游发出请求。",
+        },
+        {
+          kind: "note",
+          tone: "info",
+          text: "订阅凭据由 `quetzalcoatld` 在沙箱外托管：沙箱内只看到剥离了 `refresh_token` 的临时存根，出站瞬间才换上真实令牌（见 [安全模型](/docs/trust)）。",
+        },
         { kind: "h2", id: "verify", text: "验证安装" },
         {
           kind: "code",
@@ -130,6 +153,11 @@ launchctl print gui/$(id -u)/beer.plutokeating.quetzalcoatl`,
       lead:
         "The root of trust is the release signature, not the download URL. The installer verifies SHA256SUMS with an embedded Ed25519 key, checks that the artifact hash is listed, then installs. If any step fails it restores the previous version.",
       blocks: [
+        {
+          kind: "note",
+          tone: "warn",
+          text: "**This pre-release (2.0.0-alpha.2) ships Linux x64 / arm64 packages only**: one-line `install.sh`, then `qz up` serves the web console. The macOS and Windows native clients arrive with the stable release; until then build them from source (see the repository's `docs/RELEASE.md`). Running the installer on macOS / Windows fails because no asset exists for it — that is expected, not a misconfiguration.",
+        },
         { kind: "h2", id: "requirements", text: "Before you start" },
         {
           kind: "ul",
@@ -152,7 +180,7 @@ launchctl print gui/$(id -u)/beer.plutokeating.quetzalcoatl`,
           text: `curl -fsSL https://quetzal.plutokeating.beer/install | bash
 
 # Pin a version and a prefix
-curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --version 0.1.0 --prefix "$HOME/.local"`,
+curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --version 2.0.0-alpha.2 --prefix "$HOME/.local"`,
         },
         {
           kind: "p",
@@ -166,7 +194,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --version 0.1.
           text: `irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 # Pin a version
-$env:QUETZALCOATL_VERSION = '0.1.0'; irm https://quetzal.plutokeating.beer/install.ps1 | iex`,
+$env:QUETZALCOATL_VERSION = '2.0.0-alpha.2'; irm https://quetzal.plutokeating.beer/install.ps1 | iex`,
         },
         {
           kind: "p",
@@ -221,6 +249,24 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --uninstall --
           kind: "note",
           tone: "warn",
           text: "`--purge` deletes the spine, memory and settings under `QUETZALCOATL_HOME`. Export a readable ZIP with `qz export` first.",
+        },
+        { kind: "h2", id: "model", text: "Start it and configure a model" },
+        {
+          kind: "code",
+          title: "shell",
+          text: `qz up                 # start quetzalcoatld, the single spine owner
+qz open               # open the web console (prints the URL when headless)
+qz chat "hello"       # first turn`,
+        },
+        {
+          kind: "p",
+          text:
+            "Model credentials come from exactly three real paths: (1) this machine is already logged into Claude Code (run `claude`, then `/login`); (2) this machine is already logged into Codex (`codex login`); (3) you set `QUETZALCOATL_UPSTREAM_BEARER_TOKEN` explicitly (any placeholder value works for a self-hosted OpenAI / Anthropic compatible gateway). With none of them, `qz chat` returns `MODEL_NOT_CONFIGURED` and lists these three paths — it never sends a request upstream.",
+        },
+        {
+          kind: "note",
+          tone: "info",
+          text: "Subscription credentials are held by `quetzalcoatld` outside the sandbox: the sandbox only sees a temporary stub with `refresh_token` stripped, and the real token is swapped in at egress (see [security model](/docs/trust)).",
         },
         { kind: "h2", id: "verify", text: "Verify the install" },
         {

@@ -163,6 +163,13 @@ export default function Download() {
                     </span>
                   ) : null}
                 </div>
+                {!asset ? (
+                  <p className="release-note" role="status">
+                    {lang === "en"
+                      ? `This pre-release ships no ${m.platforms[platform].label} build: ${version} only publishes Linux x64/arm64 CLI packages plus the hub/desktop/web bundles. macOS and Windows native clients arrive with the stable release; until then build them from source (see the repository's docs/RELEASE.md). The command below will not find an asset for this platform.`
+                      : `本预发布没有 ${m.platforms[platform].label} 产物：${version} 只发布 Linux x64/arm64 命令行包，以及 hub / 桌面 / Web 打包件。macOS 与 Windows 原生端随正式版发布；在此之前请从源码构建（见仓库 docs/RELEASE.md）。下面的安装命令在这个平台上找不到可下载产物。`}
+                  </p>
+                ) : null}
                 <div className="release-actions">
                   {assetUrl ? (
                     <a className="btn" href={assetUrl} rel="noreferrer noopener">

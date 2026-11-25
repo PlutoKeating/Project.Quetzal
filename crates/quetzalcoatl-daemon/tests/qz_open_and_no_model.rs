@@ -143,6 +143,7 @@ fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_ca
             "QUETZALCOATL_UPSTREAM_BASE_URL",
             format!("http://127.0.0.1:{}", upstream.port),
         )
+        .env_remove("QUETZALCOATL_UPSTREAM_BEARER_TOKEN")
         .args(["up"])
         .output()?;
     assert!(
@@ -200,9 +201,19 @@ fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_ca
         stderr.contains("MODEL_NOT_CONFIGURED"),
         "expected MODEL_NOT_CONFIGURED, got: {stderr}"
     );
+    // 指引必须是真实可行的路径（Claude Code / Codex 登录，或显式 Bearer），
+    // 不得再指向并不存在的「控制台 → 模型」设置页。
     assert!(
-        stderr.contains("打开控制台 → 模型"),
-        "error must guide the user to the model settings: {stderr}"
+        stderr.contains("登录 Claude Code") && stderr.contains("codex login"),
+        "error must list the real subscription-login paths: {stderr}"
+    );
+    assert!(
+        stderr.contains("QUETZALCOATL_UPSTREAM_BEARER_TOKEN"),
+        "error must name the explicit bearer override: {stderr}"
+    );
+    assert!(
+        !stderr.contains("打开控制台 → 模型"),
+        "error must not point at a console screen that does not exist: {stderr}"
     );
     assert!(
         !stderr.contains("零凭据代理拒绝请求: 零凭据代理拒绝请求:"),
@@ -216,6 +227,34 @@ fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_ca
         upstream.connection_count(),
         0,
         "chat without credentials must not open any upstream connection"
+    );
+
+    // 工程工作区分支必须与日常对话分支一致：先拒绝，不建 worktree、不发上游请求。
+    let repo = home.path().join("repo");
+    std::fs::create_dir_all(&repo)?;
+    let workspace_chat = run_qz(
+        &qz,
+        home.path(),
+        &qz_home,
+        &["chat", "重构一下", "--workspace", repo.to_str().ok_or("repo path")?],
+    )?;
+    assert!(
+        !workspace_chat.status.success(),
+        "workspace chat without a configured model must fail"
+    );
+    let workspace_stderr = String::from_utf8_lossy(&workspace_chat.stderr);
+    assert!(
+        workspace_stderr.contains("MODEL_NOT_CONFIGURED"),
+        "workspace branch must return MODEL_NOT_CONFIGURED, got: {workspace_stderr}"
+    );
+    assert!(
+        !workspace_stderr.contains("上游模型认证失败"),
+        "workspace branch must not attempt an upstream auth call: {workspace_stderr}"
+    );
+    assert_eq!(
+        upstream.connection_count(),
+        0,
+        "workspace chat without credentials must not open any upstream connection"
     );
 
     drop(guard);

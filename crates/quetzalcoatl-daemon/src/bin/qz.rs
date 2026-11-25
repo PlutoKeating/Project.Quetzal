@@ -163,7 +163,7 @@ fn run_up(args: &[String]) -> Result<()> {
             "quetzalcoatld already online (pid={}, agent={}, ipc={})",
             st.pid, st.agent_id, st.ipc_http_addr
         );
-        println!("console: {}", console_url(st.ipc_http_addr));
+        print_console(st.ipc_http_addr);
         return Ok(());
     }
 
@@ -251,7 +251,7 @@ fn run_up(args: &[String]) -> Result<()> {
                 "quetzalcoatld ready (pid={}, agent={}, ipc={})",
                 st.pid, st.agent_id, st.ipc_http_addr
             );
-            println!("console: {}", console_url(st.ipc_http_addr));
+            print_console(st.ipc_http_addr);
             println!("hint: run `qz open` to launch it in the browser");
             return Ok(());
         }
@@ -271,6 +271,24 @@ fn run_up(args: &[String]) -> Result<()> {
 
 fn console_url(addr: std::net::SocketAddr) -> String {
     format!("http://{addr}/")
+}
+
+/// 安装包把 `bin/web/` 放在可执行文件旁；源码构建（`target/debug`）默认没有静态资源。
+/// 只用于在打印控制台地址时给出诚实的说明，绝不阻断启动。
+fn bundled_console_available() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("web").join("index.html")))
+        .is_some_and(|index| index.is_file())
+}
+
+fn print_console(addr: std::net::SocketAddr) {
+    println!("console: {}", console_url(addr));
+    if !bundled_console_available() {
+        println!(
+            "note: this build carries no bundled web console assets (installed releases do); the URL will not serve a page yet"
+        );
+    }
 }
 
 /// 是否存在可用图形会话；无桌面（SSH/容器/CI）时只打印 URL，绝不尝试拉起浏览器。
@@ -318,7 +336,11 @@ fn run_open(args: &[String]) -> Result<()> {
             let url = console_url(st.ipc_http_addr);
             if let Some((program, leading)) = browser_opener() {
                 match Command::new(program).args(leading).arg(&url).spawn() {
-                    Ok(_) => {
+                    Ok(mut child) => {
+                        // 启动器可能长时间驻留（例如已运行的浏览器把 URL 转交后退出）；后台线程负责回收，避免僵尸进程。
+                        let _ = std::thread::spawn(move || {
+                            let _ = child.wait();
+                        });
                         println!("opened {url}");
                         return Ok(());
                     }
@@ -326,6 +348,11 @@ fn run_open(args: &[String]) -> Result<()> {
                         eprintln!("note: could not launch the browser ({e}); the URL is below")
                     }
                 }
+            }
+            if !bundled_console_available() {
+                eprintln!(
+                    "note: this build carries no bundled web console assets (installed releases do); the page will not load"
+                );
             }
             println!("{url}");
             Ok(())

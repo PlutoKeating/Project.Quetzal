@@ -23,7 +23,8 @@ use quetzalcoatl_harness::{
     GatewayConfig, GatewaySessionConfig, HarnessDriver, HarnessEvent, HarnessLaunchContext,
     LoopbackGateway, McpBridgeSession, OpenCodeDriver, PiDriver, WorktreeManager,
     can_probe_linux_secret_service, count_anthropic_cache_controls, discover_coding_agents,
-    gemini_cli_env, matches_agent_version_signature, prepare_stripped_oauth_stubs,
+    gemini_cli_env, host_oauth_available, matches_agent_version_signature,
+    prepare_stripped_oauth_stubs,
 };
 use quetzalcoatl_kernel::{
     BlindKernel, CapabilityDescriptor, CapabilityOrigin, ExecutionSurface, HeartScheduler,
@@ -1971,5 +1972,50 @@ fn regression_r2_all_four_mcp_202_native_configs_subdir_delete_git_mv_and_secure
         );
     }
 
+    Ok(())
+}
+
+#[test]
+fn host_oauth_available_is_read_only_and_recognises_both_providers() -> TestResult {
+    let root = TempDirGuard::new("host_oauth_probe")?;
+    let claude = root.path().join(".claude");
+    let codex = root.path().join(".codex");
+    fs::create_dir_all(&claude)?;
+    fs::create_dir_all(&codex)?;
+
+    // 空目录：没有凭据。
+    assert!(!host_oauth_available(Some(&claude), Some(&codex)));
+    assert!(!host_oauth_available(None, None));
+
+    // 同名字段出现在未知 JSON 里才算：只有 refresh_token 时不算可用。
+    fs::write(
+        claude.join("credentials.json"),
+        br#"{"refresh_token":"r","id_token":"i"}"#,
+    )?;
+    assert!(!host_oauth_available(Some(&claude), None));
+
+    // Claude 形态：accessToken 嵌在嵌套对象里也能识别。
+    fs::write(
+        claude.join("credentials.json"),
+        br#"{"claudeAiOauth":{"accessToken":"a","refreshToken":"r"}}"#,
+    )?;
+    assert!(host_oauth_available(Some(&claude), None));
+
+    // 探测绝不写文件：目录内容与 mtime 不变。
+    let before: Vec<String> = fs::read_dir(&claude)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(before, vec![String::from("credentials.json")]);
+
+    // Codex 形态：OPENAI_API_KEY / access_token 任一非空即视为已配置。
+    fs::write(codex.join("auth.json"), br#"{"OPENAI_API_KEY":""}"#)?;
+    assert!(!host_oauth_available(None, Some(&codex)));
+    fs::write(codex.join("auth.json"), br#"{"tokens":{"access_token":"t"}}"#)?;
+    assert!(host_oauth_available(None, Some(&codex)));
+
+    // 非法 JSON 不得 panic，也不得被当成凭据。
+    fs::write(codex.join("auth.json"), b"{not json")?;
+    assert!(!host_oauth_available(None, Some(&codex)));
     Ok(())
 }

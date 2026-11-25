@@ -1,6 +1,6 @@
 # Quetzalcoatl installer for Windows: irm https://quetzal.plutokeating.beer/install.ps1 | iex
 # GENERATED from scripts/install.src.ps1 by scripts/gen-install-ps1.mjs - edit the source, not this file.
-# source sha256: 0af5d736cc942109fbaf1be367625190f8f7cab5345e6cdcfdedea425ecf0b2e
+# source sha256: 60365649a7717c72a36702250f14062b7f22682b999797117bff6881f773b5d7
 # The Ed25519 verifier and the embedded release key are part of this file: there is no black box.
 <#
 .SYNOPSIS
@@ -21,7 +21,7 @@
   On a failed health check (qz.exe --version) the previous version is restored.
 
 .PARAMETER Version
-  Version to install, e.g. 0.1.0. Default: the latest signed release.
+  Version to install, e.g. 2.0.0-alpha.2. Default: the latest signed release.
   Also read from $env:QUETZALCOATL_VERSION.
 
 .PARAMETER Prefix
@@ -334,7 +334,11 @@ function Test-Health([string]$ExpectedVersion) {
     if ($env:OS -eq 'Windows_NT') { $out = & $exe --version 2>&1 }
     else { $out = & bash $exe --version 2>&1 }
     if ($LASTEXITCODE -ne 0) { return $false }
-    return ([string]($out | Out-String)) -match [regex]::Escape($ExpectedVersion)
+    # Exact version token: accepts `qz 2.0.0` / `qz (Quetzalcoatl CLI) 2.0.0` / `v2.0.0`,
+    # but a prerelease such as `2.0.0-alpha.1` must never satisfy `2.0.0`.
+    $esc = [regex]::Escape($ExpectedVersion)
+    $pattern = "(^|[^0-9A-Za-z.+-])v?$esc([^0-9A-Za-z.+-]|`$)"
+    return ([string]($out | Out-String)) -match $pattern
   } catch { return $false }
 }
 
