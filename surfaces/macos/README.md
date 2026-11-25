@@ -41,10 +41,12 @@ swift test \
 # 有完整 Xcode 时：swift test
 
 swift run QuetzalcoatlMac --self-test --demo-rows --report /tmp/qz-self-test.txt
-# 实测输出：MAC_SELF_TEST_OK density=inspector connected=false degraded=true bindings=false rows=6 announcements=1
-#          （退出码 0，不创建 NSApplication，可在无 WindowServer 的 SSH 会话运行）
+# 自检会断言真实不变量（不可在线、degraded、density=inspector、rows=6、announcements=1），
+# 全部满足才输出 MAC_SELF_TEST_OK 并退出 0；否则 MAC_SELF_TEST_FAIL + 退出 1
+#（不创建 NSApplication，可在无 WindowServer 的 SSH 会话运行）。
 
 swift run QuetzalcoatlMac --demo-rows          # 图形界面（三档 + 菜单栏）
+swift run QuetzalcoatlMac --demo-stream 200    # 演示拉模式流（无绑定时自动用合成源）
 swift run QuetzalcoatlMac --home /path/to/qz   # 指定 Quetzalcoatl 家目录
 ```
 
@@ -76,6 +78,7 @@ plist 含 `RunAtLoad`、`KeepAlive{SuccessfulExit:false}`、`ThrottleInterval=10
 | --- | --- |
 | `quetzalcoatld` 未运行 | 类型化离线视图 + 一句话说明 + 「重新连接」 |
 | 令牌权限过宽（非 0600 / 属主不符） | 主动拒绝连接并给出一句话修复提示 |
+| 运行时文件存在但 pid 已退出 / 令牌错误 / 握手失败 | `DetectedUnverified`：「找到了本机助手，但还没通过验证」；输入禁用，绝不显示为已连接 |
 | `daemon.json` 损坏 | 「本机助手暂时没有响应」+ 检视态技术原因 |
 | 这个构建未链接原生绑定 | 「这个版本还连不上本机助手」 |
 | VoiceOver / 无障碍通知不可用 | 播报静默失败，正文渲染不受影响 |
@@ -87,8 +90,9 @@ plist 含 `RunAtLoad`、`KeepAlive{SuccessfulExit:false}`、`ThrottleInterval=10
 - 每个交互控件都有 `.accessibilityIdentifier` / `.accessibilityLabel`（按钮、文本框由
   SwiftUI 自动提供 `.isButton` / `.isTextField` 等原生 traits）；
 - 密度切换按钮带 `.isSelected` trait 与 `⌘1/2/3` 快捷键；
-- 对话区、连接状态、应用级播报区带 `.updatesFrequently`，每批流事件**恰好一次**
-  `NSAccessibility.post(.announcementRequested)`（`medium` 优先级）；
+- 对话正文/标题/连接状态/未连接说明是**内容承载控件**：不设置 `.accessibilityLabel`，
+  VoiceOver 朗读真实内容；每批流事件**恰好一次** `NSAccessibility.post(.announcementRequested)`
+  （`medium` 优先级），不再使用隐藏 live region，避免双播报；
 - `AccessibilityCatalog` 是唯一事实来源：单测扫描真实 SwiftUI 源码，断言每个 id/名称都出现、
   且源码里没有未登记的 id。
 
@@ -128,6 +132,9 @@ cargo build -p quetzalcoatl-uniffi --features cli --bins
 
 ## 8. 已知限制
 
+- **跨平台运行期验证 `Deferred (VMs paused by owner)`**：本轮修复只做静态审查（宿主无 Swift 工具链），
+  `swift build` / `swift test` 需在恢复后的 macos-tahoe-lab 上复跑；探测握手新增可注入
+  `StatusTransport`，成功/失败路径均有测试但尚未执行。
 - **原生库运行期链接（`Deferred (VM paused by owner)`）**：验证机确有 Rust 1.99.1，并已成功
   构建 `uniffi-bindgen`；但 macOS 版 `libquetzalcoatl_uniffi.dylib` 与真实拉流/取消/视图投影
   冒烟在收尾前因 VM 被所有者暂停而中止，**未完成、未通过**。默认构建的降级路径、契约、流泵与

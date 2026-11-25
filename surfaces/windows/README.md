@@ -99,6 +99,7 @@ schtasks /Run /TN QzUiSmoke
 | --- | --- |
 | `quetzalcoatld` 未运行（`run/daemon.json` 缺失） | 类型化离线视图 + 一句话说明 + 「重新连接」 |
 | 运行时令牌缺失 | 同上（不读任何内容） |
+| 运行时文件存在但 pid 已退出 / 令牌错误 / 握手失败 | 「找到了本机助手，但还没通过验证」（`DetectedUnverified`）；输入禁用，绝不显示为已连接 |
 | `daemon.json` 损坏 | 「本机助手暂时没有响应」+ 检视态技术原因 |
 | 这个构建未链接原生绑定 | 「这个版本还连不上本机助手」 |
 | 托盘注册失败 | 关闭即退出，窗口功能不受影响 |
@@ -111,8 +112,9 @@ schtasks /Run /TN QzUiSmoke
 - 每个交互控件都有 `AutomationProperties.AutomationId` / `Name`（原生 WinUI 自动提供
   Invoke / Value / SelectionItem 模式与键盘可达）；
 - 密度切换是原生 `TabView`（`TabItem` + `SelectionItem`），`Ctrl+1/2/3` 键盘加速器；
-- 对话区与连接状态是 `LiveSetting=Polite` 的实时区域，流式批次**每批只播报一次**
-  （`StreamingAnnouncer` + `AutomationPeer.RaiseNotificationEvent`）；
+- 对话区/标题/状态/说明是**内容承载控件**：不设置 `AutomationProperties.Name`，屏幕阅读器朗读
+  真实内容（区块说明只放在 HelpText）；流式批次**每批只播报一次**，唯一播报机制是
+  `StreamingAnnouncer` + `AutomationPeer.RaiseNotificationEvent`（不使用 LiveSetting 自动播报）；
 - `DesktopControlCatalog` 是唯一事实来源：单测静态比对真实 XAML 的 AutomationId/Name，
   UIA 冒烟再用真实自动化树比对一次，任何 XAML 漂移都会让 `dotnet test` 失败。
 
@@ -134,7 +136,9 @@ copy target\release\quetzalcoatl_uniffi.dll `
 ```
 
 此时 `StreamSourceFactory.BindingsAvailable == true`，`--demo-stream N` 会以真实
-`FfiViewStream` 驱动流式对话区。
+`FfiViewStream` 驱动流式对话区。**未链接绑定时 `--demo-stream N` 仍可用**：自动回退到
+`SyntheticStreamSource`（本地合成事件，明确提示「不连接本机助手」），因此流式 UI 与检视态
+流泵统计在默认构建里也能真实演练。
 
 ## 8. 已知限制
 
@@ -156,3 +160,8 @@ copy target\release\quetzalcoatl_uniffi.dll `
   在真实登录桌面上运行 `scripts\run-tests.ps1` 即可得到真实窗口与 UIA 树证据。
 - **崩溃取证**：`StartupDiagnostics` 模块初始化器把启动期未处理异常写入
   `%TEMP%\quetzalcoatl-win-startup-error.txt`，WinExe 无控制台时也可定位。
+- **NET 分析器 `Deferred (VMs paused by owner)`**：`EnableNETAnalyzers=false` 保持不变——VM 暂停期间
+  无法在真实 Windows 编译器上验证 CAxxxx 规则与 WinUI 生成代码的兼容性；恢复后先在
+  `Quetzalcoatl.Desktop` / `Quetzalcoatl.Interop` 开启 `AnalysisMode=Recommended` 再收敛。
+- **跨平台运行期验证 `Deferred (VMs paused by owner)`**：本轮修复只做了宿主侧编译与
+  `Quetzalcoatl.Desktop.Tests`（30/30）；WinUI 应用编译与 UIA 冒烟需在恢复后的 windows-lab 上复跑。
