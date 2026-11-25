@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    本机连接薄层：把 UniFFI 生成的 C# 绑定包装成拉模式 IStreamSource，并提供守护进程探测。
+    只有在显式传入生成的绑定目录时才编译真实绑定路径：
+      dotnet build -p:QzBindingsDir=<dir> -p:QzNativeLibDir=<dir>
+    默认构建（无绑定）仍然可用：界面完整、降级视图类型化，绝不伪装在线。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <RootNamespace>Quetzalcoatl.Interop</RootNamespace>
+    <AssemblyName>Quetzalcoatl.Interop</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <QzBindingsDir Condition="'$(QzBindingsDir)' == ''"></QzBindingsDir>
+    <DefineConstants Condition="'$(QzBindingsDir)' != ''">$(DefineConstants);QZ_UNIFFI_BINDINGS</DefineConstants>
+    <!-- 生成代码可能带少量与门禁无关的分析器提示；本工程自身源码仍以警告为错误。 -->
+    <NoWarn Condition="'$(QzBindingsDir)' != ''">$(NoWarn);CS0169;CS0649;CS1591;CS8618</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Quetzalcoatl.Desktop/Quetzalcoatl.Desktop.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(QzBindingsDir)' != ''">
+    <Compile Include="$(QzBindingsDir)/*.cs" Link="Generated/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

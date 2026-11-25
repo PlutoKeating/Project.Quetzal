@@ -1,0 +1,29 @@
+<Project>
+
+  <!--
+    Quetzalcoatl Windows 桌面端统一编译门禁：
+      * Nullable=enable / TreatWarningsAsErrors=true —— 与 AGENTS.md 第 4.6 条一致；
+      * 关闭 .NET SDK 的 CA 分析器（其规则与“编译器零警告”门禁无关，会引入大量
+        与 WinUI 生成代码冲突的建议），保留编译器自身全部警告为错误。
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- 允许在有更新主版本运行时的机器上运行（本地 .NET 10 SDK 可跑 net9.0 测试）。 -->
+    <RollForward>LatestMajor</RollForward>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!--
+      WindowsAppSDK 的 MRT/PRI 与 payload 目标需要 VS Build Tools 的 AppxPackage MSBuild 任务。
+      用 `dotnet build` 时 `$(MSBuildExtensionsPath)` 指向 .NET SDK 目录，需显式指到 VS 安装目录
+      （前置条件：VS 2022 Build Tools + 通用 Windows 平台生成工具工作负载）。
+    -->
+    <AppxMSBuildToolsPath Condition="'$(AppxMSBuildToolsPath)' == '' and Exists('$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VisualStudio\v17.0\AppxPackage\')">$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VisualStudio\v17.0\AppxPackage\</AppxMSBuildToolsPath>
+  </PropertyGroup>
+
+</Project>

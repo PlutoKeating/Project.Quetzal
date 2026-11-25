@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    平台中立的桌面视图模型库（三档认知密度、类型化降级、拉模式流泵、无障碍契约）。
+    刻意保持 net9.0（无 -windows 后缀）：它不含任何 WinUI/注册表/UIA 依赖，
+    因此可以在无桌面的 CI 上运行全部行为测试。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Quetzalcoatl.Desktop</RootNamespace>
+    <AssemblyName>Quetzalcoatl.Desktop</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

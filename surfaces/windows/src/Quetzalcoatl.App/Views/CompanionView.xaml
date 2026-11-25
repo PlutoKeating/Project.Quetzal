@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Quetzalcoatl.App.Views.CompanionView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="32,24,32,24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            AutomationProperties.AutomationId="companion.heading"
+            AutomationProperties.Name="陪伴视图标题"
+            FontSize="34"
+            FontWeight="SemiBold"
+            Text="{Binding Heading}"
+            TextWrapping="Wrap" />
+
+        <ScrollViewer
+            Grid.Row="1"
+            HorizontalScrollBarVisibility="Disabled"
+            VerticalScrollBarVisibility="Auto">
+            <TextBlock
+                AutomationProperties.AutomationId="companion.transcript"
+                AutomationProperties.Name="对话内容"
+                AutomationProperties.HelpText="对话会持续更新，新的回复会自动播报"
+                FontSize="22"
+                IsTextSelectionEnabled="True"
+                Text="{Binding Transcript}"
+                TextWrapping="Wrap" />
+        </ScrollViewer>
+
+        <TextBlock
+            Grid.Row="2"
+            FontSize="18"
+            Opacity="0.85"
+            Text="{Binding HintText}"
+            TextWrapping="Wrap"
+            Visibility="{Binding ShowHint, Converter={StaticResource BoolToVisibility}}" />
+
+        <Grid Grid.Row="3" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox
+                x:Name="ComposerBox"
+                AutomationProperties.AutomationId="companion.entry"
+                AutomationProperties.Name="想说的话"
+                AutomationProperties.HelpText="输入一句话，按回车或点发送"
+                FontSize="20"
+                IsEnabled="{Binding IsInputEnabled}"
+                KeyDown="OnComposerKeyDown"
+                MinHeight="64"
+                PlaceholderText="想说什么都行"
+                TextWrapping="Wrap" />
+            <Button
+                Grid.Column="1"
+                AutomationProperties.AutomationId="companion.send"
+                AutomationProperties.Name="发送这句话"
+                Click="OnSendClick"
+                Content="发送"
+                FontSize="20"
+                IsEnabled="{Binding IsInputEnabled}"
+                MinHeight="72"
+                MinWidth="160" />
+        </Grid>
+
+        <Button
+            Grid.Row="4"
+            AutomationProperties.AutomationId="companion.retry"
+            AutomationProperties.Name="重新连接本机助手"
+            Click="OnRetryClick"
+            Content="重新连接"
+            FontSize="18"
+            MinHeight="72"
+            Visibility="{Binding ShowRetry, Converter={StaticResource BoolToVisibility}}" />
+
+        <TextBlock
+            Grid.Row="5"
+            AutomationProperties.AutomationId="companion.status"
+            AutomationProperties.Name="连接状态"
+            FontSize="15"
+            Opacity="0.75"
+            Text="{Binding StatusText}" />
+    </Grid>
+</UserControl>

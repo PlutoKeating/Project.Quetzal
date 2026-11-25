@@ -1,0 +1,269 @@
+namespace Quetzalcoatl.Desktop.A11y;
+
+using Quetzalcoatl.Desktop.ViewModels;
+
+/// <summary>UI Automation 控件类型（与 <c>AutomationControlType</c> 名称一一对应，便于冒烟比对）。</summary>
+public enum ControlKind
+{
+    /// <summary>窗口。</summary>
+    Window,
+
+    /// <summary>通用面板。</summary>
+    Pane,
+
+    /// <summary>按钮。</summary>
+    Button,
+
+    /// <summary>可编辑文本框。</summary>
+    Edit,
+
+    /// <summary>只读文本。</summary>
+    Text,
+
+    /// <summary>列表。</summary>
+    List,
+
+    /// <summary>标签容器。</summary>
+    Tab,
+
+    /// <summary>状态栏/提示条。</summary>
+    StatusBar,
+
+    /// <summary>标签项（密度切换）。</summary>
+    TabItem,
+
+    /// <summary>菜单项（托盘菜单）。</summary>
+    MenuItem,
+
+    /// <summary>进度条。</summary>
+    ProgressBar,
+}
+
+/// <summary>控件应暴露的 UI Automation 能力（以标志位表达，便于完整性断言）。</summary>
+[Flags]
+public enum ControlTraits
+{
+    /// <summary>无附加要求。</summary>
+    None = 0,
+
+    /// <summary>可用键盘获得焦点。</summary>
+    KeyboardFocusable = 1 << 0,
+
+    /// <summary>应支持 Invoke 模式。</summary>
+    Invoke = 1 << 1,
+
+    /// <summary>应支持 Value/Text 模式（输入框）。</summary>
+    ValuePattern = 1 << 2,
+
+    /// <summary>应作为实时播报区域（<c>LiveSetting</c> 非 Off）。</summary>
+    LiveRegion = 1 << 3,
+
+    /// <summary>应支持 SelectionItem 模式（标签/列表项）。</summary>
+    SelectionItem = 1 << 4,
+}
+
+/// <summary>控件所属的表面（主窗口或托盘菜单）。</summary>
+public enum ControlSurface
+{
+    /// <summary>主窗口内的控件。</summary>
+    MainWindow,
+
+    /// <summary>系统托盘原生菜单项。</summary>
+    Tray,
+}
+
+/// <summary>一个交互控件的无障碍契约条目。</summary>
+public sealed record ControlContract(
+    string AutomationId,
+    string AccessibleName,
+    ControlKind Kind,
+    ControlTraits Traits,
+    int MinTargetPx = 0,
+    string Description = "",
+    ControlSurface Surface = ControlSurface.MainWindow)
+{
+    /// <summary>是否需要键盘可达。</summary>
+    public bool IsInteractive =>
+        (Traits & (ControlTraits.KeyboardFocusable | ControlTraits.Invoke | ControlTraits.ValuePattern | ControlTraits.SelectionItem)) != 0;
+}
+
+/// <summary>
+/// 桌面端无障碍契约：XAML 的 <c>AutomationProperties.AutomationId</c> /
+/// <c>AutomationProperties.Name</c> 必须与此清单逐条一致；单测与 UI Automation 冒烟
+/// 共用同一份清单，杜绝「XAML 改了、测试没跟上」的漂移。
+/// </summary>
+public static class DesktopControlCatalog
+{
+    /// <summary>全部契约条目（含静态条目与模板内动态条目）。</summary>
+    public static IReadOnlyList<ControlContract> All { get; } =
+    [
+        new("nav.density", "视图密度", ControlKind.Tab, ControlTraits.KeyboardFocusable),
+        new("tab.companion", "陪伴视图（Ctrl+1）", ControlKind.TabItem, ControlTraits.KeyboardFocusable | ControlTraits.SelectionItem),
+        new("tab.workbench", "工作台视图（Ctrl+2）", ControlKind.TabItem, ControlTraits.KeyboardFocusable | ControlTraits.SelectionItem),
+        new("tab.inspector", "检视视图（Ctrl+3）", ControlKind.TabItem, ControlTraits.KeyboardFocusable | ControlTraits.SelectionItem),
+        new("status.connection", "连接状态提示", ControlKind.Text, ControlTraits.LiveRegion),
+        new("live.announcement", "实时播报区域", ControlKind.Text, ControlTraits.LiveRegion),
+        new("companion.heading", "陪伴视图标题", ControlKind.Text, ControlTraits.None),
+        new(
+            "companion.transcript",
+            CompanionCopy.TranscriptLabel,
+            ControlKind.Text,
+            ControlTraits.None,
+            0,
+            CompanionCopy.TranscriptDescription),
+        new("companion.entry", "想说的话", ControlKind.Edit, ControlTraits.KeyboardFocusable | ControlTraits.ValuePattern, 64, "输入一句话，按回车或点发送"),
+        new("companion.send", "发送这句话", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 64),
+        new("companion.retry", "重新连接本机助手", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 64),
+        new("companion.status", "连接状态", ControlKind.Text, ControlTraits.None),
+        new("workbench.transcript", "工作台对话内容", ControlKind.Text, ControlTraits.None),
+        new("workbench.entry", "工作台输入框", ControlKind.Edit, ControlTraits.KeyboardFocusable | ControlTraits.ValuePattern, 32),
+        new("workbench.send", "工作台发送按钮", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 32),
+        new("workbench.workflows", "工作流列表", ControlKind.List, ControlTraits.KeyboardFocusable),
+        new("workbench.approvals", "待批准操作列表", ControlKind.List, ControlTraits.KeyboardFocusable),
+        new("workbench.approve", "批准这项操作", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke),
+        new("workbench.deny", "拒绝这项操作", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke),
+        new("inspector.conscience", "良知锁定正文", ControlKind.Text, ControlTraits.None),
+        new("inspector.tools", "工具调用列表", ControlKind.List, ControlTraits.KeyboardFocusable),
+        new("inspector.audit", "审计事件列表", ControlKind.List, ControlTraits.KeyboardFocusable),
+        new("inspector.technical", "运行技术日志", ControlKind.List, ControlTraits.KeyboardFocusable),
+        new("tray.show", "显示 Quetzalcoatl 主窗口", ControlKind.MenuItem, ControlTraits.Invoke, 0, string.Empty, ControlSurface.Tray),
+        new("tray.quit", "退出 Quetzalcoatl", ControlKind.MenuItem, ControlTraits.Invoke, 0, string.Empty, ControlSurface.Tray),
+    ];
+
+    /// <summary>按 ID 查找契约条目。</summary>
+    public static ControlContract? Find(string automationId) =>
+        All.FirstOrDefault(item => string.Equals(item.AutomationId, automationId, StringComparison.Ordinal));
+
+    /// <summary>指定表面的全部条目。</summary>
+    public static IReadOnlyList<ControlContract> ForSurface(ControlSurface surface) =>
+        All.Where(item => item.Surface == surface).ToArray();
+
+    /// <summary>
+    /// 结构性自检：ID 唯一、名称非空、可交互控件必须键盘可达、
+    /// 陪伴态触点的最小尺寸不得小于 64px。
+    /// </summary>
+    public static IReadOnlyList<string> ValidateStructure()
+    {
+        var issues = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in All)
+        {
+            if (string.IsNullOrWhiteSpace(item.AutomationId))
+            {
+                issues.Add("存在空 AutomationId 的契约条目");
+                continue;
+            }
+
+            if (!seen.Add(item.AutomationId))
+            {
+                issues.Add($"{item.AutomationId}: AutomationId 重复");
+            }
+
+            if (string.IsNullOrWhiteSpace(item.AccessibleName))
+            {
+                issues.Add($"{item.AutomationId}: 无障碍名称不能为空");
+            }
+
+            if (item.IsInteractive && (item.Traits & ControlTraits.KeyboardFocusable) == 0
+                && item.Surface == ControlSurface.MainWindow)
+            {
+                issues.Add($"{item.AutomationId}: 可交互控件必须键盘可达");
+            }
+
+            if (item.MinTargetPx is > 0 and < 64
+                && item.AutomationId.StartsWith("companion.", StringComparison.Ordinal))
+            {
+                issues.Add($"{item.AutomationId}: 陪伴态触点不得小于 64px（实际 {item.MinTargetPx}px）");
+            }
+        }
+
+        return issues;
+    }
+}
+
+/// <summary>从真实 UI Automation 树读回的一条观测（由冒烟工程填充）。</summary>
+public sealed record ObservedControl(
+    string AutomationId,
+    string? Name,
+    ControlKind Kind,
+    bool IsKeyboardFocusable,
+    bool IsInvokeAvailable,
+    bool IsValueAvailable,
+    string? LiveSetting,
+    double Width,
+    double Height);
+
+/// <summary>契约与真实 UI Automation 树的差异。</summary>
+public static class A11yContractValidator
+{
+    /// <summary>校验观测到的控件集合是否完整满足指定表面的契约。</summary>
+    public static IReadOnlyList<string> Validate(
+        IEnumerable<ObservedControl> observed,
+        ControlSurface surface = ControlSurface.MainWindow,
+        IReadOnlyCollection<string>? onlyIds = null)
+    {
+        ArgumentNullException.ThrowIfNull(observed);
+        var byId = observed
+            .Where(item => !string.IsNullOrEmpty(item.AutomationId))
+            .GroupBy(item => item.AutomationId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+
+        var issues = new List<string>();
+        foreach (var contract in DesktopControlCatalog.ForSurface(surface))
+        {
+            if (onlyIds is not null && !onlyIds.Contains(contract.AutomationId))
+            {
+                continue;
+            }
+
+            if (!byId.TryGetValue(contract.AutomationId, out var matches))
+            {
+                issues.Add($"{contract.AutomationId}: UI Automation 树中缺失");
+                continue;
+            }
+
+            if (matches.Any(match => !string.Equals(match.Name, contract.AccessibleName, StringComparison.Ordinal)))
+            {
+                issues.Add(
+                    $"{contract.AutomationId}: 名称不一致（期望「{contract.AccessibleName}」，实际「{matches[0].Name}」）");
+            }
+
+            if (matches.Any(match => match.Kind != contract.Kind))
+            {
+                issues.Add(
+                    $"{contract.AutomationId}: 控件类型不一致（期望 {contract.Kind}，实际 {matches[0].Kind}）");
+            }
+
+            if ((contract.Traits & ControlTraits.KeyboardFocusable) != 0
+                && matches.Any(match => !match.IsKeyboardFocusable))
+            {
+                issues.Add($"{contract.AutomationId}: 必须可用键盘聚焦");
+            }
+
+            if ((contract.Traits & ControlTraits.Invoke) != 0 && !matches.Any(match => match.IsInvokeAvailable))
+            {
+                issues.Add($"{contract.AutomationId}: 必须暴露 Invoke 模式");
+            }
+
+            if ((contract.Traits & ControlTraits.ValuePattern) != 0 && !matches.Any(match => match.IsValueAvailable))
+            {
+                issues.Add($"{contract.AutomationId}: 必须暴露 Value/Text 模式");
+            }
+
+            if ((contract.Traits & ControlTraits.LiveRegion) != 0
+                && !matches.Any(match => !string.IsNullOrEmpty(match.LiveSetting)
+                    && !string.Equals(match.LiveSetting, "Off", StringComparison.OrdinalIgnoreCase)))
+            {
+                issues.Add($"{contract.AutomationId}: 实时播报区域必须设置 LiveSetting 为非 Off");
+            }
+
+            if (contract.MinTargetPx > 0
+                && matches.Any(match => match.Width < contract.MinTargetPx || match.Height < contract.MinTargetPx))
+            {
+                issues.Add($"{contract.AutomationId}: 触点小于 {contract.MinTargetPx}px");
+            }
+        }
+
+        return issues;
+    }
+}

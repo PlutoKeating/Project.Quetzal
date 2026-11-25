@@ -18,6 +18,8 @@ surfaces/macos/DerivedData/
 surfaces/ios/DerivedData/
 surfaces/windows/**/bin/
 surfaces/windows/**/obj/
+surfaces/windows/**/TestResults/
+surfaces/windows/artifacts/
 surfaces/android/.gradle/
 surfaces/android/build/
 surfaces/android/app/build/

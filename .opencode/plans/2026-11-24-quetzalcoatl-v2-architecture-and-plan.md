@@ -623,10 +623,14 @@
 - Consumes: `quetzalcoatl-uniffi`（Swift `AsyncThrowingStream` 与 C# `IAsyncEnumerable` 拉模式封装）
 - Produces: macOS 原生 App（含菜单栏图标与 launchd 管理）与 Windows 原生 WinUI 3 Fluent App（含系统托盘与 UI Automation 无障碍树）。
 
-- [ ] **Step 1: 编写两平台 ViewModel 绑定、高频流式输出 UI 线程不阻塞与无障碍属性完整性单测**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 `surfaces/macos` 与 `surfaces/windows` 三态界面及系统守护联动**
-- [ ] **Step 4: 验证编译测试零警告通过并提交**
+- [x] **Step 1: 编写两平台 ViewModel 绑定、高频流式输出 UI 线程不阻塞与无障碍属性完整性单测**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现 `surfaces/macos` 与 `surfaces/windows` 三态界面及系统守护联动**
+- [x] **Step 4: 验证编译测试零警告通过并提交**
+- 说明：Windows 拆为三个工程——`Quetzalcoatl.Desktop`（平台中立视图模型/差分视图/拉模式流泵/无障碍契约，`net9.0`）、`Quetzalcoatl.Interop`（UniFFI 薄包装 + 运行时文件探测；仅在 `-p:QzBindingsDir=...` 时编译真实绑定）、`Quetzalcoatl.App`（WinUI 3：`TabView` 三档、原生 `Shell_NotifyIcon` 托盘、HKCU Run 登录自启、Mica/系统主题、`LiveSetting=Polite` 播报、`StartupDiagnostics` 崩溃取证），另有 `Quetzalcoatl.Desktop.Tests`（27）、`Quetzalcoatl.Interop.Tests`（5）与外部 `Quetzalcoatl.UiSmoke`（WPF UIA 客户端）。macOS 拆为 `QuetzalcoatlCore`（三档差分视图/流泵/视图模型/无障碍契约/偏好/LaunchAgent 生成）、`QuetzalcoatlInterop`（0600 令牌校验的守护进程探测 + `#if canImport(QuetzalcoatlBindings)` 的真实 UniFFI 适配器）、`QuetzalcoatlMac`（SwiftUI 三档、`MenuBarExtra`、`--print-launch-agent`、`NSAccessibility` 播报）；测试用 **Swift Testing**（CLT-only 无 XCTest）。
+- 证据：**Windows 11 26100 + .NET SDK 9.0.321 + VS BuildTools 17.14（`UniversalBuildTools` 提供 Appx/PRI MSBuild 任务）**——`dotnet build Quetzalcoatl.Windows.sln -c Debug -p:Platform=x64` **0 warning / 0 error** 且干净构建生成 `Quetzalcoatl.App.pri`；`dotnet test` **32/32 通过**（27 桌面 + 5 探测），5,000 事件回归 `batches=20 coalesced=312 max_dispatch_latency_ms=13.82 ui_max_gap_ms=14 ui_max_callback_ms=7 announcements=20`；`-p:QzBindingsDir=C:\Workspaces\qz-win\csbindings` 时 Interop 对真实 `uniffi-bindgen-cs` 生成物编译 **0 warning / 0 error**。**macOS 26 + Swift 6.3.3（Command Line Tools）**——`swift build` 通过；`swift test`（显式补 `Testing.framework` 的 `-F`/`-rpath`）**37/37 通过**（7 suites），5,000 事件看门狗 `max_gap_ms=2.82 max_callback_ms=0.59`；`--self-test --demo-rows` 输出 `MAC_SELF_TEST_OK density=inspector connected=false degraded=true bindings=false rows=6 announcements=1`（退出码 0）；`--print-launch-agent` 生成的 plist `plutil -lint` = OK（`RunAtLoad/KeepAlive/ThrottleInterval/ProcessType` 齐全）。
+- `Deferred (VM paused by owner):` macOS 真实 UniFFI 运行期冒烟未完成。验证机确有 Rust 1.99.1，且已用 `cargo build -p quetzalcoatl-uniffi --features cli --bins` 成功构建 `uniffi-bindgen`（30MB，产物存在），但 macOS 版 `libquetzalcoatl_uniffi.dylib` 的构建与「生成 Swift 绑定 → `UniffiSmoke` 真实拉流/取消/`FfiViewSession` 投影」在收尾前因 VM 被所有者暂停而中止；**没有**得到 `UNIFFI_SMOKE_OK`，不得视为通过。默认构建下 `StreamSourceFactory.BindingsAvailable == false` 的类型化降级路径已由 37 个测试与 self-test 真实验证。
+- 偏差与 Limitation：Windows 的**窗口运行期**冒烟在本验证机 **SKIP**——该 VM 没有已登录的交互式用户会话（console 停在登录界面、SSH 为 Session 0），`Microsoft.UI.Xaml.Application.Start` 抛 `COMException (0x8000FFFF)`（stowed `0xC000027B`），`Quetzalcoatl.UiSmoke` 如实返回 **77** 并记录应用退出码 `-1073741189`；XAML/PRI 编译、32 个单测与真实绑定编译均已通过。`Deferred (VM paused by owner):` 真实窗口/UIA 树走查未在登录桌面执行，需在交互式 runner 上补跑。macOS 的 VoiceOver 实机走查需要图形会话，`Deferred:` 至 Task 5.3 全受众无障碍走查；两平台的 `desktop_snapshot` IPC 读接口与审批写回尚未由 UniFFI 暴露，界面只做本地提示/流式演示，绝不伪造数据。macOS 未提供 `.xcodeproj`：验证机只有 CLT（`xcodebuild` 不可用），以 SwiftPM `Package.swift` 作为唯一构建入口，`Deferred:` 到具备完整 Xcode 的环境再补。
 
 ---
 
