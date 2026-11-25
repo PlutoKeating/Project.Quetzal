@@ -1,0 +1,22 @@
+[package]
+name = "quetzalcoatl-domains"
+description = "Quetzalcoatl V2 五大首发标杆领域包：种子良知、角色红线、监护人签名 SafetyEnvelope 与领域洁净室客观校验"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3 = { workspace = true }
+ed25519-dalek = { workspace = true }
+quetzalcoatl-crypto = { workspace = true }
+quetzalcoatl-ewave = { workspace = true }
+quetzalcoatl-kernel = { workspace = true }
+quetzalcoatl-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }

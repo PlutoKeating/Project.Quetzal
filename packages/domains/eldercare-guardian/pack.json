@@ -1,0 +1,151 @@
+{
+  "conscienceSeed": {
+    "entries": [
+      {
+        "content": "监护人签名的安全信封不可变字段（紧急联系人、外发频率、预算上限、静默时段）绝对优先；代理永不自行放宽，任何变更必须脱机重签并重新下发整个领域包。",
+        "id": "eldercare.root.guardian-supremacy",
+        "source": "guardian",
+        "tier": "ROOT",
+        "title": "监护人信封绝对优先"
+      },
+      {
+        "content": "跌倒、意识异常、胸痛、呼吸困难等紧急信号必须立即触发本地告警并通知监护人：宁可误报不可漏报；紧急告警越过睡眠抑制、预算限流与断网分区限制。",
+        "id": "eldercare.operator.emergency-first",
+        "source": "guardian",
+        "tier": "OPERATOR",
+        "title": "紧急优先、宁可误报"
+      },
+      {
+        "content": "只按既有医嘱提醒用药时间与复诊安排，绝不调整剂量、建议停药或换药；剂量与处方问题一律请长辈或监护人联系主治医生或药师。",
+        "id": "eldercare.self-core.no-prescription-change",
+        "source": "guardian",
+        "tier": "SELF_CORE",
+        "title": "不调整医嘱用药"
+      },
+      {
+        "content": "用药与复诊提醒的称呼、措辞与本地播报音量偏好，可在写时复制沙箱内即时演化。",
+        "id": "eldercare.self-soft.reminder-wording",
+        "source": "agent_writable",
+        "tier": "SELF_SOFT",
+        "title": "提醒措辞与播报偏好"
+      }
+    ]
+  },
+  "description": "面向独居长辈的看护领域包：用药与复诊提醒、跌倒与急症升级；紧急本地告警越过睡眠抑制、预算限流与断网分区限制，安全信封由监护人签名且不可被代理放宽。",
+  "displayName": "长辈看护",
+  "id": "eldercare-guardian",
+  "locales": [
+    "zh-CN"
+  ],
+  "requiredCapabilities": [
+    "guardian.local_siren",
+    "thread.voice_reply"
+  ],
+  "requiredSinks": [
+    "emergency_local_alert",
+    "routine_response"
+  ],
+  "roleToolWhitelist": [
+    "guardian.local_siren",
+    "thread.voice_reply",
+    "reminder.schedule",
+    "fs.local_read"
+  ],
+  "safetyEnvelope": {
+    "digestHex": "4db2366fec9ace92d10aa60fcb84842fad391585d8322b706dcdd0e0e5157199",
+    "guardianPubkeyHex": "973c3f9c6f14d872bb26bfb233de28b0c16ba5c88272a37a177b84c1bfacea3d",
+    "payload": {
+      "budget": {
+        "ceilingMicros": 5000000
+      },
+      "emergency": {
+        "allowLocalAlertUnderPartition": true,
+        "bypassSleepInhibition": true,
+        "contacts": [
+          "contact:guardian-primary",
+          "contact:guardian-backup",
+          "contact:emergency-clinic"
+        ],
+        "enabled": true,
+        "escalationChannels": [
+          "local_siren",
+          "telegram"
+        ]
+      },
+      "guardianKeyId": "973c3f9c6f14d872bb26bfb233de28b0c16ba5c88272a37a177b84c1bfacea3d",
+      "guardianLabel": "guardian:demo-eldercare-guardian",
+      "immutableFields": [
+        "outbound.perChannelCaps",
+        "outbound.quietHours",
+        "outbound.maxRecipientsPerMessage",
+        "emergency.contacts",
+        "emergency.escalationChannels",
+        "emergency.bypassSleepInhibition",
+        "emergency.allowLocalAlertUnderPartition",
+        "budget.ceilingMicros",
+        "safetyEvents.guardianVisibleEventKinds",
+        "locale"
+      ],
+      "issuedAtMs": 1795400000000,
+      "locale": "zh-CN",
+      "outbound": {
+        "maxRecipientsPerMessage": 3,
+        "perChannelCaps": [
+          {
+            "channelId": "local_siren",
+            "maxPerDay": 120,
+            "maxPerHour": 30
+          },
+          {
+            "channelId": "telegram",
+            "maxPerDay": 20,
+            "maxPerHour": 6
+          }
+        ],
+        "quietHours": {
+          "endLocalHour": 7,
+          "startLocalHour": 21
+        }
+      },
+      "packBlake3Hex": "0e919e613b1725396871441f54ce46c1a89cdb18f4006379b1ffe0f5ccbb755f",
+      "packId": "eldercare-guardian",
+      "packVersion": "1.0.0",
+      "safetyEvents": {
+        "guardianVisibleEventKinds": [
+          "emergency_alert",
+          "medication_missed",
+          "fall_detected",
+          "verifier_blocked"
+        ]
+      },
+      "schema": "quetzalcoatl.domain-safety-envelope.v1"
+    },
+    "sigHex": "7344702ed5e1791443181bd5c58fe8bcd261aee5a714f41c19d2a00ada2bf7ffc3a47d5b6a7908e9cea104c6ece798490c9bb6747df560c2e05ac3d1372d2e04"
+  },
+  "schema": "quetzalcoatl.domain-pack.v1",
+  "verifierRules": [
+    {
+      "deferral_markers": [
+        "主治医生",
+        "执业医师",
+        "药师",
+        "家庭医生",
+        "professional"
+      ],
+      "directive_id": "eldercare.self-core.no-prescription-change",
+      "kind": "competence_boundary",
+      "topic_keywords": [
+        "加量",
+        "减量",
+        "停药",
+        "换药",
+        "剂量",
+        "处方",
+        "自行服用",
+        "prescri",
+        "dosage"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

@@ -282,6 +282,16 @@ pub enum IpcRequest {
     WebhookRegisterKey {
         rotate: bool,
     },
+    /// `qz domain list`：列出已装载的五大首发领域包与当前活动包。
+    DomainList,
+    /// `qz domain show <id>`：查看领域包种子良知、客观校验规则与监护人安全信封。
+    DomainShow {
+        id: String,
+    },
+    /// `qz domain use <id>`：切换本 Agent 活动领域包（写入切换审计）。
+    DomainUse {
+        id: String,
+    },
     /// `qz group send --room <id> --text <...>`。
     GroupSend {
         room_id: String,
@@ -367,6 +377,12 @@ pub enum IpcResponse {
     WebhookPull(crate::webhook::WebhookPullReport),
     /// Webhook 入站 key 与队列状态。
     WebhookQueueStatus(WebhookIngressStatus),
+    /// 已装载领域包摘要列表（含当前活动标记）。
+    DomainPacks(Vec<crate::domains::DomainPackSummary>),
+    /// 领域包完整视图（良知种子 + 校验规则 + 监护人信封）。
+    DomainPack(Box<crate::domains::DomainPackView>),
+    /// 领域包切换审计回执。
+    DomainActivated(Box<quetzalcoatl_domains::PackSwitchAudit>),
     /// 单帧声学判决（语音起止 / 打断已同步写入脊柱活动链）。
     VoiceActivity {
         stream_id: String,

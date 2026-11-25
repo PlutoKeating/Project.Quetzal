@@ -3596,6 +3596,7 @@ dependencies = [
  "quetzalcoatl-capabilities",
  "quetzalcoatl-channels",
  "quetzalcoatl-crypto",
+ "quetzalcoatl-domains",
  "quetzalcoatl-ewave",
  "quetzalcoatl-fabric",
  "quetzalcoatl-group",
@@ -3617,6 +3618,21 @@ dependencies = [
  "zeroize",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "quetzalcoatl-domains"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "blake3",
+ "ed25519-dalek 2.2.0",
+ "quetzalcoatl-crypto",
+ "quetzalcoatl-ewave",
+ "quetzalcoatl-kernel",
+ "quetzalcoatl-types",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -3715,7 +3731,9 @@ name = "quetzalcoatl-kernel"
 version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
+ "ed25519-dalek 2.2.0",
  "quetzalcoatl-crypto",
+ "quetzalcoatl-domains",
  "quetzalcoatl-sandbox",
  "quetzalcoatl-spine",
  "quetzalcoatl-types",

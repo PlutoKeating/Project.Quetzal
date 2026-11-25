@@ -19,3 +19,7 @@ quetzalcoatl-types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+quetzalcoatl-domains = { workspace = true }
+ed25519-dalek = { workspace = true }

@@ -1,0 +1,139 @@
+{
+  "conscienceSeed": {
+    "entries": [
+      {
+        "content": "严禁把密钥、OAuth 令牌、私钥、真实个人数据写入仓库或提交历史；发现疑似泄露必须阻断提交并提示轮换凭据。",
+        "id": "swe.root.no-secret-commit",
+        "source": "guardian",
+        "tier": "ROOT",
+        "title": "密钥与个人数据绝不入库"
+      },
+      {
+        "content": "任何仓库变更（代码、配置、构建脚本）必须在 Commit Run 中经断网只读洁净室 CleanRoomVerifierDag 验收，并携带内核签发的 VerificationMark 方可结项。",
+        "id": "swe.clean-room-required",
+        "source": "guardian",
+        "tier": "OPERATOR",
+        "title": "仓库变更强制洁净室验收"
+      },
+      {
+        "content": "禁止强推覆盖远端历史、禁止 --no-verify / commit -n 绕过钩子、禁止 reset --hard 丢弃他人提交。",
+        "id": "swe.no-force-push",
+        "source": "guardian",
+        "tier": "SELF_CORE",
+        "title": "禁止强推与绕过钩子"
+      },
+      {
+        "content": "校验必须可复现：锁定套件摘要、0 用例一律判失败（Anti-Vacuity），不得以本地全绿替代外部洁净室验收。",
+        "id": "swe.reproducible-verification",
+        "source": "guardian",
+        "tier": "SELF_CORE",
+        "title": "可复现客观验收"
+      },
+      {
+        "content": "命名、注释与提交信息措辞偏好，可在写时复制沙箱内即时演化。",
+        "id": "swe.self-soft.style",
+        "source": "agent_writable",
+        "tier": "SELF_SOFT",
+        "title": "代码风格偏好"
+      }
+    ]
+  },
+  "description": "代码仓库变更的研发领域包：仓库变更必须在 Commit Run 中通过断网只读洁净室 CleanRoomVerifierDag 并携带 VerificationMark，严禁强推、绕过钩子与密钥入库。",
+  "displayName": "软件工程",
+  "id": "software-engineering",
+  "locales": [
+    "zh-CN",
+    "en-US"
+  ],
+  "requiredCapabilities": [
+    "repo.apply_patch",
+    "sandbox.shell_exec"
+  ],
+  "requiredSinks": [
+    "code_repository_mutation",
+    "local_read"
+  ],
+  "roleToolWhitelist": [
+    "repo.apply_patch",
+    "sandbox.shell_exec",
+    "fs.local_read",
+    "artifact.register"
+  ],
+  "safetyEnvelope": {
+    "digestHex": "c832250806f149f9cddb1143644978622e7dc52ee7e45082f9d900a1449deb2a",
+    "guardianPubkeyHex": "77ebed8241af172a6ca5562bbcff65a8c0348415492a1127ac9ca1dab8eb45d9",
+    "payload": {
+      "budget": {
+        "ceilingMicros": 20000000
+      },
+      "emergency": {
+        "allowLocalAlertUnderPartition": false,
+        "bypassSleepInhibition": false,
+        "contacts": [],
+        "enabled": false,
+        "escalationChannels": []
+      },
+      "guardianKeyId": "77ebed8241af172a6ca5562bbcff65a8c0348415492a1127ac9ca1dab8eb45d9",
+      "guardianLabel": "guardian:demo-software-engineering",
+      "immutableFields": [
+        "outbound.perChannelCaps",
+        "outbound.quietHours",
+        "outbound.maxRecipientsPerMessage",
+        "emergency.contacts",
+        "emergency.escalationChannels",
+        "emergency.bypassSleepInhibition",
+        "emergency.allowLocalAlertUnderPartition",
+        "budget.ceilingMicros",
+        "locale"
+      ],
+      "issuedAtMs": 1795400000000,
+      "locale": "zh-CN",
+      "outbound": {
+        "maxRecipientsPerMessage": 5,
+        "perChannelCaps": [
+          {
+            "channelId": "git_remote",
+            "maxPerDay": 200,
+            "maxPerHour": 30
+          }
+        ],
+        "quietHours": {
+          "endLocalHour": 0,
+          "startLocalHour": 0
+        }
+      },
+      "packBlake3Hex": "322d6fe439b427370dd2a7684e125e44969fe6c5849b5c5f0709402ddca5e0f5",
+      "packId": "software-engineering",
+      "packVersion": "1.0.0",
+      "safetyEvents": {
+        "guardianVisibleEventKinds": [
+          "verifier_blocked"
+        ]
+      },
+      "schema": "quetzalcoatl.domain-safety-envelope.v1"
+    },
+    "sigHex": "e9770a86d75526428136feef0ee6bbb3fd8ecf4d36e87634477b3e6803a83784e7a5e42a581889798f8e60985a699b438c58b671d68c324f3f79ed662233dc0f"
+  },
+  "schema": "quetzalcoatl.domain-pack.v1",
+  "verifierRules": [
+    {
+      "directive_id": "swe.clean-room-required",
+      "kind": "clean_room_mark_required",
+      "repository_mutation": true
+    },
+    {
+      "directive_id": "swe.no-force-push",
+      "kind": "forbidden_command_patterns",
+      "patterns": [
+        "push --force",
+        "push -f",
+        "--no-verify",
+        "commit -n",
+        "reset --hard",
+        "aws_secret_access_key",
+        "-----begin"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

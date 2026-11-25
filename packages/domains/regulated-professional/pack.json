@@ -1,0 +1,130 @@
+{
+  "conscienceSeed": {
+    "entries": [
+      {
+        "content": "严禁编造、拼接或曲解引用；无法溯源的事实必须标注为不确定，并拒绝以确定语气交付。",
+        "id": "regulated.root.citation-integrity",
+        "source": "guardian",
+        "tier": "ROOT",
+        "title": "无来源即无结论"
+      },
+      {
+        "content": "每份交付物必须明示适用司法辖区与执业范围；不跨辖区给结论，不替代持照专业人士的正式意见，并声明不构成正式法律意见。",
+        "id": "regulated.jurisdiction-scope",
+        "source": "guardian",
+        "tier": "OPERATOR",
+        "title": "明示辖区与执业范围"
+      },
+      {
+        "content": "每条事实性论断至少附一条可核验引用（来源 ID + 定位符）；缺失引用即阻断交付，0 条论断的空交付同样判失败。",
+        "id": "regulated.citation-required",
+        "source": "guardian",
+        "tier": "SELF_CORE",
+        "title": "论断必须可核验"
+      },
+      {
+        "content": "段落结构、术语表与措辞偏好，可在写时复制沙箱内即时演化。",
+        "id": "regulated.self-soft.format",
+        "source": "agent_writable",
+        "tier": "SELF_SOFT",
+        "title": "文书结构与措辞偏好"
+      }
+    ]
+  },
+  "description": "法律、税务、合规等受监管交付物的领域包：每条事实性论断必须附可核验引用，缺引用即阻断交付；交付物必须明示适用司法辖区与执业范围。",
+  "displayName": "受监管专业",
+  "id": "regulated-professional",
+  "locales": [
+    "zh-CN",
+    "en-US"
+  ],
+  "requiredCapabilities": [
+    "thread.voice_reply",
+    "fs.local_read",
+    "artifact.register"
+  ],
+  "requiredSinks": [
+    "routine_response",
+    "local_read"
+  ],
+  "roleToolWhitelist": [
+    "thread.voice_reply",
+    "fs.local_read",
+    "artifact.register"
+  ],
+  "safetyEnvelope": {
+    "digestHex": "7c9f51dcf3d727109ac4073d340f6c5617cdc55f6ba3a1ba0160057ce2a9d94c",
+    "guardianPubkeyHex": "5f504140037aaf322e55a44c11f70a8e226cb792866c6fa87f755efddb9ec760",
+    "payload": {
+      "budget": {
+        "ceilingMicros": 8000000
+      },
+      "emergency": {
+        "allowLocalAlertUnderPartition": false,
+        "bypassSleepInhibition": false,
+        "contacts": [],
+        "enabled": false,
+        "escalationChannels": []
+      },
+      "guardianKeyId": "5f504140037aaf322e55a44c11f70a8e226cb792866c6fa87f755efddb9ec760",
+      "guardianLabel": "guardian:demo-regulated-professional",
+      "immutableFields": [
+        "outbound.perChannelCaps",
+        "outbound.quietHours",
+        "outbound.maxRecipientsPerMessage",
+        "emergency.contacts",
+        "emergency.escalationChannels",
+        "emergency.bypassSleepInhibition",
+        "emergency.allowLocalAlertUnderPartition",
+        "budget.ceilingMicros",
+        "locale"
+      ],
+      "issuedAtMs": 1795400000000,
+      "locale": "zh-CN",
+      "outbound": {
+        "maxRecipientsPerMessage": 5,
+        "perChannelCaps": [
+          {
+            "channelId": "telegram",
+            "maxPerDay": 40,
+            "maxPerHour": 10
+          }
+        ],
+        "quietHours": {
+          "endLocalHour": 8,
+          "startLocalHour": 20
+        }
+      },
+      "packBlake3Hex": "86fe629d1059e77d4e97f0cf7a250377e357388b71ff52946184e85749814d48",
+      "packId": "regulated-professional",
+      "packVersion": "1.0.0",
+      "safetyEvents": {
+        "guardianVisibleEventKinds": [
+          "verifier_blocked"
+        ]
+      },
+      "schema": "quetzalcoatl.domain-safety-envelope.v1"
+    },
+    "sigHex": "736355c09be30274be1be86ab0caccb8bf8fdd2c7fa770a342538d5a3902fa941d57c74d8bc1d5e38d721f257810548abf9f2cdbd98a626adb0969ee8589430a"
+  },
+  "schema": "quetzalcoatl.domain-pack.v1",
+  "verifierRules": [
+    {
+      "applies_to": [
+        "report"
+      ],
+      "directive_id": "regulated.citation-required",
+      "kind": "citation_required",
+      "min_citations_per_claim": 1
+    },
+    {
+      "applies_to": [
+        "report"
+      ],
+      "directive_id": "regulated.jurisdiction-scope",
+      "kind": "required_disclosure",
+      "marker": "不构成正式法律意见"
+    }
+  ],
+  "version": "1.0.0"
+}

@@ -7,6 +7,7 @@ members = [
     "crates/quetzalcoatl-bridge",
     "crates/quetzalcoatl-crypto",
     "crates/quetzalcoatl-spine",
+    "crates/quetzalcoatl-domains",
     "crates/quetzalcoatl-ewave",
     "crates/quetzalcoatl-sandbox",
     "crates/quetzalcoatl-kernel",
@@ -56,6 +57,7 @@ quetzalcoatl-bridge = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-b
 quetzalcoatl-channels = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-channels" }
 quetzalcoatl-crypto = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-crypto" }
 quetzalcoatl-daemon = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-daemon" }
+quetzalcoatl-domains = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-domains" }
 quetzalcoatl-ewave = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-ewave" }
 quetzalcoatl-fabric = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-fabric" }
 quetzalcoatl-group = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-group" }

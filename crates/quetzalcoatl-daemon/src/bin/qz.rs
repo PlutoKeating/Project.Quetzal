@@ -44,6 +44,7 @@ Commands:
   channel     七大通道族：list | enable <name> | disable <name> | status | send <name> --text <...>
   sayit       SayIt v2.1 子树吸纳：ingest --path <snapshot> | --batch <dir>
   webhook     零知识 Webhook 入站：pull [--limit N] | status | register | rotate
+  domain      五大首发领域包：list | show <id> | use <id>
 ";
 
 fn locate_quetzalcoatld_binary() -> PathBuf {
@@ -1103,6 +1104,154 @@ fn run_channel(args: &[String]) -> Result<()> {
     }
 }
 
+fn run_domain(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut json_mode = false;
+    let mut action: Option<String> = None;
+    let mut pack: Option<String> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json_mode = true,
+            "--home" => {
+                i += 1;
+                let value = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--home 缺少目录参数"),
+                })?;
+                home = Some(PathBuf::from(value));
+            }
+            other if matches!(other, "list" | "show" | "use") => {
+                action = Some(String::from(other));
+            }
+            other if !other.starts_with('-') && pack.is_none() => {
+                pack = Some(String::from(other));
+            }
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("qz domain 未知参数: {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?;
+    let action = action.unwrap_or_else(|| String::from("list"));
+
+    let response = match action.as_str() {
+        "list" => client.call(&IpcRequest::DomainList)?,
+        "show" | "use" => {
+            let id = pack.ok_or_else(|| {
+                QuetzalcoatlError::invalid_id(
+                    "DomainPackId",
+                    format!("必须提供领域包 ID，例如 `qz domain {action} eldercare-guardian`"),
+                )
+            })?;
+            if action == "show" {
+                client.call(&IpcRequest::DomainShow { id })?
+            } else {
+                client.call(&IpcRequest::DomainUse { id })?
+            }
+        }
+        other => {
+            return Err(QuetzalcoatlError::StorageError {
+                detail: format!("qz domain 未知子命令: {other}（支持 list / show / use）"),
+            });
+        }
+    };
+
+    match response {
+        IpcResponse::DomainPacks(rows) => {
+            if json_mode {
+                print_json(&rows)?;
+            } else {
+                println!("domain packs ({}):", rows.len());
+                for row in &rows {
+                    println!(
+                        "  {} {} v{} {}{}",
+                        if row.active { "*" } else { "-" },
+                        row.id,
+                        row.version,
+                        row.display_name,
+                        if row.active { "  [active]" } else { "" }
+                    );
+                    println!(
+                        "      guardian={} locales={} verifier={}",
+                        row.guardian_label,
+                        row.locales.join(","),
+                        row.verifier_rule_kinds.join(",")
+                    );
+                }
+            }
+            Ok(())
+        }
+        IpcResponse::DomainPack(view) => {
+            if json_mode {
+                print_json(view.as_ref())?;
+            } else {
+                let summary = &view.summary;
+                println!(
+                    "domain {} ({}) v{}",
+                    summary.id, summary.display_name, summary.version
+                );
+                println!("  description: {}", summary.description);
+                println!("  guardian: {}", summary.guardian_label);
+                println!("  locales: {}", summary.locales.join(","));
+                println!("  role tools: {}", view.role_tool_whitelist.join(","));
+                println!("  capabilities: {}", view.required_capabilities.join(","));
+                println!("  sinks: {}", view.required_sinks.join(","));
+                println!("  verifier: {}", summary.verifier_rule_kinds.join(","));
+                println!("  conscience seed:");
+                for entry in &view.conscience_seed.entries {
+                    println!(
+                        "    [{}] {} — {}",
+                        entry.tier.as_str(),
+                        entry.id,
+                        entry.title
+                    );
+                }
+                println!(
+                    "  quiet hours: {}->{}",
+                    view.envelope.outbound.quiet_hours.start_local_hour,
+                    view.envelope.outbound.quiet_hours.end_local_hour
+                );
+                println!(
+                    "  budget ceiling (micros): {}",
+                    view.envelope.budget.ceiling_micros
+                );
+                println!(
+                    "  emergency: enabled={} contacts={} bypass_sleep={} partition_local={}",
+                    view.envelope.emergency.enabled,
+                    view.envelope.emergency.contacts.len(),
+                    view.envelope.emergency.bypass_sleep_inhibition,
+                    view.envelope.emergency.allow_local_alert_under_partition
+                );
+                println!(
+                    "  immutable fields: {}",
+                    view.envelope.immutable_fields.join(",")
+                );
+            }
+            Ok(())
+        }
+        IpcResponse::DomainActivated(audit) => {
+            if json_mode {
+                print_json(audit.as_ref())?;
+            } else {
+                println!(
+                    "domain activated: {} -> {} (guardian={}, at={})",
+                    audit.from_pack_id, audit.to_pack_id, audit.guardian_label, audit.at_ms
+                );
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
 fn run_sayit(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
     let mut json_mode = false;
@@ -1491,6 +1640,7 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "channel" => run_channel(rest),
         "sayit" => run_sayit(rest),
         "webhook" => run_webhook(rest),
+        "domain" => run_domain(rest),
         other => Err(QuetzalcoatlError::StorageError {
             detail: format!("未知子命令 `{other}`\n{USAGE_TEXT}"),
         }),

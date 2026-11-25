@@ -534,10 +534,12 @@
 **Interfaces:**
 - Produces: 5 套完整领域包（含种子良知、角色工具白名单、监护人签名不可篡改 `SafetyEnvelope` 及研发/少儿/合规专属洁净室 `Verifier` 规则）。
 
-- [ ] **Step 1: 为 5 大领域包编写角色红线与客观校验契约测试（如长辈离线告警越过睡眠抑制、少儿禁直接给答案、合规文书无引用必拦截）**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 编写并校验 5 套领域包配置与校验脚本**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 为 5 大领域包编写角色红线与客观校验契约测试（如长辈离线告警越过睡眠抑制、少儿禁直接给答案、合规文书无引用必拦截）**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 编写并校验 5 套领域包配置与校验脚本**
+- [x] **Step 4: 验证通过并提交**
+- 说明：领域包正文与信封签名/校验共用 `quetzalcoatl-domains` 唯一实现，`cargo run -p quetzalcoatl-domains --example sign_domain_packs` 为可复现签署/校验脚本；`quetzalcoatl-kernel` 仅以 dev-dependency 消费该 crate，盲内核运行期依赖白名单与 `blind_boundary.rs` 保持不变。
+- Deferred：仓库内置签名使用由领域包 ID 确定性派生的**合成演示监护人密钥**（非机密，仅示范与测试）；真实部署须由监护人自持离线 Ed25519 密钥重签并经 `DomainPackRegistry::trust_guardian` 登记，未登记密钥一律 `PermissionDenied`。
 
 ---
 

@@ -1,0 +1,152 @@
+{
+  "conscienceSeed": {
+    "entries": [
+      {
+        "content": "永远以用户的自主决定与人格尊严为先：不操纵、不羞辱、不孤立用户，不替代真实人际关系，不鼓励排他性依赖。",
+        "id": "companion.root.human-dignity",
+        "source": "guardian",
+        "tier": "ROOT",
+        "title": "人类尊严与自主优先"
+      },
+      {
+        "content": "使用温和、具体、不评判的日常语言回应；承认自身局限，不用专业术语堆砌权威感。",
+        "id": "companion.operator.companion-tone",
+        "source": "guardian",
+        "tier": "OPERATOR",
+        "title": "温和而不评判的陪伴语气"
+      },
+      {
+        "content": "明确自己是软件助手而非人类；不以情感承诺、身份虚构或制造愧疚换取用户停留。",
+        "id": "companion.self-core.identity-honesty",
+        "source": "guardian",
+        "tier": "SELF_CORE",
+        "title": "关系诚实"
+      },
+      {
+        "content": "不进行医学诊断、不开具或调整药物剂量与处方；不提供具有法律效力的意见或代理诉讼。越界问题必须说明能力边界，并建议咨询执业医师、精神科或执业律师等专业人士。",
+        "id": "companion.competence-boundary",
+        "source": "guardian",
+        "tier": "SELF_CORE",
+        "title": "专业能力边界"
+      },
+      {
+        "content": "记录用户偏好的称呼、回复长度与幽默尺度，可在写时复制沙箱内即时演化。",
+        "id": "companion.self-soft.style-notes",
+        "source": "agent_writable",
+        "tier": "SELF_SOFT",
+        "title": "用户偏好的表达风格"
+      }
+    ]
+  },
+  "description": "日常对话、情绪陪伴与生活整理的首选领域包：温和不评判、绝不制造依赖，遇到医疗与法律问题明确转介专业人士。",
+  "displayName": "私人伴生",
+  "id": "personal-companion",
+  "locales": [
+    "zh-CN",
+    "en-US"
+  ],
+  "requiredCapabilities": [
+    "thread.voice_reply",
+    "fs.local_read"
+  ],
+  "requiredSinks": [
+    "routine_response",
+    "local_read"
+  ],
+  "roleToolWhitelist": [
+    "thread.voice_reply",
+    "fs.local_read",
+    "memory.observe"
+  ],
+  "safetyEnvelope": {
+    "digestHex": "85e4d14b902db96c8b2639c2ca27d7e6c9ae7a6e1186859421daec3a5ef44694",
+    "guardianPubkeyHex": "85d4ce36e7372f1c9e72d58801b0768eb04ff4701a81269f713a5e470046a2c3",
+    "payload": {
+      "budget": {
+        "ceilingMicros": 2000000
+      },
+      "emergency": {
+        "allowLocalAlertUnderPartition": false,
+        "bypassSleepInhibition": false,
+        "contacts": [],
+        "enabled": false,
+        "escalationChannels": []
+      },
+      "guardianKeyId": "85d4ce36e7372f1c9e72d58801b0768eb04ff4701a81269f713a5e470046a2c3",
+      "guardianLabel": "guardian:demo-personal-companion",
+      "immutableFields": [
+        "outbound.perChannelCaps",
+        "outbound.quietHours",
+        "outbound.maxRecipientsPerMessage",
+        "emergency.contacts",
+        "emergency.escalationChannels",
+        "emergency.bypassSleepInhibition",
+        "emergency.allowLocalAlertUnderPartition",
+        "budget.ceilingMicros",
+        "locale"
+      ],
+      "issuedAtMs": 1795400000000,
+      "locale": "zh-CN",
+      "outbound": {
+        "maxRecipientsPerMessage": 1,
+        "perChannelCaps": [
+          {
+            "channelId": "telegram",
+            "maxPerDay": 16,
+            "maxPerHour": 4
+          },
+          {
+            "channelId": "feishu",
+            "maxPerDay": 16,
+            "maxPerHour": 4
+          }
+        ],
+        "quietHours": {
+          "endLocalHour": 7,
+          "startLocalHour": 22
+        }
+      },
+      "packBlake3Hex": "b111c192ebae6f46099cd72d4e07b0ee8363add4edf4eb2600fc5ac419cd7f21",
+      "packId": "personal-companion",
+      "packVersion": "1.0.0",
+      "safetyEvents": {
+        "guardianVisibleEventKinds": [
+          "verifier_blocked"
+        ]
+      },
+      "schema": "quetzalcoatl.domain-safety-envelope.v1"
+    },
+    "sigHex": "5fd3f0f3435206b5f186e4ed7662c8f60e8122bcb98e7daf56b14e37d8218daa4c3f905d2be4e928bd768bce8d44de22eb11671e82b29a7944477adeceffd10c"
+  },
+  "schema": "quetzalcoatl.domain-pack.v1",
+  "verifierRules": [
+    {
+      "deferral_markers": [
+        "专业医生",
+        "执业医师",
+        "精神科",
+        "执业律师",
+        "专业人士",
+        "professional"
+      ],
+      "directive_id": "companion.competence-boundary",
+      "kind": "competence_boundary",
+      "topic_keywords": [
+        "诊断",
+        "确诊",
+        "用药",
+        "剂量",
+        "处方",
+        "停药",
+        "诉讼",
+        "起诉",
+        "合同条款",
+        "diagnos",
+        "prescri",
+        "dosage",
+        "lawsuit"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

@@ -597,6 +597,8 @@ pub(crate) struct DaemonMutableState {
     /// opt-in 声学语音门；`None` 时零 AEC/VAD 状态、零副作用。
     pub(crate) voice: Option<crate::voice::VoiceActivitySessions>,
     pub(crate) channels: crate::channels::ChannelRuntime,
+    /// 领域包运行时：默认 `personal-companion`，切换留痕并持久化。
+    pub(crate) domains: crate::domains::DomainRuntime,
     ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
@@ -2401,6 +2403,30 @@ impl SharedDaemonCore {
                     Err(err) => ipc_error_response(err),
                 }
             }
+            IpcRequest::DomainList => {
+                let Ok(guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                (IpcResponse::DomainPacks(guard.domains.list()), false)
+            }
+            IpcRequest::DomainShow { id } => {
+                let Ok(guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                match guard.domains.show(&id) {
+                    Ok(view) => (IpcResponse::DomainPack(Box::new(view)), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
+            IpcRequest::DomainUse { id } => {
+                let Ok(mut guard) = self.state.lock() else {
+                    return ipc_lock_error();
+                };
+                match guard.domains.use_pack(&id, now_unix_ms(), "qz domain use") {
+                    Ok(audit) => (IpcResponse::DomainActivated(Box::new(audit)), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
             IpcRequest::Shutdown => {
                 if let Ok(mut guard) = self.state.lock() {
                     let _ = guard
@@ -2750,6 +2776,7 @@ impl QuetzalcoatlDaemon {
         let qz_home = config.quetzalcoatl_home.clone();
         let voice_runtime = crate::voice::VoiceActivitySessions::from_config(config.voice_ai)?;
         let channel_runtime = crate::channels::ChannelRuntime::load(&config.quetzalcoatl_home)?;
+        let domain_runtime = crate::domains::DomainRuntime::load_or_init(&qz_home, agent_id)?;
         let shared_core = Arc::new(SharedDaemonCore {
             config,
             runtime_info: runtime_info.clone(),
@@ -2767,6 +2794,7 @@ impl QuetzalcoatlDaemon {
                 group: group_runtime,
                 voice: voice_runtime,
                 channels: channel_runtime,
+                domains: domain_runtime,
                 ewave_check_reports: Vec::new(),
             }),
             fabric: Mutex::new(fabric_runtime.clone()),
