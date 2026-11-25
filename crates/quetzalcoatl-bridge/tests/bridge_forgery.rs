@@ -306,10 +306,10 @@ fn bridge_rejects_embedded_secret_markers_and_absolute_path_tokens() -> TestResu
     let mut bridge = SpineBridge::new(&mut engine, key);
     let cases = [
         r#"{"kind":"memory.observe","body":"hermes-1","note":"note: -----BEGIN RSA PRIVATE KEY----- abc"}"#,
-        r#"{"kind":"memory.observe","body":"hermes-1","note":"token sk-abc"}"#,
-        r#"{"kind":"memory.observe","body":"hermes-1","note":"/etc/passwd is here"}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","note":"token sk-abcdefgh1234"}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","note":"见/etc/passwd"}"#,
         r#"{"kind":"memory.observe","body":"hermes-1","note":"see C:\\Windows\\system32"}"#,
-        r#"{"kind":"memory.observe","body":"hermes-1","note":"ghp_abcdef"}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","note":"ghp_abcdefghijklmnopqrst"}"#,
     ];
     for payload in cases {
         let err = bridge
@@ -321,5 +321,34 @@ fn bridge_rejects_embedded_secret_markers_and_absolute_path_tokens() -> TestResu
     let benign = r#"{"kind":"memory.observe","body":"hermes-1","note":"root cause of group chat lease renewal relationship"}"#;
     bridge.append("memory.observe", "hermes-1", benign, 81)?;
     assert_eq!(bridge.read_own()?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn bridge_allows_hyphenated_english_containing_secret_substrings() -> TestResult {
+    let (mut engine, agent_id) = engine()?;
+    let key = BridgeKey {
+        role: BridgeRole::Bridge,
+        agent_id,
+        body_id: String::from("hermes-1"),
+    };
+    let mut bridge = SpineBridge::new(&mut engine, key);
+    for note in [
+        "risk-based analysis",
+        "task-force update",
+        "disk-space cleanup",
+        "desk-side note",
+        "mask-based approach",
+        "根因分析 root cause；group chat 讨论",
+    ] {
+        let payload = serde_json::json!({
+            "kind": "memory.observe",
+            "body": "hermes-1",
+            "note": note,
+        })
+        .to_string();
+        bridge.append("memory.observe", "hermes-1", &payload, 90)?;
+    }
+    assert_eq!(bridge.read_own()?.len(), 6);
     Ok(())
 }

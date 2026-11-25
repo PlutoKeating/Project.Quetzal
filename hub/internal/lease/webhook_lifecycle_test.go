@@ -327,6 +327,11 @@ func TestWebhookIngressOwnerRoutesLifecycleAndCrossAccount403(t *testing.T) {
 		t.Fatalf("third POST after ack expected 202, got %d (%s)", code, raw)
 	}
 
+	// 未认证 + 非法 JSON：必须先 401，绝不先解析 body 返回 400。
+	if code, _ := do(http.MethodPost, "/v1/webhook/"+vecAgentID+"/ingress/ack", "", []byte("{not-json")); code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated ack must be 401 before body parse, got %d", code)
+	}
+
 	// 跨账号：注册、读取、确认、状态四条路由全部 403。
 	for _, tc := range []struct {
 		method, path string
@@ -480,8 +485,13 @@ func TestWebhookIngressSealsForEveryActiveDevice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service: %v", err)
 	}
+	authSvc, err := auth.NewService(st, nil, auth.Config{}, func() time.Time { return time.UnixMilli(nowMs) })
+	if err != nil {
+		t.Fatalf("auth service: %v", err)
+	}
 	mux := http.NewServeMux()
 	svc.RegisterRoutes(mux)
+	svc.RegisterOwnerRoutes(mux, authSvc)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	body := []byte(`{"event_id":"ev_multi","text":"multi"}`)
@@ -522,14 +532,22 @@ func TestWebhookIngressSealsForEveryActiveDevice(t *testing.T) {
 	if resp2.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("quota counts events not per-device rows; second event expected 429, got %d", resp2.StatusCode)
 	}
-	deleted, err := st.DeleteWebhookIngressByKeys(context.Background(), vecAgentID, []store.WebhookIngressKey{{
-		Channel: "webhook", EventIDHash: func() string {
-			sum := sha256.Sum256([]byte("ev_multi"))
-			return hex.EncodeToString(sum[:])
-		}(), TargetDeviceID: "dev-a",
-	}})
-	if err != nil || deleted != 1 {
-		t.Fatalf("device A ack must delete only its row: deleted=%d err=%v", deleted, err)
+	eventHash := func() string {
+		sum := sha256.Sum256([]byte("ev_multi"))
+		return hex.EncodeToString(sum[:])
+	}()
+	ackBody, _ := json.Marshal(map[string]any{
+		"items": []map[string]string{{"channel": "webhook", "event_id": eventHash}},
+	})
+	ackReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/webhook/"+vecAgentID+"/ingress/ack", bytes.NewReader(ackBody))
+	ackReq.Header.Set("Authorization", "Bearer token-b2")
+	ackResp, err := srv.Client().Do(ackReq)
+	if err != nil {
+		t.Fatalf("device B ack: %v", err)
+	}
+	_ = ackResp.Body.Close()
+	if ackResp.StatusCode != http.StatusOK {
+		t.Fatalf("device B ack status %d", ackResp.StatusCode)
 	}
 	rowsB, err := st.DBForTest().Query(`SELECT target_device_id FROM webhook_ingress_queue WHERE agent_id = ?`, vecAgentID)
 	if err != nil {
@@ -544,7 +562,14 @@ func TestWebhookIngressSealsForEveryActiveDevice(t *testing.T) {
 		}
 		survivors = append(survivors, device)
 	}
-	if len(survivors) != 1 || survivors[0] != "dev-b" {
-		t.Fatalf("device B copy must survive device A ack, got %v", survivors)
+	if len(survivors) != 1 || survivors[0] != "dev-a" {
+		t.Fatalf("device A copy must survive device B ack, got %v", survivors)
+	}
+	var ciphertext string
+	if err := st.DBForTest().QueryRow(`SELECT ciphertext_hex FROM webhook_ingress_queue WHERE agent_id = ? AND target_device_id = 'dev-a'`, vecAgentID).Scan(&ciphertext); err != nil {
+		t.Fatalf("device A row must remain decryptable: %v", err)
+	}
+	if ciphertext == "" {
+		t.Fatalf("device A sealed ciphertext must remain intact")
 	}
 }

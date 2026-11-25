@@ -2208,6 +2208,16 @@ impl SharedDaemonCore {
                         detail: String::from("daemon lock poisoned"),
                     });
                 };
+                let _ = guard.channels.reconcile_lease_for_local(
+                    witness_epoch,
+                    &lease_holder,
+                    &self.runtime_info.device_id.to_string(),
+                );
+                // 有状态通道在远端/无 holder 时先返回类型化 PERMISSION_DENIED，
+                // 不被分区租约错误掩盖。
+                if let Err(err) = guard.channels.authorize_send(&channel) {
+                    return ipc_error_response(err);
+                }
                 if matches!(guard.kernel.lease_posture(), LeasePosture::PartitionLocal) {
                     // 两态围栏：非幂等公网外发只入 Outbox，绝不在无见证纪元下发出。
                     let idempotency_key = format!("channel-send:{}", Uuid::new_v4());

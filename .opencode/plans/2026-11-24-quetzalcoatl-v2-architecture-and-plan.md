@@ -519,6 +519,7 @@
 - Fix Round 2（钉钉签名 URL 编码与发送时刻 timestamp、入站 key 自动登记与手动 register/rotate、每设备独立 HKDF 入站密钥与多设备封装/轮换、平台加密回调解密 + channel.message 规范化 + 有界重试死信、ack 按 (channel,event_id)、Outbox 完整载荷与对账重放、桥接仅结构键扫描与 Core 兼容读取、非回环明文凭据拒绝、外发证书校验、真实 auth 四路由跨账号 403、租约远端持有者不绑定）已关闭。
 - Fix Round 3（A 全调用点显式本机 device 租约绑定、B DuplicateSuppressed 仅对已投递见证跳过 + Idempotency-Key、C 桥接嵌入密钥/路径 token、D 43 字符 EncodingAESKey 补齐 + receive_id 校验、E ack 按 target_device_id、F 连续 ack 游标、G 死信审计成功才计数/结构化加密检测/仅活动设备封装/legacy 设备身份兜底/status 本机优先/按事件配额与回滚）已关闭。
 - Deferred: G6 多设备批量密封的事务性回滚在 SQLite 以“失败后按事件删除已插入行”实现并有测试覆盖配额按事件计数，但未加入进程崩溃注入测试；email SMTP 出站仍 fail-closed。
+- Fix Round 4（桥接 token 锚定密钥/路径检测并放行连字符英文、Hub 单事务批量入队替换补偿删除与预检 SELECT、ack 先鉴权后解析、守护进程租约单测改为远端不绑定契约、remote-holder e2e 要求非空 holder 且精确 PERMISSION_DENIED、按设备 HTTP ack 证据）已关闭。
 
 ---
 

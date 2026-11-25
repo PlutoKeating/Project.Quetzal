@@ -1188,13 +1188,7 @@ fn two_idle_daemons_dial_via_hub_discovery_and_converge_peer_only_after_hub_loss
         text: String::from("remote-holder-send"),
     })? {
         IpcResponse::Error { code, .. } => {
-            assert!(
-                matches!(
-                    code.as_str(),
-                    "PERMISSION_DENIED" | "INVALID_ID" | "PARTITION_RESTRICTED"
-                ),
-                "got {code}"
-            );
+            assert_eq!(code, "PERMISSION_DENIED");
         }
         other => {
             return Err(format!("remote holder stateful send must be denied: {other:?}").into());

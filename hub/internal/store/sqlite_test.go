@@ -5,7 +5,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -158,5 +161,64 @@ func TestSQLiteStoreMigratesLegacyGroupSchemaInPlace(t *testing.T) {
 	}
 	if head != 3 || epoch != 1 {
 		t.Fatalf("unexpected head/epoch after reopen: %d/%d", head, epoch)
+	}
+}
+
+func TestWebhookIngressBatchIsAtomicAndCountsEvents(t *testing.T) {
+	st, err := NewSQLiteStore(filepath.Join(t.TempDir(), "hub.sqlite"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+	if err := st.CreateAccount(ctx, Account{AccountID: "acct", CreatedAtMs: 1}); err != nil {
+		t.Fatalf("account: %v", err)
+	}
+	if err := st.CreateAgent(ctx, Agent{AgentID: "agent", OwnerAccountID: "acct", RootVerifyingKeyHex: "00", QuotaBytes: 1 << 20, CreatedAtMs: 1}); err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+	rows := []WebhookIngressRow{
+		{TargetDeviceID: "dev-a", HPKEEncHex: "aa", CiphertextHex: "bb", AADUTF8: "{}", ReceivedAtMs: 1, CreatedAtMs: 1},
+		{TargetDeviceID: "dev-b", HPKEEncHex: "cc", CiphertextHex: "dd", AADUTF8: "{}", ReceivedAtMs: 1, CreatedAtMs: 1},
+	}
+	out, err := st.EnqueueWebhookIngressBatch(ctx, "agent", "webhook", "hash1", rows, 1)
+	if err != nil || out.Duplicate || out.Depth != 2 {
+		t.Fatalf("first batch: out=%+v err=%v", out, err)
+	}
+	// 重复 POST 不得删除既有行。
+	dup, err := st.EnqueueWebhookIngressBatch(ctx, "agent", "webhook", "hash1", rows, 1)
+	if err != nil || !dup.Duplicate || dup.Depth != 2 {
+		t.Fatalf("duplicate: out=%+v err=%v", dup, err)
+	}
+	count, err := st.CountWebhookIngress(ctx, "agent")
+	if err != nil || count != 2 {
+		t.Fatalf("duplicate must keep rows: count=%d err=%v", count, err)
+	}
+	// 配额按事件：第二个事件被拒且零插入。
+	_, err = st.EnqueueWebhookIngressBatch(ctx, "agent", "webhook", "hash2", rows[:1], 1)
+	if !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("expected quota, got %v", err)
+	}
+	events, err := st.CountWebhookIngressEvents(ctx, "agent")
+	if err != nil || events != 1 {
+		t.Fatalf("quota rejection must leave one event: %d %v", events, err)
+	}
+	// 并发提交不得突破事件上限。
+	var wg sync.WaitGroup
+	var success int64
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			hash := "concurrent-" + string(rune('a'+idx))
+			if _, err := st.EnqueueWebhookIngressBatch(ctx, "agent", "webhook", hash, rows[:1], 1); err == nil {
+				atomic.AddInt64(&success, 1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	events, err = st.CountWebhookIngressEvents(ctx, "agent")
+	if err != nil || events != 1 || success != 0 {
+		t.Fatalf("concurrent cap: events=%d successes=%d err=%v", events, success, err)
 	}
 }

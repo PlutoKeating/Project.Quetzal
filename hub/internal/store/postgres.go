@@ -1657,3 +1657,49 @@ func (p *PostgresStore) DeleteWebhookIngressEvent(ctx context.Context, agentID, 
 	}
 	return res.RowsAffected()
 }
+
+func (p *PostgresStore) EnqueueWebhookIngressBatch(ctx context.Context, agentID, channel, eventIDHash string, rows []WebhookIngressRow, maxEvents int) (EnqueueOutcome, error) {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return EnqueueOutcome{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var existing int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, agentID, channel, eventIDHash).Scan(&existing); err != nil {
+		return EnqueueOutcome{}, err
+	}
+	if existing > 0 {
+		var depth int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, agentID).Scan(&depth); err != nil {
+			return EnqueueOutcome{}, err
+		}
+		return EnqueueOutcome{Duplicate: true, Depth: depth}, nil
+	}
+	if maxEvents > 0 {
+		var eventCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT channel, event_id_hash FROM webhook_ingress_queue WHERE agent_id = $1) AS events`, agentID).Scan(&eventCount); err != nil {
+			return EnqueueOutcome{}, err
+		}
+		if eventCount >= maxEvents {
+			return EnqueueOutcome{}, ErrQuotaExceeded
+		}
+	}
+	for _, row := range rows {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO webhook_ingress_queue (
+				agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, agentID, channel, eventIDHash, row.TargetDeviceID, row.HPKEEncHex, row.CiphertextHex, row.AADUTF8, row.ReceivedAtMs, row.CreatedAtMs); err != nil {
+			return EnqueueOutcome{}, err
+		}
+	}
+	var depth int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, agentID).Scan(&depth); err != nil {
+		return EnqueueOutcome{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return EnqueueOutcome{}, err
+	}
+	return EnqueueOutcome{Depth: depth}, nil
+}

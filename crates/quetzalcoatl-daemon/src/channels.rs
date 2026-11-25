@@ -336,6 +336,13 @@ impl ChannelRuntime {
     pub fn is_enabled(&self, channel: &str) -> bool {
         self.supervisor.is_enabled(channel)
     }
+
+    /// 出站门禁（含远端 holder 的有状态通道拒绝）。
+    pub fn authorize_send(&self, channel: &str) -> Result<()> {
+        self.supervisor
+            .authorize_send(channel)
+            .map_err(channel_error_to_qz)
+    }
 }
 
 fn channel_error_to_qz(err: ChannelError) -> QuetzalcoatlError {
@@ -460,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_reconcile_closes_old_connection_and_binds_new_holder() {
+    fn runtime_reconcile_binds_local_holder_and_reports_remote_holder() {
         let mock = Arc::new(MockTransport::new());
         let mut supervisor = ChannelSupervisor::new(drivers_with_transport(
             Arc::clone(&mock) as Arc<dyn ChannelTransport>
@@ -475,28 +482,43 @@ mod tests {
             http: HttpsUpstreamTransport::with_extra_root_der_certs(Vec::new())
                 .expect("tls config"),
         };
-        let first = resolve_lease_anchor(Some(1), Some("device-a"), "local");
+        // 本机 holder：绑定。
         assert_eq!(
-            runtime.reconcile_lease(first.0, &first.1),
+            runtime.reconcile_lease_for_local(1, "device-a", "device-a"),
             vec![String::from("feishu")]
         );
-        let second = resolve_lease_anchor(Some(2), Some("device-b"), "local");
-        assert_eq!(
-            runtime.reconcile_lease(second.0, &second.1),
-            vec![String::from("feishu")]
-        );
-        assert!(mock.is_closed(), "old holder connection must be closed");
         let health = runtime.health();
         let feishu = health
             .iter()
             .find(|h| h.channel == "feishu")
             .expect("health");
-        assert_eq!(feishu.bound_witness_epoch, Some(2));
-        assert_eq!(feishu.holder_device_id.as_deref(), Some("device-b"));
-        let none = resolve_lease_anchor(None, None, "local");
+        assert_eq!(feishu.bound_witness_epoch, Some(1));
+        assert_eq!(feishu.holder_device_id.as_deref(), Some("device-a"));
+
+        // 远端 holder：关闭旧连接，不绑定，并报告 remote-holder。
         assert_eq!(
-            runtime.reconcile_lease(none.0, &none.1),
+            runtime.reconcile_lease_for_local(2, "device-b", "device-a"),
             vec![String::from("feishu")]
+        );
+        assert!(
+            mock.is_closed(),
+            "remote holder handoff must close local connection"
+        );
+        let health = runtime.health();
+        let feishu = health
+            .iter()
+            .find(|h| h.channel == "feishu")
+            .expect("health");
+        assert_eq!(feishu.bound_witness_epoch, None);
+        assert_eq!(
+            feishu.holder_device_id.as_deref(),
+            Some("remote-holder:device-b")
+        );
+
+        // 无 holder：解绑。
+        assert_eq!(
+            runtime.reconcile_lease_for_local(0, "", "device-a"),
+            Vec::<String>::new()
         );
         let health = runtime.health();
         let feishu = health

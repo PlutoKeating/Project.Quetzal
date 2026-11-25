@@ -269,6 +269,22 @@ type WebhookIngressRecord struct {
 	CreatedAtMs    int64  `json:"created_at_ms"`
 }
 
+// WebhookIngressRow 是单台目标设备的密封行。
+type WebhookIngressRow struct {
+	TargetDeviceID string
+	HPKEEncHex     string
+	CiphertextHex  string
+	AADUTF8        string
+	ReceivedAtMs   int64
+	CreatedAtMs    int64
+}
+
+// EnqueueOutcome 报告批量入队结果。
+type EnqueueOutcome struct {
+	Duplicate bool
+	Depth     int
+}
+
 type LeaseRecord struct {
 	AgentID        string `json:"agent_id"`
 	HolderDeviceID string `json:"holder_device_id"`
@@ -389,6 +405,7 @@ type Store interface {
 	ListSpinePacks(ctx context.Context, agentID string, afterSeq uint64, limit uint32) ([]SpinePackRecord, error)
 
 	EnqueueWebhookIngress(ctx context.Context, rec WebhookIngressRecord, maxPerAgent int) (bool, int, error)
+	EnqueueWebhookIngressBatch(ctx context.Context, agentID, channel, eventIDHash string, rows []WebhookIngressRow, maxEvents int) (EnqueueOutcome, error)
 	ListWebhookIngress(ctx context.Context, agentID, deviceID string, after int64, limit int) ([]WebhookIngressRecord, error)
 	DeleteWebhookIngress(ctx context.Context, agentID string, ingressID int64) (bool, error)
 	DeleteWebhookIngressByKeys(ctx context.Context, agentID string, keys []WebhookIngressKey) (int64, error)
@@ -2367,4 +2384,53 @@ func (s *SQLiteStore) DeleteWebhookIngressEvent(ctx context.Context, agentID, ch
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// EnqueueWebhookIngressBatch 以单事务完成“去重 + 按事件配额 + 全设备插入”，全有或全无。
+func (s *SQLiteStore) EnqueueWebhookIngressBatch(ctx context.Context, agentID, channel, eventIDHash string, rows []WebhookIngressRow, maxEvents int) (EnqueueOutcome, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return EnqueueOutcome{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var existing int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, agentID, channel, eventIDHash).Scan(&existing); err != nil {
+		return EnqueueOutcome{}, err
+	}
+	if existing > 0 {
+		var depth int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ?`, agentID).Scan(&depth); err != nil {
+			return EnqueueOutcome{}, err
+		}
+		return EnqueueOutcome{Duplicate: true, Depth: depth}, nil
+	}
+	if maxEvents > 0 {
+		var eventCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT channel, event_id_hash FROM webhook_ingress_queue WHERE agent_id = ?)`, agentID).Scan(&eventCount); err != nil {
+			return EnqueueOutcome{}, err
+		}
+		if eventCount >= maxEvents {
+			return EnqueueOutcome{}, ErrQuotaExceeded
+		}
+	}
+	for _, row := range rows {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO webhook_ingress_queue (
+				agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, agentID, channel, eventIDHash, row.TargetDeviceID, row.HPKEEncHex, row.CiphertextHex, row.AADUTF8, row.ReceivedAtMs, row.CreatedAtMs); err != nil {
+			return EnqueueOutcome{}, err
+		}
+	}
+	var depth int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ?`, agentID).Scan(&depth); err != nil {
+		return EnqueueOutcome{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return EnqueueOutcome{}, err
+	}
+	return EnqueueOutcome{Depth: depth}, nil
 }

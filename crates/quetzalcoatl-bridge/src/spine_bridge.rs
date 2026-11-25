@@ -85,30 +85,55 @@ fn contains_forbidden(text: &str) -> bool {
     FORBIDDEN_MARKERS.iter().any(|m| lower.contains(m))
 }
 
+fn is_token_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
+}
+
+fn at_boundary(value: &str, start: usize) -> bool {
+    start == 0 || !is_token_char(value.as_bytes()[start - 1])
+}
+
+fn has_token_payload(value: &str, start: usize, min_bytes: usize) -> bool {
+    let rest = &value[start..];
+    let payload: Vec<u8> = rest
+        .bytes()
+        .take_while(|byte| is_token_char(*byte))
+        .collect();
+    payload.len() >= min_bytes
+}
+
+fn marker_with_payload(value: &str, marker: &str, min_payload: usize) -> bool {
+    value.match_indices(marker).any(|(idx, _)| {
+        at_boundary(value, idx) && has_token_payload(value, idx + marker.len(), min_payload)
+    })
+}
+
 fn looks_secret_value(value: &str) -> bool {
-    [
-        "-----BEGIN ",
-        "sk-",
-        "xoxb-",
-        "xoxp-",
-        "AKIA",
-        "ghp_",
-        "Bearer ",
+    value.match_indices("-----BEGIN ").any(|(idx, _)| {
+        at_boundary(value, idx) && !value[idx + "-----BEGIN ".len()..].trim().is_empty()
+    }) || [
+        ("sk-", 8),
+        ("xoxb-", 8),
+        ("xoxp-", 8),
+        ("AKIA", 8),
+        ("ghp_", 8),
+        ("Bearer ", 8),
     ]
     .iter()
-    .any(|marker| value.contains(marker))
+    .any(|(marker, min)| marker_with_payload(value, marker, *min))
 }
 
 fn contains_absolute_path_token(value: &str) -> bool {
-    value
-        .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ',' | ';' | '(' | ')'))
-        .filter(|token| !token.is_empty())
-        .any(|token| {
-            token.starts_with("/etc/")
-                || token.starts_with("/home/")
-                || token.starts_with("/root/")
-                || token.starts_with("C:\\")
-                || token.starts_with("D:\\")
+    ["/etc/", "/home/", "/root/", "C:\\", "D:\\"]
+        .iter()
+        .any(|prefix| {
+            value.match_indices(prefix).any(|(idx, _)| {
+                at_boundary(value, idx)
+                    && value[idx + prefix.len()..]
+                        .bytes()
+                        .next()
+                        .is_some_and(is_token_char)
+            })
         })
 }
 

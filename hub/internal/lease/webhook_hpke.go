@@ -391,23 +391,6 @@ func (s *WebhookIngressService) handleIngress(w http.ResponseWriter, r *http.Req
 	eventIDHashRaw := sha256.Sum256([]byte(eventID))
 	eventIDHash := hex.EncodeToString(eventIDHashRaw[:])
 
-	exists, err := s.store.WebhookIngressEventExists(r.Context(), agentID, channel, eventIDHash)
-	if err != nil {
-		webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress dedupe failed")
-		return
-	}
-	if !exists {
-		eventCount, err := s.store.CountWebhookIngressEvents(r.Context(), agentID)
-		if err != nil {
-			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress quota lookup failed")
-			return
-		}
-		if s.cfg.MaxQueuePerAgent > 0 && eventCount >= s.cfg.MaxQueuePerAgent {
-			webhookError(w, http.StatusTooManyRequests, "INGRESS_QUEUE_FULL", "agent ingress queue is full")
-			return
-		}
-	}
-
 	receivedAtMs := s.clock().UnixMilli()
 	aad, aadErr := json.Marshal(struct {
 		AgentID      string `json:"agent_id"`
@@ -419,8 +402,7 @@ func (s *WebhookIngressService) handleIngress(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	insertedAny := false
-	depth := 0
+	rows := make([]store.WebhookIngressRow, 0, len(devices))
 	for _, device := range devices {
 		var sealed *auth.HPKESealedBox
 		if s.cfg.DeterministicSeed != nil {
@@ -434,30 +416,36 @@ func (s *WebhookIngressService) handleIngress(w http.ResponseWriter, r *http.Req
 			webhookError(w, http.StatusInternalServerError, "HPKE_SEAL_FAILED", "webhook sealing failed")
 			return
 		}
-		inserted, currentDepth, enqueueErr := s.store.EnqueueWebhookIngress(r.Context(), store.WebhookIngressRecord{
-			AgentID:        agentID,
-			Channel:        channel,
-			EventIDHash:    eventIDHash,
+		rows = append(rows, store.WebhookIngressRow{
 			TargetDeviceID: device.deviceID,
 			HPKEEncHex:     hex.EncodeToString(sealed.Enc),
 			CiphertextHex:  hex.EncodeToString(sealed.Ciphertext),
 			AADUTF8:        string(aad),
 			ReceivedAtMs:   receivedAtMs,
 			CreatedAtMs:    receivedAtMs,
-		}, 0)
-		if enqueueErr != nil {
-			_, _ = s.store.DeleteWebhookIngressEvent(r.Context(), agentID, channel, eventIDHash)
-			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "enqueue failed")
+		})
+	}
+	outcome, enqueueErr := s.store.EnqueueWebhookIngressBatch(
+		r.Context(),
+		agentID,
+		channel,
+		eventIDHash,
+		rows,
+		s.cfg.MaxQueuePerAgent,
+	)
+	if enqueueErr != nil {
+		if errors.Is(enqueueErr, store.ErrQuotaExceeded) {
+			webhookError(w, http.StatusTooManyRequests, "INGRESS_QUEUE_FULL", "agent ingress queue is full")
 			return
 		}
-		insertedAny = insertedAny || inserted
-		depth = currentDepth
+		webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "enqueue failed")
+		return
 	}
 
 	writeWebhookJSON(w, http.StatusAccepted, map[string]any{
 		"status":    "accepted",
-		"duplicate": !insertedAny,
-		"depth":     depth,
+		"duplicate": outcome.Duplicate,
+		"depth":     outcome.Depth,
 	})
 }
 
@@ -529,6 +517,10 @@ func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz Ow
 
 	mux.HandleFunc("POST /v1/webhook/{agent_id}/ingress/ack", func(w http.ResponseWriter, r *http.Request) {
 		agentID := strings.TrimSpace(r.PathValue("agent_id"))
+		principal, _, authOK := authz.RequireAgentOwner(w, r, agentID)
+		if !authOK {
+			return
+		}
 		var req struct {
 			Items []struct {
 				Channel string `json:"channel"`
@@ -540,10 +532,6 @@ func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz Ow
 			return
 		}
 		_ = r.Body.Close()
-		principal, _, ok := authz.RequireAgentOwner(w, r, agentID)
-		if !ok {
-			return
-		}
 		keys := make([]store.WebhookIngressKey, 0, len(req.Items))
 		for _, item := range req.Items {
 			channel := strings.TrimSpace(item.Channel)
