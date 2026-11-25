@@ -265,3 +265,100 @@ fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_ca
     drop(guard);
     Ok(())
 }
+
+/// 浏览器启动器会继承父进程的标准流：若 `qz open` 不重定向子进程，调用方（管道、CI、脚本）
+/// 会被一个长驻子进程挂住。本用例用一个「打印噪声后长睡」的假 xdg-open 复现该场景，
+/// 要求 stdout 能正常 EOF 且 `qz open` 及时退出。
+#[cfg(target_os = "linux")]
+#[test]
+fn qz_open_does_not_hold_the_callers_stdout_pipe_when_the_launcher_lingers() -> TestResult {
+    use std::io::Read;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+
+    let home = TempHome::new("open_linger")?;
+    let qz_home = home.path().join("qzhome");
+    let fake_bin = home.path().join("fakebin");
+    std::fs::create_dir_all(&fake_bin)?;
+    let launcher = fake_bin.join("xdg-open");
+    std::fs::write(&launcher, "#!/bin/sh\necho launcher-noise\nsleep 10\n")?;
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755))?;
+
+    let qz = PathBuf::from(env!("CARGO_BIN_EXE_qz"));
+    let daemon_bin = PathBuf::from(env!("CARGO_BIN_EXE_quetzalcoatld"));
+    let path_env = format!(
+        "{}:{}",
+        fake_bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let up_out = Command::new(&qz)
+        .env("HOME", home.path())
+        .env("QUETZALCOATL_HOME", &qz_home)
+        .env("QUETZALCOATL_DAEMON_BIN", &daemon_bin)
+        .env("PATH", &path_env)
+        .env("DISPLAY", ":0")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("QZ_NO_BROWSER")
+        .env_remove("QUETZALCOATL_UPSTREAM_BEARER_TOKEN")
+        .args(["up"])
+        .output()?;
+    assert!(
+        up_out.status.success(),
+        "qz up failed: {}",
+        String::from_utf8_lossy(&up_out.stderr)
+    );
+    let guard = DaemonGuard {
+        qz: qz.clone(),
+        home: home.path().to_path_buf(),
+        qz_home: qz_home.clone(),
+    };
+
+    let mut child = Command::new(&qz)
+        .env("HOME", home.path())
+        .env("QUETZALCOATL_HOME", &qz_home)
+        .env("PATH", &path_env)
+        .env("DISPLAY", ":0")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("QZ_NO_BROWSER")
+        .args(["open"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdout = child.stdout.take().ok_or("qz open stdout missing")?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        let _ = tx.send(buf);
+    });
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        if let Some(status) = child.try_wait()? {
+            assert!(status.success(), "qz open exited with {status}");
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            return Err("qz open did not exit; the browser launcher is blocking the caller".into());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let captured = rx
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| "qz open left the caller's stdout pipe open (launcher inherited it)")?;
+    let text = String::from_utf8_lossy(&captured);
+    assert!(
+        text.contains("opened http://127.0.0.1:"),
+        "qz open must report the opened URL, got: {text}"
+    );
+    assert!(
+        !text.contains("launcher-noise"),
+        "the browser launcher must not write into the caller's stdout: {text}"
+    );
+
+    drop(guard);
+    Ok(())
+}

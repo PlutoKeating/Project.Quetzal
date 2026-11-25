@@ -335,7 +335,16 @@ fn run_open(args: &[String]) -> Result<()> {
         IpcResponse::Status(st) => {
             let url = console_url(st.ipc_http_addr);
             if let Some((program, leading)) = browser_opener() {
-                match Command::new(program).args(leading).arg(&url).spawn() {
+                // 浏览器启动器会继承并长期持有父进程的标准流：不重定向的话，
+                // `qz open | tail`、CI 日志采集或脚本调用都会被挂住（实测可挂 5 分钟以上）。
+                let spawned = Command::new(program)
+                    .args(leading)
+                    .arg(&url)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn();
+                match spawned {
                     Ok(mut child) => {
                         // 启动器可能长时间驻留（例如已运行的浏览器把 URL 转交后退出）；后台线程负责回收，避免僵尸进程。
                         let _ = std::thread::spawn(move || {
