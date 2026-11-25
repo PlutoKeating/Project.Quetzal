@@ -59,8 +59,8 @@ use uuid::Uuid;
 
 use crate::fabric::{DaemonFabricConfig, DaemonFabricRuntime, FabricStatus};
 use crate::local_ipc::{
-    IpcClient, IpcHandler, IpcRequest, IpcResponse, LocalIpcServerHandle, ScopedHookTokenRegistry,
-    start_local_ipc_server,
+    DesktopRow, IpcClient, IpcHandler, IpcRequest, IpcResponse, LocalIpcServerHandle,
+    ScopedHookTokenRegistry, start_local_ipc_server,
 };
 
 #[must_use]
@@ -724,6 +724,153 @@ impl SharedDaemonCore {
     }
 
     /// 同源 Web 控制台的实时附加面板：良知树（仅结构字段）+ 本机产物 + 会话形态。
+    /// 桌面端三档密度快照：会话/运行进展/良知/审计行 + 脊柱事件水位。
+    ///
+    /// 只读、确定性排序（按 key），绝不包含 SpineEvent 的 payload 正文；审计行只暴露
+    /// 事件头与 `payload.kind` 元数据，良知正文由 `conscience_pinned` 单独按需供给。
+    pub(crate) fn desktop_snapshot_rows(&self) -> (u64, Vec<DesktopRow>) {
+        let extras = self.web_extras();
+        let mut rows: Vec<DesktopRow> = Vec::new();
+
+        if let Some(session) = extras.get("session") {
+            let kind = session
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("personal");
+            let room = session
+                .get("room_id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty());
+            let (summary, detail) = match (kind, room) {
+                ("group", Some(room_id)) => (
+                    format!("群组会话 · {room_id}"),
+                    String::from("提交产物会发布到当前群组纪元。"),
+                ),
+                ("group", None) => (
+                    String::from("群组会话"),
+                    String::from("已在群组上下文，尚未选中具体房间。"),
+                ),
+                _ => (
+                    String::from("个人会话"),
+                    String::from("本机主权会话：一切写入都先进入签名事件脊柱。"),
+                ),
+            };
+            rows.push(DesktopRow {
+                key: String::from("session/active"),
+                kind: String::from("session"),
+                summary,
+                detail: Some(detail),
+                raw_json: Some(session.to_string()),
+                updated_rev: 1,
+            });
+        }
+
+        if let Some(extra_rows) = extras.get("rows").and_then(serde_json::Value::as_object) {
+            for row in extra_rows.values() {
+                let Some(key) = row.get("key").and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                let daemon_kind = row
+                    .get("kind")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("status");
+                let kind = match daemon_kind {
+                    "artifact" => "workflow",
+                    "agent" => "tool",
+                    other => other,
+                };
+                let raw_json = row.get("raw_json").map(|value| {
+                    value
+                        .as_str()
+                        .map_or_else(|| value.to_string(), str::to_owned)
+                });
+                rows.push(DesktopRow {
+                    key: key.to_owned(),
+                    kind: kind.to_owned(),
+                    summary: row
+                        .get("summary")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    detail: row
+                        .get("detail")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                    raw_json,
+                    updated_rev: row
+                        .get("updated_rev")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(1),
+                });
+            }
+        }
+
+        let mut rev = 0u64;
+        if let Ok(guard) = self.state.lock() {
+            let runs = guard.kernel.runs().list_runs();
+            let events = guard
+                .kernel
+                .spine()
+                .store()
+                .list_all_events()
+                .unwrap_or_default();
+            rev = u64::try_from(events.len()).unwrap_or(u64::MAX);
+            rows.push(DesktopRow {
+                key: String::from("status/goals"),
+                kind: String::from("workflow"),
+                summary: format!("运行进展 · 累计 {} 次运行", runs.len()),
+                detail: Some(format!(
+                    "睡眠相位 {:?} · 群房间 {} · 脊柱事件 {rev}",
+                    guard.kernel.heart().phase(),
+                    guard.group.room_count()
+                )),
+                raw_json: None,
+                updated_rev: rev.max(1),
+            });
+            for (event, _) in events.iter().rev().take(6) {
+                let payload_kind = serde_json::from_str::<serde_json::Value>(&event.payload_utf8)
+                    .ok()
+                    .and_then(|payload| {
+                        ["kind", "type", "action", "operation", "event"]
+                            .iter()
+                            .find_map(|field| {
+                                payload
+                                    .get(*field)
+                                    .and_then(serde_json::Value::as_str)
+                                    .map(str::to_owned)
+                            })
+                    })
+                    .unwrap_or_else(|| String::from("脊柱事件"));
+                rows.push(DesktopRow {
+                    key: format!("audit/{}", event.header.seq),
+                    kind: String::from("audit"),
+                    summary: format!("审计事件 #{} · {payload_kind}", event.header.seq),
+                    detail: Some(format!(
+                        "epoch {} · agent {} · hlc {}",
+                        event.header.epoch,
+                        event.header.agent_id,
+                        event.header.hlc.to_hex()
+                    )),
+                    raw_json: Some(
+                        serde_json::json!({
+                            "seq": event.header.seq,
+                            "epoch": event.header.epoch,
+                            "agent_id": event.header.agent_id.to_string(),
+                            "device_id": event.header.device_id.to_string(),
+                            "hlc": event.header.hlc.to_hex(),
+                            "payload_kind": payload_kind,
+                        })
+                        .to_string(),
+                    ),
+                    updated_rev: event.header.seq,
+                });
+            }
+        }
+
+        rows.sort_by(|left, right| left.key.cmp(&right.key));
+        (rev.max(1), rows)
+    }
+
     pub(crate) fn web_extras(&self) -> serde_json::Value {
         let mut rows = serde_json::Map::new();
         let mut session = serde_json::json!({
@@ -1693,6 +1840,10 @@ impl SharedDaemonCore {
                     channels: channel_health,
                 };
                 (IpcResponse::Status(Box::new(status)), false)
+            }
+            IpcRequest::DesktopSnapshot => {
+                let (rev, rows) = self.desktop_snapshot_rows();
+                (IpcResponse::DesktopSnapshot { rev, rows }, false)
             }
             IpcRequest::Agents => match self.harness_host.discover() {
                 Ok(rep) => (IpcResponse::Agents(rep), false),

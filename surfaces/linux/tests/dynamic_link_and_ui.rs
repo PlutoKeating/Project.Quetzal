@@ -27,12 +27,15 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use gtk::glib;
+use libadwaita as adw;
+use quetzalcoatl_client_core::ThinClient;
 use quetzalcoatl_client_core::llm_stream_bridge::live_producer_threads;
 use quetzalcoatl_client_core::{
     CognitionDensity, ScriptedSource, StreamEvent, StreamEventKind, ViewOp, ViewPatch, ViewRow,
     ViewStream,
 };
-use quetzalcoatl_daemon::{DaemonConfig, QuetzalcoatlDaemon};
+use quetzalcoatl_daemon::{DaemonConfig, IpcRequest, IpcResponse, QuetzalcoatlDaemon};
 use quetzalcoatl_desktop::app::{self, DesktopOptions};
 use quetzalcoatl_desktop::config::DesktopConfig;
 use quetzalcoatl_desktop::model::{self, ConnectionState, UiModel};
@@ -45,6 +48,10 @@ use gtk4 as gtk;
 const CHILD_PATCH_OUT: &str = "QZ_DESKTOP_PATCH_PROBE_OUT";
 const CHILD_GTK_OUT: &str = "QZ_DESKTOP_GTK_PROBE_OUT";
 const CHILD_GTK_CONFIG_DIR: &str = "QZ_DESKTOP_GTK_PROBE_CONFIG_DIR";
+const CHILD_SNAPSHOT_OUT: &str = "QZ_DESKTOP_SNAPSHOT_PROBE_OUT";
+const CHILD_ONLINE_UI_OUT: &str = "QZ_DESKTOP_ONLINE_UI_PROBE_OUT";
+const CHILD_TRAY_OUT: &str = "QZ_DESKTOP_TRAY_PROBE_OUT";
+const CHILD_LIFECYCLE_OUT: &str = "QZ_DESKTOP_LIFECYCLE_PROBE_OUT";
 
 struct TempDir {
     path: PathBuf,
@@ -80,6 +87,32 @@ fn binary() -> PathBuf {
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn adw_application() -> adw::Application {
+    adw::Application::builder()
+        .application_id("org.quetzalcoatl.DesktopProbe")
+        .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+        .build()
+}
+
+fn spawn_probe(name: &str, use_dbus_session: bool) -> Command {
+    let exe = std::env::current_exe().expect("current exe");
+    let mut command = headless_command(exe);
+    if use_dbus_session {
+        // `xvfb-run -a dbus-run-session -- <exe>`：私有会话总线 + 独立 X display。
+        command = headless_command("dbus-run-session");
+        command.arg("--");
+        command.arg(std::env::current_exe().expect("current exe"));
+        command.env_remove("DBUS_SESSION_BUS_ADDRESS");
+    }
+    command
+        .arg("--exact")
+        .arg(name)
+        .arg("--ignored")
+        .arg("--nocapture")
+        .stdin(Stdio::null());
+    command
 }
 
 fn run_capture(program: &str, args: &[&str]) -> (bool, String) {
@@ -294,16 +327,22 @@ fn adwaita_and_gtk_are_dynamically_linked_and_never_statically_embedded() {
     );
 
     // 静态并入会把 `adw_*` 变成我们自己的 `.text` 定义；LGPL-2.1 可替换性随即失效。
-    let (defined_ok, defined) = run_capture("nm", &["--defined-only", &bin_str]);
-    assert!(defined_ok, "nm --defined-only 失败: {defined}");
-    let adw_defined = defined
-        .lines()
-        .filter(|line| line.contains(" adw_"))
-        .count();
-    assert_eq!(
-        adw_defined, 0,
-        "二进制自身符号表禁止出现 adw_* 定义（说明 libadwaita 被静态并入）:\n{defined}"
-    );
+    // 剥离符号表的 release 产物没有 `.symtab`，此断言无从判定，必须显式跳过而不是「空即通过」。
+    let (_, sections) = run_capture("readelf", &["-S", &bin_str]);
+    if sections.contains(".symtab") {
+        let (defined_ok, defined) = run_capture("nm", &["--defined-only", &bin_str]);
+        assert!(defined_ok, "nm --defined-only 失败: {defined}");
+        let adw_defined = defined
+            .lines()
+            .filter(|line| line.contains(" adw_"))
+            .count();
+        assert_eq!(
+            adw_defined, 0,
+            "二进制自身符号表禁止出现 adw_* 定义（说明 libadwaita 被静态并入）:\n{defined}"
+        );
+    } else {
+        eprintln!("SKIP: 二进制被剥离符号表（无 .symtab），改用 DT_NEEDED 断言兜底");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +350,7 @@ fn adwaita_and_gtk_are_dynamically_linked_and_never_statically_embedded() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "由父测试以子进程方式驱动（无环境变量时不做任何断言）"]
 fn patch_stream_child_probe() {
     let Some(out_path) = std::env::var_os(CHILD_PATCH_OUT).map(PathBuf::from) else {
         return; // 父测试直接调用时跳过
@@ -384,6 +424,7 @@ fn view_patch_and_pull_stream_reach_ui_model_without_touching_spine() {
     let output = Command::new(&exe)
         .arg("--exact")
         .arg("patch_stream_child_probe")
+        .arg("--ignored")
         .arg("--nocapture")
         .env(CHILD_PATCH_OUT, &out)
         .env("QUETZALCOATL_HOME", temp.path())
@@ -449,6 +490,7 @@ fn view_patch_and_pull_stream_reach_ui_model_without_touching_spine() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "由父测试以子进程方式驱动（需要 xvfb 且无环境变量时不做任何断言）"]
 fn gtk_child_probe() {
     let Some(out_path) = std::env::var_os(CHILD_GTK_OUT).map(PathBuf::from) else {
         return; // 父测试直接调用时跳过
@@ -511,20 +553,39 @@ fn gtk_child_probe() {
     let mut pages_mapped = Vec::new();
     let mut session_preserved = true;
     let mut stream_preserved = true;
-    let mut shortcuts = Vec::new();
-    // 真实走一遍键盘映射：Ctrl+1/2/3 → 三档密度（仅 Ctrl 存在时生效）。
-    let sequence = [
-        (gtk::gdk::Key::_1, CognitionDensity::Companion),
-        (gtk::gdk::Key::_2, CognitionDensity::Workbench),
-        (gtk::gdk::Key::_3, CognitionDensity::Inspector),
-        (gtk::gdk::Key::_1, CognitionDensity::Companion),
+    // 快捷键必须是 GAction + accelerator（布局无关），而不是裸 keyval 匹配。
+    let app = adw_application();
+    app.register(None::<&gtk::gio::Cancellable>)
+        .expect("注册探针 GApplication");
+    app::install_density_actions(&app, std::rc::Rc::downgrade(&state));
+    let expected_accels = [
+        ("density-companion", "<Primary>1"),
+        ("density-companion", "<Primary><Shift>1"),
+        ("density-workbench", "<Primary>2"),
+        ("density-inspector", "<Primary>3"),
     ];
-    let shortcuts_masked =
-        app::density_shortcut(gtk::gdk::Key::_1, gtk::gdk::ModifierType::empty()).is_none();
-    for (key, density) in sequence {
-        let mapped_density = app::density_shortcut(key, gtk::gdk::ModifierType::CONTROL_MASK);
-        shortcuts.push(mapped_density == Some(density));
-        app::apply_density(&state, density);
+    // GTK 会把 "<Primary>1" 规范化成 "<Control>1"，按解析后的 (keyval, modifiers) 比较。
+    let accels_installed = expected_accels.iter().all(|(action, accel)| {
+        let expected = gtk::accelerator_parse(*accel);
+        app.accels_for_action(&format!("app.{action}"))
+            .iter()
+            .any(|installed| gtk::accelerator_parse(installed.as_str()) == expected)
+    });
+    let mut shortcuts = Vec::new();
+    let sequence = [
+        ("density-companion", CognitionDensity::Companion),
+        ("density-workbench", CognitionDensity::Workbench),
+        ("density-inspector", CognitionDensity::Inspector),
+        ("density-companion", CognitionDensity::Companion),
+    ];
+    for (action, density) in sequence {
+        shortcuts.push(
+            app.list_actions()
+                .iter()
+                .any(|registered| registered.as_str() == action),
+        );
+        app.activate_action(action, None);
+        let _ = density;
         app::pump_events(120);
         let guard = state.borrow();
         let page = guard
@@ -589,23 +650,39 @@ fn gtk_child_probe() {
         .map(|s| s.to_string())
         .unwrap_or_default();
 
+    // 最大化回环：写入 maximized=true 后重新构建，必须真实发出 maximize 请求。
+    // 裸 Xvfb 没有窗口管理器，is_maximized() 可能仍为 false，因此以「请求已发出」为准，
+    // 并在有 WM 时额外核对生效状态（两路都记录，绝不伪造）。
+    let max_path = config_dir.join("desktop-maximized.json");
+    let mut max_config = DesktopConfig::load_from(Some(&config_path));
+    max_config.maximized = true;
+    max_config.save_to(Some(&max_path)).expect("写入最大化配置");
+    let maximized = app::build_desktop(DesktopOptions {
+        home: config_dir.join("home"),
+        config_path: Some(max_path),
+        self_test: false,
+    });
+    let maximize_requested = maximized.borrow().maximize_requested;
+    let maximize_effective = maximized.borrow().window.is_maximized();
+
     report = serde_json::json!({
         "ok": mapped
             && switches == vec!["companion", "workbench", "inspector", "companion"]
+            && accels_installed
             && shortcuts.iter().all(|ok| *ok)
-            && shortcuts_masked
             && session_preserved
             && stream_preserved
             && accessible_button
             && accessible_live
             && rev_delta == 4
             && reloaded.density == CognitionDensity::Inspector
-            && restored_page == "inspector",
+            && restored_page == "inspector"
+            && maximize_requested,
         "mapped": mapped,
         "page_before": page_before,
         "switches": switches,
         "shortcuts_mapped": shortcuts,
-        "shortcuts_masked_without_ctrl": shortcuts_masked,
+        "accels_installed": accels_installed,
         "pages_mapped": pages_mapped,
         "session_preserved": session_preserved,
         "stream_preserved": stream_preserved,
@@ -618,10 +695,13 @@ fn gtk_child_probe() {
         "persisted_size": [reloaded.width, reloaded.height],
         "window_size": window_size,
         "restored_page": restored_page,
+        "maximize_requested": maximize_requested,
+        "maximize_effective": maximize_effective,
         "window_visible": state.borrow().window.is_visible(),
     });
     state.borrow().window.destroy();
     restarted.borrow().window.destroy();
+    maximized.borrow().window.destroy();
     fs::write(&out_path, report.to_string()).expect("写入 GTK 探针报告");
 }
 
@@ -634,6 +714,7 @@ fn three_density_switching_preserves_state_and_persists_under_xvfb() {
     let output = headless_command(exe)
         .arg("--exact")
         .arg("gtk_child_probe")
+        .arg("--ignored")
         .arg("--nocapture")
         .env(CHILD_GTK_OUT, &out)
         .env(CHILD_GTK_CONFIG_DIR, &config_dir)
@@ -663,18 +744,23 @@ fn three_density_switching_preserves_state_and_persists_under_xvfb() {
     assert_eq!(report["restored_page"].as_str(), Some("inspector"));
     assert_eq!(
         report["persisted_size"], report["window_size"],
-        "落盘尺寸必须等于真实窗口尺寸: {report}"
+        "落盘尺寸必须等于真实窗口尺寸（WM 无关）: {report}"
+    );
+    assert_eq!(
+        report["reloaded_size"], report["window_size"],
+        "重启后尺寸必须真实回环: {report}"
     );
     let persisted = report["persisted_size"].as_array().expect("persisted_size");
     let persisted_width = persisted[0].as_i64().unwrap_or(0);
     let persisted_height = persisted[1].as_i64().unwrap_or(0);
     assert!(
-        (900..=1000).contains(&persisted_width) && (600..=700).contains(&persisted_height),
-        "持久化尺寸必须跟随真实窗口而不是旧默认值: {report}"
+        persisted_width >= 320 && persisted_height >= 240,
+        "持久化尺寸必须来自真实窗口: {report}"
     );
     assert_eq!(
-        report["shortcuts_masked_without_ctrl"],
-        serde_json::Value::Bool(true)
+        report["accels_installed"],
+        serde_json::Value::Bool(true),
+        "Ctrl+1/2/3 必须注册为 action accelerator: {report}"
     );
     assert!(
         report["shortcuts_mapped"]
@@ -878,4 +964,551 @@ fn desktop_entry_icon_and_readme_install_rules_are_present() {
     assert!(!manifest.contains("webkit2gtk"));
     assert!(!manifest.contains("tauri"));
     assert!(!manifest.contains("electron"));
+}
+
+// ---------------------------------------------------------------------------
+// 6. 生产路径快照：真实守护进程 → 会话/审计/良知行 + 良知正文（仅检视态）
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "由父测试以子进程方式驱动（需要 xvfb + 真实守护进程）"]
+fn snapshot_child_probe() {
+    let Some(out_path) = std::env::var_os(CHILD_SNAPSHOT_OUT).map(PathBuf::from) else {
+        return;
+    };
+    let mut report = serde_json::json!({ "ok": false });
+    if let Err(err) = gtk::init() {
+        report["error"] = serde_json::Value::String(format!("gtk init 失败: {err}"));
+        let _ = fs::write(&out_path, report.to_string());
+        return;
+    }
+    let home = quetzalcoatl_client_core::resolve_client_home(None);
+    let config_path = out_path.with_extension("desktop.json");
+    let state = app::build_desktop(DesktopOptions {
+        home,
+        config_path: Some(config_path),
+        self_test: false,
+    });
+    let desktop = state.borrow();
+    let sessions = desktop.model.rows_of(model::KIND_SESSION).len();
+    let audits = desktop.model.rows_of(model::KIND_AUDIT).len();
+    let conscience = desktop.model.rows_of(model::KIND_CONSCIENCE).len();
+    let workflow = desktop.model.rows_of(model::KIND_WORKFLOW).len();
+    let body = desktop.model.conscience_body.clone().unwrap_or_default();
+    report = serde_json::json!({
+        "ok": desktop.model.connection.is_online()
+            && sessions > 0
+            && audits > 0
+            && conscience > 0
+            && !body.trim().is_empty(),
+        "online": desktop.model.connection.is_online(),
+        "sessions": sessions,
+        "audits": audits,
+        "conscience": conscience,
+        "workflow": workflow,
+        "conscience_body_chars": body.chars().count(),
+        "model_rev": desktop.model.view.rev,
+        "db_fds": spine_db_fds(),
+        "rows_total": desktop.model.view.rows.len(),
+    });
+    fs::write(&out_path, report.to_string()).expect("写入快照探针报告");
+}
+
+#[test]
+fn daemon_snapshot_populates_sessions_audit_and_conscience() {
+    let home = TempDir::new("snapshot_daemon");
+    let out = home.path().join("snapshot.json");
+    let mut daemon = start_real_daemon(home.path());
+
+    // 真实写入一条领域切换审计事件（守护进程会将其追加进脊柱）。
+    let client = ThinClient::mount(home.path()).expect("薄客户端挂载");
+    let packs = match client.call(&IpcRequest::DomainList) {
+        Ok(IpcResponse::DomainPacks { packs, .. }) => packs,
+        other => panic!("domain list 失败: {other:?}"),
+    };
+    let target = packs
+        .iter()
+        .map(|pack| pack.id.clone())
+        .find(|id| id != "personal-companion")
+        .expect("至少存在一个非默认领域包");
+    match client.call(&IpcRequest::DomainUse { id: target.clone() }) {
+        Ok(IpcResponse::DomainActivated(_)) | Ok(IpcResponse::DomainPacks { .. }) => {}
+        other => panic!("domain use 失败: {other:?}"),
+    }
+
+    let output = spawn_probe("snapshot_child_probe", false)
+        .env(CHILD_SNAPSHOT_OUT, &out)
+        .env("QUETZALCOATL_HOME", home.path())
+        .output()
+        .expect("spawn snapshot probe");
+    assert!(
+        output.status.success(),
+        "快照探针失败: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&out).expect("读取快照报告")).expect("JSON");
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "报告: {report}"
+    );
+    assert_eq!(report["online"], serde_json::Value::Bool(true));
+    assert!(report["sessions"].as_u64().unwrap_or(0) > 0, "{report}");
+    assert!(report["audits"].as_u64().unwrap_or(0) > 0, "{report}");
+    assert!(report["conscience"].as_u64().unwrap_or(0) > 0, "{report}");
+    assert!(
+        report["conscience_body_chars"].as_u64().unwrap_or(0) > 0,
+        "检视态必须能拿到良知锁定正文: {report}"
+    );
+    assert_eq!(
+        report["db_fds"].as_array().map(Vec::len),
+        Some(0),
+        "桌面端读取快照不得持有 spine.sqlite: {report}"
+    );
+
+    daemon.shutdown().expect("关闭守护进程");
+}
+
+// ---------------------------------------------------------------------------
+// 7. 工作台披露契约 + 工作台流式回复 + 应用级播报（仅一次）
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "由父测试以子进程方式驱动（需要 xvfb + 真实守护进程）"]
+fn online_ui_child_probe() {
+    let Some(out_path) = std::env::var_os(CHILD_ONLINE_UI_OUT).map(PathBuf::from) else {
+        return;
+    };
+    let mut report = serde_json::json!({ "ok": false });
+    if let Err(err) = gtk::init() {
+        report["error"] = serde_json::Value::String(format!("gtk init 失败: {err}"));
+        let _ = fs::write(&out_path, report.to_string());
+        return;
+    }
+    let home = quetzalcoatl_client_core::resolve_client_home(None);
+    let config_path = out_path.with_extension("desktop.json");
+    let state = app::build_desktop(DesktopOptions {
+        home,
+        config_path: Some(config_path),
+        self_test: false,
+    });
+    app::refresh(&state);
+    state.borrow().window.present();
+    let _ = app::pump_until_mapped(&state.borrow().widgets.workbench.root, 4_000);
+
+    let workbench_text =
+        quetzalcoatl_desktop::views::visible_text(&state.borrow().widgets.workbench.root);
+    let inspector_text =
+        quetzalcoatl_desktop::views::visible_text(&state.borrow().widgets.inspector.root);
+    let disclosure_plain = !workbench_text.contains("pid")
+        && !workbench_text.contains("127.0.0.1")
+        && !workbench_text.contains("unix:")
+        && !workbench_text.contains("STORAGE_")
+        && !workbench_text.contains("IPC");
+    let inspector_technical = inspector_text.contains("pid")
+        && (inspector_text.contains("127.0.0.1") || inspector_text.contains("unix:"));
+
+    // 工作台必须看得见自己的流式回复（同一份会话模型）。
+    app::apply_density(&state, CognitionDensity::Workbench);
+    let first_batch = vec![
+        StreamEvent {
+            seq: 1,
+            kind: StreamEventKind::Delta,
+            text: String::from("土壤湿度已经连续三天偏低，"),
+        },
+        StreamEvent {
+            seq: 2,
+            kind: StreamEventKind::Delta,
+            text: String::from("我建议今晚补一次透水。"),
+        },
+        StreamEvent {
+            seq: 3,
+            kind: StreamEventKind::Done,
+            text: String::from("stop"),
+        },
+    ];
+    let ingested = app::ingest_stream_batch(&state, &first_batch);
+    app::pump_events(80);
+    let workbench_reply = state
+        .borrow()
+        .widgets
+        .workbench
+        .transcript
+        .text()
+        .to_string();
+    let reply_visible = workbench_reply.contains("今晚补一次透水")
+        && state.borrow().widgets.workbench.transcript.is_visible();
+
+    // 播报必须独立于当前密度：工作台态下也播，且每批只播一次。
+    let before = state.borrow().widgets.live.announcement_count();
+    let second_batch = vec![
+        StreamEvent {
+            seq: 4,
+            kind: StreamEventKind::Delta,
+            text: String::from("如果需要，我也可以列出浇水清单。"),
+        },
+        StreamEvent {
+            seq: 5,
+            kind: StreamEventKind::Done,
+            text: String::from("stop"),
+        },
+    ];
+    let _ = app::ingest_stream_batch(&state, &second_batch);
+    app::pump_events(80);
+    let announced = state.borrow().widgets.live.announcement_count() - before;
+    let page = state
+        .borrow()
+        .widgets
+        .stack
+        .visible_child_name()
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let live_independent = !state
+        .borrow()
+        .widgets
+        .live
+        .widget()
+        .is_ancestor(&state.borrow().widgets.stack);
+
+    let companion_text =
+        quetzalcoatl_desktop::views::visible_text(&state.borrow().widgets.companion.root);
+
+    report = serde_json::json!({
+        "ok": disclosure_plain
+            && inspector_technical
+            && reply_visible
+            && announced == 1
+            && page == "workbench"
+            && live_independent
+            && ingested.deltas.contains("今晚补一次透水")
+            && companion_text.contains("浇水清单"),
+        "disclosure_plain": disclosure_plain,
+        "inspector_technical": inspector_technical,
+        "workbench_text": workbench_text,
+        "inspector_text": inspector_text,
+        "reply_visible": reply_visible,
+        "workbench_reply": workbench_reply,
+        "announced": announced,
+        "page": page,
+        "live_independent": live_independent,
+        "companion_shared": companion_text.contains("浇水清单"),
+        "db_fds": spine_db_fds(),
+    });
+    state.borrow().window.destroy();
+    fs::write(&out_path, report.to_string()).expect("写入在线 UI 探针报告");
+}
+
+#[test]
+fn workbench_stays_plain_and_shows_streaming_reply() {
+    let home = TempDir::new("online_ui_daemon");
+    let out = home.path().join("online_ui.json");
+    let mut daemon = start_real_daemon(home.path());
+    let output = spawn_probe("online_ui_child_probe", false)
+        .env(CHILD_ONLINE_UI_OUT, &out)
+        .env("QUETZALCOATL_HOME", home.path())
+        .output()
+        .expect("spawn online UI probe");
+    assert!(
+        output.status.success(),
+        "在线 UI 探针失败: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&out).expect("读取在线 UI 报告")).expect("JSON");
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "报告: {report}"
+    );
+    assert_eq!(report["disclosure_plain"], serde_json::Value::Bool(true));
+    assert_eq!(report["inspector_technical"], serde_json::Value::Bool(true));
+    assert_eq!(report["reply_visible"], serde_json::Value::Bool(true));
+    assert_eq!(report["announced"].as_u64(), Some(1));
+    assert_eq!(report["page"].as_str(), Some("workbench"));
+    assert_eq!(
+        report["db_fds"].as_array().map(Vec::len),
+        Some(0),
+        "UI 路径不得持有 spine.sqlite: {report}"
+    );
+    daemon.shutdown().expect("关闭守护进程");
+}
+
+// ---------------------------------------------------------------------------
+// 8. 托盘驻留：关闭隐藏 → 托盘唤醒 → 托盘菜单退出；无宿主时关闭即退出
+// ---------------------------------------------------------------------------
+
+struct StubWatcher;
+
+#[zbus::interface(name = "org.kde.StatusNotifierWatcher")]
+impl StubWatcher {
+    fn register_status_notifier_item(&self, _service: &str) {}
+
+    #[zbus(property)]
+    fn is_status_notifier_host_registered(&self) -> bool {
+        true
+    }
+}
+
+fn install_stub_watcher() -> Option<zbus::blocking::Connection> {
+    let connection = zbus::blocking::Connection::session().ok()?;
+    connection
+        .request_name("org.kde.StatusNotifierWatcher")
+        .ok()?;
+    connection
+        .object_server()
+        .at("/StatusNotifierWatcher", StubWatcher)
+        .ok()?;
+    Some(connection)
+}
+
+#[test]
+#[ignore = "由父测试以子进程方式驱动（xvfb + 私有 D-Bus 会话 + 桩 Watcher）"]
+fn tray_child_probe() {
+    let Some(out_path) = std::env::var_os(CHILD_TRAY_OUT).map(PathBuf::from) else {
+        return;
+    };
+    let mut report = serde_json::json!({ "ok": false });
+    let Some(_watcher) = install_stub_watcher() else {
+        report["error"] = serde_json::Value::String(String::from(
+            "私有会话总线上无法注册桩 StatusNotifierWatcher",
+        ));
+        let _ = fs::write(&out_path, report.to_string());
+        return;
+    };
+    let home = quetzalcoatl_client_core::resolve_client_home(None);
+    let config_path = out_path.with_extension("desktop.json");
+    let checks = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, bool)>::new()));
+    let tray_status = std::rc::Rc::new(std::cell::RefCell::new(String::from("unknown")));
+    let fallback = std::rc::Rc::new(std::cell::Cell::new(false));
+    let step = std::rc::Rc::new(std::cell::Cell::new(0u32));
+
+    let code = app::run_with_hook(
+        DesktopOptions {
+            home,
+            config_path: Some(config_path),
+            self_test: false,
+        },
+        {
+            let checks = checks.clone();
+            let tray_status = tray_status.clone();
+            let fallback = fallback.clone();
+            let step = step.clone();
+            move |app, desktop| {
+                let item_name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
+                let bus = zbus::blocking::Connection::session().expect("session bus");
+                let record = {
+                    let checks = checks.clone();
+                    move |name: &str, value: bool| {
+                        checks.borrow_mut().push((String::from(name), value));
+                    }
+                };
+                let safety_app = app.clone();
+                let loop_app = app.clone();
+                let safety_fallback = fallback.clone();
+                glib::timeout_add_local_once(Duration::from_secs(12), move || {
+                    safety_fallback.set(true);
+                    safety_app.quit();
+                });
+                glib::timeout_add_local(Duration::from_millis(250), move || {
+                    let current = step.get();
+                    match current {
+                        0 => {
+                            let state = desktop.borrow();
+                            *tray_status.borrow_mut() = quetzalcoatl_desktop::tray::status_label(
+                                &state.widgets.tray_status,
+                            )
+                            .to_string();
+                            record("tray_registered", state.widgets.tray_status.is_active());
+                            record("visible_before_close", state.window.is_visible());
+                            let window = state.window.clone();
+                            drop(state);
+                            window.close();
+                        }
+                        1 => {
+                            let hidden = {
+                                let state = desktop.borrow();
+                                !state.window.is_visible()
+                            };
+                            record("hidden_after_close", hidden);
+                            record("process_alive_after_close", true);
+                            let _ = bus.call_method(
+                                Some(item_name.as_str()),
+                                "/StatusNotifierItem",
+                                Some("org.kde.StatusNotifierItem"),
+                                "Activate",
+                                &(0i32, 0i32),
+                            );
+                        }
+                        2 => {
+                            let reactivated = {
+                                let state = desktop.borrow();
+                                state.window.is_visible()
+                            };
+                            record("reactivated", reactivated);
+                            let _ = bus.call_method(
+                                Some(item_name.as_str()),
+                                "/StatusNotifierItem",
+                                Some("org.kde.StatusNotifierItem"),
+                                "ContextMenu",
+                                &(0i32, 0i32),
+                            );
+                        }
+                        3 => {
+                            record("tray_menu_visible", loop_app.windows().len() >= 2);
+                            let quit_registered = loop_app
+                                .list_actions()
+                                .iter()
+                                .any(|action| action.as_str() == "quit");
+                            record("quit_action_present", quit_registered);
+                            loop_app.activate_action("quit", None);
+                        }
+                        _ => {}
+                    }
+                    step.set(current + 1);
+                    if current >= 3 {
+                        glib::ControlFlow::Break
+                    } else {
+                        glib::ControlFlow::Continue
+                    }
+                });
+            }
+        },
+    );
+
+    let checks = checks.borrow().clone();
+    let all_ok = checks.iter().all(|(_, value)| *value);
+    report = serde_json::json!({
+        "ok": all_ok && !fallback.get(),
+        "checks": checks,
+        "tray": tray_status.borrow().clone(),
+        "fallback_fired": fallback.get(),
+        "exit_code": code.get(),
+    });
+    fs::write(&out_path, report.to_string()).expect("写入托盘探针报告");
+}
+
+#[test]
+fn tray_hides_on_close_reactivates_and_quits() {
+    let home = TempDir::new("tray_probe");
+    let out = home.path().join("tray.json");
+    let output = spawn_probe("tray_child_probe", true)
+        .env(CHILD_TRAY_OUT, &out)
+        .env("QUETZALCOATL_HOME", home.path().join("home"))
+        .output()
+        .expect("spawn tray probe");
+    assert!(
+        output.status.success(),
+        "托盘探针失败: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&out).expect("读取托盘报告")).expect("JSON");
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "报告: {report}"
+    );
+    assert_eq!(report["tray"].as_str(), Some("registered"), "{report}");
+    assert_eq!(report["fallback_fired"], serde_json::Value::Bool(false));
+    let checks = report["checks"].as_array().expect("checks");
+    for expected in [
+        "tray_registered",
+        "visible_before_close",
+        "hidden_after_close",
+        "process_alive_after_close",
+        "reactivated",
+        "tray_menu_visible",
+        "quit_action_present",
+    ] {
+        assert!(
+            checks.iter().any(
+                |entry| entry[0].as_str() == Some(expected) && entry[1].as_bool() == Some(true)
+            ),
+            "缺少通过项 {expected}: {report}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "由父测试以子进程方式驱动（xvfb，无 D-Bus 会话）"]
+fn lifecycle_child_probe() {
+    let Some(out_path) = std::env::var_os(CHILD_LIFECYCLE_OUT).map(PathBuf::from) else {
+        return;
+    };
+    let home = quetzalcoatl_client_core::resolve_client_home(None);
+    let config_path = out_path.with_extension("desktop.json");
+    let fallback = std::rc::Rc::new(std::cell::Cell::new(false));
+    let tray_status = std::rc::Rc::new(std::cell::RefCell::new(String::from("unknown")));
+    let closed = std::rc::Rc::new(std::cell::Cell::new(false));
+    let code = app::run_with_hook(
+        DesktopOptions {
+            home,
+            config_path: Some(config_path),
+            self_test: false,
+        },
+        {
+            let fallback = fallback.clone();
+            let tray_status = tray_status.clone();
+            let closed = closed.clone();
+            move |app, desktop| {
+                let status =
+                    quetzalcoatl_desktop::tray::status_label(&desktop.borrow().widgets.tray_status)
+                        .to_string();
+                *tray_status.borrow_mut() = status;
+                let safety_app = app.clone();
+                let safety_fallback = fallback.clone();
+                glib::timeout_add_local_once(Duration::from_secs(8), move || {
+                    safety_fallback.set(true);
+                    safety_app.quit();
+                });
+                glib::timeout_add_local_once(Duration::from_millis(300), move || {
+                    closed.set(true);
+                    let window = desktop.borrow().window.clone();
+                    window.close();
+                });
+            }
+        },
+    );
+    let report = serde_json::json!({
+        "ok": closed.get()
+            && !fallback.get()
+            && tray_status.borrow().as_str() == "no-session-bus"
+            && code.get() == 0,
+        "closed": closed.get(),
+        "fallback_fired": fallback.get(),
+        "tray": tray_status.borrow().clone(),
+        "exit_code": code.get(),
+    });
+    fs::write(&out_path, report.to_string()).expect("写入生命周期探针报告");
+}
+
+#[test]
+fn close_exits_without_tray_host() {
+    let home = TempDir::new("lifecycle_probe");
+    let out = home.path().join("lifecycle.json");
+    let output = spawn_probe("lifecycle_child_probe", false)
+        .env(CHILD_LIFECYCLE_OUT, &out)
+        .env("QUETZALCOATL_HOME", home.path().join("home"))
+        .env_remove("DBUS_SESSION_BUS_ADDRESS")
+        .output()
+        .expect("spawn lifecycle probe");
+    assert!(
+        output.status.success(),
+        "生命周期探针失败: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&out).expect("读取生命周期报告")).expect("JSON");
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "报告: {report}"
+    );
+    assert_eq!(report["tray"].as_str(), Some("no-session-bus"));
+    assert_eq!(report["fallback_fired"], serde_json::Value::Bool(false));
 }

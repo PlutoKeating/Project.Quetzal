@@ -7,8 +7,10 @@
 //! 2. `XDG_CONFIG_HOME/quetzalcoatl-desktop`；
 //! 3. `$HOME/.config/quetzalcoatl-desktop`。
 //!
-//! 落盘采用「同目录临时文件 + rename」的原子替换，损坏的 JSON 一律回退默认值而绝不
-//! 弹错误对话框（缺失/损坏配置不是用户需要被打断的错误）。
+//! 落盘采用「同目录、按进程唯一的临时文件 + rename」的原子替换（应用允许多实例，
+//! 临时名必须含 pid 以免互相覆盖）；损坏或字段缺失的 JSON 整体回退默认配置，
+//! 绝不逐字段猜测、也绝不弹错误对话框（缺失/损坏配置不是用户需要被打断的错误）。
+//! 只有 `maximized` 声明了 `#[serde(default)]`，其余字段缺失会走整体默认回退。
 //!
 //! 关于窗口位置：GTK4 已移除 `gtk_window_get_position()` / `gtk_window_move()`，
 //! Wayland 合成器亦禁止客户端指定绝对坐标，因此本端持久化**尺寸**（`default_width` /
@@ -104,7 +106,8 @@ impl DesktopConfig {
         }
         let json =
             serde_json::to_vec_pretty(&self.clone().sanitized()).map_err(io::Error::other)?;
-        let temp = path.with_extension("json.tmp");
+        // 应用声明 NON_UNIQUE（多实例），临时文件必须按进程唯一，避免互相覆盖。
+        let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
         fs::write(&temp, json)?;
         fs::rename(&temp, &path)
     }

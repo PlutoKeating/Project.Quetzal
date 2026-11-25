@@ -15,6 +15,8 @@ use zbus::zvariant::OwnedObjectPath;
 /// 托盘驻留状态。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayStatus {
+    /// 尚未尝试驻留（`build_desktop` 不启动托盘；由 `app::run_with_hook` 统一接线）。
+    Disabled,
     /// 已向 StatusNotifierWatcher 注册成功。
     Registered,
     /// 会话总线在线但没有 StatusNotifier 宿主（例如裸 Xvfb / 无托盘桌面）。
@@ -30,6 +32,7 @@ impl TrayStatus {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Disabled => "disabled",
             Self::Registered => "registered",
             Self::NoWatcher => "no-watcher",
             Self::NoSessionBus => "no-session-bus",
@@ -48,6 +51,14 @@ impl TrayStatus {
 #[must_use]
 pub const fn status_label(status: &TrayStatus) -> &'static str {
     status.label()
+}
+
+/// 托盘事件回调（从 D-Bus 线程投递；宿主必须自行跳回 GTK 主上下文）。
+pub struct TrayCallbacks {
+    /// 左键激活：通常用于呈现主窗口。
+    pub on_activate: Box<dyn Fn() + Send + Sync>,
+    /// 右键菜单：宿主没有 DBusMenu，由本端弹出原生菜单窗口。
+    pub on_context_menu: Box<dyn Fn() + Send + Sync>,
 }
 
 /// 托盘驻留句柄：持有总线连接即以保活，`Drop` 时随进程退出自动注销。
@@ -73,7 +84,7 @@ const WATCHER_PATH: &str = "/StatusNotifierWatcher";
 
 /// 启动托盘驻留（幂等、绝不 panic）。
 #[must_use]
-pub fn start(title: &str) -> TrayHandle {
+pub fn start(title: &str, callbacks: TrayCallbacks) -> TrayHandle {
     if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
         return unsupported(TrayStatus::NoSessionBus);
     }
@@ -93,6 +104,7 @@ pub fn start(title: &str) -> TrayHandle {
         status: String::from("Active"),
         icon_name: String::from("org.quetzalcoatl.Desktop"),
         menu,
+        callbacks: std::sync::Arc::new(callbacks),
     };
     if connection.object_server().at(ITEM_PATH, item).is_err() {
         return unsupported(TrayStatus::BusUnavailable);
@@ -135,6 +147,7 @@ struct StatusNotifierItem {
     status: String,
     icon_name: String,
     menu: OwnedObjectPath,
+    callbacks: std::sync::Arc<TrayCallbacks>,
 }
 
 #[zbus::interface(name = "org.kde.StatusNotifierItem")]
@@ -194,11 +207,17 @@ impl StatusNotifierItem {
         ""
     }
 
-    fn activate(&self, _x: i32, _y: i32) {}
+    fn activate(&self, _x: i32, _y: i32) {
+        (self.callbacks.on_activate)();
+    }
 
-    fn secondary_activate(&self, _x: i32, _y: i32) {}
+    fn secondary_activate(&self, _x: i32, _y: i32) {
+        (self.callbacks.on_activate)();
+    }
 
-    fn context_menu(&self, _x: i32, _y: i32) {}
+    fn context_menu(&self, _x: i32, _y: i32) {
+        (self.callbacks.on_context_menu)();
+    }
 
     fn scroll(&self, _delta: i32, _orientation: &str) {}
 }

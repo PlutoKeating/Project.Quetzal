@@ -5,9 +5,6 @@
 //! 该视图只披露 `Summary` 层：不出现 IPC、socket、pid、事件序号等任何术语；离线时
 //! 用日常语言说明下一步，并在「检视」里才展示技术原因。
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use gtk::prelude::*;
 use gtk4 as gtk;
 
@@ -32,7 +29,6 @@ pub struct CompanionView {
     pub hint: gtk::Label,
     /// 连接状态。
     pub status: gtk::Label,
-    last_announced: Rc<RefCell<String>>,
 }
 
 /// 构建陪伴态视图（不绑定任何回调，回调由 `crate::app` 统一接线）。
@@ -124,7 +120,6 @@ pub fn build() -> CompanionView {
         retry,
         hint,
         status,
-        last_announced: Rc::new(RefCell::new(String::new())),
     }
 }
 
@@ -162,13 +157,7 @@ pub fn render(view: &CompanionView, model: &UiModel) {
     } else {
         model.session.transcript()
     };
+    // 实时播报统一由 `app::ingest_stream_batch` 的应用级 LiveRegion 负责：
+    // 这里只渲染文本，绝不重复调用 announce()。
     view.transcript.set_text(&transcript);
-
-    let mut last = view.last_announced.borrow_mut();
-    if *last != transcript {
-        let snippet: String = transcript.chars().rev().take(120).collect::<String>();
-        let snippet: String = snippet.chars().rev().collect();
-        a11y::announce(&view.transcript, &snippet);
-        *last = transcript;
-    }
 }

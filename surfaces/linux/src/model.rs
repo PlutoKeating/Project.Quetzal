@@ -155,8 +155,12 @@ pub struct UiModel {
     pub session: SessionState,
     /// 连接状态。
     pub connection: ConnectionState,
-    /// 本地提示（例如尚未接线到守护进程的审批动作）。
+    /// 本地提示（工作台可见的零术语短句）。
     pub notices: Vec<String>,
+    /// 技术日志（错误码、socket、pid 等；仅检视态可见）。
+    pub technical_log: Vec<String>,
+    /// 良知锁定正文（`conscience_pinned`，仅检视态渲染）。
+    pub conscience_body: Option<String>,
 }
 
 impl UiModel {
@@ -170,6 +174,8 @@ impl UiModel {
             session: SessionState::new(),
             connection: ConnectionState::Offline { view },
             notices: Vec::new(),
+            technical_log: Vec::new(),
+            conscience_body: None,
         }
     }
 
@@ -198,6 +204,8 @@ impl UiModel {
                 spine_events,
             },
             notices: Vec::new(),
+            technical_log: Vec::new(),
+            conscience_body: None,
         }
     }
 
@@ -301,9 +309,25 @@ impl UiModel {
         self.session.streaming = false;
     }
 
-    /// 记录一条本地提示。
+    /// 记录一条本地提示（零术语，允许工作台展示）。
     pub fn notice(&mut self, text: impl Into<String>) {
         self.notices.push(text.into());
+    }
+
+    /// 记录一条技术细节（错误码/端点/pid；仅检视态展示）。
+    pub fn technical(&mut self, text: impl Into<String>) {
+        self.technical_log.push(text.into());
+    }
+
+    /// 最近一条助手消息（工作台的流式回复区直接复用）。
+    #[must_use]
+    pub fn last_assistant_text(&self) -> Option<&str> {
+        self.session
+            .messages
+            .iter()
+            .rev()
+            .find(|line| line.role == ChatRole::Assistant)
+            .map(|line| line.text.as_str())
     }
 
     /// 按当前密度投影出指定种类的行。

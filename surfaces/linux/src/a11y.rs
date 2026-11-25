@@ -42,3 +42,68 @@ where
 pub fn mark_multiline(widget: &impl IsA<gtk::Accessible>) {
     widget.update_property(&[gtk::accessible::Property::MultiLine(true)]);
 }
+
+/// 应用级实时播报区域（等价于一个全应用共享的 `aria-live` 区域）。
+///
+/// 它挂在窗口的 `GtkOverlay` 上、**不属于** 三档页栈，因此与当前认知密度无关；
+/// 每批流式回复只播报一次，计时器/页面切换不会重复播报。可视尺寸 1×1、透明度 0，
+/// 但仍被映射进 AT-SPI 树，辅助技术可以持续接收播报。
+pub struct LiveRegion {
+    widget: gtk::Label,
+    announcements: std::rc::Rc<std::cell::Cell<u64>>,
+}
+
+impl LiveRegion {
+    /// 构建播报区域（调用方负责把它挂到窗口 overlay）。
+    #[must_use]
+    pub fn new() -> Self {
+        let widget = gtk::Label::new(None);
+        widget.set_size_request(1, 1);
+        widget.set_opacity(0.0);
+        widget.set_can_focus(false);
+        widget.set_focusable(false);
+        widget.set_can_target(false);
+        widget.set_accessible_role(gtk::AccessibleRole::Status);
+        widget.update_property(&[gtk::accessible::Property::RoleDescription(
+            "全应用实时播报区域",
+        )]);
+        Self {
+            widget,
+            announcements: std::rc::Rc::new(std::cell::Cell::new(0)),
+        }
+    }
+
+    /// 挂载用的控件。
+    #[must_use]
+    pub fn widget(&self) -> &gtk::Label {
+        &self.widget
+    }
+
+    /// 已发生的播报次数（可观测性：测试断言「每批恰好一次」）。
+    #[must_use]
+    pub fn announcement_count(&self) -> u64 {
+        self.announcements.get()
+    }
+
+    /// 播报一段文本：更新实时区域内容 + 调 GTK 4.14 `announce()`。
+    pub fn announce(&self, text: &str) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        self.widget
+            .update_property(&[gtk::accessible::Property::Label(text)]);
+        if self.widget.is_realized() {
+            self.widget
+                .announce(text, gtk::AccessibleAnnouncementPriority::Medium);
+        }
+        self.announcements
+            .set(self.announcements.get().saturating_add(1));
+    }
+}
+
+impl Default for LiveRegion {
+    fn default() -> Self {
+        Self::new()
+    }
+}

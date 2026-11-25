@@ -23,7 +23,7 @@ pub struct InspectorView {
     pub tool_list: gtk::ListBox,
     /// 审计事件列表。
     pub audit_list: gtk::ListBox,
-    /// 技术原因（离线时高亮）。
+    /// 运行技术细节（pid / IPC 端点 / 脊柱水位 / 技术日志；仅检视态允许出现）。
     pub technical: gtk::Label,
     /// 推理增量（流式 `Reasoning` 事件）。
     pub reasoning: gtk::Label,
@@ -92,19 +92,30 @@ pub fn build() -> InspectorView {
 
 /// 用当前模型刷新检视态。
 pub fn render(view: &InspectorView, model: &UiModel) {
-    let technical = match (&model.connection, model.degraded()) {
-        (model::ConnectionState::Offline { .. }, Some(degraded)) => {
-            view.technical.set_visible(true);
-            Some(degraded.technical_line())
+    // 运行技术细节（pid / socket / 错误码）只允许出现在检视态。
+    let mut technical: Vec<String> = Vec::new();
+    match &model.connection {
+        model::ConnectionState::Online {
+            pid,
+            endpoint,
+            spine_events,
+        } => {
+            technical.push(format!("pid {pid}"));
+            technical.push(format!("ipc {endpoint}"));
+            technical.push(format!("spine_events {spine_events}"));
         }
-        (model::ConnectionState::Online { .. }, _) => {
-            view.technical.set_visible(false);
-            None
+        model::ConnectionState::Offline { .. } => {
+            if let Some(degraded) = model.degraded() {
+                technical.push(degraded.technical_line());
+            }
         }
-        (_, None) => None,
-    };
-    if let Some(technical) = technical {
-        view.technical.set_text(&technical);
+    }
+    technical.extend(model.technical_log.iter().cloned());
+    if technical.is_empty() {
+        view.technical.set_visible(false);
+    } else {
+        view.technical.set_text(&technical.join("\n"));
+        view.technical.set_visible(true);
     }
 
     if model.session.reasoning.trim().is_empty() {
@@ -139,6 +150,24 @@ pub fn render(view: &InspectorView, model: &UiModel) {
             expander.add_row(&raw_label);
         }
         a11y::set_label(&expander, &row.summary);
+        view.conscience_list.append(&expander);
+    }
+    if let Some(body) = &model.conscience_body {
+        let expander = adw::ExpanderRow::new();
+        expander.set_title("良知锁定正文（仅检视态）");
+        expander.set_subtitle(&format!(
+            "{} 字符 · 来自本机 `conscience_pinned`",
+            body.chars().count()
+        ));
+        let body_label = gtk::Label::new(Some(body));
+        body_label.set_xalign(0.0);
+        body_label.set_wrap(true);
+        body_label.set_selectable(true);
+        body_label.add_css_class("monospace");
+        body_label.add_css_class("caption");
+        a11y::set_label(&body_label, "良知锁定正文");
+        expander.add_row(&body_label);
+        a11y::set_label(&expander, "良知锁定正文（仅检视态）");
         view.conscience_list.append(&expander);
     }
 

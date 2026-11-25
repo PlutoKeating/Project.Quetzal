@@ -140,10 +140,28 @@ enum IpcCallerAuth {
     ScopedWorkerHook(RunId),
 }
 
+/// 桌面端响应式快照行（与 `quetzalcoatl-client-core::ViewRow` 字段一一对应）。
+///
+/// 仅供本机认证 IPC 的 `desktop_snapshot` 使用：`raw_json` 与良知正文只在检视态
+/// 由客户端投影显示，绝不进入 Companion/Workbench 的披露层。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopRow {
+    pub key: String,
+    pub kind: String,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_json: Option<String>,
+    pub updated_rev: u64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
 pub enum IpcRequest {
     Status,
+    /// 桌面端三档密度快照（会话/目标/良知/审计行）；只读、只经本机认证 IPC。
+    DesktopSnapshot,
     Agents,
     Chat(ChatRequest),
     ExploreTick {
@@ -337,6 +355,11 @@ pub enum GroupSenderWire {
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum IpcResponse {
     Status(Box<DaemonStatus>),
+    /// 桌面端响应式快照（`rev` 为脊柱事件水位，行按 key 幂等覆盖）。
+    DesktopSnapshot {
+        rev: u64,
+        rows: Vec<DesktopRow>,
+    },
     Agents(DiscoveryReport),
     Chat(Box<ChatResponse>),
     ExploreTick(ExploreWakeReport),

@@ -8,9 +8,13 @@ GTK4 + 动态链接 `libadwaita-1` 的纯原生桌面与托盘客户端，可与
 
 | 密度 | 快捷键 | 披露层级 | 内容 |
 | --- | --- | --- | --- |
-| 陪伴（Companion） | `Ctrl+1` | `Summary` | 零术语、≥64pt 触点、流式对话正文与实时播报 |
-| 工作台（Workbench） | `Ctrl+2` | `Summary + Detail` | 会话、项目、审批、工作流、消息输入 |
-| 检视（Inspector） | `Ctrl+3` | `Summary + Detail + Raw` | 良知树、工具调用、审计原始载荷、推理增量 |
+| 陪伴（Companion） | `Ctrl+1` / `Ctrl+Shift+1` | `Summary` | 零术语、≥64pt 触点、流式对话正文 |
+| 工作台（Workbench） | `Ctrl+2` / `Ctrl+Shift+2` | `Summary + Detail` | 会话、项目、审批、工作流、消息输入与同一份对话正文 |
+| 检视（Inspector） | `Ctrl+3` / `Ctrl+Shift+3` | `Summary + Detail + Raw` | 良知树/锁定正文、工具、审计、运行技术细节 |
+
+快捷键注册为 `GAction` + accelerator（布局无关，AZERTY 等布局同样可用）；运行技术细节
+（pid、IPC 端点、错误码）只出现在检视态。在线启动时经本地认证 IPC 拉取
+`desktop_snapshot`（会话/运行进展/良知/审计),并以差分 `ViewPatch` 幂等落入 UI。
 
 切换只替换可见页，不重建窗口、不重放流，因此会话与流状态天然保持；当前密度写入
 配置目录，重启后自动恢复。
@@ -18,7 +22,9 @@ GTK4 + 动态链接 `libadwaita-1` 的纯原生桌面与托盘客户端，可与
 ## 2. 构建
 
 ```bash
-# 依赖：GTK 4（>= 4.10，`announce()` 需要 >= 4.14）与 libadwaita 1（>= 1.9）开发包
+# 依赖：GTK 4 >= 4.14（编译开启 gtk4 crate 的 v4_10/v4_14 特性，announce() 需 4.14）
+#      与 libadwaita >= 1.9（编译开启 libadwaita crate 的 v1_9 + gtk_v4_10 特性）
+# 注意：加入本 crate 后，`cargo clippy/test --workspace` 也需要这两个开发包与 xvfb。
 sudo apt install libgtk-4-dev libadwaita-1-dev xvfb
 
 cargo build -p quetzalcoatl-desktop
@@ -64,7 +70,9 @@ SELF_TEST_OK window=visible density=workbench connected=true degraded=0 tray=no-
 后立即退出（退出码 0）。它不写任何后端数据，只用于 CI 冒烟。
 
 配置目录优先级：`QUETZALCOATL_DESKTOP_CONFIG_DIR` → `$XDG_CONFIG_HOME/quetzalcoatl-desktop`
-→ `$HOME/.config/quetzalcoatl-desktop`（文件 `desktop.json`，原子写入，损坏即回退默认值）。
+→ `$HOME/.config/quetzalcoatl-desktop`（文件 `desktop.json`，同目录 `<pid>.tmp` 原子替换；
+应用声明 `NON_UNIQUE`，临时名含 pid 以免多实例互相覆盖；JSON 损坏或必填字段缺失时整体
+回退默认配置，只有 `maximized` 带 `#[serde(default)]`）。
 
 ## 5. 降级行为（绝不崩溃、绝不弹错误对话框）
 
@@ -73,8 +81,12 @@ SELF_TEST_OK window=visible density=workbench connected=true degraded=0 tray=no-
 | `quetzalcoatld` 未运行 | 类型化离线视图 + 一句话说明 + 「重新连接」按钮 | `connected=false degraded=1` |
 | 运行凭证权限过宽 | 主动拒绝连接并提示 `0600` 修复 | `connected=false degraded=1` |
 | 无 `DBUS_SESSION_BUS_ADDRESS` | 托盘静默关闭，窗口正常 | `tray=no-session-bus` |
-| 有总线但无 StatusNotifier 宿主 | 托盘对象仍导出，不报错 | `tray=no-watcher` |
-| 总线不可连接 | 托盘静默关闭 | `tray=bus-unavailable` |
+| 有总线但无 StatusNotifier 宿主 | 托盘对象仍导出，不报错；关闭窗口即退出 | `tray=no-watcher` |
+| 总线不可连接 | 托盘静默关闭；关闭窗口即退出 | `tray=bus-unavailable` |
+
+托盘驻留成功时（`tray=registered`）关闭窗口只隐藏（`app.hold()` 保活），左键 `Activate`
+重新呈现主窗口；右键 `ContextMenu` 弹出原生托盘菜单（显示主窗口 / 退出），只有菜单里的
+「退出」会真正结束进程。Rust API 类型的宿主使用同样的「关窗隐藏」语义。
 
 ## 6. 无障碍（AT-SPI）
 
@@ -103,8 +115,10 @@ SELF_TEST_OK window=visible density=workbench connected=true degraded=0 tray=no-
   客户端指定绝对坐标，故只持久化尺寸/最大化，位置由合成器管理。
 - **审批动作**：`win.approve`/`win.deny` 目前只记录本地提示，守护进程尚未提供审批写回
   IPC（待后续任务接线，绝不伪造成功）。
-- **流式对话**：模型已消费 `quetzalcoatl-client-core` 的拉模式 `ViewStream`；守护进程当前
-  `Chat` 返回整段回复，因此 UI 以单个 `Delta + Done` 批次呈现，token 级 SSE 待守护进程侧
-  暴露流式通道后接入。
-- **托盘菜单**：仅导出 `StatusNotifierItem`，`Menu` 指向 `/NO_DBUS_MENU`（无 DBusMenu），
-  左键激活语义由宿主决定。
+- **流式对话**：UI 模型完整支持 `quetzalcoatl-client-core` 的拉模式 `ViewStream` 批次
+  （测试直接以 `ScriptedSource` 驱动）；生产路径目前是 `Chat` IPC 在工作线程执行、
+  `glib::timeout_add_local` 轮询回包，并把整段回复映射为一个 `Delta + Done` 批次。
+  token 级 SSE 待守护进程侧暴露流式通道后接入，届时仅替换生产者、模型契约不变。
+- **托盘菜单**：导出 `StatusNotifierItem` 且 `Menu=/NO_DBUS_MENU`（无 DBusMenu）；宿主调用
+  `ContextMenu` 时由本端弹出原生 Gtk 菜单窗口，菜单项是 `app.show-window` / `app.quit`
+  两个 GAction。

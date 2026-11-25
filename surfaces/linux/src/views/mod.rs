@@ -69,3 +69,46 @@ pub fn empty_row(text: &str) -> adw::ActionRow {
     row.add_css_class("dim-label");
     row
 }
+
+/// 递归收集一个视图根下面所有可见文案（Label/AdwActionRow/AdwExpanderRow/Button）。
+///
+/// 用途有两个：无头测试断言「工作台不得出现 pid/socket/错误码」这类披露契约，
+/// 以及调试时快速 dump 界面。它不触发任何布局或后端调用。
+#[must_use]
+pub fn visible_text(root: &impl IsA<gtk::Widget>) -> String {
+    let mut out = String::new();
+    collect_text(root.as_ref(), &mut out);
+    out
+}
+
+fn collect_text(widget: &gtk::Widget, out: &mut String) {
+    if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+        push_text(out, &label.text());
+    }
+    if let Some(row) = widget.downcast_ref::<adw::ExpanderRow>() {
+        push_text(out, &row.title());
+        push_text(out, &row.subtitle());
+    } else if let Some(row) = widget.downcast_ref::<adw::ActionRow>() {
+        push_text(out, &row.title());
+        if let Some(subtitle) = row.subtitle() {
+            push_text(out, &subtitle);
+        }
+    }
+    if let Some(button) = widget.downcast_ref::<gtk::Button>()
+        && let Some(label) = button.label()
+    {
+        push_text(out, &label);
+    }
+    let mut child = widget.first_child();
+    while let Some(node) = child {
+        collect_text(&node, out);
+        child = node.next_sibling();
+    }
+}
+
+fn push_text(out: &mut String, text: &str) {
+    if !text.trim().is_empty() {
+        out.push_str(text);
+        out.push('\n');
+    }
+}
