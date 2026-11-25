@@ -163,6 +163,30 @@ struct DesktopViewModelTests {
         #expect(viewModel.snapshot.transcript.components(separatedBy: "今晚").count - 1 == 1)
     }
 
+    @Test("回复批次保持连接状态不变且只播报一次")
+    func replyBatchesKeepConnectionStatusStableAndAnnounceOnce() {
+        let sink = RecordingAnnouncementSink()
+        let viewModel = DesktopViewModel(
+            model: .online(pid: 7, endpoint: "127.0.0.1:9", spineEvents: 5, density: .workbench),
+            sink: sink)
+        let before = viewModel.snapshot.statusText
+
+        viewModel.ingest([
+            StreamEvent(seq: 1, kind: .delta, text: "第一段"),
+            StreamEvent(seq: 2, kind: .delta, text: "第二段"),
+        ])
+
+        // status.connection 是实时区域：回复批次不得改动它，否则会二次播报。
+        #expect(viewModel.snapshot.statusText == before)
+        #expect(viewModel.snapshot.statusText == CompanionCopy.statusOnline)
+        #expect(viewModel.snapshot.streamingIndicator == CompanionCopy.statusStreaming)
+        #expect(viewModel.announcementCount == 1)
+
+        viewModel.ingest([StreamEvent(seq: 3, kind: .done, text: "stop")])
+        #expect(viewModel.snapshot.streamingIndicator.isEmpty)
+        #expect(viewModel.snapshot.statusText == before)
+    }
+
     @Test("Done 事件收束流")
     func doneEventStopsStreaming() {
         let (viewModel, _) = offlineViewModel()

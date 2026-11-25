@@ -66,7 +66,8 @@ Quetzalcoatl.App.exe --self-test --demo-rows --report C:\Temp\self-test.txt
 `tests\Quetzalcoatl.UiSmoke` 是外部 UIA 客户端（WPF 自带的 `System.Windows.Automation`）：
 启动真实窗口 → 逐档选中 `tab.companion` / `tab.workbench` / `tab.inspector` → 读取 UIA 树 →
 对照 `Quetzalcoatl.Desktop.A11y.DesktopControlCatalog` 校验名称、控件类型、键盘可达、
-Invoke/Value 模式、`LiveSetting` 与触点尺寸。
+Invoke/Value 模式、`status.connection` 的 `LiveSetting`、条件可见控件（重连按钮/未连接说明/
+流式进度）仅在其状态成立时校验，以及触点尺寸。
 
 ```powershell
 # 交互式桌面（RDP / 控制台登录）中：
@@ -113,8 +114,10 @@ schtasks /Run /TN QzUiSmoke
   Invoke / Value / SelectionItem 模式与键盘可达）；
 - 密度切换是原生 `TabView`（`TabItem` + `SelectionItem`），`Ctrl+1/2/3` 键盘加速器；
 - 对话区/标题/状态/说明是**内容承载控件**：不设置 `AutomationProperties.Name`，屏幕阅读器朗读
-  真实内容（区块说明只放在 HelpText）；流式批次**每批只播报一次**，唯一播报机制是
-  `StreamingAnnouncer` + `AutomationPeer.RaiseNotificationEvent`（不使用 LiveSetting 自动播报）；
+  真实内容（区块说明只放在 HelpText）；
+- 播报分两条互不重叠的通道：①`status.connection` 保留 `LiveSetting=Polite`，只在**连接状态**
+  变化时播报；②流式回复批次由 `StreamingAnnouncer` + `AutomationPeer.RaiseNotificationEvent`
+  **每批恰好一次**。流式提示是非实时的 `ProgressBar` + 文本，不会触发第二次播报；
 - `DesktopControlCatalog` 是唯一事实来源：单测静态比对真实 XAML 的 AutomationId/Name，
   UIA 冒烟再用真实自动化树比对一次，任何 XAML 漂移都会让 `dotnet test` 失败。
 
@@ -164,4 +167,4 @@ copy target\release\quetzalcoatl_uniffi.dll `
   无法在真实 Windows 编译器上验证 CAxxxx 规则与 WinUI 生成代码的兼容性；恢复后先在
   `Quetzalcoatl.Desktop` / `Quetzalcoatl.Interop` 开启 `AnalysisMode=Recommended` 再收敛。
 - **跨平台运行期验证 `Deferred (VMs paused by owner)`**：本轮修复只做了宿主侧编译与
-  `Quetzalcoatl.Desktop.Tests`（30/30）；WinUI 应用编译与 UIA 冒烟需在恢复后的 windows-lab 上复跑。
+  `Quetzalcoatl.Desktop.Tests`（32/32）；WinUI 应用编译与 UIA 冒烟需在恢复后的 windows-lab 上复跑。

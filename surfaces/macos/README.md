@@ -91,8 +91,9 @@ plist 含 `RunAtLoad`、`KeepAlive{SuccessfulExit:false}`、`ThrottleInterval=10
   SwiftUI 自动提供 `.isButton` / `.isTextField` 等原生 traits）；
 - 密度切换按钮带 `.isSelected` trait 与 `⌘1/2/3` 快捷键；
 - 对话正文/标题/连接状态/未连接说明是**内容承载控件**：不设置 `.accessibilityLabel`，
-  VoiceOver 朗读真实内容；每批流事件**恰好一次** `NSAccessibility.post(.announcementRequested)`
-  （`medium` 优先级），不再使用隐藏 live region，避免双播报；
+  VoiceOver 朗读真实内容；播报分两条互不重叠的通道：①连接状态只在连接变化时更新；
+  ②每批流事件**恰好一次** `NSAccessibility.post(.announcementRequested)`（`medium` 优先级）。
+  流式提示拆到非实时 `companion.streaming`（ProgressView + 文本），避免二次播报；
 - `AccessibilityCatalog` 是唯一事实来源：单测扫描真实 SwiftUI 源码，断言每个 id/名称都出现、
   且源码里没有未登记的 id。
 

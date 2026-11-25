@@ -116,12 +116,14 @@
                                     <Button
                                         AutomationProperties.AutomationId="{Binding Key, Converter={StaticResource RowAutomationId}, ConverterParameter=workbench.approve}"
                                         AutomationProperties.Name="批准这项操作"
+                                        AutomationProperties.HelpText="{Binding Summary}"
                                         Click="OnApproveClick"
                                         Content="批准"
                                         Tag="{Binding Key}" />
                                     <Button
                                         AutomationProperties.AutomationId="{Binding Key, Converter={StaticResource RowAutomationId}, ConverterParameter=workbench.deny}"
                                         AutomationProperties.Name="拒绝这项操作"
+                                        AutomationProperties.HelpText="{Binding Summary}"
                                         Click="OnDenyClick"
                                         Content="拒绝"
                                         Tag="{Binding Key}" />

@@ -1,5 +1,6 @@
 namespace Quetzalcoatl.Interop;
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
@@ -152,7 +153,16 @@ public static class LocalDaemonProbe
             $"已通过令牌认证握手：pid={pid} endpoint={endpoint} spine_events={reply.SpineEvents}");
     }
 
-    private static bool IsProcessAlive(uint pid)
+    /// <summary>
+    /// 判定探测 pid 存活时遇到的异常是否等价于「进程不存在/不可访问」。
+    /// 受保护或已复用 pid 的 <see cref="Process.HasExited"/> 会抛 <see cref="Win32Exception"/>，
+    /// 必须当作不存活处理，绝不能让异常逃逸到 <c>App.Boot</c>。
+    /// </summary>
+    public static bool IsNotAliveError(Exception error) =>
+        error is ArgumentException or InvalidOperationException or Win32Exception;
+
+    /// <summary>进程是否存活（pid=0、已退出、受保护/已复用 pid 均返回 false）。</summary>
+    public static bool IsProcessAlive(uint pid)
     {
         if (pid == 0)
         {
@@ -164,11 +174,7 @@ public static class LocalDaemonProbe
             using var process = Process.GetProcessById((int)pid);
             return !process.HasExited;
         }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
+        catch (Exception error) when (IsNotAliveError(error))
         {
             return false;
         }

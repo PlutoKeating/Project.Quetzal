@@ -79,9 +79,11 @@ struct WorkbenchView: View {
                             Button("批准") { onApprove(row.key, true) }
                                 .accessibilityIdentifier("workbench.approve/\(row.key)")
                                 .accessibilityLabel("批准这项操作")
+                                .accessibilityHint(row.summary)
                             Button("拒绝") { onApprove(row.key, false) }
                                 .accessibilityIdentifier("workbench.deny/\(row.key)")
                                 .accessibilityLabel("拒绝这项操作")
+                                .accessibilityHint(row.summary)
                         }
                     }
                 }

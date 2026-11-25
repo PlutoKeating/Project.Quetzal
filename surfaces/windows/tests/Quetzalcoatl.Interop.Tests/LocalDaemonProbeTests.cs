@@ -1,5 +1,6 @@
 namespace Quetzalcoatl.Interop.Tests;
 
+using System.ComponentModel;
 using Quetzalcoatl.Desktop.Model;
 using Quetzalcoatl.Interop;
 
@@ -54,6 +55,17 @@ public sealed class LocalDaemonProbeTests : IDisposable
     private static uint LivePid() => (uint)Environment.ProcessId;
 
     private static string Token() => new('a', 64);
+
+    [Fact]
+    public void ProtectedOrReusedPidErrorsAreClassifiedAsNotAlive()
+    {
+        // 受保护/已复用 pid 的 HasExited 会抛 Win32Exception（如 ERROR_ACCESS_DENIED=5）。
+        Assert.True(LocalDaemonProbe.IsNotAliveError(new Win32Exception(5)));
+        Assert.True(LocalDaemonProbe.IsNotAliveError(new ArgumentException("no such pid")));
+        Assert.True(LocalDaemonProbe.IsNotAliveError(new InvalidOperationException("exited")));
+        Assert.False(LocalDaemonProbe.IsNotAliveError(new IOException("disk")));
+        Assert.False(LocalDaemonProbe.IsProcessAlive(0));
+    }
 
     [Fact]
     public void MissingRuntimeFilesDegradeToDaemonUnavailable()

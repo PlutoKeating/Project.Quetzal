@@ -64,10 +64,20 @@ struct CompanionView: View {
                     .accessibilityLabel("重新连接本机助手")
             }
 
-            Text(snapshot.statusText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("companion.status")
+            HStack(spacing: 8) {
+                Text(snapshot.statusText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("companion.status")
+                if snapshot.isStreaming {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(snapshot.streamingIndicator)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("companion.streaming")
+                }
+            }
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

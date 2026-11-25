@@ -87,6 +87,7 @@ public enum AccessibilityCatalog {
             isInteractive: true,
             minTarget: 64),
         AccessibilityControl(id: "companion.status", label: "连接状态", kind: .staticText, nameIsContent: true),
+        AccessibilityControl(id: "companion.streaming", label: "正在回复", kind: .staticText, nameIsContent: true),
         AccessibilityControl(id: "workbench.transcript", label: "工作台对话内容", kind: .staticText, nameIsContent: true),
         AccessibilityControl(id: "workbench.entry", label: "工作台输入框", kind: .textField, isInteractive: true, minTarget: 32),
         AccessibilityControl(id: "workbench.send", label: "工作台发送按钮", kind: .button, isInteractive: true, minTarget: 32),

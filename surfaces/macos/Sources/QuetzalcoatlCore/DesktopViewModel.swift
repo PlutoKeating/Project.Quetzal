@@ -46,6 +46,8 @@ public struct DesktopSnapshot: Sendable, Equatable {
     public var showRetry: Bool
     public var isInputEnabled: Bool
     public var statusText: String
+    /// 流式进行中的非实时提示（绝不触发 live region 自动播报）。
+    public var streamingIndicator: String
     public var isDegraded: Bool
     public var degradedTitle: String
     public var degradedDetail: String
@@ -198,9 +200,8 @@ public final class DesktopViewModel: ObservableObject {
             showHint: isDegraded,
             showRetry: isDegraded,
             isInputEnabled: model.connection.isOnline,
-            statusText: isDegraded
-                ? CompanionCopy.statusOffline
-                : (model.session.streaming ? CompanionCopy.statusStreaming : CompanionCopy.statusOnline),
+            statusText: isDegraded ? CompanionCopy.statusOffline : CompanionCopy.statusOnline,
+            streamingIndicator: model.session.streaming ? CompanionCopy.statusStreaming : "",
             isDegraded: isDegraded,
             degradedTitle: degraded?.title ?? "",
             degradedDetail: degradedDetail,

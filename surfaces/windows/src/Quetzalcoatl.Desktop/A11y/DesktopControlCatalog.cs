@@ -59,6 +59,19 @@ public enum ControlTraits
     SelectionItem = 1 << 3,
 }
 
+/// <summary>控件的可见状态：仅当对应状态成立时才出现在 UI Automation 树中。</summary>
+public enum ControlAvailability
+{
+    /// <summary>始终存在。</summary>
+    Always,
+
+    /// <summary>仅流式进行中可见（如流式进度条）。</summary>
+    WhileStreaming,
+
+    /// <summary>仅降级/离线时可见（如重连按钮与未连接说明）。</summary>
+    WhileDegraded,
+}
+
 /// <summary>控件所属的表面（主窗口或托盘菜单）。</summary>
 public enum ControlSurface
 {
@@ -79,7 +92,8 @@ public sealed record ControlContract(
     string Description = "",
     ControlSurface Surface = ControlSurface.MainWindow,
     bool NameIsContent = false,
-    bool IsDynamicId = false)
+    bool IsDynamicId = false,
+    ControlAvailability Availability = ControlAvailability.Always)
 {
     /// <summary>是否需要键盘可达。</summary>
     public bool IsInteractive =>
@@ -109,7 +123,7 @@ public static class DesktopControlCatalog
         new("tab.workbench", "工作台视图（Ctrl+2）", ControlKind.TabItem, ControlTraits.KeyboardFocusable | ControlTraits.SelectionItem),
         new("tab.inspector", "检视视图（Ctrl+3）", ControlKind.TabItem, ControlTraits.KeyboardFocusable | ControlTraits.SelectionItem),
         new("status.connection", "连接状态提示", ControlKind.Text, ControlTraits.None, NameIsContent: true),
-        new("status.degraded", "未连接说明", ControlKind.Text, ControlTraits.None, NameIsContent: true),
+        new("status.degraded", "未连接说明", ControlKind.Text, ControlTraits.None, NameIsContent: true, Availability: ControlAvailability.WhileDegraded),
         new("companion.heading", "陪伴视图标题", ControlKind.Text, ControlTraits.None, NameIsContent: true),
         new(
             "companion.transcript",
@@ -119,12 +133,12 @@ public static class DesktopControlCatalog
             0,
             CompanionCopy.TranscriptDescription,
             NameIsContent: true),
-        new("companion.hint", "未连接时的说明", ControlKind.Text, ControlTraits.None, NameIsContent: true),
+        new("companion.hint", "未连接时的说明", ControlKind.Text, ControlTraits.None, NameIsContent: true, Availability: ControlAvailability.WhileDegraded),
         new("companion.entry", "想说的话", ControlKind.Edit, ControlTraits.KeyboardFocusable | ControlTraits.ValuePattern, 64, "输入一句话，按回车或点发送"),
         new("companion.send", "发送这句话", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 64),
-        new("companion.retry", "重新连接本机助手", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 64),
+        new("companion.retry", "重新连接本机助手", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 64, Availability: ControlAvailability.WhileDegraded),
         new("companion.status", "连接状态", ControlKind.Text, ControlTraits.None, NameIsContent: true),
-        new("companion.streaming", "正在回复", ControlKind.ProgressBar, ControlTraits.None),
+        new("companion.streaming", "正在回复", ControlKind.ProgressBar, ControlTraits.None, Availability: ControlAvailability.WhileStreaming),
         new("workbench.transcript", "工作台对话内容", ControlKind.Text, ControlTraits.None, NameIsContent: true),
         new("workbench.entry", "工作台输入框", ControlKind.Edit, ControlTraits.KeyboardFocusable | ControlTraits.ValuePattern, 32),
         new("workbench.send", "工作台发送按钮", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 32),
@@ -215,7 +229,8 @@ public static class A11yContractValidator
     public static IReadOnlyList<string> Validate(
         IEnumerable<ObservedControl> observed,
         ControlSurface surface = ControlSurface.MainWindow,
-        IReadOnlyCollection<string>? onlyIds = null)
+        IReadOnlyCollection<string>? onlyIds = null,
+        IReadOnlySet<ControlAvailability>? activeStates = null)
     {
         ArgumentNullException.ThrowIfNull(observed);
         var items = observed.Where(item => !string.IsNullOrEmpty(item.AutomationId)).ToArray();
@@ -224,6 +239,13 @@ public static class A11yContractValidator
         foreach (var contract in DesktopControlCatalog.ForSurface(surface))
         {
             if (onlyIds is not null && !onlyIds.Contains(contract.AutomationId))
+            {
+                continue;
+            }
+
+            // 条件可见控件（重连/未连接说明/流式进度）只在对应状态成立时才要求出现在 UIA 树。
+            if (contract.Availability != ControlAvailability.Always
+                && (activeStates is null || !activeStates.Contains(contract.Availability)))
             {
                 continue;
             }

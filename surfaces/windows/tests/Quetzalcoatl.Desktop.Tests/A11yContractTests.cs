@@ -159,6 +159,36 @@ public sealed class A11yContractTests
     }
 
     [Fact]
+    public void ConditionalControlsAreOnlyValidatedInTheirState()
+    {
+        var observed = DesktopControlCatalog.ForSurface(ControlSurface.MainWindow)
+            .Where(contract => contract.Availability == ControlAvailability.Always)
+            .Select(contract => new ObservedControl(
+                contract.IsDynamicId ? $"{contract.AutomationId}/row-1" : contract.AutomationId,
+                contract.NameIsContent ? "真实内容" : contract.AccessibleName,
+                contract.Kind,
+                IsKeyboardFocusable: (contract.Traits & ControlTraits.KeyboardFocusable) != 0,
+                IsInvokeAvailable: (contract.Traits & ControlTraits.Invoke) != 0,
+                IsValueAvailable: (contract.Traits & ControlTraits.ValuePattern) != 0,
+                Width: Math.Max(contract.MinTargetPx, 120),
+                Height: Math.Max(contract.MinTargetPx, 48)))
+            .ToArray();
+
+        // 非对应状态下，条件可见控件不应被判为缺失（否则离线/在线切换时冒烟必然失败）。
+        Assert.Empty(A11yContractValidator.Validate(observed));
+
+        var streaming = new HashSet<ControlAvailability> { ControlAvailability.WhileStreaming };
+        Assert.Contains(
+            A11yContractValidator.Validate(observed, activeStates: streaming),
+            issue => issue.Contains("companion.streaming", StringComparison.Ordinal));
+
+        var degraded = new HashSet<ControlAvailability> { ControlAvailability.WhileDegraded };
+        var degradedIssues = A11yContractValidator.Validate(observed, activeStates: degraded);
+        Assert.Contains(degradedIssues, issue => issue.Contains("companion.retry", StringComparison.Ordinal));
+        Assert.Contains(degradedIssues, issue => issue.Contains("status.degraded", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void CompanionCopyIsZeroJargon()
     {
         var issues = ZeroJargon.AuditCompanionCopy();
