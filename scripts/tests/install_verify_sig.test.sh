@@ -37,6 +37,11 @@ command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || ski
 [ -f "$INSTALLER" ] || { printf 'FAIL: installer not found: %s\n' "$INSTALLER"; exit 1; }
 [ -x "$KEYCHECK" ] || { printf 'FAIL: release key checker not executable: %s\n' "$KEYCHECK"; exit 1; }
 
+# GitHub 的 ubuntu runner 会预设 XDG_CONFIG_HOME（指向 runner 自己的家目录）。
+# 安装器尊重 XDG 是正确行为，但本套测试断言的是「仅由 HOME 驱动的默认布局」，
+# 因此先把这两个变量摘掉，保证本地与 CI 结果一致、且互不污染真实家目录。
+unset XDG_CONFIG_HOME XDG_DATA_HOME
+
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
   else shasum -a 256 "$1" | cut -d' ' -f1; fi
@@ -215,6 +220,14 @@ check "systemd user unit written (not enabled)" bash -c \
 check "unit points at the installed daemon" expect_contains \
   "$C1/.config/systemd/user/quetzalcoatld.service" "$C1/prefix/bin/quetzalcoatld"
 check "state dir records the installed version" expect_contains "$C1/.local/share/quetzalcoatl/installed-version" "1.0.0"
+C1D="$WORK/c1d"
+mkdir -p "$C1D"
+check "XDG_CONFIG_HOME is honoured when the user sets it" bash -c \
+  "HOME='$C1D' XDG_CONFIG_HOME='$C1D/xdgconf' QZ_PREFIX='$C1D/prefix' QUETZALCOATL_HOME='$C1D/qzhome' \
+   QZ_RELEASE_BASE='$BASE/v1.0.0' QZ_TEST_RELEASE_PUBKEY='$PUB' QZ_SKIP_SERVICE=1 \
+   bash '$INSTALLER' --version 1.0.0 --no-desktop >/dev/null 2>&1 \
+   && test -f '$C1D/xdgconf/systemd/user/quetzalcoatld.service' \
+   && test ! -e '$C1D/.config/systemd/user/quetzalcoatld.service'"
 check "installer never invokes sudo" bash -c "! grep -Eq '^[[:space:]]*sudo([[:space:]]|$)|\\\$\([[:space:]]*sudo|&&[[:space:]]*sudo|[;|][[:space:]]*sudo' '$INSTALLER'"
 
 # ---------------------------------------------------------------- 3. idempotent re-run
