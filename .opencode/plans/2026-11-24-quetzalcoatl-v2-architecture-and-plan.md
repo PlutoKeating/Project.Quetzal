@@ -606,10 +606,10 @@
 - Consumes: 直接 Rust 依赖 `quetzalcoatl-client-core`（零 FFI 开销）
 - Produces: `quetzalcoatl-desktop` Linux 原生可执行文件与 `.desktop` 规范文件。
 
-- [ ] **Step 1: 编写 ELF 动态链接合规检查（确保 `libadwaita-1` 动态链接满足 LGPL-2.1）与三态视图状态切换测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 GTK4/Adwaita 三态界面、AT-SPI 无障碍语义树与托盘驻留**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写 ELF 动态链接合规检查（确保 `libadwaita-1` 动态链接满足 LGPL-2.1）与三态视图状态切换测试**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现 GTK4/Adwaita 三态界面、AT-SPI 无障碍语义树与托盘驻留**
+- [x] **Step 4: 验证通过并提交**
 
 ---
 

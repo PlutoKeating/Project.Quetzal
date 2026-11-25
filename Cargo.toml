@@ -19,6 +19,7 @@ members = [
     "crates/quetzalcoatl-client-core",
     "crates/bindings/quetzalcoatl-uniffi",
     "crates/bindings/quetzalcoatl-wasm",
+    "surfaces/linux",
 ]
 
 [workspace.package]

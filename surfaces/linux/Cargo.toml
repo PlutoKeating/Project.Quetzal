@@ -1,0 +1,35 @@
+[package]
+name = "quetzalcoatl-desktop"
+description = "Quetzalcoatl V2 Linux 纯原生 GTK4 + 动态 libadwaita 桌面三态与托盘客户端"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "quetzalcoatl-desktop"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+# 仅终端 CLI 可简写为 `qz`；桌面可执行文件一律全拼。
+# GTK4 是安全 Rust 绑定（宿主 crate 全量 #![forbid(unsafe_code)] 不受影响）。
+# `v4_10` 提供 GtkAccessible 属性/角色测试 API，`v4_14` 提供 announce() 实时播报。
+gtk4 = { version = "0.11", features = ["v4_10", "v4_14"] }
+# 动态链接系统 `libadwaita-1`（LGPL-2.1，经 pkg-config 探测，非 cargo 静态依赖）。
+libadwaita = { version = "0.9", features = ["v1_9", "gtk_v4_10"] }
+# 零 FFI 开销的直接 Rust 依赖：单脊柱持有者薄客户端 + 三档密度差分视图 + 拉模式流。
+quetzalcoatl-client-core = { workspace = true }
+# 仅消费本地 IPC 协议类型（ChatRequest/IpcResponse），绝不持有数据库连接。
+quetzalcoatl-daemon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# StatusNotifierItem 托盘（D-Bus 会话总线上注册；无会话总线/无宿主时静默降级）。
+zbus = "5"
+
+[dev-dependencies]
+quetzalcoatl-daemon = { workspace = true }
+uuid = { workspace = true }

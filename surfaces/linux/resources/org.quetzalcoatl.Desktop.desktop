@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Quetzalcoatl
+GenericName=Personal Sovereign Agent
+Comment=Quetzalcoatl 个人主权助手：陪伴 / 工作台 / 检视三档认知密度的原生桌面端
+Exec=quetzalcoatl-desktop
+Icon=org.quetzalcoatl.Desktop
+Terminal=false
+Categories=Utility;Office;
+StartupNotify=true
+StartupWMClass=org.quetzalcoatl.Desktop
+DBusActivatable=false
+Keywords=agent;assistant;offline;privacy;sovereign;
