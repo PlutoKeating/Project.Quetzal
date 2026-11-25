@@ -390,6 +390,7 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
         .env("QUETZALCOATL_HOME", &qz_home)
         .env("QUETZALCOATL_DAEMON_BIN", &daemon_bin)
         .env("QUETZALCOATL_UPSTREAM_BASE_URL", mock_upstream.base_url())
+        .env("QUETZALCOATL_UPSTREAM_BEARER_TOKEN", "test-upstream-token")
         .env("QUETZALCOATL_WORKER_BINARY", &fake_worker_bin)
         .args(["up"])
         .output()?;
@@ -842,6 +843,7 @@ echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
     cfg.upstream_endpoints.openai_base_url = mock_upstream.base_url();
     cfg.upstream_endpoints.codex_chatgpt_base_url = mock_upstream.base_url();
     cfg.upstream_endpoints.gemini_base_url = mock_upstream.base_url();
+    cfg.upstream_bearer_token = Some(String::from("test-upstream-token"));
     cfg.worker_binary_override = Some(probing_worker);
     if sandbox_exec_bin.is_file() {
         cfg.sandbox_exec_override = Some(sandbox_exec_bin);
@@ -885,6 +887,7 @@ echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
     let dead_ep = String::from("http://127.0.0.1:9");
     dead_cfg.upstream_endpoints.anthropic_base_url = dead_ep.clone();
     dead_cfg.upstream_endpoints.openai_base_url = dead_ep;
+    dead_cfg.upstream_bearer_token = Some(String::from("test-upstream-token"));
     let mut dead_daemon = QuetzalcoatlDaemon::start(dead_cfg)?;
     let dead_client = IpcClient::from_runtime_info(
         dead_daemon.runtime_info(),

@@ -70,7 +70,7 @@ jobs:
 
   linux-x64:
     name: build / linux-x64 CLI bundle
-    needs: prepare
+    needs: [prepare, web]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -105,7 +105,12 @@ jobs:
             -p quetzalcoatl-daemon --bins \
             -p quetzalcoatl-sandbox --bin quetzalcoatl-sandbox-exec
 
-      - name: Stage and archive
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: webdist
+          path: stage/quetzalcoatl-${{ needs.prepare.outputs.version }}-linux-x64/bin/web
+
+      - name: Stage and archive (CLI + Web console)
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -116,7 +121,11 @@ jobs:
           cp target/release/quetzalcoatld "$stage/bin/quetzalcoatld"
           cp target/release/quetzalcoatl-sandbox-exec "$stage/bin/quetzalcoatl-sandbox-exec"
           chmod 0755 "$stage/bin/"*
+          # bin/web 与 quetzalcoatld 同目录：resolve_web_console_dir 零环境变量即可找到控制台。
+          test -f "$stage/bin/web/index.html" || { echo "::error::web console missing from stage"; exit 1; }
           tar -czf "dist/quetzalcoatl-$VERSION-linux-x64.tar.gz" -C "$stage" .
+          tar -tzf "dist/quetzalcoatl-$VERSION-linux-x64.tar.gz" | grep -q '^\./bin/web/index.html$' \
+            || { echo "::error::tarball is missing bin/web/index.html"; exit 1; }
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -127,7 +136,7 @@ jobs:
 
   linux-arm64:
     name: build / linux-arm64 CLI bundle
-    needs: prepare
+    needs: [prepare, web]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
@@ -162,7 +171,12 @@ jobs:
             -p quetzalcoatl-daemon --bins \
             -p quetzalcoatl-sandbox --bin quetzalcoatl-sandbox-exec
 
-      - name: Stage and archive
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: webdist
+          path: stage/quetzalcoatl-${{ needs.prepare.outputs.version }}-linux-arm64/bin/web
+
+      - name: Stage and archive (CLI + Web console)
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -173,7 +187,10 @@ jobs:
           cp target/release/quetzalcoatld "$stage/bin/quetzalcoatld"
           cp target/release/quetzalcoatl-sandbox-exec "$stage/bin/quetzalcoatl-sandbox-exec"
           chmod 0755 "$stage/bin/"*
+          test -f "$stage/bin/web/index.html" || { echo "::error::web console missing from stage"; exit 1; }
           tar -czf "dist/quetzalcoatl-$VERSION-linux-arm64.tar.gz" -C "$stage" .
+          tar -tzf "dist/quetzalcoatl-$VERSION-linux-arm64.tar.gz" | grep -q '^\./bin/web/index.html$' \
+            || { echo "::error::tarball is missing bin/web/index.html"; exit 1; }
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -321,6 +338,14 @@ jobs:
         with:
           name: release-web
           path: dist/quetzalcoatl-*
+          if-no-files-found: error
+          retention-days: 14
+
+      # 供 CLI 包内嵌 `bin/web/`：quetzalcoatld 在可执行文件同目录查找 web/，零环境变量即可托管控台。
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webdist
+          path: surfaces/web/dist
           if-no-files-found: error
           retention-days: 14
 

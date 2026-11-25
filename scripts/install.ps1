@@ -1,6 +1,6 @@
 # Quetzalcoatl installer for Windows: irm https://quetzal.plutokeating.beer/install.ps1 | iex
 # GENERATED from scripts/install.src.ps1 by scripts/gen-install-ps1.mjs - edit the source, not this file.
-# source sha256: 171e227d8489b399d556eb921a7f2a81d9afc227d08a4b2fa8929c6f2f5de78a
+# source sha256: 0af5d736cc942109fbaf1be367625190f8f7cab5345e6cdcfdedea425ecf0b2e
 # The Ed25519 verifier and the embedded release key are part of this file: there is no black box.
 <#
 .SYNOPSIS
@@ -390,7 +390,8 @@ function Install-Qz {
     New-Item -ItemType Directory -Path $script:BinDir -Force | Out-Null
     $copied = @(Get-ChildItem -LiteralPath $stagedBin)
     $copied | ForEach-Object {
-      Copy-Item -Force $_.FullName (Join-Path $script:BinDir $_.Name)
+      # bin/web is a directory: copy it recursively so the installed prefix serves the console.
+      Copy-Item -Recurse -Force $_.FullName (Join-Path $script:BinDir $_.Name)
     }
 
     Write-Step 'Health check'
@@ -401,7 +402,7 @@ function Install-Qz {
       }
       foreach ($file in $copied) {
         $target = Join-Path $script:BinDir $file.Name
-        if (Test-Path -LiteralPath $target) { Remove-Item -Force -LiteralPath $target }
+        if (Test-Path -LiteralPath $target) { Remove-Item -Recurse -Force -LiteralPath $target }
       }
       if ($fresh) { Remove-Item -Recurse -Force $script:BinDir -ErrorAction SilentlyContinue }
       if ($fresh) {

@@ -1,0 +1,223 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
+
+//! 新手验收回归：
+//! 1. `qz up` 打印 Web 控制台 URL，`qz open` 在无桌面时打印同一个 URL 并以 0 退出；
+//! 2. 没有任何模型凭据时，`qz chat` 返回单前缀的 `MODEL_NOT_CONFIGURED`，并**绝不**向上游发请求。
+//!
+//! 「不向上游发请求」用一个本地计数监听器证明：它只统计 TCP 连接数，聊天前后必须为 0。
+
+use std::error::Error;
+use std::io::Write;
+use std::net::TcpListener;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::thread;
+use std::time::Duration;
+
+type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
+
+struct TempHome(PathBuf);
+
+impl TempHome {
+    fn new(tag: &str) -> std::io::Result<Self> {
+        let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("qz_newcomer_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path)?;
+        Ok(Self(path))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempHome {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// 只计数的假上游：任何意外的连接都会被记录，用来断言「无模型时零上游请求」。
+struct CountingUpstream {
+    port: u16,
+    connections: Arc<AtomicUsize>,
+    stop: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl CountingUpstream {
+    fn start() -> std::io::Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0))?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let count = Arc::clone(&connections);
+        let flag = Arc::clone(&stop);
+        let handle = thread::spawn(move || {
+            while !flag.load(Ordering::SeqCst) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        let _ = stream.write_all(
+                            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        );
+                    }
+                    Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Ok(Self {
+            port,
+            connections,
+            stop,
+            handle: Some(handle),
+        })
+    }
+
+    fn connection_count(&self) -> usize {
+        self.connections.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for CountingUpstream {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+struct DaemonGuard {
+    qz: PathBuf,
+    home: PathBuf,
+    qz_home: PathBuf,
+}
+
+impl Drop for DaemonGuard {
+    fn drop(&mut self) {
+        let _ = Command::new(&self.qz)
+            .env("HOME", &self.home)
+            .env("QUETZALCOATL_HOME", &self.qz_home)
+            .args(["down"])
+            .output();
+    }
+}
+
+fn run_qz(
+    qz: &Path,
+    home: &Path,
+    qz_home: &Path,
+    args: &[&str],
+) -> std::io::Result<std::process::Output> {
+    Command::new(qz)
+        .env("HOME", home)
+        .env("QUETZALCOATL_HOME", qz_home)
+        .env("QZ_NO_BROWSER", "1")
+        .env_remove("QUETZALCOATL_UPSTREAM_BEARER_TOKEN")
+        .args(args)
+        .output()
+}
+
+#[test]
+fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_call() -> TestResult {
+    let home = TempHome::new("newcomer")?;
+    let qz_home = home.path().join("qzhome");
+    let upstream = CountingUpstream::start()?;
+    let qz = PathBuf::from(env!("CARGO_BIN_EXE_qz"));
+    let daemon_bin = PathBuf::from(env!("CARGO_BIN_EXE_quetzalcoatld"));
+
+    let up_out = Command::new(&qz)
+        .env("HOME", home.path())
+        .env("QUETZALCOATL_HOME", &qz_home)
+        .env("QUETZALCOATL_DAEMON_BIN", &daemon_bin)
+        .env(
+            "QUETZALCOATL_UPSTREAM_BASE_URL",
+            format!("http://127.0.0.1:{}", upstream.port),
+        )
+        .args(["up"])
+        .output()?;
+    assert!(
+        up_out.status.success(),
+        "qz up failed: {}",
+        String::from_utf8_lossy(&up_out.stderr)
+    );
+    let guard = DaemonGuard {
+        qz: qz.clone(),
+        home: home.path().to_path_buf(),
+        qz_home: qz_home.clone(),
+    };
+
+    let up_stdout = String::from_utf8_lossy(&up_out.stdout);
+    let console_url = up_stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("console: "))
+        .map(str::trim)
+        .ok_or("qz up must print the console URL")?
+        .to_owned();
+    assert!(
+        console_url.starts_with("http://127.0.0.1:") && console_url.ends_with('/'),
+        "unexpected console URL: {console_url}"
+    );
+
+    // `qz open` 在无桌面时打印同一个 URL，并以 0 退出。
+    let open_out = run_qz(&qz, home.path(), &qz_home, &["open"])?;
+    assert!(
+        open_out.status.success(),
+        "qz open failed: {}",
+        String::from_utf8_lossy(&open_out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&open_out.stdout).trim(),
+        console_url,
+        "qz open must print the same console URL"
+    );
+
+    // `qz status` 仍然是健康的。
+    let status_out = run_qz(&qz, home.path(), &qz_home, &["status", "--json"])?;
+    assert!(
+        status_out.status.success(),
+        "qz status failed: {}",
+        String::from_utf8_lossy(&status_out.stderr)
+    );
+
+    // 无模型：单前缀的 MODEL_NOT_CONFIGURED，带可执行指引，且不触碰上游。
+    let chat_out = run_qz(&qz, home.path(), &qz_home, &["chat", "你好"])?;
+    assert!(
+        !chat_out.status.success(),
+        "chat without a configured model must fail"
+    );
+    let stderr = String::from_utf8_lossy(&chat_out.stderr);
+    assert!(
+        stderr.contains("MODEL_NOT_CONFIGURED"),
+        "expected MODEL_NOT_CONFIGURED, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("打开控制台 → 模型"),
+        "error must guide the user to the model settings: {stderr}"
+    );
+    assert!(
+        !stderr.contains("零凭据代理拒绝请求: 零凭据代理拒绝请求:"),
+        "error prefix must not be duplicated: {stderr}"
+    );
+    assert!(
+        !stderr.contains("上游模型认证失败"),
+        "no upstream auth call should be made: {stderr}"
+    );
+    assert_eq!(
+        upstream.connection_count(),
+        0,
+        "chat without credentials must not open any upstream connection"
+    );
+
+    drop(guard);
+    Ok(())
+}

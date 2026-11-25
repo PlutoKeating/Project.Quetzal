@@ -485,6 +485,11 @@ install_binaries() {
     cp "$f" "$PREFIX/bin/" || die "could not install $(basename "$f")"
     chmod 0755 "$PREFIX/bin/$(basename "$f")" || die "could not chmod $(basename "$f")"
   done
+  # Web 控制台随包安装：bin/web 与 quetzalcoatld 同目录，守护进程零环境变量即可托管。
+  if [ -d "$stage/bin/web" ]; then
+    rm -rf "$PREFIX/bin/web"
+    cp -R "$stage/bin/web" "$PREFIX/bin/web" || die "could not install bin/web"
+  fi
   [ -x "$PREFIX/bin/qz" ] || die "the archive does not contain bin/qz"
 }
 
@@ -495,6 +500,7 @@ remove_installed_binaries() {
     [ -f "$f" ] || continue
     rm -f "$PREFIX/bin/$(basename "$f")" 2>/dev/null || true
   done
+  [ -d "$stage/bin/web" ] && rm -rf "$PREFIX/bin/web" 2>/dev/null
   rmdir "$PREFIX/bin" 2>/dev/null || true
 }
 
@@ -716,6 +722,7 @@ do_uninstall() {
   fi
   rm -f "$unit" "$plist" "$HOME/.local/share/applications/quetzalcoatl.desktop"
   rm -f "$PREFIX/bin/qz" "$PREFIX/bin/quetzalcoatld" "$PREFIX/bin/quetzalcoatl-sandbox-exec" "$PREFIX/bin/quetzalcoatl-desktop"
+  rm -rf "$PREFIX/bin/web"
   rm -rf "$STATE_DIR"
   say "  service, binaries and state removed"
 

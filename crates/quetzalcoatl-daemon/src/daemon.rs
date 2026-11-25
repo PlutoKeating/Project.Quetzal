@@ -126,7 +126,9 @@ impl DaemonConfig {
             preferred_worker_agent: None,
             worker_binary_override,
             sandbox_exec_override,
-            upstream_bearer_token: None,
+            upstream_bearer_token: std::env::var("QUETZALCOATL_UPSTREAM_BEARER_TOKEN")
+                .ok()
+                .filter(|token| !token.trim().is_empty()),
             discovery_search_paths: None,
             fabric,
             voice_ai,
@@ -1121,6 +1123,26 @@ impl SharedDaemonCore {
         })
     }
 
+    /// 上游错误正文归一化：避免把网关已经加过的 `零凭据代理拒绝请求:` 再套一层前缀，
+    /// 并在网关回传结构化 JSON 时只取 `detail` 字段。
+    fn normalize_upstream_error_body(raw: &str) -> String {
+        let trimmed = raw.trim();
+        let candidate = serde_json::from_str::<serde_json::Value>(trimmed)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("detail")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| trimmed.to_owned());
+        let mut text = candidate.trim();
+        while let Some(rest) = text.strip_prefix("零凭据代理拒绝请求: ") {
+            text = rest.trim();
+        }
+        String::from(text)
+    }
+
     fn execute_routine_gateway_turn(
         &self,
         grant: &quetzalcoatl_harness::GatewaySessionGrant,
@@ -1200,7 +1222,8 @@ impl SharedDaemonCore {
 
         let body_slice = &raw_resp[sep + 4..];
         if status_code != 200 {
-            let err_summary = String::from_utf8_lossy(body_slice).into_owned();
+            let err_summary =
+                Self::normalize_upstream_error_body(&String::from_utf8_lossy(body_slice));
             if status_code == 401 || status_code == 403 {
                 return Err(QuetzalcoatlError::CredentialRejected {
                     detail: format!("上游模型认证失败 (HTTP {status_code}): {err_summary}"),
@@ -1312,18 +1335,40 @@ impl SharedDaemonCore {
             let scratch_base = sandbox_scratch_root(self.runtime_info.agent_id);
             ensure_secure_private_dir(&scratch_base, Some(&self.config.quetzalcoatl_home))?;
             let routine_stub_tmp = scratch_base.join(format!("routine-stubs/{run_id}"));
+            let mut host_oauth_available = false;
             if let Ok(routine_oauth) = prepare_stripped_oauth_stubs(
                 host_claude.as_deref(),
                 host_codex.as_deref(),
                 &routine_stub_tmp,
                 &grant.ephemeral_stub_token,
             ) {
+                host_oauth_available = routine_oauth.extracted.claude_access_token.is_some()
+                    || routine_oauth.extracted.codex_access_token.is_some();
                 let _ = self
                     .harness_host
                     .gateway()
                     .attach_extracted_oauth(&grant.cap_token, &routine_oauth.extracted);
             }
             let _ = fs::remove_dir_all(&routine_stub_tmp);
+
+            // 零上游凭据时绝不打真实云端：无 Bearer（QUETZALCOATL_UPSTREAM_BEARER_TOKEN）
+            // 且无宿主 Claude/Codex OAuth 就等于「模型未配置」。自建代理也必须显式给凭据（可任意占位值），
+            // 这样「没有模型」永远不会被误报成上游 403。
+            let upstream_configured = self.config.upstream_bearer_token.is_some();
+            if !upstream_configured && !host_oauth_available {
+                if let Ok(mut guard) = self.state.lock() {
+                    let _ = guard
+                        .kernel
+                        .abort_run(run_id, "model not configured", now_unix_ms());
+                }
+                let _ = self.harness_host.gateway().revoke_session(&grant.cap_token);
+                return Err(QuetzalcoatlError::ModelNotConfigured {
+                    detail: format!(
+                        "打开控制台 → 模型，填入 API Key，或在终端设置 QUETZALCOATL_UPSTREAM_BEARER_TOKEN 后重启 `qz up`。Web 控制台：http://{}/（也可运行 `qz open`，无桌面时会打印地址）",
+                        self.runtime_info.ipc_http_addr
+                    ),
+                });
+            }
 
             let turn_res = self.execute_routine_gateway_turn(&grant, &req.message);
             let _ = self.harness_host.gateway().revoke_session(&grant.cap_token);
@@ -1876,7 +1921,7 @@ impl SharedDaemonCore {
                 Err(err) => (
                     IpcResponse::Error {
                         code: String::from(err.code().as_str()),
-                        detail: err.to_string(),
+                        detail: err.detail().map_or_else(|| err.to_string(), str::to_owned),
                     },
                     false,
                 ),

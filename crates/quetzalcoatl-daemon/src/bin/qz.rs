@@ -30,8 +30,9 @@ Usage:
   qz <COMMAND> [OPTIONS]
 
 Commands:
-  up          Start local quetzalcoatld daemon and wait for health ready
+  up          Start local quetzalcoatld daemon, wait for health, print the Web console URL
   down        Gracefully shut down running quetzalcoatld
+  open        Open the local Web console (prints the URL when no desktop is available)
   status      Show daemon, sovereign spine, heart and fabric status
   agents      Discover installed Coding Agents (<10ms parallel probe)
   chat        Send a message (--interactive or direct prompt)
@@ -162,6 +163,7 @@ fn run_up(args: &[String]) -> Result<()> {
             "quetzalcoatld already online (pid={}, agent={}, ipc={})",
             st.pid, st.agent_id, st.ipc_http_addr
         );
+        println!("console: {}", console_url(st.ipc_http_addr));
         return Ok(());
     }
 
@@ -249,6 +251,8 @@ fn run_up(args: &[String]) -> Result<()> {
                 "quetzalcoatld ready (pid={}, agent={}, ipc={})",
                 st.pid, st.agent_id, st.ipc_http_addr
             );
+            println!("console: {}", console_url(st.ipc_http_addr));
+            println!("hint: run `qz open` to launch it in the browser");
             return Ok(());
         }
         if let Ok(Some(exit_status)) = child.try_wait() {
@@ -263,6 +267,74 @@ fn run_up(args: &[String]) -> Result<()> {
     Err(QuetzalcoatlError::StorageError {
         detail: String::from("等待 quetzalcoatld 就绪超时 (6s)"),
     })
+}
+
+fn console_url(addr: std::net::SocketAddr) -> String {
+    format!("http://{addr}/")
+}
+
+/// 是否存在可用图形会话；无桌面（SSH/容器/CI）时只打印 URL，绝不尝试拉起浏览器。
+fn desktop_session_available() -> bool {
+    if cfg!(target_os = "linux") {
+        std::env::var_os("DISPLAY").is_some_and(|v| !v.is_empty())
+            || std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
+    } else {
+        true
+    }
+}
+
+/// 返回平台默认浏览器启动器；`QZ_NO_BROWSER=1` 强制只打印 URL（测试与无头环境）。
+fn browser_opener() -> Option<(&'static str, &'static [&'static str])> {
+    if std::env::var("QZ_NO_BROWSER").ok().as_deref() == Some("1") || !desktop_session_available() {
+        return None;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Some(("xdg-open", &[]))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Some(("open", &[]))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Some(("cmd", &["/C", "start", ""]))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        None
+    }
+}
+
+fn run_open(args: &[String]) -> Result<()> {
+    let home = parse_optional_home(args)?;
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client =
+        IpcClient::connect_from_home(&qz_home)?.ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("quetzalcoatld 尚未启动，请先运行 `qz up`"),
+        })?;
+    match client.call(&IpcRequest::Status)? {
+        IpcResponse::Status(st) => {
+            let url = console_url(st.ipc_http_addr);
+            if let Some((program, leading)) = browser_opener() {
+                match Command::new(program).args(leading).arg(&url).spawn() {
+                    Ok(_) => {
+                        println!("opened {url}");
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        eprintln!("note: could not launch the browser ({e}); the URL is below")
+                    }
+                }
+            }
+            println!("{url}");
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
 }
 
 fn run_down(args: &[String]) -> Result<()> {
@@ -944,6 +1016,7 @@ fn map_ipc_error_code(code: &str, detail: String) -> QuetzalcoatlError {
     match code {
         "SANDBOX_VIOLATION" => QuetzalcoatlError::SandboxViolation { detail },
         "CREDENTIAL_REJECTED" => QuetzalcoatlError::CredentialRejected { detail },
+        "MODEL_NOT_CONFIGURED" => QuetzalcoatlError::ModelNotConfigured { detail },
         "PERMISSION_DENIED" => QuetzalcoatlError::PermissionDenied { detail },
         "VERIFICATION_FAILED" => QuetzalcoatlError::VerificationFailed { detail },
         "CONSCIENCE_VIOLATION" => QuetzalcoatlError::ConscienceViolation { detail },
@@ -1692,6 +1765,7 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         }
         "up" => run_up(rest),
         "down" => run_down(rest),
+        "open" => run_open(rest),
         "status" => run_status(rest),
         "agents" => run_agents(rest),
         "chat" => run_chat(rest),

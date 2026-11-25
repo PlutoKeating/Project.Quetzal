@@ -95,6 +95,8 @@ STUB
   fi
   printf '#!/bin/sh\nexit 0\n' >"$stage/bin/quetzalcoatld"
   printf '#!/bin/sh\nexit 0\n' >"$stage/bin/quetzalcoatl-sandbox-exec"
+  mkdir -p "$stage/bin/web"
+  printf '<!doctype html><meta charset="utf-8"><title>Quetzalcoatl console</title>\n' >"$stage/bin/web/index.html"
   chmod 0755 "$stage/bin/qz" "$stage/bin/quetzalcoatld" "$stage/bin/quetzalcoatl-sandbox-exec"
   tar -czf "$dir/$base.tar.gz" -C "$stage" bin
   {
@@ -200,6 +202,7 @@ mkdir -p "$C1"
 check "good signature + sha256 installs" run_installer "$C1" good "$BASE/v1.0.0" --version 1.0.0 --no-desktop
 check "installed qz reports the requested version" bash -c \
   "'$C1/prefix/bin/qz' --version | grep -q '1.0.0'"
+check "web console lands in bin/web next to the daemon" test -f "$C1/prefix/bin/web/index.html"
 check "systemd user unit written (not enabled)" test -f "$C1/.config/systemd/user/quetzalcoatld.service"
 check "unit points at the installed daemon" expect_contains \
   "$C1/.config/systemd/user/quetzalcoatld.service" "$C1/prefix/bin/quetzalcoatld"
@@ -313,6 +316,7 @@ check "gated override installed nothing" expect_absent "$C11/prefix/bin/qz"
 check "uninstall removes binaries and the unit, keeps the home" bash -c \
   "HOME='$C1' QZ_PREFIX='$C1/prefix' QUETZALCOATL_HOME='$C1/qzhome' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --uninstall"
 check "uninstall removed qz" expect_absent "$C1/prefix/bin/qz"
+check "uninstall removed the web console" expect_absent "$C1/prefix/bin/web"
 check "uninstall removed the unit" expect_absent "$C1/.config/systemd/user/quetzalcoatld.service"
 check "uninstall kept QUETZALCOATL_HOME without --purge" test -d "$C1/qzhome"
 check "uninstall --purge removes QUETZALCOATL_HOME" bash -c \

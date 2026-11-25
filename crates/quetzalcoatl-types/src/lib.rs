@@ -78,6 +78,7 @@ pub enum ErrorCode {
     WatermarkConflict,
     FloorSilenced,
     CredentialRejected,
+    ModelNotConfigured,
     SandboxViolation,
     SerializationError,
     StorageError,
@@ -102,6 +103,7 @@ impl ErrorCode {
             Self::WatermarkConflict => "WATERMARK_CONFLICT",
             Self::FloorSilenced => "FLOOR_SILENCED",
             Self::CredentialRejected => "CREDENTIAL_REJECTED",
+            Self::ModelNotConfigured => "MODEL_NOT_CONFIGURED",
             Self::SandboxViolation => "SANDBOX_VIOLATION",
             Self::SerializationError => "SERIALIZATION_ERROR",
             Self::StorageError => "STORAGE_ERROR",
@@ -167,6 +169,9 @@ pub enum QuetzalcoatlError {
     #[error("零凭据代理拒绝请求: {detail}")]
     CredentialRejected { detail: String },
 
+    #[error("尚未配置模型供应商，未发起上游请求: {detail}")]
+    ModelNotConfigured { detail: String },
+
     #[error("沙箱隔离边界违规: {detail}")]
     SandboxViolation { detail: String },
 
@@ -205,9 +210,39 @@ impl QuetzalcoatlError {
             Self::WatermarkConflict { .. } => ErrorCode::WatermarkConflict,
             Self::FloorSilenced { .. } => ErrorCode::FloorSilenced,
             Self::CredentialRejected { .. } => ErrorCode::CredentialRejected,
+            Self::ModelNotConfigured { .. } => ErrorCode::ModelNotConfigured,
             Self::SandboxViolation { .. } => ErrorCode::SandboxViolation,
             Self::SerializationError { .. } => ErrorCode::SerializationError,
             Self::StorageError { .. } => ErrorCode::StorageError,
+        }
+    }
+
+    /// 结构化错误的内层 `detail`。
+    ///
+    /// IPC 边界应发送这层文本，而不是 `Display` 的完整句子：接收端会用同一个
+    /// `QuetzalcoatlError` 变体重建错误并在 `Display` 里再加一次前缀，否则会出现
+    /// `零凭据代理拒绝请求: 零凭据代理拒绝请求:` 这类重复前缀。
+    #[must_use]
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Self::InvalidId { detail, .. }
+            | Self::IntegrityViolation { detail }
+            | Self::PartitionRestricted { detail }
+            | Self::DeliveryRefused { detail }
+            | Self::PermissionDenied { detail }
+            | Self::VerificationFailed { detail }
+            | Self::ConscienceViolation { detail }
+            | Self::FloorSilenced { detail }
+            | Self::CredentialRejected { detail }
+            | Self::ModelNotConfigured { detail }
+            | Self::SandboxViolation { detail }
+            | Self::SerializationError { detail }
+            | Self::StorageError { detail } => Some(detail),
+            Self::ClockDriftExceeded { .. }
+            | Self::HlcCounterOverflow
+            | Self::EpochOverflow
+            | Self::StaleLeaseEpoch { .. }
+            | Self::WatermarkConflict { .. } => None,
         }
     }
 }

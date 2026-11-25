@@ -386,7 +386,8 @@ function Install-Qz {
     New-Item -ItemType Directory -Path $script:BinDir -Force | Out-Null
     $copied = @(Get-ChildItem -LiteralPath $stagedBin)
     $copied | ForEach-Object {
-      Copy-Item -Force $_.FullName (Join-Path $script:BinDir $_.Name)
+      # bin/web is a directory: copy it recursively so the installed prefix serves the console.
+      Copy-Item -Recurse -Force $_.FullName (Join-Path $script:BinDir $_.Name)
     }
 
     Write-Step 'Health check'
@@ -397,7 +398,7 @@ function Install-Qz {
       }
       foreach ($file in $copied) {
         $target = Join-Path $script:BinDir $file.Name
-        if (Test-Path -LiteralPath $target) { Remove-Item -Force -LiteralPath $target }
+        if (Test-Path -LiteralPath $target) { Remove-Item -Recurse -Force -LiteralPath $target }
       }
       if ($fresh) { Remove-Item -Recurse -Force $script:BinDir -ErrorAction SilentlyContinue }
       if ($fresh) {
