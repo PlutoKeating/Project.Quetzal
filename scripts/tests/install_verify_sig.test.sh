@@ -167,13 +167,17 @@ env_for() { # home-dir -> prints env assignments used by every run
 run_installer() { # home case-name release-base args...
   local home=$1 case=$2 base=$3
   shift 3
+  # 保留安装器输出：CI 上若没有写出 unit，失败信息里要能直接看到安装器自己的诊断。
   HOME="$home" \
   QZ_PREFIX="$home/prefix" \
   QUETZALCOATL_HOME="$home/qzhome" \
   QZ_RELEASE_BASE="$base" \
   QZ_TEST_RELEASE_PUBKEY="$PUB" \
   QZ_SKIP_SERVICE=1 \
-  bash "$INSTALLER" "$@"
+  bash "$INSTALLER" "$@" >"$WORK/install-$case.log" 2>&1
+  local rc=$?
+  if [ $rc -ne 0 ]; then sed 's/^/    /' "$WORK/install-$case.log"; fi
+  return $rc
 }
 
 # ---------------------------------------------------------------- 1. platform detection
@@ -203,7 +207,11 @@ check "good signature + sha256 installs" run_installer "$C1" good "$BASE/v1.0.0"
 check "installed qz reports the requested version" bash -c \
   "'$C1/prefix/bin/qz' --version | grep -q '1.0.0'"
 check "web console lands in bin/web next to the daemon" test -f "$C1/prefix/bin/web/index.html"
-check "systemd user unit written (not enabled)" test -f "$C1/.config/systemd/user/quetzalcoatld.service"
+check "systemd user unit written (not enabled)" bash -c \
+  "test -f '$C1/.config/systemd/user/quetzalcoatld.service' || { \
+     echo '--- installer output ---'; sed 's/^/    /' '$WORK/install-good.log'; \
+     echo '--- files under HOME ---'; find '$C1' -maxdepth 4 -name 'quetzalcoatld.*' 2>/dev/null; \
+     exit 1; }"
 check "unit points at the installed daemon" expect_contains \
   "$C1/.config/systemd/user/quetzalcoatld.service" "$C1/prefix/bin/quetzalcoatld"
 check "state dir records the installed version" expect_contains "$C1/.local/share/quetzalcoatl/installed-version" "1.0.0"

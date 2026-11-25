@@ -278,7 +278,8 @@ internal static class Program
                     element.TryGetCurrentPattern(InvokePattern.Pattern, out _),
                     element.TryGetCurrentPattern(ValuePattern.Pattern, out _),
                     rectangle.Width,
-                    rectangle.Height));
+                    rectangle.Height,
+                    element.Current.IsEnabled));
             }
             catch (ElementNotAvailableException)
             {

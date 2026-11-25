@@ -220,11 +220,16 @@ public sealed record ObservedControl(
     bool IsInvokeAvailable,
     bool IsValueAvailable,
     double Width,
-    double Height);
+    double Height,
+    bool IsEnabled = true);
 
 /// <summary>契约与真实 UI Automation 树的差异。</summary>
 public static class A11yContractValidator
 {
+    /// <summary>容器类控件：键盘可达性由子项承载，自身不是 Tab 停靠点。</summary>
+    private static bool IsContainerKind(ControlKind kind) =>
+        kind is ControlKind.Tab or ControlKind.List or ControlKind.Pane or ControlKind.Window;
+
     /// <summary>校验观测到的控件集合是否满足指定表面的契约。</summary>
     public static IReadOnlyList<string> Validate(
         IEnumerable<ObservedControl> observed,
@@ -286,8 +291,13 @@ public static class A11yContractValidator
                     $"{contract.AutomationId}: 控件类型不一致（期望 {contract.Kind}，实际 {matches[0].Kind}）");
             }
 
+            // 键盘可达只对「此刻真的可用」的叶子控件成立：
+            // * 禁用的控件（例如离线时的输入框）在 UIA 里本来就不是焦点目标；
+            // * 容器（标签页/列表）自己不是 Tab 停靠点，可达性由它们的子项承载，
+            //   因此容器只校验名称/类型，子项（tab.* / workbench.* 行）各自有契约。
             if ((contract.Traits & ControlTraits.KeyboardFocusable) != 0
-                && matches.Any(match => !match.IsKeyboardFocusable))
+                && !IsContainerKind(contract.Kind)
+                && matches.Any(match => match.IsEnabled && !match.IsKeyboardFocusable))
             {
                 issues.Add($"{contract.AutomationId}: 必须可用键盘聚焦");
             }

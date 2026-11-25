@@ -119,6 +119,8 @@
                                         AutomationProperties.HelpText="{Binding Summary}"
                                         Click="OnApproveClick"
                                         Content="批准"
+                                        MinHeight="32"
+                                        MinWidth="88"
                                         Tag="{Binding Key}" />
                                     <Button
                                         AutomationProperties.AutomationId="{Binding Key, Converter={StaticResource RowAutomationId}, ConverterParameter=workbench.deny}"
@@ -126,6 +128,8 @@
                                         AutomationProperties.HelpText="{Binding Summary}"
                                         Click="OnDenyClick"
                                         Content="拒绝"
+                                        MinHeight="32"
+                                        MinWidth="88"
                                         Tag="{Binding Key}" />
                                 </StackPanel>
                             </StackPanel>

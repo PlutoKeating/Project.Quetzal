@@ -7,6 +7,8 @@
 //!
 //! 「不向上游发请求」用一个本地计数监听器证明：它只统计 TCP 连接数，聊天前后必须为 0。
 
+mod common;
+
 use std::error::Error;
 use std::io::Write;
 use std::net::TcpListener;
@@ -23,10 +25,10 @@ struct TempHome(PathBuf);
 
 impl TempHome {
     fn new(tag: &str) -> std::io::Result<Self> {
-        let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("qz_newcomer_{tag}_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&path);
-        std::fs::create_dir_all(&path)?;
+        // 守护进程要在 `QUETZALCOATL_HOME/run/daemon.sock` 上绑定 Unix 域套接字，
+        // 而 `CARGO_TARGET_TMPDIR` 在 CI（/home/runner/work/...）会长到超过 SUN_LEN。
+        // 统一走仓库的短路径工具，路径预算不足时给出可诊断错误而不是晦涩的绑定失败。
+        let path = common::temp_root(tag)?;
         Ok(Self(path))
     }
 
