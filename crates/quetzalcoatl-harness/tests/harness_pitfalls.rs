@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -21,9 +21,9 @@ use quetzalcoatl_ewave::{
 use quetzalcoatl_harness::{
     AcpJsonRpcDriver, ClaudeCodeDriver, CodexDriver, CodingAgentKind, DiscoveryConfig,
     GatewayConfig, GatewaySessionConfig, HarnessDriver, HarnessEvent, HarnessLaunchContext,
-    LoopbackGateway, McpBridgeSession, OpenCodeDriver, PiDriver, WorktreeManager,
-    can_probe_linux_secret_service, count_anthropic_cache_controls, discover_coding_agents,
-    gemini_cli_env, host_oauth_available, matches_agent_version_signature,
+    HttpsUpstreamTransport, LoopbackGateway, McpBridgeSession, OpenCodeDriver, PiDriver,
+    WorktreeManager, can_probe_linux_secret_service, count_anthropic_cache_controls,
+    discover_coding_agents, gemini_cli_env, host_oauth_available, matches_agent_version_signature,
     prepare_stripped_oauth_stubs,
 };
 use quetzalcoatl_kernel::{
@@ -2020,5 +2020,48 @@ fn host_oauth_available_is_read_only_and_recognises_both_providers() -> TestResu
     // 非法 JSON 不得 panic，也不得被当成凭据。
     fs::write(codex.join("auth.json"), b"{not json")?;
     assert!(!host_oauth_available(None, Some(&codex)));
+    Ok(())
+}
+
+/// 多地址回退：`localhost` 常同时解析到 `[::1, 127.0.0.1]`。只监听其中一族时，
+/// 传输层必须逐个尝试，而不是「第一个地址连不上就判上游不可达」。
+/// CI 的 IPv6-first 解析正是这样把只绑 127.0.0.1 的本地 TLS 上游判死的。
+#[test]
+fn upstream_transport_falls_back_across_resolved_addresses() -> TestResult {
+    use std::net::Ipv6Addr;
+
+    // 前提：本机 `localhost` 同时解析到两族地址。只解析出一族时（不少 Linux 只写 127.0.0.1）
+    // 不存在「回退」场景，直接跳过；CI 的 IPv6-first 解析会走到这里。
+    if ("localhost", 1).to_socket_addrs()?.count() < 2 {
+        return Ok(());
+    }
+    let listener = match std::net::TcpListener::bind(SocketAddr::from((Ipv6Addr::LOCALHOST, 0))) {
+        Ok(listener) => listener,
+        Err(_) => return Ok(()), // 无 IPv6 回环的环境：无意义，跳过。
+    };
+    let port = listener.local_addr()?.port();
+    let server = std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer);
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nspine!",
+            );
+        }
+    });
+
+    let transport = HttpsUpstreamTransport::new()?;
+    let response = transport.roundtrip(&UpstreamRequest {
+        method: String::from("GET"),
+        scheme: String::from("http"),
+        host: String::from("localhost"),
+        port,
+        path_and_query: String::from("/health"),
+        headers: vec![(String::from("host"), format!("localhost:{port}"))],
+        body: Vec::new(),
+    })?;
+    assert_eq!(response.status, 200);
+    assert_eq!(response.body, b"spine!");
+    let _ = server.join();
     Ok(())
 }

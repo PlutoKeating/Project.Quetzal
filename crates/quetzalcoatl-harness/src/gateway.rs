@@ -1739,24 +1739,46 @@ impl UpstreamTransport for HttpsUpstreamTransport {
         }
 
         let addr_spec = format!("{}:{}", request.host, request.port);
-        let mut addrs =
-            addr_spec
-                .to_socket_addrs()
-                .map_err(|e| QuetzalcoatlError::StorageError {
-                    detail: format!("解析上游主机地址失败 ({addr_spec}): {e}"),
-                })?;
-        let sock_addr = addrs
-            .next()
-            .ok_or_else(|| QuetzalcoatlError::StorageError {
+        // 一个主机名常同时解析到多个地址（例如 localhost → [::1, 127.0.0.1]）。
+        // 只试第一个会在一侧未监听时直接失败（CI 的 IPv6-first 解析就是这样把本地 TLS 上游判死）。
+        // 因此按解析顺序逐个尝试，全部失败才报最后一次错误。
+        let addrs: Vec<SocketAddr> = addr_spec
+            .to_socket_addrs()
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("解析上游主机地址失败 ({addr_spec}): {e}"),
+            })?
+            .collect();
+        if addrs.is_empty() {
+            return Err(QuetzalcoatlError::StorageError {
                 detail: format!("上游地址无可用 IP 记录: {addr_spec}"),
-            })?;
-
-        let tcp_stream =
-            TcpStream::connect_timeout(&sock_addr, Duration::from_secs(10)).map_err(|e| {
-                QuetzalcoatlError::StorageError {
-                    detail: format!("连接上游 {sock_addr} 失败: {e}"),
+            });
+        }
+        let mut last_error: Option<(SocketAddr, std::io::Error)> = None;
+        let mut connected: Option<TcpStream> = None;
+        for sock_addr in &addrs {
+            match TcpStream::connect_timeout(sock_addr, Duration::from_secs(10)) {
+                Ok(stream) => {
+                    connected = Some(stream);
+                    break;
                 }
-            })?;
+                Err(error) => last_error = Some((*sock_addr, error)),
+            }
+        }
+        let tcp_stream = match connected {
+            Some(stream) => stream,
+            None => {
+                let (sock_addr, error) =
+                    last_error.ok_or_else(|| QuetzalcoatlError::StorageError {
+                        detail: format!("连接上游 {addr_spec} 失败: 无可用地址"),
+                    })?;
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!(
+                        "连接上游 {sock_addr} 失败（已尝试 {} 个地址）: {error}",
+                        addrs.len()
+                    ),
+                });
+            }
+        };
         let _ = tcp_stream.set_read_timeout(Some(Duration::from_secs(30)));
         let _ = tcp_stream.set_write_timeout(Some(Duration::from_secs(30)));
 
