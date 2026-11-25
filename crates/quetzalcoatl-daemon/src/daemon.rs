@@ -808,27 +808,45 @@ impl SharedDaemonCore {
         let mut rev = 0u64;
         if let Ok(guard) = self.state.lock() {
             let runs = guard.kernel.runs().list_runs();
-            let events = guard
+            // O(1) 计数 + 最近 6 条事件头：绝不把整段历史 payload 载入内存。
+            let (count, heads) = guard
                 .kernel
                 .spine()
                 .store()
-                .list_all_events()
-                .unwrap_or_default();
-            rev = u64::try_from(events.len()).unwrap_or(u64::MAX);
+                .spine_event_count_and_heads(6)
+                .unwrap_or((0, Vec::new()));
+            rev = count;
             rows.push(DesktopRow {
                 key: String::from("status/goals"),
                 kind: String::from("workflow"),
                 summary: format!("运行进展 · 累计 {} 次运行", runs.len()),
-                detail: Some(format!(
-                    "睡眠相位 {:?} · 群房间 {} · 脊柱事件 {rev}",
-                    guard.kernel.heart().phase(),
-                    guard.group.room_count()
-                )),
+                detail: Some(String::from("长期目标的推进情况会持续汇总在这里。")),
                 raw_json: None,
                 updated_rev: rev.max(1),
             });
-            for (event, _) in events.iter().rev().take(6) {
-                let payload_kind = serde_json::from_str::<serde_json::Value>(&event.payload_utf8)
+            // 技术性运行状态只进入检视态（kind=status），工作台不显示。
+            rows.push(DesktopRow {
+                key: String::from("status/runtime"),
+                kind: String::from("status"),
+                summary: String::from("运行状态"),
+                detail: Some(format!(
+                    "睡眠相位 {:?} · 脊柱事件 {rev} · 群房间 {}",
+                    guard.kernel.heart().phase(),
+                    guard.group.room_count()
+                )),
+                raw_json: Some(
+                    serde_json::json!({
+                        "sleep_phase": format!("{:?}", guard.kernel.heart().phase()),
+                        "spine_events": rev,
+                        "group_rooms": guard.group.room_count(),
+                        "runs": runs.len(),
+                    })
+                    .to_string(),
+                ),
+                updated_rev: rev.max(1),
+            });
+            for head in &heads {
+                let payload_kind = serde_json::from_str::<serde_json::Value>(&head.payload_prefix)
                     .ok()
                     .and_then(|payload| {
                         ["kind", "type", "action", "operation", "event"]
@@ -842,27 +860,25 @@ impl SharedDaemonCore {
                     })
                     .unwrap_or_else(|| String::from("脊柱事件"));
                 rows.push(DesktopRow {
-                    key: format!("audit/{}", event.header.seq),
+                    key: format!("audit/{}", head.seq),
                     kind: String::from("audit"),
-                    summary: format!("审计事件 #{} · {payload_kind}", event.header.seq),
+                    summary: format!("审计事件 #{} · {payload_kind}", head.seq),
                     detail: Some(format!(
                         "epoch {} · agent {} · hlc {}",
-                        event.header.epoch,
-                        event.header.agent_id,
-                        event.header.hlc.to_hex()
+                        head.epoch, head.agent_id, head.hlc_hex
                     )),
                     raw_json: Some(
                         serde_json::json!({
-                            "seq": event.header.seq,
-                            "epoch": event.header.epoch,
-                            "agent_id": event.header.agent_id.to_string(),
-                            "device_id": event.header.device_id.to_string(),
-                            "hlc": event.header.hlc.to_hex(),
+                            "seq": head.seq,
+                            "epoch": head.epoch,
+                            "agent_id": head.agent_id.to_string(),
+                            "device_id": head.device_id.to_string(),
+                            "hlc": head.hlc_hex,
                             "payload_kind": payload_kind,
                         })
                         .to_string(),
                     ),
-                    updated_rev: event.header.seq,
+                    updated_rev: head.seq,
                 });
             }
         }

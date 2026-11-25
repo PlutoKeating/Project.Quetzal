@@ -52,6 +52,7 @@ const CHILD_SNAPSHOT_OUT: &str = "QZ_DESKTOP_SNAPSHOT_PROBE_OUT";
 const CHILD_ONLINE_UI_OUT: &str = "QZ_DESKTOP_ONLINE_UI_PROBE_OUT";
 const CHILD_TRAY_OUT: &str = "QZ_DESKTOP_TRAY_PROBE_OUT";
 const CHILD_LIFECYCLE_OUT: &str = "QZ_DESKTOP_LIFECYCLE_PROBE_OUT";
+const CHILD_TRAY_PROGRESS: &str = "QZ_DESKTOP_TRAY_PROBE_PROGRESS";
 
 struct TempDir {
     path: PathBuf,
@@ -127,6 +128,14 @@ fn run_capture(program: &str, args: &[&str]) -> (bool, String) {
 }
 
 /// 当前进程是否持有指向 `spine.sqlite*` 的文件描述符（Task 4.1 同款探针）。
+/// 真实进程存活检查：读取 `/proc/<pid>/stat`，并排除僵尸态。
+fn process_alive(pid: u32) -> bool {
+    match fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(stat) => !stat.contains(") Z "),
+        Err(_) => false,
+    }
+}
+
 fn spine_db_fds() -> Vec<String> {
     let Ok(entries) = fs::read_dir("/proc/self/fd") else {
         return Vec::new();
@@ -650,9 +659,8 @@ fn gtk_child_probe() {
         .map(|s| s.to_string())
         .unwrap_or_default();
 
-    // 最大化回环：写入 maximized=true 后重新构建，必须真实发出 maximize 请求。
-    // 裸 Xvfb 没有窗口管理器，is_maximized() 可能仍为 false，因此以「请求已发出」为准，
-    // 并在有 WM 时额外核对生效状态（两路都记录，绝不伪造）。
+    // 最大化回环：写入 maximized=true 后重新构建，必须既发出 maximize 请求，
+    // 又让 GTK 真实报告 is_maximized()==true；删掉 window.maximize() 时后者会失败。
     let max_path = config_dir.join("desktop-maximized.json");
     let mut max_config = DesktopConfig::load_from(Some(&config_path));
     max_config.maximized = true;
@@ -677,7 +685,8 @@ fn gtk_child_probe() {
             && rev_delta == 4
             && reloaded.density == CognitionDensity::Inspector
             && restored_page == "inspector"
-            && maximize_requested,
+            && maximize_requested
+            && maximize_effective,
         "mapped": mapped,
         "page_before": page_before,
         "switches": switches,
@@ -742,6 +751,16 @@ fn three_density_switching_preserves_state_and_persists_under_xvfb() {
     );
     assert_eq!(report["rev_delta"].as_u64(), Some(4));
     assert_eq!(report["restored_page"].as_str(), Some("inspector"));
+    assert_eq!(
+        report["maximize_requested"],
+        serde_json::Value::Bool(true),
+        "启动时必须发出 maximize 请求: {report}"
+    );
+    assert_eq!(
+        report["maximize_effective"],
+        serde_json::Value::Bool(true),
+        "最大化必须真实生效（可证伪地覆盖 window.maximize()）: {report}"
+    );
     assert_eq!(
         report["persisted_size"], report["window_size"],
         "落盘尺寸必须等于真实窗口尺寸（WM 无关）: {report}"
@@ -995,6 +1014,22 @@ fn snapshot_child_probe() {
     let conscience = desktop.model.rows_of(model::KIND_CONSCIENCE).len();
     let workflow = desktop.model.rows_of(model::KIND_WORKFLOW).len();
     let body = desktop.model.conscience_body.clone().unwrap_or_default();
+    let declared_events = desktop
+        .client
+        .as_ref()
+        .and_then(|client| client.status().ok())
+        .map(|status| status.spine_events_count)
+        .unwrap_or(0);
+    let audit_seqs: Vec<u64> = desktop
+        .model
+        .view
+        .rows
+        .values()
+        .filter(|row| row.kind == model::KIND_AUDIT)
+        .map(|row| row.updated_rev)
+        .collect();
+    let rev_matches_status =
+        u64::try_from(declared_events).unwrap_or_default() == desktop.model.view.rev;
     report = serde_json::json!({
         "ok": desktop.model.connection.is_online()
             && sessions > 0
@@ -1008,6 +1043,9 @@ fn snapshot_child_probe() {
         "workflow": workflow,
         "conscience_body_chars": body.chars().count(),
         "model_rev": desktop.model.view.rev,
+        "declared_events": declared_events,
+        "rev_matches_status": rev_matches_status,
+        "audit_seqs": audit_seqs,
         "db_fds": spine_db_fds(),
         "rows_total": desktop.model.view.rows.len(),
     });
@@ -1067,6 +1105,27 @@ fn daemon_snapshot_populates_sessions_audit_and_conscience() {
         Some(0),
         "桌面端读取快照不得持有 spine.sqlite: {report}"
     );
+    assert_eq!(
+        report["rev_matches_status"],
+        serde_json::Value::Bool(true),
+        "快照 rev 必须等于守护进程报告的事件总数: {report}"
+    );
+    let audit_seqs = report["audit_seqs"].as_array().expect("audit_seqs");
+    let declared_events = report["declared_events"].as_u64().unwrap_or_default();
+    let expected_audits = usize::try_from(declared_events.min(6)).unwrap_or_default();
+    assert_eq!(
+        audit_seqs.len(),
+        expected_audits,
+        "审计行必须恰好是最近 min(6, 事件总数) 条: {report}"
+    );
+    let seqs: Vec<u64> = audit_seqs
+        .iter()
+        .map(|value| value.as_u64().unwrap_or_default())
+        .collect();
+    assert!(
+        seqs.windows(2).all(|pair| pair[0] > pair[1]),
+        "审计行必须按 seq 严格倒序: {report}"
+    );
 
     daemon.shutdown().expect("关闭守护进程");
 }
@@ -1106,9 +1165,12 @@ fn online_ui_child_probe() {
         && !workbench_text.contains("127.0.0.1")
         && !workbench_text.contains("unix:")
         && !workbench_text.contains("STORAGE_")
-        && !workbench_text.contains("IPC");
+        && !workbench_text.contains("IPC")
+        && !workbench_text.contains("睡眠相位")
+        && !workbench_text.contains("脊柱事件");
     let inspector_technical = inspector_text.contains("pid")
-        && (inspector_text.contains("127.0.0.1") || inspector_text.contains("unix:"));
+        && (inspector_text.contains("127.0.0.1") || inspector_text.contains("unix:"))
+        && (inspector_text.contains("睡眠相位") || inspector_text.contains("脊柱事件"));
 
     // 工作台必须看得见自己的流式回复（同一份会话模型）。
     app::apply_density(&state, CognitionDensity::Workbench);
@@ -1158,6 +1220,34 @@ fn online_ui_child_probe() {
     let _ = app::ingest_stream_batch(&state, &second_batch);
     app::pump_events(80);
     let announced = state.borrow().widgets.live.announcement_count() - before;
+    let delta_text = state.borrow().widgets.live.last_announcement();
+    let delta_only_ok = announced == 1 && delta_text.contains("浇水清单");
+
+    // 混合批次：错误必须压过部分正文。
+    let before_error = state.borrow().widgets.live.announcement_count();
+    let mixed_batch = vec![
+        StreamEvent {
+            seq: 6,
+            kind: StreamEventKind::Delta,
+            text: String::from("部分正文先到，"),
+        },
+        StreamEvent {
+            seq: 7,
+            kind: StreamEventKind::Error,
+            text: String::from("上游连接中断"),
+        },
+        StreamEvent {
+            seq: 8,
+            kind: StreamEventKind::Delta,
+            text: String::from("后续正文仍在流。"),
+        },
+    ];
+    let _ = app::ingest_stream_batch(&state, &mixed_batch);
+    app::pump_events(80);
+    let announced_error = state.borrow().widgets.live.announcement_count() - before_error;
+    let error_text = state.borrow().widgets.live.last_announcement();
+    let error_wins = announced_error == 1 && error_text.contains("上游连接中断");
+
     let page = state
         .borrow()
         .widgets
@@ -1179,7 +1269,8 @@ fn online_ui_child_probe() {
         "ok": disclosure_plain
             && inspector_technical
             && reply_visible
-            && announced == 1
+            && delta_only_ok
+            && error_wins
             && page == "workbench"
             && live_independent
             && ingested.deltas.contains("今晚补一次透水")
@@ -1191,6 +1282,11 @@ fn online_ui_child_probe() {
         "reply_visible": reply_visible,
         "workbench_reply": workbench_reply,
         "announced": announced,
+        "announced_delta_text": delta_text,
+        "delta_only_ok": delta_only_ok,
+        "announced_error": announced_error,
+        "announced_error_text": error_text,
+        "error_wins": error_wins,
         "page": page,
         "live_independent": live_independent,
         "companion_shared": companion_text.contains("浇水清单"),
@@ -1227,6 +1323,8 @@ fn workbench_stays_plain_and_shows_streaming_reply() {
     assert_eq!(report["inspector_technical"], serde_json::Value::Bool(true));
     assert_eq!(report["reply_visible"], serde_json::Value::Bool(true));
     assert_eq!(report["announced"].as_u64(), Some(1));
+    assert_eq!(report["delta_only_ok"], serde_json::Value::Bool(true));
+    assert_eq!(report["error_wins"], serde_json::Value::Bool(true));
     assert_eq!(report["page"].as_str(), Some("workbench"));
     assert_eq!(
         report["db_fds"].as_array().map(Vec::len),
@@ -1270,6 +1368,9 @@ fn tray_child_probe() {
     let Some(out_path) = std::env::var_os(CHILD_TRAY_OUT).map(PathBuf::from) else {
         return;
     };
+    let progress_path = std::env::var_os(CHILD_TRAY_PROGRESS)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| out_path.with_extension("progress"));
     let mut report = serde_json::json!({ "ok": false });
     let Some(_watcher) = install_stub_watcher() else {
         report["error"] = serde_json::Value::String(String::from(
@@ -1308,6 +1409,7 @@ fn tray_child_probe() {
                 let safety_app = app.clone();
                 let loop_app = app.clone();
                 let safety_fallback = fallback.clone();
+                let progress_path = progress_path.clone();
                 glib::timeout_add_local_once(Duration::from_secs(12), move || {
                     safety_fallback.set(true);
                     safety_app.quit();
@@ -1333,7 +1435,12 @@ fn tray_child_probe() {
                                 !state.window.is_visible()
                             };
                             record("hidden_after_close", hidden);
-                            record("process_alive_after_close", true);
+                            // 真实存活检查（/proc/<pid>/stat，且非僵尸），不再是常量。
+                            record(
+                                "process_alive_after_close",
+                                process_alive(std::process::id()),
+                            );
+                            let _ = fs::write(&progress_path, std::process::id().to_string());
                             let _ = bus.call_method(
                                 Some(item_name.as_str()),
                                 "/StatusNotifierItem",
@@ -1386,6 +1493,8 @@ fn tray_child_probe() {
         "tray": tray_status.borrow().clone(),
         "fallback_fired": fallback.get(),
         "exit_code": code.get(),
+        "pid": std::process::id(),
+        "pid_alive_at_report": process_alive(std::process::id()),
     });
     fs::write(&out_path, report.to_string()).expect("写入托盘探针报告");
 }
@@ -1394,16 +1503,49 @@ fn tray_child_probe() {
 fn tray_hides_on_close_reactivates_and_quits() {
     let home = TempDir::new("tray_probe");
     let out = home.path().join("tray.json");
-    let output = spawn_probe("tray_child_probe", true)
+    let progress = home.path().join("tray.progress");
+    let child = spawn_probe("tray_child_probe", true)
         .env(CHILD_TRAY_OUT, &out)
+        .env(CHILD_TRAY_PROGRESS, &progress)
         .env("QUETZALCOATL_HOME", home.path().join("home"))
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .expect("spawn tray probe");
+
+    // 外部证据：子进程在关窗后把「自己的真实 pid」写进 progress 文件；
+    // 父进程据此观察 /proc/<pid> 仍存在（hold 生效），Quit 后必须消失。
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline && !progress.is_file() {
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        progress.is_file(),
+        "托盘探针未在关窗后写出 progress 标记（进程可能提前退出）"
+    );
+    let pid_text = fs::read_to_string(&progress).expect("读取 progress pid");
+    let pid: u32 = pid_text.trim().parse().expect("progress 中必须是真实 pid");
+    let mut alive_observed = false;
+    let observe_deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < observe_deadline && !alive_observed {
+        alive_observed = process_alive(pid);
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        alive_observed,
+        "关闭主窗口后父进程必须能观察到子进程 {pid} 仍存活（app.hold() 生效）"
+    );
+
+    let output = child.wait_with_output().expect("wait tray probe");
     assert!(
         output.status.success(),
         "托盘探针失败: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !process_alive(pid),
+        "Quit 动作后子进程必须真正退出（/proc/{pid} 不再存在）"
     );
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(&out).expect("读取托盘报告")).expect("JSON");
@@ -1414,6 +1556,8 @@ fn tray_hides_on_close_reactivates_and_quits() {
     );
     assert_eq!(report["tray"].as_str(), Some("registered"), "{report}");
     assert_eq!(report["fallback_fired"], serde_json::Value::Bool(false));
+    assert_eq!(report["pid"].as_u64(), Some(u64::from(pid)));
+    assert_eq!(report["pid_alive_at_report"], serde_json::Value::Bool(true));
     let checks = report["checks"].as_array().expect("checks");
     for expected in [
         "tray_registered",

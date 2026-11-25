@@ -1260,6 +1260,7 @@ mod tests {
         }
         for denied in [
             "conscience_pinned",
+            "desktop_snapshot",
             "export",
             "import_v1",
             "fabric_login",

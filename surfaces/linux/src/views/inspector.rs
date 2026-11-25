@@ -17,6 +17,8 @@ use crate::views::{action_row, clear, empty_row, group};
 pub struct InspectorView {
     /// 根容器。
     pub root: gtk::Box,
+    /// 运行状态列表（技术字段，仅检视态）。
+    pub runtime_list: gtk::ListBox,
     /// 良知树节点列表。
     pub conscience_list: gtk::ListBox,
     /// 工具调用列表。
@@ -59,11 +61,13 @@ pub fn build() -> InspectorView {
     reasoning.add_css_class("monospace");
     a11y::set_label(&reasoning, "推理增量");
 
+    let (runtime_group, runtime_list) = group("运行状态");
     let (conscience_group, conscience_list) = group("良知树");
     let (tool_group, tool_list) = group("工具");
     let (audit_group, audit_list) = group("审计");
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    content.append(&runtime_group);
     content.append(&conscience_group);
     content.append(&tool_group);
     content.append(&audit_group);
@@ -82,6 +86,7 @@ pub fn build() -> InspectorView {
 
     InspectorView {
         root,
+        runtime_list,
         conscience_list,
         tool_list,
         audit_list,
@@ -123,6 +128,22 @@ pub fn render(view: &InspectorView, model: &UiModel) {
     } else {
         view.reasoning.set_visible(true);
         view.reasoning.set_text(&model.session.reasoning);
+    }
+
+    clear(&view.runtime_list);
+    let runtime = model.rows_of(model::KIND_STATUS);
+    if runtime.is_empty() {
+        view.runtime_list
+            .append(&empty_row("暂无运行状态（或尚未同步）"));
+    }
+    for row in runtime {
+        let view_row = action_row(&row.summary, row.detail.as_deref());
+        view_row.set_activatable(false);
+        if let Some(raw) = &row.raw_json {
+            view_row.set_tooltip_text(Some(raw));
+        }
+        a11y::set_label(&view_row, &row.summary);
+        view.runtime_list.append(&view_row);
     }
 
     clear(&view.conscience_list);

@@ -895,3 +895,46 @@ fn batch_ingest_interleaved_packs_marks_pack_id_and_broken_chain_is_atomic() -> 
     fs::remove_dir_all(&dir)?;
     Ok(())
 }
+
+#[test]
+fn event_head_summary_returns_count_and_last_n_without_full_history() -> TestResult {
+    let dir = temp_test_dir("event_heads")?;
+    let agent_id = AgentId::new_v4();
+    let root_key = AccountRootKey::generate()?;
+    let dev = DeviceIdentity::generate(DeviceId::new_v4())?;
+    let ring = EpochKeyRing::new_genesis(agent_id, &root_key, dev.public_record())?;
+    let mut engine = SpineEngine::new(
+        agent_id,
+        dev.clone(),
+        ring,
+        HlcTimestamp::from_parts(1_795_400_000_000, 0, dev.device_id().hlc_node_tag()),
+        RusqliteWalStore::open(&dir.join("heads.sqlite"))?,
+    )?;
+    engine.set_auto_pack_threshold(1_000_000);
+    for index in 1..=40u64 {
+        engine.append_event(
+            PackCompartment::Core,
+            &format!("{{\"kind\":\"step\",\"n\":{index}}}"),
+            1_795_400_000_000u64.saturating_add(index.saturating_mul(10)),
+        )?;
+    }
+
+    let (count, heads) = engine.store().spine_event_count_and_heads(6)?;
+    assert_eq!(count, 40, "COUNT(*) 必须覆盖完整历史");
+    assert_eq!(heads.len(), 6, "只返回最近的 6 条事件头");
+    assert_eq!(
+        heads.iter().map(|head| head.seq).collect::<Vec<_>>(),
+        vec![40, 39, 38, 37, 36, 35],
+        "事件头必须按 seq 倒序且只含最近 N 条"
+    );
+    assert!(
+        heads
+            .iter()
+            .all(|head| head.payload_prefix.contains("\"kind\":\"step\"")),
+        "payload 只取前缀，但足以还原审计归类"
+    );
+    assert!(heads.iter().all(|head| !head.hlc_hex.is_empty()));
+
+    fs::remove_dir_all(&dir)?;
+    Ok(())
+}

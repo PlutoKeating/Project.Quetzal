@@ -26,6 +26,8 @@ pub const KIND_CONSCIENCE: &str = "conscience";
 pub const KIND_TOOL: &str = "tool";
 /// 审计事件行。
 pub const KIND_AUDIT: &str = "audit";
+/// 运行状态行（睡眠相位/脊柱水位等技术字段，仅检视态）。
+pub const KIND_STATUS: &str = "status";
 
 /// 会话内一条消息的角色。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -135,6 +137,26 @@ impl ConnectionState {
     }
 }
 
+/// 播报类别：错误/审批类优先级高于普通正文增量。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnnouncementClass {
+    /// 正文增量。
+    Delta,
+    /// 上游/本地错误。
+    Error,
+    /// 审批类提示。
+    Approval,
+}
+
+/// 一条待播报文本（保留类别，供「错误优先」裁决）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Announcement {
+    /// 类别。
+    pub class: AnnouncementClass,
+    /// 播报正文。
+    pub text: String,
+}
+
 /// 一次流事件批次的消费结果（供无障碍播报与视图刷新决策）。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StreamIngest {
@@ -142,8 +164,26 @@ pub struct StreamIngest {
     pub applied: usize,
     /// 本批新增的正文增量。
     pub deltas: String,
-    /// 需要实时播报的短句（`aria-live` 等价物）。
-    pub announcements: Vec<String>,
+    /// 本批产生的播报候选（顺序 = 事件顺序）。
+    pub announcements: Vec<Announcement>,
+}
+
+impl StreamIngest {
+    /// 每批只播一条：错误/审批类永远压过正文增量；同类别取最后一条。
+    #[must_use]
+    pub fn preferred_announcement(&self) -> Option<&str> {
+        self.announcements
+            .iter()
+            .rev()
+            .find(|item| {
+                matches!(
+                    item.class,
+                    AnnouncementClass::Error | AnnouncementClass::Approval
+                )
+            })
+            .or_else(|| self.announcements.last())
+            .map(|item| item.text.as_str())
+    }
 }
 
 /// 桌面端 UI 模型。
@@ -264,16 +304,18 @@ impl UiModel {
                         role: ChatRole::System,
                         text: format!("出错了：{}", event.text),
                     });
-                    ingest
-                        .announcements
-                        .push(format!("本轮出错了：{}", event.text));
+                    ingest.announcements.push(Announcement {
+                        class: AnnouncementClass::Error,
+                        text: format!("本轮出错了：{}", event.text),
+                    });
                 }
             }
         }
         if !ingest.deltas.trim().is_empty() {
-            ingest
-                .announcements
-                .push(tail_chars(&ingest.deltas, 80).to_owned());
+            ingest.announcements.push(Announcement {
+                class: AnnouncementClass::Delta,
+                text: tail_chars(&ingest.deltas, 80).to_owned(),
+            });
         }
         ingest
     }
@@ -359,4 +401,73 @@ fn tail_chars(text: &str, limit: usize) -> &str {
         .map(|(index, _)| index)
         .unwrap_or(0);
     text.get(start..).unwrap_or(text).trim()
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    fn event(seq: u64, kind: StreamEventKind, text: &str) -> StreamEvent {
+        StreamEvent {
+            seq,
+            kind,
+            text: text.to_owned(),
+        }
+    }
+
+    #[test]
+    fn mixed_batch_prefers_error_over_partial_reply() {
+        let mut model = UiModel::offline("test");
+        let ingest = model.ingest_stream(&[
+            event(1, StreamEventKind::Delta, "土壤湿度偏低，"),
+            event(2, StreamEventKind::Error, "上游连接中断"),
+            event(3, StreamEventKind::Delta, "我建议今晚浇水。"),
+        ]);
+        assert_eq!(
+            ingest.preferred_announcement(),
+            Some("本轮出错了：上游连接中断"),
+            "混合批次必须播报错误而不是部分正文"
+        );
+        assert_eq!(ingest.announcements.len(), 2);
+        assert!(model.session.messages.iter().any(|line| {
+            line.role == ChatRole::System && line.text.contains("上游连接中断")
+        }));
+    }
+
+    #[test]
+    fn delta_only_batch_announces_reply_tail() {
+        let mut model = UiModel::offline("test");
+        let ingest = model.ingest_stream(&[
+            event(1, StreamEventKind::Delta, "今晚"),
+            event(2, StreamEventKind::Delta, "补一次透水。"),
+            event(3, StreamEventKind::Done, "stop"),
+        ]);
+        assert_eq!(
+            ingest.preferred_announcement(),
+            Some("今晚补一次透水。"),
+            "纯正文批次播报累计增量"
+        );
+        assert_eq!(ingest.announcements.len(), 1);
+    }
+
+    #[test]
+    fn approval_class_wins_over_later_delta() {
+        let mut model = UiModel::offline("test");
+        let mut ingest = model.ingest_stream(&[event(1, StreamEventKind::Delta, "好的，")]);
+        ingest.announcements.push(Announcement {
+            class: AnnouncementClass::Approval,
+            text: String::from("有一项操作等待批准"),
+        });
+        ingest.announcements.push(Announcement {
+            class: AnnouncementClass::Delta,
+            text: String::from("我继续说明。"),
+        });
+        assert_eq!(
+            ingest.preferred_announcement(),
+            Some("有一项操作等待批准"),
+            "审批类优先于其后的正文增量"
+        );
+    }
 }

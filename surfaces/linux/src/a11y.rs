@@ -51,6 +51,7 @@ pub fn mark_multiline(widget: &impl IsA<gtk::Accessible>) {
 pub struct LiveRegion {
     widget: gtk::Label,
     announcements: std::rc::Rc<std::cell::Cell<u64>>,
+    last: std::rc::Rc<std::cell::RefCell<String>>,
 }
 
 impl LiveRegion {
@@ -70,6 +71,7 @@ impl LiveRegion {
         Self {
             widget,
             announcements: std::rc::Rc::new(std::cell::Cell::new(0)),
+            last: std::rc::Rc::new(std::cell::RefCell::new(String::new())),
         }
     }
 
@@ -85,6 +87,12 @@ impl LiveRegion {
         self.announcements.get()
     }
 
+    /// 最近一次播报文本（测试据此断言「错误优先」）。
+    #[must_use]
+    pub fn last_announcement(&self) -> String {
+        self.last.borrow().clone()
+    }
+
     /// 播报一段文本：更新实时区域内容 + 调 GTK 4.14 `announce()`。
     pub fn announce(&self, text: &str) {
         let text = text.trim();
@@ -97,6 +105,7 @@ impl LiveRegion {
             self.widget
                 .announce(text, gtk::AccessibleAnnouncementPriority::Medium);
         }
+        *self.last.borrow_mut() = text.to_owned();
         self.announcements
             .set(self.announcements.get().saturating_add(1));
     }

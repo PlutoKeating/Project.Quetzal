@@ -433,7 +433,10 @@ pub fn ingest_stream_batch(state: &Rc<RefCell<Desktop>>, events: &[StreamEvent])
     let (ingest, announcement) = {
         let mut desktop = state.borrow_mut();
         let ingest = desktop.model.ingest_stream(events);
-        let announcement = ingest.announcements.last().cloned().unwrap_or_default();
+        let announcement = ingest
+            .preferred_announcement()
+            .map(str::to_owned)
+            .unwrap_or_default();
         (ingest, announcement)
     };
     if !announcement.is_empty() {

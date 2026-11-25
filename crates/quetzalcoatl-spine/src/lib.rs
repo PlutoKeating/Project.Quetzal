@@ -17,7 +17,7 @@ pub use ledger::{
 };
 pub use store::{
     MaterializedMemory, MaterializedMessage, MaterializedRun, MaterializedStore,
-    MaterializedThread, RusqliteWalStore,
+    MaterializedThread, RusqliteWalStore, SpineEventHead,
 };
 
 use std::collections::BTreeMap;

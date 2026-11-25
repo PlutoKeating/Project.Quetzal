@@ -56,6 +56,18 @@ pub struct MaterializedRun {
     pub updated_hlc: HlcTimestamp,
 }
 
+/// 事件头摘要（不含完整 payload）：供桌面快照/审计页按需读取最近 N 条。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpineEventHead {
+    pub seq: u64,
+    pub agent_id: AgentId,
+    pub device_id: DeviceId,
+    pub epoch: u64,
+    pub hlc_hex: String,
+    /// payload 前 512 字符，仅用于恢复 `payload.kind` 审计归类，绝不整段反序列化历史。
+    pub payload_prefix: String,
+}
+
 /// 可随时由签名事件脊柱确定性重建的本地物化视图契约。
 pub trait MaterializedStore {
     fn register_device_pubkey(
@@ -74,6 +86,9 @@ pub trait MaterializedStore {
     fn device_chain_head(&self, device_id: DeviceId) -> Result<Option<(u64, ArtifactId)>>;
     fn list_device_events(&self, device_id: DeviceId) -> Result<Vec<SpineEvent>>;
     fn list_all_events(&self) -> Result<Vec<(SpineEvent, PackCompartment)>>;
+    /// 事件总数 + 最近 `limit` 条事件头：`COUNT(*)` + `ORDER BY seq DESC LIMIT n`，
+    /// 绝不把整段历史 payload 载入内存（桌面端每次 hydrate 都会调用）。
+    fn spine_event_count_and_heads(&self, limit: usize) -> Result<(u64, Vec<SpineEventHead>)>;
     fn list_all_unpacked_events(&self) -> Result<Vec<(SpineEvent, PackCompartment)>>;
     fn list_unpacked_events(
         &self,
@@ -466,6 +481,46 @@ impl MaterializedStore for RusqliteWalStore {
             out.push(ev);
         }
         Ok(out)
+    }
+
+    fn spine_event_count_and_heads(&self, limit: usize) -> Result<(u64, Vec<SpineEventHead>)> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM spine_events;", [], |row| row.get(0))
+            .map_err(sql_err)?;
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT seq, agent_id, device_id, epoch, hlc_hex, substr(payload_utf8, 1, 512)
+                 FROM spine_events ORDER BY seq DESC LIMIT ?1;",
+            )
+            .map_err(sql_err)?;
+        let rows = stmt
+            .query_map([limit_i64], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })
+            .map_err(sql_err)?;
+        let mut heads = Vec::new();
+        for row in rows {
+            let (seq, agent, device, epoch, hlc_hex, payload_prefix) = row.map_err(sql_err)?;
+            heads.push(SpineEventHead {
+                seq: i64_to_u64(seq),
+                agent_id: AgentId::from_str(&agent)?,
+                device_id: DeviceId::from_str(&device)?,
+                epoch: i64_to_u64(epoch),
+                hlc_hex,
+                payload_prefix,
+            });
+        }
+        Ok((i64_to_u64(count), heads))
     }
 
     fn list_all_events(&self) -> Result<Vec<(SpineEvent, PackCompartment)>> {
