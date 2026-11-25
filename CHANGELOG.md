@@ -4,6 +4,22 @@
 `## <version>` 抽取对应小节，作为 GitHub Release 的 notes。新增版本时在文件顶部追加小节，
 标题格式固定为 `## <version>`（可带日期）。
 
+## 2.0.0-alpha.1
+
+首个可安装的 `Quetzalcoatl` V2 预发布，用于验证签名发版流水线与 Linux/Web 端到端安装。
+
+**本版包含**：签名 HLC 状态脊柱、盲微内核、`quetzalcoatl-ewave` 良知核、无容器沙箱与零凭据代理、
+`iroh 1.5` 组网与 Go `quetzalcoatl-hub`（认证/Packfile/CAS 租约/中继/QAD/零日志模型网关）、`openmls`
+群组协同、通道族与 SayIt 吸纳、五个领域包、`qz` CLI、Linux GTK4 桌面端、Web 控制台、macOS/Windows
+原生端源码与单元测试、官网与签名安装器。
+
+**尚未包含**（阻塞项，待虚拟机恢复后补齐）：iOS 与 Android 原生客户端（Tasks 5.1/5.2）；
+macOS `swift test`、Windows WinUI 完整构建与 UIA 冒烟、Windows/macOS 的签名二进制产物的原生运行验收；
+`v2.0.0` 正式版将在移动端与三平台原生运行验收完成后发布。
+
+**安装**：Linux / macOS 用 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`；网页控制台
+随安装启动；Windows 与 macOS 原生端在本版为源码 + 构建说明。
+
 ## 2.0.0
 
 `Quetzalcoatl` V2 的首个签名发版。V1 的 Git 灵魂仓库与跨平台 UI 套壳已被彻底移除，V2 以
