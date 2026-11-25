@@ -672,9 +672,12 @@ fn apply_chat_result(
             }
         }
         Ok(IpcResponse::Error { code, detail }) => {
+            // 常见拒绝要说人话：把「没配模型」这种可自解的文案直接放到用户看得到的提示里，
+            // 技术细节留在断言区，避免新人只看到一句「请稍后重试」而不知道下一步。
+            let notice = degrade::chat_error_notice(&code);
             let mut desktop = state.borrow_mut();
             desktop.model.finish_stream();
-            desktop.model.notice("这次没有收到回复，请稍后重试。");
+            desktop.model.notice(notice);
             desktop
                 .model
                 .technical(format!("chat 被拒绝 [{code}]: {detail}"));
