@@ -237,3 +237,125 @@ describe("worker 缓存协议", () => {
     );
   });
 });
+
+describe("对话失败必须变成可见错误，而不是「发送后毫无反应」", () => {
+  it("WebSocket 的 error 响应帧会生成带标题的错误卡", async () => {
+    const sent: string[] = [];
+    let socketRef: FakeChatSocket | null = null;
+
+    class FakeChatSocket implements WebSocketLike {
+      onopen: ((this: unknown, ev: unknown) => void) | null = null;
+      onmessage: ((this: unknown, ev: MessageEvent) => void) | null = null;
+      onerror: ((this: unknown, ev: unknown) => void) | null = null;
+      onclose: ((this: unknown, ev: unknown) => void) | null = null;
+      readyState = 0;
+      constructor() {
+        socketRef = this;
+        queueMicrotask(() => {
+          this.readyState = 1;
+          this.onopen?.call(this, {});
+        });
+      }
+      send(data: string): void {
+        sent.push(data);
+        const parsed = JSON.parse(data) as { auth?: string; id?: number };
+        if (parsed.auth !== undefined) {
+          queueMicrotask(() => {
+            this.onmessage?.call(this, { data: JSON.stringify({ type: "ready" }) } as MessageEvent);
+            this.onmessage?.call(this, {
+              data: JSON.stringify({
+                type: "snapshot",
+                state: { rev: 1, density: "workbench", rows: {} },
+              }),
+            } as MessageEvent);
+          });
+          return;
+        }
+        // 守护进程对 chat 的拒绝：必须被转成错误卡。
+        const id = parsed.id ?? 0;
+        queueMicrotask(() => {
+          this.onmessage?.call(this, {
+            data: JSON.stringify({
+              type: "response",
+              id,
+              response: {
+                kind: "error",
+                data: { code: "MODEL_NOT_CONFIGURED", detail: "尚未配置模型供应商，未发起上游请求" },
+              },
+            }),
+          } as MessageEvent);
+        });
+      }
+      close(): void {
+        this.readyState = 3;
+      }
+    }
+
+    const client = new DaemonClient({
+      fetcher: (async () =>
+        Response.json({ token: "tok", expires_in_secs: 60 })) as unknown as typeof fetch,
+      websocketFactory: () => new FakeChatSocket(),
+      locationOrigin: "http://127.0.0.1:1234",
+    });
+    const handlers = {
+      onSnapshot: vi.fn(),
+      onPatch: vi.fn(),
+      onToken: vi.fn(),
+      onToolCard: vi.fn(),
+      onConnection: vi.fn(),
+    };
+    await client.connect(handlers);
+    await client.sendChat("你好");
+    await vi.waitFor(() =>
+      expect(handlers.onToolCard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "error",
+          title: "还没有配置模型",
+          detail: expect.stringContaining("尚未配置模型供应商"),
+        }),
+      ),
+    );
+    expect(socketRef).not.toBeNull();
+    client.close();
+  });
+
+  it("HTTP /rpc 返回 200 + kind=error 时同样弹出错误卡", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/local")) {
+        return Response.json({ token: "tok", expires_in_secs: 60 });
+      }
+      if (url.endsWith("/rpc")) {
+        return Response.json({
+          kind: "error",
+          data: { code: "MODEL_NOT_CONFIGURED", detail: "尚未配置模型供应商，未发起上游请求" },
+        });
+      }
+      return new Response("missing", { status: 404 });
+    });
+    const client = new DaemonClient({
+      fetcher: fetcher as unknown as typeof fetch,
+      websocketFactory: () => {
+        throw new Error("no websocket");
+      },
+      locationOrigin: "http://127.0.0.1:1234",
+    });
+    const handlers = {
+      onSnapshot: vi.fn(),
+      onPatch: vi.fn(),
+      onToken: vi.fn(),
+      onToolCard: vi.fn(),
+      onConnection: vi.fn(),
+    };
+    await client.connect(handlers);
+    await client.sendChat("你好");
+    expect(handlers.onToolCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "error",
+        title: "还没有配置模型",
+        detail: expect.stringContaining("尚未配置模型供应商"),
+      }),
+    );
+    client.close();
+  });
+});

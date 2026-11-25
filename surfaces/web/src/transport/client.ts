@@ -67,6 +67,12 @@ export interface DaemonClientOptions {
   locationOrigin?: string;
 }
 
+interface RpcOutcome {
+  kind: string;
+  code?: string;
+  detail?: string;
+}
+
 interface PendingResponse {
   resolve: (response: { kind: string; data?: unknown }) => void;
   reject: (error: Error) => void;
@@ -97,6 +103,30 @@ export class DaemonUnavailable extends Error {
   }
 }
 
+/** 守护进程明确拒绝/未能完成对话（例如 MODEL_NOT_CONFIGURED）：必须原样展示给用户。 */
+export class ChatRejected extends Error {
+  readonly code: string;
+  readonly detail: string;
+
+  constructor(code: string, detail: string) {
+    super(detail || code);
+    this.name = "ChatRejected";
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+const CHAT_ERROR_TITLES: Record<string, string> = {
+  MODEL_NOT_CONFIGURED: "还没有配置模型",
+  CREDENTIAL_REJECTED: "模型凭据被拒绝",
+  SANDBOX_VIOLATION: "沙箱拒绝了这次请求",
+  PERMISSION_DENIED: "这次请求没有被授权",
+};
+
+export function chatErrorTitle(code: string): string {
+  return CHAT_ERROR_TITLES[code] ?? "这条消息没有发出去";
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -118,6 +148,8 @@ export class DaemonClient implements AppTransport {
   #errorSeq = 0;
   #keepalive: ReturnType<typeof setInterval> | null = null;
   readonly #pending = new Map<number, PendingResponse>();
+  /** 已发出、等待 `response` 帧的对话请求：只用于把错误帧变成可见错误卡。 */
+  readonly #chatIds = new Set<number>();
 
   constructor(options: DaemonClientOptions = {}) {
     this.#fetcher = options.fetcher ?? (typeof fetch === "function" ? fetch.bind(globalThis) : null);
@@ -148,8 +180,23 @@ export class DaemonClient implements AppTransport {
     const message = text.trim();
     if (message.length === 0) return;
     if (!this.#httpOnly && this.#socket && this.#socket.readyState === 1) {
-      this.#socket.send(JSON.stringify(chatEnvelope(this.#nextId, message)));
+      const id = this.#nextId;
       this.#nextId += 1;
+      // 对话的 `response` 帧不能像普通 RPC 那样按 10s 超时处理（模型可能思考很久），
+      // 但它的错误帧必须落地成可见的错误卡，否则「发送后毫无反应」就是新手死胡同。
+      this.#chatIds.add(id);
+      try {
+        this.#socket.send(JSON.stringify(chatEnvelope(id, message)));
+      } catch (error) {
+        this.#chatIds.delete(id);
+        this.#handlers.onToolCard({
+          kind: "error",
+          id: `send-error-${this.#errorSeq}`,
+          title: "消息未能送达本机守护进程",
+          detail: describe(error),
+        });
+        this.#errorSeq += 1;
+      }
       return;
     }
     const result = await this.#postRpc({
@@ -163,6 +210,16 @@ export class DaemonClient implements AppTransport {
         router_attempted_forbidden_tools: [],
       },
     });
+    if (result && result.kind === "error") {
+      this.#handlers.onToolCard({
+        kind: "error",
+        id: `chat-error-${this.#errorSeq}`,
+        title: chatErrorTitle(result.code ?? "CHAT_FAILED"),
+        detail: result.detail,
+      });
+      this.#errorSeq += 1;
+      return;
+    }
     if (!result) {
       this.#handlers.onToolCard({
         kind: "error",
@@ -389,6 +446,7 @@ export class DaemonClient implements AppTransport {
           this.#socket = null;
           this.#stopKeepalive();
           this.#rejectPending("WebSocket 已断开");
+          this.#chatIds.clear();
           this.#httpOnly = true;
           this.#handlers?.onConnection({
             online: true,
@@ -468,7 +526,12 @@ export class DaemonClient implements AppTransport {
         const id = frame["id"];
         if (typeof id !== "number") return;
         const entry = this.#pending.get(id);
-        if (!entry) return;
+        if (!entry) {
+          if (this.#chatIds.delete(id)) {
+            this.#surfaceChatResponse(frame["response"]);
+          }
+          return;
+        }
         this.#pending.delete(id);
         clearTimeout(entry.timer);
         const response = frame["response"];
@@ -507,8 +570,11 @@ export class DaemonClient implements AppTransport {
     }
   }
 
-  async #postRpc(request: IpcRequestEnvelope, allowReauth = true): Promise<boolean> {
-    if (!this.#fetcher) return false;
+  async #postRpc(
+    request: IpcRequestEnvelope,
+    allowReauth = true,
+  ): Promise<RpcOutcome | null> {
+    if (!this.#fetcher) return null;
     try {
       const response = await this.#fetcher(`${this.#origin()}/rpc`, {
         method: "POST",
@@ -525,14 +591,48 @@ export class DaemonClient implements AppTransport {
         try {
           this.#token = await this.#authenticate();
         } catch {
-          return false;
+          return null;
         }
         return this.#postRpc(request, false);
       }
-      return response.ok;
+      if (!response.ok) return null;
+      // 守护进程用 200 + {"kind":"error","data":{code,detail}} 表达业务拒绝，
+      // 只看 response.ok 会把「没配模型」当成发送成功（新手会一直等不到任何反应）。
+      const body = (await response.json().catch(() => null)) as unknown;
+      if (typeof body !== "object" || body === null) return { kind: "ack" };
+      const record = body as Record<string, unknown>;
+      const kind = typeof record["kind"] === "string" ? record["kind"] : "ack";
+      const data =
+        typeof record["data"] === "object" && record["data"] !== null
+          ? (record["data"] as Record<string, unknown>)
+          : {};
+      const code = typeof data["code"] === "string" ? data["code"] : "";
+      const detail = typeof data["detail"] === "string" ? data["detail"] : "";
+      return { kind, code, detail };
     } catch {
-      return false;
+      return null;
     }
+  }
+
+  /** WS 对话的 `response` 帧：只把错误面成卡片，成功路径由 snapshot/patch/token 驱动。 */
+  #surfaceChatResponse(response: unknown): void {
+    const handlers = this.#handlers;
+    if (!handlers || typeof response !== "object" || response === null) return;
+    const record = response as Record<string, unknown>;
+    if (record["kind"] !== "error") return;
+    const data =
+      typeof record["data"] === "object" && record["data"] !== null
+        ? (record["data"] as Record<string, unknown>)
+        : {};
+    const code = typeof data["code"] === "string" ? data["code"] : "CHAT_FAILED";
+    const detail = typeof data["detail"] === "string" ? data["detail"] : "";
+    handlers.onToolCard({
+      kind: "error",
+      id: `chat-error-${this.#errorSeq}`,
+      title: chatErrorTitle(code),
+      detail: detail || code,
+    });
+    this.#errorSeq += 1;
   }
 
   async #loadHttpSnapshot(allowReauth = true): Promise<void> {
