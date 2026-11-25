@@ -2208,15 +2208,11 @@ impl SharedDaemonCore {
                         detail: String::from("daemon lock poisoned"),
                     });
                 };
-                let _ = guard.channels.reconcile_lease_for_local(
-                    witness_epoch,
-                    &lease_holder,
-                    &self.runtime_info.device_id.to_string(),
-                );
-                // 有状态通道在远端/无 holder 时先返回类型化 PERMISSION_DENIED，
-                // 不被分区租约错误掩盖。
-                if let Err(err) = guard.channels.authorize_send(&channel) {
-                    return ipc_error_response(err);
+                if !guard.channels.is_enabled(&channel) {
+                    return ipc_error_response(QuetzalcoatlError::invalid_id(
+                        "ChannelId",
+                        format!("通道 {channel} 未启用"),
+                    ));
                 }
                 if matches!(guard.kernel.lease_posture(), LeasePosture::PartitionLocal) {
                     // 两态围栏：非幂等公网外发只入 Outbox，绝不在无见证纪元下发出。
@@ -2241,6 +2237,15 @@ impl SharedDaemonCore {
                         &invocation,
                         now_ms,
                     );
+                    if !lease_holder.trim().is_empty()
+                        && lease_holder != self.runtime_info.device_id.to_string()
+                    {
+                        return ipc_error_response(QuetzalcoatlError::PermissionDenied {
+                            detail: format!(
+                                "通道 {channel} 外发已暂存 Outbox，但当前 Router holder 为 {lease_holder}，本机无有状态通道发送权"
+                            ),
+                        });
+                    }
                     return ipc_error_response(QuetzalcoatlError::PartitionRestricted {
                         detail: format!(
                             "通道 {channel} 外发已暂存 Outbox：当前处于断网分区本地租约，重获 witness_epoch 后将自动对账投递"
@@ -2252,6 +2257,9 @@ impl SharedDaemonCore {
                     &lease_holder,
                     &self.runtime_info.device_id.to_string(),
                 );
+                if let Err(err) = guard.channels.authorize_send(&channel) {
+                    return ipc_error_response(err);
+                }
                 let destination = destination.unwrap_or_default();
                 match guard.channels.deliver(&channel, &destination, &text) {
                     Ok(report) => (IpcResponse::ChannelDelivery(report), false),

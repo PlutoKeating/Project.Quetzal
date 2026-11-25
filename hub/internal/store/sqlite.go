@@ -404,7 +404,6 @@ type Store interface {
 	CommitSpinePack(ctx context.Context, uploadID string, rec SpinePackRecord) (*SpinePackRecord, error)
 	ListSpinePacks(ctx context.Context, agentID string, afterSeq uint64, limit uint32) ([]SpinePackRecord, error)
 
-	EnqueueWebhookIngress(ctx context.Context, rec WebhookIngressRecord, maxPerAgent int) (bool, int, error)
 	EnqueueWebhookIngressBatch(ctx context.Context, agentID, channel, eventIDHash string, rows []WebhookIngressRow, maxEvents int) (EnqueueOutcome, error)
 	ListWebhookIngress(ctx context.Context, agentID, deviceID string, after int64, limit int) ([]WebhookIngressRecord, error)
 	DeleteWebhookIngress(ctx context.Context, agentID string, ingressID int64) (bool, error)
@@ -412,8 +411,6 @@ type Store interface {
 	CountWebhookIngress(ctx context.Context, agentID string) (int, error)
 	DeleteWebhookIngressForDevice(ctx context.Context, agentID, deviceID string) (int64, error)
 	CountWebhookIngressEvents(ctx context.Context, agentID string) (int, error)
-	WebhookIngressEventExists(ctx context.Context, agentID, channel, eventIDHash string) (bool, error)
-	DeleteWebhookIngressEvent(ctx context.Context, agentID, channel, eventIDHash string) (int64, error)
 
 	AcquireLease(ctx context.Context, agentID, deviceID string, expectedEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
 	RenewLease(ctx context.Context, agentID, deviceID string, witnessEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
@@ -2203,58 +2200,7 @@ func (s *SQLiteStore) DBForTest() *sql.DB {
 	return s.db
 }
 
-// EnqueueWebhookIngress 原子入队一条零知识 Webhook 密文。
-// 返回 inserted=false 表示同一 (agent_id, channel, event_id_hash) 已存在（幂等去重）。
-func (s *SQLiteStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIngressRecord, maxPerAgent int) (bool, int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var existing int64
-	err = tx.QueryRowContext(ctx, `
-		SELECT ingress_id FROM webhook_ingress_queue
-		WHERE agent_id = ? AND channel = ? AND event_id_hash = ? AND target_device_id = ?
-	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.TargetDeviceID).Scan(&existing)
-	if err == nil {
-		var depth int
-		if countErr := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ?`, rec.AgentID).Scan(&depth); countErr != nil {
-			return false, 0, countErr
-		}
-		return false, depth, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return false, 0, err
-	}
-
-	var depth int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ?`, rec.AgentID).Scan(&depth); err != nil {
-		return false, 0, err
-	}
-	var sameEvent int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, rec.AgentID, rec.Channel, rec.EventIDHash).Scan(&sameEvent); err != nil {
-		return false, 0, err
-	}
-	if maxPerAgent > 0 && depth >= maxPerAgent && sameEvent == 0 {
-		return false, depth, ErrQuotaExceeded
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO webhook_ingress_queue (
-			agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.TargetDeviceID, rec.HPKEEncHex, rec.CiphertextHex, rec.AADUTF8, rec.ReceivedAtMs, rec.CreatedAtMs); err != nil {
-		return false, 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, 0, err
-	}
-	return true, depth + 1, nil
-}
-
-// ListWebhookIngress 按入队顺序读取某 Agent 的待解密密文行。
+// ListWebhookIngress 按入队顺序读取某 Agent/设备的待解密密文行。
 func (s *SQLiteStore) ListWebhookIngress(ctx context.Context, agentID, deviceID string, after int64, limit int) ([]WebhookIngressRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2362,28 +2308,6 @@ func (s *SQLiteStore) CountWebhookIngressEvents(ctx context.Context, agentID str
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT channel, event_id_hash FROM webhook_ingress_queue WHERE agent_id = ?)`, agentID).Scan(&count)
 	return count, err
-}
-
-// WebhookIngressEventExists 判断同一事件是否已为任一设备入队（幂等重投递）。
-func (s *SQLiteStore) WebhookIngressEventExists(ctx context.Context, agentID, channel, eventIDHash string) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, agentID, channel, eventIDHash).Scan(&count); err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-// DeleteWebhookIngressEvent 用于多设备批量密封失败时的事务性回滚。
-func (s *SQLiteStore) DeleteWebhookIngressEvent(ctx context.Context, agentID, channel, eventIDHash string) (int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	res, err := s.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, agentID, channel, eventIDHash)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
 }
 
 // EnqueueWebhookIngressBatch 以单事务完成“去重 + 按事件配额 + 全设备插入”，全有或全无。

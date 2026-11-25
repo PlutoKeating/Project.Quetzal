@@ -11,6 +11,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -1510,53 +1511,6 @@ func (p *PostgresStore) GroupRoomHead(ctx context.Context, groupID string) (uint
 	return head, epoch, nil
 }
 
-func (p *PostgresStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIngressRecord, maxPerAgent int) (bool, int, error) {
-	tx, err := p.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var existing int64
-	err = tx.QueryRowContext(ctx, `
-		SELECT ingress_id FROM webhook_ingress_queue
-		WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3 AND target_device_id = $4
-	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.TargetDeviceID).Scan(&existing)
-	if err == nil {
-		var depth int
-		if countErr := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, rec.AgentID).Scan(&depth); countErr != nil {
-			return false, 0, countErr
-		}
-		return false, depth, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return false, 0, err
-	}
-
-	var depth int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, rec.AgentID).Scan(&depth); err != nil {
-		return false, 0, err
-	}
-	var sameEvent int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, rec.AgentID, rec.Channel, rec.EventIDHash).Scan(&sameEvent); err != nil {
-		return false, 0, err
-	}
-	if maxPerAgent > 0 && depth >= maxPerAgent && sameEvent == 0 {
-		return false, depth, ErrQuotaExceeded
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO webhook_ingress_queue (
-			agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.TargetDeviceID, rec.HPKEEncHex, rec.CiphertextHex, rec.AADUTF8, rec.ReceivedAtMs, rec.CreatedAtMs); err != nil {
-		return false, 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, 0, err
-	}
-	return true, depth + 1, nil
-}
-
 func (p *PostgresStore) ListWebhookIngress(ctx context.Context, agentID, deviceID string, after int64, limit int) ([]WebhookIngressRecord, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
@@ -1642,22 +1596,6 @@ func (p *PostgresStore) CountWebhookIngressEvents(ctx context.Context, agentID s
 	return count, err
 }
 
-func (p *PostgresStore) WebhookIngressEventExists(ctx context.Context, agentID, channel, eventIDHash string) (bool, error) {
-	var count int
-	if err := p.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, agentID, channel, eventIDHash).Scan(&count); err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-func (p *PostgresStore) DeleteWebhookIngressEvent(ctx context.Context, agentID, channel, eventIDHash string) (int64, error) {
-	res, err := p.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, agentID, channel, eventIDHash)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
 func (p *PostgresStore) EnqueueWebhookIngressBatch(ctx context.Context, agentID, channel, eventIDHash string, rows []WebhookIngressRow, maxEvents int) (EnqueueOutcome, error) {
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1691,6 +1629,15 @@ func (p *PostgresStore) EnqueueWebhookIngressBatch(ctx context.Context, agentID,
 				agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		`, agentID, channel, eventIDHash, row.TargetDeviceID, row.HPKEEncHex, row.CiphertextHex, row.AADUTF8, row.ReceivedAtMs, row.CreatedAtMs); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				_ = tx.Rollback()
+				var depth int
+				if depthErr := p.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, agentID).Scan(&depth); depthErr != nil {
+					return EnqueueOutcome{}, depthErr
+				}
+				return EnqueueOutcome{Duplicate: true, Depth: depth}, nil
+			}
 			return EnqueueOutcome{}, err
 		}
 	}

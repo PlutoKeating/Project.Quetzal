@@ -109,18 +109,23 @@ fn marker_with_payload(value: &str, marker: &str, min_payload: usize) -> bool {
 }
 
 fn looks_secret_value(value: &str) -> bool {
-    value.match_indices("-----BEGIN ").any(|(idx, _)| {
-        at_boundary(value, idx) && !value[idx + "-----BEGIN ".len()..].trim().is_empty()
-    }) || [
-        ("sk-", 8),
-        ("xoxb-", 8),
-        ("xoxp-", 8),
-        ("AKIA", 8),
-        ("ghp_", 8),
-        ("Bearer ", 8),
-    ]
-    .iter()
-    .any(|(marker, min)| marker_with_payload(value, marker, *min))
+    ["-----BEGIN ", "-----BEGIN\n", "-----BEGIN\r\n"]
+        .iter()
+        .any(|marker| {
+            value.match_indices(marker).any(|(idx, _)| {
+                at_boundary(value, idx) && !value[idx + marker.len()..].trim().is_empty()
+            })
+        })
+        || [
+            ("sk-", 8),
+            ("xoxb-", 8),
+            ("xoxp-", 8),
+            ("AKIA", 8),
+            ("ghp_", 8),
+            ("Bearer", 8),
+        ]
+        .iter()
+        .any(|(marker, min)| marker_with_payload(value, marker, *min))
 }
 
 fn contains_absolute_path_token(value: &str) -> bool {

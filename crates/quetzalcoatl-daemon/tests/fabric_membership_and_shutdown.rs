@@ -1154,15 +1154,38 @@ fn two_idle_daemons_dial_via_hub_discovery_and_converge_peer_only_after_hub_loss
     let nodes = run_json(&["nodes", "--json"], &home_a)?;
     let holder = nodes["router_holder"]
         .as_str()
-        .unwrap_or_default()
+        .filter(|h| !h.is_empty())
+        .ok_or("router_holder must be non-empty")?
         .to_owned();
+    assert!(
+        holder == device_a_id || holder == device_b_id,
+        "router_holder must be one of the two live devices"
+    );
     let (holder_client, remote_client, remote_name) = if holder == device_a_id {
         (&client_a, &client_b, "B")
     } else {
         (&client_b, &client_a, "A")
     };
-    let _ = holder_client.call(&IpcRequest::Status)?;
-    match remote_client.call(&IpcRequest::Status)? {
+    match holder_client.call(&IpcRequest::Status)? {
+        IpcResponse::Status(st) => {
+            let feishu = st
+                .channels
+                .iter()
+                .find(|h| h.channel == "feishu")
+                .ok_or("missing holder feishu health")?;
+            assert!(
+                feishu.bound_witness_epoch.is_some(),
+                "holder daemon must locally bind feishu"
+            );
+            assert_eq!(
+                feishu.holder_device_id.as_deref(),
+                Some(holder.as_str()),
+                "holder daemon health must name itself"
+            );
+        }
+        other => return Err(format!("unexpected holder status: {other:?}").into()),
+    }
+    let remote_knows_remote_holder = match remote_client.call(&IpcRequest::Status)? {
         IpcResponse::Status(st) => {
             let feishu = st
                 .channels
@@ -1179,16 +1202,22 @@ fn two_idle_daemons_dial_via_hub_discovery_and_converge_peer_only_after_hub_loss
                 )
                 .into());
             }
+            holder_report.starts_with("remote-holder:")
         }
         other => return Err(format!("unexpected remote status: {other:?}").into()),
-    }
+    };
     match remote_client.call(&IpcRequest::ChannelDeliver {
         channel: String::from("feishu"),
         destination: None,
         text: String::from("remote-holder-send"),
     })? {
         IpcResponse::Error { code, .. } => {
-            assert_eq!(code, "PERMISSION_DENIED");
+            if remote_knows_remote_holder {
+                assert_eq!(code, "PERMISSION_DENIED");
+            } else {
+                // follower 尚未获知远端 holder 时必须仍将消息排入 Outbox。
+                assert_eq!(code, "PARTITION_RESTRICTED");
+            }
         }
         other => {
             return Err(format!("remote holder stateful send must be denied: {other:?}").into());
@@ -1346,27 +1375,38 @@ fn channel_send_under_partition_local_queues_outbox_and_refuses_public_send() ->
         other => return Err(format!("unexpected status: {other:?}").into()),
     }
 
-    match client.call(&IpcRequest::ChannelDeliver {
-        channel: String::from("webhook"),
-        destination: None,
-        text: String::from("CANARY-PARTITION-OUTBOX"),
-    })? {
-        IpcResponse::Error { code, .. } => assert_eq!(code, "PARTITION_RESTRICTED"),
-        other => return Err(format!("partition send must be refused, got {other:?}").into()),
+    for channel in ["webhook", "feishu"] {
+        match client.call(&IpcRequest::ChannelDeliver {
+            channel: String::from(channel),
+            destination: None,
+            text: format!("CANARY-PARTITION-OUTBOX-{channel}"),
+        })? {
+            IpcResponse::Error { code, .. } => assert_eq!(code, "PARTITION_RESTRICTED"),
+            other => {
+                return Err(format!("partition send must be queued, got {other:?}").into());
+            }
+        }
     }
 
     let db = rusqlite::Connection::open(qz_home.join("spine/spine.sqlite"))?;
-    let payload: String = db.query_row(
-        "SELECT payload_utf8 FROM spine_events WHERE payload_utf8 LIKE '%outbox_queued%' ORDER BY seq DESC LIMIT 1",
-        [],
-        |row| row.get(0),
-    )?;
-    assert!(payload.contains("outbox_queued"));
+    let payloads: Vec<String> = {
+        let mut stmt = db.prepare(
+            "SELECT payload_utf8 FROM spine_events WHERE payload_utf8 LIKE '%outbox_queued%'",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
     assert!(
-        payload.contains("CANARY-PARTITION-OUTBOX"),
-        "Outbox must persist the replayable rendered body for later delivery"
+        payloads
+            .iter()
+            .any(|p| p.contains("CANARY-PARTITION-OUTBOX-webhook"))
     );
-    assert!(payload.contains("webhook"));
+    assert!(
+        payloads
+            .iter()
+            .any(|p| p.contains("CANARY-PARTITION-OUTBOX-feishu") && p.contains("feishu")),
+        "stateful feishu send must also be persisted to Outbox"
+    );
 
     daemon.shutdown()?;
     stop.store(true, Ordering::Relaxed);

@@ -409,3 +409,45 @@ fn outbox_replay_attaches_idempotency_key_header() -> TestResult {
     assert!(wire.contains("Idempotency-Key: outbox-key-42"));
     Ok(())
 }
+
+#[test]
+fn stateful_replay_delivers_only_on_holder_and_denies_remote() -> TestResult {
+    use quetzalcoatl_channels::ChannelError;
+    let home = home("stateful")?;
+    let (port, server) = start_http_ok_server()?;
+    write_secret(
+        &home,
+        "feishu",
+        serde_json::json!({"url": format!("http://127.0.0.1:{port}/hook"), "token": "feishu-token"}),
+    )?;
+    let mut holder = ChannelRuntime::load(&home)?;
+    holder.enable("feishu")?;
+    assert_eq!(
+        holder.reconcile_lease_for_local(7, "device-holder", "device-holder"),
+        vec![String::from("feishu")]
+    );
+    holder.deliver_with_idempotency("feishu", "", "holder-replay", Some("idem-feishu"))?;
+    let request = server.join().map_err(|_| "server join")?;
+    let wire = String::from_utf8_lossy(&request);
+    assert!(wire.contains("holder-replay"));
+    assert!(wire.contains("Idempotency-Key: idem-feishu"));
+
+    let mut remote = ChannelRuntime::load(&home)?;
+    remote.enable("feishu")?;
+    assert!(
+        remote
+            .reconcile_lease_for_local(8, "device-holder", "device-remote")
+            .is_empty()
+    );
+    let err = remote
+        .deliver_with_idempotency("feishu", "", "remote-replay", Some("idem-remote"))
+        .err()
+        .ok_or("remote holder must keep item queued (no send)")?;
+    assert!(matches!(
+        err,
+        quetzalcoatl_types::QuetzalcoatlError::PermissionDenied { .. }
+            | quetzalcoatl_types::QuetzalcoatlError::StorageError { .. }
+    ));
+    let _ = ChannelError::PermissionDenied(String::new());
+    Ok(())
+}

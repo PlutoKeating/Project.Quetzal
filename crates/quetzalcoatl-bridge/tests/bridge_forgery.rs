@@ -352,3 +352,28 @@ fn bridge_allows_hyphenated_english_containing_secret_substrings() -> TestResult
     assert_eq!(bridge.read_own()?.len(), 6);
     Ok(())
 }
+
+#[test]
+fn bridge_detects_pem_newline_and_bearer_without_space() -> TestResult {
+    let (mut engine, agent_id) = engine()?;
+    let key = BridgeKey {
+        role: BridgeRole::Bridge,
+        agent_id,
+        body_id: String::from("hermes-1"),
+    };
+    let mut bridge = SpineBridge::new(&mut engine, key);
+    for note in ["-----BEGIN\nRSA PRIVATE KEY-----", "BearerTokenABC12345"] {
+        let payload = serde_json::json!({
+            "kind": "memory.observe",
+            "body": "hermes-1",
+            "note": note,
+        })
+        .to_string();
+        let err = bridge
+            .append("memory.observe", "hermes-1", &payload, 95)
+            .err()
+            .ok_or_else(|| format!("marker variant must be denied: {note}"))?;
+        assert_eq!(err.code(), ErrorCode::PermissionDenied);
+    }
+    Ok(())
+}
