@@ -1,6 +1,6 @@
 {
   "name": "@quetzalcoatl/codex-hooks",
-  "version": "2.0.0-alpha.2",
+  "version": "2.0.0-alpha.3",
   "description": "Quetzalcoatl V2 notify and compaction re-pinning hooks for Codex CLI v0.163+",
   "license": "Apache-2.0",
   "type": "module",

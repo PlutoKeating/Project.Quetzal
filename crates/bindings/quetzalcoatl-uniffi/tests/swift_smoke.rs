@@ -39,8 +39,36 @@ fn swift_bindings_generate_and_typecheck_when_toolchain_present() {
         return;
     };
 
+    // 生成的 Swift 依赖 C FFI 模块（`RustBuffer` / `ForeignBytes` 定义在头文件里）。
+    // 单独 typecheck 绑定文件必然缺类型：必须把 modulemap + 头文件放到 `-I` 目录，
+    // 并把 modulemap 命名为 `module.modulemap`（Clang 模块查找的约定文件名）。
+    let include_dir = out.join("include");
+    fs::create_dir_all(&include_dir).expect("创建 Swift include 目录");
+    fs::copy(
+        out.join("quetzalcoatl_uniffiFFI.h"),
+        include_dir.join("quetzalcoatl_uniffiFFI.h"),
+    )
+    .expect("复制 FFI 头文件");
+    // uniffi 生成的 modulemap 含 `use "Darwin"`（Apple 平台专属模块）。
+    // 在 Linux 的 Swift 工具链上这一行会让 Clang 直接报模块缺失，因此非 Apple 目标先摘掉。
+    let modulemap = fs::read_to_string(out.join("quetzalcoatl_uniffiFFI.modulemap"))
+        .expect("读取 FFI modulemap");
+    let modulemap = if cfg!(target_vendor = "apple") {
+        modulemap
+    } else {
+        modulemap
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("use \"Darwin\""))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    };
+    fs::write(include_dir.join("module.modulemap"), modulemap).expect("写入 FFI modulemap");
+
     let status = Command::new(swiftc)
         .args(["-typecheck", "-module-name", "QuetzalcoatlBindings"])
+        .arg("-I")
+        .arg(&include_dir)
         .arg(&target)
         .status()
         .expect("运行 swiftc -typecheck");

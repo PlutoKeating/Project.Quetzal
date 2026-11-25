@@ -1,6 +1,6 @@
 {
   "name": "@quetzalcoatl/opencode-v2-plugin",
-  "version": "2.0.0-alpha.2",
+  "version": "2.0.0-alpha.3",
   "description": "Quetzalcoatl V2 progressive enhancer directory plugin for OpenCode V2",
   "license": "Apache-2.0",
   "type": "module",
