@@ -38,8 +38,9 @@ npm --prefix surfaces/web test        # typecheck + vitest + Playwright（含真
 | 可执行文件旁存在 `web/` 目录 | 自动托管（`target/release/web` 等） |
 | 以上皆无 | 只保留 `/health`；静态、`/auth/local`、`/rpc` 全部 404，IPC 不受影响 |
 
-所有非 `/v1/*` 路径由 Web 控制台处理，并复用本地 IPC 的严格回环 `Host`/`Origin`
-校验（拒绝 DNS 重绑定与跨源页面）：
+**显式配置 web 根后**，所有非 `/v1/*` 路径由 Web 控制台处理，并复用本地 IPC 的严格
+回环 `Host`/`Origin` 校验（拒绝 DNS 重绑定与跨源页面）；未配置时仅 `/health` 存活，
+包括 WebSocket upgrade 在内的其余路径一律 `404`：
 
 | 路径 | 方法 | 说明 |
 | --- | --- | --- |
@@ -50,8 +51,9 @@ npm --prefix surfaces/web test        # typecheck + vitest + Playwright（含真
 | `/rpc` | POST | `Authorization: Bearer <token>` + `IpcRequest` JSON（HTTP 兜底），仅白名单方法 |
 | `/rpc` | WebSocket | `Upgrade: websocket`；首帧 `{"auth":"<token>"}` 认证后进入 RPC |
 
-**Web 只读方法白名单**：`status`、`agents`、`chat`、`conscience_pinned`、
-`web_commit_artifact`。其余方法（`export`、`import_v1`、`fabric_*`、`group_*`、
+**Web 只读方法白名单**：`status`、`agents`、`chat`、`web_commit_artifact`
+（`chat` 的 `workspace_dir`/`verifier_dag`/`peer_id`/`router_attempted_forbidden_tools`
+在服务端强制清空）。其余方法（`export`、`import_v1`、`fabric_*`、`group_*`、
 `channel_*`、`shutdown`、`set_permission`、`self_update`、`secrets`、未知方法……）即使
 持有有效令牌也返回 `403 PERMISSION_DENIED`；WS 返回同 code 的 typed error 帧。
 Web 会话令牌**不是**管理员主令牌，不能用于 `/v1/rpc`。

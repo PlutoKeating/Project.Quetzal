@@ -46,13 +46,7 @@ const WS_CLOSE_UNAUTHORIZED: u16 = 4401;
 const WS_CLOSE_SESSION_IN_USE: u16 = 4409;
 
 /// Web 控制台仅允许这些方法（其余一律 `403 PERMISSION_DENIED`，与令牌无关）。
-const WEB_ALLOWED_METHODS: &[&str] = &[
-    "status",
-    "agents",
-    "chat",
-    "conscience_pinned",
-    "web_commit_artifact",
-];
+const WEB_ALLOWED_METHODS: &[&str] = &["status", "agents", "chat", "web_commit_artifact"];
 
 // `'wasm-unsafe-eval'` 只放行 WebAssembly 编译，不等于 JS eval。
 const CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; \
@@ -108,6 +102,11 @@ struct WebSessionStore {
 }
 
 impl WebSessionStore {
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.lock().map_or(0, |guard| guard.len())
+    }
+
     fn mint(&self) -> String {
         let mut raw = [0u8; 32];
         OsRng.fill_bytes(&mut raw);
@@ -299,14 +298,18 @@ impl WebConsole {
             .header("upgrade")
             .is_some_and(|value| value.eq_ignore_ascii_case("websocket"));
 
-        if path == "/rpc" && upgrade {
-            self.serve_websocket(stream, request, handler);
+        // 未显式配置 web 根时，除存活探针外全部 404（控制台与 WS 升级都不对外存在）。
+        if self.dir.is_none() && path != "/health" {
+            write_http_reply(
+                stream,
+                &WebReply::error(404, "web_console_disabled"),
+                head_only,
+            );
             return;
         }
 
-        // 未显式配置 web 根时，除存活探针外全部 404（控制台不对外存在）。
-        if self.dir.is_none() && path != "/health" {
-            write_http_reply(stream, &WebReply::error(404, "web_console_disabled"), false);
+        if path == "/rpc" && upgrade {
+            self.serve_websocket(stream, request, handler);
             return;
         }
 
@@ -319,7 +322,7 @@ impl WebConsole {
                     "web": self.dir.is_some(),
                 }),
             ),
-            ("GET" | "HEAD" | "POST", "/auth/local") => self.auth_local(request),
+            ("GET" | "HEAD" | "POST", "/auth/local") => self.auth_local(request, head_only),
             ("GET", "/rpc/snapshot") => self.snapshot_reply(request, handler),
             ("POST", "/rpc") => self.http_rpc(request, handler),
             ("GET" | "HEAD", _) => self.static_reply(path),
@@ -328,7 +331,7 @@ impl WebConsole {
         write_http_reply(stream, &reply, head_only);
     }
 
-    fn auth_local(&self, request: &ParsedIpcHttp) -> WebReply {
+    fn auth_local(&self, request: &ParsedIpcHttp, head_only: bool) -> WebReply {
         // 必须同源：Origin 缺失（curl/本机脚本）或与 Host 不一致一律拒绝。
         let Some(host) = request.header("host") else {
             return WebReply::error(403, "missing_host");
@@ -344,6 +347,16 @@ impl WebConsole {
             .trim_end_matches('/');
         if authority.is_empty() || !authority.eq_ignore_ascii_case(host.trim()) {
             return WebReply::error(403, "cross_origin_denied");
+        }
+        // HEAD 只是能力预检：绝不签发一条无人使用的会话令牌。
+        if head_only {
+            return WebReply::json(
+                200,
+                &serde_json::json!({
+                    "expires_in_secs": WEB_SESSION_TTL_MS / 1000,
+                    "daemon_version": env!("CARGO_PKG_VERSION"),
+                }),
+            );
         }
         let token = self.sessions.mint();
         if token.is_empty() {
@@ -410,12 +423,13 @@ impl WebConsole {
                 .unwrap_or("");
             return commit_reply(handler, artifact);
         }
-        let parsed: IpcRequest = match serde_json::from_value(value) {
+        let mut parsed: IpcRequest = match serde_json::from_value(value) {
             Ok(parsed) => parsed,
             Err(error) => {
                 return WebReply::ipc_error(400, "SERIALIZATION_ERROR", &error.to_string());
             }
         };
+        sanitize_web_request(&mut parsed);
         let (response, _) = handler.handle(parsed);
         match serde_json::to_value(&response) {
             Ok(value) => WebReply::json(200, &value),
@@ -676,7 +690,7 @@ impl WebConsole {
                 }
                 continue;
             }
-            let request: IpcRequest = match serde_json::from_value(request_value.clone()) {
+            let mut request: IpcRequest = match serde_json::from_value(request_value.clone()) {
                 Ok(value) => value,
                 Err(error) => {
                     if ws_write_json(
@@ -697,6 +711,7 @@ impl WebConsole {
                     continue;
                 }
             };
+            sanitize_web_request(&mut request);
             let (response, should_shutdown) = handler.handle(request);
             if let IpcResponse::Chat(chat) = &response {
                 let run_id = format!("{}", chat.run_id);
@@ -766,6 +781,16 @@ impl WebConsole {
                 return;
             }
         }
+    }
+}
+
+/// Web 调用者不得注入服务端专用上下文字段（工作区、Verifier DAG、对等身份与路由痕迹）。
+fn sanitize_web_request(request: &mut IpcRequest) {
+    if let IpcRequest::Chat(chat) = request {
+        chat.workspace_dir = None;
+        chat.verifier_dag = None;
+        chat.peer_id = None;
+        chat.router_attempted_forbidden_tools.clear();
     }
 }
 
@@ -1230,16 +1255,11 @@ mod tests {
 
     #[test]
     fn web_method_allowlist_is_read_only_and_explicit() {
-        for allowed in [
-            "status",
-            "agents",
-            "chat",
-            "conscience_pinned",
-            "web_commit_artifact",
-        ] {
+        for allowed in ["status", "agents", "chat", "web_commit_artifact"] {
             assert!(is_web_method_allowed(allowed), "{allowed} 应在白名单内");
         }
         for denied in [
+            "conscience_pinned",
             "export",
             "import_v1",
             "fabric_login",
@@ -1285,6 +1305,130 @@ mod tests {
         let store = WebSessionStore::default();
         let token = store.mint();
         assert!(store.validate(&token.to_ascii_uppercase()));
+    }
+
+    struct CapturingHandler {
+        last: Mutex<Option<IpcRequest>>,
+    }
+
+    impl IpcHandler for CapturingHandler {
+        fn handle(&self, req: IpcRequest) -> (IpcResponse, bool) {
+            if let Ok(mut guard) = self.last.lock() {
+                *guard = Some(req);
+            }
+            (
+                IpcResponse::Ack {
+                    detail: String::from("ok"),
+                },
+                false,
+            )
+        }
+    }
+
+    fn authed_request(
+        method: &str,
+        target: &str,
+        body: Vec<u8>,
+        console: &WebConsole,
+    ) -> ParsedIpcHttp {
+        let token = console.sessions_for_test().mint();
+        ParsedIpcHttp {
+            method: method.to_owned(),
+            target: target.to_owned(),
+            headers: vec![(String::from("authorization"), format!("Bearer {token}"))],
+            body,
+        }
+    }
+
+    #[test]
+    fn head_auth_local_does_not_mint_an_unused_session() {
+        let console = WebConsole::new(Some(std::env::temp_dir()));
+        let request = ParsedIpcHttp {
+            method: String::from("HEAD"),
+            target: String::from("/auth/local"),
+            headers: vec![
+                (String::from("host"), String::from("127.0.0.1:1234")),
+                (
+                    String::from("origin"),
+                    String::from("http://127.0.0.1:1234"),
+                ),
+            ],
+            body: Vec::new(),
+        };
+        let reply = console.auth_local(&request, true);
+        assert_eq!(reply.status, 200);
+        assert_eq!(
+            console.sessions_for_test().len(),
+            0,
+            "HEAD 预检不得签发无人使用的会话令牌"
+        );
+
+        let get_reply = console.auth_local(&request, false);
+        assert_eq!(get_reply.status, 200);
+        assert_eq!(console.sessions_for_test().len(), 1);
+    }
+
+    #[test]
+    fn web_chat_requests_are_sanitized_before_dispatch() {
+        let console = WebConsole::new(Some(std::env::temp_dir()));
+        let handler = CapturingHandler {
+            last: Mutex::new(None),
+        };
+        let crafted = serde_json::json!({
+            "method": "chat",
+            "params": {
+                "message": "hello",
+                "thread_id": null,
+                "peer_id": "evil-peer",
+                "workspace_dir": "/tmp/evil-repo",
+                "verifier_dag": {
+                    "nodes": [{
+                        "node_id": "n1",
+                        "depends_on": [],
+                        "verifier_suite_dir": "/tmp",
+                        "command": {
+                            "program": "/bin/true",
+                            "args": [],
+                            "current_dir": null,
+                            "extra_env": {},
+                            "allowlisted_host_env": [],
+                            "broker_unix_socket": null,
+                            "extra_ro_mounts": []
+                        },
+                        "expected_suite_blake3": null
+                    }]
+                },
+                "router_attempted_forbidden_tools": ["export"]
+            }
+        });
+        let Ok(body) = serde_json::to_vec(&crafted) else {
+            return;
+        };
+        let request = authed_request("POST", "/rpc", body, &console);
+        let reply = console.http_rpc(&request, &handler);
+        assert_eq!(reply.status, 200);
+        let Some(captured) = handler.last.lock().ok().and_then(|guard| guard.clone()) else {
+            return;
+        };
+        match captured {
+            IpcRequest::Chat(chat) => {
+                assert!(chat.workspace_dir.is_none(), "Web 调用者不得指定工作区");
+                assert!(
+                    chat.verifier_dag.is_none(),
+                    "Web 调用者不得注入 Verifier DAG"
+                );
+                assert!(chat.peer_id.is_none(), "Web 调用者不得冒充对等节点");
+                assert!(
+                    chat.router_attempted_forbidden_tools.is_empty(),
+                    "服务端派生字段必须清空"
+                );
+                assert_eq!(chat.message, "hello");
+            }
+            other => assert!(
+                matches!(other, IpcRequest::Chat(_)),
+                "期望 chat 请求，实际 {other:?}"
+            ),
+        }
     }
 
     #[test]

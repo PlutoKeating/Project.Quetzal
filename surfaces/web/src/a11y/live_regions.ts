@@ -93,6 +93,10 @@ export class LiveRegions {
     this.#pending = "";
     this.polite.append(node);
     this.#politePieces.push(node);
+    this.#trimPolite();
+  }
+
+  #trimPolite(): void {
     let size = this.#politePieces.reduce((total, piece) => total + (piece.data?.length ?? 0), 0);
     while (size > MAX_POLITE_CHARS && this.#politePieces.length > 1) {
       const removed = this.#politePieces.shift();
@@ -134,6 +138,10 @@ export class LiveRegions {
   announceStatus(text: string): void {
     if (text.length === 0) return;
     this.#flush();
-    this.polite.append(this.#doc.createTextNode(`${text}。`));
+    const node = this.#doc.createTextNode(`${text}。`);
+    this.polite.append(node);
+    // 状态播报与 token 共享同一个 240 字符窗口，避免状态消息无限增长。
+    this.#politePieces.push(node);
+    this.#trimPolite();
   }
 }

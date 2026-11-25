@@ -816,10 +816,14 @@ impl SharedDaemonCore {
             }
 
             let rooms = guard.group.summaries();
-            if let Some(first) = rooms.first() {
+            // 多房间时按 room_id 字典序确定性选择，绝不受注册表/哈希遍历顺序影响。
+            if let Some(selected) = rooms
+                .iter()
+                .min_by(|left, right| left.room_id.cmp(&right.room_id))
+            {
                 session = serde_json::json!({
                     "kind": "group",
-                    "room_id": first.room_id,
+                    "room_id": selected.room_id,
                     "room_count": rooms.len(),
                 });
             }

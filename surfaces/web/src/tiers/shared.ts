@@ -32,7 +32,9 @@ export function statusLine(ctx: TierContext): HTMLElement {
     {
       class: ctx.online ? "status-line" : "status-line status-line--offline",
       "data-role": "status",
-      role: "status",
+      // 视觉状态行不参与 live：播报由稳定的 #qz-live-* 通道负责，
+      // 否则每次重渲染（如引导每 4 秒翻页）都会被 AT 当作新状态重复朗读。
+      "aria-live": "off",
     },
     text,
   );

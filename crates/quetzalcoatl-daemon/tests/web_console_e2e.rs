@@ -510,6 +510,23 @@ fn web_console_absent_keeps_legacy_ipc_and_returns_404() -> TestResult {
         br#"{"method":"status"}"#,
     )?;
     assert_eq!(rpc.status, 404, "未配置 web 根时不得暴露 Web RPC");
+
+    // WebSocket upgrade 同样必须被 404 门禁（绝不先于 web 根判定升级）。
+    let (upgrade_stream, upgrade_head) = ws_handshake(&daemon)?;
+    assert!(
+        upgrade_head.starts_with("HTTP/1.1 404"),
+        "未配置 web 根时 /rpc upgrade 必须 404，实际: {}",
+        upgrade_head.lines().next().unwrap_or("")
+    );
+    drop(upgrade_stream);
+
+    // 禁用控制台的 404 在 HEAD 下也不能写响应体。
+    let head_root = http_request(daemon.addr, "HEAD", "/", &[], b"")?;
+    assert_eq!(head_root.status, 404);
+    assert!(head_root.body.is_empty(), "禁用控制台 HEAD 不得写响应体");
+    let get_root = http_request(daemon.addr, "GET", "/", &[], b"")?;
+    assert_eq!(get_root.status, 404);
+    assert!(!get_root.body.is_empty(), "GET 404 应有类型化错误体");
     let legacy = http_request(
         daemon.addr,
         "POST",
@@ -609,6 +626,7 @@ fn web_rpc_enforces_method_allowlist_and_web_token_cannot_touch_admin_ipc() -> T
     assert_eq!(status.status, 200, "status 必须在 Web 允许清单内");
 
     for method in [
+        "conscience_pinned",
         "export",
         "import_v1",
         "fabric_login",
@@ -890,15 +908,24 @@ fn web_commit_artifact_uses_real_group_path_when_room_exists() -> TestResult {
     let daemon = RunningDaemon::start(Some(web.path().to_path_buf()), home.path())?;
 
     // 管理面（/v1/rpc + 管理员主令牌）创建本地群房间；Web 面无权调用该方法。
-    let created = http_request(
-        daemon.addr,
-        "POST",
-        "/v1/rpc",
-        &[("x-qz-ipc-token", daemon.handle.ipc_token())],
-        br#"{"method":"group_create","params":{"room_id":"web-group-room","secrecy_level":2}}"#,
-    )?;
-    assert_eq!(created.status, 200, "群房间创建失败: {:?}", created.body);
-    assert_eq!(created.json()?["kind"], "group_room");
+    for room in ["zzz-web-room", "aaa-web-room"] {
+        let body = format!(
+            r#"{{"method":"group_create","params":{{"room_id":"{room}","secrecy_level":2}}}}"#
+        );
+        let created = http_request(
+            daemon.addr,
+            "POST",
+            "/v1/rpc",
+            &[("x-qz-ipc-token", daemon.handle.ipc_token())],
+            body.as_bytes(),
+        )?;
+        assert_eq!(
+            created.status, 200,
+            "群房间 {room} 创建失败: {:?}",
+            created.body
+        );
+        assert_eq!(created.json()?["kind"], "group_room");
+    }
 
     let token = auth_token(&daemon)?;
     let snapshot = http_request(
@@ -913,8 +940,8 @@ fn web_commit_artifact_uses_real_group_path_when_room_exists() -> TestResult {
     assert!(
         session["raw_json"]
             .as_str()
-            .is_some_and(|raw| raw.contains("web-group-room")),
-        "群房间必须反映到真实会话行: {session}"
+            .is_some_and(|raw| raw.contains("aaa-web-room")),
+        "多群房间时必须确定性选择字典序最小的房间: {session}"
     );
 
     // 提交会走真实 GroupSend 路径（无 Hub 时得到网络类错误），而不再是 NO_GROUP_SESSION。
@@ -935,7 +962,7 @@ fn web_commit_artifact_uses_real_group_path_when_room_exists() -> TestResult {
         assert!(
             commit_json["data"]["detail"]
                 .as_str()
-                .is_some_and(|detail| detail.contains("web-group-room")),
+                .is_some_and(|detail| detail.contains("aaa-web-room")),
             "ack 必须点名真实群房间: {commit_json}"
         );
     } else {

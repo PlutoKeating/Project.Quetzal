@@ -38,6 +38,9 @@ describe("Companion 10 秒零术语引导（可跳过、可记忆）", () => {
 
   it("首次打开显示 3 步引导并自动推进", async () => {
     const { root } = await boot(memoryStorage());
+    const status = root.querySelector('[data-role="status"]');
+    expect(status?.getAttribute("role")).toBeNull();
+    expect(status?.getAttribute("aria-live")).toBe("off");
     const card = root.querySelector('[data-role="onboarding"]');
     expect(card).not.toBeNull();
     expect(card?.getAttribute("aria-live")).toBe("off");

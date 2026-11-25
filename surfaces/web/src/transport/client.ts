@@ -1,4 +1,4 @@
-// 同源守护进程传输：`GET /auth/local` 取 256-bit 会话令牌 → WebSocket `/rpc`（先认证后 RPC），
+// 同源守护进程传输：`POST /auth/local` 取 256-bit 会话令牌 → WebSocket `/rpc`（先认证后 RPC），
 // WebSocket 不可用时自动回退 HTTP `POST /rpc` + `GET /rpc/snapshot`。
 // 无守护进程时抛类型化 `DaemonUnavailable`，调用方渲染降级视图，绝不白屏。
 import { normalizeSnapshot, type ViewPatch, type ViewSnapshot } from "../model/state.js";
@@ -320,23 +320,23 @@ export class DaemonClient implements AppTransport {
         credentials: "same-origin",
       });
     } catch (error) {
-      throw new DaemonUnavailable(`GET /auth/local 不可达：${describe(error)}`);
+      throw new DaemonUnavailable(`POST /auth/local 不可达：${describe(error)}`);
     }
     if (!response.ok) {
-      throw new DaemonUnavailable(`GET /auth/local 返回 ${response.status}`);
+      throw new DaemonUnavailable(`POST /auth/local 返回 ${response.status}`);
     }
     let payload: unknown;
     try {
       payload = await response.json();
     } catch (error) {
-      throw new DaemonUnavailable(`GET /auth/local 响应不是 JSON：${describe(error)}`);
+      throw new DaemonUnavailable(`POST /auth/local 响应不是 JSON：${describe(error)}`);
     }
     if (typeof payload !== "object" || payload === null) {
-      throw new DaemonUnavailable("GET /auth/local 响应为空");
+      throw new DaemonUnavailable("POST /auth/local 响应为空");
     }
     const token = stringField(payload as Record<string, unknown>, "token");
     if (!token) {
-      throw new DaemonUnavailable("GET /auth/local 未返回会话令牌");
+      throw new DaemonUnavailable("POST /auth/local 未返回会话令牌");
     }
     return token;
   }

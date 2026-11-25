@@ -44,6 +44,16 @@ describe("礼貌通道按标点/空闲刷写，避免逐 token 朗读", () => {
     expect(regions.polite.textContent).toBe("新句。");
   });
 
+  it("状态播报共享 240 字符窗口，不会无限增长", () => {
+    for (let index = 0; index < 40; index += 1) {
+      regions.announceStatus(`第${index}条状态提醒`);
+    }
+    const text = regions.polite.textContent ?? "";
+    expect(text.length).toBeGreaterThan(0);
+    expect(text.length).toBeLessThanOrEqual(240);
+    expect(text).toContain("第39条状态提醒");
+  });
+
   it("重复 seq 不会进入缓冲，也不会二次刷出", () => {
     regions.appendToken("m1", 1, "重");
     expect(regions.appendToken("m1", 1, "重")).toBe(false);
