@@ -120,13 +120,13 @@ public enum LocalDaemonProbe {
         guard let tokenData = try? Data(contentsOf: URL(fileURLWithPath: home.tokenPath)),
               let rawToken = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
         else {
-            return unverified(pid: 0, endpoint: "?", "读取令牌失败")
+            return unverified(pid: 0, endpoint: "?", bindingsAvailable, "读取令牌失败")
         }
 
         guard rawToken.count == tokenHexLength,
               rawToken.allSatisfy({ $0.isHexDigit })
         else {
-            return unverified(pid: 0, endpoint: "?", "IPC 令牌格式非法（应为 64 位十六进制）")
+            return unverified(pid: 0, endpoint: "?", bindingsAvailable, "IPC 令牌格式非法（应为 64 位十六进制）")
         }
 
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: home.runtimeInfoPath)) else {
@@ -150,7 +150,7 @@ public enum LocalDaemonProbe {
         }
 
         guard processIsAlive(pid) else {
-            return unverified(pid: pid, endpoint: endpoint, "daemon.json 的 pid=\(pid) 已退出（陈旧运行时文件）")
+            return unverified(pid: pid, endpoint: endpoint, bindingsAvailable, "daemon.json 的 pid=\(pid) 已退出（陈旧运行时文件）")
         }
 
         let reply: DaemonStatusReply?
@@ -160,10 +160,10 @@ public enum LocalDaemonProbe {
             reply = nil
         }
         guard let reply else {
-            return unverified(pid: pid, endpoint: endpoint, "令牌认证的 status 握手失败（\(endpoint)）")
+            return unverified(pid: pid, endpoint: endpoint, bindingsAvailable, "令牌认证的 status 握手失败（\(endpoint)）")
         }
         guard reply.pid == pid else {
-            return unverified(pid: pid, endpoint: endpoint,
+            return unverified(pid: pid, endpoint: endpoint, bindingsAvailable,
                               "status 返回的 pid=\(reply.pid) 与 daemon.json 的 pid=\(pid) 不一致")
         }
 
@@ -194,10 +194,15 @@ public enum LocalDaemonProbe {
             technical: technical)
     }
 
-    private static func unverified(pid: UInt32, endpoint: String, _ technical: String) -> ProbeResult {
+    private static func unverified(
+        pid: UInt32,
+        endpoint: String,
+        _ bindingsAvailable: Bool,
+        _ technical: String
+    ) -> ProbeResult {
         ProbeResult(
             connection: .detectedUnverified(pid: pid, endpoint: endpoint, reason: technical),
-            bindingsAvailable: true,
+            bindingsAvailable: bindingsAvailable,
             tokenPresent: true,
             technical: technical)
     }

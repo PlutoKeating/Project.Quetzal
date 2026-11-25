@@ -71,6 +71,8 @@ public sealed class A11yContractTests
         foreach (var dynamicContract in contracts.Where(contract => contract.IsDynamicId))
         {
             Assert.Contains($"ConverterParameter={dynamicContract.AutomationId}", source, StringComparison.Ordinal);
+            // 名称必须是显式静态文案（不能从动态 key 派生），所以模板里必须出现该名称。
+            Assert.Contains($"AutomationProperties.Name=\"{dynamicContract.AccessibleName}\"", source, StringComparison.Ordinal);
         }
     }
 
@@ -101,7 +103,16 @@ public sealed class A11yContractTests
                     Assert.Null(element.Attribute("AutomationProperties.Name"));
                 }
 
-                Assert.Null(element.Attribute("AutomationProperties.LiveSetting"));
+                // 唯一允许的 live region 是连接状态：它只反映连接变化，不随每批回复变化。
+                var liveSetting = element.Attribute("AutomationProperties.LiveSetting")?.Value;
+                if (id == "status.connection")
+                {
+                    Assert.Equal("Polite", liveSetting);
+                }
+                else
+                {
+                    Assert.Null(liveSetting);
+                }
 
                 if ((contract.Traits & ControlTraits.ValuePattern) != 0)
                 {

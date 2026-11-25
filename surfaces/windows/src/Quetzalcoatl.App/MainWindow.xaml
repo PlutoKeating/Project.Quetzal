@@ -71,6 +71,7 @@
                 <TextBlock
                     x:Name="ConnectionStatusText"
                     AutomationProperties.AutomationId="status.connection"
+                    AutomationProperties.LiveSetting="Polite"
                     FontSize="13"
                     Text="{Binding StatusText}" />
                 <TextBlock

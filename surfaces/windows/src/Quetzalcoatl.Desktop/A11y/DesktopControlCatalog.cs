@@ -86,7 +86,7 @@ public sealed record ControlContract(
         (Traits & (ControlTraits.KeyboardFocusable | ControlTraits.Invoke | ControlTraits.ValuePattern | ControlTraits.SelectionItem)) != 0;
 
     /// <summary>真实 UIA 名称必须与此条目匹配（内容承载控件以实际内容为准）。</summary>
-    public bool HasStaticName => !NameIsContent && !IsDynamicId;
+    public bool HasStaticName => !NameIsContent;
 }
 
 /// <summary>
@@ -124,6 +124,7 @@ public static class DesktopControlCatalog
         new("companion.send", "发送这句话", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 64),
         new("companion.retry", "重新连接本机助手", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 64),
         new("companion.status", "连接状态", ControlKind.Text, ControlTraits.None, NameIsContent: true),
+        new("companion.streaming", "正在回复", ControlKind.ProgressBar, ControlTraits.None),
         new("workbench.transcript", "工作台对话内容", ControlKind.Text, ControlTraits.None, NameIsContent: true),
         new("workbench.entry", "工作台输入框", ControlKind.Edit, ControlTraits.KeyboardFocusable | ControlTraits.ValuePattern, 32),
         new("workbench.send", "工作台发送按钮", ControlKind.Button, ControlTraits.KeyboardFocusable | ControlTraits.Invoke, 32),
@@ -150,7 +151,7 @@ public static class DesktopControlCatalog
 
     /// <summary>
     /// 结构性自检：ID 唯一、名称非空（区块标签至少要有可读说明）、可交互控件必须键盘可达、
-    /// 陪伴态触点最小尺寸不小于 64px、动态 ID 必须是非交互的前缀。
+    /// 陪伴态触点最小尺寸不小于 64px；行级动态 ID 必须是可交互控件、声明静态名称与最小触点。
     /// </summary>
     public static IReadOnlyList<string> ValidateStructure()
     {
@@ -184,6 +185,11 @@ public static class DesktopControlCatalog
                 && item.AutomationId.StartsWith("companion.", StringComparison.Ordinal))
             {
                 issues.Add($"{item.AutomationId}: 陪伴态触点不得小于 64px（实际 {item.MinTargetPx}px）");
+            }
+
+            if (item.IsDynamicId && (!item.IsInteractive || item.MinTargetPx == 0 || item.NameIsContent))
+            {
+                issues.Add($"{item.AutomationId}: 行级动态 ID 必须是可交互、有静态名称与最小触点的控件");
             }
         }
 

@@ -82,12 +82,16 @@ public sealed class DesktopViewModel : INotifyPropertyChanged, IStreamSink
     /// <summary>是否允许输入。</summary>
     public bool IsInputEnabled => IsOnline;
 
-    /// <summary>连接状态短句。</summary>
+    /// <summary>
+    /// 连接状态短句（只反映连接，不随每批流变化）：
+    /// <c>status.connection</c> 是 LiveSetting 区域，绝不能被每批回复触发第二次播报。
+    /// </summary>
     public string StatusText => Model.Degraded is not null
         ? CompanionCopy.StatusOffline
-        : Model.Session.Streaming
-            ? CompanionCopy.StatusStreaming
-            : CompanionCopy.StatusOnline;
+        : CompanionCopy.StatusOnline;
+
+    /// <summary>流式进行中的可视提示（非实时区域，不会自动播报）。</summary>
+    public string StreamingIndicator => Model.Session.Streaming ? CompanionCopy.StatusStreaming : string.Empty;
 
     /// <summary>是否正在流式接收。</summary>
     public bool IsStreaming => Model.Session.Streaming;
@@ -227,6 +231,7 @@ public sealed class DesktopViewModel : INotifyPropertyChanged, IStreamSink
             nameof(ShowRetry),
             nameof(IsInputEnabled),
             nameof(StatusText),
+            nameof(StreamingIndicator),
             nameof(IsStreaming),
             nameof(AnnouncementCount),
             nameof(LastAnnouncement),

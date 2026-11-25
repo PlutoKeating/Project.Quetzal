@@ -78,10 +78,10 @@ struct WorkbenchView: View {
                         HStack(spacing: 8) {
                             Button("批准") { onApprove(row.key, true) }
                                 .accessibilityIdentifier("workbench.approve/\(row.key)")
-                                .accessibilityLabel("批准这项操作（\(row.summary)）")
+                                .accessibilityLabel("批准这项操作")
                             Button("拒绝") { onApprove(row.key, false) }
                                 .accessibilityIdentifier("workbench.deny/\(row.key)")
-                                .accessibilityLabel("拒绝这项操作（\(row.summary)）")
+                                .accessibilityLabel("拒绝这项操作")
                         }
                     }
                 }

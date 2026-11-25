@@ -181,6 +181,28 @@ public sealed class DesktopViewModelTests
     }
 
     [Fact]
+    public void ReplyBatchesKeepConnectionStatusStableAndAnnounceOnce()
+    {
+        var viewModel = new DesktopViewModel(
+            UiModel.Online(7, "127.0.0.1:9", 5, CognitionDensity.Workbench),
+            new RecordingAnnouncementSink());
+
+        var before = viewModel.StatusText;
+
+        viewModel.OnBatch([Delta(1, "第一段"), Delta(2, "第二段")]);
+
+        // status.connection 是 LiveSetting 区域：回复批次不得改动它，否则会二次播报。
+        Assert.Equal(before, viewModel.StatusText);
+        Assert.Equal(CompanionCopy.StatusOnline, viewModel.StatusText);
+        Assert.Equal(CompanionCopy.StatusStreaming, viewModel.StreamingIndicator);
+        Assert.Equal(1, viewModel.AnnouncementCount);
+
+        viewModel.OnBatch([new StreamEvent(3, StreamEventKind.Done, "stop")]);
+        Assert.Equal(before, viewModel.StatusText);
+        Assert.Equal(string.Empty, viewModel.StreamingIndicator);
+    }
+
+    [Fact]
     public void DoneEventStopsStreamingAndRaisesStatusText()
     {
         var viewModel = OfflineViewModel(out _);

@@ -82,11 +82,24 @@
             MinHeight="72"
             Visibility="{Binding ShowRetry, Converter={StaticResource BoolToVisibility}}" />
 
-        <TextBlock
-            Grid.Row="5"
-            AutomationProperties.AutomationId="companion.status"
-            FontSize="15"
-            Opacity="0.75"
-            Text="{Binding StatusText}" />
+        <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="12">
+            <TextBlock
+                AutomationProperties.AutomationId="companion.status"
+                FontSize="15"
+                Opacity="0.75"
+                Text="{Binding StatusText}" />
+            <ProgressBar
+                AutomationProperties.AutomationId="companion.streaming"
+                AutomationProperties.Name="正在回复"
+                IsIndeterminate="True"
+                Width="120"
+                VerticalAlignment="Center"
+                Visibility="{Binding IsStreaming, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock
+                FontSize="15"
+                Opacity="0.75"
+                Text="{Binding StreamingIndicator}"
+                Visibility="{Binding IsStreaming, Converter={StaticResource BoolToVisibility}}" />
+        </StackPanel>
     </Grid>
 </UserControl>

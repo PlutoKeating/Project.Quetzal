@@ -71,7 +71,7 @@ struct AccessibilityContractTests {
         let labels = source.components(separatedBy: ".accessibilityLabel(").count - 1
         let interactive = AccessibilityCatalog.all.filter { $0.isInteractive && !$0.nameIsContent }.count
         #expect(labels >= interactive, "无障碍名称修饰符数量少于可交互控件数")
-        #expect(source.components(separatedBy: ".accessibilityAddTraits(.updatesFrequently)").count - 1 >= 1)
+        #expect(source.components(separatedBy: ".accessibilityAddTraits(.updatesFrequently)").count - 1 >= 2)
     }
 
     @Test("源码里没有未登记的无障碍标识")
@@ -88,7 +88,7 @@ struct AccessibilityContractTests {
                 let idRange = Range(match.range(at: 1), in: source)
             else { continue }
             let id = String(source[idRange])
-            if id.contains("\(") {
+            if id.contains("\\(") {
                 let prefix = String(id.split(separator: "/").first ?? "")
                 if !known.contains(prefix) {
                     unknown.append(id)

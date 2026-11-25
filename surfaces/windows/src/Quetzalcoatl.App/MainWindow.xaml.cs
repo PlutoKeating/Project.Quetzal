@@ -223,11 +223,11 @@ public sealed partial class MainWindow : Window
 
     private void Announce(string text)
     {
-        LiveAnnouncement.Text = text;
         try
         {
-            var peer = FrameworkElementAutomationPeer.FromElement(LiveAnnouncement)
-                ?? FrameworkElementAutomationPeer.CreatePeerForElement(LiveAnnouncement);
+            // 唯一播报机制：连接状态区域作为 peer 锚点，显式通知一次（不依赖 live region 自动播报）。
+            var peer = FrameworkElementAutomationPeer.FromElement(ConnectionStatusText)
+                ?? FrameworkElementAutomationPeer.CreatePeerForElement(ConnectionStatusText);
             peer?.RaiseNotificationEvent(
                 AutomationNotificationKind.ActionCompleted,
                 AutomationNotificationProcessing.MostRecent,
