@@ -249,12 +249,13 @@ CREATE TABLE IF NOT EXISTS webhook_ingress_queue (
 	agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
 	channel TEXT NOT NULL,
 	event_id_hash TEXT NOT NULL,
+	target_device_id TEXT NOT NULL DEFAULT '',
 	hpke_enc_hex TEXT NOT NULL,
 	ciphertext_hex TEXT NOT NULL,
 	aad_utf8 TEXT NOT NULL,
 	received_at_ms BIGINT NOT NULL,
 	created_at_ms BIGINT NOT NULL,
-	UNIQUE (agent_id, channel, event_id_hash)
+	UNIQUE (agent_id, channel, event_id_hash, target_device_id)
 );
 CREATE INDEX IF NOT EXISTS idx_webhook_ingress_agent
 	ON webhook_ingress_queue(agent_id, ingress_id);
@@ -279,7 +280,26 @@ func NewPostgresStore(dsn string) (*PostgresStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate postgres group schema: %w", err)
 	}
+	if err := migratePostgresWebhookSchema(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate postgres webhook schema: %w", err)
+	}
 	return &PostgresStore{db: db}, nil
+}
+
+// migratePostgresWebhookSchema 补齐多设备入站列并切换唯一索引（幂等）。
+func migratePostgresWebhookSchema(db *sql.DB) error {
+	statements := []string{
+		`ALTER TABLE webhook_ingress_queue ADD COLUMN IF NOT EXISTS target_device_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE webhook_ingress_queue DROP CONSTRAINT IF EXISTS webhook_ingress_queue_agent_id_channel_event_id_hash_key`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_ingress_unique ON webhook_ingress_queue(agent_id, channel, event_id_hash, target_device_id)`,
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("exec %q: %w", stmt, err)
+		}
+	}
+	return nil
 }
 
 // migratePostgresGroupSchema 为 Fix Round 1 之前的旧库补齐群组新列（幂等）。
@@ -1500,8 +1520,8 @@ func (p *PostgresStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIn
 	var existing int64
 	err = tx.QueryRowContext(ctx, `
 		SELECT ingress_id FROM webhook_ingress_queue
-		WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3
-	`, rec.AgentID, rec.Channel, rec.EventIDHash).Scan(&existing)
+		WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3 AND target_device_id = $4
+	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.TargetDeviceID).Scan(&existing)
 	if err == nil {
 		var depth int
 		if countErr := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, rec.AgentID).Scan(&depth); countErr != nil {
@@ -1517,14 +1537,18 @@ func (p *PostgresStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIn
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1`, rec.AgentID).Scan(&depth); err != nil {
 		return false, 0, err
 	}
-	if maxPerAgent > 0 && depth >= maxPerAgent {
+	var sameEvent int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, rec.AgentID, rec.Channel, rec.EventIDHash).Scan(&sameEvent); err != nil {
+		return false, 0, err
+	}
+	if maxPerAgent > 0 && depth >= maxPerAgent && sameEvent == 0 {
 		return false, depth, ErrQuotaExceeded
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO webhook_ingress_queue (
-			agent_id, channel, event_id_hash, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.HPKEEncHex, rec.CiphertextHex, rec.AADUTF8, rec.ReceivedAtMs, rec.CreatedAtMs); err != nil {
+			agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.TargetDeviceID, rec.HPKEEncHex, rec.CiphertextHex, rec.AADUTF8, rec.ReceivedAtMs, rec.CreatedAtMs); err != nil {
 		return false, 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1533,14 +1557,15 @@ func (p *PostgresStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIn
 	return true, depth + 1, nil
 }
 
-func (p *PostgresStore) ListWebhookIngress(ctx context.Context, agentID string, after int64, limit int) ([]WebhookIngressRecord, error) {
+func (p *PostgresStore) ListWebhookIngress(ctx context.Context, agentID, deviceID string, after int64, limit int) ([]WebhookIngressRecord, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
 	rows, err := p.db.QueryContext(ctx, `
-		SELECT ingress_id, agent_id, channel, event_id_hash, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
-		FROM webhook_ingress_queue WHERE agent_id = $1 AND ingress_id > $2 ORDER BY ingress_id ASC LIMIT $3
-	`, agentID, after, limit)
+		SELECT ingress_id, agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+		FROM webhook_ingress_queue WHERE agent_id = $1 AND ($2 = '' OR target_device_id = $2 OR target_device_id = '')
+		AND ingress_id > $3 ORDER BY ingress_id ASC LIMIT $4
+	`, agentID, deviceID, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1548,7 +1573,7 @@ func (p *PostgresStore) ListWebhookIngress(ctx context.Context, agentID string, 
 	var out []WebhookIngressRecord
 	for rows.Next() {
 		var r WebhookIngressRecord
-		if err := rows.Scan(&r.IngressID, &r.AgentID, &r.Channel, &r.EventIDHash, &r.HPKEEncHex, &r.CiphertextHex, &r.AADUTF8, &r.ReceivedAtMs, &r.CreatedAtMs); err != nil {
+		if err := rows.Scan(&r.IngressID, &r.AgentID, &r.Channel, &r.EventIDHash, &r.TargetDeviceID, &r.HPKEEncHex, &r.CiphertextHex, &r.AADUTF8, &r.ReceivedAtMs, &r.CreatedAtMs); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -1576,8 +1601,8 @@ func (p *PostgresStore) CountWebhookIngress(ctx context.Context, agentID string)
 	return depth, nil
 }
 
-func (p *PostgresStore) DeleteWebhookIngressByHashes(ctx context.Context, agentID string, eventIDHashes []string) (int64, error) {
-	if len(eventIDHashes) == 0 {
+func (p *PostgresStore) DeleteWebhookIngressByKeys(ctx context.Context, agentID string, keys []WebhookIngressKey) (int64, error) {
+	if len(keys) == 0 {
 		return 0, nil
 	}
 	tx, err := p.db.BeginTx(ctx, nil)
@@ -1586,8 +1611,8 @@ func (p *PostgresStore) DeleteWebhookIngressByHashes(ctx context.Context, agentI
 	}
 	defer func() { _ = tx.Rollback() }()
 	var deleted int64
-	for _, hash := range eventIDHashes {
-		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND event_id_hash = $2`, agentID, hash)
+	for _, key := range keys {
+		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, agentID, key.Channel, key.EventIDHash)
 		if err != nil {
 			return 0, err
 		}
@@ -1601,4 +1626,12 @@ func (p *PostgresStore) DeleteWebhookIngressByHashes(ctx context.Context, agentI
 		return 0, err
 	}
 	return deleted, nil
+}
+
+func (p *PostgresStore) DeleteWebhookIngressForDevice(ctx context.Context, agentID, deviceID string) (int64, error) {
+	res, err := p.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND target_device_id = $2`, agentID, deviceID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

@@ -85,6 +85,15 @@ fn contains_forbidden(text: &str) -> bool {
     FORBIDDEN_MARKERS.iter().any(|m| lower.contains(m))
 }
 
+fn looks_secret_value(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.starts_with("-----BEGIN ")
+        || trimmed.starts_with("sk-")
+        || trimmed.starts_with("xoxb-")
+        || trimmed.starts_with("AKIA")
+        || trimmed.starts_with("Bearer ")
+}
+
 fn looks_absolute_path(value: &str) -> bool {
     let trimmed = value.trim();
     if trimmed.starts_with('/') || trimmed.starts_with("\\") {
@@ -125,8 +134,8 @@ fn scan_json(value: &serde_json::Value, reason: &mut Option<&'static str>) -> bo
         }
         serde_json::Value::Array(items) => items.iter().any(|item| scan_json(item, reason)),
         serde_json::Value::String(text) => {
-            if contains_forbidden(text) {
-                *reason = Some("payload value contains forbidden authority marker");
+            if looks_secret_value(text) {
+                *reason = Some("payload value contains an unambiguous secret pattern");
                 return true;
             }
             if looks_absolute_path(text) {
@@ -265,7 +274,9 @@ impl<'a, S: MaterializedStore> SpineBridge<'a, S> {
     pub fn read_own(&self) -> Result<Vec<BridgeEvent>> {
         let mut out = Vec::new();
         for (event, compartment) in self.engine.store().list_all_events()? {
-            if compartment != PackCompartment::ExternalChannel {
+            if compartment != PackCompartment::ExternalChannel
+                && compartment != PackCompartment::Core
+            {
                 continue;
             }
             let Ok(payload) = serde_json::from_str::<serde_json::Value>(&event.payload_utf8) else {
@@ -280,6 +291,17 @@ impl<'a, S: MaterializedStore> SpineBridge<'a, S> {
                 .unwrap_or("");
             if body != self.key.body_id || !kind_allowed(kind) {
                 continue;
+            }
+            // 兼容历史 Core 分舱桥接事件：仅当事件显式归属本 Agent 时才可读回。
+            if compartment == PackCompartment::Core {
+                let legacy_agent = payload
+                    .get("agent_id")
+                    .or_else(|| payload.get("agentId"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                if legacy_agent != self.key.agent_id.to_string() {
+                    continue;
+                }
             }
             out.push(BridgeEvent {
                 body_id: String::from(body),

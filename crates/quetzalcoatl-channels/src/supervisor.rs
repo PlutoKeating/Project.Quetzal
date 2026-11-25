@@ -108,6 +108,7 @@ pub struct ChannelSupervisor {
     enabled: BTreeSet<String>,
     bindings: BTreeMap<String, (u64, String)>,
     deliveries: BTreeMap<String, DeliveryHealth>,
+    remote_holders: BTreeMap<String, String>,
 }
 
 impl ChannelSupervisor {
@@ -118,6 +119,7 @@ impl ChannelSupervisor {
             enabled: BTreeSet::new(),
             bindings: BTreeMap::new(),
             deliveries: BTreeMap::new(),
+            remote_holders: BTreeMap::new(),
         }
     }
 
@@ -156,6 +158,17 @@ impl ChannelSupervisor {
     /// - `holder` 为空（无租约）时关闭全部长连接；
     /// - 本地通道不参与联网持有。
     pub fn reconcile_lease(&mut self, witness_epoch: u64, holder: &str) -> Vec<String> {
+        self.reconcile_lease_for_local(witness_epoch, holder, holder)
+    }
+
+    /// 仅当 holder 是本机设备时才绑定长连接；远端持有者记录为 `remote-holder`，
+    /// 本地不建立连接、不授权有状态通道外发。
+    pub fn reconcile_lease_for_local(
+        &mut self,
+        witness_epoch: u64,
+        holder: &str,
+        local_device_id: &str,
+    ) -> Vec<String> {
         let mut moved = Vec::new();
         for channel in self.enabled.clone() {
             let Some(driver) = self.drivers.get(&channel) else {
@@ -165,12 +178,24 @@ impl ChannelSupervisor {
                 continue;
             }
             if holder.trim().is_empty() {
+                self.remote_holders.remove(&channel);
                 if self.bindings.remove(&channel).is_some() {
                     driver.close();
                     moved.push(channel);
                 }
                 continue;
             }
+            if holder != local_device_id {
+                let had_binding = self.bindings.remove(&channel).is_some();
+                self.remote_holders
+                    .insert(channel.clone(), String::from(holder));
+                if had_binding {
+                    driver.close();
+                    moved.push(channel);
+                }
+                continue;
+            }
+            self.remote_holders.remove(&channel);
             let current = self.bindings.get(&channel);
             if current.is_some_and(|(epoch, owner)| *epoch == witness_epoch && owner == holder) {
                 continue;
@@ -190,14 +215,22 @@ impl ChannelSupervisor {
             .map(|driver| {
                 let descriptor = driver.descriptor();
                 let binding = self.bindings.get(&descriptor.id);
+                let remote = self.remote_holders.get(&descriptor.id);
+                let (bound_epoch, holder_device_id) = if let Some((epoch, holder)) = binding {
+                    (Some(*epoch), Some(holder.clone()))
+                } else if let Some(remote_holder) = remote {
+                    (None, Some(format!("remote-holder:{remote_holder}")))
+                } else {
+                    (None, None)
+                };
                 ChannelHealth {
                     channel: descriptor.id.clone(),
                     display_name: descriptor.display_name.clone(),
                     enabled: self.enabled.contains(&descriptor.id),
                     local_only: descriptor.local_only,
                     requires_credentials: descriptor.requires_credentials,
-                    bound_witness_epoch: binding.map(|(epoch, _)| *epoch),
-                    holder_device_id: binding.map(|(_, holder)| holder.clone()),
+                    bound_witness_epoch: bound_epoch,
+                    holder_device_id,
                     last_delivery: self.deliveries.get(&descriptor.id).cloned(),
                 }
             })

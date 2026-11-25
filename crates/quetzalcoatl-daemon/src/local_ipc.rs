@@ -278,6 +278,10 @@ pub enum IpcRequest {
     },
     /// `qz webhook status`：查看入站 key 登记与队列深度。
     WebhookStatus,
+    /// `qz webhook register` / `qz webhook rotate`：显式登记或轮换本设备入站公钥。
+    WebhookRegisterKey {
+        rotate: bool,
+    },
     /// `qz group send --room <id> --text <...>`。
     GroupSend {
         room_id: String,

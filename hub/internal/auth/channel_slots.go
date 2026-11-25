@@ -22,12 +22,14 @@ func (s *Service) RegisterChannelIngressRoutes(mux *http.ServeMux) {
 
 func (s *Service) handlePutChannelIngressSlot(w http.ResponseWriter, r *http.Request) {
 	agentID := r.PathValue("agent_id")
-	if _, _, ok := s.requireAgentOwner(w, r, agentID); !ok {
+	principal, _, ok := s.requireAgentOwner(w, r, agentID)
+	if !ok {
 		return
 	}
 	var req struct {
 		XWingPubKeyHex string `json:"xwing_pubkey_hex"`
 		KeyID          string `json:"key_id"`
+		DeviceID       string `json:"device_id"`
 	}
 	if err := decodeJSONBody(r, &req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "SERIALIZATION_ERROR", err.Error())
@@ -38,12 +40,32 @@ func (s *Service) handlePutChannelIngressSlot(w http.ResponseWriter, r *http.Req
 		writeAPIError(w, http.StatusUnprocessableEntity, "INTEGRITY_VIOLATION", "xwing_pubkey_hex must be a valid X-Wing public key")
 		return
 	}
+	deviceID := strings.TrimSpace(req.DeviceID)
+	if deviceID == "" {
+		deviceID = principal.DeviceID
+	}
+	if deviceID == "" || (principal.DeviceID != "" && deviceID != principal.DeviceID) {
+		writeAPIError(w, http.StatusForbidden, "PERMISSION_DENIED", "device_id must match authenticated session device")
+		return
+	}
+	device, err := s.store.GetDevice(r.Context(), agentID, deviceID)
+	if err != nil || device.Revoked {
+		writeAPIError(w, http.StatusForbidden, "PERMISSION_DENIED", "device is not active for agent")
+		return
+	}
 	keyID := strings.TrimSpace(req.KeyID)
 	if keyID == "" || len(keyID) > 128 {
 		writeAPIError(w, http.StatusBadRequest, "INVALID_ID", "key_id is required (max 128 chars)")
 		return
 	}
-	metadata, err := json.Marshal(map[string]string{"key_id": keyID, "purpose": "channel-ingress"})
+	slotType := ChannelIngressSlotType + ":" + deviceID
+	discarded := int64(0)
+	if previous, err := s.store.GetKeySlot(r.Context(), agentID, slotType); err == nil {
+		if previous.CiphertextHex != hex.EncodeToString(pk) {
+			discarded, _ = s.store.DeleteWebhookIngressForDevice(r.Context(), agentID, deviceID)
+		}
+	}
+	metadata, err := json.Marshal(map[string]string{"key_id": keyID, "device_id": deviceID, "purpose": "channel-ingress"})
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "SERIALIZATION_ERROR", "metadata marshal failed")
 		return
@@ -55,7 +77,7 @@ func (s *Service) handlePutChannelIngressSlot(w http.ResponseWriter, r *http.Req
 	}
 	if err := s.store.UpsertKeySlot(r.Context(), store.KeySlotEnvelope{
 		AgentID:       agentID,
-		Slot:          ChannelIngressSlotType,
+		Slot:          slotType,
 		AADUTF8:       string(aad),
 		NonceHex:      "",
 		CiphertextHex: hex.EncodeToString(pk),
@@ -66,8 +88,10 @@ func (s *Service) handlePutChannelIngressSlot(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"agent_id": agentID,
-		"slot":     ChannelIngressSlotType,
-		"key_id":   keyID,
+		"agent_id":       agentID,
+		"slot":           slotType,
+		"key_id":         keyID,
+		"device_id":      deviceID,
+		"discarded_rows": discarded,
 	})
 }

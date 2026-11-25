@@ -1111,14 +1111,71 @@ impl DaemonFabricRuntime {
         Ok(())
     }
 
-    /// 外部通道投递边界（Sprint 3 前一律 fail-closed 拒收，宁可留队也不伪签投递成功）。
+    /// 对账重放通道外发项：仅在重获 Witnessed 后执行真实投递。
     fn deliver_outbox_item(&self, item: &OutboxItem, idempotency_key: &str) -> Result<()> {
-        Err(QuetzalcoatlError::DeliveryRefused {
-            detail: format!(
-                "外部通道尚未在本构建中启用，外发项 {}/{idempotency_key} 暂存 Outbox 待对账",
-                item.capability_id
-            ),
-        })
+        if item.capability_id != "external.send" {
+            return Err(QuetzalcoatlError::DeliveryRefused {
+                detail: format!(
+                    "能力 {} 不支持 Outbox 重放（{idempotency_key}）",
+                    item.capability_id
+                ),
+            });
+        }
+        let args: serde_json::Value = serde_json::from_str(&item.arguments_json).map_err(|e| {
+            QuetzalcoatlError::SerializationError {
+                detail: format!("解析 Outbox 通道外发参数失败: {e}"),
+            }
+        })?;
+        let channel = args
+            .get("channel")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| QuetzalcoatlError::SerializationError {
+                detail: String::from("Outbox 通道外发缺少 channel"),
+            })?;
+        let destination = args
+            .get("destination")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let text = args
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| QuetzalcoatlError::SerializationError {
+                detail: String::from("Outbox 通道外发缺少正文"),
+            })?;
+        let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("fabric 运行时尚未绑定守护进程内核"),
+        })?;
+        let local_device = core
+            .state
+            .lock()
+            .map_err(|_| QuetzalcoatlError::StorageError {
+                detail: String::from("daemon lock poisoned"),
+            })?
+            .kernel
+            .spine()
+            .local_device()
+            .device_id();
+        let witness_epoch = self
+            .lease_view
+            .lock()
+            .ok()
+            .and_then(|view| view.witness_epoch)
+            .unwrap_or(0);
+        let mut state = core
+            .state
+            .lock()
+            .map_err(|_| QuetzalcoatlError::StorageError {
+                detail: String::from("daemon lock poisoned"),
+            })?;
+        let _ = state.channels.reconcile_lease_for_local(
+            witness_epoch,
+            &local_device.to_string(),
+            &local_device.to_string(),
+        );
+        state
+            .channels
+            .deliver(channel, destination, text)
+            .map(|_| ())
     }
 
     fn refresh_lease_view(&self) {
@@ -1596,12 +1653,25 @@ impl DaemonFabricRuntime {
     pub(crate) fn ack_webhook_ingress(
         &self,
         agent_id: AgentId,
-        event_ids: &[String],
+        keys: &[quetzalcoatl_fabric::WebhookIngressAckKey],
     ) -> Result<u64> {
         let session = self.require_session()?;
         let client = self.hub_client(Some(&session.session_token))?;
+        self.rt.block_on(client.ack_webhook_ingress(agent_id, keys))
+    }
+
+    /// 向 Hub 登记本设备独立的 ChannelIngressKey 公钥。
+    pub(crate) fn register_channel_ingress_key(
+        &self,
+        agent_id: AgentId,
+        pubkey: &[u8; XWING_PK_LEN],
+        key_id: &str,
+        device_id: &str,
+    ) -> Result<()> {
+        let session = self.require_session()?;
+        let client = self.hub_client(Some(&session.session_token))?;
         self.rt
-            .block_on(client.ack_webhook_ingress(agent_id, event_ids))
+            .block_on(client.register_channel_ingress_key(agent_id, pubkey, key_id, device_id))
     }
 
     /// 查询 Webhook 入站 key 登记与队列深度。

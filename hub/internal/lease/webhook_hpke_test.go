@@ -197,7 +197,7 @@ func TestWebhookIngressHPKEVectorByteExactAndZeroPlaintextCanary(t *testing.T) {
 	// 注入向量对应的 ChannelIngressKey（X-Wing 公钥是公开值，可安全存放于 key_slots）。
 	if err := h.st.UpsertKeySlot(context.Background(), store.KeySlotEnvelope{
 		AgentID:       vecAgentID,
-		Slot:          lease.ChannelIngressSlotType,
+		Slot:          lease.ChannelIngressSlotType + ":dev-v",
 		AADUTF8:       `{"purpose":"channel-ingress"}`,
 		NonceHex:      "",
 		CiphertextHex: v.KEM.XWingPKHex,
@@ -249,7 +249,7 @@ func TestWebhookIngressHPKEVectorByteExactAndZeroPlaintextCanary(t *testing.T) {
 	}
 	defer rows.Close()
 	allowed := map[string]bool{
-		"ingress_id": true, "agent_id": true, "channel": true, "event_id_hash": true,
+		"ingress_id": true, "agent_id": true, "channel": true, "event_id_hash": true, "target_device_id": true,
 		"hpke_enc_hex": true, "ciphertext_hex": true, "aad_utf8": true,
 		"received_at_ms": true, "created_at_ms": true,
 	}
@@ -275,7 +275,7 @@ func TestWebhookIngressRejectsUnknownBadHMACOversizeAndDeduplicates(t *testing.T
 	h := newWebhookHarness(t, 2)
 	if err := h.st.UpsertKeySlot(context.Background(), store.KeySlotEnvelope{
 		AgentID:       vecAgentID,
-		Slot:          lease.ChannelIngressSlotType,
+		Slot:          lease.ChannelIngressSlotType + ":dev-v",
 		AADUTF8:       `{"purpose":"channel-ingress"}`,
 		CiphertextHex: v.KEM.XWingPKHex,
 		UpdatedAtMs:   vecEpochMs,

@@ -43,7 +43,7 @@ Commands:
   group       openmls 群组：create | invite | join | leave | list | send | members | revoke-steward
   channel     七大通道族：list | enable <name> | disable <name> | status | send <name> --text <...>
   sayit       SayIt v2.1 子树吸纳：ingest --path <snapshot> | --batch <dir>
-  webhook     零知识 Webhook 入站：pull [--limit N] | status
+  webhook     零知识 Webhook 入站：pull [--limit N] | status | register | rotate
 ";
 
 fn locate_quetzalcoatld_binary() -> PathBuf {
@@ -1229,7 +1229,9 @@ fn run_webhook(args: &[String]) -> Result<()> {
                         detail: format!("非法 --limit: {e}"),
                     })?;
             }
-            "pull" | "status" => action = Some(String::from(args[i].as_str())),
+            "pull" | "status" | "register" | "rotate" => {
+                action = Some(String::from(args[i].as_str()))
+            }
             other => {
                 return Err(QuetzalcoatlError::StorageError {
                     detail: format!("未知选项: {other}"),
@@ -1268,14 +1270,39 @@ fn run_webhook(args: &[String]) -> Result<()> {
                 detail: format!("未知的 IPC 响应: {other:?}"),
             }),
         },
+        "register" | "rotate" => {
+            match client.call(&IpcRequest::WebhookRegisterKey {
+                rotate: action.as_deref() == Some("rotate"),
+            })? {
+                IpcResponse::WebhookQueueStatus(status) => {
+                    if json_mode {
+                        print_json(&status)?;
+                    } else {
+                        println!(
+                            "registered={} key_id={} device_id={} queue_depth={}",
+                            status.registered, status.key_id, status.device_id, status.queue_depth
+                        );
+                    }
+                    Ok(())
+                }
+                IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+                other => Err(QuetzalcoatlError::StorageError {
+                    detail: format!("未知的 IPC 响应: {other:?}"),
+                }),
+            }
+        }
         "status" => match client.call(&IpcRequest::WebhookStatus)? {
             IpcResponse::WebhookQueueStatus(status) => {
                 if json_mode {
                     print_json(&status)?;
                 } else {
                     println!(
-                        "registered={} key_id={} queue_depth={} max_queue={}",
-                        status.registered, status.key_id, status.queue_depth, status.max_queue
+                        "registered={} key_id={} device_id={} queue_depth={} max_queue={}",
+                        status.registered,
+                        status.key_id,
+                        status.device_id,
+                        status.queue_depth,
+                        status.max_queue
                     );
                 }
                 Ok(())

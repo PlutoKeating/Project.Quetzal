@@ -3586,7 +3586,10 @@ dependencies = [
 name = "quetzalcoatl-daemon"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "aes",
+ "base64 0.22.1",
  "blake3",
+ "hkdf",
  "hmac",
  "iroh",
  "quetzalcoatl-bridge",
@@ -3605,6 +3608,7 @@ dependencies = [
  "rand_core 0.6.4",
  "rcgen",
  "rusqlite",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",

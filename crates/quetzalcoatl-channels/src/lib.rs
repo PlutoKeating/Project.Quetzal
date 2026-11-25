@@ -19,7 +19,9 @@ pub use drivers::{
     system_intents::SystemIntentsDriver, telegram::TelegramDriver, webhook::WebhookDriver,
     wecom::WeComDriver,
 };
-pub use outbound::{HttpRequestSpec, build_http_request, request_fingerprint};
+pub use outbound::{
+    HttpRequestSpec, build_http_request, build_http_request_at, request_fingerprint,
+};
 pub use supervisor::{
     ChannelCredentials, ChannelHealth, ChannelSupervisor, DeliveryHealth, load_credentials,
 };
@@ -156,6 +158,7 @@ pub enum ChannelError {
     MissingCredential(String),
     TransportUnavailable,
     TransportRejected(u16),
+    CleartextCredentialRefused(String),
     NotEnabled(String),
     PermissionDenied(String),
 }
@@ -169,6 +172,9 @@ impl fmt::Display for ChannelError {
             Self::MissingCredential(channel) => write!(f, "通道 {channel} 缺少运行凭据"),
             Self::TransportUnavailable => write!(f, "通道传输不可用"),
             Self::TransportRejected(status) => write!(f, "通道平台拒绝投递 (HTTP {status})"),
+            Self::CleartextCredentialRefused(host) => {
+                write!(f, "拒绝向非回环明文 HTTP 主机 {host} 附加任何凭据")
+            }
             Self::NotEnabled(channel) => write!(f, "通道 {channel} 未启用"),
             Self::PermissionDenied(channel) => write!(f, "通道 {channel} 权限拒绝"),
         }

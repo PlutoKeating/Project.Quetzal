@@ -665,6 +665,42 @@ impl SharedDaemonCore {
 
     /// 通道长连接所有权锚点：有 fabric 时跟随 Hub `witness_epoch` 与 Router 持有者；
     /// 无 fabric 时由本机守护进程独占。
+    /// 派生/加载本设备独立入站密钥并登记到 Hub（已登录时）。
+    fn register_channel_ingress_key(&self) -> Result<crate::ingress_key::ChannelIngressKey> {
+        let (epoch_key, device_id) = {
+            let guard = self
+                .state
+                .lock()
+                .map_err(|_| QuetzalcoatlError::StorageError {
+                    detail: String::from("daemon lock poisoned"),
+                })?;
+            let epoch_key = guard
+                .kernel
+                .spine()
+                .epoch_ring()
+                .current_epoch_key()
+                .cloned()
+                .ok_or_else(|| QuetzalcoatlError::PermissionDenied {
+                    detail: String::from("当前纪元缺少活跃对称密钥，无法派生通道入站密钥"),
+                })?;
+            (epoch_key, guard.kernel.spine().local_device().device_id())
+        };
+        let key = crate::ingress_key::ChannelIngressKey::load_or_derive(
+            &self.config.quetzalcoatl_home,
+            &epoch_key,
+            device_id,
+        )?;
+        if let Some(runtime) = self.fabric_runtime() {
+            runtime.register_channel_ingress_key(
+                self.runtime_info.agent_id,
+                key.public_key(),
+                key.key_id(),
+                &key.device_id().to_string(),
+            )?;
+        }
+        Ok(key)
+    }
+
     fn channel_lease_anchor(&self) -> (u64, String) {
         if let Some(runtime) = self.fabric_runtime() {
             let report = runtime.nodes_report();
@@ -1641,7 +1677,10 @@ impl SharedDaemonCore {
                     return fabric_disabled_response();
                 };
                 match runtime.login(&self.config.quetzalcoatl_home, &req) {
-                    Ok(rep) => (IpcResponse::FabricLogin(rep), false),
+                    Ok(rep) => {
+                        let _ = self.register_channel_ingress_key();
+                        (IpcResponse::FabricLogin(rep), false)
+                    }
                     Err(err) => (
                         IpcResponse::Error {
                             code: String::from(err.code().as_str()),
@@ -1693,7 +1732,10 @@ impl SharedDaemonCore {
                 };
                 match runtime.pair_approve(&self.config.quetzalcoatl_home, &pairing_id, &short_code)
                 {
-                    Ok(rep) => (IpcResponse::FabricPairApprove(Box::new(rep)), false),
+                    Ok(rep) => {
+                        let _ = self.register_channel_ingress_key();
+                        (IpcResponse::FabricPairApprove(Box::new(rep)), false)
+                    }
                     Err(err) => (
                         IpcResponse::Error {
                             code: String::from(err.code().as_str()),
@@ -2160,15 +2202,18 @@ impl SharedDaemonCore {
                 };
                 if matches!(guard.kernel.lease_posture(), LeasePosture::PartitionLocal) {
                     // 两态围栏：非幂等公网外发只入 Outbox，绝不在无见证纪元下发出。
-                    let invocation = CapabilityInvocation::new(
+                    let idempotency_key = format!("channel-send:{}", Uuid::new_v4());
+                    let mut invocation = CapabilityInvocation::new(
                         "external.send",
                         serde_json::json!({
                             "channel": channel,
                             "destination": destination,
-                            "text_bytes": text.len(),
+                            "text": text,
+                            "idempotency_key": idempotency_key,
                         })
                         .to_string(),
                     );
+                    invocation.idempotency_key = Some(idempotency_key);
                     let _ = guard.kernel.authorize_capability(
                         PrincipalRole::Worker,
                         None,
@@ -2180,7 +2225,7 @@ impl SharedDaemonCore {
                     );
                     return ipc_error_response(QuetzalcoatlError::PartitionRestricted {
                         detail: format!(
-                            "通道 {channel} 外发已暂存 Outbox：当前处于断网分区本地租约，待重获 witness_epoch 后对账发送"
+                            "通道 {channel} 外发已暂存 Outbox：当前处于断网分区本地租约，重获 witness_epoch 后将自动对账投递"
                         ),
                     });
                 }
@@ -2235,24 +2280,36 @@ impl SharedDaemonCore {
                     });
                 };
                 let agent_id = self.runtime_info.agent_id;
+                let ingress_key = match self.register_channel_ingress_key() {
+                    Ok(key) => key,
+                    Err(err) => return ipc_error_response(err),
+                };
                 let batch = match runtime.pull_webhook_ingress(agent_id, after, limit.clamp(1, 500))
                 {
                     Ok(batch) => batch,
                     Err(err) => return ipc_error_response(err),
                 };
-                let (ack_ids, mut report) = {
+                let (ack_keys, mut report) = {
                     let Ok(mut guard) = self.state.lock() else {
                         return ipc_error_response(QuetzalcoatlError::StorageError {
                             detail: String::from("daemon lock poisoned"),
                         });
                     };
+                    let DaemonMutableState {
+                        ref mut kernel,
+                        ref channels,
+                        ..
+                    } = *guard;
                     crate::webhook::decrypt_and_persist(
-                        guard.kernel.spine_mut(),
+                        kernel.spine_mut(),
+                        &ingress_key,
+                        channels,
+                        &self.config.quetzalcoatl_home,
                         &batch.events,
                         now_unix_ms(),
                     )
                 };
-                let acked = match runtime.ack_webhook_ingress(agent_id, &ack_ids) {
+                let acked = match runtime.ack_webhook_ingress(agent_id, &ack_keys) {
                     Ok(deleted) => deleted,
                     Err(err) => return ipc_error_response(err),
                 };
@@ -2260,6 +2317,47 @@ impl SharedDaemonCore {
                 report.next_cursor = batch.next_cursor;
                 report.queue_depth = batch.queue_depth.saturating_sub(acked);
                 (IpcResponse::WebhookPull(report), false)
+            }
+            IpcRequest::WebhookRegisterKey { rotate } => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return ipc_error_response(QuetzalcoatlError::PermissionDenied {
+                        detail: String::from("fabric 未启用，无法登记 Webhook 入站公钥"),
+                    });
+                };
+                let device_id = {
+                    let Ok(guard) = self.state.lock() else {
+                        return ipc_error_response(QuetzalcoatlError::StorageError {
+                            detail: String::from("daemon lock poisoned"),
+                        });
+                    };
+                    guard.kernel.spine().local_device().device_id()
+                };
+                let key = if rotate {
+                    match crate::ingress_key::ChannelIngressKey::rotate(
+                        &self.config.quetzalcoatl_home,
+                        device_id,
+                    ) {
+                        Ok(key) => key,
+                        Err(err) => return ipc_error_response(err),
+                    }
+                } else {
+                    match self.register_channel_ingress_key() {
+                        Ok(key) => key,
+                        Err(err) => return ipc_error_response(err),
+                    }
+                };
+                if let Err(err) = runtime.register_channel_ingress_key(
+                    self.runtime_info.agent_id,
+                    key.public_key(),
+                    key.key_id(),
+                    &key.device_id().to_string(),
+                ) {
+                    return ipc_error_response(err);
+                }
+                match runtime.webhook_ingress_status(self.runtime_info.agent_id) {
+                    Ok(status) => (IpcResponse::WebhookQueueStatus(status), false),
+                    Err(err) => ipc_error_response(err),
+                }
             }
             IpcRequest::WebhookStatus => {
                 let Some(runtime) = self.fabric_runtime() else {
@@ -2646,6 +2744,8 @@ impl QuetzalcoatlDaemon {
         if let Ok(mut guard) = core_holder.lock() {
             *guard = Some(Arc::clone(&shared_core));
         }
+        // 已持久化 Hub 会话时，守护进程启动即自动登记本设备独立入站公钥。
+        let _ = shared_core.register_channel_ingress_key();
         // 挂上弱引用并启动心跳线程（仅当 fabric 已启用时需要）。
         // 注意：必须先释放 core_slot 锁再调用 tick_now，否则会与 `core()` 的同一把锁自锁。
         if let (Some(runtime), Some(slot)) = (&fabric_runtime, &fabric_core_slot) {

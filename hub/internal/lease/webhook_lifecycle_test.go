@@ -6,16 +6,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
-	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -91,7 +89,7 @@ func TestWebhookPlatformVerifiersAcceptRealSchemesAndRejectTamper(t *testing.T) 
 		t.Fatalf("service: %v", err)
 	}
 	if err := st.UpsertKeySlot(context.Background(), store.KeySlotEnvelope{
-		AgentID: vecAgentID, Slot: lease.ChannelIngressSlotType,
+		AgentID: vecAgentID, Slot: lease.ChannelIngressSlotType + ":dev-v",
 		AADUTF8: `{"purpose":"channel-ingress"}`, CiphertextHex: hex.EncodeToString(bytes.Repeat([]byte{0x77}, 1216)),
 		MetadataJSON: `{"key_id":"kid-test"}`, UpdatedAtMs: nowMs,
 	}); err != nil {
@@ -105,18 +103,13 @@ func TestWebhookPlatformVerifiersAcceptRealSchemesAndRejectTamper(t *testing.T) 
 	ts := fmt.Sprintf("%d", nowMs/1000)
 	nonce := "nonce-1"
 	feishuBody := []byte(`{"header":{"event_id":"ev_feishu_platform"},"event":{"message":{"message_id":"om-1"}}}`)
-	feishuSig := sha256.Sum256(append(append(append([]byte(ts), []byte(nonce)...), secret...), feishuBody...))
+	// 固定向量：由文档算法独立计算并硬编码，避免"用被测代码生成期望值"。
+	const feishuSigHex = "a63734ef71f6c025d3a89b9fe0a73aec0e49522805b3a71844145a99e36335a8"
+	const dingSign = "8jNJT1AwE2rmcho0/hMbMrwPhFiM4nC23Xn0F1JvfJk="
+	const wecomSig = "bafcc39fbf7a972a3009e49669f056d3683557e2"
 
 	dingBody := []byte(`{"msgId":"ev_ding_platform","text":{"content":"hello"}}`)
-	dingMac := hmac.New(sha256.New, secret)
-	dingMac.Write([]byte(ts + "\n" + string(secret)))
-	dingSign := base64.StdEncoding.EncodeToString(dingMac.Sum(nil))
-
 	wecomBody := []byte(`<xml><MsgId>ev_wecom_platform</MsgId><Encrypt>ciphertextblob</Encrypt></xml>`)
-	wecomItems := []string{string(secret), ts, nonce, "ciphertextblob"}
-	sort.Strings(wecomItems)
-	wecomSum := sha1.Sum([]byte(wecomItems[0] + wecomItems[1] + wecomItems[2] + wecomItems[3]))
-	wecomSig := hex.EncodeToString(wecomSum[:])
 
 	telegramBody := []byte(`{"update_id":4242,"message":{"message_id":1,"from":{"id":9},"chat":{"id":9},"text":"tg"}}`)
 	webhookBody := []byte(`{"event_id":"ev_generic_platform","text":"generic"}`)
@@ -142,7 +135,7 @@ func TestWebhookPlatformVerifiersAcceptRealSchemesAndRejectTamper(t *testing.T) 
 	cases := []platformCase{
 		mk("feishu", feishuBody, map[string]string{
 			"X-Lark-Request-Timestamp": ts, "X-Lark-Request-Nonce": nonce,
-			"X-Lark-Signature": hex.EncodeToString(feishuSig[:]),
+			"X-Lark-Signature": feishuSigHex,
 		}, ""),
 		mk("dingtalk", dingBody, map[string]string{"timestamp": ts, "sign": dingSign}, ""),
 		mk("wecom", wecomBody, nil, "?timestamp="+ts+"&nonce="+nonce+"&msg_signature="+wecomSig),
@@ -170,7 +163,7 @@ func TestWebhookPlatformVerifiersAcceptRealSchemesAndRejectTamper(t *testing.T) 
 		}
 		switch tc.name {
 		case "feishu":
-			req2.Header.Set("X-Lark-Signature", "00"+hex.EncodeToString(feishuSig[:])[2:])
+			req2.Header.Set("X-Lark-Signature", "00"+feishuSigHex[2:])
 		case "dingtalk":
 			req2.Header.Set("sign", "AAAA"+dingSign[4:])
 		case "wecom":
@@ -230,9 +223,14 @@ func TestWebhookIngressOwnerRoutesLifecycleAndCrossAccount403(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service: %v", err)
 	}
+	authSvc, err := auth.NewService(st, nil, auth.Config{}, func() time.Time { return time.UnixMilli(nowMs) })
+	if err != nil {
+		t.Fatalf("auth service: %v", err)
+	}
 	mux := http.NewServeMux()
 	svc.RegisterRoutes(mux)
-	svc.RegisterOwnerRoutes(mux, fakeAuthz{})
+	svc.RegisterOwnerRoutes(mux, authSvc)
+	authSvc.RegisterChannelIngressRoutes(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -266,18 +264,10 @@ func TestWebhookIngressOwnerRoutesLifecycleAndCrossAccount403(t *testing.T) {
 		"key_id":           "kid-life",
 	})
 	// 真实 auth.Service 登记路由（复用 requireAgentOwner）。
-	authSvc, err := auth.NewService(st, nil, auth.Config{}, func() time.Time { return time.UnixMilli(nowMs) })
-	if err != nil {
-		t.Fatalf("auth service: %v", err)
-	}
-	authMux := http.NewServeMux()
-	authSvc.RegisterChannelIngressRoutes(authMux)
-	authSrv := httptest.NewServer(authMux)
-	defer authSrv.Close()
-	req, _ := http.NewRequest(http.MethodPut, authSrv.URL+"/v1/auth/slots/"+vecAgentID+"/channel_ingress", bytes.NewReader(keyBody))
+	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/v1/auth/slots/"+vecAgentID+"/channel_ingress", bytes.NewReader(keyBody))
 	req.Header.Set("Authorization", "Bearer token-v")
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := authSrv.Client().Do(req)
+	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatalf("register key: %v", err)
 	}
@@ -294,7 +284,7 @@ func TestWebhookIngressOwnerRoutesLifecycleAndCrossAccount403(t *testing.T) {
 		t.Fatalf("queue bound expected 429, got %d", code)
 	}
 
-	code, raw := do(http.MethodGet, "/v1/webhook/"+vecAgentID+"/ingress?after=0&limit=10", "owner-a", nil)
+	code, raw := do(http.MethodGet, "/v1/webhook/"+vecAgentID+"/ingress?after=0&limit=10", "token-v", nil)
 	if code != http.StatusOK {
 		t.Fatalf("GET ingress expected 200, got %d (%s)", code, raw)
 	}
@@ -311,11 +301,11 @@ func TestWebhookIngressOwnerRoutesLifecycleAndCrossAccount403(t *testing.T) {
 	if len(listed.Events) != 1 || listed.QueueDepth != 1 {
 		t.Fatalf("expected one sealed event/depth 1, got %+v", listed)
 	}
-	ackBody, _ := json.Marshal(map[string][]string{"event_ids": {listed.Events[0].EventID}})
-	if code, raw := do(http.MethodPost, "/v1/webhook/"+vecAgentID+"/ingress/ack", "owner-a", ackBody); code != http.StatusOK {
+	ackBody, _ := json.Marshal(map[string]any{"items": []map[string]string{{"channel": "webhook", "event_id": listed.Events[0].EventID}}})
+	if code, raw := do(http.MethodPost, "/v1/webhook/"+vecAgentID+"/ingress/ack", "token-v", ackBody); code != http.StatusOK {
 		t.Fatalf("ack expected 200, got %d (%s)", code, raw)
 	}
-	code, raw = do(http.MethodGet, "/v1/webhook/"+vecAgentID+"/status", "owner-a", nil)
+	code, raw = do(http.MethodGet, "/v1/webhook/"+vecAgentID+"/status", "token-v", nil)
 	if code != http.StatusOK || !bytes.Contains(raw, []byte(`"queue_depth":0`)) || !bytes.Contains(raw, []byte(`"key_id":"kid-life"`)) {
 		t.Fatalf("status after ack: %d %s", code, raw)
 	}
@@ -331,15 +321,13 @@ func TestWebhookIngressOwnerRoutesLifecycleAndCrossAccount403(t *testing.T) {
 	}{
 		{http.MethodPut, "/v1/auth/slots/" + vecAgentID + "/channel_ingress", keyBody},
 		{http.MethodGet, "/v1/webhook/" + vecAgentID + "/ingress?after=0&limit=10", nil},
-		{http.MethodPost, "/v1/webhook/" + vecAgentID + "/ingress/ack", []byte(`{"event_ids":[]}`)},
+		{http.MethodPost, "/v1/webhook/" + vecAgentID + "/ingress/ack", []byte(`{"items":[]}`)},
 		{http.MethodGet, "/v1/webhook/" + vecAgentID + "/status", nil},
 	} {
-		var target string
 		if tc.method == http.MethodPut && strings.Contains(tc.path, "/v1/auth/slots") {
-			target = authSrv.URL + tc.path
-			req, _ := http.NewRequest(tc.method, target, bytes.NewReader(tc.body))
+			req, _ := http.NewRequest(tc.method, srv.URL+tc.path, bytes.NewReader(tc.body))
 			req.Header.Set("Authorization", "Bearer token-b")
-			r, err := authSrv.Client().Do(req)
+			r, err := srv.Client().Do(req)
 			if err != nil {
 				t.Fatalf("cross PUT: %v", err)
 			}
@@ -349,9 +337,165 @@ func TestWebhookIngressOwnerRoutesLifecycleAndCrossAccount403(t *testing.T) {
 			}
 			continue
 		}
-		code, _ := do(tc.method, tc.path, "owner-b", tc.body)
+		code, _ := do(tc.method, tc.path, "token-b", tc.body)
 		if code != http.StatusForbidden {
 			t.Fatalf("cross-account %s %s expected 403, got %d", tc.method, tc.path, code)
 		}
+	}
+}
+
+func TestWebhookAckIsChannelScopedForSharedEventID(t *testing.T) {
+	tmp := t.TempDir()
+	st, err := store.NewSQLiteStore(filepath.Join(tmp, "hub.sqlite"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer st.Close()
+	const nowMs = int64(1_795_400_000_000)
+	seedSession(t, st, "acct-v", vecAgentID, "dev-v", "token-v", nowMs)
+	secret := []byte("channel-scope-secret")
+	svc, err := lease.NewWebhookIngressService(st, lease.WebhookIngressConfig{
+		Secrets:          map[string][]byte{"webhook": secret, "feishu": secret},
+		MaxBodyBytes:     64 * 1024,
+		MaxQueuePerAgent: 8,
+	}, func() time.Time { return time.UnixMilli(nowMs) })
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	if err := st.UpsertKeySlot(context.Background(), store.KeySlotEnvelope{
+		AgentID: vecAgentID, Slot: lease.ChannelIngressSlotType + ":dev-v",
+		AADUTF8: `{"purpose":"channel-ingress"}`, CiphertextHex: hex.EncodeToString(bytes.Repeat([]byte{0x77}, 1216)),
+		MetadataJSON: `{"key_id":"kid-test"}`, UpdatedAtMs: nowMs,
+	}); err != nil {
+		t.Fatalf("key slot: %v", err)
+	}
+	mux := http.NewServeMux()
+	svc.RegisterRoutes(mux)
+	svc.RegisterOwnerRoutes(mux, fakeAuthz{})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	body := []byte(`{"event_id":"ev_shared","text":"same id across channels"}`)
+	for _, ch := range []string{"webhook", "feishu"} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/webhook/"+vecAgentID+"/"+ch, bytes.NewReader(body))
+		req.Header.Set("X-QZ-Signature", signedGeneric(secret, body))
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("%s post: %v", ch, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("%s post status %d", ch, resp.StatusCode)
+		}
+	}
+	var listed struct {
+		Events []struct {
+			EventID string `json:"event_id"`
+			Channel string `json:"channel"`
+		} `json:"events"`
+		QueueDepth int `json:"queue_depth"`
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/webhook/"+vecAgentID+"/ingress?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer owner-a")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(listed.Events) != 2 || listed.QueueDepth != 2 {
+		t.Fatalf("expected two channel rows, got %+v", listed)
+	}
+	ack, _ := json.Marshal(map[string]any{"items": []map[string]string{{"channel": "webhook", "event_id": listed.Events[0].EventID}}})
+	req, _ = http.NewRequest(http.MethodPost, srv.URL+"/v1/webhook/"+vecAgentID+"/ingress/ack", bytes.NewReader(ack))
+	req.Header.Set("Authorization", "Bearer owner-a")
+	resp, err = srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ack status %d", resp.StatusCode)
+	}
+	depth, err := st.CountWebhookIngress(context.Background(), vecAgentID)
+	if err != nil || depth != 1 {
+		t.Fatalf("channel-scoped ack must leave other channel row: depth=%d err=%v", depth, err)
+	}
+}
+
+func TestWebhookIngressSealsForEveryActiveDevice(t *testing.T) {
+	tmp := t.TempDir()
+	st, err := store.NewSQLiteStore(filepath.Join(tmp, "hub.sqlite"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer st.Close()
+	const nowMs = int64(1_795_400_000_000)
+	seedSession(t, st, "acct-v", vecAgentID, "dev-a", "token-v", nowMs)
+	if err := st.UpsertDevice(context.Background(), store.Device{
+		AgentID: vecAgentID, DeviceID: "dev-b", AccountID: "acct-v",
+		Ed25519PubKeyHex: hex.EncodeToString(bytes.Repeat([]byte{0x24}, 32)),
+		XWingPubKeyHex:   hex.EncodeToString(bytes.Repeat([]byte{0x34}, 1216)),
+		CreatedAtMs:      nowMs,
+	}); err != nil {
+		t.Fatalf("device b: %v", err)
+	}
+	sum := sha256.Sum256([]byte("token-b2"))
+	if err := st.CreateSession(context.Background(), store.Session{
+		TokenSHA256Hex: hex.EncodeToString(sum[:]), AccountID: "acct-v", AgentID: vecAgentID,
+		DeviceID: "dev-b", ExpiresAtMs: nowMs + 3_600_000, CreatedAtMs: nowMs,
+	}); err != nil {
+		t.Fatalf("session b: %v", err)
+	}
+	for _, device := range []string{"dev-a", "dev-b"} {
+		if err := st.UpsertKeySlot(context.Background(), store.KeySlotEnvelope{
+			AgentID: vecAgentID, Slot: lease.ChannelIngressSlotType + ":" + device,
+			AADUTF8:       `{"purpose":"channel-ingress"}`,
+			CiphertextHex: hex.EncodeToString(bytes.Repeat([]byte{0x62}, 1216)),
+			MetadataJSON:  `{"key_id":"kid-` + device + `","device_id":"` + device + `"}`,
+			UpdatedAtMs:   nowMs,
+		}); err != nil {
+			t.Fatalf("slot %s: %v", device, err)
+		}
+	}
+	secret := []byte("multi-device-secret")
+	svc, err := lease.NewWebhookIngressService(st, lease.WebhookIngressConfig{
+		Secrets: map[string][]byte{"webhook": secret}, MaxBodyBytes: 64 * 1024, MaxQueuePerAgent: 8,
+	}, func() time.Time { return time.UnixMilli(nowMs) })
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	mux := http.NewServeMux()
+	svc.RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	body := []byte(`{"event_id":"ev_multi","text":"multi"}`)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/webhook/"+vecAgentID+"/webhook", bytes.NewReader(body))
+	req.Header.Set("X-QZ-Signature", signedGeneric(secret, body))
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("multi-device post status %d", resp.StatusCode)
+	}
+	rows, err := st.DBForTest().Query(`SELECT target_device_id FROM webhook_ingress_queue WHERE agent_id = ? ORDER BY target_device_id`, vecAgentID)
+	if err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+	defer rows.Close()
+	var devices []string
+	for rows.Next() {
+		var device string
+		if err := rows.Scan(&device); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		devices = append(devices, device)
+	}
+	if len(devices) != 2 || devices[0] != "dev-a" || devices[1] != "dev-b" {
+		t.Fatalf("expected one sealed row per active device, got %v", devices)
 	}
 }

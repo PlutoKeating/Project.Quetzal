@@ -70,6 +70,11 @@ pub struct ChannelRuntime {
 impl ChannelRuntime {
     /// 加载持久化开关；文件不存在时所有通道保持关闭（默认 OFF）。
     pub fn load(home: &Path) -> Result<Self> {
+        Self::load_with_extra_root_der_certs(home, Vec::new())
+    }
+
+    /// 加载并附加自定义 TLS 根证书（用于自建 CA 的部署/测试）。
+    pub fn load_with_extra_root_der_certs(home: &Path, extra_roots: Vec<Vec<u8>>) -> Result<Self> {
         let drivers = drivers_with_transport(Arc::new(HttpPostTransport));
         let mut drivers = drivers;
         drivers.insert(
@@ -95,7 +100,7 @@ impl ChannelRuntime {
                 credentials.insert(id.clone(), creds);
             }
         }
-        let http = HttpsUpstreamTransport::with_extra_root_der_certs(Vec::new())?;
+        let http = HttpsUpstreamTransport::with_extra_root_der_certs(extra_roots)?;
         Ok(Self {
             supervisor,
             state_path,
@@ -222,9 +227,78 @@ impl ChannelRuntime {
         self.health_for(channel)
     }
 
+    /// 平台加密回调解密：仅当载荷确为加密模式时要求本地密钥，明文载荷原样返回。
+    pub fn decrypt_platform(&self, channel: &str, body: &[u8]) -> Result<Vec<u8>> {
+        let text = std::str::from_utf8(body).unwrap_or("");
+        match channel {
+            "wecom" if text.contains("<Encrypt>") => {
+                let key = self
+                    .credentials
+                    .get(channel)
+                    .and_then(|c| c.get("encoding_aes_key"))
+                    .ok_or_else(|| QuetzalcoatlError::CredentialRejected {
+                        detail: String::from("WeCom 加密回调缺少 EncodingAESKey"),
+                    })?;
+                let encrypt = extract_xml(body, "Encrypt").ok_or_else(|| {
+                    QuetzalcoatlError::SerializationError {
+                        detail: String::from("WeCom 加密回调缺少 Encrypt 字段"),
+                    }
+                })?;
+                crate::platform_crypto::decrypt_wecom(&encrypt, key)
+            }
+            "feishu" | "dingtalk"
+                if text.contains("\"encrypt\"") || text.contains("\"Encrypt\"") =>
+            {
+                let keys: &[&str] = if channel == "feishu" {
+                    &["encrypt_key", "aes_key"]
+                } else {
+                    &["aes_key", "encrypt_key"]
+                };
+                let key = keys
+                    .iter()
+                    .find_map(|k| self.credentials.get(channel).and_then(|c| c.get(k)))
+                    .ok_or_else(|| QuetzalcoatlError::CredentialRejected {
+                        detail: format!("通道 {channel} 加密回调缺少 Encrypt Key"),
+                    })?;
+                crate::platform_crypto::decrypt_json_envelope(body, key)
+            }
+            _ => Ok(body.to_vec()),
+        }
+    }
+
+    /// 用通道驱动把解密后的载荷规范化为统一入站信封。
+    pub fn normalize(
+        &self,
+        channel: &str,
+        body: &[u8],
+        received_at_ms: u64,
+    ) -> Result<quetzalcoatl_channels::ChannelEnvelope> {
+        let driver = self
+            .supervisor
+            .driver(channel)
+            .ok_or_else(|| QuetzalcoatlError::invalid_id("ChannelId", String::from(channel)))?;
+        driver
+            .normalize(&quetzalcoatl_channels::RawInbound::new(
+                body.to_vec(),
+                received_at_ms,
+            ))
+            .map_err(channel_error_to_qz)
+    }
+
     /// 按 Router 租约重新对齐长连接所有权。
     pub fn reconcile_lease(&mut self, witness_epoch: u64, holder: &str) -> Vec<String> {
         self.supervisor.reconcile_lease(witness_epoch, holder)
+    }
+
+    /// 守护进程专用：仅本机是 Router holder 时才绑定长连接。
+    pub fn reconcile_lease_for_local(
+        &mut self,
+        witness_epoch: u64,
+        holder: &str,
+        local_device_id: &str,
+    ) -> Vec<String> {
+        self.supervisor
+            .reconcile_lease_for_local(witness_epoch, holder, local_device_id)
     }
 
     #[must_use]
@@ -324,6 +398,22 @@ fn parse_upstream_request(spec: &HttpRequestSpec) -> Result<UpstreamRequest> {
             .collect(),
         body: spec.body.as_bytes().to_vec(),
     })
+}
+
+fn extract_xml(body: &[u8], tag: &str) -> Option<String> {
+    let text = std::str::from_utf8(body).ok()?;
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = text.find(&open)? + open.len();
+    let rest = text.get(start..)?;
+    let end = rest.find(&close)?;
+    let raw = rest.get(..end)?.trim();
+    Some(
+        raw.strip_prefix("<![CDATA[")
+            .and_then(|s| s.strip_suffix("]]>"))
+            .unwrap_or(raw)
+            .to_owned(),
+    )
 }
 
 #[cfg(test)]

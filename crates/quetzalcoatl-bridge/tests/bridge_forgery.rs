@@ -249,3 +249,48 @@ fn bridge_events_are_isolated_in_external_channel_compartment() -> TestResult {
     assert!(saw_bridge_external);
     Ok(())
 }
+
+#[test]
+fn bridge_allows_benign_prose_containing_authority_words() -> TestResult {
+    let (mut engine, agent_id) = engine()?;
+    let key = BridgeKey {
+        role: BridgeRole::Bridge,
+        agent_id,
+        body_id: String::from("hermes-1"),
+    };
+    let mut bridge = SpineBridge::new(&mut engine, key);
+    let payload = format!(
+        r#"{{"kind":"memory.observe","body":"hermes-1","summary":"root cause analysis of the group chat lease renewal relationship note","agent_id":"{agent_id}"}}"#
+    );
+    bridge.append("memory.observe", "hermes-1", &payload, 60)?;
+    assert_eq!(bridge.read_own()?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn bridge_reads_legacy_core_events_for_own_agent_and_body_only() -> TestResult {
+    let (mut engine, agent_id) = engine()?;
+    let legacy_own = format!(
+        r#"{{"kind":"journal.note","body":"hermes-1","agent_id":"{agent_id}","summary":"legacy"}}"#
+    );
+    engine.append_event(PackCompartment::Core, &legacy_own, 70)?;
+    engine.append_event(
+        PackCompartment::Core,
+        r#"{"kind":"journal.note","body":"hermes-1","agent_id":"other-agent","summary":"legacy other"}"#,
+        71,
+    )?;
+    let key = BridgeKey {
+        role: BridgeRole::Bridge,
+        agent_id,
+        body_id: String::from("hermes-1"),
+    };
+    let bridge = SpineBridge::new(&mut engine, key);
+    let own = bridge.read_own()?;
+    assert_eq!(
+        own.len(),
+        1,
+        "legacy Core rows only readable for own agent/body"
+    );
+    assert_eq!(own[0].kind, "journal.note");
+    Ok(())
+}

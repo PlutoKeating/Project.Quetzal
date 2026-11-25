@@ -40,12 +40,44 @@ fn insert_ct(headers: &mut BTreeMap<String, String>) {
     );
 }
 
-/// 构造单通道出站请求。
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// percent-encode query 值（application/x-www-form-urlencoded 语义）。
+fn url_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(char::from(byte));
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// 构造单通道出站请求（使用当前 epoch 毫秒作为签名时间）。
 pub fn build_http_request(
     channel: &str,
     creds: &ChannelCredentials,
     destination: &str,
     payload: &str,
+) -> Result<HttpRequestSpec, ChannelError> {
+    build_http_request_at(channel, creds, destination, payload, now_epoch_ms())
+}
+
+/// 以显式发送时刻构造单通道出站请求（测试可固定 timestamp 并断言精确 URL）。
+pub fn build_http_request_at(
+    channel: &str,
+    creds: &ChannelCredentials,
+    destination: &str,
+    payload: &str,
+    now_ms: u64,
 ) -> Result<HttpRequestSpec, ChannelError> {
     let mut headers = BTreeMap::new();
     insert_ct(&mut headers);
@@ -93,16 +125,17 @@ pub fn build_http_request(
             let token = required(creds, &["access_token", "token"], "dingtalk")?;
             let mut url = format!("https://oapi.dingtalk.com/robot/send?access_token={token}");
             if let Some(secret) = creds.get("secret").filter(|v| !v.trim().is_empty()) {
-                let ts = creds
-                    .get("timestamp_ms")
-                    .map(String::from)
-                    .unwrap_or_else(|| String::from("0"));
+                let ts = now_ms.to_string();
                 let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes())
                     .map_err(|_| ChannelError::MissingCredential(String::from("dingtalk")))?;
                 mac.update(format!("{ts}\n{secret}").as_bytes());
                 let sign =
                     base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
-                url.push_str(&format!("&timestamp={ts}&sign={sign}"));
+                url.push_str(&format!(
+                    "&timestamp={}&sign={}",
+                    url_encode(&ts),
+                    url_encode(&sign)
+                ));
             }
             (url, String::from(payload))
         }
@@ -136,7 +169,50 @@ pub fn build_http_request(
         }
         _ => return Err(ChannelError::NotEnabled(String::from(channel))),
     };
+    enforce_transport_security(channel, creds, &url, &headers)?;
     Ok(HttpRequestSpec { url, headers, body })
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let trimmed = host.trim_start_matches('[').trim_end_matches(']');
+    matches!(trimmed, "127.0.0.1" | "::1" | "localhost")
+}
+
+fn creds_attached(creds: &ChannelCredentials) -> bool {
+    ["token", "secret", "key", "access_token", "bot_token"]
+        .iter()
+        .any(|k| creds.get(k).is_some_and(|v| !v.trim().is_empty()))
+}
+
+fn enforce_transport_security(
+    channel: &str,
+    creds: &ChannelCredentials,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<(), ChannelError> {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return Ok(());
+    };
+    let (authority, _path) = rest.split_once('/').map_or((rest, ""), |(a, p)| (a, p));
+    let host = authority.rsplit_once(':').map_or(authority, |(h, _)| h);
+    if is_loopback_host(host) {
+        return Ok(());
+    }
+    let url_has_secret = url.contains("access_token=")
+        || url.contains("&key=")
+        || url.contains("?key=")
+        || url.contains("sign=")
+        || url.contains("token=");
+    if url_has_secret
+        || headers.contains_key("Authorization")
+        || headers.contains_key("X-QZ-Signature")
+        || creds_attached(creds)
+    {
+        return Err(ChannelError::CleartextCredentialRefused(String::from(
+            channel,
+        )));
+    }
+    Ok(())
 }
 
 /// 供测试/审计使用的规范化请求指纹（不含 token/body）。

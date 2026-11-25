@@ -1772,18 +1772,6 @@ fn webhook_sealed_ingress_registration_pull_decrypt_ack_and_repost() -> TestResu
         "expected 409 before key registration: {err}"
     );
 
-    rt.block_on(hub_client.register_channel_ingress_key(
-        agent_id,
-        device.xwing_public_key(),
-        "kid-rust-e2e",
-    ))?;
-    rt.block_on(hub_client.send_platform_webhook(
-        agent_id,
-        "webhook",
-        body,
-        &[("X-QZ-Signature", sig.as_str())],
-    ))?;
-
     // 启动一个真实 HTTP 200 接收端，验证 Witnessed 下 qz channel send 仅投递一次。
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let hook_port = listener.local_addr()?.port();
@@ -1818,6 +1806,26 @@ fn webhook_sealed_ingress_registration_pull_decrypt_ack_and_repost() -> TestResu
     let mut daemon = QuetzalcoatlDaemon::start(group_fabric_config(&home, &hub, &ca_pem_path))?;
     login_with_token(&home, &hub, &ca_pem_path, &token)?;
     let ipc = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+    let auto = run_qz(&home, &["webhook", "status", "--json"])?;
+    assert!(auto.success, "auto webhook status failed: {}", auto.stderr);
+    let auto_json: serde_json::Value = serde_json::from_str(&auto.stdout)?;
+    assert_eq!(
+        auto_json["registered"], true,
+        "daemon login must auto-register channel ingress key: {auto_json}"
+    );
+    let registered = run_qz(&home, &["webhook", "register", "--json"])?;
+    assert!(
+        registered.success,
+        "qz webhook register failed: {} {}",
+        registered.stdout, registered.stderr
+    );
+    rt.block_on(hub_client.send_platform_webhook(
+        agent_id,
+        "webhook",
+        body,
+        &[("X-QZ-Signature", sig.as_str())],
+    ))?;
+
     let lease_deadline = Instant::now() + Duration::from_secs(15);
     loop {
         if let IpcResponse::Status(st) = ipc.call(&IpcRequest::Status)?
@@ -1856,7 +1864,7 @@ fn webhook_sealed_ingress_registration_pull_decrypt_ack_and_repost() -> TestResu
     // 脊柱必须出现 channel.ingress 事件，且正文与原始 payload 完全一致。
     let db = rusqlite::Connection::open(home.join("spine/spine.sqlite"))?;
     let payload: String = db.query_row(
-        "SELECT payload_utf8 FROM spine_events WHERE payload_utf8 LIKE '%channel.ingress%' ORDER BY seq DESC LIMIT 1",
+        "SELECT payload_utf8 FROM spine_events WHERE payload_utf8 LIKE '%channel.message%' ORDER BY seq DESC LIMIT 1",
         [],
         |row| row.get(0),
     )?;
@@ -1874,7 +1882,11 @@ fn webhook_sealed_ingress_registration_pull_decrypt_ack_and_repost() -> TestResu
     );
     let status_json: serde_json::Value = serde_json::from_str(&status.stdout)?;
     assert_eq!(status_json["registered"], true);
-    assert_eq!(status_json["key_id"], "kid-rust-e2e");
+    assert!(!status_json["key_id"].as_str().unwrap_or("").is_empty());
+    assert_eq!(
+        status_json["device_id"].as_str(),
+        Some(device.device_id().to_string().as_str())
+    );
     assert_eq!(status_json["queue_depth"], 0);
 
     // ack 之后再次投递必须成功（队列可持续排空，不会永久 429）。

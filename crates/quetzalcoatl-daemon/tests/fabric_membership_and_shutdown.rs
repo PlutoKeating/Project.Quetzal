@@ -1313,9 +1313,10 @@ fn channel_send_under_partition_local_queues_outbox_and_refuses_public_send() ->
     )?;
     assert!(payload.contains("outbox_queued"));
     assert!(
-        !payload.contains("CANARY-PARTITION-OUTBOX"),
-        "outbox must not persist plaintext body"
+        payload.contains("CANARY-PARTITION-OUTBOX"),
+        "Outbox must persist the replayable rendered body for later delivery"
     );
+    assert!(payload.contains("webhook"));
 
     daemon.shutdown()?;
     stop.store(true, Ordering::Relaxed);

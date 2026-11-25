@@ -215,7 +215,7 @@ fn credentials_are_redacted_in_debug_and_never_in_errors() -> TestResult {
 
 #[test]
 fn outbound_request_builder_templates_urls_headers_and_tokens() -> TestResult {
-    use quetzalcoatl_channels::{ChannelCredentials, build_http_request};
+    use quetzalcoatl_channels::{ChannelCredentials, build_http_request, build_http_request_at};
 
     let mut tg = BTreeMap::new();
     tg.insert(String::from("token"), String::from("123:ABC"));
@@ -249,19 +249,17 @@ fn outbound_request_builder_templates_urls_headers_and_tokens() -> TestResult {
     let mut ding = BTreeMap::new();
     ding.insert(String::from("access_token"), String::from("ding-token"));
     ding.insert(String::from("secret"), String::from("ding-secret"));
-    ding.insert(String::from("timestamp_ms"), String::from("1795400000000"));
-    let spec = build_http_request(
+    let spec = build_http_request_at(
         "dingtalk",
         &ChannelCredentials::new("dingtalk", ding),
         "",
         "{}",
+        1_795_400_000_000,
     )?;
-    assert!(
-        spec.url
-            .starts_with("https://oapi.dingtalk.com/robot/send?access_token=ding-token")
+    assert_eq!(
+        spec.url,
+        "https://oapi.dingtalk.com/robot/send?access_token=ding-token&timestamp=1795400000000&sign=ZcsQacPxFZHadRd%2Biv%2FqndIhFVUUOdHsz6AlOzGr6PE%3D"
     );
-    assert!(spec.url.contains("timestamp=1795400000000"));
-    assert!(spec.url.contains("sign="));
 
     let mut wh = BTreeMap::new();
     wh.insert(
@@ -303,5 +301,84 @@ fn outbound_request_builder_fails_closed_without_credentials() -> TestResult {
         .err()
         .ok_or("email SMTP transport is not wired")?;
     assert_eq!(err, ChannelError::TransportUnavailable);
+    Ok(())
+}
+
+#[test]
+fn outbound_refuses_cleartext_credentials_to_non_loopback_http() -> TestResult {
+    use quetzalcoatl_channels::{ChannelCredentials, ChannelError, build_http_request};
+    let mut creds = BTreeMap::new();
+    creds.insert(
+        String::from("url"),
+        String::from("http://example.test/hook"),
+    );
+    creds.insert(String::from("token"), String::from("secret-token"));
+    let err = build_http_request(
+        "webhook",
+        &ChannelCredentials::new("webhook", creds),
+        "",
+        "{}",
+    )
+    .err()
+    .ok_or("non-loopback cleartext with credential must fail")?;
+    assert!(matches!(err, ChannelError::CleartextCredentialRefused(_)));
+
+    let mut loopback = BTreeMap::new();
+    loopback.insert(
+        String::from("url"),
+        String::from("http://127.0.0.1:8080/hook"),
+    );
+    loopback.insert(String::from("token"), String::from("secret-token"));
+    let spec = build_http_request(
+        "webhook",
+        &ChannelCredentials::new("webhook", loopback),
+        "",
+        "{}",
+    )?;
+    assert!(spec.url.starts_with("http://127.0.0.1"));
+    Ok(())
+}
+
+#[test]
+fn supervisor_binds_only_local_holder_and_reports_remote_holder() -> TestResult {
+    let transport = Arc::new(MockTransport::new());
+    let mut supervisor = ChannelSupervisor::new(quetzalcoatl_channels::drivers_with_transport(
+        Arc::clone(&transport) as Arc<dyn quetzalcoatl_channels::ChannelTransport>,
+    ));
+    supervisor.enable("feishu")?;
+    supervisor.enable("webhook")?;
+    assert!(supervisor.authorize_send("webhook").is_ok());
+    assert_eq!(
+        supervisor.reconcile_lease_for_local(3, "device-b", "device-a"),
+        Vec::<String>::new()
+    );
+    let health = supervisor.health();
+    let feishu = health
+        .iter()
+        .find(|h| h.channel == "feishu")
+        .ok_or("health")?;
+    assert_eq!(feishu.bound_witness_epoch, None);
+    assert_eq!(
+        feishu.holder_device_id.as_deref(),
+        Some("remote-holder:device-b")
+    );
+    let err = supervisor
+        .authorize_send("feishu")
+        .err()
+        .ok_or("stateful channel must not send under remote holder")?;
+    assert!(matches!(err, ChannelError::PermissionDenied(_)));
+    // 无状态 HTTP 通道在 Witnessed 下仍允许（租约门禁在 daemon 层）。
+    assert!(supervisor.authorize_send("webhook").is_ok());
+    assert_eq!(
+        supervisor.reconcile_lease_for_local(4, "device-a", "device-a"),
+        vec![String::from("feishu")]
+    );
+    let health = supervisor.health();
+    let feishu = health
+        .iter()
+        .find(|h| h.channel == "feishu")
+        .ok_or("health")?;
+    assert_eq!(feishu.bound_witness_epoch, Some(4));
+    assert_eq!(feishu.holder_device_id.as_deref(), Some("device-a"));
     Ok(())
 }

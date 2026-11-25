@@ -257,15 +257,16 @@ type SpinePackRecord struct {
 // WebhookIngressRecord 是公网 Webhook 的零知识密文队列行。
 // 仅保存 HPKE 封装、密文、AAD 与不可解析的投递元数据，绝不含平台明文正文。
 type WebhookIngressRecord struct {
-	IngressID     int64  `json:"ingress_id"`
-	AgentID       string `json:"agent_id"`
-	Channel       string `json:"channel"`
-	EventIDHash   string `json:"event_id_hash"`
-	HPKEEncHex    string `json:"hpke_enc_hex"`
-	CiphertextHex string `json:"ciphertext_hex"`
-	AADUTF8       string `json:"aad_utf8"`
-	ReceivedAtMs  int64  `json:"received_at_ms"`
-	CreatedAtMs   int64  `json:"created_at_ms"`
+	IngressID      int64  `json:"ingress_id"`
+	AgentID        string `json:"agent_id"`
+	Channel        string `json:"channel"`
+	EventIDHash    string `json:"event_id_hash"`
+	TargetDeviceID string `json:"target_device_id"`
+	HPKEEncHex     string `json:"hpke_enc_hex"`
+	CiphertextHex  string `json:"ciphertext_hex"`
+	AADUTF8        string `json:"aad_utf8"`
+	ReceivedAtMs   int64  `json:"received_at_ms"`
+	CreatedAtMs    int64  `json:"created_at_ms"`
 }
 
 type LeaseRecord struct {
@@ -388,10 +389,11 @@ type Store interface {
 	ListSpinePacks(ctx context.Context, agentID string, afterSeq uint64, limit uint32) ([]SpinePackRecord, error)
 
 	EnqueueWebhookIngress(ctx context.Context, rec WebhookIngressRecord, maxPerAgent int) (bool, int, error)
-	ListWebhookIngress(ctx context.Context, agentID string, after int64, limit int) ([]WebhookIngressRecord, error)
+	ListWebhookIngress(ctx context.Context, agentID, deviceID string, after int64, limit int) ([]WebhookIngressRecord, error)
 	DeleteWebhookIngress(ctx context.Context, agentID string, ingressID int64) (bool, error)
-	DeleteWebhookIngressByHashes(ctx context.Context, agentID string, eventIDHashes []string) (int64, error)
+	DeleteWebhookIngressByKeys(ctx context.Context, agentID string, keys []WebhookIngressKey) (int64, error)
 	CountWebhookIngress(ctx context.Context, agentID string) (int, error)
+	DeleteWebhookIngressForDevice(ctx context.Context, agentID, deviceID string) (int64, error)
 
 	AcquireLease(ctx context.Context, agentID, deviceID string, expectedEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
 	RenewLease(ctx context.Context, agentID, deviceID string, witnessEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
@@ -645,12 +647,13 @@ CREATE TABLE IF NOT EXISTS webhook_ingress_queue (
 	agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
 	channel TEXT NOT NULL,
 	event_id_hash TEXT NOT NULL,
+	target_device_id TEXT NOT NULL DEFAULT '',
 	hpke_enc_hex TEXT NOT NULL,
 	ciphertext_hex TEXT NOT NULL,
 	aad_utf8 TEXT NOT NULL,
 	received_at_ms INTEGER NOT NULL,
 	created_at_ms INTEGER NOT NULL,
-	UNIQUE (agent_id, channel, event_id_hash)
+	UNIQUE (agent_id, channel, event_id_hash, target_device_id)
 );
 CREATE INDEX IF NOT EXISTS idx_webhook_ingress_agent
 	ON webhook_ingress_queue(agent_id, ingress_id);
@@ -702,7 +705,59 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate sqlite group schema: %w", err)
 	}
+	if err := migrateSQLiteWebhookSchema(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate sqlite webhook schema: %w", err)
+	}
 	return &SQLiteStore{db: db}, nil
+}
+
+// migrateSQLiteWebhookSchema 为 Fix Round 1 之前的单设备入站表补齐 target_device_id
+// 并重建唯一约束为 (agent_id, channel, event_id_hash, target_device_id)。
+func migrateSQLiteWebhookSchema(db *sql.DB) error {
+	exists, err := sqliteTableHasColumn(db, "webhook_ingress_queue", "target_device_id")
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`CREATE TABLE webhook_ingress_queue_v2 (
+		ingress_id INTEGER PRIMARY KEY AUTOINCREMENT,
+		agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
+		channel TEXT NOT NULL,
+		event_id_hash TEXT NOT NULL,
+		target_device_id TEXT NOT NULL DEFAULT '',
+		hpke_enc_hex TEXT NOT NULL,
+		ciphertext_hex TEXT NOT NULL,
+		aad_utf8 TEXT NOT NULL,
+		received_at_ms INTEGER NOT NULL,
+		created_at_ms INTEGER NOT NULL,
+		UNIQUE (agent_id, channel, event_id_hash, target_device_id)
+	);`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO webhook_ingress_queue_v2
+		(ingress_id, agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms)
+		SELECT ingress_id, agent_id, channel, event_id_hash, '', hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+		FROM webhook_ingress_queue;`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE webhook_ingress_queue;`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE webhook_ingress_queue_v2 RENAME TO webhook_ingress_queue;`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_webhook_ingress_agent ON webhook_ingress_queue(agent_id, ingress_id);`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // migrateSQLiteGroupSchema 为 Fix Round 1 之前创建的旧数据目录补齐群组新列。
@@ -2142,8 +2197,8 @@ func (s *SQLiteStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIngr
 	var existing int64
 	err = tx.QueryRowContext(ctx, `
 		SELECT ingress_id FROM webhook_ingress_queue
-		WHERE agent_id = ? AND channel = ? AND event_id_hash = ?
-	`, rec.AgentID, rec.Channel, rec.EventIDHash).Scan(&existing)
+		WHERE agent_id = ? AND channel = ? AND event_id_hash = ? AND target_device_id = ?
+	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.TargetDeviceID).Scan(&existing)
 	if err == nil {
 		var depth int
 		if countErr := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ?`, rec.AgentID).Scan(&depth); countErr != nil {
@@ -2159,14 +2214,18 @@ func (s *SQLiteStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIngr
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ?`, rec.AgentID).Scan(&depth); err != nil {
 		return false, 0, err
 	}
-	if maxPerAgent > 0 && depth >= maxPerAgent {
+	var sameEvent int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, rec.AgentID, rec.Channel, rec.EventIDHash).Scan(&sameEvent); err != nil {
+		return false, 0, err
+	}
+	if maxPerAgent > 0 && depth >= maxPerAgent && sameEvent == 0 {
 		return false, depth, ErrQuotaExceeded
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO webhook_ingress_queue (
-			agent_id, channel, event_id_hash, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.HPKEEncHex, rec.CiphertextHex, rec.AADUTF8, rec.ReceivedAtMs, rec.CreatedAtMs); err != nil {
+			agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, rec.AgentID, rec.Channel, rec.EventIDHash, rec.TargetDeviceID, rec.HPKEEncHex, rec.CiphertextHex, rec.AADUTF8, rec.ReceivedAtMs, rec.CreatedAtMs); err != nil {
 		return false, 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -2176,16 +2235,17 @@ func (s *SQLiteStore) EnqueueWebhookIngress(ctx context.Context, rec WebhookIngr
 }
 
 // ListWebhookIngress 按入队顺序读取某 Agent 的待解密密文行。
-func (s *SQLiteStore) ListWebhookIngress(ctx context.Context, agentID string, after int64, limit int) ([]WebhookIngressRecord, error) {
+func (s *SQLiteStore) ListWebhookIngress(ctx context.Context, agentID, deviceID string, after int64, limit int) ([]WebhookIngressRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT ingress_id, agent_id, channel, event_id_hash, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
-		FROM webhook_ingress_queue WHERE agent_id = ? AND ingress_id > ? ORDER BY ingress_id ASC LIMIT ?
-	`, agentID, after, limit)
+		SELECT ingress_id, agent_id, channel, event_id_hash, target_device_id, hpke_enc_hex, ciphertext_hex, aad_utf8, received_at_ms, created_at_ms
+		FROM webhook_ingress_queue WHERE agent_id = ? AND (? = '' OR target_device_id = ? OR target_device_id = '')
+		AND ingress_id > ? ORDER BY ingress_id ASC LIMIT ?
+	`, agentID, deviceID, deviceID, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2193,7 +2253,7 @@ func (s *SQLiteStore) ListWebhookIngress(ctx context.Context, agentID string, af
 	var out []WebhookIngressRecord
 	for rows.Next() {
 		var r WebhookIngressRecord
-		if err := rows.Scan(&r.IngressID, &r.AgentID, &r.Channel, &r.EventIDHash, &r.HPKEEncHex, &r.CiphertextHex, &r.AADUTF8, &r.ReceivedAtMs, &r.CreatedAtMs); err != nil {
+		if err := rows.Scan(&r.IngressID, &r.AgentID, &r.Channel, &r.EventIDHash, &r.TargetDeviceID, &r.HPKEEncHex, &r.CiphertextHex, &r.AADUTF8, &r.ReceivedAtMs, &r.CreatedAtMs); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -2227,9 +2287,15 @@ func (s *SQLiteStore) CountWebhookIngress(ctx context.Context, agentID string) (
 	return depth, nil
 }
 
-// DeleteWebhookIngressByHashes 仅删除调用者 Agent 拥有的已确认事件（以 event_id 哈希定位）。
-func (s *SQLiteStore) DeleteWebhookIngressByHashes(ctx context.Context, agentID string, eventIDHashes []string) (int64, error) {
-	if len(eventIDHashes) == 0 {
+// WebhookIngressKey 是带通道隔离的确认键，防止跨通道误删同一 event id。
+type WebhookIngressKey struct {
+	Channel     string
+	EventIDHash string
+}
+
+// DeleteWebhookIngressByKeys 仅删除调用者 Agent 拥有的 (channel, event_id_hash) 行。
+func (s *SQLiteStore) DeleteWebhookIngressByKeys(ctx context.Context, agentID string, keys []WebhookIngressKey) (int64, error) {
+	if len(keys) == 0 {
 		return 0, nil
 	}
 	s.mu.Lock()
@@ -2240,8 +2306,8 @@ func (s *SQLiteStore) DeleteWebhookIngressByHashes(ctx context.Context, agentID 
 	}
 	defer func() { _ = tx.Rollback() }()
 	var deleted int64
-	for _, hash := range eventIDHashes {
-		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND event_id_hash = ?`, agentID, hash)
+	for _, key := range keys {
+		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, agentID, key.Channel, key.EventIDHash)
 		if err != nil {
 			return 0, err
 		}
@@ -2255,4 +2321,15 @@ func (s *SQLiteStore) DeleteWebhookIngressByHashes(ctx context.Context, agentID 
 		return 0, err
 	}
 	return deleted, nil
+}
+
+// DeleteWebhookIngressForDevice 在设备入站密钥轮换时丢弃该设备旧公钥封装的待取行（ack-and-audit）。
+func (s *SQLiteStore) DeleteWebhookIngressForDevice(ctx context.Context, agentID, deviceID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND target_device_id = ?`, agentID, deviceID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

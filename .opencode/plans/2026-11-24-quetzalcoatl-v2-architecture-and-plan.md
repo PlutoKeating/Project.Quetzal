@@ -516,6 +516,7 @@
 - Deferred: `deliverables` / `web-research` / `doc-reader` / `hands-desktop` / `artifacts` 五包按控制器裁决仅交付声明式 `capability.json` 最小权限面与实现模块占位，具体工具执行器留待后续 Runner/领域包任务落地。
 - Fix Round 1（C1 入站 key 登记/拉取/ack 闭环、C2 桥接 payload 深层越权、I1 真实平台验签、I2 HTTPS 出站与 last_delivery、I3 租约围栏 Outbox、I4 SayIt slice 记录键、I5 守护进程租约漂移交接）已关闭。
 - Deferred: `email` 通道的 SMTP 出站仍 fail-closed（HTTP/HTTPS 通道已真实投递）；五能力包工具执行器仍待 Sprint 4/5 落地。
+- Fix Round 2（钉钉签名 URL 编码与发送时刻 timestamp、入站 key 自动登记与手动 register/rotate、每设备独立 HKDF 入站密钥与多设备封装/轮换、平台加密回调解密 + channel.message 规范化 + 有界重试死信、ack 按 (channel,event_id)、Outbox 完整载荷与对账重放、桥接仅结构键扫描与 Core 兼容读取、非回环明文凭据拒绝、外发证书校验、真实 auth 四路由跨账号 403、租约远端持有者不绑定）已关闭。
 
 ---
 

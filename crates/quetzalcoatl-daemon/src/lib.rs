@@ -7,7 +7,9 @@ pub mod channels;
 pub mod daemon;
 pub mod fabric;
 pub mod group;
+pub mod ingress_key;
 pub mod local_ipc;
+pub mod platform_crypto;
 pub mod voice;
 pub mod webhook;
 
@@ -26,7 +28,9 @@ pub use group::{
     GroupHubBinding, GroupInviteOutcome, GroupLeaveOutcome, GroupMemberView, GroupRevokeOutcome,
     GroupRoomRuntime, GroupRoomSummary, GroupSendOutcome, base64_decode, base64_encode,
 };
+pub use ingress_key::{ChannelIngressKey, ingress_and_device_keys_differ};
 pub use local_ipc::{IpcClient, IpcRequest, IpcResponse, validate_loopback_host_and_origin};
+pub use platform_crypto::{decrypt_json_envelope, decrypt_wecom};
 pub use voice::{
     DaemonVoiceEvent, MAX_VOICE_STREAMS, VOICE_AI_ENV, VoiceActivityRuntime, VoiceActivitySessions,
     VoiceAiConfig, VoiceStreamError, VoiceTurnReport, decode_audio_frame,

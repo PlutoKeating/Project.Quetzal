@@ -2834,6 +2834,7 @@ impl HubClient {
         agent_id: AgentId,
         xwing_pubkey: &[u8; XWING_PK_LEN],
         key_id: &str,
+        device_id: &str,
     ) -> Result<()> {
         let tok = self.require_token()?;
         let resp = self
@@ -2846,6 +2847,7 @@ impl HubClient {
             .json(&serde_json::json!({
                 "xwing_pubkey_hex": hex_encode(xwing_pubkey),
                 "key_id": key_id,
+                "device_id": device_id,
             }))
             .send()
             .await
@@ -2904,7 +2906,7 @@ impl HubClient {
     pub async fn ack_webhook_ingress(
         &self,
         agent_id: AgentId,
-        event_ids: &[String],
+        keys: &[WebhookIngressAckKey],
     ) -> Result<u64> {
         let tok = self.require_token()?;
         let resp = self
@@ -2914,7 +2916,7 @@ impl HubClient {
                 self.config.base_url
             ))
             .bearer_auth(tok)
-            .json(&serde_json::json!({ "event_ids": event_ids }))
+            .json(&serde_json::json!({ "items": keys }))
             .send()
             .await
             .map_err(|e| QuetzalcoatlError::StorageError {
@@ -3053,6 +3055,13 @@ pub struct WebhookIngressEnvelope {
     pub aad_json: String,
 }
 
+/// 通道隔离的确认键。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WebhookIngressAckKey {
+    pub channel: String,
+    pub event_id: String,
+}
+
 /// Webhook 入站拉取批次。
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WebhookIngressBatch {
@@ -3066,8 +3075,19 @@ pub struct WebhookIngressBatch {
 pub struct WebhookIngressStatus {
     pub registered: bool,
     pub key_id: String,
+    #[serde(default)]
+    pub device_id: String,
+    #[serde(default)]
+    pub devices: Vec<WebhookIngressDeviceKey>,
     pub queue_depth: u64,
     pub max_queue: u64,
+}
+
+/// 单个已登记设备的入站公钥标识。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WebhookIngressDeviceKey {
+    pub device_id: String,
+    pub key_id: String,
 }
 
 /// 群房间元数据（零知识，仅 ID/所有者/保密等级）。
