@@ -46,12 +46,10 @@ pub fn cargo_bin() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo"))
 }
 
-/// 构建（或复用）`cdylib`；`cargo test` 默认只产出 `rlib`，因此按需构建一次。
+/// 构建 `cdylib`；`cargo test` 默认只产出 `rlib`，且 API 变更后旧 `.so` 会让生成的绑定
+/// 与当前源码不一致，因此始终走一次增量 `cargo build`（已最新时仅数百毫秒）。
 pub fn ensure_native_lib() -> Result<PathBuf, String> {
     let lib = native_lib_path();
-    if lib.is_file() {
-        return Ok(lib);
-    }
     let status = Command::new(cargo_bin())
         .current_dir(repo_root())
         .args(["build", "-p", "quetzalcoatl-uniffi", "--lib"])
@@ -73,11 +71,44 @@ pub fn ensure_dir(path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|e| format!("创建目录 {} 失败: {e}", path.display()))
 }
 
+/// 按需构建（并定位）绑定生成工具；它不属于默认特性，绝不进入交付库。
+pub fn ensure_bindgen_bin() -> Result<PathBuf, String> {
+    let bin_name = if cfg!(target_os = "windows") {
+        "uniffi-bindgen.exe"
+    } else {
+        "uniffi-bindgen"
+    };
+    let path = target_dir().join(profile()).join(bin_name);
+    if path.is_file() {
+        return Ok(path);
+    }
+    let status = Command::new(cargo_bin())
+        .current_dir(repo_root())
+        .args([
+            "build",
+            "-p",
+            "quetzalcoatl-uniffi",
+            "--features",
+            "cli",
+            "--bins",
+        ])
+        .status()
+        .map_err(|e| format!("无法启动 cargo build --features cli: {e}"))?;
+    if !status.success() {
+        return Err(format!("cargo build --features cli --bins 失败: {status}"));
+    }
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(format!("未找到 uniffi-bindgen: {}", path.display()))
+    }
+}
+
 /// 调用同包内的 `uniffi-bindgen` 二进制生成指定语言绑定。
 pub fn generate_bindings(language: &str, out_dir: &Path) -> Result<PathBuf, String> {
     let lib = ensure_native_lib()?;
     ensure_dir(out_dir)?;
-    let bindgen = env!("CARGO_BIN_EXE_uniffi-bindgen");
+    let bindgen = ensure_bindgen_bin()?;
     let output = Command::new(bindgen)
         .args(["generate"])
         .arg(&lib)

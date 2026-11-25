@@ -58,7 +58,7 @@ find_bindgen() {
     if [[ -x "$TARGET_DIR/$PROFILE/uniffi-bindgen" ]]; then
         echo "$TARGET_DIR/$PROFILE/uniffi-bindgen"
     else
-        ( cd "$REPO_ROOT" && "$CARGO_BIN" build -p quetzalcoatl-uniffi --bins ) >&2
+        ( cd "$REPO_ROOT" && "$CARGO_BIN" build -p quetzalcoatl-uniffi --features cli --bins ) >&2
         echo "$TARGET_DIR/$PROFILE/uniffi-bindgen"
     fi
 }
@@ -67,7 +67,7 @@ cmd_generate() {
     local language="${1:?用法: generate <kotlin|swift|csharp> [out_dir]}"
     local out_dir="${2:-$OUT_ROOT/$language}"
     mkdir -p "$out_dir"
-    [[ -f "$LIB" ]] || build_lib
+    build_lib
     case "$language" in
         kotlin|swift)
             local bindgen
@@ -92,7 +92,7 @@ cmd_smoke_csharp() {
     dotnet="$(find_dotnet)" || skip "本机未安装 dotnet SDK，跳过 C# 编译冒烟"
     bindgen_cs="$(find_bindgen_cs)" || skip "本机未安装 uniffi-bindgen-cs，跳过 C# 编译冒烟"
     echo "==> C# 冒烟: $(basename "$dotnet") $("$dotnet" --version 2>/dev/null || echo unknown)"
-    [[ -f "$LIB" ]] || build_lib
+    build_lib
 
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/qz_csharp_smoke.XXXXXX")"
     SMOKE_TMP="$tmp"
@@ -138,9 +138,19 @@ cmd_smoke_kotlin() {
     if [[ -z "$kotlinc_bin" || ! -x "$kotlinc_bin" ]]; then
         skip "本机未安装 kotlinc（Kotlin 2.2+ 工具链），已生成绑定源码但跳过编译冒烟: $out_dir"
     fi
-    echo "==> Kotlin 编译（需要 JNA 运行时 jar）"
-    echo "error: Kotlin 冒烟编译需要 JNA，请在 Android/Gradle 工程内完成" >&2
-    exit 3
+    local jna="${QZ_JNA_JAR:-}"
+    if [[ -z "$jna" || ! -f "$jna" ]]; then
+        skip "已安装 kotlinc，但未提供 QZ_JNA_JAR（UniFFI Kotlin 绑定依赖 JNA），已生成绑定源码但跳过编译冒烟: $out_dir"
+    fi
+    echo "==> Kotlin 编译（JNA: $jna）"
+    local classpath="$jna"
+    if [[ -n "${QZ_KOTLIN_EXTRA_CLASSPATH:-}" ]]; then
+        classpath="$classpath:$QZ_KOTLIN_EXTRA_CLASSPATH"
+    fi
+    "$kotlinc_bin" -cp "$classpath" \
+        "$out_dir/org/quetzalcoatl/bindings/quetzalcoatl_uniffi.kt" \
+        -d "$out_dir/quetzalcoatl_uniffi.jar"
+    echo "KOTLIN_SMOKE_OK $out_dir"
 }
 
 case "${1:-}" in

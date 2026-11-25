@@ -52,7 +52,7 @@ internal static class Program
                 return 3;
             }
 
-            session.ApplyPatch(session.SwitchDensity(FfiCognitionDensity.Companion));
+            session.ApplyPatch(session.DensityPatch(FfiCognitionDensity.Companion));
             var projected = session.ProjectedRows();
             if (projected.Length != 1 || projected[0].Detail != null || projected[0].RawJson != null)
             {

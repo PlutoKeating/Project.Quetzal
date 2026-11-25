@@ -6,8 +6,9 @@
 //! 三条不可让渡的契约：
 //!
 //! 1. **单脊柱持有者**（防坑规范 #13）：本机 `quetzalcoatld` 在线时，客户端一切读取与写入
-//!    只能经本地认证 IPC；本 crate 不依赖 `rusqlite`，因此**物理上不可能**打开
-//!    `spine/spine.sqlite`。守护进程不可达时返回类型化 [`ClientError::DaemonUnavailable`]，
+//!    只能经本地认证 IPC；本 crate **不直接依赖** `rusqlite` / `quetzalcoatl-spine`，
+//!    到 SQLite 的唯一间接路径是 `quetzalcoatl-daemon` 的 IPC 协议类型（客户端进程不持有
+//!    数据库连接）。守护进程不可达时返回类型化 [`ClientError::DaemonUnavailable`]，
 //!    绝不静默直接打开数据库。
 //! 2. **三档认知密度的差分视图**：`Companion / Workbench / Inspector` 通过
 //!    [`ViewPatch`] 幂等重放得到完整 [`ViewState`] 快照。

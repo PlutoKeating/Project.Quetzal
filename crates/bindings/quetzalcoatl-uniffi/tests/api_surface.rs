@@ -34,8 +34,8 @@ fn locked_version(lock: &str, package: &str) -> Option<String> {
 fn uniffi_is_pinned_exactly_to_0_32_0() {
     let root_manifest = include_str!("../../../../Cargo.toml");
     assert!(
-        root_manifest.contains(r#"uniffi = { version = "=0.32.0" }"#),
-        "根 Cargo.toml 必须精确锁定 uniffi = \"=0.32.0\""
+        root_manifest.contains(r#"uniffi = { version = "=0.32.0""#),
+        "根 Cargo.toml 必须精确锁定 uniffi = \"=0.32.0\"（可附加 default-features 等键）"
     );
     let lock = include_str!("../../../../Cargo.lock");
     assert_eq!(
@@ -55,6 +55,74 @@ fn uniffi_is_pinned_exactly_to_0_32_0() {
             "{sibling} 必须与 uniffi 同版本，避免 ABI 漂移"
         );
     }
+}
+
+#[test]
+fn default_features_never_ship_the_bindgen_toolchain() {
+    // 交付给 Swift/Kotlin/C# 的 cdylib/staticlib 不得默认拖入 clap/askama/cargo_metadata/fs-err：
+    // 绑定生成工具只能由显式 `--features cli` 构建。
+    let manifest = include_str!("../Cargo.toml");
+    assert!(
+        manifest.contains("default = []"),
+        "[features].default 必须为空数组（绑定生成工具链不得默认启用）:\n{manifest}"
+    );
+
+    let metadata_output = Command::new(common::cargo_bin())
+        .current_dir(common::repo_root())
+        .args([
+            "metadata",
+            "--no-deps",
+            "--offline",
+            "--format-version",
+            "1",
+        ])
+        .output()
+        .expect("运行 cargo metadata");
+    assert!(
+        metadata_output.status.success(),
+        "cargo metadata 失败: {}",
+        String::from_utf8_lossy(&metadata_output.stderr)
+    );
+    let metadata: Value =
+        serde_json::from_slice(&metadata_output.stdout).expect("解析 cargo metadata JSON");
+
+    let package = metadata["packages"]
+        .as_array()
+        .and_then(|packages| {
+            packages
+                .iter()
+                .find(|package| package["name"].as_str() == Some("quetzalcoatl-uniffi"))
+        })
+        .expect("metadata 中必须包含 quetzalcoatl-uniffi");
+    let default_features = package["features"]["default"]
+        .as_array()
+        .expect("features.default 必须是数组");
+    assert!(
+        default_features.is_empty(),
+        "默认特性不得包含任何工具链特性，实际: {default_features:?}"
+    );
+    assert!(
+        package["features"]["cli"].is_array(),
+        "必须存在显式 cli 特性"
+    );
+
+    let bin = package["targets"]
+        .as_array()
+        .and_then(|targets| {
+            targets
+                .iter()
+                .find(|target| target["name"].as_str() == Some("uniffi-bindgen"))
+        })
+        .expect("必须声明 uniffi-bindgen bin target");
+    let required: Vec<&str> = bin["required-features"]
+        .as_array()
+        .map(|values| values.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    assert_eq!(
+        required,
+        vec!["cli"],
+        "uniffi-bindgen bin 必须声明 required-features = [\"cli\"]"
+    );
 }
 
 #[test]

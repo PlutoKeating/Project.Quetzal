@@ -40,7 +40,7 @@ scripts/uniffi-bindings.sh build-lib                 # cargo build -p quetzalcoa
 scripts/uniffi-bindings.sh generate kotlin|swift|csharp [out_dir]
 scripts/uniffi-bindings.sh smoke-csharp              # 生成 → dotnet 编译 → 运行极小消费方
 scripts/uniffi-bindings.sh smoke-swift               # 生成 → swiftc -typecheck（缺工具链则 SKIP 77）
-scripts/uniffi-bindings.sh smoke-kotlin              # 生成 → kotlinc（缺工具链则 SKIP 77）
+scripts/uniffi-bindings.sh smoke-kotlin              # 生成 → kotlinc -cp $QZ_JNA_JAR（缺 kotlinc/JNA 则 SKIP 77）
 scripts/uniffi-bindings.sh all
 ```
 
@@ -52,16 +52,26 @@ scripts/uniffi-bindings.sh all
 | `csharp_smoke` | 本机 dotnet 10.0.401 + uniffi-bindgen-cs 在位 → **真实编译并运行**，要求输出 `CSHARP_SMOKE_OK` |
 | `swift_smoke` | 始终生成绑定并静态校验符号；`swiftc` 缺失 → SKIP 并打印理由 |
 | `kotlin_smoke` | 始终生成绑定并静态校验符号；`kotlinc`/JNA 缺失 → SKIP 并打印理由 |
-| `api_surface` | 版本锁定、配对、零回调、手写代码零 `unsafe` |
+| `api_surface` | 版本锁定、配对、零回调、手写代码零 `unsafe`、默认特性不含绑定工具链 |
+| `ffi_view_session` | 行修订号保真、密度补丁纯函数语义、`rev()` 锁中毒可失败 |
 
-## `unsafe` 豁免精确清单
+## `unsafe`：`forbid`，无任何豁免
 
-* crate 级 lint 为 `deny(unsafe_code)`（根工作区 `forbid` 的受控放宽），**手写代码零 `unsafe`**。
-* 唯一的 `unsafe` 来自宏展开的 FFI 胶水：
-  - `src/lib.rs:31` — `uniffi::setup_scaffolding!()` 生成的导出符号（`#[unsafe(no_mangle)]`）；
-  - `src/lib.rs:244`、`src/lib.rs:346` — 两个 `#[uniffi::export] impl` 展开的 vtable/句柄胶水。
-* `tests/api_surface.rs::handwritten_sources_contain_no_unsafe` 静态扫描 `src/`，禁止
+* crate 与全工作区一致启用 `#![forbid(unsafe_code)]`（`[lints] workspace = true`）。
+  经实测，`uniffi::setup_scaffolding!()` 与 `#[uniffi::export]` 宏展开的
+  `#[unsafe(no_mangle)]` 导出符号来自外部宏 span，不触发本 crate 的 `forbid`，
+  因此**不需要任何文件/行级豁免**。
+* `tests/api_surface.rs::handwritten_sources_contain_no_unsafe` 仍静态扫描 `src/`，禁止
   `unsafe {`、`unsafe fn`、`unsafe impl`、`unsafe extern`、`unsafe(no_mangle)` 出现在手写代码中。
+
+## 交付产物不含绑定工具链
+
+`[features] default = []`，`uniffi-bindgen` bin 标记 `required-features = ["cli"]`。
+`cargo tree -p quetzalcoatl-uniffi -e normal` 的默认依赖仅含 `uniffi_core` / `uniffi_macros`
+（后者作为 proc-macro 依赖 `fs-err`，只编译进宿主构建期，不进入 cdylib/staticlib）；
+`clap` / `askama` / `cargo_metadata` 仅在显式 `--features cli` 出现。
+`tests/api_surface.rs::default_features_never_ship_the_bindgen_toolchain` 用
+`cargo metadata` 强制该约束。
 
 ## 生成配置
 

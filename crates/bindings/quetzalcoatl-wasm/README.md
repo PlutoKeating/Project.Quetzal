@@ -46,8 +46,10 @@ cargo check -p quetzalcoatl-wasm --target wasm32-unknown-unknown   # 类型级�
 **Deferred：** 真实浏览器中的 OPFS + Web Lock 竞争 E2E 在 Task 4.2 的 Web Worker 客户端执行
 （`surfaces/web`）；本 crate 目前只做原生语义测试与 wasm 目标类型门禁。
 
-## `unsafe` 豁免说明
+## `unsafe`：`forbid`，无任何豁免
 
-crate 级 lint `deny(unsafe_code)`；`src/` 中手写代码 **零 `unsafe` 关键字**（仅 lint 属性本身）。
-`wasm_bindgen` / `web-sys` 宏展开的胶水自带其内部 `unsafe`（外部宏 span，不触发本 crate lint），
-因此无需放宽到 `allow(unsafe_code)` 的精确文件/行。
+crate 与全工作区一致启用 `#![forbid(unsafe_code)]`（`[lints] workspace = true`），
+`src/` 中手写代码零 `unsafe` 关键字。`wasm_bindgen` / `web-sys` 宏展开的胶水自带其内部
+`unsafe`（外部宏 span，不触发本 crate lint），因此**不需要任何文件/行级豁免**；
+`cargo check -p quetzalcoatl-wasm --target wasm32-unknown-unknown` 与
+`cargo clippy --workspace --all-targets -- -D warnings` 均在该 `forbid` 下通过。

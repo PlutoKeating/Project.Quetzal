@@ -16,8 +16,11 @@ let resp = client.call(&IpcRequest::DomainList)?; // 一切写入也经本地 IP
   token 文件为当前用户 `0600` 私有、且 `/v1/health` 握手成功时才返回客户端。
 * 任一条件不满足返回类型化 `ClientError::DaemonUnavailable`（或令牌权限不足时的
   `ClientError::InsecureRuntimeFiles`），**绝不静默直连 `spine/spine.sqlite`**。
-* 本 crate **不依赖 `rusqlite`，也不依赖 `quetzalcoatl-spine`**（有集成测试静态断言），
-  因此"薄客户端误开数据库"在依赖图上物理不可能发生。
+* 本 crate **不直接依赖 `rusqlite`，也不直接依赖 `quetzalcoatl-spine`**；到 SQLite 的
+  唯一间接路径是 `quetzalcoatl-daemon` 的 IPC 协议类型（客户端进程只做 HTTP/JSON 往返，
+  不持有数据库连接）。该不变量由 `tests/dependency_graph.rs` 用 `cargo metadata` 断言
+  「裁掉 daemon 后 client-core 到不了 rusqlite」，并由
+  `tests/thin_client_mount.rs` 对薄客户端**子进程**的 `/proc/self/fd` 动态断言兜底。
 * 令牌权限校验严格先于令牌内容读取与 JSON 解析：未获授权不消费密钥。
 
 ## 2. `view_models` — 三档认知密度差分视图

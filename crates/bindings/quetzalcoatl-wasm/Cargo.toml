@@ -7,17 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# Cargo 不允许 `lints.workspace = true` 与逐项覆盖共存，因此绑定层手工复刻工作区
-# 全部四项 clippy deny，唯一收窄项是 `unsafe_code: forbid -> deny`，以便为 wasm-bindgen/web-sys 宏生成的浏览器胶水
-# 放行（精确文件/行见 README 的豁免清单；`workspace_hygiene` 测试强制校验该复刻完整性）。
-[lints.rust]
-unsafe_code = "deny"
-
-[lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -1,4 +1,4 @@
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
 
 //! `quetzalcoatl-uniffi` — Swift 6 / Kotlin 2.2 / .NET 9+ 三语言绑定的**拉模式**薄接口。
@@ -12,11 +12,11 @@
 //!    通过 [`FfiViewStream::next_events`] 主动拉取有界批次（规避 C# 异步回调生成同步
 //!    签名 Bug `#165` 与 GC 委托悬垂崩溃）。
 //!
-//! `unsafe` 豁免边界：本文件手写代码零 `unsafe`；唯一可能产生 `unsafe` 的位置是
-//! `uniffi::setup_scaffolding!()` 宏展开的 FFI 胶水（`#[unsafe(no_mangle)]` 导出符号），
-//! 因此 crate 级 lint 为 `deny(unsafe_code)` 而非 `forbid`。集成测试
-//! `api_surface::handwritten_sources_contain_no_unsafe` 会静态扫描 `src/` 保证手写代码不含
-//! 任何 `unsafe` 关键字。
+//! `unsafe` 边界：本 crate 与全工作区一致启用了 `#![forbid(unsafe_code)]`。
+//! `uniffi::setup_scaffolding!()` 与 `#[uniffi::export]` 宏展开的 `#[unsafe(no_mangle)]`
+//! 导出符号来自外部宏 span，不受本 crate 的 `forbid` 约束，因此**不需要任何收窄豁免**。
+//! 集成测试 `api_surface::handwritten_sources_contain_no_unsafe` 额外静态扫描 `src/`，
+//! 保证手写代码不含 `unsafe` 关键字。
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -24,7 +24,7 @@ use quetzalcoatl_client_core::llm_stream_bridge::{
     EventSource, StreamError, StreamEvent, StreamEventKind, ViewStream,
 };
 use quetzalcoatl_client_core::view_models::{
-    CognitionDensity, PatchError, ViewOp, ViewPatch, ViewRow, ViewState,
+    CognitionDensity, DetailLayer, PatchError, ViewOp, ViewPatch, ViewRow, ViewState,
 };
 use thiserror::Error;
 
@@ -257,17 +257,17 @@ impl FfiViewSession {
         state.apply(&patch.into()).map_err(Into::into)
     }
 
-    #[must_use]
-    pub fn rev(&self) -> u64 {
-        self.lock_state().map(|state| state.rev).unwrap_or(0)
+    /// 当前修订号；状态锁中毒时返回类型化错误，绝不静默降级为 `0`。
+    pub fn rev(&self) -> Result<u64, FfiError> {
+        Ok(self.lock_state()?.rev)
     }
 
     pub fn density(&self) -> Result<FfiCognitionDensity, FfiError> {
         Ok(self.lock_state()?.density.into())
     }
 
-    /// 生成"切换到目标密度"的补丁（宿主可当作普通补丁重放）。
-    pub fn switch_density(&self, density: FfiCognitionDensity) -> Result<FfiViewPatch, FfiError> {
+    /// 生成"切换到目标密度"的补丁（**纯函数**：不修改会话状态，宿主需自行 `apply_patch` 重放）。
+    pub fn density_patch(&self, density: FfiCognitionDensity) -> Result<FfiViewPatch, FfiError> {
         let state = self.lock_state()?;
         Ok(state.density_patch(density.into()).into())
     }
@@ -282,19 +282,29 @@ impl FfiViewSession {
         })
     }
 
-    /// 按当前密度裁剪后的行集合（Companion 端只拿到摘要，绝不含原始载荷）。
+    /// 按当前密度裁剪后的行集合（Companion 端只拿到摘要，绝不含原始载荷）；
+    /// 每行保留自身真实 `updated_rev`，与 [`Self::snapshot`] 逐字段一致。
     pub fn projected_rows(&self) -> Result<Vec<FfiViewRow>, FfiError> {
         let state = self.lock_state()?;
+        let density = state.density;
         Ok(state
-            .project()
-            .into_iter()
+            .rows
+            .values()
             .map(|row| FfiViewRow {
-                key: row.key,
-                kind: row.kind,
-                summary: row.summary,
-                detail: row.detail,
-                raw_json: row.raw_json,
-                updated_rev: state.rev,
+                key: row.key.clone(),
+                kind: row.kind.clone(),
+                summary: row.summary.clone(),
+                detail: if density.includes(DetailLayer::Detail) {
+                    row.detail.clone()
+                } else {
+                    None
+                },
+                raw_json: if density.includes(DetailLayer::Raw) {
+                    row.raw_json.clone()
+                } else {
+                    None
+                },
+                updated_rev: row.updated_rev,
             })
             .collect())
     }
@@ -379,5 +389,30 @@ impl FfiViewStream {
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
         self.inner.is_cancelled()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(clippy::panic, clippy::expect_used)]
+    fn poisoned_session_state_yields_typed_error_instead_of_zero_rev() {
+        let session = FfiViewSession::new(FfiCognitionDensity::Workbench);
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = session.state.lock().expect("view session lock");
+            panic!("poison view session");
+        }));
+        assert!(poisoned.is_err(), "必须真实污染状态锁");
+        assert!(
+            matches!(session.rev(), Err(FfiError::StreamBroken { .. })),
+            "锁中毒时 rev 必须返回类型化错误，实际 {:?}",
+            session.rev()
+        );
+        assert!(matches!(
+            session.snapshot(),
+            Err(FfiError::StreamBroken { .. })
+        ));
     }
 }

@@ -8,8 +8,11 @@
 //!   三者齐备、令牌文件为当前用户 `0600` 私有、且 `/v1/health` 握手成功）时，**所有**
 //!   读取与写入都经本地认证 IPC（优先 `0600` Unix Domain Socket，回退 `127.0.0.1` 回环）。
 //! * 任一条件不满足即返回类型化 [`ClientError::DaemonUnavailable`] 或
-//!   [`ClientError::InsecureRuntimeFiles`]，**绝不**静默直接打开 `spine/spine.sqlite`
-//!   （本 crate 甚至不链接 `rusqlite`，物理上无法打开）。
+//!   [`ClientError::InsecureRuntimeFiles`]，**绝不**静默直接打开 `spine/spine.sqlite`。
+//!   本 crate **不直接依赖** `rusqlite` / `quetzalcoatl-spine`；到 SQLite 的唯一间接路径
+//!   是 `quetzalcoatl-daemon` 的 IPC 协议类型（客户端进程只做 HTTP/JSON 往返，不持有任何
+//!   数据库连接）。该不变量由 `tests/dependency_graph.rs` 对真实依赖图断言，并由
+//!   `tests/thin_client_mount.rs` 对**子进程** `/proc/self/fd` 的动态断言兜底。
 //! * 只读取运行必需的 `run/daemon.token`，且必须先通过权限/属主校验才触碰其内容。
 
 use std::fs;

@@ -7,17 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# Cargo 不允许 `lints.workspace = true` 与逐项覆盖共存，因此绑定层手工复刻工作区
-# 全部四项 clippy deny，唯一收窄项是 `unsafe_code: forbid -> deny`，以便为 UniFFI 宏生成的 FFI 胶水
-# 放行（精确文件/行见 README 的豁免清单；`workspace_hygiene` 测试强制校验该复刻完整性）。
-[lints.rust]
-unsafe_code = "deny"
-
-[lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["cdylib", "staticlib", "rlib"]
@@ -25,10 +16,12 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [[bin]]
 name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
+# 绑定生成工具只允许显式 `--features cli` 构建，绝不进入交付给三语言宿主的 cdylib/staticlib。
+required-features = ["cli"]
 
 [features]
-default = ["cli"]
-cli = ["uniffi/cli"]
+default = []
+cli = ["uniffi/cli", "uniffi/cargo-metadata"]
 
 [dependencies]
 quetzalcoatl-client-core = { workspace = true }

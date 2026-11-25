@@ -13,7 +13,8 @@ hub/quetzalcoatl-hub
 hub/cmd/quetzalcoatl-hub/quetzalcoatl-hub
 
 # 原生桌面与移动端构建缓存
-surfaces/macos/.build/surfaces/macos/DerivedData/
+surfaces/macos/.build/
+surfaces/macos/DerivedData/
 surfaces/ios/DerivedData/
 surfaces/windows/**/bin/
 surfaces/windows/**/obj/

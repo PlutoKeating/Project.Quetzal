@@ -1,4 +1,4 @@
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
 
 //! `quetzalcoatl-wasm` — 浏览器端平台特化层（防坑规范 #17）。

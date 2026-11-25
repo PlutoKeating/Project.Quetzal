@@ -168,57 +168,19 @@ fn workspace_enforces_forbid_unsafe_and_naming_conventions() -> TestResult {
             pkg_name.starts_with("quetzalcoatl-"),
             "所有 Rust crate 必须以 quetzalcoatl- 为前缀，实际为: {pkg_name}"
         );
+        assert_eq!(
+            crate_cargo
+                .get("lints")
+                .and_then(|l| l.get("workspace"))
+                .and_then(toml::Value::as_bool),
+            Some(true),
+            "{pkg_name} 必须声明 [lints] workspace = true"
+        );
         let lib_rs = fs::read_to_string(crate_dir.join("src/lib.rs"))?;
-        if rel.starts_with("crates/bindings/") {
-            // 绑定层是唯一允许把 unsafe_code 从 forbid 收窄为 deny 的边界：
-            // UniFFI / wasm-bindgen 宏必须生成 #[unsafe(no_mangle)] 导出符号，
-            // 而 crate 级 forbid 无法被宏内部 allow 覆盖。
-            // Cargo 不允许 `lints.workspace = true` 与逐项覆盖共存，因此这里强制要求
-            // 绑定层**手工完整复刻**工作区 lint 集合，唯一差异是 unsafe_code = "deny"。
-            // 手写代码零 unsafe 由各绑定 crate 的集成测试静态扫描保证，
-            // 精确豁免文件/行记录在对应 crate 的 README。
-            let lints = crate_cargo.get("lints").ok_or("绑定层缺少 [lints]")?;
-            assert_ne!(
-                lints.get("workspace").and_then(toml::Value::as_bool),
-                Some(true),
-                "{pkg_name} 绑定层不允许 lints.workspace = true（需逐项复刻以收窄 unsafe_code）"
-            );
-            assert_eq!(
-                lints
-                    .get("rust")
-                    .and_then(|r| r.get("unsafe_code"))
-                    .and_then(toml::Value::as_str),
-                Some("deny"),
-                "{pkg_name} 绑定层唯一允许的收窄是 [lints.rust] unsafe_code = \"deny\""
-            );
-            for lint_name in ["unwrap_used", "expect_used", "panic", "todo"] {
-                assert_eq!(
-                    lints
-                        .get("clippy")
-                        .and_then(|c| c.get(lint_name))
-                        .and_then(toml::Value::as_str),
-                    Some("deny"),
-                    "{pkg_name} 绑定层必须复刻工作区 clippy.{lint_name} = deny"
-                );
-            }
-            assert!(
-                lib_rs.contains("#![deny(unsafe_code)]"),
-                "{pkg_name}/src/lib.rs 绑定层必须显式声明 #![deny(unsafe_code)]"
-            );
-        } else {
-            assert_eq!(
-                crate_cargo
-                    .get("lints")
-                    .and_then(|l| l.get("workspace"))
-                    .and_then(toml::Value::as_bool),
-                Some(true),
-                "{pkg_name} 必须声明 [lints] workspace = true"
-            );
-            assert!(
-                lib_rs.contains("#![forbid(unsafe_code)]"),
-                "{pkg_name}/src/lib.rs 必须显式包含 #![forbid(unsafe_code)]"
-            );
-        }
+        assert!(
+            lib_rs.contains("#![forbid(unsafe_code)]"),
+            "{pkg_name}/src/lib.rs 必须显式包含 #![forbid(unsafe_code)]"
+        );
     }
 
     assert!(root.join("docs/V2_GOAL.html").is_file());
