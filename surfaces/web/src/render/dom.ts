@@ -23,7 +23,12 @@ export function h<K extends keyof HTMLElementTagNameMap>(
         element.addEventListener(name.replace(/^on/u, "").toLowerCase(), value);
         continue;
       }
-      if (value === null || value === undefined || value === false) continue;
+      if (value === null || value === undefined) continue;
+      if (value === false) {
+        // aria-* 的 "false" 与缺失语义不同（如 aria-pressed），必须显式写出。
+        if (name.startsWith("aria-")) element.setAttribute(name, "false");
+        continue;
+      }
       element.setAttribute(name, value === true ? "" : String(value));
     }
   }

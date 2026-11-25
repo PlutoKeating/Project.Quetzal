@@ -621,6 +621,49 @@ pub(crate) struct DaemonMutableState {
     ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
+/// 良知行只披露层级、id、标题与披露标志，**绝不下发受保护正文**。
+fn insert_conscience_row(
+    rows: &mut serde_json::Map<String, serde_json::Value>,
+    tier: &str,
+    level: u32,
+    id: &str,
+    title: &str,
+    flags: &[&str],
+) {
+    let key = format!("conscience/{tier}/{id}");
+    let tier_label = match tier {
+        "root" => "ROOT",
+        "operator" => "OPERATOR",
+        "self_core" => "SELF_CORE",
+        _ => "MEMORY",
+    };
+    rows.insert(
+        key.clone(),
+        serde_json::json!({
+            "key": key,
+            "kind": "conscience",
+            "summary": title,
+            "detail": format!(
+                "{tier_label} {level} · 受保护条目，正文不下发{}",
+                if flags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · flags={}", flags.join(","))
+                }
+            ),
+            "raw_json": serde_json::json!({
+                "tier": tier,
+                "level": level,
+                "id": id,
+                "authority": tier,
+                "flags": flags,
+            })
+            .to_string(),
+            "updated_rev": 1,
+        }),
+    );
+}
+
 pub(crate) struct SharedDaemonCore {
     config: DaemonConfig,
     runtime_info: DaemonRuntimeInfo,
@@ -678,6 +721,110 @@ impl SharedDaemonCore {
         }
         let guard = self.state.lock().map_err(|_| lock_error())?;
         guard.group.summary(room_id)
+    }
+
+    /// 同源 Web 控制台的实时附加面板：良知树（仅结构字段）+ 本机产物 + 会话形态。
+    pub(crate) fn web_extras(&self) -> serde_json::Value {
+        let mut rows = serde_json::Map::new();
+        let mut session = serde_json::json!({
+            "kind": "personal",
+            "room_id": serde_json::Value::Null,
+            "room_count": 0,
+        });
+        if let Ok(guard) = self.state.lock() {
+            for directive in &guard.conscience.root_directives {
+                insert_conscience_row(&mut rows, "root", 100, &directive.id, &directive.title, &[]);
+            }
+            for directive in &guard.conscience.operator_directives {
+                insert_conscience_row(
+                    &mut rows,
+                    "operator",
+                    80,
+                    &directive.id,
+                    &directive.title,
+                    &[],
+                );
+            }
+            for value in &guard.conscience.values {
+                let flags: Vec<&str> = if value.negotiable_in_conversation {
+                    vec!["negotiable"]
+                } else {
+                    Vec::new()
+                };
+                insert_conscience_row(&mut rows, "self_core", 70, &value.id, "价值条目", &flags);
+            }
+            for memory in &guard.conscience.memories {
+                let flags: Vec<&str> = if memory.untrusted {
+                    vec!["untrusted"]
+                } else {
+                    Vec::new()
+                };
+                insert_conscience_row(
+                    &mut rows,
+                    "memory",
+                    30,
+                    &memory.id,
+                    memory.topic.as_deref().unwrap_or("记忆条目"),
+                    &flags,
+                );
+            }
+
+            if let Ok(documents) = guard.kernel.spine().store().list_markdown_docs() {
+                for (name, content) in documents.iter().take(6) {
+                    let key = format!("artifact/md/{name}");
+                    rows.insert(
+                        key.clone(),
+                        serde_json::json!({
+                            "key": key,
+                            "kind": "artifact",
+                            "summary": format!("共享产物 · {name}"),
+                            "detail": format!(
+                                "本机脊柱 Markdown 产物 · {} 字符，可由 qz export 导出",
+                                content.chars().count()
+                            ),
+                            "raw_json": serde_json::json!({
+                                "name": name,
+                                "chars": content.chars().count(),
+                                "storage": "spine/markdown",
+                            })
+                            .to_string(),
+                            "updated_rev": 1,
+                        }),
+                    );
+                }
+            }
+            if let Ok(runs) = guard.kernel.spine().store().list_runs() {
+                for run in runs.iter().take(6) {
+                    let key = format!("artifact/run/{}", run.run_id);
+                    rows.insert(
+                        key.clone(),
+                        serde_json::json!({
+                            "key": key,
+                            "kind": "artifact",
+                            "summary": format!("Run 产物 · {}", run.title),
+                            "detail": format!("{} · {}", run.mode, run.status),
+                            "raw_json": serde_json::json!({
+                                "run_id": format!("{}", run.run_id),
+                                "mode": run.mode,
+                                "status": run.status,
+                            })
+                            .to_string(),
+                            "updated_rev": 1,
+                        }),
+                    );
+                }
+            }
+
+            let rooms = guard.group.summaries();
+            if let Some(first) = rooms.first() {
+                session = serde_json::json!({
+                    "kind": "group",
+                    "room_id": first.room_id,
+                    "room_count": rooms.len(),
+                });
+            }
+        }
+        serde_json::json!({ "rows": rows, "session": session })
     }
 
     pub(crate) fn fabric_runtime(&self) -> Option<Arc<DaemonFabricRuntime>> {
@@ -2781,6 +2928,58 @@ impl QuetzalcoatlDaemon {
                         },
                         false,
                     ),
+                }
+            }
+
+            fn web_extras(&self) -> Option<serde_json::Value> {
+                self.slot
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.clone())
+                    .map(|core| core.web_extras())
+            }
+
+            fn web_commit_artifact(
+                &self,
+                artifact_key: &str,
+            ) -> std::result::Result<String, (String, String)> {
+                let Some(core) = self.slot.lock().ok().and_then(|guard| guard.clone()) else {
+                    return Err((
+                        String::from("STORAGE_ERROR"),
+                        String::from("daemon initializing"),
+                    ));
+                };
+                let (rooms_response, _) = core.dispatch_ipc(IpcRequest::GroupList);
+                let rooms = match rooms_response {
+                    IpcResponse::GroupRooms(rooms) => rooms,
+                    IpcResponse::Error { code, detail } => return Err((code, detail)),
+                    other => {
+                        return Err((String::from("UNEXPECTED_RESPONSE"), format!("{other:?}")));
+                    }
+                };
+                let Some(room) = rooms.first() else {
+                    return Err((
+                        String::from("NO_GROUP_SESSION"),
+                        String::from("当前为个人会话；加入群组房间后才能提交共享产物。"),
+                    ));
+                };
+                let request = IpcRequest::GroupSend {
+                    room_id: room.room_id.clone(),
+                    text: format!("[artifact] {artifact_key}"),
+                    mentions: Vec::new(),
+                    sender_kind: crate::local_ipc::GroupSenderWire::Owner,
+                    consecutive_agent_hops: 0,
+                    human_typing_active: false,
+                    kind: String::from("artifact_commit"),
+                    parent_seq: 0,
+                };
+                match core.dispatch_ipc(request) {
+                    (IpcResponse::GroupSend(outcome), _) => Ok(format!(
+                        "已在群组 {} 提交产物引用（MLS epoch {}）",
+                        outcome.room_id, outcome.mls_epoch
+                    )),
+                    (IpcResponse::Error { code, detail }, _) => Err((code, detail)),
+                    (other, _) => Err((String::from("UNEXPECTED_RESPONSE"), format!("{other:?}"))),
                 }
             }
         }

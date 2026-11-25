@@ -13,12 +13,25 @@ export interface ToolCardState {
   detail?: string;
 }
 
+export interface SessionInfo {
+  kind: "personal" | "group";
+  roomId: string | null;
+  detail: string;
+}
+
+export interface OnboardingState {
+  step: number;
+  total: number;
+}
+
 export interface TierActions {
   toggleSelection(key: string): void;
   copyReference(key: string): void;
   resolveApproval(id: string): void;
   retryConnection(): void;
   retryMessage(): void;
+  commitArtifact(key: string): void;
+  skipOnboarding(): void;
 }
 
 export interface TierContext {
@@ -29,7 +42,10 @@ export interface TierContext {
   cards: readonly ToolCardState[];
   selection: ReadonlySet<string>;
   online: boolean;
+  starting: boolean;
   offlineDetail: string;
+  session: SessionInfo;
+  onboarding: OnboardingState | null;
   rawSnapshot: string;
   actions: TierActions;
 }

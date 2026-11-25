@@ -479,6 +479,23 @@ pub fn validate_loopback_host_and_origin(
 
 pub(crate) trait IpcHandler: Send + Sync + 'static {
     fn handle(&self, req: IpcRequest) -> (IpcResponse, bool);
+
+    /// 同源 Web 控制台附加快照（良知树 / 产物 / 会话）；默认无。
+    fn web_extras(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// 群组产物提交。默认 fail-closed，只有守护进程实现才可成功。
+    fn web_commit_artifact(
+        &self,
+        artifact_key: &str,
+    ) -> std::result::Result<String, (String, String)> {
+        let _ = artifact_key;
+        Err((
+            String::from("WEB_UNSUPPORTED"),
+            String::from("当前宿主未实现 Web 产物提交"),
+        ))
+    }
 }
 
 pub(crate) struct LocalIpcServerHandle {

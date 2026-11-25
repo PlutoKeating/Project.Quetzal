@@ -18,7 +18,13 @@ function memoryStorage() {
 class FakeTransport implements AppTransport {
   handlers: TransportHandlers | null = null;
   sent: string[] = [];
+  commits: string[] = [];
   closed = false;
+
+  async commitArtifact(key: string): Promise<{ ok: boolean; detail: string }> {
+    this.commits.push(key);
+    return { ok: true, detail: `已提交 ${key}` };
+  }
 
   async connect(handlers: TransportHandlers): Promise<void> {
     this.handlers = handlers;
@@ -213,5 +219,146 @@ describe("三档视图端到端语义", () => {
     expect(panel?.textContent).toContain("守护进程");
     const input = root.querySelector<HTMLTextAreaElement>("[data-role='composer-input']");
     expect(input?.disabled).toBe(true);
+  });
+});
+
+
+function artifactSnapshot(sessionKind: "personal" | "group") {
+  return {
+    rev: 1,
+    density: "workbench" as const,
+    rows: {
+      "artifact/md/SOUL.md": {
+        key: "artifact/md/SOUL.md",
+        kind: "artifact",
+        summary: "共享产物 · SOUL.md",
+        detail: "本机脊柱 Markdown 产物",
+        raw_json: '{"name":"SOUL.md"}',
+        updated_rev: 1,
+      },
+      "session/active": {
+        key: "session/active",
+        kind: "session",
+        summary: sessionKind === "group" ? "群组会话 · room-1" : "个人会话",
+        detail:
+          sessionKind === "group"
+            ? "提交产物会发布到当前群组纪元。"
+            : "提交产物需要先加入群组房间；当前为个人会话。",
+        raw_json:
+          sessionKind === "group"
+            ? '{"kind":"group","room_id":"room-1"}'
+            : '{"kind":"personal"}',
+        updated_rev: 1,
+      },
+    },
+  };
+}
+
+describe("Ring 2：繁忙态、补丁删除与产物提交", () => {
+  it("认证未决时不闪离线面板，失败后移除 aria-busy 并播报错误", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    const deferred: { reject?: (error: unknown) => void } = {};
+    const transport: AppTransport = {
+      connect: () =>
+        new Promise<void>((_resolve, reject) => {
+          deferred.reject = reject;
+        }),
+      sendChat: async () => undefined,
+      close: () => undefined,
+    };
+    const app = new QuetzalcoatlApp(root, { transport, storage: memoryStorage() });
+    const started = app.start();
+    await Promise.resolve();
+    expect(root.querySelector('[data-daemon-state="unavailable"]')).toBeNull();
+    expect(root.querySelector('[data-role="status"]')?.textContent).toContain("正在连接");
+    expect(root.getAttribute("aria-busy")).toBe("true");
+
+    deferred.reject?.(new DaemonUnavailable("GET /auth/local 返回 503"));
+    await started;
+    expect(root.querySelector('[data-daemon-state="unavailable"]')).not.toBeNull();
+    expect(root.getAttribute("aria-busy")).toBeNull();
+    expect(root.querySelector("#qz-live-assertive")?.textContent).toContain("守护进程");
+  });
+
+  it("补丁中的 remove 必须同步删除对话记录", async () => {
+    const { root, transport } = await boot();
+    transport.emit((handlers) => {
+      handlers.onSnapshot({
+        rev: 1,
+        density: "workbench",
+        rows: {
+          "chat/rm-1": {
+            key: "chat/rm-1",
+            kind: "assistant",
+            summary: "这条消息应被删除",
+            updated_rev: 1,
+          },
+        },
+      });
+    });
+    expect(root.querySelector('[data-role="messages"]')?.textContent).toContain("这条消息应被删除");
+    transport.emit((handlers) => {
+      handlers.onPatch({
+        from_rev: 1,
+        to_rev: 2,
+        density: "workbench",
+        ops: [{ op: "remove", key: "chat/rm-1" }],
+      });
+    });
+    expect(root.querySelector('[data-role="messages"]')?.textContent).not.toContain(
+      "这条消息应被删除",
+    );
+  });
+
+  it("个人会话：Workbench 提交按钮禁用并解释原因", async () => {
+    const { root, transport } = await boot();
+    transport.emit((handlers) => handlers.onSnapshot(artifactSnapshot("personal")));
+    root.querySelector<HTMLButtonElement>('[data-density="workbench"]')?.click();
+    const commit = root.querySelector<HTMLButtonElement>('[data-action="commit-artifact"]');
+    expect(commit?.disabled).toBe(true);
+    const hint = root.querySelector('[data-role="commit-hint"]');
+    expect(hint?.textContent).toContain("个人会话");
+    expect(commit?.getAttribute("aria-describedby")).toBe(hint?.id);
+  });
+
+  it("群组会话：提交按钮调用真实 transport 并播报结果", async () => {
+    const { root, transport } = await boot();
+    transport.emit((handlers) => handlers.onSnapshot(artifactSnapshot("group")));
+    root.querySelector<HTMLButtonElement>('[data-density="workbench"]')?.click();
+    const commit = root.querySelector<HTMLButtonElement>('[data-action="commit-artifact"]');
+    expect(commit?.disabled).toBe(false);
+    commit?.click();
+    await new Promise((done) => setTimeout(done, 10));
+    expect(transport.commits).toEqual(["artifact/md/SOUL.md"]);
+    expect(root.querySelector("#qz-live-polite")?.textContent).toContain("已提交");
+  });
+
+  it("快照中的 assistant 行按 UTF-16 码元确定性排序", async () => {
+    const { root, transport } = await boot();
+    transport.emit((handlers) => {
+      handlers.onSnapshot({
+        rev: 1,
+        density: "workbench",
+        rows: {
+          "chat/z": {
+            key: "chat/z",
+            kind: "assistant",
+            summary: "消息之 z",
+            updated_rev: 1,
+          },
+          "chat/A": {
+            key: "chat/A",
+            kind: "assistant",
+            summary: "消息之 A",
+            updated_rev: 1,
+          },
+        },
+      });
+    });
+    const items = [...root.querySelectorAll('[data-role="messages"] [data-message-id]')].map(
+      (item) => item.getAttribute("data-message-id"),
+    );
+    expect(items).toEqual(["A", "z"]);
   });
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LiveRegions } from "../src/a11y/live_regions.js";
 
 describe("双通道 aria-live：礼貌通道只播报流式正文，断言通道只播报工具/审批/错误", () => {
@@ -42,8 +42,11 @@ describe("双通道 aria-live：礼貌通道只播报流式正文，断言通道
   });
 
   it("同一 token 文本绝不会同时出现在两个通道", () => {
+    vi.useFakeTimers();
     const tokens = ["羽", "蛇", "神"];
     tokens.forEach((token, index) => regions.appendToken("m2", index + 1, token));
+    vi.advanceTimersByTime(300);
+    vi.useRealTimers();
     regions.announceEvent("tool", { id: "t2", title: "工具卡片" });
     const polite = regions.polite.textContent ?? "";
     const assertive = regions.assertive.textContent ?? "";
@@ -56,9 +59,12 @@ describe("双通道 aria-live：礼貌通道只播报流式正文，断言通道
   });
 
   it("开始新消息时重置礼貌流缓冲，避免跨消息粘连", () => {
+    vi.useFakeTimers();
     regions.appendToken("m1", 1, "旧");
     regions.resetStream();
     expect(regions.appendToken("m2", 1, "新")).toBe(true);
+    vi.advanceTimersByTime(300);
+    vi.useRealTimers();
     expect(regions.polite.textContent).toBe("新");
   });
 

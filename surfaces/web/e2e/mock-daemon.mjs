@@ -210,8 +210,16 @@ function snapshot() {
         kind: "conscience",
         summary: "良知树 · 四个维度均衡",
         detail: "ROOT 100 / OPERATOR 80 / SELF_CORE 70",
-        raw_json: JSON.stringify({ root: 100, operator: 80, self_core: 70, self_soft: 50 }),
+        raw_json: JSON.stringify({ tier: "root", level: 100, id: "root-1" }),
         updated_rev: 3,
+      },
+      "session/active": {
+        key: "session/active",
+        kind: "session",
+        summary: "个人会话",
+        detail: "提交产物需要先加入群组房间；当前为个人会话。",
+        raw_json: JSON.stringify({ kind: "personal", room_id: null }),
+        updated_rev: 4,
       },
     },
   };
@@ -304,6 +312,8 @@ const server = createServer(async (req, res) => {
 });
 
 function handleUpgrade(req, socket) {
+  // 客户端刷新/关闭会让裸 socket 触发 ECONNRESET；必须自行吞掉，否则整个测试服退出。
+  socket.on("error", () => socket.destroy());
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
   if (pathname !== "/rpc") {
   socket.destroy();
@@ -416,6 +426,7 @@ function handleUpgrade(req, socket) {
 }
 
 server.on("upgrade", handleUpgrade);
+server.on("clientError", (_error, socket) => socket.destroy());
 
 server.listen(port, host, () => {
   console.log(`mock-daemon listening on http://${host}:${port} (static: ${root})`);

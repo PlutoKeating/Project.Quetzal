@@ -3,6 +3,7 @@ import { DEFAULT_DENSITY, DensityController, type DensityStorage } from "./model
 import {
   PatchSequenceError,
   ViewStateModel,
+  compareCodeUnits,
   densityLabel,
   isDensity,
   type Density,
@@ -58,6 +59,7 @@ export class QuetzalcoatlApp {
   readonly #cache: SpineCache | null;
   readonly #model = new ViewStateModel();
   readonly #live: LiveRegions;
+  readonly #storage: DensityStorage | null;
   readonly #transcript: TranscriptItem[] = [];
   readonly #cards: ToolCardState[] = [];
   readonly #selection = new Set<string>();
@@ -73,6 +75,12 @@ export class QuetzalcoatlApp {
   #draftTimer: ReturnType<typeof setTimeout> | null = null;
   readonly #encoder = new TextEncoder();
   readonly #decoder = new TextDecoder();
+  #starting = false;
+  #onboarded = false;
+  #onboardingVisible = false;
+  #onboardingStep = 1;
+  #onboardingStepTimer: ReturnType<typeof setInterval> | null = null;
+  #onboardingEndTimer: ReturnType<typeof setTimeout> | null = null;
 
   #host!: HTMLElement;
   #input!: HTMLTextAreaElement;
@@ -85,10 +93,13 @@ export class QuetzalcoatlApp {
     this.#root = root;
     this.#doc = root.ownerDocument;
     this.#transport = options.transport;
+    this.#storage = options.storage ?? null;
     this.#density = new DensityController(options.storage ?? null, options.density ?? DEFAULT_DENSITY);
     this.#cache = options.cache ?? null;
     this.#live = new LiveRegions(this.#doc);
     this.#model.setDensity(this.#density.current);
+    this.#onboarded = this.#readOnboarded();
+    this.#onboardingVisible = !this.#onboarded;
   }
 
   get density(): Density {
@@ -98,27 +109,35 @@ export class QuetzalcoatlApp {
   async start(): Promise<void> {
     if (this.#started) return;
     this.#started = true;
+    this.#starting = true;
+    this.#root.setAttribute("aria-busy", "true");
     this.#buildShell();
     this.#render();
+    this.#scheduleOnboarding();
     await this.#restoreDraft();
     try {
       await this.#transport.connect(this.#handlers());
       if (!this.#online) {
         // 传输层已认证成功但尚未收到 ready 帧：先按在线渲染，ready/快照随后补齐。
         this.#online = true;
-        this.#render();
       }
+      this.#starting = false;
+      this.#root.removeAttribute("aria-busy");
+      this.#render();
     } catch (error) {
+      this.#starting = false;
       this.#online = false;
       this.#offlineDetail =
         error instanceof DaemonUnavailable ? error.detail : describe(error);
+      // 先退出繁忙态，再播报错误：离线 alert 绝不能落在 aria-busy 子树里。
+      this.#root.removeAttribute("aria-busy");
+      this.#render();
       this.#live.announceEvent("error", {
         id: `daemon-offline-${this.#eventSeq}`,
         title: "本机守护进程未运行",
         detail: "当前为只读降级视图；启动 quetzalcoatld 后点“重试连接”。",
       });
       this.#eventSeq += 1;
-      this.#render();
     }
   }
 
@@ -219,7 +238,14 @@ export class QuetzalcoatlApp {
       return;
     }
     for (const op of Array.isArray(patch.ops) ? patch.ops : []) {
-      if (op.op === "upsert") this.#mergeAssistantRow(op.row.key, op.row.kind, op.row.summary);
+      if (op.op === "upsert") {
+        this.#mergeAssistantRow(op.row.key, op.row.kind, op.row.summary);
+        continue;
+      }
+      const id = op.key.startsWith("chat/") ? op.key.slice(5) : op.key;
+      const index = this.#transcript.findIndex((item) => item.id === id);
+      if (index >= 0) this.#transcript.splice(index, 1);
+      this.#lastSeq.delete(id);
     }
     this.#render();
   }
@@ -275,7 +301,7 @@ export class QuetzalcoatlApp {
       const id = row.key.startsWith("chat/") ? row.key.slice(5) : row.key;
       assistants.push({ id, role: "assistant", text: row.summary });
     }
-    assistants.sort((left, right) => left.id.localeCompare(right.id));
+    assistants.sort((left, right) => compareCodeUnits(left.id, right.id));
     this.#transcript.length = 0;
     this.#transcript.push(...users, ...assistants);
   }
@@ -430,19 +456,138 @@ export class QuetzalcoatlApp {
       retryMessage: () => {
         if (this.#lastUserText.length > 0) void this.sendMessage(this.#lastUserText);
       },
+      commitArtifact: (key) => {
+        void this.#commitArtifact(key);
+      },
+      skipOnboarding: () => {
+        this.#completeOnboarding(true);
+      },
+    };
+  }
+
+  async #commitArtifact(key: string): Promise<void> {
+    const commit = this.#transport.commitArtifact;
+    if (typeof commit !== "function") {
+      this.#pushCard({
+        kind: "error",
+        id: `commit-unsupported-${this.#eventSeq}`,
+        title: "当前传输不支持产物提交",
+      });
+      return;
+    }
+    try {
+      const result = await commit.call(this.#transport, key);
+      if (result.ok) {
+        this.#live.announceStatus(result.detail);
+      } else {
+        this.#pushCard({
+          kind: "error",
+          id: `commit-error-${this.#eventSeq}`,
+          title: "产物提交失败",
+          detail: `${result.detail}${result.code ? `（${result.code}）` : ""}`,
+        });
+      }
+    } catch (error) {
+      this.#pushCard({
+        kind: "error",
+        id: `commit-error-${this.#eventSeq}`,
+        title: "产物提交失败",
+        detail: describe(error),
+      });
+    }
+  }
+
+  #readOnboarded(): boolean {
+    try {
+      return this.#storage?.getItem("qz.web.onboarded") === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  #writeOnboarded(): void {
+    try {
+      this.#storage?.setItem("qz.web.onboarded", "1");
+    } catch {
+      // 持久化失败不影响本次会话内的隐藏。
+    }
+  }
+
+  #scheduleOnboarding(): void {
+    if (!this.#onboardingVisible) return;
+    this.#onboardingStepTimer = setInterval(() => {
+      if (!this.#onboardingVisible) return;
+      if (this.#onboardingStep < 3) {
+        this.#onboardingStep += 1;
+        this.#render();
+      }
+    }, 4000);
+    this.#onboardingEndTimer = setTimeout(() => {
+      this.#completeOnboarding(true);
+    }, 10_000);
+  }
+
+  #completeOnboarding(persist: boolean): void {
+    this.#onboardingVisible = false;
+    this.#onboarded = true;
+    if (this.#onboardingStepTimer !== null) {
+      clearInterval(this.#onboardingStepTimer);
+      this.#onboardingStepTimer = null;
+    }
+    if (this.#onboardingEndTimer !== null) {
+      clearTimeout(this.#onboardingEndTimer);
+      this.#onboardingEndTimer = null;
+    }
+    if (persist) this.#writeOnboarded();
+    this.#render();
+  }
+
+  #sessionInfo(): TierContext["session"] {
+    const rows = [...this.#model.rows().values()];
+    const row = rows.find((candidate) => candidate.kind === "session");
+    if (!row) {
+      return {
+        kind: "personal",
+        roomId: null,
+        detail: "提交产物需要先加入群组房间；当前为个人会话。",
+      };
+    }
+    let kind: "personal" | "group" = "personal";
+    let roomId: string | null = null;
+    if (row.raw_json) {
+      try {
+        const parsed: unknown = JSON.parse(row.raw_json);
+        if (typeof parsed === "object" && parsed !== null) {
+          const record = parsed as Record<string, unknown>;
+          if (record["kind"] === "group") kind = "group";
+          if (typeof record["room_id"] === "string") roomId = record["room_id"];
+        }
+      } catch {
+        // 畸形会话行按个人会话 fail-closed。
+      }
+    }
+    return {
+      kind,
+      roomId,
+      detail: row.detail ?? (kind === "group" ? row.summary : "当前为个人会话。"),
     };
   }
 
   async #retryConnection(): Promise<void> {
     this.#offlineDetail = "";
+    this.#starting = true;
+    this.#root.setAttribute("aria-busy", "true");
     this.#render();
     try {
       await this.#transport.connect(this.#handlers());
+      this.#online = true;
     } catch (error) {
       this.#online = false;
       this.#offlineDetail = error instanceof DaemonUnavailable ? error.detail : describe(error);
-      this.#render();
     }
+    this.#starting = false;
+    this.#root.removeAttribute("aria-busy");
+    this.#render();
   }
 
   #tierContext(): TierContext {
@@ -456,7 +601,12 @@ export class QuetzalcoatlApp {
       cards: this.#cards,
       selection: this.#selection,
       online: this.#online,
+      starting: this.#starting,
       offlineDetail: this.#offlineDetail,
+      session: this.#sessionInfo(),
+      onboarding: this.#onboardingVisible
+        ? { step: this.#onboardingStep, total: 3 }
+        : null,
       rawSnapshot: JSON.stringify(this.#model.snapshot(), null, 2),
       actions: this.#actions(),
     };
@@ -466,7 +616,6 @@ export class QuetzalcoatlApp {
     this.#root.dataset.density = this.#density.current;
     this.#root.dataset.connection = this.#online ? "online" : "offline";
     this.#root.dataset.transport = this.#online ? this.#transportKind : "offline";
-    this.#root.setAttribute("aria-busy", this.#online ? "false" : "true");
 
     for (const [density, button] of this.#densityButtons) {
       button.setAttribute("aria-pressed", density === this.#density.current ? "true" : "false");
@@ -493,8 +642,8 @@ export class QuetzalcoatlApp {
           : renderInspector(ctx);
     this.#host.replaceChildren(tier);
 
-    this.#input.disabled = !this.#online;
-    this.#submit.disabled = !this.#online;
+    this.#input.disabled = this.#starting || !this.#online;
+    this.#submit.disabled = this.#starting || !this.#online;
 
     if (options.focusHeading || keepHeadingFocus) {
       this.#host.querySelector<HTMLElement>("h1")?.focus();

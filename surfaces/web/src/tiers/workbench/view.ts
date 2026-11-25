@@ -18,12 +18,24 @@ export function renderWorkbench(ctx: TierContext): HTMLElement {
     statusLine(ctx),
     offlinePanel(ctx),
     selectionPanel(ctx),
+    h(
+      "p",
+      { class: "muted session-line", "data-role": "session" },
+      ctx.session.kind === "group"
+        ? `当前为群组会话${ctx.session.roomId ? `（${ctx.session.roomId}）` : ""}：${ctx.session.detail}`
+        : `当前为个人会话：${ctx.session.detail}`,
+    ),
     artifacts.length > 0
       ? h(
           "section",
           { class: "stack", "aria-label": "共享产物" },
           h("h2", null, "共享产物"),
           ...artifacts.map((row) => rowCard(row, ctx, { actions: true })),
+          h(
+            "p",
+            { class: "muted", id: "qz-commit-hint", "data-role": "commit-hint" },
+            ctx.session.detail,
+          ),
         )
       : null,
     others.length > 0

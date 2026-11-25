@@ -153,5 +153,26 @@ test.describe("脚本化守护进程（mock）上的三态 Web 客户端", () =>
     await expect(page.locator('[data-role="composer-input"]')).toBeDisabled();
     await expect(page.locator('[data-tier="companion"]')).toBeVisible();
     await expect(page.locator("#qz-live-assertive")).toContainText("守护进程");
+    // 离线 alert 绝不能落在 aria-busy 子树中（否则可能被辅助技术抑制）。
+    await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+  });
+
+  test("十秒引导可跳过并跨刷新记忆", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator('[data-role="onboarding"]')).toBeVisible();
+    await page.locator('[data-role="onboarding-skip"]').click();
+    await expect(page.locator('[data-role="onboarding"]')).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('[data-tier="companion"]')).toBeVisible();
+    await expect(page.locator('[data-role="onboarding"]')).toHaveCount(0);
+  });
+
+  test("个人会话下 Workbench 产物提交被禁用并解释原因", async ({ page }) => {
+    await page.goto("/");
+    await page.locator('[data-density="workbench"]').click();
+    const commit = page.locator('[data-action="commit-artifact"]').first();
+    await expect(commit).toBeDisabled();
+    await expect(page.locator('[data-role="commit-hint"]')).toContainText("个人会话");
+    await expect(page.locator('[data-role="session"]')).toContainText("个人会话");
   });
 });

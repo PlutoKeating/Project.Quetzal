@@ -50,6 +50,18 @@ export class PatchSequenceError extends Error {
   }
 }
 
+/** 确定性 UTF-16 码元序（与 Rust `fnv1a`/字节序对齐，绝不依赖宿主 locale）。 */
+export function compareCodeUnits(left: string, right: string): number {
+  if (left === right) return 0;
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const a = left.charCodeAt(index);
+    const b = right.charCodeAt(index);
+    if (a !== b) return a < b ? -1 : 1;
+  }
+  return left.length < right.length ? -1 : 1;
+}
+
 export function isDensity(value: unknown): value is Density {
   return value === "companion" || value === "workbench" || value === "inspector";
 }

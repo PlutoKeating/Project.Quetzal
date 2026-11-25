@@ -47,9 +47,17 @@ export interface TransportHandlers {
   onConnection(state: ConnectionState): void;
 }
 
+export interface CommitResult {
+  ok: boolean;
+  detail: string;
+  code?: string;
+}
+
 export interface AppTransport {
   connect(handlers: TransportHandlers): Promise<void>;
   sendChat(text: string): Promise<void>;
+  /** 可选：把共享产物提交到当前群组会话；个人会话由 UI 禁用。 */
+  commitArtifact?(artifactKey: string): Promise<CommitResult>;
   close(): void;
 }
 
@@ -57,6 +65,25 @@ export interface DaemonClientOptions {
   fetcher?: typeof fetch;
   websocketFactory?: (url: string) => WebSocketLike;
   locationOrigin?: string;
+}
+
+interface PendingResponse {
+  resolve: (response: { kind: string; data?: unknown }) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+function mapCommitResponse(response: { kind: string; data?: unknown }): CommitResult {
+  const data =
+    typeof response.data === "object" && response.data !== null
+      ? (response.data as Record<string, unknown>)
+      : {};
+  const detail = typeof data["detail"] === "string" ? data["detail"] : "";
+  if (response.kind === "ack") {
+    return { ok: true, detail: detail || "已提交到群组" };
+  }
+  const code = typeof data["code"] === "string" ? data["code"] : "COMMIT_FAILED";
+  return { ok: false, detail: detail || "提交失败", code };
 }
 
 export class DaemonUnavailable extends Error {
@@ -90,6 +117,7 @@ export class DaemonClient implements AppTransport {
   #nextId = 1;
   #errorSeq = 0;
   #keepalive: ReturnType<typeof setInterval> | null = null;
+  readonly #pending = new Map<number, PendingResponse>();
 
   constructor(options: DaemonClientOptions = {}) {
     this.#fetcher = options.fetcher ?? (typeof fetch === "function" ? fetch.bind(globalThis) : null);
@@ -146,6 +174,107 @@ export class DaemonClient implements AppTransport {
     }
   }
 
+  async commitArtifact(artifactKey: string): Promise<CommitResult> {
+    const params = { artifact_key: artifactKey };
+    if (!this.#httpOnly && this.#socket && this.#socket.readyState === 1) {
+      try {
+        const response = await this.#request("web_commit_artifact", params);
+        return mapCommitResponse(response);
+      } catch (error) {
+        return {
+          ok: false,
+          code: "RPC_UNAVAILABLE",
+          detail: `提交请求未完成：${describe(error)}`,
+        };
+      }
+    }
+    return this.#httpCommit(params);
+  }
+
+  #request(
+    method: string,
+    params: unknown,
+  ): Promise<{ kind: string; data?: unknown }> {
+    const socket = this.#socket;
+    if (!socket || socket.readyState !== 1) {
+      return Promise.reject(new Error("WebSocket 未连接"));
+    }
+    const id = this.#nextId;
+    this.#nextId += 1;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new Error("RPC 响应超时"));
+      }, 10_000);
+      this.#pending.set(id, { resolve, reject, timer });
+      try {
+        socket.send(JSON.stringify({ id, request: { method, params } }));
+      } catch (error) {
+        clearTimeout(timer);
+        this.#pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  #rejectPending(reason: string): void {
+    for (const [id, entry] of this.#pending) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error(reason));
+      this.#pending.delete(id);
+    }
+  }
+
+  async #httpCommit(params: { artifact_key: string }, allowReauth = true): Promise<CommitResult> {
+    if (!this.#fetcher) {
+      return { ok: false, code: "NO_FETCH", detail: "当前环境无法访问本机守护进程" };
+    }
+    let response: Response;
+    try {
+      response = await this.#fetcher(`${this.#origin()}/rpc`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.#token}`,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({ method: "web_commit_artifact", params }),
+        credentials: "same-origin",
+      });
+    } catch (error) {
+      return { ok: false, code: "NETWORK", detail: describe(error) };
+    }
+    if (response.status === 401 && allowReauth) {
+      try {
+        this.#token = await this.#authenticate();
+      } catch (error) {
+        return { ok: false, code: "DAEMON_UNAVAILABLE", detail: describe(error) };
+      }
+      return this.#httpCommit(params, false);
+    }
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      return {
+        ok: false,
+        code: `HTTP_${response.status}`,
+        detail: "守护进程返回了无法解析的提交响应",
+      };
+    }
+    if (!response.ok) {
+      const mapped = mapCommitResponse(
+        typeof payload === "object" && payload !== null
+          ? (payload as { kind: string; data?: unknown })
+          : { kind: "error" },
+      );
+      return mapped.ok
+        ? { ok: false, code: `HTTP_${response.status}`, detail: "提交失败" }
+        : mapped;
+    }
+    return mapCommitResponse(payload as { kind: string; data?: unknown });
+  }
+
   /** 断线重连后请求服务端重发整份快照（避免补丁序裂后的状态漂移）。 */
   async resync(): Promise<void> {
     if (this.#socket && this.#socket.readyState === 1) {
@@ -157,6 +286,7 @@ export class DaemonClient implements AppTransport {
 
   close(): void {
     this.#stopKeepalive();
+    this.#rejectPending("连接已关闭");
     const socket = this.#socket;
     this.#socket = null;
     if (socket) {
@@ -182,8 +312,10 @@ export class DaemonClient implements AppTransport {
     }
     let response: Response;
     try {
+      // POST 确保浏览器必定附带同源 `Origin`（GET 可能省略），与守护进程的
+      // “无 Origin 即拒绝”策略配套；这不是 CSRF 放宽，而是把可认证面收紧到浏览器页面。
       response = await this.#fetcher(`${this.#origin()}/auth/local`, {
-        method: "GET",
+        method: "POST",
         headers: { accept: "application/json" },
         credentials: "same-origin",
       });
@@ -256,6 +388,7 @@ export class DaemonClient implements AppTransport {
         if (this.#socket === socket) {
           this.#socket = null;
           this.#stopKeepalive();
+          this.#rejectPending("WebSocket 已断开");
           this.#httpOnly = true;
           this.#handlers?.onConnection({
             online: true,
@@ -328,6 +461,25 @@ export class DaemonClient implements AppTransport {
         const patch = frame["patch"];
         if (typeof patch === "object" && patch !== null) {
           handlers.onPatch(patch as unknown as ViewPatch);
+        }
+        return;
+      }
+      case "response": {
+        const id = frame["id"];
+        if (typeof id !== "number") return;
+        const entry = this.#pending.get(id);
+        if (!entry) return;
+        this.#pending.delete(id);
+        clearTimeout(entry.timer);
+        const response = frame["response"];
+        if (typeof response === "object" && response !== null) {
+          const record = response as Record<string, unknown>;
+          entry.resolve({
+            kind: typeof record["kind"] === "string" ? record["kind"] : "error",
+            data: record["data"],
+          });
+        } else {
+          entry.reject(new Error("畸形 RPC 响应"));
         }
         return;
       }

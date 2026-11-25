@@ -4,18 +4,24 @@
 //! 同源 Web 控制台托管：静态资源 + `/auth/local` 同机浏览器认证 + `/health`
 //! + WebSocket `/rpc`（先认证后 RPC）与 HTTP `/rpc` 兜底。
 //!
-//! 安全边界：
+//! 安全边界（纵深防御）：
 //! 1. 复用 [`crate::local_ipc::validate_loopback_host_and_origin`] 的严格回环 `Host` 校验；
-//! 2. `/auth/local` 额外要求 `Origin`（若存在）与 `Host` **逐字符同源**，防同机其他端口的
-//!    恶意页面蹭取令牌；
-//! 3. `/auth/local` 签发的是一次性随机会话令牌（256-bit），**绝不**回传管理员主令牌；
-//!    会话在 12 小时后过期，最多保留 256 个；
-//! 4. 静态资源拒绝 `%` 编码与 `..` 段，防止路径穿越；统一附加严格 CSP 与 `nosniff`。
+//! 2. `/auth/local` **必须**携带与 `Host` 逐字符同源的 `Origin`（浏览器同源 POST），
+//!    `curl` 式无 `Origin` 请求一律 `403`；本机脚本请走既有 gateway/admin IPC；
+//! 3. 会话令牌绑定**单一 WebSocket 连接**，重复使用返回 `4409 SESSION_IN_USE`，
+//!    连接关闭即销毁；并发 WebSocket 上限 32，超出以 `503` 类型化拒绝；
+//! 4. Web 控制台只允许**只读/对话**方法白名单，`Export`/`ImportV1`/`Fabric*`/`Group*`/
+//!    `Channel*`/`Shutdown` 等特权或状态变更方法即使持有有效令牌也返回
+//!    `403 PERMISSION_DENIED`；
+//! 5. 仅在显式配置 web 根（`QUETZALCOATL_WEB_DIR` 或可执行文件旁 `web/`）时启用控制台；
+//!    静态资源拒绝 `%` 编码、`..`、点文件与逃逸根目录的符号链接；
+//! 6. 统一附加严格 CSP（`wasm-unsafe-eval` 仅放行 WebAssembly 编译）与 `nosniff`。
 
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -29,11 +35,26 @@ use crate::local_ipc::{
 /// Web 会话有效期：12 小时。
 const WEB_SESSION_TTL_MS: u64 = 12 * 60 * 60 * 1000;
 const MAX_WEB_SESSIONS: usize = 256;
+const MAX_WEB_SOCKETS: usize = 32;
 const MAX_STATIC_BYTES: usize = 8 * 1024 * 1024;
+const MAX_WS_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-// `'wasm-unsafe-eval'` 只放行 WebAssembly 编译（OPFS 单写者缓存宿主），
-// 不等于 JS eval；`object-src`/`base-uri`/`frame-ancestors` 仍全部锁死。
+const WS_CLOSE_PROTOCOL: u16 = 1002;
+const WS_CLOSE_TOO_LARGE: u16 = 1009;
+const WS_CLOSE_UNAUTHORIZED: u16 = 4401;
+const WS_CLOSE_SESSION_IN_USE: u16 = 4409;
+
+/// Web 控制台仅允许这些方法（其余一律 `403 PERMISSION_DENIED`，与令牌无关）。
+const WEB_ALLOWED_METHODS: &[&str] = &[
+    "status",
+    "agents",
+    "chat",
+    "conscience_pinned",
+    "web_commit_artifact",
+];
+
+// `'wasm-unsafe-eval'` 只放行 WebAssembly 编译，不等于 JS eval。
 const CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; \
 style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; \
 object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
@@ -54,10 +75,36 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// 同源网页会话令牌表（绝不持久化，令牌只在内存中存活）。
+fn is_web_method_allowed(method: &str) -> bool {
+    WEB_ALLOWED_METHODS.contains(&method)
+}
+
+struct SessionEntry {
+    secret: [u8; 32],
+    expires_ms: u64,
+    bound: bool,
+}
+
+enum BindOutcome {
+    Bound([u8; 32]),
+    InUse,
+    NotFound,
+}
+
+#[cfg(test)]
+impl BindOutcome {
+    fn bound_secret(self) -> Option<[u8; 32]> {
+        match self {
+            Self::Bound(secret) => Some(secret),
+            Self::InUse | Self::NotFound => None,
+        }
+    }
+}
+
+/// 同源网页会话令牌表（绝不持久化；令牌与单一 WebSocket 连接绑定）。
 #[derive(Default)]
 struct WebSessionStore {
-    entries: Mutex<Vec<([u8; 32], u64)>>,
+    entries: Mutex<Vec<SessionEntry>>,
 }
 
 impl WebSessionStore {
@@ -67,34 +114,89 @@ impl WebSessionStore {
         let now = now_unix_ms();
         let expiry = now.saturating_add(WEB_SESSION_TTL_MS);
         let Ok(mut guard) = self.entries.lock() else {
-            // 锁中毒时仍签发令牌但无法登记：fail-closed，返回空令牌由调用方拒绝。
             return String::new();
         };
-        guard.retain(|(_, exp)| *exp > now);
+        guard.retain(|entry| entry.expires_ms > now);
         if guard.len() >= MAX_WEB_SESSIONS {
             guard.remove(0);
         }
-        guard.push((raw, expiry));
+        guard.push(SessionEntry {
+            secret: raw,
+            expires_ms: expiry,
+            bound: false,
+        });
         hex_encode(&raw)
     }
 
-    fn validate(&self, candidate: &str) -> bool {
+    fn find(&self, candidate: &str) -> Option<([u8; 32], bool)> {
         let (decoded, syntax_ok) = decode_hex_32_constant(candidate);
         if !syntax_ok {
-            return false;
+            return None;
         }
         let now = now_unix_ms();
-        let Ok(mut guard) = self.entries.lock() else {
-            return false;
-        };
-        guard.retain(|(_, exp)| *exp > now);
-        let mut matched = false;
-        for (secret, _) in guard.iter() {
-            if constant_time_eq_32(&decoded, secret) {
-                matched = true;
+        let mut guard = self.entries.lock().ok()?;
+        guard.retain(|entry| entry.expires_ms > now);
+        let mut matched = None;
+        for entry in guard.iter() {
+            if constant_time_eq_32(&decoded, &entry.secret) {
+                matched = Some((entry.secret, entry.bound));
             }
         }
         matched
+    }
+
+    /// HTTP `/rpc` 兜底：已绑定 WS 的令牌仍允许同一页面在 WS 失败时回退。
+    fn validate(&self, candidate: &str) -> bool {
+        self.find(candidate).is_some()
+    }
+
+    fn bind(&self, candidate: &str) -> BindOutcome {
+        let (decoded, syntax_ok) = decode_hex_32_constant(candidate);
+        if !syntax_ok {
+            return BindOutcome::NotFound;
+        }
+        let now = now_unix_ms();
+        let Ok(mut guard) = self.entries.lock() else {
+            return BindOutcome::NotFound;
+        };
+        guard.retain(|entry| entry.expires_ms > now);
+        for entry in guard.iter_mut() {
+            if constant_time_eq_32(&decoded, &entry.secret) {
+                if entry.bound {
+                    return BindOutcome::InUse;
+                }
+                entry.bound = true;
+                return BindOutcome::Bound(entry.secret);
+            }
+        }
+        BindOutcome::NotFound
+    }
+
+    /// 连接关闭即销毁令牌（不可复活）；同页面的 HTTP 回退会重新 `/auth/local`。
+    fn release(&self, secret: &[u8; 32]) {
+        let Ok(mut guard) = self.entries.lock() else {
+            return;
+        };
+        guard.retain(|entry| !constant_time_eq_32(secret, &entry.secret));
+    }
+}
+
+struct WsSessionLease<'a> {
+    sessions: &'a WebSessionStore,
+    secret: [u8; 32],
+}
+
+impl Drop for WsSessionLease<'_> {
+    fn drop(&mut self) {
+        self.sessions.release(&self.secret);
+    }
+}
+
+struct SocketSlot<'a>(&'a AtomicUsize);
+
+impl Drop for SocketSlot<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -107,10 +209,23 @@ struct WebReply {
 
 impl WebReply {
     fn json(status: u16, value: &serde_json::Value) -> Self {
+        match serde_json::to_vec(value) {
+            Ok(body) => Self {
+                status,
+                content_type: "application/json; charset=utf-8",
+                body,
+            },
+            Err(_) => Self::encode_failure(),
+        }
+    }
+
+    /// 序列化失败必须是明确的 `500`（绝不返回 `null` / 空体）。
+    fn encode_failure() -> Self {
         Self {
-            status,
+            status: 500,
             content_type: "application/json; charset=utf-8",
-            body: serde_json::to_vec(value).unwrap_or_else(|_| b"{\"error\":\"encode\"}".to_vec()),
+            body: br#"{"kind":"error","data":{"code":"ENCODE_FAILED","detail":"response encoding failed"}}"#
+                .to_vec(),
         }
     }
 
@@ -118,6 +233,16 @@ impl WebReply {
         Self::json(
             status,
             &serde_json::json!({ "error": code, "status": status }),
+        )
+    }
+
+    fn ipc_error(status: u16, code: &str, detail: &str) -> Self {
+        Self::json(
+            status,
+            &serde_json::json!({
+                "kind": "error",
+                "data": { "code": code, "detail": detail },
+            }),
         )
     }
 }
@@ -130,16 +255,19 @@ fn reason_phrase(status: u16) -> &'static str {
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        409 => "Conflict",
         413 => "Payload Too Large",
         500 => "Internal Server Error",
+        503 => "Service Unavailable",
         _ => "Response",
     }
 }
 
-/// 同源 Web 控制台（跨连接共享会话表）。
+/// 同源 Web 控制台（跨连接共享会话表与连接计数）。
 pub(crate) struct WebConsole {
     dir: Option<PathBuf>,
     sessions: WebSessionStore,
+    active_sockets: AtomicUsize,
 }
 
 impl WebConsole {
@@ -148,6 +276,7 @@ impl WebConsole {
         Self {
             dir: resolved,
             sessions: WebSessionStore::default(),
+            active_sockets: AtomicUsize::new(0),
         }
     }
 
@@ -164,7 +293,8 @@ impl WebConsole {
         handler: &H,
     ) {
         let path = request.target.split('?').next().unwrap_or("/");
-        let method = request.method.as_str();
+        let method = request.method.to_ascii_uppercase();
+        let head_only = method == "HEAD";
         let upgrade = request
             .header("upgrade")
             .is_some_and(|value| value.eq_ignore_ascii_case("websocket"));
@@ -174,7 +304,13 @@ impl WebConsole {
             return;
         }
 
-        let reply = match (method, path) {
+        // 未显式配置 web 根时，除存活探针外全部 404（控制台不对外存在）。
+        if self.dir.is_none() && path != "/health" {
+            write_http_reply(stream, &WebReply::error(404, "web_console_disabled"), false);
+            return;
+        }
+
+        let reply = match (method.as_str(), path) {
             ("GET" | "HEAD", "/health") => WebReply::json(
                 200,
                 &serde_json::json!({
@@ -183,33 +319,31 @@ impl WebConsole {
                     "web": self.dir.is_some(),
                 }),
             ),
-            ("GET" | "HEAD", "/auth/local") => self.auth_local(request),
+            ("GET" | "HEAD" | "POST", "/auth/local") => self.auth_local(request),
             ("GET", "/rpc/snapshot") => self.snapshot_reply(request, handler),
             ("POST", "/rpc") => self.http_rpc(request, handler),
             ("GET" | "HEAD", _) => self.static_reply(path),
             _ => WebReply::error(405, "method_not_allowed"),
         };
-        write_http_reply(stream, &reply);
+        write_http_reply(stream, &reply, head_only);
     }
 
     fn auth_local(&self, request: &ParsedIpcHttp) -> WebReply {
-        // 同源判定：若浏览器携带 Origin，其 authority 必须与 Host 完全一致。
-        if let Some(origin) = request.header("origin") {
-            let Some(host) = request.header("host") else {
-                return WebReply::error(403, "missing_host");
-            };
-            let authority = origin
-                .trim()
-                .strip_prefix("http://")
-                .or_else(|| origin.trim().strip_prefix("https://"))
-                .unwrap_or("")
-                .trim_end_matches('/');
-            if authority.is_empty() || !authority.eq_ignore_ascii_case(host.trim()) {
-                return WebReply::error(403, "cross_origin_denied");
-            }
-        }
-        if self.dir.is_none() {
-            return WebReply::error(404, "web_console_disabled");
+        // 必须同源：Origin 缺失（curl/本机脚本）或与 Host 不一致一律拒绝。
+        let Some(host) = request.header("host") else {
+            return WebReply::error(403, "missing_host");
+        };
+        let Some(origin) = request.header("origin") else {
+            return WebReply::error(403, "origin_required");
+        };
+        let authority = origin
+            .trim()
+            .strip_prefix("http://")
+            .or_else(|| origin.trim().strip_prefix("https://"))
+            .unwrap_or("")
+            .trim_end_matches('/');
+        if authority.is_empty() || !authority.eq_ignore_ascii_case(host.trim()) {
+            return WebReply::error(403, "cross_origin_denied");
         }
         let token = self.sessions.mint();
         if token.is_empty() {
@@ -248,28 +382,45 @@ impl WebConsole {
         if !self.authorized(request) {
             return WebReply::error(401, "unauthorized");
         }
-        let (response, _) = handler.handle(IpcRequest::Status);
-        WebReply::json(200, &snapshot_from_status(&response))
+        WebReply::json(200, &snapshot_for(handler))
     }
 
     fn http_rpc<H: IpcHandler + ?Sized>(&self, request: &ParsedIpcHttp, handler: &H) -> WebReply {
         if !self.authorized(request) {
             return WebReply::error(401, "unauthorized");
         }
-        let parsed: IpcRequest = match serde_json::from_slice(&request.body) {
+        let value: serde_json::Value = match serde_json::from_slice(&request.body) {
             Ok(value) => value,
             Err(error) => {
-                return WebReply::json(
-                    400,
-                    &serde_json::json!({
-                        "kind": "error",
-                        "data": {"code": "SERIALIZATION_ERROR", "detail": error.to_string()},
-                    }),
-                );
+                return WebReply::ipc_error(400, "SERIALIZATION_ERROR", &error.to_string());
+            }
+        };
+        let method = value
+            .get("method")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if !is_web_method_allowed(method) {
+            return WebReply::ipc_error(403, "PERMISSION_DENIED", "该方法不允许经 Web 控制台调用");
+        }
+        if method == "web_commit_artifact" {
+            let artifact = value
+                .get("params")
+                .and_then(|params| params.get("artifact_key"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            return commit_reply(handler, artifact);
+        }
+        let parsed: IpcRequest = match serde_json::from_value(value) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                return WebReply::ipc_error(400, "SERIALIZATION_ERROR", &error.to_string());
             }
         };
         let (response, _) = handler.handle(parsed);
-        WebReply::json(200, &serde_json::to_value(&response).unwrap_or_default())
+        match serde_json::to_value(&response) {
+            Ok(value) => WebReply::json(200, &value),
+            Err(_) => WebReply::encode_failure(),
+        }
     }
 
     fn static_reply(&self, path: &str) -> WebReply {
@@ -279,30 +430,54 @@ impl WebConsole {
         let Some(relative) = sanitize_static_path(path) else {
             return WebReply::error(403, "path_denied");
         };
-        let candidate = dir.join(&relative);
-        let mut file = candidate.clone();
-        let mut exists = file.is_file();
-        if !exists && relative.extension().is_none() {
+        let Ok(canonical_root) = fs::canonicalize(dir) else {
+            return WebReply::error(404, "web_console_disabled");
+        };
+        let mut file = dir.join(&relative);
+        if !file.is_file() && relative.extension().is_none() {
             // SPA 深链回退（仅无扩展名路径）。
             file = dir.join("index.html");
-            exists = file.is_file();
         }
-        if !exists {
-            return WebReply::error(404, "not_found");
-        }
-        let Ok(metadata) = fs::metadata(&file) else {
+        let Ok(canonical_file) = fs::canonicalize(&file) else {
             return WebReply::error(404, "not_found");
         };
+        if !canonical_file.starts_with(&canonical_root) {
+            return WebReply::error(403, "path_denied");
+        }
+        let Ok(metadata) = fs::metadata(&canonical_file) else {
+            return WebReply::error(404, "not_found");
+        };
+        if !metadata.is_file() {
+            return WebReply::error(404, "not_found");
+        }
         if metadata.len() > u64::try_from(MAX_STATIC_BYTES).unwrap_or(u64::MAX) {
             return WebReply::error(413, "asset_too_large");
         }
-        let Ok(body) = fs::read(&file) else {
+        let Ok(body) = fs::read(&canonical_file) else {
             return WebReply::error(404, "not_found");
         };
         WebReply {
             status: 200,
-            content_type: content_type_for(&file),
+            content_type: content_type_for(&canonical_file),
             body,
+        }
+    }
+
+    fn reserve_socket(&self) -> Option<SocketSlot<'_>> {
+        let mut current = self.active_sockets.load(Ordering::SeqCst);
+        loop {
+            if current >= MAX_WEB_SOCKETS {
+                return None;
+            }
+            match self.active_sockets.compare_exchange(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return Some(SocketSlot(&self.active_sockets)),
+                Err(actual) => current = actual,
+            }
         }
     }
 
@@ -312,8 +487,16 @@ impl WebConsole {
         request: &ParsedIpcHttp,
         handler: &H,
     ) {
+        let Some(_slot) = self.reserve_socket() else {
+            write_http_reply(stream, &WebReply::error(503, "too_many_connections"), false);
+            return;
+        };
         let Some(key) = request.header("sec-websocket-key").map(str::trim) else {
-            write_http_reply(stream, &WebReply::error(400, "missing_websocket_key"));
+            write_http_reply(
+                stream,
+                &WebReply::error(400, "missing_websocket_key"),
+                false,
+            );
             return;
         };
         let version_ok = request
@@ -323,6 +506,7 @@ impl WebConsole {
             write_http_reply(
                 stream,
                 &WebReply::error(400, "unsupported_websocket_version"),
+                false,
             );
             return;
         }
@@ -335,8 +519,7 @@ impl WebConsole {
             return;
         }
 
-        // 1. 首帧必须是认证信封。
-        let Some(payload) = ws_read_text(stream) else {
+        let Some(payload) = ws_read_message(stream) else {
             return;
         };
         let auth: WsAuth = match serde_json::from_slice(&payload) {
@@ -346,10 +529,21 @@ impl WebConsole {
                 return;
             }
         };
-        if !self.sessions.validate(&auth.auth) {
-            ws_write_close(stream, 4401, "unauthorized");
-            return;
-        }
+        let secret = match self.sessions.bind(&auth.auth) {
+            BindOutcome::Bound(secret) => secret,
+            BindOutcome::InUse => {
+                ws_write_close(stream, WS_CLOSE_SESSION_IN_USE, "session-in-use");
+                return;
+            }
+            BindOutcome::NotFound => {
+                ws_write_close(stream, WS_CLOSE_UNAUTHORIZED, "unauthorized");
+                return;
+            }
+        };
+        let _lease = WsSessionLease {
+            sessions: &self.sessions,
+            secret,
+        };
         if ws_write_json(
             stream,
             &serde_json::json!({"type": "ready", "transport": "websocket"}),
@@ -358,19 +552,17 @@ impl WebConsole {
         {
             return;
         }
-        let (status_response, _) = handler.handle(IpcRequest::Status);
         if ws_write_json(
             stream,
-            &serde_json::json!({"type": "snapshot", "state": snapshot_from_status(&status_response)}),
+            &serde_json::json!({"type": "snapshot", "state": snapshot_for(handler)}),
         )
         .is_err()
         {
             return;
         }
 
-        // 2. 请求/响应循环：ping 保活、resync 重发快照、未知方法返回 typed error。
         let mut patch_rev = 1u64;
-        while let Some(payload) = ws_read_text(stream) {
+        while let Some(payload) = ws_read_message(stream) {
             let envelope: serde_json::Value = match serde_json::from_slice(&payload) {
                 Ok(value) => value,
                 Err(error) => {
@@ -393,11 +585,10 @@ impl WebConsole {
                     continue;
                 }
                 Some("resync") => {
-                    let (status_response, _) = handler.handle(IpcRequest::Status);
                     patch_rev = 1;
                     if ws_write_json(
                         stream,
-                        &serde_json::json!({"type": "snapshot", "state": snapshot_from_status(&status_response)}),
+                        &serde_json::json!({"type": "snapshot", "state": snapshot_for(handler)}),
                     )
                     .is_err()
                     {
@@ -422,6 +613,69 @@ impl WebConsole {
                 }
                 continue;
             };
+            let method = request_value
+                .get("method")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            if !is_web_method_allowed(method) {
+                if ws_write_json(
+                    stream,
+                    &serde_json::json!({
+                        "type": "response",
+                        "id": id,
+                        "response": {
+                            "kind": "error",
+                            "data": {"code": "PERMISSION_DENIED", "detail": "该方法不允许经 Web 控制台调用"},
+                        },
+                    }),
+                )
+                .is_err()
+                {
+                    return;
+                }
+                continue;
+            }
+            if method == "web_commit_artifact" {
+                let artifact = request_value
+                    .get("params")
+                    .and_then(|params| params.get("artifact_key"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                let (code, detail) = match validate_artifact_key(artifact) {
+                    Ok(()) => match handler.web_commit_artifact(artifact) {
+                        Ok(detail) => {
+                            if ws_write_json(
+                                stream,
+                                &serde_json::json!({
+                                    "type": "response",
+                                    "id": id,
+                                    "response": {"kind": "ack", "data": {"detail": detail}},
+                                }),
+                            )
+                            .is_err()
+                            {
+                                return;
+                            }
+                            continue;
+                        }
+                        Err((code, detail)) => (code, detail),
+                    },
+                    Err((code, detail)) => (code, detail),
+                };
+                if ws_write_json(
+                    stream,
+                    &serde_json::json!({
+                        "type": "response",
+                        "id": id,
+                        "response": {"kind": "error", "data": {"code": code, "detail": detail}},
+                    }),
+                )
+                .is_err()
+                {
+                    return;
+                }
+                continue;
+            }
             let request: IpcRequest = match serde_json::from_value(request_value.clone()) {
                 Ok(value) => value,
                 Err(error) => {
@@ -475,7 +729,8 @@ impl WebConsole {
                                 "worker={} verifier_runs={}",
                                 chat.delegated_to_worker, chat.verifier_runs
                             ),
-                            "raw_json": serde_json::to_string(chat).unwrap_or_default(),
+                            "raw_json": serde_json::to_string(chat)
+                                .unwrap_or_else(|_| String::from("{}")),
                             "updated_rev": patch_rev,
                         }}],
                     },
@@ -485,7 +740,19 @@ impl WebConsole {
                 }
             }
             let Ok(response_value) = serde_json::to_value(&response) else {
-                return;
+                if ws_write_json(
+                    stream,
+                    &serde_json::json!({
+                        "type": "response",
+                        "id": id,
+                        "response": {"kind": "error", "data": {"code": "ENCODE_FAILED", "detail": "响应序列化失败"}},
+                    }),
+                )
+                .is_err()
+                {
+                    return;
+                }
+                continue;
             };
             if ws_write_json(
                 stream,
@@ -498,6 +765,41 @@ impl WebConsole {
             if should_shutdown {
                 return;
             }
+        }
+    }
+}
+
+fn validate_artifact_key(artifact: &str) -> std::result::Result<(), (String, String)> {
+    if artifact.is_empty()
+        || artifact.len() > 256
+        || !artifact.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b':')
+        })
+    {
+        return Err((
+            String::from("MALFORMED_ARTIFACT"),
+            String::from("产物引用格式非法"),
+        ));
+    }
+    Ok(())
+}
+
+fn commit_reply<H: IpcHandler + ?Sized>(handler: &H, artifact: &str) -> WebReply {
+    if let Err((code, detail)) = validate_artifact_key(artifact) {
+        return WebReply::ipc_error(400, &code, &detail);
+    }
+    match handler.web_commit_artifact(artifact) {
+        Ok(detail) => WebReply::json(
+            200,
+            &serde_json::json!({"kind": "ack", "data": {"detail": detail}}),
+        ),
+        Err((code, detail)) => {
+            let status = match code.as_str() {
+                "NO_GROUP_SESSION" => 409,
+                "PERMISSION_DENIED" => 403,
+                _ => 500,
+            };
+            WebReply::ipc_error(status, &code, &detail)
         }
     }
 }
@@ -516,11 +818,19 @@ impl ParsedIpcHttp {
     }
 }
 
-/// 把守护进程状态折叠为三档共用的响应式快照（rev=1 基线）。
-fn snapshot_from_status(response: &IpcResponse) -> serde_json::Value {
+/// 把守护进程状态 + Web 附加面板折叠为三档共用的响应式快照（rev=1 基线）。
+fn snapshot_for<H: IpcHandler + ?Sized>(handler: &H) -> serde_json::Value {
+    let (response, _) = handler.handle(IpcRequest::Status);
+    snapshot_from_status(&response, handler.web_extras().as_ref())
+}
+
+fn snapshot_from_status(
+    response: &IpcResponse,
+    extras: Option<&serde_json::Value>,
+) -> serde_json::Value {
     let mut rows = serde_json::Map::new();
     if let IpcResponse::Status(status) = response {
-        let raw = serde_json::to_string(status).unwrap_or_default();
+        let raw = serde_json::to_string(status).unwrap_or_else(|_| String::from("{}"));
         rows.insert(
             String::from("status/daemon"),
             serde_json::json!({
@@ -544,12 +854,54 @@ fn snapshot_from_status(response: &IpcResponse) -> serde_json::Value {
                     "kind": "agent",
                     "summary": format!("已发现编码代理 · {:?}", agent.kind),
                     "detail": agent.binary_path.display().to_string(),
-                    "raw_json": serde_json::to_string(agent).unwrap_or_default(),
+                    "raw_json": serde_json::to_string(agent).unwrap_or_else(|_| String::from("{}")),
                     "updated_rev": 1,
                 }),
             );
         }
     }
+
+    let mut session = serde_json::json!({"kind": "personal"});
+    if let Some(extras) = extras {
+        if let Some(extra_rows) = extras.get("rows").and_then(serde_json::Value::as_object) {
+            for (key, row) in extra_rows {
+                rows.insert(key.clone(), row.clone());
+            }
+        }
+        if let Some(extra_session) = extras.get("session") {
+            session = extra_session.clone();
+        }
+    }
+    let kind = session
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("personal");
+    let room = session
+        .get("room_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty());
+    let summary = match (kind, room) {
+        ("group", Some(room_id)) => format!("群组会话 · {room_id}"),
+        ("group", None) => String::from("群组会话"),
+        _ => String::from("个人会话"),
+    };
+    let detail = if kind == "group" {
+        "提交产物会发布到当前群组纪元。"
+    } else {
+        "提交产物需要先加入群组房间；当前为个人会话。"
+    };
+    rows.insert(
+        String::from("session/active"),
+        serde_json::json!({
+            "key": "session/active",
+            "kind": "session",
+            "summary": summary,
+            "detail": detail,
+            "raw_json": serde_json::to_string(&session).unwrap_or_else(|_| String::from("{}")),
+            "updated_rev": 1,
+        }),
+    );
+
     serde_json::json!({
         "rev": 1,
         "density": "workbench",
@@ -566,7 +918,7 @@ fn sanitize_static_path(path: &str) -> Option<PathBuf> {
         if segment.is_empty() || segment == "." {
             continue;
         }
-        if segment == ".." {
+        if segment == ".." || segment.starts_with('.') {
             return None;
         }
         relative.push(segment);
@@ -597,7 +949,7 @@ fn content_type_for(path: &Path) -> &'static str {
     }
 }
 
-fn write_http_reply<W: Write>(stream: &mut W, reply: &WebReply) {
+fn write_http_reply<W: Write>(stream: &mut W, reply: &WebReply, head_only: bool) {
     let head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nContent-Security-Policy: {}\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
         reply.status,
@@ -607,62 +959,124 @@ fn write_http_reply<W: Write>(stream: &mut W, reply: &WebReply) {
         CSP,
     );
     let _ = stream.write_all(head.as_bytes());
-    let _ = stream.write_all(&reply.body);
+    if !head_only {
+        let _ = stream.write_all(&reply.body);
+    }
     let _ = stream.flush();
 }
 
-/// 读取一个客户端文本帧；控制帧在内部应答（ping→pong，close→`None`）。
-fn ws_read_text<S: Read + Write>(stream: &mut S) -> Option<Vec<u8>> {
+struct WsFrame {
+    fin: bool,
+    opcode: u8,
+    payload: Vec<u8>,
+}
+
+/// 读取一个**必须掩码**的客户端帧；协议违规立即 close 1002。
+fn ws_read_frame<S: Read + Write>(stream: &mut S) -> Option<WsFrame> {
+    let mut header = [0u8; 2];
+    if stream.read_exact(&mut header).is_err() {
+        return None;
+    }
+    let fin = header[0] & 0x80 != 0;
+    let opcode = header[0] & 0x0f;
+    let masked = header[1] & 0x80 != 0;
+    if !masked {
+        ws_write_close(stream, WS_CLOSE_PROTOCOL, "unmasked-client-frame");
+        return None;
+    }
+    let mut length = u64::from(header[1] & 0x7f);
+    if length == 126 {
+        let mut extended = [0u8; 2];
+        if stream.read_exact(&mut extended).is_err() {
+            return None;
+        }
+        length = u64::from(u16::from_be_bytes(extended));
+    } else if length == 127 {
+        let mut extended = [0u8; 8];
+        if stream.read_exact(&mut extended).is_err() {
+            return None;
+        }
+        length = u64::from_be_bytes(extended);
+    }
+    if length > MAX_WS_MESSAGE_BYTES as u64 {
+        ws_write_close(stream, WS_CLOSE_TOO_LARGE, "frame-too-large");
+        return None;
+    }
+    let mut mask = [0u8; 4];
+    if stream.read_exact(&mut mask).is_err() {
+        return None;
+    }
+    let mut payload = vec![0u8; usize::try_from(length).ok()?];
+    if stream.read_exact(&mut payload).is_err() {
+        return None;
+    }
+    for (index, byte) in payload.iter_mut().enumerate() {
+        *byte ^= mask[index % 4];
+    }
+    Some(WsFrame {
+        fin,
+        opcode,
+        payload,
+    })
+}
+
+/// 读取一条完整文本/二进制消息，支持分片（FIN/continuation）并内联处理控制帧。
+fn ws_read_message<S: Read + Write>(stream: &mut S) -> Option<Vec<u8>> {
+    let mut assembled: Option<Vec<u8>> = None;
     loop {
-        let mut header = [0u8; 2];
-        if stream.read_exact(&mut header).is_err() {
-            return None;
-        }
-        let opcode = header[0] & 0x0f;
-        let masked = header[1] & 0x80 != 0;
-        let mut length = u64::from(header[1] & 0x7f);
-        if length == 126 {
-            let mut extended = [0u8; 2];
-            if stream.read_exact(&mut extended).is_err() {
-                return None;
-            }
-            length = u64::from(u16::from_be_bytes(extended));
-        } else if length == 127 {
-            let mut extended = [0u8; 8];
-            if stream.read_exact(&mut extended).is_err() {
-                return None;
-            }
-            length = u64::from_be_bytes(extended);
-        }
-        if length > 4 * 1024 * 1024 {
-            ws_write_close(stream, 1009, "frame-too-large");
-            return None;
-        }
-        let mut mask = [0u8; 4];
-        if masked && stream.read_exact(&mut mask).is_err() {
-            return None;
-        }
-        let mut payload = vec![0u8; usize::try_from(length).ok()?];
-        if stream.read_exact(&mut payload).is_err() {
-            return None;
-        }
-        if masked {
-            for (index, byte) in payload.iter_mut().enumerate() {
-                *byte ^= mask[index % 4];
-            }
-        }
-        match opcode {
+        let frame = ws_read_frame(stream)?;
+        match frame.opcode {
             0x8 => {
+                if !frame.fin || frame.payload.len() > 125 {
+                    ws_write_close(stream, WS_CLOSE_PROTOCOL, "bad-close-frame");
+                    return None;
+                }
                 ws_write_close(stream, 1000, "bye");
                 return None;
             }
             0x9 => {
-                if ws_write_frame(stream, 0xa, &payload).is_err() {
+                if !frame.fin || frame.payload.len() > 125 {
+                    ws_write_close(stream, WS_CLOSE_PROTOCOL, "bad-control-frame");
+                    return None;
+                }
+                if ws_write_frame(stream, 0xa, &frame.payload).is_err() {
                     return None;
                 }
             }
-            0x1 | 0x2 => return Some(payload),
-            _ => {}
+            0xa => {
+                if !frame.fin || frame.payload.len() > 125 {
+                    ws_write_close(stream, WS_CLOSE_PROTOCOL, "bad-control-frame");
+                    return None;
+                }
+            }
+            0x1 | 0x2 => {
+                if assembled.is_some() {
+                    ws_write_close(stream, WS_CLOSE_PROTOCOL, "fragmented-data-in-progress");
+                    return None;
+                }
+                if frame.fin {
+                    return Some(frame.payload);
+                }
+                assembled = Some(frame.payload);
+            }
+            0x0 => {
+                let Some(buffer) = assembled.as_mut() else {
+                    ws_write_close(stream, WS_CLOSE_PROTOCOL, "unexpected-continuation");
+                    return None;
+                };
+                if buffer.len().saturating_add(frame.payload.len()) > MAX_WS_MESSAGE_BYTES {
+                    ws_write_close(stream, WS_CLOSE_TOO_LARGE, "message-too-large");
+                    return None;
+                }
+                buffer.extend_from_slice(&frame.payload);
+                if frame.fin {
+                    return assembled.take();
+                }
+            }
+            _ => {
+                ws_write_close(stream, WS_CLOSE_PROTOCOL, "unknown-opcode");
+                return None;
+            }
         }
     }
 }
@@ -798,10 +1212,12 @@ mod tests {
     }
 
     #[test]
-    fn static_path_sanitizer_rejects_traversal_and_encoding() {
+    fn static_path_sanitizer_rejects_traversal_encoding_and_dotfiles() {
         assert!(sanitize_static_path("/../Cargo.toml").is_none());
         assert!(sanitize_static_path("/%2e%2e/secret").is_none());
         assert!(sanitize_static_path("/a/../../b").is_none());
+        assert!(sanitize_static_path("/.git/config").is_none());
+        assert!(sanitize_static_path("/.env").is_none());
         assert_eq!(
             sanitize_static_path("/").and_then(|p| p.to_str().map(str::to_owned)),
             Some(String::from("index.html"))
@@ -813,7 +1229,35 @@ mod tests {
     }
 
     #[test]
-    fn web_sessions_mint_unique_tokens_and_validate() {
+    fn web_method_allowlist_is_read_only_and_explicit() {
+        for allowed in [
+            "status",
+            "agents",
+            "chat",
+            "conscience_pinned",
+            "web_commit_artifact",
+        ] {
+            assert!(is_web_method_allowed(allowed), "{allowed} 应在白名单内");
+        }
+        for denied in [
+            "export",
+            "import_v1",
+            "fabric_login",
+            "group_send",
+            "group_list",
+            "channel_deliver",
+            "shutdown",
+            "set_permission",
+            "self_update",
+            "restart",
+            "secrets",
+        ] {
+            assert!(!is_web_method_allowed(denied), "{denied} 绝不能在白名单内");
+        }
+    }
+
+    #[test]
+    fn web_sessions_mint_bind_and_release() {
         let store = WebSessionStore::default();
         let first = store.mint();
         let second = store.mint();
@@ -824,6 +1268,16 @@ mod tests {
         assert!(!store.validate("deadbeef"));
         assert!(!store.validate(""));
         assert!(!store.validate(&"zz".repeat(32)));
+
+        let bound = store.bind(&first);
+        assert!(matches!(&bound, BindOutcome::Bound(_)));
+        let secret = bound.bound_secret().unwrap_or_default();
+        assert!(matches!(store.bind(&first), BindOutcome::InUse));
+        assert!(matches!(store.bind("deadbeef"), BindOutcome::NotFound));
+        store.release(&secret);
+        assert!(!store.validate(&first));
+        assert!(matches!(store.bind(&first), BindOutcome::NotFound));
+        assert!(store.validate(&second), "其他令牌不受影响");
     }
 
     #[test]

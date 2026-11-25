@@ -22,9 +22,11 @@ export function tierShell(
 
 export function statusLine(ctx: TierContext): HTMLElement {
   const status = ctx.rows.find((row) => row.kind === "status");
-  const text = ctx.online
-    ? status?.summary ?? "已连接本机守护进程"
-    : "离线 · 先启动本机守护进程";
+  const text = ctx.starting
+    ? "正在连接本机守护进程…"
+    : ctx.online
+      ? status?.summary ?? "已连接本机守护进程"
+      : "离线 · 先启动本机守护进程";
   return h(
     "p",
     {
@@ -37,7 +39,8 @@ export function statusLine(ctx: TierContext): HTMLElement {
 }
 
 export function offlinePanel(ctx: TierContext): HTMLElement | null {
-  if (ctx.online) return null;
+  // 认证未决期间绝不闪现离线面板。
+  if (ctx.online || ctx.starting) return null;
   return h(
     "div",
     {
@@ -161,6 +164,19 @@ export function rowCard(
     );
   }
   if (options.actions) {
+    const groupSession = ctx.session.kind === "group";
+    const commitAttrs: Record<string, string | boolean | EventListener> = {
+      class: "btn",
+      type: "button",
+      "data-action": "commit-artifact",
+      "data-focus-key": `commit:${row.key}`,
+    };
+    if (groupSession) {
+      commitAttrs["onClick"] = () => ctx.actions.commitArtifact(row.key);
+    } else {
+      commitAttrs["disabled"] = true;
+      commitAttrs["aria-describedby"] = "qz-commit-hint";
+    }
     children.push(
       h(
         "div",
@@ -188,6 +204,7 @@ export function rowCard(
           },
           selected ? "已标记待提交" : "标记待提交",
         ),
+        h("button", commitAttrs, "提交"),
       ),
     );
   }

@@ -43,11 +43,23 @@ test.describe("真实 quetzalcoatld 同源托管验收", () => {
     await page.locator('[data-density="workbench"]').click();
     await expect(page.locator('[data-tier="workbench"]')).toBeVisible();
     await expect(page.locator('[data-tier="workbench"]')).toContainText("本机守护进程");
+    // 真实脊柱 Markdown 产物必须作为 artifact 行出现，且个人会话禁止提交。
+    const artifact = page.locator('[data-tier="workbench"] [data-row-kind="artifact"]').first();
+    await expect(artifact).toBeVisible();
+    await expect(artifact).toContainText("SOUL.md");
+    await expect(page.locator('[data-action="commit-artifact"]').first()).toBeDisabled();
+    await expect(page.locator('[data-role="commit-hint"]')).toContainText("个人会话");
 
     await page.locator('[data-density="inspector"]').click();
     const raw = page.locator('[data-tier="inspector"] pre.raw-block--full');
     await expect(raw).toBeVisible();
     await expect(raw).toContainText("agent_id");
+    // 真实良知树必须渲染，且只披露结构字段（ROOT/OPERATOR 层级）。
+    await expect(
+      page.locator('[data-tier="inspector"] [data-row-kind="conscience"]').first(),
+    ).toBeVisible();
+    await expect(page.locator('[data-tier="inspector"]')).toContainText("ROOT 100");
+    await expect(page.locator('[data-tier="inspector"]')).toContainText("受保护条目");
     await page.screenshot({ path: "test-results/real-daemon-inspector.png", fullPage: true });
   });
 });
