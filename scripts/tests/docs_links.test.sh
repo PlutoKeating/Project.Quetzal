@@ -83,7 +83,45 @@ else
   ok "行内代码引用的仓库路径全部存在（$(wc -l <"$WORK/checked_paths" | tr -d ' ') 条）"
 fi
 
-# ---- 2. Markdown 相对链接 ---------------------------------------------------
+# ---- 2. 脊柱 JSONL 字段名与 ledger.rs 一致 --------------------------------
+# 说明：`docs/PROTOCOL.md` §2 的 ```json 块描述脊柱事件线格式。这里抽取其中的键名，
+# 逐一要求它们在 `crates/quetzalcoatl-spine/src/ledger.rs` 中以带引号字面量出现；
+# `kind` 是 payload 内容示例（不是信封字段），显式跳过。
+: >"$WORK/proto_keys"
+awk '
+  /^```json$/ { f = 1; buf = ""; next }
+  f && /^```$/ {
+    if (buf ~ /event_blake3/) { printf "%s", buf; exit }
+    f = 0
+    next
+  }
+  f { buf = buf $0 "\n" }
+' docs/PROTOCOL.md |
+  grep -oE '"[a-z0-9_]+"[[:space:]]*:' |
+  sed -E 's/^"//; s/".*$//' | sort -u >"$WORK/proto_keys"
+
+: >"$WORK/badproto"
+proto_checked=0
+if [ -s "$WORK/proto_keys" ]; then
+  while IFS= read -r key; do
+    [ "$key" = "kind" ] && continue
+    proto_checked=$((proto_checked + 1))
+    if ! grep -qF "\\\"$key\\\"" crates/quetzalcoatl-spine/src/ledger.rs; then
+      printf 'docs/PROTOCOL.md: 脊柱 JSONL 字段 `%s` 未在 ledger.rs 中出现\n' "$key" >>"$WORK/badproto"
+    fi
+  done <"$WORK/proto_keys"
+fi
+if [ "$proto_checked" -eq 0 ]; then
+  printf 'docs/PROTOCOL.md: 未能抽取脊椎 JSONL 字段（检查 §2 的 json 代码块）\n' >"$WORK/badproto"
+fi
+if [ -s "$WORK/badproto" ]; then
+  cp "$WORK/badproto" "$WORK/why"
+  fail "PROTOCOL 脊柱 JSONL 字段与 ledger.rs 一致（$proto_checked 个键）"
+else
+  ok "PROTOCOL 脊柱 JSONL 字段与 ledger.rs 一致（$proto_checked 个键）"
+fi
+
+# ---- 3. Markdown 相对链接 ---------------------------------------------------
 : >"$WORK/badlinks"
 : >"$WORK/linkcount"
 for doc in $DOCS; do
@@ -108,7 +146,7 @@ else
   ok "Markdown 相对链接全部可达（$link_total 条）"
 fi
 
-# ---- 3. cargo -p / --package 包名 -----------------------------------------
+# ---- 4. cargo -p / --package 包名 -----------------------------------------
 : >"$WORK/packages"
 for manifest in crates/*/Cargo.toml crates/bindings/*/Cargo.toml surfaces/linux/Cargo.toml; do
   [ -f "$manifest" ] || continue
@@ -136,7 +174,7 @@ else
   ok "cargo 包名全部存在于 workspace（$(wc -l <"$WORK/packages" | tr -d ' ') 个包）"
 fi
 
-# ---- 4. qz 子命令 ----------------------------------------------------------
+# ---- 5. qz 子命令 ----------------------------------------------------------
 : >"$WORK/qzcmds"
 awk '
   /^Commands:/ { inblock = 1; next }
@@ -163,7 +201,7 @@ else
   ok "qz 子命令全部已在 USAGE 登记（$(wc -l <"$WORK/qzcmds" | tr -d ' ') 个）"
 fi
 
-# ---- 5. docs 索引完整性 -----------------------------------------------------
+# ---- 6. docs 索引完整性 -----------------------------------------------------
 : >"$WORK/unindexed"
 for f in docs/*.md; do
   [ -f "$f" ] || continue

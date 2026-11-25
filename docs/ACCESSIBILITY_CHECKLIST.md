@@ -42,7 +42,11 @@
 - [x] 页栈由 `AdwViewSwitcher` 暴露 `tablist` 语义，`Ctrl+1/2/3` 与 Tab 顺序一致。
 - [x] 流式回复区标记为持续更新区域，批次收束时调用 GTK 4.14 `announce()`。
 - [x] 无 AT-SPI 总线时 `announce()` 为安全空操作，不崩溃。
-- [x] 陪伴态触点 ≥64pt，零技术黑话由 `ZeroJargon` 静态守卫。
+- [x] 陪伴态输入区最小高度 64（`surfaces/linux/src/views/companion.rs` 的 `set_size_request`）。
+- [ ] **延后（未实现）**：Linux 陪伴态零技术黑话的 `ZeroJargon` 静态守卫。该守卫目前只在
+      macOS（`surfaces/macos/Sources/QuetzalcoatlCore/ZeroJargon.swift`）与
+      Windows（`surfaces/windows/src/Quetzalcoatl.Desktop/A11y/ZeroJargon.cs`）实现；
+      Linux 侧没有等价审计，本轮不勾选，待补齐源码扫描测试后再改 `[x]`。
 - [x] 无头自检可运行：`xvfb-run -a quetzalcoatl-desktop --self-test --home <tmp>`。
 - [ ] **延后**：Orca + AT-SPI 实机朗读、200% 缩放的视觉效果与焦点环走查 —
       `Deferred (VMs paused by owner)`。

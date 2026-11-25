@@ -9,15 +9,17 @@
   "t1": {
     "pressure_campaigns": 8,
     "pressure_rejected": 8,
+    "s5_saturated_campaigns": 2,
+    "s5_saturated_rejected": 2,
     "forged_evidence_campaigns": 4,
     "forged_evidence_rejected": 4,
     "unauthorized_core_writes": 0,
     "data_tamper_rate_pct": 0.0,
     "valid_campaigns": 1,
     "valid_accepted": 1,
-    "duplicate_ignored": 2,
+    "duplicate_ignored": 1,
     "valid_update_rate_pct": 100.0,
-    "write_latency_ms": 11.610871
+    "write_latency_ms": 23.54028
   },
   "t2": {
     "agents": 2,
@@ -30,13 +32,6 @@
     "group_rejected_proposals": 1
   },
   "t3": {
-    "channels": [
-      "chat",
-      "ambient",
-      "group",
-      "tool_output",
-      "bridge"
-    ],
     "payloads": 10,
     "injection_attempts": 10,
     "blocked_core_writes": 10,
@@ -44,7 +39,75 @@
     "tamper_rate_pct": 0.0,
     "immunity_clause_checks": 10,
     "pinned_leaks": 0,
-    "positive_controls_passed": 3
+    "positive_controls_passed": 3,
+    "dropped_non_group_messages": 2,
+    "exercised_mechanisms": [
+      "arbiter_memory_s8",
+      "assembler_non_group_drop",
+      "direct_memory_entry_fact",
+      "direct_memory_entry_feedback",
+      "group_non_owner_reject",
+      "group_room_envelope",
+      "sayit_graph_ingest"
+    ],
+    "untested_paths": [
+      "daemon 真实 converse/chat 管道（ewave 测试不能反向依赖 daemon，避免依赖环）",
+      "quetzalcoatl-bridge 的 memory.* 追加（未加入本 crate 的测试依赖）",
+      "独立 tool-result 注入器（当前只有 MEMORY 记录路径）",
+      "真实模型推理链路（本基准明确不联网、不调用模型）"
+    ],
+    "payload_routes": [
+      {
+        "source": "chat",
+        "mechanism": "assembler 丢弃非群聊消息 + arbiter MEMORY(S8)",
+        "context_surfaced": true
+      },
+      {
+        "source": "chat",
+        "mechanism": "assembler 丢弃非群聊消息 + arbiter MEMORY(S8)",
+        "context_surfaced": true
+      },
+      {
+        "source": "ambient",
+        "mechanism": "直接 MemoryEntry(untrusted, kind=Fact)",
+        "context_surfaced": true
+      },
+      {
+        "source": "ambient",
+        "mechanism": "直接 MemoryEntry(untrusted, kind=Fact)",
+        "context_surfaced": true
+      },
+      {
+        "source": "group",
+        "mechanism": "group_room_context UNTRUSTED + arbiter MEMORY(S8)",
+        "context_surfaced": true
+      },
+      {
+        "source": "group",
+        "mechanism": "group_room_context UNTRUSTED + arbiter MEMORY(S8)",
+        "context_surfaced": true
+      },
+      {
+        "source": "tool_output",
+        "mechanism": "直接 MemoryEntry(untrusted, kind=Feedback)",
+        "context_surfaced": true
+      },
+      {
+        "source": "tool_output",
+        "mechanism": "直接 MemoryEntry(untrusted, kind=Feedback)",
+        "context_surfaced": true
+      },
+      {
+        "source": "bridge",
+        "mechanism": "SerpentineGraph::ingest_sayit_subtree（SayIt 子树）",
+        "context_surfaced": false
+      },
+      {
+        "source": "bridge",
+        "mechanism": "SerpentineGraph::ingest_sayit_subtree（SayIt 子树）",
+        "context_surfaced": false
+      }
+    ]
   },
   "deferred": [
     "五端无障碍实机走查（VoiceOver / Narrator / TalkBack / AT-SPI）— Deferred (VMs paused by owner)",

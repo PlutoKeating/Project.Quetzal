@@ -107,7 +107,8 @@ sequenceDiagram
 - **HLC**：128-bit `(wall_ms, logical, node_tag)`；接收端遇到超前本地可信时间 5 分钟以上的事件
   直接隔离拒收，绝不推高本机时钟。
 - **物化视图**：SQLite WAL 保存 `threads / messages / memories / runs / events`；`SpineEngine`
-  是唯一写入者，重放事件可重建全部视图（`rehydrate_from_spine`）。
+  是唯一写入者，重放事件可重建全部视图（`BlindKernel::rehydrate_from_spine`，其内部委托
+  `RunStateMachine::rehydrate_from_spine`）。
 - **Packfile**：`PackAad` 绑定 `agent_id / compartment / device_id / epoch / first_seq / last_seq /
   min_hlc / max_hlc / padded_len / uncompressed_blake3 / v`；`core` 与 `external_channel` 物理分包；
   `zstd` 窗口上限 1 MiB；明文按 2 的幂次分桶填充后再 `XChaCha20-Poly1305` 加密，附带封装的
@@ -127,11 +128,14 @@ sequenceDiagram
 - `ConscienceArbiter`：唯一写回入口。门的顺序固定为
   ①租约纪元 → ②签名清单 → ③绝对段保护 → ④幂等 → ⑤端侧小模型挂起 → ⑥群聊非主人降权 →
   ⑦信号天花板 → ⑧跨层降级/墓碑拦截 → ⑨有界段预算 → ⑩`SELF_CORE` C 档门槛。
-- `ContextAssembler`：把会话期恒定的 `ROOT → OPERATOR → Identity → SELF_CORE → 反思维病毒免疫 →
-  self-check` 放进 `pinned_system_tail`；把 `RELATION / 群聊 UNTRUSTED / RECALL / VOLATILE /
-  <ewave_check>` 放进 `volatile_user_tail`。易变状态绝不污染钉扎前缀，保护 Anthropic 前缀缓存。
+- `ContextAssembler`：把会话期恒定的 `<ewave_pinned>` → 仲裁规则 → 反思维病毒免疫 → `ROOT` →
+  `OPERATOR` → Identity → `SELF_CORE` → self-check 静态规则 → `</ewave_pinned>` 放进
+  `pinned_system_tail`；把 `RELATION / 群聊 UNTRUSTED / RECALL / VOLATILE / <ewave_check>` 放进
+  `volatile_user_tail`。易变状态绝不污染钉扎前缀，保护 Anthropic 前缀缓存。
 - `ConscienceBench`：`crates/quetzalcoatl-ewave/tests/conscience_bench_suite.rs` 以确定性种子驱动
-  上述真实实现，T1 抗施压、T2 群组多主体一致性、T3 五信道思维病毒免疫。
+  上述真实实现，T1 抗施压、T2 群组多主体一致性、T3 多入站机制思维病毒免疫（载荷按
+  chat/ambient/group/tool_output/bridge 五个来源注入，实际执行的机制与未覆盖路径逐条记入
+  报告）。
 
 权威等级与可变性：
 

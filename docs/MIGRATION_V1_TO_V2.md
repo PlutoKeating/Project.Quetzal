@@ -117,7 +117,8 @@ qz status                     # 查看脊柱事件数、物化视图与 Heart �
 qz export /tmp/check.zip      # 抽查可读 Markdown 与密文清单
 ```
 
-在 Rust 侧可进一步用 `SpineEngine::rehydrate_from_spine` 从事件链重建视图，并逐条
+在 Rust 侧可进一步用 `BlindKernel::rehydrate_from_spine`（内部委托
+`RunStateMachine::rehydrate_from_spine`）从事件链重建运行与幂等视图，并逐条
 `SpineEvent::verify` 校验签名；任何摘要或链断裂都会报 `INTEGRITY_VIOLATION`。
 
 ## 8. 回滚

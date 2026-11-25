@@ -34,19 +34,24 @@
     "seq": 42
   },
   "event_blake3": "64-hex",
-  "sig_hex": "128-hex",
-  "payload_utf8": "{\"kind\":\"...\"}"
+  "sig": "128-hex",
+  "payload": { "kind": "..." }
 }
 ```
 
 规范头按固定字段序拼接（`agent_id, device_id, epoch, hlc, payload_blake3, prev_blake3, seq`），
-`event_blake3 = BLAKE3("quetzalcoatl/v2/spine-event-v1", canonical_header)`，`sig_hex` 是设备
-Ed25519 对该摘要的签名。
+`event_blake3 = BLAKE3("quetzalcoatl/v2/spine-event-v1", canonical_header)`，`sig` 是设备
+Ed25519 对该摘要的签名；`payload` 是内联 JSON 值（不是字符串字段）。
+
+> **字段名属于冻结契约**：JSONL 顶层只有 `header`、`event_blake3`、`sig`、`payload` 四个键，
+> 头内只有上述 7 个键。事实源是 `crates/quetzalcoatl-spine/src/ledger.rs` 的
+> `SpineEvent::to_pack_jsonl_line`；Rust/Go 解析与 `spec/vectors/spine_pack_aad.json` 必须同步，
+> `scripts/tests/docs_links.test.sh` 会检查本文档中的键名仍存在于该实现。
 
 硬约束：
 
 1. `seq` 从 1 递增；`seq = 1` 时 `prev_blake3` 必须全零。
-2. `payload_utf8` 必须是单行合法 JSON；不得含未转义换行。
+2. `payload` 必须是合法 JSON；序列化为单行 JSONL 时不得含未转义换行。
 3. 同一 `(device_id, seq)` 只能出现一次；不同设备链通过 `prev_blake3` 独立延展，合并时按 HLC
    全序去重。
 4. 满 500 条未封包事件由 `SpineEngine` 自动打包（`AUTO_PACK_EVENT_THRESHOLD`）。
