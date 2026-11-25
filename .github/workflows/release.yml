@@ -124,8 +124,12 @@ jobs:
           # bin/web 与 quetzalcoatld 同目录：resolve_web_console_dir 零环境变量即可找到控制台。
           test -f "$stage/bin/web/index.html" || { echo "::error::web console missing from stage"; exit 1; }
           tar -czf "dist/quetzalcoatl-$VERSION-linux-x64.tar.gz" -C "$stage" .
-          tar -tzf "dist/quetzalcoatl-$VERSION-linux-x64.tar.gz" | grep -q '^\./bin/web/index.html$' \
+          tar -tzf "dist/quetzalcoatl-$VERSION-linux-x64.tar.gz" > stage-x64.list
+          grep -qx '\./bin/web/index.html' stage-x64.list \
             || { echo "::error::tarball is missing bin/web/index.html"; exit 1; }
+          # 控制台是整棵静态树：只有 index.html 不算数。
+          [ "$(grep -c '^\./bin/web/' stage-x64.list)" -ge 3 ] \
+            || { echo "::error::tarball carries an incomplete web console tree"; exit 1; }
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -189,8 +193,12 @@ jobs:
           chmod 0755 "$stage/bin/"*
           test -f "$stage/bin/web/index.html" || { echo "::error::web console missing from stage"; exit 1; }
           tar -czf "dist/quetzalcoatl-$VERSION-linux-arm64.tar.gz" -C "$stage" .
-          tar -tzf "dist/quetzalcoatl-$VERSION-linux-arm64.tar.gz" | grep -q '^\./bin/web/index.html$' \
+          tar -tzf "dist/quetzalcoatl-$VERSION-linux-arm64.tar.gz" > stage-arm64.list
+          grep -qx '\./bin/web/index.html' stage-arm64.list \
             || { echo "::error::tarball is missing bin/web/index.html"; exit 1; }
+          # 控制台是整棵静态树：只有 index.html 不算数。
+          [ "$(grep -c '^\./bin/web/' stage-arm64.list)" -ge 3 ] \
+            || { echo "::error::tarball carries an incomplete web console tree"; exit 1; }
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
