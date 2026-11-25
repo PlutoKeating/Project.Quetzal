@@ -236,7 +236,12 @@ fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_ca
         &qz,
         home.path(),
         &qz_home,
-        &["chat", "重构一下", "--workspace", repo.to_str().ok_or("repo path")?],
+        &[
+            "chat",
+            "重构一下",
+            "--workspace",
+            repo.to_str().ok_or("repo path")?,
+        ],
     )?;
     assert!(
         !workspace_chat.status.success(),

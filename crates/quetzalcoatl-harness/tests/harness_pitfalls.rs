@@ -2011,7 +2011,10 @@ fn host_oauth_available_is_read_only_and_recognises_both_providers() -> TestResu
     // Codex 形态：OPENAI_API_KEY / access_token 任一非空即视为已配置。
     fs::write(codex.join("auth.json"), br#"{"OPENAI_API_KEY":""}"#)?;
     assert!(!host_oauth_available(None, Some(&codex)));
-    fs::write(codex.join("auth.json"), br#"{"tokens":{"access_token":"t"}}"#)?;
+    fs::write(
+        codex.join("auth.json"),
+        br#"{"tokens":{"access_token":"t"}}"#,
+    )?;
     assert!(host_oauth_available(None, Some(&codex)));
 
     // 非法 JSON 不得 panic，也不得被当成凭据。

@@ -1311,11 +1311,10 @@ impl SharedDaemonCore {
         // 无任何模型凭据时在创建 worktree / 沙箱 / 网关会话之前就拒绝：
         // 日常对话与工程工作区两条分支共用同一判定，绝不把「没配模型」伪装成上游 403。
         let upstream_configured = self.config.upstream_bearer_token.is_some();
-        if !upstream_configured && !host_oauth_available(host_claude.as_deref(), host_codex.as_deref())
+        if !upstream_configured
+            && !host_oauth_available(host_claude.as_deref(), host_codex.as_deref())
         {
-            return Err(model_not_configured_error(
-                self.runtime_info.ipc_http_addr,
-            ));
+            return Err(model_not_configured_error(self.runtime_info.ipc_http_addr));
         }
 
         // 分支 A：日常对话 / 生活陪伴（不涉及工程工作区变更 -> Router 免校验零延迟结项，verifier_runs == 0）
@@ -1383,9 +1382,7 @@ impl SharedDaemonCore {
                         .abort_run(run_id, "model not configured", now_unix_ms());
                 }
                 let _ = self.harness_host.gateway().revoke_session(&grant.cap_token);
-                return Err(model_not_configured_error(
-                    self.runtime_info.ipc_http_addr,
-                ));
+                return Err(model_not_configured_error(self.runtime_info.ipc_http_addr));
             }
 
             let turn_res = self.execute_routine_gateway_turn(&grant, &req.message);
