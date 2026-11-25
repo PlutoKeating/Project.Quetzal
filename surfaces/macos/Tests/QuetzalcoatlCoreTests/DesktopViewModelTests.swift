@@ -131,6 +131,22 @@ struct DesktopViewModelTests {
         #expect(viewModel.snapshot.transcript.contains("上游连接中断"))
     }
 
+    @Test("序号 0 也必须参与幂等去重")
+    func sequenceZeroIsNotExemptFromDeduplication() {
+        let (viewModel, sink) = offlineViewModel()
+        let batch = [
+            StreamEvent(seq: 0, kind: .delta, text: "第一句"),
+            StreamEvent(seq: 1, kind: .delta, text: "第二句"),
+        ]
+
+        viewModel.ingest(batch)
+        viewModel.ingest(batch)
+
+        #expect(sink.texts.count == 1)
+        #expect(viewModel.announcementCount == 1)
+        #expect(viewModel.snapshot.transcript.components(separatedBy: "第一句").count - 1 == 1)
+    }
+
     @Test("重复批次不重复正文也不重复播报")
     func duplicateBatchDoesNotDuplicateTextOrAnnouncement() {
         let (viewModel, sink) = offlineViewModel()

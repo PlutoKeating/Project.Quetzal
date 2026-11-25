@@ -34,8 +34,8 @@ public sealed class SessionState
     /// <summary>是否正在流式接收。</summary>
     public bool Streaming { get; set; }
 
-    /// <summary>已消费的最大事件序号（幂等去重）。</summary>
-    public ulong LastSeq { get; set; }
+    /// <summary>已消费的最大事件序号（幂等去重）；<c>null</c> 表示尚未消费任何事件。</summary>
+    public ulong? LastSeq { get; set; }
 
     /// <summary>面向人的完整对话文本（陪伴态直接展示）。</summary>
     public string Transcript() => string.Join(
@@ -70,12 +70,23 @@ public abstract record ConnectionState
     /// <summary>是否已通过本地认证通道连上守护进程。</summary>
     public bool IsOnline => this is Online;
 
-    /// <summary>在线：守护进程标识与脊柱事件数。</summary>
+    /// <summary>在线：守护进程标识与脊柱事件数（已通过令牌认证握手）。</summary>
     public sealed record Online(uint Pid, string Endpoint, int SpineEvents) : ConnectionState;
 
     /// <summary>不可达/不安全/被拒；携带面向人的说明。</summary>
     public sealed record Offline(DegradedView View) : ConnectionState;
 
+    /// <summary>
+    /// 发现了守护进程运行时文件，但令牌认证/状态握手未通过（pid 已退出、令牌错误等）。
+    /// 该状态**绝不**被当作在线：输入禁用，界面不宣称已连接。
+    /// </summary>
+    public sealed record DetectedUnverified(uint Pid, string Endpoint, string Reason) : ConnectionState;
+
     /// <summary>降级说明（在线时为 <c>null</c>）。</summary>
-    public DegradedView? Degraded => (this as Offline)?.View;
+    public DegradedView? Degraded => this switch
+    {
+        Offline offline => offline.View,
+        DetectedUnverified unverified => DegradedCopy.For(DegradedReason.DetectedUnverified, unverified.Reason),
+        _ => null,
+    };
 }

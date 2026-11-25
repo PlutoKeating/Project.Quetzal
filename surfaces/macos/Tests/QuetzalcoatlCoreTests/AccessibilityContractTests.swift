@@ -41,18 +41,37 @@ struct AccessibilityContractTests {
         let source = try files.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
 
         for control in AccessibilityCatalog.all {
+            if control.isDynamicId {
+                #expect(
+                    source.contains(#""\#(control.id)/"#),
+                    "\(control.id): SwiftUI 源码缺少行级标识前缀")
+                continue
+            }
+
             #expect(
                 source.contains(#".accessibilityIdentifier("\#(control.id)")"#),
                 "\(control.id): SwiftUI 源码缺少 accessibilityIdentifier")
-            #expect(
-                source.contains(#""\#(control.label)""#),
-                "\(control.id): 无障碍名称「\(control.label)」未出现在源码中")
+            if !control.nameIsContent {
+                #expect(
+                    source.contains(#""\#(control.label)""#),
+                    "\(control.id): 无障碍名称「\(control.label)」未出现在源码中")
+            }
+        }
+
+        // 内容承载控件不得设置 accessibilityLabel（否则会朗读区块标签而不是真实内容）。
+        for control in AccessibilityCatalog.all where control.nameIsContent {
+            let needle = #".accessibilityIdentifier("\#(control.id)")"#
+            let context = modifierChain(after: needle, in: source)
+            #expect(!context.contains(".accessibilityLabel("),
+                    "\(control.id): 内容承载控件不得覆盖 accessibilityLabel")
+            #expect(!context.contains(".accessibilityHidden(true)"),
+                    "\(control.id): 未连接说明/正文不得对辅助技术隐藏")
         }
 
         let labels = source.components(separatedBy: ".accessibilityLabel(").count - 1
-        let interactive = AccessibilityCatalog.all.filter(\.isInteractive).count
+        let interactive = AccessibilityCatalog.all.filter { $0.isInteractive && !$0.nameIsContent }.count
         #expect(labels >= interactive, "无障碍名称修饰符数量少于可交互控件数")
-        #expect(source.components(separatedBy: ".accessibilityAddTraits(.updatesFrequently)").count - 1 >= 2)
+        #expect(source.components(separatedBy: ".accessibilityAddTraits(.updatesFrequently)").count - 1 >= 1)
     }
 
     @Test("源码里没有未登记的无障碍标识")
@@ -69,11 +88,34 @@ struct AccessibilityContractTests {
                 let idRange = Range(match.range(at: 1), in: source)
             else { continue }
             let id = String(source[idRange])
+            if id.contains("\(") {
+                let prefix = String(id.split(separator: "/").first ?? "")
+                if !known.contains(prefix) {
+                    unknown.append(id)
+                }
+                continue
+            }
             if !known.contains(id) {
                 unknown.append(id)
             }
         }
         #expect(unknown.isEmpty, "源码出现未登记的 accessibilityIdentifier: \(unknown)")
+    }
+
+    /// 读取某个 `accessibilityIdentifier` 之后连续以 `.` 开头的修饰符链（不跨到下一个控件）。
+    private func modifierChain(after needle: String, in source: String) -> String {
+        guard let range = source.range(of: needle) else { return "" }
+        let rest = source[range.upperBound...]
+        var chain = ""
+        for line in rest.split(separator: "\n", omittingEmptySubsequences: false).dropFirst() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix(".") {
+                chain += trimmed + "\n"
+            } else {
+                break
+            }
+        }
+        return chain
     }
 
     @Test("陪伴态文案零术语")

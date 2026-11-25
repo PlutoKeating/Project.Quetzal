@@ -159,13 +159,18 @@ public final class DesktopViewModel: ObservableObject {
     }
 
     /// 为本视图模型创建一个流泵（宿主负责 `start()`/`stop()`）。
-    public func makePump(source: any StreamSource, maxEventsPerPull: Int = 32) -> StreamPump {
+    public func makePump(
+        source: any StreamSource,
+        maxEventsPerPull: Int = 32,
+        onStats: StreamPump.StatsHandler? = nil
+    ) -> StreamPump {
         StreamPump(
             source: source,
             maxEventsPerPull: maxEventsPerPull,
             onBatch: { [weak self] events in self?.ingest(events) },
             onCompleted: { [weak self] in self?.onCompleted() },
-            onFailure: { [weak self] error in self?.onFaulted(error) })
+            onFailure: { [weak self] error in self?.onFaulted(error) },
+            onStats: onStats)
     }
 
     private func publish() {

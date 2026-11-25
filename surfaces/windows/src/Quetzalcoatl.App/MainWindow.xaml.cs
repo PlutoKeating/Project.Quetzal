@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
 
     private readonly PreferencesStore _preferences;
     private readonly DeferredAnnouncementSink _announcements;
+    private readonly DensitySelectionGuard _densityGuard = new();
     private TrayIcon? _tray;
     private bool _syncingDensity;
     private bool _quitting;
@@ -66,7 +67,12 @@ public sealed partial class MainWindow : Window
             // 材质不是可用性前提。
         }
 
+        // 加载布局会以默认索引触发一次 SelectionChanged：必须屏蔽，避免覆写已保存的密度。
+        _syncingDensity = true;
         DensityTabs.SelectedIndex = IndexOfDensity(viewModel.Density);
+        _syncingDensity = false;
+        _densityGuard.CompleteInitialization();
+
         Companion.MessageSubmitted += OnMessageSubmitted;
         Companion.RetryRequested += OnRetryRequested;
         Workbench.MessageSubmitted += OnMessageSubmitted;
@@ -147,7 +153,7 @@ public sealed partial class MainWindow : Window
 
     private void OnDensitySelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_syncingDensity)
+        if (_syncingDensity || !_densityGuard.ShouldApplySelection)
         {
             return;
         }

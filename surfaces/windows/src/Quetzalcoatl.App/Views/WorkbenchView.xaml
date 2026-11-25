@@ -34,7 +34,6 @@
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                 <TextBlock
                     AutomationProperties.AutomationId="workbench.transcript"
-                    AutomationProperties.Name="工作台对话内容"
                     FontSize="16"
                     IsTextSelectionEnabled="True"
                     Text="{Binding Transcript}"
@@ -115,13 +114,13 @@
                                 <TextBlock FontSize="14" Text="{Binding Summary}" TextWrapping="Wrap" />
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Button
-                                        AutomationProperties.AutomationId="workbench.approve"
+                                        AutomationProperties.AutomationId="{Binding Key, Converter={StaticResource RowAutomationId}, ConverterParameter=workbench.approve}"
                                         AutomationProperties.Name="批准这项操作"
                                         Click="OnApproveClick"
                                         Content="批准"
                                         Tag="{Binding Key}" />
                                     <Button
-                                        AutomationProperties.AutomationId="workbench.deny"
+                                        AutomationProperties.AutomationId="{Binding Key, Converter={StaticResource RowAutomationId}, ConverterParameter=workbench.deny}"
                                         AutomationProperties.Name="拒绝这项操作"
                                         Click="OnDenyClick"
                                         Content="拒绝"

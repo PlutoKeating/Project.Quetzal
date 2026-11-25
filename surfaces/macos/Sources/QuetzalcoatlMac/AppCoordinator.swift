@@ -55,9 +55,16 @@ final class AppCoordinator: ObservableObject {
         }
         self.viewModel = viewModel
 
-        if options.demoStream > 0, probe.connection.isOnline,
-           let source = StreamSourceFactory.open(eventCount: options.demoStream) {
-            let pump = viewModel.makePump(source: source)
+        if options.demoStream > 0 {
+            // 演示流不依赖守护进程/原生绑定：默认构建也能真实跑通流式 UI 与检视态统计。
+            let native = StreamSourceFactory.open(eventCount: options.demoStream)
+            let source: any StreamSource = native ?? SyntheticStreamSource(eventCount: options.demoStream)
+            viewModel.notice(native == nil
+                ? "演示流模式：本地合成事件，不连接本机助手。"
+                : "已通过本机原生流播放演示事件。")
+            let pump = viewModel.makePump(
+                source: source,
+                onStats: { [weak viewModel] stats in viewModel?.applyPumpStats(stats) })
             pump.start()
             self.pump = pump
         }

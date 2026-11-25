@@ -11,6 +11,7 @@
             </ResourceDictionary.MergedDictionaries>
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibility" />
             <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
+            <converters:RowAutomationIdConverter x:Key="RowAutomationId" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

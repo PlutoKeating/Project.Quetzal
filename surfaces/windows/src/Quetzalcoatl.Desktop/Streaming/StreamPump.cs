@@ -59,6 +59,7 @@ public sealed class StreamPump : IDisposable
     private readonly IUiDispatcher _dispatcher;
     private readonly int _maxEventsPerPull;
     private readonly TimeSpan _idleDelay;
+    private readonly Action<PumpStats>? _onStats;
 
     private readonly Lock _gate = new();
     private readonly List<StreamEvent> _pending = [];
@@ -85,7 +86,8 @@ public sealed class StreamPump : IDisposable
         IStreamSink sink,
         IUiDispatcher dispatcher,
         int maxEventsPerPull = DefaultMaxEventsPerPull,
-        TimeSpan? idleDelay = null)
+        TimeSpan? idleDelay = null,
+        Action<PumpStats>? onStats = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(sink);
@@ -97,6 +99,7 @@ public sealed class StreamPump : IDisposable
         _dispatcher = dispatcher;
         _maxEventsPerPull = Math.Min(maxEventsPerPull, 64);
         _idleDelay = idleDelay ?? TimeSpan.FromMilliseconds(15);
+        _onStats = onStats;
         _thread = new Thread(Run)
         {
             IsBackground = true,
@@ -306,6 +309,9 @@ public sealed class StreamPump : IDisposable
         {
             PostCompleted();
         }
+
+        // 统计回调始终在 UI 线程上（检视态直接绑定，无需跨线程）。
+        _onStats?.Invoke(Stats);
     }
 
     private void MarkSourceFinished()

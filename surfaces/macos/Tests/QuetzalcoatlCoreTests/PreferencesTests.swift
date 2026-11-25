@@ -21,7 +21,6 @@ struct PreferencesTests {
         prefs.height = 900
         prefs.maximized = true
         prefs.closeToMenuBar = false
-        prefs.startAtLogin = true
         try store.save(prefs)
 
         let loaded = store.load()
@@ -30,7 +29,6 @@ struct PreferencesTests {
         #expect(loaded.height == 900)
         #expect(loaded.maximized)
         #expect(!loaded.closeToMenuBar)
-        #expect(loaded.startAtLogin)
 
         let siblings = try FileManager.default.contentsOfDirectory(
             at: URL(fileURLWithPath: store.path).deletingLastPathComponent(),

@@ -20,7 +20,6 @@ struct InspectorView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .accessibilityIdentifier("inspector.conscience")
-                .accessibilityLabel("良知锁定正文")
 
                 Text("审计事件")
                     .font(.callout)
@@ -65,6 +64,7 @@ struct InspectorView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                    .accessibilityIdentifier("inspector.pump")
 
                 ForEach(snapshot.statusRows) { row in
                     Text(row.summary)

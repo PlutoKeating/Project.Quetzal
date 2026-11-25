@@ -23,7 +23,6 @@ public sealed class PreferencesTests
                 Height = 900,
                 Maximized = true,
                 CloseToTray = false,
-                StartAtLogin = true,
             });
 
             var loaded = store.Load();
@@ -32,7 +31,6 @@ public sealed class PreferencesTests
             Assert.Equal(900, loaded.Height);
             Assert.True(loaded.Maximized);
             Assert.False(loaded.CloseToTray);
-            Assert.True(loaded.StartAtLogin);
             Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, "*.tmp"));
         }
         finally

@@ -119,6 +119,53 @@ public sealed class DesktopViewModelTests
     }
 
     [Fact]
+    public void StoredInspectorDensitySurvivesLaunchSelectionGuard()
+    {
+        var store = new Quetzalcoatl.Desktop.Settings.PreferencesStore(
+            Path.Combine(Path.GetTempPath(), $"qz-density-{Guid.NewGuid():N}", "desktop.json"));
+        var directory = Path.GetDirectoryName(store.Path)!;
+        try
+        {
+            store.Save(new Quetzalcoatl.Desktop.Settings.DesktopPreferences
+            {
+                Density = CognitionDensity.Inspector,
+            });
+
+            // 启动期：加载布局触发的默认索引选择必须被忽略。
+            var guard = new DensitySelectionGuard();
+            Assert.True(guard.IsInitializing);
+            Assert.False(guard.ShouldApplySelection);
+
+            var restored = store.Load();
+            Assert.Equal(CognitionDensity.Inspector, restored.Density);
+
+            guard.CompleteInitialization();
+            Assert.True(guard.ShouldApplySelection);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void SequenceZeroIsNotExemptFromDeduplication()
+    {
+        var viewModel = OfflineViewModel(out var sink);
+        var batch = new[] { Delta(0, "第一句"), Delta(1, "第二句") };
+
+        viewModel.OnBatch(batch);
+        viewModel.OnBatch(batch);
+
+        Assert.Single(sink.Texts);
+        Assert.Equal(1, viewModel.AnnouncementCount);
+        Assert.Equal(1, viewModel.Transcript.Split("第一句").Length - 1);
+    }
+
+    [Fact]
     public void DuplicateBatchDoesNotDuplicateTextOrAnnouncement()
     {
         var viewModel = OfflineViewModel(out var sink);

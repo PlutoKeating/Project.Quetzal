@@ -71,11 +71,10 @@
                 <TextBlock
                     x:Name="ConnectionStatusText"
                     AutomationProperties.AutomationId="status.connection"
-                    AutomationProperties.Name="连接状态提示"
-                    AutomationProperties.LiveSetting="Polite"
                     FontSize="13"
                     Text="{Binding StatusText}" />
                 <TextBlock
+                    AutomationProperties.AutomationId="status.degraded"
                     FontSize="12"
                     Opacity="0.8"
                     Text="{Binding DegradedDetail}"
@@ -84,18 +83,5 @@
             </StackPanel>
         </Border>
 
-        <!-- 应用级实时播报区域：1×1 透明文本，每批流事件只改一次，辅助技术据此播报。 -->
-        <TextBlock
-            x:Name="LiveAnnouncement"
-            AutomationProperties.AutomationId="live.announcement"
-            AutomationProperties.Name="实时播报区域"
-            AutomationProperties.LiveSetting="Polite"
-            HorizontalAlignment="Left"
-            VerticalAlignment="Top"
-            Width="1"
-            Height="1"
-            Opacity="0"
-            IsHitTestVisible="False"
-            Text="{Binding LastAnnouncement}" />
     </Grid>
 </Window>

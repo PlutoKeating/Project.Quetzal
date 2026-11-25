@@ -10,7 +10,6 @@ public struct LaunchOptions: Sendable {
     public var demoRows = false
     public var demoStream = 0
     public var menuBarOnly = false
-    public var exitAfterSeconds = 0
     public var printLaunchAgent = false
 
     /// 解析命令行参数；未知参数忽略。
@@ -29,11 +28,6 @@ public struct LaunchOptions: Sendable {
                 index += 1
                 if let count = Int(arguments[index]), count > 0 {
                     options.demoStream = count
-                }
-            case "--exit-after" where index + 1 < arguments.count:
-                index += 1
-                if let seconds = Int(arguments[index]), seconds > 0 {
-                    options.exitAfterSeconds = seconds
                 }
             case "--self-test":
                 options.selfTest = true
@@ -82,9 +76,11 @@ public enum SelfTest {
         let rows = model.view.rowCount
         let announcements = viewModel.announcementCount
         let density = viewModel.density.label
-        let line = "MAC_SELF_TEST_OK density=\(density) connected=\(connected) degraded=\(degraded) bindings=\(bindings) rows=\(rows) announcements=\(announcements)"
+        let expectedRows = options.demoRows ? 6 : 0
+        let ok = !connected && degraded && density == "inspector" && rows == expectedRows && announcements == 1
+        let line = "\(ok ? "MAC_SELF_TEST_OK" : "MAC_SELF_TEST_FAIL") density=\(density) connected=\(connected) degraded=\(degraded) bindings=\(bindings) rows=\(rows) expected_rows=\(expectedRows) announcements=\(announcements)"
         writeReport(line, path: options.reportPath)
-        return 0
+        return ok ? 0 : 1
     }
 
     private static func writeReport(_ line: String, path: String?) {

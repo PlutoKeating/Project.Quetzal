@@ -1,7 +1,17 @@
+import Darwin
 import Foundation
 import Testing
 @testable import QuetzalcoatlCore
 import QuetzalcoatlInterop
+
+private struct StubTransport: StatusTransport {
+    let reply: DaemonStatusReply?
+    func fetchStatus(endpoint: String, token: String) throws -> DaemonStatusReply? {
+        _ = endpoint
+        _ = token
+        return reply
+    }
+}
 
 @Suite("守护进程探测")
 struct LocalDaemonProbeTests {
@@ -12,14 +22,18 @@ struct LocalDaemonProbeTests {
         return HomePaths(root: root.path)
     }
 
-    private func writeRuntime(_ home: HomePaths, json: String, tokenMode: Int? = 0o600) throws {
+    private func writeRuntime(
+        _ home: HomePaths,
+        json: String,
+        token: String? = String(repeating: "a", count: 64),
+        tokenMode: Int = 0o600
+    ) throws {
         try FileManager.default.createDirectory(
             at: URL(fileURLWithPath: home.runtimeInfoPath).deletingLastPathComponent(),
             withIntermediateDirectories: true)
         try Data(json.utf8).write(to: URL(fileURLWithPath: home.runtimeInfoPath))
-        if let tokenMode {
-            try Data(String(repeating: "a", count: 64).utf8)
-                .write(to: URL(fileURLWithPath: home.tokenPath))
+        if let token {
+            try Data(token.utf8).write(to: URL(fileURLWithPath: home.tokenPath))
             try FileManager.default.setAttributes(
                 [.posixPermissions: NSNumber(value: tokenMode)],
                 ofItemAtPath: home.tokenPath)
@@ -44,7 +58,7 @@ struct LocalDaemonProbeTests {
     func missingTokenDegradesInsteadOfConnecting() throws {
         let home = makeHome()
         defer { cleanup(home) }
-        try writeRuntime(home, json: #"{"pid":42,"ipc_http_addr":"127.0.0.1:4711"}"#, tokenMode: nil)
+        try writeRuntime(home, json: #"{"pid":42,"ipc_http_addr":"127.0.0.1:4711"}"#, token: nil)
         let result = LocalDaemonProbe.probe(home: home, bindingsAvailable: true)
         #expect(!result.connection.isOnline)
         #expect(!result.tokenPresent)
@@ -72,19 +86,91 @@ struct LocalDaemonProbeTests {
         #expect(result.connection.degraded?.title == "这个版本还连不上本机助手")
     }
 
-    @Test("有效运行时且有绑定时报告 pid 与端点")
-    func validRuntimeWithBindingsReportsOnlinePidAndEndpoint() throws {
+    @Test("令牌认证握手通过且 pid 一致才报告在线")
+    func validRuntimeWithAuthenticatedHandshakeReportsOnline() throws {
         let home = makeHome()
         defer { cleanup(home) }
-        try writeRuntime(home, json: #"{"pid":4242,"ipc_http_addr":"127.0.0.1:4711"}"#)
-        let result = LocalDaemonProbe.probe(home: home, bindingsAvailable: true)
-        guard case .online(let pid, let endpoint, _) = result.connection else {
+        let pid = UInt32(getpid())
+        try writeRuntime(home, json: #"{"pid":\#(pid),"ipc_http_addr":"127.0.0.1:4711"}"#)
+        let result = LocalDaemonProbe.probe(
+            home: home,
+            bindingsAvailable: true,
+            transport: StubTransport(reply: DaemonStatusReply(pid: pid, spineEvents: 42)))
+        guard case .online(let echoedPid, let endpoint, let spineEvents) = result.connection else {
             Issue.record("期望在线，实际 \(result.connection)")
             return
         }
-        #expect(pid == 4242)
+        #expect(echoedPid == pid)
         #expect(endpoint == "127.0.0.1:4711")
-        #expect(result.bindingsAvailable)
+        #expect(spineEvents == 42)
+    }
+
+    @Test("陈旧 daemon.json（pid 已退出）降级为未验证而不是在线")
+    func staleRuntimeWithDeadPidIsDetectedUnverified() throws {
+        let home = makeHome()
+        defer { cleanup(home) }
+        try writeRuntime(home, json: #"{"pid":4000000,"ipc_http_addr":"127.0.0.1:4711"}"#)
+        let result = LocalDaemonProbe.probe(
+            home: home,
+            bindingsAvailable: true,
+            transport: StubTransport(reply: DaemonStatusReply(pid: 4_000_000, spineEvents: 0)))
+        guard case .detectedUnverified = result.connection else {
+            Issue.record("期望 detectedUnverified，实际 \(result.connection)")
+            return
+        }
+        #expect(!result.connection.isOnline)
+        #expect(result.connection.degraded?.title == "找到了本机助手，但还没通过验证")
+        #expect(result.technical.contains("已退出"))
+    }
+
+    @Test("错误令牌导致握手失败时降级为未验证")
+    func wrongTokenIsDetectedUnverified() throws {
+        let home = makeHome()
+        defer { cleanup(home) }
+        let pid = UInt32(getpid())
+        try writeRuntime(home, json: #"{"pid":\#(pid),"ipc_http_addr":"127.0.0.1:4711"}"#)
+        let result = LocalDaemonProbe.probe(
+            home: home,
+            bindingsAvailable: true,
+            transport: StubTransport(reply: nil))
+        guard case .detectedUnverified = result.connection else {
+            Issue.record("期望 detectedUnverified，实际 \(result.connection)")
+            return
+        }
+        #expect(!result.connection.isOnline)
+        #expect(result.technical.contains("握手失败"))
+    }
+
+    @Test("status 返回的 pid 与运行时文件不一致时降级为未验证")
+    func mismatchedPidIsDetectedUnverified() throws {
+        let home = makeHome()
+        defer { cleanup(home) }
+        let pid = UInt32(getpid())
+        try writeRuntime(home, json: #"{"pid":\#(pid),"ipc_http_addr":"127.0.0.1:4711"}"#)
+        let result = LocalDaemonProbe.probe(
+            home: home,
+            bindingsAvailable: true,
+            transport: StubTransport(reply: DaemonStatusReply(pid: pid + 1, spineEvents: 0)))
+        guard case .detectedUnverified = result.connection else {
+            Issue.record("期望 detectedUnverified，实际 \(result.connection)")
+            return
+        }
+    }
+
+    @Test("非法令牌格式被拒绝且不发起握手")
+    func malformedTokenIsRejectedBeforeHandshake() throws {
+        let home = makeHome()
+        defer { cleanup(home) }
+        try writeRuntime(home, json: #"{"pid":42,"ipc_http_addr":"127.0.0.1:4711"}"#, token: "not-a-token")
+        let result = LocalDaemonProbe.probe(
+            home: home,
+            bindingsAvailable: true,
+            transport: StubTransport(reply: DaemonStatusReply(pid: 42, spineEvents: 0)))
+        guard case .detectedUnverified = result.connection else {
+            Issue.record("期望 detectedUnverified，实际 \(result.connection)")
+            return
+        }
+        #expect(result.technical.contains("令牌格式非法"))
     }
 
     @Test("损坏的运行时文件降级为传输错误并带技术细节")

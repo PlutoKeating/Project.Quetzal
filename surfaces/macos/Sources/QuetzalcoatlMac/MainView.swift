@@ -47,15 +47,6 @@ struct MainView: View {
                 .padding(.vertical, 6)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .topLeading) {
-            // 应用级实时播报区域：1×1 透明文本，每批流事件只改一次。
-            Text(viewModel.lastAnnouncement)
-                .frame(width: 1, height: 1)
-                .opacity(0)
-                .accessibilityIdentifier("live.announcement")
-                .accessibilityLabel("实时播报区域")
-                .accessibilityAddTraits(.updatesFrequently)
-        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("shell.root")
         .accessibilityLabel("Quetzalcoatl 桌面")
@@ -121,8 +112,6 @@ struct StatusBar: View {
             Text(snapshot.statusText)
                 .font(.callout)
                 .accessibilityIdentifier("status.connection")
-                .accessibilityLabel("连接状态提示")
-                .accessibilityValue(snapshot.statusText)
                 .accessibilityAddTraits(.updatesFrequently)
             Spacer()
             if snapshot.showHint {
@@ -130,7 +119,7 @@ struct StatusBar: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
-                    .accessibilityHidden(true)
+                    .accessibilityIdentifier("status.degraded")
             }
         }
     }

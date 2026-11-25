@@ -37,6 +37,7 @@ public final class StreamPump: @unchecked Sendable {
     public typealias BatchHandler = @MainActor @Sendable ([StreamEvent]) -> Void
     public typealias CompletionHandler = @MainActor @Sendable () -> Void
     public typealias FailureHandler = @MainActor @Sendable (Error) -> Void
+    public typealias StatsHandler = @MainActor @Sendable (PumpStats) -> Void
 
     private final class State: @unchecked Sendable {
         private let lock = NSLock()
@@ -116,7 +117,8 @@ public final class StreamPump: @unchecked Sendable {
         maxEventsPerPull: Int = 32,
         onBatch: @escaping BatchHandler,
         onCompleted: @escaping CompletionHandler,
-        onFailure: @escaping FailureHandler
+        onFailure: @escaping FailureHandler,
+        onStats: StatsHandler? = nil
     ) {
         let state = State()
         self.state = state
@@ -133,6 +135,7 @@ public final class StreamPump: @unchecked Sendable {
                     let started = DispatchTime.now()
                     onBatch(events)
                     state.recordBatch(startedAt: started)
+                    onStats?(state.snapshot())
                 case .failure(let message):
                     state.markFailed()
                     onFailure(StreamPumpError(message: message))

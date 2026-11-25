@@ -40,13 +40,15 @@ public sealed class A11yContractTests
     public void XamlAutomationIdsMatchCatalogExactly()
     {
         var declared = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var source = string.Empty;
         foreach (var file in XamlFiles)
         {
             var document = Load(file);
+            source += document.ToString();
             foreach (var element in AllElements(document))
             {
                 var id = element.Attribute("AutomationProperties.AutomationId")?.Value;
-                if (string.IsNullOrEmpty(id))
+                if (string.IsNullOrEmpty(id) || id.StartsWith('{'))
                 {
                     continue;
                 }
@@ -55,17 +57,25 @@ public sealed class A11yContractTests
             }
         }
 
-        var contractIds = DesktopControlCatalog.ForSurface(ControlSurface.MainWindow)
+        var contracts = DesktopControlCatalog.ForSurface(ControlSurface.MainWindow);
+        var staticIds = contracts
+            .Where(contract => !contract.IsDynamicId)
             .Select(contract => contract.AutomationId)
             .ToHashSet(StringComparer.Ordinal);
 
         Assert.Equal(
-            contractIds.OrderBy(id => id, StringComparer.Ordinal),
+            staticIds.OrderBy(id => id, StringComparer.Ordinal),
             declared.Keys.OrderBy(id => id, StringComparer.Ordinal));
+
+        // 行内按钮的 ID 由转换器生成：XAML 必须以字面量声明前缀，真实树里再断言唯一性。
+        foreach (var dynamicContract in contracts.Where(contract => contract.IsDynamicId))
+        {
+            Assert.Contains($"ConverterParameter={dynamicContract.AutomationId}", source, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
-    public void EveryXamlControlDeclaresNameKindAndLiveRegionConsistentWithCatalog()
+    public void EveryXamlControlDeclaresNameAndContentConsistentWithCatalog()
     {
         foreach (var file in XamlFiles)
         {
@@ -73,26 +83,25 @@ public sealed class A11yContractTests
             foreach (var element in AllElements(document))
             {
                 var id = element.Attribute("AutomationProperties.AutomationId")?.Value;
-                if (string.IsNullOrEmpty(id))
+                if (string.IsNullOrEmpty(id) || id.StartsWith('{'))
                 {
                     continue;
                 }
 
                 var contract = DesktopControlCatalog.Find(id);
                 Assert.True(contract is not null, $"{file}: `{id}` 不在契约清单中");
-                Assert.Equal(contract!.AccessibleName, element.Attribute("AutomationProperties.Name")?.Value);
 
-                var live = element.Attribute("AutomationProperties.LiveSetting")?.Value;
-                if ((contract.Traits & ControlTraits.LiveRegion) != 0)
+                if (contract!.HasStaticName)
                 {
-                    Assert.Equal("Polite", live);
+                    Assert.Equal(contract.AccessibleName, element.Attribute("AutomationProperties.Name")?.Value);
                 }
                 else
                 {
-                    Assert.True(
-                        string.IsNullOrEmpty(live) || string.Equals(live, "Off", StringComparison.Ordinal),
-                        $"{file}: `{id}` 不是实时播报区域，却设置了 LiveSetting={live}");
+                    // 内容承载控件：绝不把区块标签塞进 Name，屏幕阅读器要朗读真实内容。
+                    Assert.Null(element.Attribute("AutomationProperties.Name"));
                 }
+
+                Assert.Null(element.Attribute("AutomationProperties.LiveSetting"));
 
                 if ((contract.Traits & ControlTraits.ValuePattern) != 0)
                 {
@@ -107,13 +116,12 @@ public sealed class A11yContractTests
     {
         var observed = DesktopControlCatalog.ForSurface(ControlSurface.MainWindow)
             .Select(contract => new ObservedControl(
-                contract.AutomationId,
-                contract.AccessibleName,
+                contract.IsDynamicId ? $"{contract.AutomationId}/row-1" : contract.AutomationId,
+                contract.NameIsContent ? "真实内容" : contract.AccessibleName,
                 contract.Kind,
                 IsKeyboardFocusable: (contract.Traits & ControlTraits.KeyboardFocusable) != 0,
                 IsInvokeAvailable: (contract.Traits & ControlTraits.Invoke) != 0,
                 IsValueAvailable: (contract.Traits & ControlTraits.ValuePattern) != 0,
-                LiveSetting: (contract.Traits & ControlTraits.LiveRegion) != 0 ? "Polite" : "Off",
                 Width: Math.Max(contract.MinTargetPx, 120),
                 Height: Math.Max(contract.MinTargetPx, 48)))
             .ToArray();
@@ -122,7 +130,7 @@ public sealed class A11yContractTests
 
         var broken = observed
             .Select(item => item.AutomationId == "companion.transcript"
-                ? item with { Name = "内容", LiveSetting = "Off" }
+                ? item with { Name = "对话内容" }
                 : item)
             .Where(item => item.AutomationId != "companion.send")
             .ToArray();
@@ -130,6 +138,13 @@ public sealed class A11yContractTests
         var issues = A11yContractValidator.Validate(broken);
         Assert.Contains(issues, issue => issue.Contains("companion.transcript", StringComparison.Ordinal));
         Assert.Contains(issues, issue => issue.Contains("companion.send", StringComparison.Ordinal));
+
+        // 行内按钮：同名前缀但 ID 重复必须被抓住。
+        var duplicated = observed
+            .Append(observed.First(item => item.AutomationId.StartsWith("workbench.approve/", StringComparison.Ordinal)))
+            .ToArray();
+        var dynamicIssues = A11yContractValidator.Validate(duplicated);
+        Assert.Contains(dynamicIssues, issue => issue.Contains("必须唯一", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -23,8 +23,8 @@ public struct SessionState: Sendable, Equatable {
     public var messages: [ChatLine] = []
     public var reasoning: String = ""
     public var streaming: Bool = false
-    /// 已消费的最大事件序号（幂等去重）。
-    public var lastSeq: UInt64 = 0
+    /// 已消费的最大事件序号（幂等去重）；`nil` 表示尚未消费任何事件（序号 0 也是合法事件）。
+    public var lastSeq: UInt64?
 
     public init() {}
 
@@ -63,6 +63,7 @@ public enum DegradedReason: String, Sendable, CaseIterable {
     case ipcTransport
     case ipcRemote
     case bindingsUnavailable
+    case detectedUnverified
 }
 
 /// 一段给用户看的降级说明（标题 + 一句解释 + 一个动作 + 技术原因）。
@@ -117,6 +118,12 @@ public enum DegradedCopy {
                 detail: "安装的版本里缺少与本机助手通讯的组件，界面本身可以正常使用。",
                 hint: "安装完整版本后重新打开就可以连接。",
                 technical: technical)
+        case .detectedUnverified:
+            DegradedView(
+                title: "找到了本机助手，但还没通过验证",
+                detail: "运行时文件还在，但握手没有成功；你的数据没有被改动。",
+                hint: "点「重新连接」；如果一直这样，请重启 quetzalcoatld。",
+                technical: technical)
         }
     }
 }
@@ -125,6 +132,8 @@ public enum DegradedCopy {
 public enum ConnectionState: Sendable, Equatable {
     case online(pid: UInt32, endpoint: String, spineEvents: Int)
     case offline(DegradedView)
+    /// 发现运行时文件，但令牌认证/状态握手未通过；绝不当作在线。
+    case detectedUnverified(pid: UInt32, endpoint: String, reason: String)
 
     public var isOnline: Bool {
         if case .online = self { return true }
@@ -132,7 +141,13 @@ public enum ConnectionState: Sendable, Equatable {
     }
 
     public var degraded: DegradedView? {
-        if case .offline(let view) = self { return view }
-        return nil
+        switch self {
+        case .offline(let view):
+            view
+        case .detectedUnverified(_, _, let reason):
+            DegradedCopy.copy(for: .detectedUnverified, technical: reason)
+        case .online:
+            nil
+        }
     }
 }

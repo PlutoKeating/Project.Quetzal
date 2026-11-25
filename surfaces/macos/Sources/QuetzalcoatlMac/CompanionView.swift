@@ -14,7 +14,6 @@ struct CompanionView: View {
             Text(snapshot.heading)
                 .font(.system(size: 34, weight: .semibold))
                 .accessibilityIdentifier("companion.heading")
-                .accessibilityLabel("陪伴视图标题")
                 .accessibilityAddTraits(.isHeader)
 
             ScrollView {
@@ -25,7 +24,6 @@ struct CompanionView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("companion.transcript")
-            .accessibilityLabel(CompanionCopy.transcriptLabel)
             .accessibilityHint(CompanionCopy.transcriptHint)
             .accessibilityAddTraits(.updatesFrequently)
 
@@ -34,7 +32,7 @@ struct CompanionView: View {
                     .font(.system(size: 18))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityHidden(true)
+                    .accessibilityIdentifier("companion.hint")
             }
 
             HStack(spacing: 12) {
@@ -70,7 +68,6 @@ struct CompanionView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("companion.status")
-                .accessibilityLabel("连接状态")
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

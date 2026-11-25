@@ -16,7 +16,7 @@
 
         <TextBlock
             AutomationProperties.AutomationId="companion.heading"
-            AutomationProperties.Name="陪伴视图标题"
+            AutomationProperties.HeadingLevel="Level1"
             FontSize="34"
             FontWeight="SemiBold"
             Text="{Binding Heading}"
@@ -28,7 +28,6 @@
             VerticalScrollBarVisibility="Auto">
             <TextBlock
                 AutomationProperties.AutomationId="companion.transcript"
-                AutomationProperties.Name="对话内容"
                 AutomationProperties.HelpText="对话会持续更新，新的回复会自动播报"
                 FontSize="22"
                 IsTextSelectionEnabled="True"
@@ -38,6 +37,7 @@
 
         <TextBlock
             Grid.Row="2"
+            AutomationProperties.AutomationId="companion.hint"
             FontSize="18"
             Opacity="0.85"
             Text="{Binding HintText}"
@@ -85,7 +85,6 @@
         <TextBlock
             Grid.Row="5"
             AutomationProperties.AutomationId="companion.status"
-            AutomationProperties.Name="连接状态"
             FontSize="15"
             Opacity="0.75"
             Text="{Binding StatusText}" />

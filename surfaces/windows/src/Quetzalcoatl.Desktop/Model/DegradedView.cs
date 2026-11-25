@@ -17,6 +17,9 @@ public enum DegradedReason
 
     /// <summary>这个构建没有链接本机连接组件（UniFFI 原生库缺失）。</summary>
     BindingsUnavailable,
+
+    /// <summary>发现运行时文件，但令牌认证/状态握手未通过。</summary>
+    DetectedUnverified,
 }
 
 /// <summary>一段给用户看的降级说明（标题 + 一句解释 + 一个动作 + 技术原因）。</summary>
@@ -56,6 +59,11 @@ public static class DegradedCopy
             "这个版本还连不上本机助手",
             "安装的版本里缺少与本机助手通讯的组件，界面本身可以正常使用。",
             "安装完整版本后重新打开就可以连接。",
+            technical),
+        DegradedReason.DetectedUnverified => new DegradedView(
+            "找到了本机助手，但还没通过验证",
+            "运行时文件还在，但握手没有成功；你的数据没有被改动。",
+            "点「重新连接」；如果一直这样，请重启 quetzalcoatld。",
             technical),
         _ => new DegradedView(
             "本机的 Quetzalcoatl 助手还没启动",

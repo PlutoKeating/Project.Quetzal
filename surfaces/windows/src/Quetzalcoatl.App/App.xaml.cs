@@ -20,6 +20,8 @@ public partial class App : Application
     private MainWindow? _window;
     private StreamPump? _pump;
     private Timer? _exitTimer;
+    private DispatcherQueue? _uiQueue;
+    private CognitionDensity _expectedDensity = CognitionDensity.Workbench;
 
     public App()
     {
@@ -54,9 +56,12 @@ public partial class App : Application
 
     private void Boot()
     {
+        // 只在 UI 线程读一次：线程池上的 Timer 回调绝不能调用 GetForCurrentThread()。
+        _uiQueue = DispatcherQueue.GetForCurrentThread();
         _home = HomePaths.Resolve(_options.Home);
         _preferences = new PreferencesStore(_home.PreferencesPath);
         var preferences = _preferences.Load();
+        _expectedDensity = preferences.Density;
 
         if (_options.InstallStartup)
         {
@@ -95,8 +100,9 @@ public partial class App : Application
         };
         _window.Activate();
 
-        if (probe.Connection.IsOnline && _options.DemoStream > 0)
+        if (_options.DemoStream > 0)
         {
+            // 演示流不依赖守护进程/原生绑定：默认构建也能真实跑通流式 UI 与检视态统计。
             StartStream(_options.DemoStream);
         }
 
@@ -105,17 +111,23 @@ public partial class App : Application
             _window.HideToTrayIfPossible();
         }
 
-        if (_options.ExitAfterSeconds > 0)
+        var uiQueue = _uiQueue;
+        if (_options.ExitAfterSeconds > 0 && uiQueue is not null)
         {
             _exitTimer = new Timer(
-                _ => DispatcherQueue.GetForCurrentThread().TryEnqueue(() => _window?.Quit()),
+                _ => uiQueue.TryEnqueue(() => _window?.Quit()),
                 null,
                 TimeSpan.FromSeconds(_options.ExitAfterSeconds),
                 Timeout.InfiniteTimeSpan);
         }
 
         // 等一帧让窗口完成布局后再报告，避免把「刚 Activate 还没 mapped」误报为 hidden。
-        var reportTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        var reportTimer = uiQueue?.CreateTimer();
+        if (reportTimer is null)
+        {
+            return;
+        }
+
         reportTimer.Interval = TimeSpan.FromMilliseconds(600);
         reportTimer.IsRepeating = false;
         reportTimer.Tick += (_, _) => ReportReady();
@@ -132,9 +144,12 @@ public partial class App : Application
         var probe = LocalDaemonProbe.Probe(_home, StreamSourceFactory.BindingsAvailable);
         _viewModel.SetConnection(probe.Connection);
         _viewModel.Model.Technical(probe.Technical);
-        _viewModel.Notice(probe.Connection.IsOnline
-            ? "已重新连接本机助手。"
-            : "还是连不上本机助手，请确认它正在运行。");
+        _viewModel.Notice(probe.Connection switch
+        {
+            ConnectionState.Online => "已通过令牌认证重新连接本机助手。",
+            ConnectionState.DetectedUnverified => "发现了本机助手，但握手没有通过；不会显示为已连接。",
+            _ => "还是连不上本机助手，请确认它正在运行。",
+        });
         if (!probe.BindingsAvailable)
         {
             _viewModel.Notice(CompanionCopy.BindingsUnavailableNotice);
@@ -143,20 +158,24 @@ public partial class App : Application
 
     private void StartStream(int eventCount)
     {
-        if (_viewModel is null)
+        var uiQueue = _uiQueue;
+        if (_viewModel is null || uiQueue is null)
         {
             return;
         }
 
-        var source = StreamSourceFactory.Open(eventCount);
-        if (source is null)
-        {
-            _viewModel.Notice("这个版本没有链接流式通道，无法播放演示流。");
-            return;
-        }
+        var native = StreamSourceFactory.Open(eventCount);
+        var source = (IStreamSource?)native ?? new SyntheticStreamSource(eventCount);
+        _viewModel.Notice(native is null
+            ? "演示流模式：本地合成事件，不连接本机助手。"
+            : "已通过本机原生流播放演示事件。");
 
         _pump?.Dispose();
-        _pump = new StreamPump(source, _viewModel, new DispatcherQueuePoster(DispatcherQueue.GetForCurrentThread()));
+        _pump = new StreamPump(
+            source,
+            _viewModel,
+            new DispatcherQueuePoster(uiQueue),
+            onStats: stats => _viewModel.SetPumpStats(stats));
         _pump.Start();
     }
 
@@ -167,22 +186,34 @@ public partial class App : Application
             return;
         }
 
+        var expectedRows = _options.DemoRows ? 6 : 0;
+        var rows = _viewModel.Model.View.Rows.Count;
         var state =
-            $"SELF_TEST_OK window={(_window.IsVisible ? "visible" : "hidden")} "
+            $"window={(_window.IsVisible ? "visible" : "hidden")} "
             + $"density={_viewModel.Density.Label()} "
             + $"connected={_viewModel.IsOnline} "
             + $"degraded={_viewModel.IsDegraded} "
             + $"bindings={StreamSourceFactory.BindingsAvailable} "
             + $"tray={(_window.TrayActive ? "registered" : "disabled")} "
-            + $"rows={_viewModel.Model.View.Rows.Count}";
-        Report(state);
-        Report(
-            $"UI_SMOKE_READY title={_viewModel.WindowTitle} "
-            + $"announcements={_viewModel.AnnouncementCount}");
+            + $"rows={rows}";
 
         if (_options.SelfTest)
         {
+            // 自检必须断言真实不变量，而不是只打印一行"成功"。
+            var ok = _window.IsVisible && _viewModel.Density == _expectedDensity && rows == expectedRows;
+            Report(ok ? $"SELF_TEST_OK {state}" : $"SELF_TEST_FAIL {state} expected_density={_expectedDensity.Label()} expected_rows={expectedRows}");
+            if (!ok)
+            {
+                Environment.ExitCode = 1;
+            }
+
             _window.Quit();
+            return;
+        }
+
+        if (_options.UiSmoke)
+        {
+            Report($"UI_SMOKE_READY title={_viewModel.WindowTitle}");
         }
     }
 

@@ -26,7 +26,6 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <TextBlock
                     AutomationProperties.AutomationId="inspector.conscience"
-                    AutomationProperties.Name="良知锁定正文"
                     FontFamily="Consolas"
                     FontSize="12"
                     IsTextSelectionEnabled="True"
@@ -91,7 +90,13 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
-            <TextBlock FontFamily="Consolas" FontSize="11" Opacity="0.7" Text="{Binding PumpSummary}" TextWrapping="Wrap" />
+            <TextBlock
+                AutomationProperties.AutomationId="inspector.pump"
+                FontFamily="Consolas"
+                FontSize="11"
+                Opacity="0.7"
+                Text="{Binding PumpSummary}"
+                TextWrapping="Wrap" />
         </StackPanel>
     </Grid>
 </UserControl>

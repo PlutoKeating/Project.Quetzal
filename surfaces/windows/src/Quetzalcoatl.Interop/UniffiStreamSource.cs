@@ -3,22 +3,42 @@ namespace Quetzalcoatl.Interop;
 using Quetzalcoatl.Desktop.Model;
 using Quetzalcoatl.Desktop.Streaming;
 
-#if QZ_UNIFFI_BINDINGS
-using Quetzalcoatl.Bindings;
-#endif
+/// <summary>
+/// 原生事件流的最小抽象：把「拉取/结束/取消」从 UniFFI 生成类型里剥离出来，
+/// 使结束语义可以在没有原生库的机器上被真实单测覆盖。
+/// </summary>
+public interface INativeEventStream : IDisposable
+{
+    /// <summary>拉取至多 <paramref name="maxEvents"/> 个事件；正常结束时抛任意异常（由上层结合状态位判定）。</summary>
+    IReadOnlyList<StreamEvent> NextEvents(int maxEvents);
+
+    /// <summary>流是否已正常结束。</summary>
+    bool IsFinished { get; }
+
+    /// <summary>流是否已被取消。</summary>
+    bool IsCancelled { get; }
+
+    /// <summary>取消（幂等）。</summary>
+    void Cancel();
+}
 
 /// <summary>
-/// 把 UniFFI 的拉模式 <c>FfiViewStream</c> 包装成宿主 <see cref="IStreamSource"/>。
-/// 与 Rust 侧一致：批次有界（≤64），取消幂等；宿主永远只主动拉取，绝无回调注册。
+/// 把原生拉模式流包装成宿主 <see cref="IStreamSource"/>。
+/// 与 Rust 侧一致：批次有界（≤64）、取消幂等；宿主永远只主动拉取，绝无回调注册。
+/// <para>
+/// 结束语义（与 macOS `UniffiBridge.swift` 逐条一致）：Rust 在流耗尽后返回
+/// <c>Err(StreamFinished)</c>，因此拉取抛错时若 <see cref="INativeEventStream.IsFinished"/>
+/// 或 <see cref="INativeEventStream.IsCancelled"/> 为真，必须映射为 <c>false</c>（正常结束），
+/// 绝不能升级成「流故障」；只有真正的错误才向上抛。
+/// </para>
 /// </summary>
-#if QZ_UNIFFI_BINDINGS
 public sealed class UniffiStreamSource : IStreamSource
 {
-    private readonly FfiViewStream _stream;
+    private readonly INativeEventStream _stream;
     private bool _disposed;
 
-    /// <summary>包装一个已创建的原生流。</summary>
-    public UniffiStreamSource(FfiViewStream stream)
+    /// <summary>包装一个原生事件流。</summary>
+    public UniffiStreamSource(INativeEventStream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
         _stream = stream;
@@ -28,15 +48,32 @@ public sealed class UniffiStreamSource : IStreamSource
     public bool TryPull(int maxEvents, out IReadOnlyList<StreamEvent> events)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEvents);
-        var batch = _stream.NextEvents((uint)Math.Min(maxEvents, 64));
-        var mapped = new List<StreamEvent>(batch.Length);
-        foreach (var item in batch)
+        if (_stream.IsFinished || _stream.IsCancelled)
         {
-            mapped.Add(new StreamEvent(item.Seq, StreamEvent.ParseKind(item.Kind), item.Text));
+            events = Array.Empty<StreamEvent>();
+            return false;
         }
 
-        events = mapped;
-        return batch.Length > 0 && !_stream.IsFinished();
+        IReadOnlyList<StreamEvent> batch;
+        try
+        {
+            batch = _stream.NextEvents(Math.Min(maxEvents, 64));
+        }
+        catch (Exception) when (_stream.IsFinished || _stream.IsCancelled)
+        {
+            // 耗尽/取消不是故障：与 macOS 适配器保持一致，按正常结束处理。
+            events = Array.Empty<StreamEvent>();
+            return false;
+        }
+
+        if (batch.Count == 0)
+        {
+            events = Array.Empty<StreamEvent>();
+            return false;
+        }
+
+        events = batch;
+        return true;
     }
 
     /// <inheritdoc />
@@ -47,20 +84,11 @@ public sealed class UniffiStreamSource : IStreamSource
             return;
         }
 
-        try
-        {
-            _stream.Cancel();
-        }
-        catch (FfiException)
-        {
-            // 已结束/已取消：幂等释放路径保持静默。
-        }
-
-        _stream.Dispose();
         _disposed = true;
+        _stream.Cancel();
+        _stream.Dispose();
     }
 }
-#endif
 
 /// <summary>流源工厂：绑定缺失时返回 <c>null</c>，由界面进入类型化降级视图。</summary>
 public static class StreamSourceFactory
@@ -78,7 +106,7 @@ public static class StreamSourceFactory
     {
         ArgumentOutOfRangeException.ThrowIfNegative(eventCount);
 #if QZ_UNIFFI_BINDINGS
-        return new UniffiStreamSource(new FfiViewStream((uint)eventCount));
+        return new UniffiStreamSource(new FfiNativeEventStream(new Quetzalcoatl.Bindings.FfiViewStream((uint)eventCount)));
 #else
         _ = eventCount;
         return null;
@@ -87,31 +115,85 @@ public static class StreamSourceFactory
 }
 
 #if QZ_UNIFFI_BINDINGS
+
+/// <summary>UniFFI 生成类型的薄适配（只在链接原生库的构建里编译）。</summary>
+public sealed class FfiNativeEventStream : INativeEventStream
+{
+    private readonly Quetzalcoatl.Bindings.FfiViewStream _stream;
+
+    /// <summary>包装生成的 <c>FfiViewStream</c>。</summary>
+    public FfiNativeEventStream(Quetzalcoatl.Bindings.FfiViewStream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        _stream = stream;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<StreamEvent> NextEvents(int maxEvents)
+    {
+        var batch = _stream.NextEvents((uint)Math.Min(maxEvents, 64));
+        var mapped = new List<StreamEvent>(batch.Length);
+        foreach (var item in batch)
+        {
+            mapped.Add(new StreamEvent(item.Seq, StreamEvent.ParseKind(item.Kind), item.Text));
+        }
+
+        return mapped;
+    }
+
+    /// <inheritdoc />
+    public bool IsFinished => _stream.IsFinished();
+
+    /// <inheritdoc />
+    public bool IsCancelled => _stream.IsCancelled();
+
+    /// <inheritdoc />
+    public void Cancel()
+    {
+        if (_stream.IsCancelled())
+        {
+            return;
+        }
+
+        try
+        {
+            _stream.Cancel();
+        }
+        catch (Quetzalcoatl.Bindings.FfiException)
+        {
+            // 已结束/已取消：幂等释放路径保持静默。
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose() => _stream.Dispose();
+}
+
 /// <summary>
 /// UniFFI 视图会话的薄包装：把原生 <c>FfiViewPatch</c> 映射为平台中立模型，
 /// 保证「同一份绑定、同一套裁剪规则」在 Windows 侧不被重新发明。
 /// </summary>
 public sealed class UniffiViewBridge : IDisposable
 {
-    private readonly FfiViewSession _session;
+    private readonly Quetzalcoatl.Bindings.FfiViewSession _session;
 
     /// <summary>以指定密度创建原生视图会话。</summary>
-    public UniffiViewBridge(FfiCognitionDensity density)
+    public UniffiViewBridge(Quetzalcoatl.Bindings.FfiCognitionDensity density)
     {
-        _session = new FfiViewSession(density);
+        _session = new Quetzalcoatl.Bindings.FfiViewSession(density);
     }
 
     /// <summary>在原生会话上幂等重放模型补丁。</summary>
     public void Apply(ViewPatch patch)
     {
         ArgumentNullException.ThrowIfNull(patch);
-        var ops = new List<FfiViewOp>(patch.Ops.Count);
+        var ops = new List<Quetzalcoatl.Bindings.FfiViewOp>(patch.Ops.Count);
         foreach (var op in patch.Ops)
         {
             switch (op)
             {
                 case ViewOp.Upsert upsert:
-                    ops.Add(new FfiViewOp.Upsert(new FfiViewRow(
+                    ops.Add(new Quetzalcoatl.Bindings.FfiViewOp.Upsert(new Quetzalcoatl.Bindings.FfiViewRow(
                         Key: upsert.Row.Key,
                         Kind: upsert.Row.Kind,
                         Summary: upsert.Row.Summary,
@@ -120,12 +202,12 @@ public sealed class UniffiViewBridge : IDisposable
                         UpdatedRev: upsert.Row.UpdatedRev)));
                     break;
                 case ViewOp.Remove remove:
-                    ops.Add(new FfiViewOp.Remove(remove.Key));
+                    ops.Add(new Quetzalcoatl.Bindings.FfiViewOp.Remove(remove.Key));
                     break;
             }
         }
 
-        _session.ApplyPatch(new FfiViewPatch(
+        _session.ApplyPatch(new Quetzalcoatl.Bindings.FfiViewPatch(
             FromRev: patch.FromRev,
             ToRev: patch.ToRev,
             Density: ToFfi(patch.Density),
@@ -151,11 +233,12 @@ public sealed class UniffiViewBridge : IDisposable
     /// <inheritdoc />
     public void Dispose() => _session.Dispose();
 
-    private static FfiCognitionDensity ToFfi(CognitionDensity density) => density switch
+    private static Quetzalcoatl.Bindings.FfiCognitionDensity ToFfi(CognitionDensity density) => density switch
     {
-        CognitionDensity.Companion => FfiCognitionDensity.Companion,
-        CognitionDensity.Inspector => FfiCognitionDensity.Inspector,
-        _ => FfiCognitionDensity.Workbench,
+        CognitionDensity.Companion => Quetzalcoatl.Bindings.FfiCognitionDensity.Companion,
+        CognitionDensity.Inspector => Quetzalcoatl.Bindings.FfiCognitionDensity.Inspector,
+        _ => Quetzalcoatl.Bindings.FfiCognitionDensity.Workbench,
     };
 }
+
 #endif

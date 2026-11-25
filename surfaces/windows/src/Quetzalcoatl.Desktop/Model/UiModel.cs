@@ -102,15 +102,13 @@ public sealed class UiModel
         var ingest = new StreamIngest();
         foreach (var streamEvent in events)
         {
-            if (streamEvent.Seq != 0)
+            // 序号 0 也是合法事件：用可空水位区分「尚未消费」与「已消费到 0」。
+            if (Session.LastSeq is { } lastSeq && streamEvent.Seq <= lastSeq)
             {
-                if (streamEvent.Seq <= Session.LastSeq)
-                {
-                    continue;
-                }
-
-                Session.LastSeq = streamEvent.Seq;
+                continue;
             }
+
+            Session.LastSeq = streamEvent.Seq;
 
             ingest.Applied++;
             switch (streamEvent.Kind)

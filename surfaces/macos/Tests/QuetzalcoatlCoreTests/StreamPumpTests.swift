@@ -101,6 +101,28 @@ struct StreamPumpTests {
         #expect(pump.stats.appliedBatches == 0)
     }
 
+    @Test("统计回调在批次后更新检视态摘要")
+    func pumpReportsStatsToInspector() async throws {
+        let sink = RecordingAnnouncementSink()
+        let viewModel = DesktopViewModel(model: .offline("test"), sink: sink)
+        let source = SyntheticStreamSource(eventCount: 64, chunkSize: 16)
+        let pump = viewModel.makePump(
+            source: source,
+            maxEventsPerPull: 16,
+            onStats: { [weak viewModel] stats in viewModel?.applyPumpStats(stats) })
+        pump.start()
+
+        let deadline = Date().addingTimeInterval(5)
+        while !pump.stats.completed && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        pump.stop()
+        try await Task.sleep(for: .milliseconds(20))
+
+        #expect(viewModel.pumpSummary.contains("合并批次"))
+        #expect(viewModel.pumpSummary.contains("事件 65"))
+    }
+
     @Test("停止幂等且不再继续拉取")
     func stopIsIdempotentAndStopsPulling() async throws {
         let sink = RecordingAnnouncementSink()

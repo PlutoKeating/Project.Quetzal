@@ -171,6 +171,30 @@ public sealed class StreamPumpTests
     }
 
     [Fact]
+    public void PumpReportsStatsOnTheUiThread()
+    {
+        var viewModel = new DesktopViewModel(UiModel.Offline("test"), new RecordingAnnouncementSink());
+        using var harness = new UiThreadHarness();
+        using var source = new SyntheticStreamSource(64, chunkSize: 16);
+        using var pump = new StreamPump(
+            source,
+            viewModel,
+            harness,
+            maxEventsPerPull: 16,
+            onStats: stats => viewModel.SetPumpStats(stats));
+
+        pump.Start();
+        WaitUntil(
+            () => pump.Stats.Completed && harness.PendingCallbacks == 0,
+            TimeSpan.FromSeconds(5),
+            "统计回调");
+        Thread.Sleep(20);
+
+        Assert.Contains("合并批次", viewModel.PumpSummary, StringComparison.Ordinal);
+        Assert.Contains("事件 65", viewModel.PumpSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PumpDisposeIsIdempotentAndStopsTheProducer()
     {
         var viewModel = new DesktopViewModel(UiModel.Offline("test"), new RecordingAnnouncementSink());

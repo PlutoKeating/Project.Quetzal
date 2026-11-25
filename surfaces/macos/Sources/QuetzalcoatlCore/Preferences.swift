@@ -7,7 +7,6 @@ public struct DesktopPreferences: Codable, Sendable, Equatable {
     public var height: Double = 780
     public var maximized: Bool = false
     public var closeToMenuBar: Bool = true
-    public var startAtLogin: Bool = false
 
     public init() {}
 
@@ -26,16 +25,6 @@ public struct PreferencesStore: Sendable {
 
     public init(path: String) {
         self.path = path
-    }
-
-    /// 默认路径：`QUETZALCOATL_HOME/desktop.json`，否则 `~/Library/Application Support/Quetzalcoatl/desktop.json`。
-    public static func defaultPath() -> String {
-        if let home = ProcessInfo.processInfo.environment["QUETZALCOATL_HOME"], !home.isEmpty {
-            return URL(fileURLWithPath: home).appendingPathComponent("desktop.json").path
-        }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory())
-        return base.appendingPathComponent("Quetzalcoatl").appendingPathComponent("desktop.json").path
     }
 
     /// 读取偏好；缺失、损坏或字段非法时整体回退默认值。

@@ -23,8 +23,6 @@ public sealed record DesktopPreferences
     /// <summary>关闭主窗口时是否驻留托盘。</summary>
     public bool CloseToTray { get; init; } = true;
 
-    /// <summary>是否随登录启动（由计划任务实现，等价 Linux 用户级 unit / macOS LaunchAgent）。</summary>
-    public bool StartAtLogin { get; init; }
 
     /// <summary>把明显非法的尺寸收敛到可用范围。</summary>
     public DesktopPreferences Sanitized() => this with

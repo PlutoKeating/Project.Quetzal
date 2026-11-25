@@ -80,10 +80,9 @@ public struct UiModel: Sendable, Equatable {
     public mutating func ingest(_ events: [StreamEvent]) -> StreamIngest {
         var ingest = StreamIngest()
         for event in events {
-            if event.seq != 0 {
-                if event.seq <= session.lastSeq { continue }
-                session.lastSeq = event.seq
-            }
+            // 序号 0 也是合法事件：用可空水位区分「尚未消费」与「已消费到 0」。
+            if let lastSeq = session.lastSeq, event.seq <= lastSeq { continue }
+            session.lastSeq = event.seq
             ingest.applied += 1
             switch event.kind {
             case .delta:

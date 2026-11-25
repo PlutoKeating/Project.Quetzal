@@ -25,8 +25,10 @@
     <ProjectReference Include="../Quetzalcoatl.Interop/Quetzalcoatl.Interop.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="Resources\**\*" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+  <Target Name="QzRequireAppxMsBuildTools" BeforeTargets="PrepareForBuild" Condition="'$(UseWinUI)' == 'true'">
+    <Error
+      Condition="'$(AppxMSBuildToolsPath)' == '' or !Exists('$(AppxMSBuildToolsPath)Microsoft.Build.AppxPackage.dll')"
+      Text="WinUI 3 构建需要 Visual Studio Build Tools 的 Appx/PRI MSBuild 任务（Microsoft.Build.AppxPackage.dll）。请安装 VS 2022 Build Tools 工作负载 Microsoft.VisualStudio.Workload.UniversalBuildTools，或设置 AppxMSBuildToolsPath 指向含该 DLL 的 AppxPackage 目录。" />
+  </Target>
 
 </Project>

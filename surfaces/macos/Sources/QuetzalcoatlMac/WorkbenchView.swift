@@ -25,7 +25,6 @@ struct WorkbenchView: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("workbench.transcript")
-                .accessibilityLabel("工作台对话内容")
 
                 ForEach(Array(snapshot.notices.enumerated()), id: \.offset) { _, notice in
                     Text(notice)
@@ -78,11 +77,11 @@ struct WorkbenchView: View {
                         Text(row.summary).font(.callout)
                         HStack(spacing: 8) {
                             Button("批准") { onApprove(row.key, true) }
-                                .accessibilityIdentifier("workbench.approve")
-                                .accessibilityLabel("批准这项操作")
+                                .accessibilityIdentifier("workbench.approve/\(row.key)")
+                                .accessibilityLabel("批准这项操作（\(row.summary)）")
                             Button("拒绝") { onApprove(row.key, false) }
-                                .accessibilityIdentifier("workbench.deny")
-                                .accessibilityLabel("拒绝这项操作")
+                                .accessibilityIdentifier("workbench.deny/\(row.key)")
+                                .accessibilityLabel("拒绝这项操作（\(row.summary)）")
                         }
                     }
                 }

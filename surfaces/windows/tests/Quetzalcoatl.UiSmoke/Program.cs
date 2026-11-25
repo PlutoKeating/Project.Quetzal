@@ -9,7 +9,7 @@ using Quetzalcoatl.Desktop.A11y;
 
 /// <summary>
 /// 外部 UI Automation 冒烟：启动真实 WinUI 3 窗口，按三档密度逐个读取 UIA 树，
-/// 并对照 <see cref="DesktopControlCatalog"/> 校验名称/类型/键盘可达/Invoke/Value/LiveSetting/触点尺寸。
+/// 并对照 <see cref="DesktopControlCatalog"/> 校验名称/类型/键盘可达/Invoke/Value/内容承载/触点尺寸。
 /// 退出码：0 = 全部通过；77 = 没有交互式桌面/窗口未出现（SKIP）；2 = 契约不符或崩溃。
 /// </summary>
 internal static class Program
@@ -58,7 +58,7 @@ internal static class Program
                 "tab.workbench",
                 "tab.inspector",
                 "status.connection",
-                "live.announcement",
+                "status.degraded",
             };
 
             var densityGroups = new (string TabId, string Prefix)[]
@@ -98,7 +98,6 @@ internal static class Program
                         item.IsKeyboardFocusable,
                         item.IsInvokeAvailable,
                         item.IsValueAvailable,
-                        item.LiveSetting,
                         item.Width,
                         item.Height,
                     })
@@ -278,7 +277,6 @@ internal static class Program
                     element.Current.IsKeyboardFocusable,
                     element.TryGetCurrentPattern(InvokePattern.Pattern, out _),
                     element.TryGetCurrentPattern(ValuePattern.Pattern, out _),
-                    ReadLiveSetting(element),
                     rectangle.Width,
                     rectangle.Height));
             }
@@ -289,29 +287,6 @@ internal static class Program
         }
 
         return observed;
-    }
-
-    private static string? ReadLiveSetting(AutomationElement element)
-    {
-        try
-        {
-            var value = element.GetCurrentPropertyValue(AutomationElementIdentifiers.LiveSettingProperty, ignoreDefaultValue: true);
-            return value switch
-            {
-                0 => "Off",
-                1 => "Polite",
-                2 => "Assertive",
-                _ => value?.ToString(),
-            };
-        }
-        catch (ElementNotAvailableException)
-        {
-            return null;
-        }
-        catch (InvalidOperationException)
-        {
-            return null;
-        }
     }
 
     private static ControlKind? MapKind(ControlType controlType)
