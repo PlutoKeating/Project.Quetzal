@@ -1,0 +1,20 @@
+// Cloudflare Workers：静态资源托管 build/client/ 里的预渲染产物；worker/index.ts 只接管
+// /dl/*（GitHub Release 资产的签名镜像源）、/api/*（发布接口镜像）与 /install /install.ps1（构建时烘焙的安装脚本），
+// 其余路径不经过 Worker（run_worker_first 只列这几类）。
+// 自定义域名在 Cloudflare 控制台的 Settings → Domains & Routes 里添加，不写在这里；
+// GITHUB_TOKEN 是可选的 Worker Secret（wrangler secret put GITHUB_TOKEN），不入库。
+{
+  "name": "quetzalcoatl",
+  "compatibility_date": "2026-11-01",
+  "main": "worker/index.ts",
+  "assets": {
+    "directory": "./build/client",
+    "binding": "ASSETS",
+    "run_worker_first": ["/dl/*", "/api/*", "/install", "/install.ps1"],
+    // 未知路径返回预渲染的 404.html（postbuild 从 /404 复制到根目录）
+    "not_found_handling": "404-page",
+    // 预渲染目录形如 /en/docs/index.html：/en/docs 直接命中；站内链接一律不带尾斜杠
+    "html_handling": "drop-trailing-slash"
+  },
+  "observability": { "enabled": true }
+}

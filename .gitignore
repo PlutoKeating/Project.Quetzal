@@ -7,6 +7,8 @@ surfaces/web/dist/
 website/build/
 website/.wrangler/
 website/.react-router/
+# 安装脚本被烘焙进 Worker 的生成文件（node scripts/gen-install-bundle.mjs）
+website/worker/generated/
 
 # Go 二进制产物
 hub/quetzalcoatl-hub

@@ -644,10 +644,10 @@
 **Interfaces:**
 - Produces: 全新 `Quetzalcoatl` 品牌双语官网、Cloudflare Worker `/dl/*` 流式 SHA-256 镜像与内置 Ed25519 验签回滚的 `install.sh / install.ps1`。
 
-- [ ] **Step 1: 编写安装脚本签名篡改阻断测试、架构识别测试与回滚测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 `website/` 与跨平台一键安装器**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写安装脚本签名篡改阻断测试、架构识别测试与回滚测试**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现 `website/` 与跨平台一键安装器**
+- [x] **Step 4: 验证通过并提交**
 
 ---
 
