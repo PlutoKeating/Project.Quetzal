@@ -39,7 +39,9 @@ pub fn explain_client_error(err: &ClientError) -> DegradedView {
         ClientError::DaemonUnavailable { detail } => DegradedView {
             title: String::from("本机的 Quetzalcoatl 助手还没启动"),
             detail: String::from("这个窗口已经准备好了，只是暂时联系不上本机的助手。"),
-            hint: String::from("在终端运行 quetzalcoatld，然后点下面的「重新连接」。"),
+            hint: String::from(
+                "在终端运行 `qz up` 启动本机守护进程（安装器已写好 systemd 用户单元），然后点「重新连接」。",
+            ),
             technical: detail.clone(),
         },
         ClientError::InsecureRuntimeFiles { detail } => DegradedView {
@@ -69,7 +71,9 @@ pub fn offline_default() -> DegradedView {
     DegradedView {
         title: String::from("本机的 Quetzalcoatl 助手还没启动"),
         detail: String::from("这个窗口已经准备好了，只是暂时联系不上本机的助手。"),
-        hint: String::from("在终端运行 quetzalcoatld，然后点下面的「重新连接」。"),
+        hint: String::from(
+            "在终端运行 `qz up` 启动本机守护进程（安装器已写好 systemd 用户单元），然后点「重新连接」。",
+        ),
         technical: String::from("quetzalcoatld 运行时文件缺失"),
     }
 }

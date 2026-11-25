@@ -133,9 +133,26 @@ pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
     let inspector = inspector::build();
 
     let stack = adw::ViewStack::new();
-    stack.add_titled(&companion.root, Some("companion"), "陪伴");
-    stack.add_titled(&workbench.root, Some("workbench"), "工作台");
-    stack.add_titled(&inspector.root, Some("inspector"), "检视");
+    // 显式给每个密度页一个存在的 symbolic 图标：libadwaita 在宽模式下会渲染页图标，
+    // 缺省会落到 `image-missing`（真实安装验收里就是三个红叉），既是视觉缺陷也降低可辨识度。
+    stack.add_titled_with_icon(
+        &companion.root,
+        Some("companion"),
+        "陪伴",
+        "chat-message-new-symbolic",
+    );
+    stack.add_titled_with_icon(
+        &workbench.root,
+        Some("workbench"),
+        "工作台",
+        "view-grid-symbolic",
+    );
+    stack.add_titled_with_icon(
+        &inspector.root,
+        Some("inspector"),
+        "检视",
+        "system-search-symbolic",
+    );
     stack.set_visible_child_name(density.label());
 
     let switcher = adw::ViewSwitcher::new();
