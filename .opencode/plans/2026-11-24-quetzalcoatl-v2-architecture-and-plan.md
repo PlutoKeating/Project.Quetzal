@@ -707,10 +707,14 @@
 **Interfaces:**
 - Produces: 完整通过的 `ConscienceBench`（T1 抗施压与合理更新、T2 群组多主体相反指令一致性、T3 跨信道思维病毒免疫 `篡改率 == 0%`）基准报告与全套对齐最新源码的中文文档。
 
-- [ ] **Step 1: 编写跨节点 + 群组房间的 `ConscienceBench` T1/T2/T3 自动化评测套件与五端无障碍检查清单**
-- [ ] **Step 2: 运行评测并调优参数直至全部指标达标（T3 核心良知篡改率为 0%）**
-- [ ] **Step 3: 全面撰写并核对根级 `README.md` 与 `docs/*.md`，确保文档与实际源码 100% 一致、无任何 V1 残留描述**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写跨节点 + 群组房间的 `ConscienceBench` T1/T2/T3 自动化评测套件与五端无障碍检查清单**
+- [x] **Step 2: 运行评测并调优参数直至全部指标达标（T3 核心良知篡改率为 0%）**
+- [x] **Step 3: 全面撰写并核对根级 `README.md` 与 `docs/*.md`，确保文档与实际源码 100% 一致、无任何 V1 残留描述**
+- [x] **Step 4: 验证通过并提交**
+
+> 说明：五端无障碍的**静态契约与无头运行**已执行；macOS VoiceOver、Windows Narrator + UIA、
+> Linux Orca/AT-SPI、iOS/Android 实机走查因验证机 VM 暂停，标记
+> `Deferred (VMs paused by owner)`，详见 `docs/ACCESSIBILITY_CHECKLIST.md`。
 
 ---
 
