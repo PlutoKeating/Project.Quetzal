@@ -589,10 +589,10 @@
 - Consumes: `quetzalcoatl-wasm` / 本地 `quetzalcoatld` 安全回环 API
 - Produces: 零跨端冗余的纯原生响应式 Web 应用（10 秒零术语引导、群组共享产物协同、蛇形四维良知树检视）。
 
-- [ ] **Step 1: 编写双通道 `aria-live` 防结巴测试、`320px/200%` 字号重排测试与三档切换端到端测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 Web Worker WASM 宿主与三档原生 DOM 视图**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写双通道 `aria-live` 防结巴测试、`320px/200%` 字号重排测试与三档切换端到端测试**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现 Web Worker WASM 宿主与三档原生 DOM 视图**
+- [x] **Step 4: 验证通过并提交**
 
 ---
 

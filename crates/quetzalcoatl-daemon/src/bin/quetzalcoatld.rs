@@ -29,6 +29,7 @@ Options:
   --fabric-relay-url <url>    iroh relay URL (default: same as --fabric-hub)
   --fabric-qad-port <port>    Hub QAD UDP port (default 7842)
   --fabric-mdns <0|1>         Enable LAN mDNS peer discovery (default 1)
+  --web-dir <dir>             Serve the same-origin web console from this directory
   -V, --version               Print version
   -h, --help                  Print help
 ";
@@ -50,6 +51,7 @@ fn parse_args(args: Vec<String>) -> Result<DaemonCli> {
     let mut fabric_relay_url: Option<String> = None;
     let mut fabric_qad_port: Option<u16> = None;
     let mut fabric_mdns: Option<bool> = None;
+    let mut web_dir: Option<PathBuf> = None;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -137,6 +139,13 @@ fn parse_args(args: Vec<String>) -> Result<DaemonCli> {
                             })?,
                     );
             }
+            "--web-dir" => {
+                i += 1;
+                let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("--web-dir 缺少目录参数"),
+                })?;
+                web_dir = Some(PathBuf::from(v));
+            }
             "--fabric-mdns" => {
                 i += 1;
                 let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
@@ -169,6 +178,9 @@ fn parse_args(args: Vec<String>) -> Result<DaemonCli> {
     }
     if let Some(wb) = worker_bin {
         cfg.worker_binary_override = Some(wb);
+    }
+    if let Some(dir) = web_dir {
+        cfg.web_dir = Some(dir);
     }
     if let Some(hub) = fabric_hub {
         cfg.fabric = Some(DaemonFabricConfig {

@@ -41,3 +41,11 @@ surfaces/android/local.properties
 crates/bindings/quetzalcoatl-uniffi/tests/csharp_smoke/generated/
 crates/bindings/quetzalcoatl-uniffi/tests/csharp_smoke/bin/
 crates/bindings/quetzalcoatl-uniffi/tests/csharp_smoke/obj/
+
+# Web 端 E2E 产物（Playwright）
+surfaces/web/test-results/
+surfaces/web/playwright-report/
+surfaces/web/blob-report/
+
+# Web 端可选 WASM 缓存宿主（由 scripts/build-web-wasm.sh 本地生成）
+surfaces/web/public/wasm/

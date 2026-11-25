@@ -41,6 +41,7 @@ use crate::group::{
     GroupInviteOutcome, GroupLeaveOutcome, GroupMemberView, GroupRevokeOutcome, GroupRoomSummary,
     GroupSendOutcome,
 };
+use crate::web_console::WebConsole;
 
 const MAX_IPC_HEADER_BYTES: usize = 32 * 1024;
 const MAX_IPC_BODY_BYTES: usize = 8 * 1024 * 1024;
@@ -525,7 +526,9 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
     hook_tokens: ScopedHookTokenRegistry,
     stop: Arc<AtomicBool>,
     handler: Arc<H>,
+    web_dir: Option<PathBuf>,
 ) -> Result<LocalIpcServerHandle> {
+    let web_console = Arc::new(WebConsole::new(web_dir));
     if !bind_addr.ip().is_loopback() {
         return Err(QuetzalcoatlError::SandboxViolation {
             detail: format!("本地 IPC HTTP 必须绑定 127.0.0.1/::1，拒绝绑定 {bind_addr}"),
@@ -551,6 +554,7 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
     let stop_tcp = Arc::clone(&stop);
     let handler_tcp = Arc::clone(&handler);
     let hooks_tcp = hook_tokens.clone();
+    let web_tcp = Arc::clone(&web_console);
     let tcp_join = thread::spawn(move || {
         while !stop_tcp.load(Ordering::Relaxed) {
             match tcp_listener.accept() {
@@ -564,9 +568,15 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
                     let h = Arc::clone(&handler_tcp);
                     let stop_conn = Arc::clone(&stop_tcp);
                     let hk = hooks_tcp.clone();
+                    let web_conn = Arc::clone(&web_tcp);
                     thread::spawn(move || {
-                        let should_shutdown =
-                            serve_single_ipc_stream(&mut stream, &ipc_token_bytes, &hk, h.as_ref());
+                        let should_shutdown = serve_single_ipc_stream(
+                            &mut stream,
+                            &ipc_token_bytes,
+                            &hk,
+                            h.as_ref(),
+                            web_conn.as_ref(),
+                        );
                         if should_shutdown {
                             stop_conn.store(true, Ordering::Relaxed);
                         }
@@ -615,6 +625,7 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
         let stop_uds = Arc::clone(&stop);
         let handler_uds = Arc::clone(&handler);
         let hooks_uds = hook_tokens;
+        let web_uds = Arc::clone(&web_console);
         let cleanup_sock = sock_path.clone();
         let join = thread::spawn(move || {
             while !stop_uds.load(Ordering::Relaxed) {
@@ -626,12 +637,14 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
                         let h = Arc::clone(&handler_uds);
                         let stop_conn = Arc::clone(&stop_uds);
                         let hk = hooks_uds.clone();
+                        let web_conn = Arc::clone(&web_uds);
                         thread::spawn(move || {
                             let should_shutdown = serve_single_ipc_stream(
                                 &mut stream,
                                 &ipc_token_bytes,
                                 &hk,
                                 h.as_ref(),
+                                web_conn.as_ref(),
                             );
                             if should_shutdown {
                                 stop_conn.store(true, Ordering::Relaxed);
@@ -674,6 +687,7 @@ fn serve_single_ipc_stream<S: Read + Write, H: IpcHandler + ?Sized>(
     expected_token_bytes: &[u8; 32],
     hook_tokens: &ScopedHookTokenRegistry,
     handler: &H,
+    web_console: &WebConsole,
 ) -> bool {
     let parsed = match read_ipc_http_request(stream) {
         Ok(r) => r,
@@ -701,6 +715,13 @@ fn serve_single_ipc_stream<S: Read + Write, H: IpcHandler + ?Sized>(
                 detail: rebind_reason,
             },
         );
+        return false;
+    }
+
+    // 非 `/v1/*` 路径全部交给同源 Web 控制台（静态资源、/auth/local、/health、/rpc）。
+    // 该分支不读取 `x-qz-ipc-token`，会话令牌由 `/auth/local` 单独签发。
+    if !parsed.target.starts_with("/v1/") {
+        web_console.handle(stream, &parsed, handler);
         return false;
     }
 
@@ -790,10 +811,11 @@ fn serve_single_ipc_stream<S: Read + Write, H: IpcHandler + ?Sized>(
     should_shutdown
 }
 
-struct ParsedIpcHttp {
-    target: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub(crate) struct ParsedIpcHttp {
+    pub(crate) method: String,
+    pub(crate) target: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
 }
 
 fn find_ipc_header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
@@ -839,11 +861,9 @@ fn read_ipc_http_request<R: Read>(stream: &mut R) -> Result<ParsedIpcHttp> {
         .ok_or_else(|| QuetzalcoatlError::SerializationError {
             detail: String::from("empty request line"),
         })?;
-    let target = req_line
-        .split_whitespace()
-        .nth(1)
-        .unwrap_or("/v1/rpc")
-        .to_owned();
+    let mut request_parts = req_line.split_whitespace();
+    let method = request_parts.next().unwrap_or("POST").to_owned();
+    let target = request_parts.next().unwrap_or("/v1/rpc").to_owned();
 
     let mut headers = Vec::new();
     let mut content_len = 0usize;
@@ -887,6 +907,7 @@ fn read_ipc_http_request<R: Read>(stream: &mut R) -> Result<ParsedIpcHttp> {
     }
 
     Ok(ParsedIpcHttp {
+        method,
         target,
         headers,
         body,

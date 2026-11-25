@@ -92,6 +92,8 @@ pub struct DaemonConfig {
     pub fabric: Option<DaemonFabricConfig>,
     /// 可选声学语音门（默认关闭；`QUETZALCOATL_VOICE_AI=1` 时启用）。
     pub voice_ai: crate::voice::VoiceAiConfig,
+    /// 同源 Web 控制台静态资源目录（`QUETZALCOATL_WEB_DIR` 或可执行文件旁 `web/`）。
+    pub web_dir: Option<PathBuf>,
 }
 
 impl DaemonConfig {
@@ -114,6 +116,7 @@ impl DaemonConfig {
             .map(PathBuf::from);
         let fabric = DaemonFabricConfig::resolve(&quetzalcoatl_home);
         let voice_ai = crate::voice::VoiceAiConfig::from_process_env();
+        let web_dir = resolve_web_console_dir();
 
         Self {
             quetzalcoatl_home,
@@ -127,8 +130,24 @@ impl DaemonConfig {
             discovery_search_paths: None,
             fabric,
             voice_ai,
+            web_dir,
         }
     }
+}
+
+/// Web 控制台目录解析：`QUETZALCOATL_WEB_DIR` 优先，其次可执行文件旁的 `web/`（存在才生效）。
+#[must_use]
+pub fn resolve_web_console_dir() -> Option<PathBuf> {
+    if let Some(value) = std::env::var_os("QUETZALCOATL_WEB_DIR") {
+        let path = PathBuf::from(value);
+        if !path.as_os_str().is_empty() {
+            return Some(path);
+        }
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("web")))
+        .filter(|dir| dir.is_dir())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -2776,6 +2795,7 @@ impl QuetzalcoatlDaemon {
             Arc::new(DeferredHandler {
                 slot: Arc::clone(&core_holder),
             }),
+            config.web_dir.clone(),
         )?;
 
         let runtime_info = DaemonRuntimeInfo {
