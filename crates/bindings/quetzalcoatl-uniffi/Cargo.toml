@@ -1,0 +1,39 @@
+[package]
+name = "quetzalcoatl-uniffi"
+description = "Quetzalcoatl V2 三语言（Swift/Kotlin/C#）UniFFI 拉模式流绑定"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Cargo 不允许 `lints.workspace = true` 与逐项覆盖共存，因此绑定层手工复刻工作区
+# 全部四项 clippy deny，唯一收窄项是 `unsafe_code: forbid -> deny`，以便为 UniFFI 宏生成的 FFI 胶水
+# 放行（精确文件/行见 README 的豁免清单；`workspace_hygiene` 测试强制校验该复刻完整性）。
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[features]
+default = ["cli"]
+cli = ["uniffi/cli"]
+
+[dependencies]
+quetzalcoatl-client-core = { workspace = true }
+thiserror = { workspace = true }
+uniffi = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

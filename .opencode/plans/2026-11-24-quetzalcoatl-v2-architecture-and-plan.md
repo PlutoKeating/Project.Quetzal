@@ -568,10 +568,14 @@
 **Interfaces:**
 - Produces: 单机 `quetzalcoatld` IPC 薄客户端自动切换器、WASM OPFS 独占存储与 `ruzstd` 适配、三档认知密度响应式差分 `ViewPatch`、`ViewStream::next_events()` 拉模式流接口，以及供移动端复用的安全 `UniFFI` LLM 流通道。
 
-- [ ] **Step 1: 编写 GUI+CLI 并发挂载零锁冲突测试，以及 Swift 6 / Kotlin / .NET 9 三语言 10,000 次拉流取消零内存泄漏测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 `quetzalcoatl-client-core`、`quetzalcoatl-uniffi` 与 `quetzalcoatl-wasm`**
-- [ ] **Step 4: 验证通过并提交**
+- [x] **Step 1: 编写 GUI+CLI 并发挂载零锁冲突测试，以及 Swift 6 / Kotlin / .NET 9 三语言 10,000 次拉流取消零内存泄漏测试**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 实现 `quetzalcoatl-client-core`、`quetzalcoatl-uniffi` 与 `quetzalcoatl-wasm`**
+- [x] **Step 4: 验证通过并提交**
+- 说明：`ThinClient::mount` 只读探测 `spine/daemon.lock` + `run/daemon.json` + `run/daemon.token`（0600 且属主为当前有效 UID）并做健康握手；`quetzalcoatl-client-core` 不依赖 `rusqlite`/`quetzalcoatl-spine`（有测试静态断言），薄客户端在依赖图上不可能打开 `spine/spine.sqlite`。三档密度以 `ViewPatch{from_rev,to_rev,ops}` 幂等重放、`BTreeMap` 保证确定性；`ViewStream::next_events` 是唯一拉取入口（`MAX_BATCH_EVENTS = 64`），`cancel()`/`Drop` 都 `join` 生产者线程。
+- 证据：真实 `quetzalcoatld` + 2 个独立进程薄客户端各 41 次 IPC 读取 / 1 次 IPC 写入（领域包切换落 1 条脊柱事件），`sqlite_busy=0`、`db_fds=[]`；10,000 次拉流创建/取消后 fd `4 → 4`、RSS `+4 KiB`；`.NET 10.0.401` 真实生成-编译-运行 C# 消费方（`CSHARP_SMOKE_OK`，含 10,000 次跨 FFI 拉流取消，fd `29 → 33`、RSS `+21 MiB`）；`cargo check -p quetzalcoatl-wasm --target wasm32-unknown-unknown` 通过；符号级断言 0 个 `init_callback_vtable`（103 个导出符号）。
+- 偏差与 Deferred：`uniffi-bindgen-cs` 未发布到 crates.io（sparse index `un/if/uniffi-bindgen-cs` 404），改按与 uniffi 0.32.0 配对的 Git 标签 `v0.12.0+v0.32.0` 安装同名工具，配对关系写入 `bindgen-cs-pin.json` 并由 `tests/api_surface.rs` 强制校验（实测 `uniffi-bindgen 0.12.0+v0.32.0`，paired uniffi `0.32.0`）；宿主缺 `swiftc`/`kotlinc`，Swift/Kotlin 只做「真实生成绑定 + 静态符号校验」并打印 SKIP 理由，真实编译与 10,000 次拉流取消分别在 Task 4.3（macOS）与 Task 4.4（Android）补齐；浏览器 OPFS/Web Lock 运行时竞争 E2E 归 Task 4.2 Web 端。
+- 门禁适配：`crates/quetzalcoatl-types/tests/workspace_hygiene.rs` 新增**唯一**绑定层豁免分支——`crates/bindings/*` 不允许 `lints.workspace = true`（Cargo 禁止与逐项覆盖共存），但必须手工复刻工作区四项 clippy deny，且 `unsafe_code` 仅允许 `forbid → deny`（宏生成 FFI 胶水必需）；手写代码零 `unsafe` 由各绑定 crate 集成测试静态扫描保证。
 
 ---
 

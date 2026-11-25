@@ -16,6 +16,9 @@ members = [
     "crates/quetzalcoatl-harness",
     "crates/quetzalcoatl-voice-ai",
     "crates/quetzalcoatl-daemon",
+    "crates/quetzalcoatl-client-core",
+    "crates/bindings/quetzalcoatl-uniffi",
+    "crates/bindings/quetzalcoatl-wasm",
 ]
 
 [workspace.package]
@@ -64,6 +67,7 @@ quetzalcoatl-group = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-gr
 quetzalcoatl-harness = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-harness" }
 quetzalcoatl-kernel = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-kernel" }
 quetzalcoatl-sandbox = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-sandbox" }
+quetzalcoatl-client-core = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-client-core" }
 quetzalcoatl-spine = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-spine" }
 quetzalcoatl-types = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-types" }
 quetzalcoatl-voice-ai = { version = "2.0.0-alpha.1", path = "crates/quetzalcoatl-voice-ai" }
@@ -80,6 +84,12 @@ sha2 = "0.10.9"
 sha3 = "0.10.9"
 thiserror = "2.0.12"
 tokio = { version = "1.50.0", default-features = false, features = ["io-util", "net", "rt", "sync", "time"] }
+uniffi = { version = "=0.32.0" }
+ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+js-sys = "0.3.107"
+web-sys = { version = "0.3.107" }
 unicode-normalization = "0.1.25"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }

@@ -15,6 +15,11 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 
+# 防坑规范 #17：`wasm32-unknown-unknown` 无系统熵源，必须显式启用 `uuid` 的 `js`
+# 随机源特性，否则 `getrandom` 在浏览器目标上直接 `compile_error!`。
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { workspace = true, features = ["js"] }
+
 [dev-dependencies]
 serde_json = { workspace = true }
 toml = "0.8.23"

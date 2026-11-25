@@ -1,0 +1,16 @@
+# UniFFI 三语言绑定生成配置（`scripts/uniffi-bindings.sh` 显式以 `--config` 传入）。
+
+[bindings.kotlin]
+package_name = "org.quetzalcoatl.bindings"
+cdylib_name = "quetzalcoatl_uniffi"
+
+[bindings.swift]
+module_name = "QuetzalcoatlBindings"
+ffi_module_name = "quetzalcoatl_uniffiFFI"
+cdylib_name = "quetzalcoatl_uniffi"
+
+[bindings.csharp]
+namespace = "Quetzalcoatl.Bindings"
+cdylib_name = "quetzalcoatl_uniffi"
+# `uniffi-bindgen-cs` 默认生成 `internal` 类型，跨程序集消费方无法使用；必须显式公开。
+access_modifier = "public"
