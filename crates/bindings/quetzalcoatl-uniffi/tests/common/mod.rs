@@ -24,8 +24,27 @@ pub fn target_dir() -> PathBuf {
         .unwrap_or_else(|| repo_root().join("target"))
 }
 
+/// 当前测试二进制所在的 profile 产物目录（`target/<profile>`）。
+///
+/// 直接由 `current_exe()`（`target/<profile>/deps/<test>`）反推，而不是依赖
+/// 编译期 `PROFILE` 环境变量（cargo 只对 build script 设置它），因此在
+/// `cargo test --release`、`--profile ci` 等任意画像下都能精确命中产物目录。
+pub fn profile_dir() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(deps) = exe.parent()
+        && let Some(profile_dir) = deps.parent()
+        && profile_dir.join("deps").is_dir()
+    {
+        return profile_dir.to_path_buf();
+    }
+    target_dir().join(profile())
+}
+
 pub fn profile() -> String {
-    option_env!("PROFILE").unwrap_or("debug").to_owned()
+    profile_dir()
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| String::from("debug"))
 }
 
 pub fn native_lib_name() -> &'static str {
@@ -39,11 +58,39 @@ pub fn native_lib_name() -> &'static str {
 }
 
 pub fn native_lib_path() -> PathBuf {
-    target_dir().join(profile()).join(native_lib_name())
+    profile_dir().join(native_lib_name())
 }
 
 pub fn cargo_bin() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo"))
+}
+
+/// `cargo build` 参数：必须显式携带与产物目录一致的 `--profile`，
+/// 否则 `cargo test --release` 会去找一个从未构建过的 debug 二进制。
+#[must_use]
+pub fn native_lib_build_args() -> Vec<String> {
+    vec![
+        String::from("build"),
+        String::from("-p"),
+        String::from("quetzalcoatl-uniffi"),
+        String::from("--lib"),
+        String::from("--profile"),
+        profile(),
+    ]
+}
+
+#[must_use]
+pub fn bindgen_build_args() -> Vec<String> {
+    vec![
+        String::from("build"),
+        String::from("-p"),
+        String::from("quetzalcoatl-uniffi"),
+        String::from("--features"),
+        String::from("cli"),
+        String::from("--bins"),
+        String::from("--profile"),
+        profile(),
+    ]
 }
 
 /// 构建 `cdylib`；`cargo test` 默认只产出 `rlib`，且 API 变更后旧 `.so` 会让生成的绑定
@@ -52,7 +99,7 @@ pub fn ensure_native_lib() -> Result<PathBuf, String> {
     let lib = native_lib_path();
     let status = Command::new(cargo_bin())
         .current_dir(repo_root())
-        .args(["build", "-p", "quetzalcoatl-uniffi", "--lib"])
+        .args(native_lib_build_args())
         .status()
         .map_err(|e| format!("无法启动 cargo build: {e}"))?;
     if !status.success() {
@@ -78,20 +125,13 @@ pub fn ensure_bindgen_bin() -> Result<PathBuf, String> {
     } else {
         "uniffi-bindgen"
     };
-    let path = target_dir().join(profile()).join(bin_name);
+    let path = profile_dir().join(bin_name);
     if path.is_file() {
         return Ok(path);
     }
     let status = Command::new(cargo_bin())
         .current_dir(repo_root())
-        .args([
-            "build",
-            "-p",
-            "quetzalcoatl-uniffi",
-            "--features",
-            "cli",
-            "--bins",
-        ])
+        .args(bindgen_build_args())
         .status()
         .map_err(|e| format!("无法启动 cargo build --features cli: {e}"))?;
     if !status.success() {

@@ -108,3 +108,60 @@ fn density_patch_is_pure_and_apply_switches_density() {
     );
     assert_eq!(session.rev().expect("rev applied"), rev_before + 1);
 }
+
+#[test]
+fn snapshot_honors_active_density_without_leaking_raw_payload() {
+    let session = FfiViewSession::new(FfiCognitionDensity::Companion);
+    seed(&session, 9);
+    // 补丁自带 density 字段：显式切回 Companion 后再取快照。
+    session
+        .apply_patch(
+            session
+                .density_patch(FfiCognitionDensity::Companion)
+                .expect("density patch"),
+        )
+        .expect("apply companion density");
+
+    let companion = session.snapshot().expect("companion snapshot");
+    assert_eq!(companion.density, FfiCognitionDensity::Companion);
+    assert_eq!(companion.rows.len(), 1);
+    assert_eq!(
+        companion.rows[0].detail, None,
+        "Companion 快照不得包含细节层"
+    );
+    assert_eq!(
+        companion.rows[0].raw_json, None,
+        "Companion 快照不得包含原始载荷"
+    );
+
+    let projected = session.projected_rows().expect("projected rows");
+    assert_eq!(
+        companion.rows[0].detail, projected[0].detail,
+        "同一密度下 snapshot 与 projected_rows 必须逐字段一致"
+    );
+    assert_eq!(companion.rows[0].raw_json, projected[0].raw_json);
+
+    // Workbench：允许 detail，仍不得泄露 raw。
+    session
+        .apply_patch(
+            session
+                .density_patch(FfiCognitionDensity::Workbench)
+                .expect("workbench patch"),
+        )
+        .expect("apply workbench density");
+    let workbench = session.snapshot().expect("workbench snapshot");
+    assert!(workbench.rows[0].detail.is_some());
+    assert_eq!(workbench.rows[0].raw_json, None);
+
+    // Inspector：全量。
+    session
+        .apply_patch(
+            session
+                .density_patch(FfiCognitionDensity::Inspector)
+                .expect("inspector patch"),
+        )
+        .expect("apply inspector density");
+    let inspector = session.snapshot().expect("inspector snapshot");
+    assert!(inspector.rows[0].detail.is_some());
+    assert!(inspector.rows[0].raw_json.is_some());
+}

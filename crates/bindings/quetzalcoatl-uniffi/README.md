@@ -67,9 +67,10 @@ scripts/uniffi-bindings.sh all
 ## 交付产物不含绑定工具链
 
 `[features] default = []`，`uniffi-bindgen` bin 标记 `required-features = ["cli"]`。
-`cargo tree -p quetzalcoatl-uniffi -e normal` 的默认依赖仅含 `uniffi_core` / `uniffi_macros`
-（后者作为 proc-macro 依赖 `fs-err`，只编译进宿主构建期，不进入 cdylib/staticlib）；
-`clap` / `askama` / `cargo_metadata` 仅在显式 `--features cli` 出现。
+`cargo tree -p quetzalcoatl-uniffi -e normal` 的默认依赖树为
+`uniffi_core` / `uniffi_macros` / `uniffi_pipeline` / `anyhow`，以及仅供 proc-macro 宿主构建期的
+`fs-err`（不进入 cdylib/staticlib）；`clap` / `askama` / `cargo_metadata` **仅在显式
+`--features cli`** 出现。
 `tests/api_surface.rs::default_features_never_ship_the_bindgen_toolchain` 用
 `cargo metadata` 强制该约束。
 

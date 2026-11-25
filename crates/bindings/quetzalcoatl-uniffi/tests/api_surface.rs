@@ -58,6 +58,44 @@ fn uniffi_is_pinned_exactly_to_0_32_0() {
 }
 
 #[test]
+fn build_commands_pass_the_matching_profile() {
+    // `cargo test --release` 下产物位于 target/release，构建命令必须带一致的 --profile，
+    // 否则会去找从未构建过的 debug 二进制。
+    for args in [
+        common::native_lib_build_args(),
+        common::bindgen_build_args(),
+    ] {
+        let profile_flag = args.iter().position(|arg| arg == "--profile");
+        assert!(
+            profile_flag.is_some(),
+            "构建命令必须显式携带 --profile: {args:?}"
+        );
+        assert_eq!(
+            args.get(profile_flag.unwrap_or_default() + 1)
+                .map(String::as_str),
+            Some(common::profile().as_str()),
+            "{args:?} 的 --profile 必须与 common::profile() 一致"
+        );
+    }
+    assert_eq!(
+        common::native_lib_path(),
+        common::profile_dir().join(common::native_lib_name())
+    );
+    assert_eq!(
+        common::profile_dir()
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned()),
+        Some(common::profile()),
+        "profile 名称必须与产物目录一致"
+    );
+    assert!(
+        common::profile_dir().is_dir(),
+        "产物目录必须真实存在: {}",
+        common::profile_dir().display()
+    );
+}
+
+#[test]
 fn default_features_never_ship_the_bindgen_toolchain() {
     // 交付给 Swift/Kotlin/C# 的 cdylib/staticlib 不得默认拖入 clap/askama/cargo_metadata/fs-err：
     // 绑定生成工具只能由显式 `--features cli` 构建。

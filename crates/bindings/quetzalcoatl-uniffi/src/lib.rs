@@ -272,13 +272,19 @@ impl FfiViewSession {
         Ok(state.density_patch(density.into()).into())
     }
 
-    /// 全量快照（Inspector 密度下等价于全量状态树）。
+    /// 当前密度的完整快照：**与 [`Self::projected_rows`] 使用同一裁剪规则**，
+    /// Companion 只含摘要、Workbench 不含原始载荷、Inspector 才全量。
     pub fn snapshot(&self) -> Result<FfiViewSnapshot, FfiError> {
         let state = self.lock_state()?;
+        let density = state.density;
         Ok(FfiViewSnapshot {
             rev: state.rev,
-            density: state.density.into(),
-            rows: state.rows.values().cloned().map(Into::into).collect(),
+            density: density.into(),
+            rows: state
+                .rows
+                .values()
+                .map(|row| project_row(row, density))
+                .collect(),
         })
     }
 
@@ -290,23 +296,28 @@ impl FfiViewSession {
         Ok(state
             .rows
             .values()
-            .map(|row| FfiViewRow {
-                key: row.key.clone(),
-                kind: row.kind.clone(),
-                summary: row.summary.clone(),
-                detail: if density.includes(DetailLayer::Detail) {
-                    row.detail.clone()
-                } else {
-                    None
-                },
-                raw_json: if density.includes(DetailLayer::Raw) {
-                    row.raw_json.clone()
-                } else {
-                    None
-                },
-                updated_rev: row.updated_rev,
-            })
+            .map(|row| project_row(row, density))
             .collect())
+    }
+}
+
+/// 单一裁剪实现：快照与投影共用，避免两条路径的隐私契约漂移。
+fn project_row(row: &ViewRow, density: CognitionDensity) -> FfiViewRow {
+    FfiViewRow {
+        key: row.key.clone(),
+        kind: row.kind.clone(),
+        summary: row.summary.clone(),
+        detail: if density.includes(DetailLayer::Detail) {
+            row.detail.clone()
+        } else {
+            None
+        },
+        raw_json: if density.includes(DetailLayer::Raw) {
+            row.raw_json.clone()
+        } else {
+            None
+        },
+        updated_rev: row.updated_rev,
     }
 }
 

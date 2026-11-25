@@ -1,5 +1,3 @@
-#![deny(unsafe_code)]
-
 //! 浏览器 OPFS 单写者存储（`wasm32-unknown-unknown`）。
 //!
 //! 写入前**必须先取到独占 Web Lock**（`navigator.locks.request(name, {mode:"exclusive",
