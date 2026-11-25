@@ -1,6 +1,6 @@
 # Quetzalcoatl installer for Windows: irm https://quetzal.plutokeating.beer/install.ps1 | iex
 # GENERATED from scripts/install.src.ps1 by scripts/gen-install-ps1.mjs - edit the source, not this file.
-# source sha256: 616079db8d7350e002cc615a1047e6ef308ae07295321438a4edfa7e956d3858
+# source sha256: 171e227d8489b399d556eb921a7f2a81d9afc227d08a4b2fa8929c6f2f5de78a
 # The Ed25519 verifier and the embedded release key are part of this file: there is no black box.
 <#
 .SYNOPSIS
@@ -254,7 +254,15 @@ function Get-VerifiedRelease([string]$Tag, [string]$AssetName, [string]$TempDir)
   $sums = Join-Path $TempDir 'SHA256SUMS'
   $sig = Join-Path $TempDir 'SHA256SUMS.sig'
   $asset = Join-Path $TempDir $AssetName
-  $pub = if ($env:QUETZALCOATL_TEST_RELEASE_PUBKEY) { $env:QUETZALCOATL_TEST_RELEASE_PUBKEY } else { $script:ReleasePubKey }
+  $pub = $script:ReleasePubKey
+  if ($env:QUETZALCOATL_TEST_RELEASE_PUBKEY) {
+    # Test-only key override: it must be opened explicitly so a stray environment
+    # variable cannot silently replace the production trust root.
+    if ($env:QUETZALCOATL_ALLOW_TEST_PUBKEY -ne '1') {
+      Fail 'QUETZALCOATL_TEST_RELEASE_PUBKEY is for tests only; set QUETZALCOATL_ALLOW_TEST_PUBKEY=1 to use it'
+    }
+    $pub = $env:QUETZALCOATL_TEST_RELEASE_PUBKEY
+  }
   foreach ($base in (Get-ReleaseBases $Tag)) {
     Write-Note "source: $base"
     foreach ($f in @($sums, $sig, $asset)) { if (Test-Path $f) { Remove-Item $f -Force } }
@@ -377,16 +385,29 @@ function Install-Qz {
     $stagedBin = Join-Path $stage 'bin'
     if (-not (Test-Path $stagedBin)) { Fail 'unexpected archive layout: bin/ missing' }
 
+    $fresh = (-not (Test-Path $script:BinDir)) -or (@(Get-ChildItem -LiteralPath $script:BinDir -Force -ErrorAction SilentlyContinue).Count -eq 0)
     Backup-Current
     New-Item -ItemType Directory -Path $script:BinDir -Force | Out-Null
-    Get-ChildItem -LiteralPath $stagedBin | ForEach-Object {
+    $copied = @(Get-ChildItem -LiteralPath $stagedBin)
+    $copied | ForEach-Object {
       Copy-Item -Force $_.FullName (Join-Path $script:BinDir $_.Name)
     }
 
     Write-Step 'Health check'
     if (-not (Test-Health $Version)) {
-      if (Restore-Backup) { Write-Warn 'the new version did not pass its health check; rolled back' }
-      Fail "quetzalcoatl $Version failed its health check (qz --version); nothing was activated"
+      if (Restore-Backup) {
+        Write-Warn 'the new version did not pass its health check; rolled back'
+        Fail "quetzalcoatl $Version failed its health check (qz --version); the previous version was restored"
+      }
+      foreach ($file in $copied) {
+        $target = Join-Path $script:BinDir $file.Name
+        if (Test-Path -LiteralPath $target) { Remove-Item -Force -LiteralPath $target }
+      }
+      if ($fresh) { Remove-Item -Recurse -Force $script:BinDir -ErrorAction SilentlyContinue }
+      if ($fresh) {
+        Fail "quetzalcoatl $Version failed its health check (qz --version); this first install was removed and nothing is active"
+      }
+      Fail "quetzalcoatl $Version failed its health check (qz --version); the files this run wrote were removed"
     }
     Write-Ok "qz $Version responds"
 
@@ -402,6 +423,39 @@ function Install-Qz {
   } finally {
     if (Test-Path $temp) { Remove-Item -Recurse -Force $temp -ErrorAction SilentlyContinue }
   }
+}
+
+# Canonical absolute path: normalise separators, drop a trailing separator.
+function Get-CanonicalPath([string]$Path) {
+  $full = [IO.Path]::GetFullPath($Path)
+  $root = [IO.Path]::GetPathRoot($full)
+  while ($full.Length -gt $root.Length -and ($full.EndsWith([string][IO.Path]::DirectorySeparatorChar) -or $full.EndsWith([string][IO.Path]::AltDirectorySeparatorChar))) {
+    $full = $full.Substring(0, $full.Length - 1)
+  }
+  return $full
+}
+
+# -Purge guard: refuse empty paths, drive roots, HOME itself, ancestors of HOME,
+# and symlinks / reparse points (a link to HOME must not be followed).
+function Assert-PurgeSafe([string]$Path) {
+  if (-not $Path) { Fail 'refusing to purge an empty path' }
+  $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+  if ($item) {
+    if ($item.LinkType) { Fail "refusing to purge $Path`: it is a symlink" }
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      Fail "refusing to purge $Path`: it is a symlink or reparse point"
+    }
+  }
+  $canon = Get-CanonicalPath $Path
+  $homeCanon = Get-CanonicalPath $HOME
+  $rootCanon = [IO.Path]::GetPathRoot($canon)
+  if ($canon -eq $rootCanon) { Fail "refusing to purge $canon" }
+  if ($canon -eq $homeCanon) { Fail "refusing to purge $Path`: it resolves to your home directory" }
+  $sep = [string][IO.Path]::DirectorySeparatorChar
+  if ($homeCanon.StartsWith($canon + $sep, [StringComparison]::OrdinalIgnoreCase)) {
+    Fail "refusing to purge $Path`: it is an ancestor of your home directory"
+  }
+  return $canon
 }
 
 function Uninstall-Qz {
@@ -420,13 +474,9 @@ function Uninstall-Qz {
   Write-Ok 'tasks, binaries and service state removed'
 
   if ($Purge) {
-    $full = [IO.Path]::GetFullPath($script:QzHome)
-    $root = [IO.Path]::GetPathRoot($full)
-    if (-not $full -or $full -eq $root -or $full -eq $env:USERPROFILE -or $full -eq $env:LOCALAPPDATA) {
-      Fail "refusing to purge $full"
-    }
-    if (Test-Path $full) {
-      Remove-Item -Recurse -Force $full
+    $full = Assert-PurgeSafe $script:QzHome
+    if (Test-Path -LiteralPath $full) {
+      Remove-Item -Recurse -Force -LiteralPath $full
       Write-Ok "purged $full (spine, memory, settings)"
     } else {
       Write-Note "$full does not exist"

@@ -36,7 +36,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --version 0.1.
         {
           kind: "p",
           text:
-            "二进制装进 `--prefix` 下的 `bin/`（默认 `~/.local/bin`），运行时家目录默认 `~/.quetzalcoatl`，可用 `QUETZALCOATL_HOME` 改。安装器从不调用 `sudo`：缺依赖时它打印这台机器对应的安装命令就退出。",
+            "二进制装进 `--prefix` 下的 `bin/`（默认 `~/.local/bin`），运行时家目录默认 `~/.quetzalcoatl`，可用 `QUETZALCOATL_HOME` 改。安装器从不调用 `sudo`：它检查下载工具（curl/wget）、`tar`、`sha256sum`/`shasum` 与验签工具（openssl/perl），缺什么就把对应包管理器（apt / dnf / pacman / apk / brew）的安装命令打印出来，然后退出。",
         },
         { kind: "h2", id: "windows", text: "Windows" },
         {
@@ -60,7 +60,7 @@ $env:QUETZALCOATL_VERSION = '0.1.0'; irm https://quetzal.plutokeating.beer/insta
             ["`--version X.Y.Z`", "`QUETZALCOATL_VERSION`", "安装指定版本；默认取最新签名版本"],
             ["`--prefix DIR`", "`QUETZALCOATL_PREFIX`", "安装前缀，二进制在 DIR/bin"],
             ["`--no-desktop`", "`QUETZALCOATL_NO_DESKTOP=1`", "不写桌面快捷方式"],
-            ["`--cn` / `--no-cn`", "`QUETZALCOATL_CN=1|0`", "优先 / 不优先中国大陆镜像"],
+            ["`--cn` / `--no-cn`", "`QUETZALCOATL_CN=1|0`", "优先本站镜像（默认优先 GitHub；`QZ_CN_MIRROR` 可改镜像地址）"],
             ["`--uninstall [--purge]`", "—", "卸载；`--purge` 连家目录一起删"],
             ["`--print-platform`", "`QZ_OS` / `QZ_ARCH`", "打印 `<os> <arch>` 后退出（CI 用）"],
           ],
@@ -70,7 +70,7 @@ $env:QUETZALCOATL_VERSION = '0.1.0'; irm https://quetzal.plutokeating.beer/insta
           kind: "steps",
           items: [
             { title: "识别平台与架构", text: "Linux / macOS 与 x64 / arm64；不支持的架构直接拒绝，不猜。" },
-            { title: "下载签名清单", text: "SHA256SUMS 与 SHA256SUMS.sig，先本站镜像、再 GitHub；每个源都单独验签。" },
+            { title: "下载签名清单", text: "SHA256SUMS 与 SHA256SUMS.sig：默认先 GitHub、再本站镜像（`--cn` 反过来）；每个源都单独验签。" },
             { title: "用内置公钥验签", text: "公钥写死在安装器里（见发布签名页），镜像无法替换。" },
             { title: "核对资产哈希", text: "清单里必须同时有 `commit <sha> v<版本>` 行与该资产的哈希。" },
             { title: "备份旧版本", text: "把现有 bin 目录复制到状态目录，升级失败可原样恢复。" },
@@ -157,7 +157,7 @@ curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- --version 0.1.
         {
           kind: "p",
           text:
-            "Binaries land in `--prefix`/bin (default `~/.local/bin`); the runtime home defaults to `~/.quetzalcoatl` and can be changed with `QUETZALCOATL_HOME`. The installer never calls `sudo`: when a dependency is missing it prints the command for your distribution and exits.",
+            "Binaries land in `--prefix`/bin (default `~/.local/bin`); the runtime home defaults to `~/.quetzalcoatl` and can be changed with `QUETZALCOATL_HOME`. The installer never calls `sudo`. It checks for a downloader (curl/wget), `tar`, `sha256sum`/`shasum` and an Ed25519 verifier (openssl/perl); if one is missing it prints the command for your package manager (apt / dnf / pacman / apk / brew) and exits.",
         },
         { kind: "h2", id: "windows", text: "Windows" },
         {
@@ -181,7 +181,7 @@ $env:QUETZALCOATL_VERSION = '0.1.0'; irm https://quetzal.plutokeating.beer/insta
             ["`--version X.Y.Z`", "`QUETZALCOATL_VERSION`", "Install this version (default: latest signed)"],
             ["`--prefix DIR`", "`QUETZALCOATL_PREFIX`", "Install prefix; binaries in DIR/bin"],
             ["`--no-desktop`", "`QUETZALCOATL_NO_DESKTOP=1`", "Do not write a desktop entry"],
-            ["`--cn` / `--no-cn`", "`QUETZALCOATL_CN=1|0`", "Prefer / avoid the mainland-China mirror"],
+            ["`--cn` / `--no-cn`", "`QUETZALCOATL_CN=1|0`", "Prefer this site's mirror (default: GitHub first; `QZ_CN_MIRROR` overrides the mirror URL)"],
             ["`--uninstall [--purge]`", "—", "Remove; `--purge` also deletes the home directory"],
             ["`--print-platform`", "`QZ_OS` / `QZ_ARCH`", "Print `<os> <arch>` and exit (CI)"],
           ],
@@ -191,7 +191,7 @@ $env:QUETZALCOATL_VERSION = '0.1.0'; irm https://quetzal.plutokeating.beer/insta
           kind: "steps",
           items: [
             { title: "Detect platform and architecture", text: "Linux / macOS and x64 / arm64. Unsupported architectures are rejected, never guessed." },
-            { title: "Download the signed manifest", text: "SHA256SUMS and SHA256SUMS.sig, first from this site's mirror, then GitHub; each source is verified separately." },
+            { title: "Download the signed manifest", text: "SHA256SUMS and SHA256SUMS.sig: GitHub first, then this site's mirror (`--cn` reverses that); each source is verified separately." },
             { title: "Verify with the embedded key", text: "The public key lives in the installer (see release signing). A mirror cannot swap it." },
             { title: "Check the artifact hash", text: "The manifest must contain both a `commit <sha> v<version>` line and the hash of this asset." },
             { title: "Back up the previous version", text: "The existing bin directory is copied aside so a failed upgrade can be undone." },

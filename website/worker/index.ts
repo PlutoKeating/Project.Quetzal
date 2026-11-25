@@ -18,6 +18,7 @@ import {
   assetsOf,
   capReleases,
   isAllowedAsset,
+  isSignedRelease,
   pickLatest,
   rewriteAssets,
   type Release,
@@ -358,8 +359,10 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
   const list = Array.isArray(data) ? (data as Release[]) : [];
   const npm = await npmLatest(url.origin, env, ctx);
   const capped = capReleases(list.map((release) => rewriteAssets(url.origin, release)), npm);
-  const body = latestOnly ? pickLatest(capped) : capped;
-  if (latestOnly && !body) return text(404, "no stable release yet");
+  // latest 只从「已签名」的发布里挑：install.sh 默认装 latest，若它没带
+  // SHA256SUMS/SHA256SUMS.sig，安装器会以“没有签名条目”失败。
+  const body = latestOnly ? pickLatest(capped.filter(isSignedRelease)) : capped;
+  if (latestOnly && !body) return text(404, "no signed stable release yet");
 
   const outHeaders = security(
     cors(

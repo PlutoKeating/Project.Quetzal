@@ -22,7 +22,7 @@ export const messages: Messages = {
         {
           kind: "p",
           text:
-            "私钥只存在于 GitHub Actions Secret `RELEASE_SIGNING_KEY`（PKCS#8 PEM），不在仓库、不在任何构建产物里。轮换密钥时需要同时更新 `scripts/install.sh`、`scripts/install.ps1` 与本文档，并保留旧公钥一个版本的过渡期。",
+            "私钥只存在于 GitHub Actions Secret `RELEASE_SIGNING_KEY`（PKCS#8 PEM），不在仓库、不在任何构建产物里；发版时 CI 把它写成 0600 临时文件，再调用 `scripts/gen-sums.sh` 生成签名清单。本仓库暂未提交发版工作流（由 Task 5.4 负责），生成器本身已入库并带自测。轮换密钥时需要同时更新 `scripts/install.sh`、`scripts/install.ps1` 与本文档，并保留旧公钥一个版本的过渡期。",
         },
         { kind: "h2", id: "assets", text: "资产与清单" },
         {
@@ -48,6 +48,31 @@ commit 3f9a1c0d2e4b5a69788796a5b4c3d2e1f0011223 v0.1.0`,
           text:
             "`commit` 行把版本钉在源码提交上。安装器不只看哈希，也要求这一行的 tag 与要装的版本一致——防止把 A 版本的清单配 B 版本的二进制。",
         },
+        { kind: "h2", id: "generate", text: "在仓库内生成清单" },
+        {
+          kind: "p",
+          text:
+            "`scripts/gen-sums.sh` 就是发版工作流会调用的那一步：给它一个只放发布资产的目录，它按上面的格式写出 `SHA256SUMS` 与 `SHA256SUMS.sig`，并拒绝 `quetzalcoatl-*` 之外的文件。",
+        },
+        {
+          kind: "code",
+          title: "shell",
+          text: `# 用 PKCS#8 Ed25519 私钥签发
+scripts/gen-sums.sh dist/ --tag v0.1.0 --commit "$(git rev-parse HEAD)" --key /secure/release-signing.pem
+
+# 只校验：重新验签 + 逐个核对哈希
+scripts/gen-sums.sh dist/ --tag v0.1.0 --check --key /secure/release-signing.pem
+
+# CI：Secret 落成 0600 临时文件，或直接给 PEM 文本
+RELEASE_SIGNING_KEY_FILE=/tmp/release.pem scripts/gen-sums.sh dist/ --tag "$TAG"
+RELEASE_SIGNING_KEY="$(cat /tmp/release.pem)" scripts/gen-sums.sh dist/ --tag "$TAG"`,
+        },
+        {
+          kind: "note",
+          text:
+            "输出里会打印公钥的 sha256 指纹，便于核对签的是不是那把钥匙。`--check` 对篡改、缺文件与清单里多出的文件都返回非零；`scripts/tests/gen_sums.test.sh` 会用一次性密钥签一份清单，再用安装器从假发布源把它装上。",
+        },
+
         { kind: "h2", id: "verify", text: "自己验证（Linux / macOS）" },
         {
           kind: "code",
@@ -108,9 +133,10 @@ sha256sum -c "$ASSET.sha256"      # macOS：shasum -a 256 -c "$ASSET.sha256"`,
         {
           kind: "ul",
           items: [
-            "没有「跳过校验」的开关，也没有 TOFU（首次使用即信任）模式。",
+            "没有面向用户的「跳过校验」开关，也没有 TOFU（首次使用即信任）模式。",
             "不提供未签名的夜间构建下载；要试新代码请从源码构建。",
             "镜像方无法替换资产：换掉字节，哈希与签名至少有一道会失败。",
+            "`QZ_TEST_RELEASE_PUBKEY`（Windows：`QUETZALCOATL_TEST_RELEASE_PUBKEY`）只用于测试；必须同时设置 `QZ_ALLOW_TEST_PUBKEY=1`（Windows：`QUETZALCOATL_ALLOW_TEST_PUBKEY=1`），否则安装器直接拒绝运行。生产环境不设这两个变量。",
           ],
         },
       ],
@@ -134,7 +160,7 @@ sha256sum -c "$ASSET.sha256"      # macOS：shasum -a 256 -c "$ASSET.sha256"`,
         {
           kind: "p",
           text:
-            "The private key exists only as the GitHub Actions secret `RELEASE_SIGNING_KEY` (PKCS#8 PEM). It is not in the repository and not in any build artifact. Rotating it means updating `scripts/install.sh`, `scripts/install.ps1` and this page, and keeping the old key valid for one release window.",
+            "The private key exists only as the GitHub Actions secret `RELEASE_SIGNING_KEY` (PKCS#8 PEM). It is not in the repository and not in any build artifact; a release writes it to a 0600 temp file and calls `scripts/gen-sums.sh`. The release workflow itself is not committed yet (Task 5.4 owns it), but the manifest generator is in-tree with its own test. Rotating the key means updating `scripts/install.sh`, `scripts/install.ps1` and this page, and keeping the old key valid for one release window.",
         },
         { kind: "h2", id: "assets", text: "Assets and manifest" },
         {
@@ -160,6 +186,31 @@ commit 3f9a1c0d2e4b5a69788796a5b4c3d2e1f0011223 v0.1.0`,
           text:
             "The `commit` line pins the release to a source commit. The installer checks not only hashes but that this tag matches the version being installed, so a manifest from version A cannot be paired with a binary from version B.",
         },
+        { kind: "h2", id: "generate", text: "Generate the manifest in-tree" },
+        {
+          kind: "p",
+          text:
+            "`scripts/gen-sums.sh` is the step a release workflow calls: point it at a directory that contains only release assets, and it writes `SHA256SUMS` and `SHA256SUMS.sig` in the format above, refusing anything that is not a `quetzalcoatl-*` asset.",
+        },
+        {
+          kind: "code",
+          title: "shell",
+          text: `# sign with a PKCS#8 Ed25519 private key
+scripts/gen-sums.sh dist/ --tag v0.1.0 --commit "$(git rev-parse HEAD)" --key /secure/release-signing.pem
+
+# verify only: re-check the signature and every hash
+scripts/gen-sums.sh dist/ --tag v0.1.0 --check --key /secure/release-signing.pem
+
+# CI: turn the secret into a 0600 file, or pass the PEM text
+RELEASE_SIGNING_KEY_FILE=/tmp/release.pem scripts/gen-sums.sh dist/ --tag "$TAG"
+RELEASE_SIGNING_KEY="$(cat /tmp/release.pem)" scripts/gen-sums.sh dist/ --tag "$TAG"`,
+        },
+        {
+          kind: "note",
+          text:
+            "The output prints the public key's sha256 fingerprint so you can confirm which key signed. `--check` fails on tampering, missing files and files that the manifest does not list. `scripts/tests/gen_sums.test.sh` signs a release with a throwaway key and then installs it with the installer from a fake server.",
+        },
+
         { kind: "h2", id: "verify", text: "Verify by hand (Linux / macOS)" },
         {
           kind: "code",
@@ -220,9 +271,10 @@ sha256sum -c "$ASSET.sha256"      # macOS: shasum -a 256 -c "$ASSET.sha256"`,
         {
           kind: "ul",
           items: [
-            "There is no skip-verification switch and no trust-on-first-use mode.",
+            "There is no user-facing skip-verification switch and no trust-on-first-use mode.",
             "Unsigned nightly downloads are not offered; build from source to try unreleased code.",
             "A mirror cannot substitute an asset: change the bytes and either the hash or the signature fails.",
+            "`QZ_TEST_RELEASE_PUBKEY` (Windows: `QUETZALCOATL_TEST_RELEASE_PUBKEY`) is test-only. It also requires `QZ_ALLOW_TEST_PUBKEY=1` (Windows: `QUETZALCOATL_ALLOW_TEST_PUBKEY=1`); without that gate the installer refuses to run. Production sets neither.",
           ],
         },
       ],

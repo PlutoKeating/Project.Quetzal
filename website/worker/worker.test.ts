@@ -201,6 +201,18 @@ describe("worker: release API", () => {
     expect(body.tag_name).toBe("v1.1.0");
   });
 
+  it("never picks an unsigned release as latest", async () => {
+    const unsigned = releaseFixture("v1.3.0", [{ name: "quetzalcoatl-1.3.0-linux-x64.tar.gz", bytes: new TextEncoder().encode("bin") }]);
+    const env = makeEnv((url) => {
+      if (url.includes("/releases?")) return textResponse(JSON.stringify([unsigned, ...list]));
+      if (url.includes("registry.npmjs.org")) return textResponse(JSON.stringify({ version: "1.3.0" }));
+      return undefined;
+    });
+    const res = await run("/api/releases/latest", env);
+    const body = (await json(res)) as { tag_name: string };
+    expect(body.tag_name).toBe("v1.2.0"); // 1.3.0 没有 SHA256SUMS + .sig
+  });
+
   it("does not cap anything when the npm registry is unreachable", async () => {
     const env = makeEnv(apiRoute(undefined));
     const res = await run("/api/releases", env);

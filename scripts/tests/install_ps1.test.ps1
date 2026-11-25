@@ -143,13 +143,14 @@ if (-not $ready) { Skip 'could not start the local release server' }
 # ---------------------------------------------------------------- installer invocation
 $script:SavedEnv = @{}
 function Set-InstallerEnv([string]$prefix, [string]$homeDir, [string]$releaseBase) {
-  foreach ($name in @('QUETZALCOATL_PREFIX', 'QUETZALCOATL_HOME', 'QUETZALCOATL_RELEASE_BASE', 'QUETZALCOATL_TEST_RELEASE_PUBKEY', 'QUETZALCOATL_SKIP_TASKS', 'QUETZALCOATL_VERSION', 'QUETZALCOATL_OS', 'QUETZALCOATL_ARCH')) {
+  foreach ($name in @('QUETZALCOATL_PREFIX', 'QUETZALCOATL_HOME', 'QUETZALCOATL_RELEASE_BASE', 'QUETZALCOATL_TEST_RELEASE_PUBKEY', 'QUETZALCOATL_ALLOW_TEST_PUBKEY', 'QUETZALCOATL_SKIP_TASKS', 'QUETZALCOATL_VERSION', 'QUETZALCOATL_OS', 'QUETZALCOATL_ARCH')) {
     if (-not $script:SavedEnv.ContainsKey($name)) { $script:SavedEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
   }
   $env:QUETZALCOATL_PREFIX = $prefix
   $env:QUETZALCOATL_HOME = $homeDir
   $env:QUETZALCOATL_RELEASE_BASE = $releaseBase
   $env:QUETZALCOATL_TEST_RELEASE_PUBKEY = $pub
+  $env:QUETZALCOATL_ALLOW_TEST_PUBKEY = '1'
   $env:QUETZALCOATL_SKIP_TASKS = '1'
   $env:QUETZALCOATL_OS = 'windows'
   $env:QUETZALCOATL_ARCH = 'x64'
@@ -263,6 +264,45 @@ try {
     Assert ($recorded -eq '1.0.0') "installed-version is '$recorded'"
   }
 
+  # -------------------------------------------------------------- 6b. failed first install
+  $c7 = Join-Path $work 'c7'
+  Check 'failed first install exits non-zero' {
+    Set-InstallerEnv (Join-Path $c7 'root') (Join-Path $c7 'home') "$base/v1.1.0"
+    $r = Invoke-Installer @('-Version', '1.1.0', '-NoDesktop')
+    Assert ($r.Code -ne 0) 'expected a non-zero exit'
+  }
+  Check 'failed first install removed its binaries' {
+    Assert (-not (Test-Installed (Join-Path $c7 'root'))) 'binaries were left behind'
+  }
+  Check 'failed first install wrote no version record or task plan' {
+    Assert (-not (Test-Path (Join-Path $c7 'root/service/installed-version'))) 'installed-version was written'
+    Assert (-not (Test-Path (Join-Path $c7 'root/service/tasks.json'))) 'tasks.json was written'
+  }
+
+  # -------------------------------------------------------------- 6c. v-prefixed version
+  $c8 = Join-Path $work 'c8'
+  Check 'a v-prefixed -Version is normalised' {
+    Set-InstallerEnv (Join-Path $c8 'root') (Join-Path $c8 'home') "$base/v1.0.0"
+    $r = Invoke-Installer @('-Version', 'v1.0.0', '-NoDesktop')
+    Assert ($r.Code -eq 0) "exit $($r.Code): $($r.Out)"
+    $v = (& $pwsh -NoProfile -Command "& bash '$(Join-Path $c8 'root/bin/qz')' --version" | Out-String)
+    Assert ($v -match '1\.0\.0') "got '$v'"
+  }
+
+  # -------------------------------------------------------------- 6d. key override gate
+  $c9 = Join-Path $work 'c9'
+  Check 'test public key override is refused without the gate' {
+    Set-InstallerEnv (Join-Path $c9 'root') (Join-Path $c9 'home') "$base/v1.0.0"
+    $env:QUETZALCOATL_ALLOW_TEST_PUBKEY = '0'
+    try {
+      $r = Invoke-Installer @('-Version', '1.0.0', '-NoDesktop')
+      Assert ($r.Code -ne 0) 'expected a non-zero exit'
+      Assert (-not (Test-Installed (Join-Path $c9 'root'))) 'binaries were installed anyway'
+    } finally {
+      $env:QUETZALCOATL_ALLOW_TEST_PUBKEY = '1'
+    }
+  }
+
   # -------------------------------------------------------------- 7. uninstall
   $c6 = Join-Path $work 'c6'
   $p6 = Join-Path $c6 'root'
@@ -288,6 +328,41 @@ try {
     $r = Invoke-Installer @('-Uninstall', '-Purge')
     Assert ($r.Code -eq 0) "uninstall -Purge failed: $($r.Out)"
     Assert (-not (Test-Path $h6)) 'home still present after -Purge'
+  }
+  # -------------------------------------------------------------- 8. purge safety guards
+  $guard = Join-Path $work 'guard'
+  $guardHome = Join-Path $guard 'home'
+  New-Item -ItemType Directory -Path (Join-Path $guardHome 'sub') -Force | Out-Null
+  [IO.File]::WriteAllText((Join-Path $guardHome 'keep.txt'), "keep`n")
+  [IO.File]::WriteAllText((Join-Path $guardHome 'sub/keep.txt'), "keep`n")
+  $guardLink = Join-Path $guard 'home-link'
+  New-Item -ItemType SymbolicLink -Path $guardLink -Target $guardHome | Out-Null
+
+  function Invoke-PurgeGuard([string]$childHome, [string]$qzHome) {
+    $savedHome = $env:HOME
+    $env:HOME = $childHome
+    $env:QUETZALCOATL_PREFIX = Join-Path $guard 'prefix'
+    $env:QUETZALCOATL_HOME = $qzHome
+    $env:QUETZALCOATL_SKIP_TASKS = '1'
+    try {
+      return Invoke-Installer @('-Uninstall', '-Purge')
+    } finally {
+      $env:HOME = $savedHome
+    }
+  }
+
+  $purgeCases = @(
+    @{ label = 'HOME with a trailing slash'; childHome = $guardHome; qzHome = "$guardHome/" },
+    @{ label = 'HOME with a dot appended'; childHome = $guardHome; qzHome = "$guardHome/." },
+    @{ label = 'a symlink resolving to HOME'; childHome = $guardHome; qzHome = $guardLink },
+    @{ label = 'an ancestor of HOME'; childHome = (Join-Path $guardHome 'sub'); qzHome = $guardHome }
+  )
+  foreach ($case in $purgeCases) {
+    Check ("purge refuses " + $case.label) {
+      $r = Invoke-PurgeGuard $case.childHome $case.qzHome
+      Assert ($r.Code -ne 0) "expected a non-zero exit, got $($r.Code): $($r.Out)"
+      Assert (Test-Path (Join-Path $case.childHome 'keep.txt')) 'something was deleted'
+    }
   }
 } finally {
   Reset-InstallerEnv

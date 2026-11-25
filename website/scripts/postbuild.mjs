@@ -4,7 +4,10 @@
 //   2. 把 scripts/install.sh 与 scripts/install.ps1 再放一份到站点根（/install、/install.ps1）；
 //      Worker 的 run_worker_first 会先接管这两个路径，静态副本只是边缘/直连兜底，内容同源同字节
 //   3. _headers：全站安全响应头（CSP 的 script-src 在下面逐页用 <meta> 收紧到 sha256）
-//   4. 每个 HTML 的 <head> 最前面插入按页计算的内联脚本 CSP（含 sha256），并补 canonical / hreflang
+//   4. 每个 HTML 的 <head> 最前面插入按页计算的内联脚本 CSP（含每个内联脚本的 sha256），
+//      并补 <link rel="canonical">；hreflang 由 app/root.tsx 在渲染时输出
+//   5. 断言每页 CSP 覆盖了该页所有内联脚本（漏一个就会被浏览器拦掉，宁可构建失败）
+//   6. sitemap.xml / robots.txt
 //   5. sitemap.xml
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -76,6 +79,14 @@ const walk = (dir) => {
 };
 walk(client);
 
+const urlFor = (file) => {
+  const rel = relative(client, file).replace(/\\/g, "/");
+  const noIndex = rel.replace(/index\.html$/, "").replace(/\.html$/, "");
+  return `${origin}/${noIndex}`.replace(/\/+$/, "") + (noIndex === "" ? "/" : "");
+};
+
+const isErrorPage = (file) => file.endsWith("404.html") || file.includes("/404/") || file.includes("__spa-fallback");
+
 let touched = 0;
 for (const file of pages) {
   let html = readFileSync(file, "utf8");
@@ -94,17 +105,19 @@ for (const file of pages) {
   ].join("; ");
   const meta = `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
   html = html.replace(/<head>/i, `<head>${meta}`);
+  if (!isErrorPage(file)) {
+    html = html.replace(/<\/head>/i, `<link rel="canonical" href="${urlFor(file)}"></head>`);
+  }
+  // Anti-regression: the CSP must cover every inline script on this page (no missing hash).
+  for (const match of html.matchAll(INLINE)) {
+    if (!csp.includes(sha(match[1] ?? ""))) throw new Error(`postbuild: inline script on ${file} is outside the CSP`);
+  }
   writeFileSync(file, html);
   touched += 1;
 }
 
-const urlFor = (file) => {
-  const rel = relative(client, file).replace(/\\/g, "/");
-  const noIndex = rel.replace(/index\.html$/, "").replace(/\.html$/, "");
-  return `${origin}/${noIndex}`.replace(/\/+$/, "") + (noIndex === "" ? "/" : "");
-};
 const urls = pages
-  .filter((f) => !f.endsWith("404.html") && !f.includes("/404/"))
+  .filter((f) => !isErrorPage(f))
   .map(urlFor)
   .sort();
 const sitemap = [

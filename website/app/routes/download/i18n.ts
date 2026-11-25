@@ -16,7 +16,7 @@ export type DownloadMessages = {
 
 const zh: DownloadMessages = {
   metaTitle: "下载",
-  metaDescription: "下载经 Ed25519 签名校验的 Quetzalcoatl 内核、守护进程与五端原生客户端。",
+  metaDescription: "下载经 Ed25519 签名校验的 Quetzalcoatl 内核、守护进程与六种原生客户端。",
   intro:
     "每个资产都在 SHA256SUMS 里，清单由 Ed25519 签名。你可以直接用安装脚本（它替你验签），也可以下载压缩包自己核对。下载页只展示带完整签名清单的发布。",
   cliTitle: "命令行与守护进程",
@@ -44,7 +44,7 @@ const zh: DownloadMessages = {
 
 const en: DownloadMessages = {
   metaTitle: "Download",
-  metaDescription: "Download the Ed25519-signed Quetzalcoatl kernel, daemon and five native clients.",
+  metaDescription: "Download the Ed25519-signed Quetzalcoatl kernel, daemon and six native clients.",
   intro:
     "Every asset is listed in SHA256SUMS, and the manifest is Ed25519 signed. Use the installer (it verifies for you) or download an archive and check it yourself. This page only lists releases with a complete signed manifest.",
   cliTitle: "Command line and daemon",

@@ -30,7 +30,7 @@ export type HomeMessages = {
 const zh: HomeMessages = {
   metaTitle: "Quetzalcoatl · 属于你的主权 Agent 操作系统",
   metaDescription:
-    "Quetzalcoatl 是跑在你自己设备上的主权 Agent 操作系统：盲微内核、签名 HLC 状态脊柱、两段式良知与五端原生界面，底层纳管 OpenCode V2 / Claude Code / Codex。",
+    "Quetzalcoatl 是跑在你自己设备上的主权 Agent 操作系统：盲微内核、签名 HLC 状态脊柱、两段式良知与六种原生客户端界面，底层纳管 OpenCode V2 / Claude Code / Codex。",
   eyebrow: "Quetzalcoatl V2 · 从第一性原理重构",
   title: "把 Agent 活成一条脊柱，而不是一串会话。",
   lead:
@@ -43,7 +43,7 @@ const zh: HomeMessages = {
     { label: "命令行", value: "qz" },
     { label: "状态脊柱", value: "SQLite WAL + 签名 HLC" },
     { label: "组网", value: "iroh 1.5（QUIC + QAD）" },
-    { label: "原生表面", value: "5 端，零 WebView" },
+    { label: "原生客户端", value: "6 种，零 WebView" },
     { label: "许可证", value: "Apache-2.0" },
   ],
   pillarsTitle: "六条不可妥协的第一性原理",
@@ -80,7 +80,7 @@ const zh: HomeMessages = {
       text: "每个资产都有 SHA256SUMS，清单由 Ed25519 签名。安装器用内置公钥先验签、再核对哈希，任何一步失败就回滚。",
     },
   ],
-  surfacesTitle: "五端原生，没有 WebView 套壳",
+  surfacesTitle: "六种原生客户端，没有 WebView 套壳",
   surfacesLead: "同一个 quetzalcoatld、同一条脊柱、同一套良知；界面各用各的原生控件。",
   surfaces: [
     { name: "Linux", stack: "Rust · GTK4 + libadwaita", text: "三档认知密度的原生窗口，systemd 用户服务托管后台守护。" },
@@ -110,7 +110,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex`,
 const en: HomeMessages = {
   metaTitle: "Quetzalcoatl · the sovereign agent OS that is yours",
   metaDescription:
-    "Quetzalcoatl is a sovereign agent OS on your own devices: a blind microkernel, a signed HLC event spine, two-stage conscience and five native surfaces, driving OpenCode V2 / Claude Code / Codex.",
+    "Quetzalcoatl is a sovereign agent OS on your own devices: a blind microkernel, a signed HLC event spine, two-stage conscience and six native clients, driving OpenCode V2 / Claude Code / Codex.",
   eyebrow: "Quetzalcoatl V2 · rebuilt from first principles",
   title: "Grow your agent a spine, not another chat transcript.",
   lead:
@@ -160,7 +160,7 @@ const en: HomeMessages = {
       text: "Every asset is listed in SHA256SUMS, and the manifest is Ed25519 signed. The installer verifies the signature with an embedded key before it trusts any hash, and rolls back on any failure.",
     },
   ],
-  surfacesTitle: "Five native surfaces, no WebView shells",
+  surfacesTitle: "Six native clients, no WebView shells",
   surfacesLead: "One quetzalcoatld, one spine, one conscience; each UI uses its platform's own controls.",
   surfaces: [
     { name: "Linux", stack: "Rust · GTK4 + libadwaita", text: "A native window with three cognitive densities; the daemon runs as a systemd user service." },

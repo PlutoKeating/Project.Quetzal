@@ -67,6 +67,8 @@ openssl pkey -in "$WORK/keys/release.pem" -pubout -outform DER -out "$WORK/keys/
   || skip_all "openssl cannot export an Ed25519 public key"
 PUB=$(tail -c 32 "$WORK/keys/pub.der" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
 [ ${#PUB} -eq 43 ] || { printf 'FAIL: unexpected public key encoding (%s chars)\n' "${#PUB}"; exit 1; }
+# 生产公钥不可被运行时覆盖：测试必须同时打开这个闸门（覆盖本身仍要显式）。
+export QZ_ALLOW_TEST_PUBKEY=1
 
 # ---------------------------------------------------------------- fake release
 # mk_release <version> <healthy 0|1> [target-dir]
@@ -188,7 +190,7 @@ check "systemd user unit written (not enabled)" test -f "$C1/.config/systemd/use
 check "unit points at the installed daemon" expect_contains \
   "$C1/.config/systemd/user/quetzalcoatld.service" "$C1/prefix/bin/quetzalcoatld"
 check "state dir records the installed version" expect_contains "$C1/.local/share/quetzalcoatl/installed-version" "1.0.0"
-check "installer never invokes sudo" bash -c "! grep -Eq '(^|[^[:alnum:]_])sudo([^[:alnum:]_]|$)' '$INSTALLER'"
+check "installer never invokes sudo" bash -c "! grep -Eq '^[[:space:]]*sudo([[:space:]]|$)|\\\$\([[:space:]]*sudo|&&[[:space:]]*sudo|[;|][[:space:]]*sudo' '$INSTALLER'"
 
 # ---------------------------------------------------------------- 3. idempotent re-run
 check "second run is an idempotent upgrade" run_installer "$C1" again "$BASE/v1.0.0" --version 1.0.0 --no-desktop
@@ -264,6 +266,28 @@ else
   printf 'ok %d - perl verifier skipped (no perl)\n' "$((N + 1))"
 fi
 
+# ---------------------------------------------------------------- 10b. failed first install leaves nothing behind
+C9="$WORK/c9"
+mkdir -p "$C9"
+check "failed first install exits non-zero" expect_nonzero bash -c \
+  "HOME='$C9' QZ_PREFIX='$C9/prefix' QUETZALCOATL_HOME='$C9/qzhome' QZ_RELEASE_BASE='$BASE/v1.1.0' QZ_TEST_RELEASE_PUBKEY='$PUB' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --version 1.1.0 --no-desktop"
+check "failed first install removed its binaries" expect_absent "$C9/prefix/bin"
+check "failed first install wrote no installed-version record" expect_absent "$C9/.local/share/quetzalcoatl/installed-version"
+check "failed first install wrote no service unit" expect_absent "$C9/.config/systemd/user/quetzalcoatld.service"
+
+# ---------------------------------------------------------------- 10c. version with a leading v
+C10="$WORK/c10"
+mkdir -p "$C10"
+check "--version v1.0.0 is normalised, not doubled" run_installer "$C10" vprefix "$BASE/v1.0.0" --version v1.0.0 --no-desktop
+check "v-prefixed request installed 1.0.0" bash -c "'$C10/prefix/bin/qz' --version | grep -q '1.0.0'"
+
+# ---------------------------------------------------------------- 10d. test key override needs its gate
+C11="$WORK/c11"
+mkdir -p "$C11"
+check "test public key override is refused without QZ_ALLOW_TEST_PUBKEY=1" expect_nonzero bash -c \
+  "env -u QZ_ALLOW_TEST_PUBKEY HOME='$C11' QZ_PREFIX='$C11/prefix' QUETZALCOATL_HOME='$C11/qzhome' QZ_RELEASE_BASE='$BASE/v1.0.0' QZ_TEST_RELEASE_PUBKEY='$PUB' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --version 1.0.0 --no-desktop"
+check "gated override installed nothing" expect_absent "$C11/prefix/bin/qz"
+
 # ---------------------------------------------------------------- 11. uninstall
 check "uninstall removes binaries and the unit, keeps the home" bash -c \
   "HOME='$C1' QZ_PREFIX='$C1/prefix' QUETZALCOATL_HOME='$C1/qzhome' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --uninstall"
@@ -272,6 +296,25 @@ check "uninstall removed the unit" expect_absent "$C1/.config/systemd/user/quetz
 check "uninstall kept QUETZALCOATL_HOME without --purge" test -d "$C1/qzhome"
 check "uninstall --purge removes QUETZALCOATL_HOME" bash -c \
   "HOME='$C1' QZ_PREFIX='$C1/prefix' QUETZALCOATL_HOME='$C1/qzhome' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --uninstall --purge && test ! -e '$C1/qzhome'"
+
+# ---------------------------------------------------------------- 12. purge safety guards
+C12="$WORK/c12"
+mkdir -p "$C12/home" "$C12/home/sub"
+printf 'keep\n' >"$C12/home/keep.txt"
+printf 'keep\n' >"$C12/home/sub/keep.txt"
+ln -sfn "$C12/home" "$C12/home-link"
+
+purge_keeps() { # label qz_home home
+  local label=$1 qz_home=$2 home=$3
+  check "purge refuses $label" bash -c \
+    "! HOME='$home' QUETZALCOATL_HOME='$qz_home' QZ_PREFIX='$C12/prefix' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --uninstall --purge >/dev/null 2>&1"
+  check "purge refusing $label deleted nothing" test -f "$home/keep.txt"
+}
+
+purge_keeps "HOME with a trailing slash" "$C12/home/" "$C12/home"
+purge_keeps "HOME with /. appended" "$C12/home/." "$C12/home"
+purge_keeps "a symlink that resolves to HOME" "$C12/home-link" "$C12/home"
+purge_keeps "an ancestor of HOME" "$C12/home" "$C12/home/sub"
 
 printf '\n%d checks, %d failed\n' "$N" "$FAILED"
 [ "$FAILED" -eq 0 ] || exit 1

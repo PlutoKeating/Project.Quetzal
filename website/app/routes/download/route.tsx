@@ -32,7 +32,7 @@ function detectPlatform(): PlatformId {
   const hash = typeof location !== "undefined" ? location.hash.slice(1) : "";
   if (PLATFORM_ORDER.includes(hash as PlatformId)) return hash as PlatformId;
   if (/Windows/i.test(ua)) return /ARM64|arm64/i.test(ua) ? "windows-arm64" : "windows-x64";
-  if (/Macintosh|Mac OS X/i.test(ua)) return /arm64|aarch64/i.test(ua) ? "macos-arm64" : "macos-arm64";
+  if (/Macintosh|Mac OS X/i.test(ua)) return /arm64|aarch64/i.test(ua) ? "macos-arm64" : "macos-x64";
   if (/Linux/i.test(ua)) return /aarch64|arm64/i.test(ua) ? "linux-arm64" : "linux-x64";
   return "linux-x64";
 }

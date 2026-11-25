@@ -10,6 +10,8 @@
   "assets": {
     "directory": "./build/client",
     "binding": "ASSETS",
+    // 不变量：Worker 接管的每个路径都必须列在这里，否则请求会绕过 Worker 直接命中静态资源
+    // （或在没有静态兜底时 404）。新增路径时同步更新 scripts/postbuild.mjs。
     "run_worker_first": ["/dl/*", "/api/*", "/install", "/install.ps1"],
     // 未知路径返回预渲染的 404.html（postbuild 从 /404 复制到根目录）
     "not_found_handling": "404-page",

@@ -105,7 +105,7 @@ const zhChrome: Chrome = {
   next: "下一页",
   download: {
     title: "下载 Quetzalcoatl",
-    description: "下载经 Ed25519 签名校验的五端原生客户端与后台守护进程。",
+    description: "下载经 Ed25519 签名校验的六种原生客户端与后台守护进程。",
     latest: "最新签名版本",
     noRelease: "暂时读不到发布信息。",
     loadFailed: "发布信息加载失败（可能是网络或 GitHub 限流）。你仍可直接使用安装命令。",
@@ -149,7 +149,7 @@ const enChrome: Chrome = {
   next: "Next",
   download: {
     title: "Download Quetzalcoatl",
-    description: "Native clients for five surfaces and the background daemon, all Ed25519 signed.",
+    description: "Native clients for six surfaces and the background daemon, all Ed25519 signed.",
     latest: "Latest signed release",
     noRelease: "Release information is not available right now.",
     loadFailed: "Could not load releases (network or GitHub rate limit). The one-line install command still works.",

@@ -12,7 +12,7 @@
 #   --version X.Y.Z        QUETZALCOATL_VERSION      version to install (default: latest signed release)
 #   --prefix DIR           QUETZALCOATL_PREFIX       install prefix (default: ~/.local); binaries go to DIR/bin
 #   --no-desktop           QUETZALCOATL_NO_DESKTOP=1 do not write the desktop entry
-#   --cn | --no-cn         QUETZALCOATL_CN=1|0       prefer the mainland-China mirror (default: automatic direct first)
+#   --cn | --no-cn         QUETZALCOATL_CN=1|0       prefer this site's mirror over GitHub (default: GitHub first)
 #   --uninstall [--purge]  remove the service, the binaries and the state dir;
 #                          --purge also removes QUETZALCOATL_HOME (spine, memory, settings)
 #   --print-platform       print "<os> <arch>" and exit (used by CI matrix checks)
@@ -55,8 +55,8 @@ PURGE=0
 NO_DESKTOP=0
 CN=0
 PRINT_PLATFORM=0
-INSTALLED_BY_US=0
 ROLLED_BACK=0
+PURGE_TARGET=""
 
 say() { printf '%s\n' "$*"; }
 note() { printf '  - %s\n' "$*"; }
@@ -71,6 +71,36 @@ die() {
 }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# 缺依赖时给出这台机器对应的安装命令，但绝不替用户执行 sudo。
+advise_missing() { # what apt-pkg dnf-pkg pacman-pkg apk-pkg brew-pkg
+  printf '  missing %s; install it and re-run:\n' "$1" >&2
+  if have apt-get; then printf '    sudo apt-get install -y %s\n' "$2" >&2
+  elif have dnf; then printf '    sudo dnf install -y %s\n' "$3" >&2
+  elif have pacman; then printf '    sudo pacman -S --needed %s\n' "$4" >&2
+  elif have apk; then printf '    sudo apk add %s\n' "$5" >&2
+  elif have brew; then printf '    brew install %s\n' "$6" >&2
+  else printf '    no supported package manager detected\n' >&2; fi
+}
+
+require_tools() {
+  if ! have curl && ! have wget; then
+    advise_missing "curl or wget" curl curl curl curl curl
+    die "cannot download the release without curl or wget"
+  fi
+  if ! have tar; then
+    advise_missing "tar" tar tar tar tar gnu-tar
+    die "tar is required to unpack the release"
+  fi
+  if ! have sha256sum && ! have shasum && ! have openssl; then
+    advise_missing "sha256sum (coreutils) or openssl" coreutils coreutils coreutils coreutils coreutils
+    die "no sha256 tool is available"
+  fi
+  if ! have openssl && ! have perl; then
+    advise_missing "openssl 1.1.1+ or perl" openssl openssl openssl openssl openssl@3
+    die "no Ed25519 verifier is available (openssl 1.1.1+ or perl)"
+  fi
+}
+
 cleanup() {
   if [ -n "$TMP" ] && [ -d "$TMP" ]; then rm -rf "$TMP"; fi
 }
@@ -82,7 +112,7 @@ Usage: curl -fsSL https://quetzal.plutokeating.beer/install | bash -s -- [option
   --version X.Y.Z        install this version (default: latest signed release)
   --prefix DIR           install prefix, binaries land in DIR/bin (default: ~/.local)
   --no-desktop           do not write a desktop entry
-  --cn | --no-cn         prefer / avoid the mainland-China mirror
+  --cn | --no-cn         prefer this site's mirror over GitHub (default: GitHub first)
   --uninstall [--purge]  remove service and binaries; --purge also removes QUETZALCOATL_HOME
   --print-platform       print "<os> <arch>" and exit
   --help                 this text
@@ -185,12 +215,13 @@ resolve_version() {
 
 release_bases() {
   if [ -n "${QZ_RELEASE_BASE:-}" ]; then printf '%s\n' ${QZ_RELEASE_BASE}; return 0; fi
-  local mirror="https://github.com/$REPO/releases/download/$TAG"
+  local github="https://github.com/$REPO/releases/download/$TAG"
   local site="$SITE/dl/$TAG"
+  # 默认先 GitHub（海外通常更快）；--cn 把本站/自定义镜像放到第一位（大陆网络更稳）。
   if [ "$CN" = 1 ]; then
-    printf '%s\n%s\n' "${QZ_CN_MIRROR:-$site}" "$mirror"
+    printf '%s\n%s\n' "${QZ_CN_MIRROR:-$site}" "$github"
   else
-    printf '%s\n%s\n' "$site" "$mirror"
+    printf '%s\n%s\n' "$github" "$site"
   fi
 }
 
@@ -366,8 +397,13 @@ PERL
 }
 
 verify_signature() { # sums sig
-  local sums=$1 sig=$2 pub mode
-  pub=${QZ_TEST_RELEASE_PUBKEY:-$RELEASE_PUBKEY}
+  local sums=$1 sig=$2 pub=$RELEASE_PUBKEY mode
+  if [ -n "${QZ_TEST_RELEASE_PUBKEY:-}" ]; then
+    # 测试专用覆盖：必须显式打开闸门，避免生产里被环境变量悄悄换掉信任根。
+    [ "${QZ_ALLOW_TEST_PUBKEY:-0}" = 1 ] \
+      || die "QZ_TEST_RELEASE_PUBKEY is for tests only; set QZ_ALLOW_TEST_PUBKEY=1 to use it"
+    pub=$QZ_TEST_RELEASE_PUBKEY
+  fi
   mode=${QZ_VERIFIER:-auto}
   case "$mode" in
     openssl) verify_openssl "$sums" "$sig" "$pub" ;;
@@ -448,9 +484,18 @@ install_binaries() {
     [ -f "$f" ] || continue
     cp "$f" "$PREFIX/bin/" || die "could not install $(basename "$f")"
     chmod 0755 "$PREFIX/bin/$(basename "$f")" || die "could not chmod $(basename "$f")"
-    INSTALLED_BY_US=1
   done
   [ -x "$PREFIX/bin/qz" ] || die "the archive does not contain bin/qz"
+}
+
+# 首次安装健康检查失败时，只撤掉这次拷进去的文件；不碰用户原有的其它文件。
+remove_installed_binaries() {
+  local stage=$1 f
+  for f in "$stage"/bin/*; do
+    [ -f "$f" ] || continue
+    rm -f "$PREFIX/bin/$(basename "$f")" 2>/dev/null || true
+  done
+  rmdir "$PREFIX/bin" 2>/dev/null || true
 }
 
 write_service_linux() {
@@ -549,6 +594,7 @@ health_check() {
 }
 
 do_install() {
+  VERSION=${VERSION#v}
   case "$VERSION" in
     *[!0-9A-Za-z.-]*|"") die "invalid version: $VERSION" ;;
   esac
@@ -558,6 +604,7 @@ do_install() {
   esac
   TAG="v$VERSION"
   ASSET="$BRAND-$VERSION-$OS-$ARCH.tar.gz"
+  require_tools
 
   say ""
   say "Quetzalcoatl installer"
@@ -578,15 +625,22 @@ do_install() {
   tar -xzf "$TMP/$ASSET" -C "$TMP/stage" >>"$LOG" 2>&1 || die "could not extract $ASSET"
   [ -f "$TMP/stage/bin/qz" ] || die "unexpected archive layout: bin/qz missing"
 
+  local fresh=1
+  if [ -d "$PREFIX/bin" ] && [ -n "$(ls -A "$PREFIX/bin" 2>/dev/null)" ]; then fresh=0; fi
   backup_current
   install_binaries "$TMP/stage"
   if ! health_check; then
-    if [ "$ROLLED_BACK" = 0 ] && [ -d "$STATE_DIR/backup/bin" ]; then
+    if [ -d "$STATE_DIR/backup/bin" ]; then
       warn "the new version did not pass its health check; rolling back"
       restore_backup || die "health check failed and the rollback failed too; your previous binaries were not replaced safely"
       say "  rolled back to the previous version"
+      die "quetzalcoatl $VERSION failed its health check (qz --version); the previous version was restored"
     fi
-    die "quetzalcoatl $VERSION failed its health check (qz --version); nothing was activated"
+    remove_installed_binaries "$TMP/stage"
+    if [ "$fresh" = 1 ]; then
+      die "quetzalcoatl $VERSION failed its health check (qz --version); this first install was removed and nothing is active"
+    fi
+    die "quetzalcoatl $VERSION failed its health check (qz --version); the files this run wrote were removed"
   fi
 
   mkdir -p "$STATE_DIR" || die "could not create $STATE_DIR"
@@ -609,6 +663,40 @@ do_install() {
 }
 
 # ---------------------------------------------------------------- uninstall
+# 把路径规范化：解析符号链接、去掉尾部斜杠与 `.`/`..`；路径还不存在时解析最近的存在祖先。
+canonical_target() {
+  local p=$1 parent base
+  if [ -d "$p" ]; then
+    ( cd -P -- "$p" 2>/dev/null && pwd -P )
+    return $?
+  fi
+  parent=$(dirname -- "$p")
+  base=$(basename -- "$p")
+  [ "$parent" = "$p" ] && return 1
+  parent=$(canonical_target "$parent") || return 1
+  case "$parent" in
+    /) printf '/%s\n' "$base" ;;
+    *) printf '%s/%s\n' "$parent" "$base" ;;
+  esac
+}
+
+# --purge 的安全闸门：拒绝空路径、根、$HOME 本身、$HOME 的祖先，以及任何符号链接。
+purge_guard() {
+  local target=$1 canon home_canon
+  [ -n "$target" ] || die "refusing to purge an empty path"
+  [ -L "$target" ] && die "refusing to purge $target: it is a symlink"
+  canon=$(canonical_target "$target") || die "cannot resolve $target"
+  home_canon=$(canonical_target "$HOME") || die "cannot resolve HOME"
+  case "$canon" in
+    ""|"/") die "refusing to purge $canon" ;;
+  esac
+  [ "$canon" = "$home_canon" ] && die "refusing to purge $target: it resolves to your home directory"
+  case "$home_canon/" in
+    "$canon"/*) die "refusing to purge $target: it is an ancestor of your home directory" ;;
+  esac
+  PURGE_TARGET=$canon
+}
+
 do_uninstall() {
   local unit="$CONFIG_DIR/systemd/user/quetzalcoatld.service"
   local plist="$HOME/Library/LaunchAgents/$LAUNCHD_LABEL.plist"
@@ -616,10 +704,10 @@ do_uninstall() {
 
   if [ "${QZ_SKIP_SERVICE:-0}" != 1 ]; then
     if [ "$OS" = linux ] && have systemctl; then
-      systemctl --user disable --now quetzalcoatld.service >>"${TMPDIR:-/tmp}/qz-uninstall.log" 2>&1 || true
+      systemctl --user disable --now quetzalcoatld.service >>"${LOG:-/dev/null}" 2>&1 || true
     fi
     if [ "$OS" = macos ] && have launchctl; then
-      launchctl unload "$plist" >>"${TMPDIR:-/tmp}/qz-uninstall.log" 2>&1 || true
+      launchctl unload "$plist" >>"${LOG:-/dev/null}" 2>&1 || true
     fi
   fi
   rm -f "$unit" "$plist" "$HOME/.local/share/applications/quetzalcoatl.desktop"
@@ -628,12 +716,10 @@ do_uninstall() {
   say "  service, binaries and state removed"
 
   if [ "$PURGE" = 1 ]; then
-    case "$QZ_HOME" in
-      ""|"/"|"$HOME") die "refusing to purge $QZ_HOME" ;;
-    esac
-    if [ -d "$QZ_HOME" ]; then
-      rm -rf "$QZ_HOME" || die "could not remove $QZ_HOME"
-      say "  purged $QZ_HOME (spine, memory, settings)"
+    purge_guard "$QZ_HOME"
+    if [ -d "$PURGE_TARGET" ]; then
+      rm -rf -- "$PURGE_TARGET" || die "could not remove $PURGE_TARGET"
+      say "  purged $PURGE_TARGET (spine, memory, settings)"
     else
       note "$QZ_HOME does not exist"
     fi
@@ -652,6 +738,7 @@ main() {
   resolve_paths
   if [ "$MODE" = uninstall ]; then
     TMP=$(mktemp -d "${TMPDIR:-/tmp}/quetzalcoatl.XXXXXX") || die "could not create a temp dir"
+    LOG="$TMP/uninstall.log"
     do_uninstall
     return 0
   fi
