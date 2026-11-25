@@ -589,7 +589,11 @@ health_check() {
   kill "$watcher" 2>/dev/null
   wait "$watcher" 2>/dev/null
   [ $rc -eq 0 ] || return 1
-  grep -q "$VERSION" "$out" || return 1
+  # 精确版本令牌：允许 `qz 2.0.0` / `qz (Quetzalcoatl CLI) 2.0.0` / `v2.0.0`，
+  # 但 `2.0.0-alpha.1` 不得冒充 `2.0.0`（发布 tag 与二进制必须完全一致）。
+  local esc
+  esc=$(printf '%s' "$VERSION" | sed 's/[.]/\\./g')
+  grep -Eq "(^|[^0-9A-Za-z.+-])v?${esc}([^0-9A-Za-z.+-]|$)" "$out" || return 1
   return 0
 }
 

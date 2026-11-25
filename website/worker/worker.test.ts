@@ -34,13 +34,17 @@ type Route = (url: string) => Response | Promise<Response> | undefined;
 const textResponse = (body: string, init: ResponseInit = {}): Response =>
   new Response(body, { status: 200, ...init, headers: { "Content-Type": "application/json", ...(init.headers ?? {}) } });
 
-const releaseFixture = (tag: string, assets: { name: string; bytes?: Uint8Array; digest?: string | null; size?: number }[]) => ({
+const releaseFixture = (
+  tag: string,
+  assets: { name: string; bytes?: Uint8Array; digest?: string | null; size?: number }[],
+  prerelease = false,
+) => ({
   tag_name: tag,
   name: `Quetzalcoatl ${tag}`,
   html_url: `https://github.com/${REPO}/releases/tag/${tag}`,
   published_at: "2026-11-01T00:00:00Z",
   draft: false,
-  prerelease: false,
+  prerelease,
   assets: assets.map((a) => ({
     name: a.name,
     size: a.size ?? a.bytes?.byteLength ?? 0,
@@ -172,11 +176,12 @@ describe("worker: signed asset mirror", () => {
 });
 
 describe("worker: release API", () => {
-  const assets = [
+  const signedAssets = (version: string) => [
+    { name: `quetzalcoatl-${version}-linux-x64.tar.gz`, bytes: new TextEncoder().encode("bin") },
     { name: "SHA256SUMS", bytes: new TextEncoder().encode("sums") },
     { name: "SHA256SUMS.sig", bytes: new TextEncoder().encode("sig") },
   ];
-  const list = [releaseFixture("v1.2.0", assets), releaseFixture("v1.1.0", assets)];
+  const list = [releaseFixture("v1.2.0", signedAssets("1.2.0")), releaseFixture("v1.1.0", signedAssets("1.1.0"))];
 
   const apiRoute = (npm: string | undefined): Route => (url) => {
     if (url.includes("api.github.com") && url.includes("/releases?")) return textResponse(JSON.stringify(list));
@@ -211,6 +216,52 @@ describe("worker: release API", () => {
     const res = await run("/api/releases/latest", env);
     const body = (await json(res)) as { tag_name: string };
     expect(body.tag_name).toBe("v1.2.0"); // 1.3.0 没有 SHA256SUMS + .sig
+  });
+
+  it("excludes legacy V1 releases that have no quetzalcoatl-* assets", async () => {
+    const legacy = releaseFixture("v1.11.0", [
+      { name: "quetzal-1.11.0-linux-x64.tar.gz", bytes: new TextEncoder().encode("v1") },
+      { name: "SHA256SUMS", bytes: new TextEncoder().encode("sums") },
+      { name: "SHA256SUMS.sig", bytes: new TextEncoder().encode("sig") },
+    ]);
+    const env = makeEnv((url) => {
+      if (url.includes("/releases?")) return textResponse(JSON.stringify([legacy, ...list]));
+      if (url.includes("registry.npmjs.org")) return new Response("nope", { status: 404 });
+      return undefined;
+    });
+    const res = await run("/api/releases", env);
+    const body = (await json(res)) as { tag_name: string }[];
+    expect(body.map((r) => r.tag_name)).toEqual(["v1.2.0", "v1.1.0"]);
+  });
+
+  it("serves a qualifying prerelease as latest with prerelease: true", async () => {
+    const alpha = releaseFixture("v2.0.0-alpha.1", signedAssets("2.0.0-alpha.1"), true);
+    const legacy = releaseFixture("v1.11.0", [
+      { name: "quetzal-1.11.0-linux-x64.tar.gz", bytes: new TextEncoder().encode("v1") },
+      { name: "SHA256SUMS", bytes: new TextEncoder().encode("sums") },
+      { name: "SHA256SUMS.sig", bytes: new TextEncoder().encode("sig") },
+    ]);
+    const env = makeEnv((url) => {
+      if (url.includes("/releases?")) return textResponse(JSON.stringify([legacy, alpha]));
+      if (url.includes("registry.npmjs.org")) return new Response("nope", { status: 404 });
+      return undefined;
+    });
+    const res = await run("/api/releases/latest", env);
+    const body = (await json(res)) as { tag_name: string; prerelease: boolean };
+    expect(body.tag_name).toBe("v2.0.0-alpha.1");
+    expect(body.prerelease).toBe(true);
+  });
+
+  it("keeps the newest stable release ahead of a newer prerelease", async () => {
+    const beta = releaseFixture("v2.0.0-beta.1", signedAssets("2.0.0-beta.1"), true);
+    const env = makeEnv((url) => {
+      if (url.includes("/releases?")) return textResponse(JSON.stringify([beta, ...list]));
+      if (url.includes("registry.npmjs.org")) return new Response("nope", { status: 404 });
+      return undefined;
+    });
+    const res = await run("/api/releases/latest", env);
+    const body = (await json(res)) as { tag_name: string };
+    expect(body.tag_name).toBe("v1.2.0");
   });
 
   it("does not cap anything when the npm registry is unreachable", async () => {

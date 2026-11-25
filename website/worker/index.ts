@@ -18,9 +18,10 @@ import {
   assetsOf,
   capReleases,
   isAllowedAsset,
-  isSignedRelease,
+  isInstallableRelease,
   pickLatest,
   rewriteAssets,
+  sortReleases,
   type Release,
 } from "../shared/releases";
 
@@ -359,10 +360,12 @@ async function releases(url: URL, request: Request, env: Env, ctx: Ctx): Promise
   const list = Array.isArray(data) ? (data as Release[]) : [];
   const npm = await npmLatest(url.origin, env, ctx);
   const capped = capReleases(list.map((release) => rewriteAssets(url.origin, release)), npm);
-  // latest 只从「已签名」的发布里挑：install.sh 默认装 latest，若它没带
-  // SHA256SUMS/SHA256SUMS.sig，安装器会以“没有签名条目”失败。
-  const body = latestOnly ? pickLatest(capped.filter(isSignedRelease)) : capped;
-  if (latestOnly && !body) return text(404, "no signed stable release yet");
+  // 只保留本产品品牌且带完整签名的发布：同仓库 V1 的 v1.11.0 没有 quetzalcoatl-* 资产，
+  // 不能出现在 /api/releases，更不能被 /api/releases/latest 选中。预发布保留（带 badge），
+  // 在尚无稳定版时 latest 回退到最新预发布版本。
+  const qualified = sortReleases(capped.filter(isInstallableRelease));
+  const body = latestOnly ? pickLatest(qualified) : qualified;
+  if (latestOnly && !body) return text(404, "no signed release for this product yet");
 
   const outHeaders = security(
     cors(

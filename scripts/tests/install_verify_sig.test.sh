@@ -13,6 +13,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 INSTALLER="$ROOT/scripts/install.sh"
+KEYCHECK="$ROOT/scripts/check-release-key.sh"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/qz-installer-test.XXXXXX") || exit 1
 SRV="$WORK/srv"
 N=0
@@ -34,6 +35,7 @@ for tool in openssl python3; do
 done
 command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || skip_all "missing dependency: sha256sum or shasum"
 [ -f "$INSTALLER" ] || { printf 'FAIL: installer not found: %s\n' "$INSTALLER"; exit 1; }
+[ -x "$KEYCHECK" ] || { printf 'FAIL: release key checker not executable: %s\n' "$KEYCHECK"; exit 1; }
 
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
@@ -71,9 +73,9 @@ PUB=$(tail -c 32 "$WORK/keys/pub.der" | openssl base64 -A | tr '+/' '-_' | tr -d
 export QZ_ALLOW_TEST_PUBKEY=1
 
 # ---------------------------------------------------------------- fake release
-# mk_release <version> <healthy 0|1> [target-dir]
+# mk_release <version> <healthy 0|1> [target-dir] [reported-version]
 mk_release() {
-  local version=$1 healthy=$2 dir=${3:-"$SRV/v$1"} name base stage
+  local version=$1 healthy=$2 dir=${3:-"$SRV/v$1"} name base stage reported=${4:-$1}
   base="quetzalcoatl-$version-linux-x64"
   stage="$WORK/stage-$version"
   rm -rf "$stage"
@@ -81,7 +83,7 @@ mk_release() {
   if [ "$healthy" = 1 ]; then
     cat >"$stage/bin/qz" <<STUB
 #!/bin/sh
-if [ "\${1:-}" = "--version" ]; then printf 'qz $version\n'; exit 0; fi
+if [ "\${1:-}" = "--version" ]; then printf 'qz $reported\n'; exit 0; fi
 exit 0
 STUB
   else
@@ -106,6 +108,8 @@ STUB
 
 mk_release 1.0.0 1
 mk_release 1.1.0 0
+# 资产名是 1.2.0，但二进制自报 1.2.0-alpha.1：精确版本门禁必须拒绝（防 alpha 冒充正式版）。
+mk_release 1.2.0 1 "" 1.2.0-alpha.1
 cp -R "$SRV/v1.0.0" "$SRV/tampered-sums"
 cp -R "$SRV/v1.0.0" "$SRV/tampered-artifact"
 cp -R "$SRV/v1.0.0" "$SRV/bad-signature"
@@ -180,6 +184,16 @@ check "platform detection: unknown CPU is rejected" bash -c \
 check "platform detection: unknown OS is rejected" bash -c \
   "! QZ_OS=Plan9 QZ_ARCH=x86_64 bash '$INSTALLER' --print-platform >/dev/null 2>&1"
 
+# ---------------------------------------------------------------- 1b. release-key trust root
+check "check-release-key derives the expected raw public key" bash -c \
+  "[ \"\$('$KEYCHECK' --key '$WORK/keys/release.pem' --print-pubkey)\" = '$PUB' ]"
+check "check-release-key accepts a matching expected key" \
+  bash "$KEYCHECK" --key "$WORK/keys/release.pem" --expect-key "$PUB"
+check "check-release-key rejects a diverged expected key" expect_nonzero \
+  bash "$KEYCHECK" --key "$WORK/keys/release.pem" --expect-key "QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8"
+check "check-release-key rejects a key that is not the installer trust root" expect_nonzero \
+  bash "$KEYCHECK" --key "$WORK/keys/release.pem"
+
 # ---------------------------------------------------------------- 2. good signature installs
 C1="$WORK/c1"
 mkdir -p "$C1"
@@ -195,6 +209,13 @@ check "installer never invokes sudo" bash -c "! grep -Eq '^[[:space:]]*sudo([[:s
 # ---------------------------------------------------------------- 3. idempotent re-run
 check "second run is an idempotent upgrade" run_installer "$C1" again "$BASE/v1.0.0" --version 1.0.0 --no-desktop
 check "still reports the same version after re-run" bash -c "'$C1/prefix/bin/qz' --version | grep -q '1.0.0'"
+
+# ---------------------------------------------------------------- 3b. exact version gate
+C1B="$WORK/c1b"
+mkdir -p "$C1B"
+check "a prerelease qz cannot satisfy a stable version request" expect_nonzero bash -c \
+  "HOME='$C1B' QZ_PREFIX='$C1B/prefix' QUETZALCOATL_HOME='$C1B/qzhome' QZ_RELEASE_BASE='$BASE/v1.2.0' QZ_TEST_RELEASE_PUBKEY='$PUB' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --version 1.2.0 --no-desktop"
+check "nothing installed after the version mismatch" expect_absent "$C1B/prefix/bin/qz"
 
 # ---------------------------------------------------------------- 4. mirror fallback
 C2="$WORK/c2"

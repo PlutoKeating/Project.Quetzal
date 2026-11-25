@@ -747,6 +747,19 @@
 > 本机无 Swift/.NET 工具链，未在本机执行；iOS/Android 由 Task 5.1/5.2 交付前无源码，CI 占位不声称通过。
 > `Deferred:` Windows exe/msix 代码签名与 macOS Developer ID 公证未接入，因此 Release 不发布 Windows 二进制；
 > `Cargo.toml` 仍为 `2.0.0-alpha.1`，正式打 `v2.0.0` tag 前需维护者单独提交版本号提升（不在本任务暂存范围）。
+>
+> Fix Round 1（评审整改，已落地）：
+> ① `scripts/check-release-key.sh` 在发版前比对 `RELEASE_SIGNING_KEY` 派生公钥与
+> `scripts/install.sh` / `install.ps1` / `install.src.ps1` 内置生产公钥；签名后还用**无 test-pubkey 覆盖**的
+> 安装器从 `dist/` 安装真实 `linux-x64` 包并断言 `qz --version` 精确匹配。
+> ② tag 与 Cargo workspace 版本不一致时阻断发版（dispatch 仅告警并跳过安装证明）；安装器改为完整版本令牌比较，
+> `2.0.0-alpha.1` 不再满足 `2.0.0`。③ Windows App 只容忍 runner 缺 Appx/PRI 任务，C#/XAML/MSBuild 编译错误一律阻断；
+> 新增 UiSmoke 构建/运行；`Deferred:` Windows arm64（无 arm64 验证机）。④ 含 `-` 的版本自动 `--prerelease`。
+> ⑤ 签名前断言 6 个预期资产存在且非空。⑥ `cargo build --release --locked`；新增 `rust-toolchain.toml`（1.99.1，
+> 即仓库验证工具链；MSRV 1.91 保留在 Cargo.toml，钉到 1.91.0 需独立 MSRV 验证，`Deferred:`）；Hub 构建去掉
+> 误导性的 `VERSION` env；Web 包明确为有意的 no-wasm 构建；桌面包补充解压/PATH 安装说明。
+> ⑦ 官网 `/api/releases/latest` 只解析带 `quetzalcoatl-*` 资产的已签名发布（排除 V1 `v1.11.0`），无稳定版时
+> 回退最新预发布版并标注 badge；`/api/releases` 含预发布、按版本从新到旧；npm 包缺失时视为无版本上限。
 
 ---
 

@@ -5,7 +5,8 @@ import {
   assetsOf,
   findPlatformAsset,
   isAllowedAsset,
-  isSignedRelease,
+  isInstallableRelease,
+  isPrerelease,
   pickLatest,
   type PlatformId,
   type Release,
@@ -87,8 +88,9 @@ export default function Download() {
   useEffect(() => load(), [load]);
   useEffect(() => setPlatform(detectPlatform()), []);
 
-  const signed = state.status === "ready" ? state.releases.filter(isSignedRelease) : [];
-  const latest = pickLatest(signed) ?? signed[0];
+  const installable = state.status === "ready" ? state.releases.filter(isInstallableRelease) : [];
+  const latest = pickLatest(installable) ?? installable[0];
+  const prerelease = latest ? isPrerelease(latest) : false;
   const version = latest ? String(latest.tag_name ?? "").replace(/^v/, "") : "";
   const asset = latest ? findPlatformAsset(latest, platform) : undefined;
   const assetUrl = asset ? String(asset.browser_download_url ?? "") : "";
@@ -141,7 +143,17 @@ export default function Download() {
               <>
                 <h2>
                   Quetzalcoatl {version} <span className="badge">{t.download.signed}</span>
+                  {prerelease ? (
+                    <span className="badge">{lang === "en" ? "pre-release" : "预发布"}</span>
+                  ) : null}
                 </h2>
+                {prerelease ? (
+                  <p className="release-note">
+                    {lang === "en"
+                      ? "This is a pre-release. It is signed and installable, but interfaces may still change."
+                      : "这是预发布版本：已签名、可安装，但接口仍可能变化。"}
+                  </p>
+                ) : null}
                 <div className="release-meta">
                   <span>{m.platforms[platform].label}</span>
                   <span>{m.platforms[platform].note}</span>

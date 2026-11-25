@@ -1,0 +1,9 @@
+# 固定 Rust 工具链，避免「本机 clippy 绿、CI clippy 红」的漂移。
+#
+# 说明：Cargo.toml 的 rust-version = "1.91" 是本工作区的 MSRV 下限；本文件固定的是
+# 本仓库实际验证过的工具链（rustc 1.99.1）。把 CI 与本地同时钉到 1.91.0 需要一轮
+# 独立的 MSRV 验证（当前依赖图的 MSRV 更高），因此固定的验证版本是 1.99.1。
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

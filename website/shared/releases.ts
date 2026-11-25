@@ -6,6 +6,8 @@
 //   quetzalcoatl-<版本>-windows-<x64|arm64>.zip             同上（.exe）
 //   SHA256SUMS + SHA256SUMS.sig                            每个资产一行 sha256，外加一行 commit <sha> <tag>；Ed25519 签名
 // 只有带齐 SHA256SUMS 与 SHA256SUMS.sig 的发布才算「已签名」，下载页只展示这类发布。
+// 还必须属于**本产品品牌**（至少一个资产名以 `quetzalcoatl-` 开头）：同一仓库里 V1 的
+// `v1.11.0` 等旧发布没有这些资产，绝不能被解析成 latest。
 
 export const REPO = "PlutoKeating/Project.Quetzal";
 export const GITHUB_RELEASES_API = `https://api.github.com/repos/${REPO}/releases`;
@@ -73,11 +75,47 @@ export function capReleases(list: Release[], npmVersion: string | undefined): Re
   });
 }
 
-/** 正式发布的最高版本：不是草稿、不是预发布、标签形如 vX.Y.Z。 */
+/** 本产品品牌的发布：至少一个资产名以 `quetzalcoatl-` 开头。 */
+export function isBrandRelease(release: Release): boolean {
+  return assetsOf(release).some((asset) => String(asset.name ?? "").startsWith("quetzalcoatl-"));
+}
+
+/** 预发布：GitHub 标记为 prerelease，或标签带 `-suffix`。 */
+export function isPrerelease(release: Release): boolean {
+  if (release.prerelease === true) return true;
+  return /^v?\d+\.\d+\.\d+-/.test(String(release.tag_name ?? ""));
+}
+
+/** 下载页 / 安装器可用的发布：本产品品牌 + 带完整签名清单。 */
+export function isInstallableRelease(release: Release): boolean {
+  return isBrandRelease(release) && isSignedRelease(release);
+}
+
+const newestFirst = (a: Release, b: Release): number => {
+  const d = compareVersions(String(b.tag_name ?? ""), String(a.tag_name ?? ""));
+  if (d !== 0) return d;
+  const aPre = isPrerelease(a);
+  const bPre = isPrerelease(b);
+  if (aPre !== bPre) return aPre ? 1 : -1;
+  const x = String(a.tag_name ?? "");
+  const y = String(b.tag_name ?? "");
+  return x < y ? 1 : x > y ? -1 : 0;
+};
+
+/** 按版本从新到旧排序（预发布与正式版混排时只比较主.次.修订，后缀作为同版本内的次序）。 */
+export function sortReleases(list: Release[]): Release[] {
+  return [...list].sort(newestFirst);
+}
+
+/**
+ * 选「最新可安装版本」：优先最新的正式版；若没有任何正式版，回退到最新预发布版
+ * （这样 `v2.0.0-alpha.1` 在首个稳定版之前仍可安装，下载页会标注 pre-release）。
+ * 只考虑非草稿、标签形如 vX.Y.Z[-suffix] 的发布；品牌/签名过滤由调用方（isInstallableRelease）负责。
+ */
 export function pickLatest(list: Release[]): Release | undefined {
-  return list
-    .filter((r) => TAG_RE.test(String(r.tag_name ?? "")) && !r.draft && !r.prerelease)
-    .sort((a, b) => compareVersions(String(b.tag_name ?? ""), String(a.tag_name ?? "")))[0];
+  const known = list.filter((r) => TAG_RE.test(String(r.tag_name ?? "")) && !r.draft);
+  const stable = known.filter((r) => !isPrerelease(r)).sort(newestFirst)[0];
+  return stable ?? known.filter(isPrerelease).sort(newestFirst)[0];
 }
 
 /** 已签名：资产里同时有 SHA256SUMS 与 SHA256SUMS.sig。下载页只展示这类发布。 */
@@ -102,7 +140,7 @@ export function rewriteAssets(origin: string, release: Release): Release {
       browser_download_url: `${origin}/dl/${tag}/${name}`,
     };
   });
-  return { ...release, assets };
+  return { ...release, prerelease: isPrerelease(release), assets };
 }
 
 export const PLATFORMS = ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64", "windows-x64", "windows-arm64"] as const;

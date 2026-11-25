@@ -84,10 +84,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libsqlite3-dev libzstd-dev pkg-config
 
-      - name: Rust toolchain
+      - name: Rust toolchain (pinned by rust-toolchain.toml)
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup show
+          rustc --version
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -101,7 +101,7 @@ jobs:
 
       - name: Build qz + quetzalcoatld + sandbox wrapper
         run: |
-          cargo build --release \
+          cargo build --release --locked \
             -p quetzalcoatl-daemon --bins \
             -p quetzalcoatl-sandbox --bin quetzalcoatl-sandbox-exec
 
@@ -141,10 +141,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libsqlite3-dev libzstd-dev pkg-config
 
-      - name: Rust toolchain
+      - name: Rust toolchain (pinned by rust-toolchain.toml)
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup show
+          rustc --version
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -158,7 +158,7 @@ jobs:
 
       - name: Build qz + quetzalcoatld + sandbox wrapper
         run: |
-          cargo build --release \
+          cargo build --release --locked \
             -p quetzalcoatl-daemon --bins \
             -p quetzalcoatl-sandbox --bin quetzalcoatl-sandbox-exec
 
@@ -210,14 +210,15 @@ jobs:
       - name: Build static hub binary
         working-directory: hub
         env:
-          VERSION: ${{ needs.prepare.outputs.version }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
           mkdir -p ../dist
+          # Hub 没有 ldflags 注入的版本变量：版本只体现在资产名与 SHA256SUMS 的 commit/tag 行。
           CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" go build -trimpath \
             -ldflags "-s -w" \
-            -o "../dist/quetzalcoatl-$VERSION-hub-linux-${{ matrix.arch }}" \
+            -o "../dist/quetzalcoatl-$version-hub-linux-${{ matrix.arch }}" \
             ./cmd/quetzalcoatl-hub
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -244,10 +245,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libadwaita-1-dev libsqlite3-dev libzstd-dev pkg-config
 
-      - name: Rust toolchain
+      - name: Rust toolchain (pinned by rust-toolchain.toml)
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup show
+          rustc --version
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -260,7 +261,7 @@ jobs:
             ${{ runner.os }}-cargo-release-desktop-
 
       - name: Build release desktop binary
-        run: cargo build -p quetzalcoatl-desktop --release
+        run: cargo build -p quetzalcoatl-desktop --release --locked
 
       - name: Stage and archive
         env:
@@ -306,12 +307,14 @@ jobs:
           npm run build
           npm run test:unit
 
-      - name: Stage and archive
+      - name: Stage and archive (intentional no-wasm build)
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist
+          # 默认发布形态有意不含 WASM：`no-wasm` 是可确定测试的降级路径。
+          # 需要 WASM 缓存的自托管者运行 scripts/build-web-wasm.sh 后以 QZ_WEB_WITH_WASM=1 自行重建。
           tar -czf "dist/quetzalcoatl-$VERSION-web.tar.gz" -C surfaces/web/dist .
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -346,10 +349,34 @@ jobs:
           echo "Release assets before signing:"
           find dist -maxdepth 1 -type f -printf '%f  %s bytes\n' | sort
 
-      - name: Warn when the workspace version is still a pre-release
+      - name: Assert the expected asset set
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            "quetzalcoatl-$VERSION-linux-x64.tar.gz" \
+            "quetzalcoatl-$VERSION-linux-arm64.tar.gz" \
+            "quetzalcoatl-$VERSION-hub-linux-x64" \
+            "quetzalcoatl-$VERSION-hub-linux-arm64" \
+            "quetzalcoatl-$VERSION-linux-desktop-x64.tar.gz" \
+            "quetzalcoatl-$VERSION-web.tar.gz"; do
+            if [ ! -s "dist/$name" ]; then
+              echo "::error::missing or empty release asset: $name"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+          echo "all 6 expected assets are present"
+
+      - name: Enforce the version contract (tag = Cargo workspace version)
+        id: version
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+        run: |
+          set -euo pipefail
           crate_version=$(python3 - <<'PY'
           import tomllib
           with open("Cargo.toml", "rb") as f:
@@ -357,9 +384,29 @@ jobs:
           PY
           )
           echo "workspace version: $crate_version / release version: $VERSION"
-          if [ "$crate_version" != "$VERSION" ]; then
-            echo "::warning::Cargo workspace version ($crate_version) differs from the release version ($VERSION). Bump Cargo.toml before tagging a final release."
+          if [ "$crate_version" = "$VERSION" ]; then
+            echo "match=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          if [ "$DRY_RUN" = "true" ]; then
+            # 演练允许版本号尚未提升，但安装验证会因版本不一致而跳过（下面按 match 控制）。
+            echo "::warning::dry run: Cargo workspace version ($crate_version) differs from $VERSION"
+            echo "match=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::Cargo workspace version ($crate_version) does not match tag v$VERSION; refusing to publish mislabelled binaries. Bump Cargo.toml and re-tag."
+          exit 1
+
+      - name: Check the signing key against the installer trust root
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_SIGNING_KEY:-}" ]; then
+            echo "::error::RELEASE_SIGNING_KEY is not configured; refusing to publish unsigned artifacts."
+            exit 1
+          fi
+          bash scripts/check-release-key.sh
 
       - name: Sign SHA256SUMS with Ed25519
         env:
@@ -367,10 +414,6 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -z "${RELEASE_SIGNING_KEY:-}" ]; then
-            echo "::error::RELEASE_SIGNING_KEY is not configured; refusing to publish unsigned artifacts."
-            exit 1
-          fi
           bash scripts/gen-sums.sh dist --tag "v$VERSION" --commit "$GITHUB_SHA"
 
       - name: Verify the signature before upload
@@ -380,6 +423,34 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/gen-sums.sh dist --tag "v$VERSION" --commit "$GITHUB_SHA" --check
+
+      - name: Install the signed release through the production trust root
+        if: steps.version.outputs.match == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          home=$(mktemp -d)
+          port=18080
+          # 本地静态服务直接暴露已签名目录；不使用 QZ_TEST_RELEASE_PUBKEY，
+          # 验证的正是 scripts/install.sh 内置的生产公钥与真实资产布局。
+          python3 -m http.server "$port" --bind 127.0.0.1 --directory dist >"$home/http.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true; rm -rf "$home"' EXIT
+          for _ in $(seq 1 50); do
+            curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$port/SHA256SUMS" 2>/dev/null && break
+            sleep 0.1
+          done
+          HOME="$home" QZ_PREFIX="$home/prefix" QUETZALCOATL_HOME="$home/qzhome" \
+            QZ_RELEASE_BASE="http://127.0.0.1:$port" QZ_SKIP_SERVICE=1 \
+            bash scripts/install.sh --version "$VERSION" --no-desktop
+          got=$("$home/prefix/bin/qz" --version)
+          echo "installed qz reports: $got"
+          esc=$(printf '%s' "$VERSION" | sed 's/[.]/\\./g')
+          if ! printf '%s\n' "$got" | grep -Eq "(^|[^0-9A-Za-z.+-])v?${esc}([^0-9A-Za-z.+-]|$)"; then
+            echo "::error::installed qz does not report the release version $VERSION"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -429,14 +500,20 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
+          prerelease=()
+          case "$VERSION" in *-*) prerelease=(--prerelease) ;; esac
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists; uploading assets with --clobber"
             gh release upload "$TAG" dist/* --clobber
+            if [ ${#prerelease[@]} -gt 0 ]; then
+              gh release edit "$TAG" --prerelease
+            fi
           else
             gh release create "$TAG" dist/* \
               --title "Quetzalcoatl $VERSION" \
               --notes-file RELEASE_NOTES.md \
-              --verify-tag
+              --verify-tag \
+              "${prerelease[@]}"
           fi
 
       - name: Dry-run summary

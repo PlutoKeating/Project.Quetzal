@@ -58,9 +58,19 @@ macOS `swift test`、Windows WinUI 完整构建与 UIA 冒烟、Windows/macOS �
 ### 发布与供应链
 
 - `.github/workflows/ci.yml`：Rust / Go / TypeScript / Linux GTK4 / Swift / C# 全矩阵门禁，
-  仅使用固定到完整 commit SHA 的 `actions/*` 官方动作。
+  仅使用固定到完整 commit SHA 的 `actions/*` 官方动作；Windows App 只容忍 runner 缺
+  Appx/PRI 任务这一已知缺口，C#/XAML 编译错误仍阻断，并在 App 产出时运行 UIA 冒烟。
 - `.github/workflows/release.yml`：Linux `x64`/`arm64` CLI 包、Hub 静态二进制、GTK4 桌面包、
   Web 控制台包，统一由 Ed25519 私钥签发 `SHA256SUMS` 与 `SHA256SUMS.sig` 后上传。
+- **信任根硬门禁**：发版前用 `scripts/check-release-key.sh` 比对 Secret 派生公钥与安装器
+  内置公钥；不一致直接失败。签名后用**生产公钥**（无任何 test-pubkey 覆盖）从 `dist/`
+  安装真实 `linux-x64` 包并断言 `qz --version` 精确匹配。
+- **版本契约**：tag 与 Cargo workspace 版本不一致时阻断发版；安装器按完整版本令牌精确比较，
+  `2.0.0-alpha.1` 不能冒充 `2.0.0`。含 `-` 的版本自动以 GitHub prerelease 发布。
+- **资产契约**：签名前断言 6 个预期资产（CLI x64/arm64、Hub x64/arm64、桌面 x64、Web）
+  全部存在且非空，缺失/改名即失败。
+- 官网 `/api/releases/latest` 只解析本产品的已签名发布（至少一个 `quetzalcoatl-*` 资产），
+  排除 V1 `v1.11.0`；无稳定版时回退到最新预发布版并标注 badge。
 - `scripts/install.sh` / `scripts/install.ps1` 以内置公钥为信任根验签；安装失败自动回滚。
 
 ### 已知限制
@@ -68,6 +78,7 @@ macOS `swift test`、Windows WinUI 完整构建与 UIA 冒烟、Windows/macOS �
 - **iOS / Android 客户端尚未交付**：由计划 Task 5.1 / 5.2 落地；CI 中以 `if: false` 占位，
   不报告为通过。
 - **Windows 安装包未签名**：当前发版只提供源码与 CI 构建证据；exe/msix 代码签名证书接入前
-  不发布 Windows 二进制资产。
-- **macOS 公证与 `.app` 打包**：SwiftPM 构建通过 CI 验证，Developer ID 公证流程尚未接入。
+  不发布 Windows 二进制资产。**Windows arm64 构建 `Deferred:`**（无 arm64 验证机）。
+- **macOS 公证与 `.app` 打包**：SwiftPM 构建通过 CI 验证，Developer ID 公证流程尚未接入，
+  本预发布不包含 macOS 二进制资产。
 - **npm 未发布**：V2 没有 npm 包，发布流水线刻意不发布 npm。
