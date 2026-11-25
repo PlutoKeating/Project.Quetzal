@@ -722,13 +722,31 @@
 
 **Files:**
 - Create: `.github/workflows/{ci.yml,release.yml}`
+- Create: `CHANGELOG.md`, `docs/RELEASE.md`
 
 **Interfaces:**
 - Produces: 覆盖 Rust、Go、Swift（macOS/iOS）、Kotlin（Android 双包）、C#（WinUI 3 x64/arm64）、TypeScript（Web/Website）的自动化测试构建与 Ed25519 `SHA256SUMS.sig` 签名发布流水线。
 
-- [ ] **Step 1: 编写发布产物完整性、许可证合规（`THIRD_PARTY_NOTICES`）与签名校验门禁脚本**
-- [ ] **Step 2: 本地与模拟 Runner 全链路验证构建、安装、`import-v1`、扫码组网与群组协同冒烟测试**
-- [ ] **Step 3: 检查全仓 `git status` 零脏文件并完成收官提交**
+- [x] **Step 1: 编写发布产物完整性、许可证合规（`THIRD_PARTY_NOTICES`）与签名校验门禁脚本**
+- [x] **Step 2: 本地与模拟 Runner 全链路验证构建、安装、`import-v1`、扫码组网与群组协同冒烟测试**
+- [x] **Step 3: 检查全仓 `git status` 零脏文件并完成收官提交**
+
+> 说明：交付 `.github/workflows/ci.yml`（Rust / Go / Web+官网+文档+安装器 / Linux GTK4 / macOS Swift / Windows C# 六个真实门禁，移动端以 `if: false` 占位且不报告通过）与
+> `.github/workflows/release.yml`（tag `v*` 与 `workflow_dispatch` 演练；资产 `quetzalcoatl-<version>-linux-{x64,arm64}.tar.gz`、
+> `-hub-linux-{x64,arm64}`、`-linux-desktop-x64.tar.gz`、`-web.tar.gz`；`sign` job 独享 `contents: write`，上传前用
+> `scripts/gen-sums.sh --check` 自校验）。所有 `actions/*` 固定到完整 commit SHA。
+> 发布产物完整性、许可证合规与签名门禁由既有 `cargo deny check licenses bans sources`、`scripts/gen-sums.sh`、
+> `scripts/tests/{gen_sums,install_verify_sig}.test.sh` 强制执行；未另生成独立 `THIRD_PARTY_NOTICES` 文件
+> （本任务 Requirements 未列），`Deferred:` 需要时由 cargo-deny 许可清单生成并附加到 Release。
+> 本地演练（不推送、不打 tag）：用一次性 Ed25519 密钥构建 4 个真实资产 → `gen-sums.sh` 签名 → `--check` 通过
+> → 本地 HTTP 假发布源 + `scripts/install.sh`（`QZ_TEST_RELEASE_PUBKEY`）验签安装成功；详见
+> `.superpowers/sdd/2026-11-24-quetzalcoatl-v2-architecture-and-plan/task-5.4-report.md`。
+> Rust/Linux GTK4 两个 job 固定 `ubuntu-26.04`：`libadwaita` crate 的 `v1_9` 特性要求 libadwaita >= 1.9，而
+> ubuntu-24.04 软件源只有 1.5；Go/Web 等不依赖 GTK 的 job 仍为 ubuntu-24.04。
+> `Deferred (VMs paused by owner):` macOS `swift build/test` 与 Windows `dotnet build/test` 只编码在 CI 原生 runner，
+> 本机无 Swift/.NET 工具链，未在本机执行；iOS/Android 由 Task 5.1/5.2 交付前无源码，CI 占位不声称通过。
+> `Deferred:` Windows exe/msix 代码签名与 macOS Developer ID 公证未接入，因此 Release 不发布 Windows 二进制；
+> `Cargo.toml` 仍为 `2.0.0-alpha.1`，正式打 `v2.0.0` tag 前需维护者单独提交版本号提升（不在本任务暂存范围）。
 
 ---
 

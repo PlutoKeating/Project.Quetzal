@@ -201,6 +201,7 @@ qz import-v1 --soul-dir /path/to/v1-soul --db /path/to/v1-sessions.sqlite
 | [docs/DOMAIN_PACK_GUIDE.md](docs/DOMAIN_PACK_GUIDE.md) | 领域包 schema、监护人签名、`SafetyEnvelope`、Verifier 规则、编写与测试流程 |
 | [docs/MIGRATION_V1_TO_V2.md](docs/MIGRATION_V1_TO_V2.md) | V1 移除项、`qz import-v1` 映射、导出/恢复、注意事项 |
 | [docs/ACCESSIBILITY_CHECKLIST.md](docs/ACCESSIBILITY_CHECKLIST.md) | 五端无障碍检查清单与延后项 |
+| [docs/RELEASE.md](docs/RELEASE.md) | 发版手册：tag/Secret、资产清单、验签、回滚、CI 矩阵与已知限制 |
 | [docs/V2_GOAL.html](docs/V2_GOAL.html) | 第一性原理蓝图（不改动） |
 | [docs/bench/conscience-bench-2026-11-25.md](docs/bench/conscience-bench-2026-11-25.md) | `ConscienceBench` 认证报告 |
 

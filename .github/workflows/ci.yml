@@ -1,0 +1,301 @@
+name: CI
+
+# 全矩阵源码门禁：Rust / Go / TypeScript / Linux GTK4 / Swift / C#。
+# 仅使用 actions/* 官方动作，且全部以完整 commit SHA 固定（tag 写在行尾注释里）。
+# 第三方工具（cargo-deny、playwright、swift、dotnet）由 runner 或包管理器直接安装，
+# 不引入任何第三方 Action。
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  rust:
+    name: rust / fmt + clippy + test + cargo-deny
+    # 24.04 只带 libadwaita 1.5，而 surfaces/linux 的 crate 特性要求 >= 1.9
+    # （AGENTS.md §4.1）。26.04 是仓库实际验证基线（libadwaita 1.9.1 / GTK 4.22）。
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libadwaita-1-dev libsqlite3-dev libzstd-dev \
+            pkg-config xvfb dbus
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install cargo-deny
+        run: command -v cargo-deny >/dev/null 2>&1 || cargo install cargo-deny --locked
+
+      - name: Licences, bans and sources (deny.toml)
+        run: cargo deny check licenses bans sources
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (workspace, all targets, deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests (workspace, headless X for the GTK4 crate)
+        run: xvfb-run -a cargo test --workspace
+
+  go:
+    name: go / hub build + vet + race tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: hub/go.mod
+          cache-dependency-path: hub/go.sum
+
+      - name: Build the single static hub binary (CGO_ENABLED=0)
+        working-directory: hub
+        run: CGO_ENABLED=0 go build ./cmd/quetzalcoatl-hub
+
+      - name: go vet
+        working-directory: hub
+        run: go vet ./...
+
+      - name: go test -race
+        working-directory: hub
+        # `-race` 需要 cgo 运行时（Go 官方约束）；被测代码本身仍是纯 Go，
+        # 因此构建门禁保持 CGO_ENABLED=0，只有 race 检测这一步开启 cgo。
+        run: CGO_ENABLED=1 go test -race ./...
+
+  web:
+    name: web + website + docs/installer gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            surfaces/web/package-lock.json
+            website/package-lock.json
+
+      - name: Install Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('surfaces/web/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Web console — install, typecheck, unit + e2e
+        working-directory: surfaces/web
+        run: |
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+          npm test
+
+      - name: Website — install, typecheck, unit tests, prerender build
+        working-directory: website
+        run: |
+          npm ci
+          npm run check
+
+      - name: Documentation links
+        run: bash scripts/tests/docs_links.test.sh
+
+      - name: Installer signature gate
+        run: bash scripts/tests/install_verify_sig.test.sh
+
+      - name: Release manifest gate
+        run: bash scripts/tests/gen_sums.test.sh
+
+  linux-desktop:
+    name: linux-desktop / GTK4 release build + ELF LGPL test
+    # 同 rust job：libadwaita >= 1.9 只有 26.04 的软件源满足。
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install GTK4 / libadwaita / xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libadwaita-1-dev libsqlite3-dev libzstd-dev \
+            pkg-config xvfb dbus
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-desktop-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-desktop-
+
+      - name: Build the release desktop binary
+        run: cargo build -p quetzalcoatl-desktop --release
+
+      - name: ELF dynamic-link (LGPL-2.1) + XAML-free UI contract under xvfb
+        run: xvfb-run -a cargo test -p quetzalcoatl-desktop --test dynamic_link_and_ui
+
+  macos:
+    name: macos / Swift 6 strict concurrency
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          swift --version
+          xcode-select -p
+
+      - name: Build + test (Swift Testing; CLT-only needs explicit Testing.framework search paths)
+        working-directory: surfaces/macos
+        run: |
+          set -euo pipefail
+          swift build
+          if xcode-select -p | grep -q CommandLineTools; then
+            swift test \
+              -Xswiftc -F -Xswiftc /Library/Developer/CommandLineTools/Library/Developer/Frameworks \
+              -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/Frameworks \
+              -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/usr/lib
+          else
+            swift test
+          fi
+
+  windows:
+    name: windows / WinUI 3 x64 source + tests
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Toolchain
+        shell: bash
+        run: dotnet --info | head -n 20
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('surfaces/windows/**/*.csproj', 'surfaces/windows/nuget.config') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        working-directory: surfaces/windows
+        run: dotnet restore Quetzalcoatl.Windows.sln -p:Platform=x64
+
+      # 必过门禁：Desktop / Interop 是纯 net9.0 工程，不依赖 WinUI 的 Appx/PRI 任务。
+      - name: Build Desktop + Interop (required)
+        working-directory: surfaces/windows
+        shell: bash
+        run: |
+          dotnet build src/Quetzalcoatl.Desktop/Quetzalcoatl.Desktop.csproj -p:Platform=x64 --no-restore
+          dotnet build src/Quetzalcoatl.Interop/Quetzalcoatl.Interop.csproj -p:Platform=x64 --no-restore
+
+      # WinUI 3 App 需要 VS 2022 的 Microsoft.Build.AppxPackage.dll。windows-2022 镜像
+      # 通常自带 UniversalBuildTools 工作负载，但这是 runner 镜像的软依赖：失败时本 job
+      # 仅记录已知限制（docs/RELEASE.md §CI 矩阵），不掩盖 Desktop/Interop 测试。
+      - name: Build WinUI 3 App (advisory — Appx/PRI MSBuild task availability)
+        id: app
+        continue-on-error: true
+        working-directory: surfaces/windows
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet build Quetzalcoatl.Windows.sln -p:Platform=x64 --no-restore 2>&1 | tee app-build.log
+
+      - name: Record WinUI 3 App outcome
+        if: steps.app.outcome == 'failure'
+        working-directory: surfaces/windows
+        shell: bash
+        run: |
+          echo "::warning::WinUI 3 App build failed; Desktop/Interop tests remain required. See docs/RELEASE.md known limitations."
+          grep -n "AppxPackage\|AppxMSBuildToolsPath\|error" app-build.log | tail -n 20 || true
+          {
+            echo "### WinUI 3 App build: FAILED (known limitation)"
+            echo '```'
+            grep -n "AppxPackage\|AppxMSBuildToolsPath\|error" app-build.log | tail -n 20 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tests (Desktop + Interop, required)
+        working-directory: surfaces/windows
+        shell: bash
+        run: |
+          dotnet test tests/Quetzalcoatl.Desktop.Tests/Quetzalcoatl.Desktop.Tests.csproj \
+            -p:Platform=x64 --no-restore --logger "console;verbosity=normal"
+          dotnet test tests/Quetzalcoatl.Interop.Tests/Quetzalcoatl.Interop.Tests.csproj \
+            -p:Platform=x64 --no-restore --logger "console;verbosity=normal"
+
+  mobile:
+    name: mobile (deferred — Task 5.1 / 5.2)
+    # 不伪造：iOS（SwiftAgent + FoundationModels）与 Android（Compose + Koog）源码
+    # 由 Task 5.1 / 5.2 交付，本仓库当前没有 surfaces/ios 与 surfaces/android。
+    # 在源码落地前，本 job 永远不运行，也不会被报告为通过。
+    if: false
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "Deferred: mobile sources land in Tasks 5.1 (iOS) and 5.2 (Android)."
+          exit 1

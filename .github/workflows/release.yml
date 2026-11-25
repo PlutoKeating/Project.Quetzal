@@ -1,0 +1,453 @@
+name: Release
+
+# 签名发版流水线：
+#   * push tag v*  → 构建全部可发布产物 → Ed25519 签名 → 创建 GitHub Release 并上传；
+#   * workflow_dispatch → 同一套构建与签名演练（不创建 Release），用于验证发版门禁。
+#
+# 信任根：Secret `RELEASE_SIGNING_KEY`（PKCS#8 PEM 的 Ed25519 私钥）。它只交给 sign job，
+# 只以 0600 临时文件形式交给 scripts/gen-sums.sh，绝不打印、绝不落盘到仓库。
+# 资产命名与 scripts/install.sh 的解析契约一致（arch ∈ {x64, arm64}）。
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "演练版本号（不含 v），例如 2.0.0；只构建与签名，不创建 Release"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  prepare:
+    name: prepare / resolve version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      dry_run: ${{ steps.meta.outputs.dry_run }}
+    steps:
+      - name: Resolve version
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${INPUT_VERSION:-}"
+            version="${version#v}"
+            dry_run=true
+          else
+            ref="${GITHUB_REF_NAME}"
+            case "$ref" in v*) ;; *) echo "::error::tag must start with v: $ref"; exit 1 ;; esac
+            version="${ref#v}"
+            dry_run=false
+          fi
+          case "$version" in
+            ""|*[!0-9A-Za-z.-]*) echo "::error::invalid version: $version"; exit 1 ;;
+          esac
+          tag="v$version"
+          if [ "$dry_run" = false ] && [ "$tag" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag $tag does not match the pushed ref ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+          echo "Resolved $tag (dry_run=$dry_run)"
+
+  linux-x64:
+    name: build / linux-x64 CLI bundle
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsqlite3-dev libzstd-dev pkg-config
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-x64-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-x64-
+
+      - name: Build qz + quetzalcoatld + sandbox wrapper
+        run: |
+          cargo build --release \
+            -p quetzalcoatl-daemon --bins \
+            -p quetzalcoatl-sandbox --bin quetzalcoatl-sandbox-exec
+
+      - name: Stage and archive
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          stage="stage/quetzalcoatl-$VERSION-linux-x64"
+          mkdir -p "$stage/bin" dist
+          cp target/release/qz "$stage/bin/qz"
+          cp target/release/quetzalcoatld "$stage/bin/quetzalcoatld"
+          cp target/release/quetzalcoatl-sandbox-exec "$stage/bin/quetzalcoatl-sandbox-exec"
+          chmod 0755 "$stage/bin/"*
+          tar -czf "dist/quetzalcoatl-$VERSION-linux-x64.tar.gz" -C "$stage" .
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux-x64
+          path: dist/quetzalcoatl-*
+          if-no-files-found: error
+          retention-days: 14
+
+  linux-arm64:
+    name: build / linux-arm64 CLI bundle
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsqlite3-dev libzstd-dev pkg-config
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-arm64-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-release-arm64-
+
+      - name: Build qz + quetzalcoatld + sandbox wrapper
+        run: |
+          cargo build --release \
+            -p quetzalcoatl-daemon --bins \
+            -p quetzalcoatl-sandbox --bin quetzalcoatl-sandbox-exec
+
+      - name: Stage and archive
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          stage="stage/quetzalcoatl-$VERSION-linux-arm64"
+          mkdir -p "$stage/bin" dist
+          cp target/release/qz "$stage/bin/qz"
+          cp target/release/quetzalcoatld "$stage/bin/quetzalcoatld"
+          cp target/release/quetzalcoatl-sandbox-exec "$stage/bin/quetzalcoatl-sandbox-exec"
+          chmod 0755 "$stage/bin/"*
+          tar -czf "dist/quetzalcoatl-$VERSION-linux-arm64.tar.gz" -C "$stage" .
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux-arm64
+          path: dist/quetzalcoatl-*
+          if-no-files-found: error
+          retention-days: 14
+
+  hub:
+    name: build / hub-${{ matrix.arch }}
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: hub/go.mod
+          cache-dependency-path: hub/go.sum
+
+      - name: Build static hub binary
+        working-directory: hub
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist
+          CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" go build -trimpath \
+            -ldflags "-s -w" \
+            -o "../dist/quetzalcoatl-$VERSION-hub-linux-${{ matrix.arch }}" \
+            ./cmd/quetzalcoatl-hub
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-hub-${{ matrix.arch }}
+          path: dist/quetzalcoatl-*
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop-linux:
+    name: build / linux GTK4 desktop tarball
+    needs: prepare
+    # libadwaita >= 1.9 由 26.04 软件源提供（24.04 只有 1.5）。
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libadwaita-1-dev libsqlite3-dev libzstd-dev pkg-config
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-desktop-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-desktop-
+
+      - name: Build release desktop binary
+        run: cargo build -p quetzalcoatl-desktop --release
+
+      - name: Stage and archive
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          stage="stage/quetzalcoatl-$VERSION-linux-desktop-x64"
+          mkdir -p "$stage/bin" "$stage/share/applications" \
+            "$stage/share/icons/hicolor/scalable/apps" dist
+          cp target/release/quetzalcoatl-desktop "$stage/bin/quetzalcoatl-desktop"
+          chmod 0755 "$stage/bin/quetzalcoatl-desktop"
+          cp surfaces/linux/resources/org.quetzalcoatl.Desktop.desktop "$stage/share/applications/"
+          cp surfaces/linux/resources/org.quetzalcoatl.Desktop.svg "$stage/share/icons/hicolor/scalable/apps/"
+          tar -czf "dist/quetzalcoatl-$VERSION-linux-desktop-x64.tar.gz" -C "$stage" .
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-desktop-linux
+          path: dist/quetzalcoatl-*
+          if-no-files-found: error
+          retention-days: 14
+
+  web:
+    name: build / web console tarball
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: surfaces/web/package-lock.json
+
+      - name: Install and build
+        working-directory: surfaces/web
+        run: |
+          npm ci
+          npm run build
+          npm run test:unit
+
+      - name: Stage and archive
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -czf "dist/quetzalcoatl-$VERSION-web.tar.gz" -C surfaces/web/dist .
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-web
+          path: dist/quetzalcoatl-*
+          if-no-files-found: error
+          retention-days: 14
+
+  sign:
+    name: sign + publish
+    needs: [prepare, linux-x64, linux-arm64, hub, desktop-linux, web]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # 只有这一步需要写权限：创建 Release 与上传资产。
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Inventory
+        run: |
+          set -euo pipefail
+          echo "Release assets before signing:"
+          find dist -maxdepth 1 -type f -printf '%f  %s bytes\n' | sort
+
+      - name: Warn when the workspace version is still a pre-release
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          crate_version=$(python3 - <<'PY'
+          import tomllib
+          with open("Cargo.toml", "rb") as f:
+              print(tomllib.load(f)["workspace"]["package"]["version"])
+          PY
+          )
+          echo "workspace version: $crate_version / release version: $VERSION"
+          if [ "$crate_version" != "$VERSION" ]; then
+            echo "::warning::Cargo workspace version ($crate_version) differs from the release version ($VERSION). Bump Cargo.toml before tagging a final release."
+          fi
+
+      - name: Sign SHA256SUMS with Ed25519
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_SIGNING_KEY:-}" ]; then
+            echo "::error::RELEASE_SIGNING_KEY is not configured; refusing to publish unsigned artifacts."
+            exit 1
+          fi
+          bash scripts/gen-sums.sh dist --tag "v$VERSION" --commit "$GITHUB_SHA"
+
+      - name: Verify the signature before upload
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash scripts/gen-sums.sh dist --tag "v$VERSION" --commit "$GITHUB_SHA" --check
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-bundle
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Extract the CHANGELOG section for this version
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - "$VERSION" <<'PY'
+          import re
+          import sys
+
+          version = sys.argv[1]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          pattern = re.compile(rf"^## {re.escape(version)}(\s|$)")
+          lines = text.splitlines()
+          start = None
+          for i, line in enumerate(lines):
+              if pattern.match(line):
+                  start = i + 1
+                  break
+          if start is None:
+              raise SystemExit(f"CHANGELOG.md has no '## {version}' section")
+          end = len(lines)
+          for j in range(start, len(lines)):
+              if lines[j].startswith("## "):
+                  end = j
+                  break
+          body = "\n".join(lines[start:end]).strip()
+          if not body:
+              raise SystemExit(f"CHANGELOG.md '## {version}' section is empty")
+          with open("RELEASE_NOTES.md", "w", encoding="utf-8") as f:
+              f.write(body + "\n")
+          print(f"RELEASE_NOTES.md: {len(body)} chars from CHANGELOG.md")
+          PY
+
+      - name: Create the GitHub Release (tag pushes only)
+        if: needs.prepare.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists; uploading assets with --clobber"
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "Quetzalcoatl $VERSION" \
+              --notes-file RELEASE_NOTES.md \
+              --verify-tag
+          fi
+
+      - name: Dry-run summary
+        if: needs.prepare.outputs.dry_run == 'true'
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          {
+            echo "### Dry run for $TAG (no Release created)"
+            echo '```'
+            find dist -maxdepth 1 -type f -printf '%f  %s bytes\n' | sort
+            echo '```'
+            echo "Signature verified with scripts/gen-sums.sh --check. The bundle is attached to this workflow run as \`release-bundle\`."
+          } >> "$GITHUB_STEP_SUMMARY"
