@@ -44,13 +44,27 @@ fn aes256_cbc_decrypt(key: &[u8; 32], iv: &[u8; 16], ciphertext: &[u8]) -> Resul
 }
 
 fn b64_decode(value: &str) -> Result<Vec<u8>> {
+    let trimmed = value.trim();
+    let mut padded = String::from(trimmed);
+    while !padded.len().is_multiple_of(4) {
+        padded.push('=');
+    }
     base64::engine::general_purpose::STANDARD
-        .decode(value.trim())
+        .decode(padded)
         .map_err(|_| integrity("平台 base64 解码失败"))
 }
 
 /// 企业微信：`EncodingAESKey` 为 32 字节密钥，随机 16B 前缀 + 4B msg_len + msg + receive_id。
 pub fn decrypt_wecom(encrypt_b64: &str, encoding_aes_key_b64: &str) -> Result<Vec<u8>> {
+    decrypt_wecom_with_receive_id(encrypt_b64, encoding_aes_key_b64, None)
+}
+
+/// 同 [`decrypt_wecom`]，但可强制校验企业微信 `receive_id`（AgentID/CorpID）。
+pub fn decrypt_wecom_with_receive_id(
+    encrypt_b64: &str,
+    encoding_aes_key_b64: &str,
+    expected_receive_id: Option<&str>,
+) -> Result<Vec<u8>> {
     let key = b64_decode(encoding_aes_key_b64)?;
     if key.len() != 32 {
         return Err(integrity("WeCom EncodingAESKey 必须为 32 字节"));
@@ -70,6 +84,13 @@ pub fn decrypt_wecom(encrypt_b64: &str, encoding_aes_key_b64: &str) -> Result<Ve
         .ok_or_else(|| integrity("WeCom msg_len 溢出"))?;
     if end > plain.len() {
         return Err(integrity("WeCom msg_len 超出明文长度"));
+    }
+    if let Some(expected) = expected_receive_id.filter(|v| !v.trim().is_empty()) {
+        let receive_id = std::str::from_utf8(&plain[end..])
+            .map_err(|_| integrity("WeCom receive_id 不是合法 UTF-8"))?;
+        if receive_id != expected {
+            return Err(integrity("WeCom receive_id 与配置不一致"));
+        }
     }
     Ok(plain[20..end].to_vec())
 }

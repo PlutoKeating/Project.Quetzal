@@ -322,6 +322,10 @@ func (s *WebhookIngressService) ingressDevices(agentID string) ([]channelIngress
 				deviceID = v
 			}
 		}
+		device, devErr := s.store.GetDevice(context.Background(), agentID, deviceID)
+		if devErr != nil || device.Revoked {
+			continue
+		}
 		out = append(out, channelIngressDevice{deviceID: deviceID, keyID: keyID, pk: pk})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].deviceID < out[j].deviceID })
@@ -387,6 +391,23 @@ func (s *WebhookIngressService) handleIngress(w http.ResponseWriter, r *http.Req
 	eventIDHashRaw := sha256.Sum256([]byte(eventID))
 	eventIDHash := hex.EncodeToString(eventIDHashRaw[:])
 
+	exists, err := s.store.WebhookIngressEventExists(r.Context(), agentID, channel, eventIDHash)
+	if err != nil {
+		webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress dedupe failed")
+		return
+	}
+	if !exists {
+		eventCount, err := s.store.CountWebhookIngressEvents(r.Context(), agentID)
+		if err != nil {
+			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "ingress quota lookup failed")
+			return
+		}
+		if s.cfg.MaxQueuePerAgent > 0 && eventCount >= s.cfg.MaxQueuePerAgent {
+			webhookError(w, http.StatusTooManyRequests, "INGRESS_QUEUE_FULL", "agent ingress queue is full")
+			return
+		}
+	}
+
 	receivedAtMs := s.clock().UnixMilli()
 	aad, aadErr := json.Marshal(struct {
 		AgentID      string `json:"agent_id"`
@@ -423,12 +444,9 @@ func (s *WebhookIngressService) handleIngress(w http.ResponseWriter, r *http.Req
 			AADUTF8:        string(aad),
 			ReceivedAtMs:   receivedAtMs,
 			CreatedAtMs:    receivedAtMs,
-		}, s.cfg.MaxQueuePerAgent)
+		}, 0)
 		if enqueueErr != nil {
-			if errors.Is(enqueueErr, store.ErrQuotaExceeded) {
-				webhookError(w, http.StatusTooManyRequests, "INGRESS_QUEUE_FULL", "agent ingress queue is full")
-				return
-			}
+			_, _ = s.store.DeleteWebhookIngressEvent(r.Context(), agentID, channel, eventIDHash)
 			webhookError(w, http.StatusInternalServerError, "STORAGE_ERROR", "enqueue failed")
 			return
 		}
@@ -487,13 +505,14 @@ func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz Ow
 				nextCursor = row.IngressID
 			}
 			events = append(events, map[string]any{
-				"event_id":       row.EventIDHash,
-				"cursor":         row.IngressID,
-				"channel":        row.Channel,
-				"received_at_ms": row.ReceivedAtMs,
-				"enc_hex":        row.HPKEEncHex,
-				"ciphertext_hex": row.CiphertextHex,
-				"aad_json":       row.AADUTF8,
+				"event_id":         row.EventIDHash,
+				"cursor":           row.IngressID,
+				"target_device_id": row.TargetDeviceID,
+				"channel":          row.Channel,
+				"received_at_ms":   row.ReceivedAtMs,
+				"enc_hex":          row.HPKEEncHex,
+				"ciphertext_hex":   row.CiphertextHex,
+				"aad_json":         row.AADUTF8,
 			})
 		}
 		depth, err := s.store.CountWebhookIngress(r.Context(), agentID)
@@ -510,9 +529,6 @@ func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz Ow
 
 	mux.HandleFunc("POST /v1/webhook/{agent_id}/ingress/ack", func(w http.ResponseWriter, r *http.Request) {
 		agentID := strings.TrimSpace(r.PathValue("agent_id"))
-		if _, _, ok := authz.RequireAgentOwner(w, r, agentID); !ok {
-			return
-		}
 		var req struct {
 			Items []struct {
 				Channel string `json:"channel"`
@@ -524,6 +540,10 @@ func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz Ow
 			return
 		}
 		_ = r.Body.Close()
+		principal, _, ok := authz.RequireAgentOwner(w, r, agentID)
+		if !ok {
+			return
+		}
 		keys := make([]store.WebhookIngressKey, 0, len(req.Items))
 		for _, item := range req.Items {
 			channel := strings.TrimSpace(item.Channel)
@@ -536,7 +556,7 @@ func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz Ow
 				webhookError(w, http.StatusBadRequest, "INVALID_ID", "event_id must be hex")
 				return
 			}
-			keys = append(keys, store.WebhookIngressKey{Channel: channel, EventIDHash: hash})
+			keys = append(keys, store.WebhookIngressKey{Channel: channel, EventIDHash: hash, TargetDeviceID: principal.DeviceID})
 		}
 		deleted, err := s.store.DeleteWebhookIngressByKeys(r.Context(), agentID, keys)
 		if err != nil {
@@ -552,7 +572,8 @@ func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz Ow
 
 	mux.HandleFunc("GET /v1/webhook/{agent_id}/status", func(w http.ResponseWriter, r *http.Request) {
 		agentID := strings.TrimSpace(r.PathValue("agent_id"))
-		if _, _, ok := authz.RequireAgentOwner(w, r, agentID); !ok {
+		principal, _, ok := authz.RequireAgentOwner(w, r, agentID)
+		if !ok {
 			return
 		}
 		devices, err := s.ingressDevices(agentID)
@@ -563,12 +584,25 @@ func (s *WebhookIngressService) RegisterOwnerRoutes(mux *http.ServeMux, authz Ow
 		registered := len(devices) > 0
 		keyID := ""
 		deviceID := ""
-		rows := make([]map[string]string, 0, len(devices))
+		rows := make([]map[string]any, 0, len(devices))
 		if registered {
-			keyID = devices[0].keyID
-			deviceID = devices[0].deviceID
+			caller := devices[0]
+			if principal.DeviceID != "" {
+				sort.SliceStable(devices, func(i, j int) bool {
+					return devices[i].deviceID == principal.DeviceID && devices[j].deviceID != principal.DeviceID
+				})
+				caller = devices[0]
+			}
+			if caller.deviceID == principal.DeviceID {
+				deviceID = caller.deviceID
+			}
+			keyID = caller.keyID
 			for _, device := range devices {
-				rows = append(rows, map[string]string{"device_id": device.deviceID, "key_id": device.keyID})
+				rows = append(rows, map[string]any{
+					"device_id": device.deviceID,
+					"key_id":    device.keyID,
+					"current":   principal.DeviceID != "" && device.deviceID == principal.DeviceID,
+				})
 			}
 		}
 		depth, err := s.store.CountWebhookIngress(r.Context(), agentID)

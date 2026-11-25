@@ -3048,6 +3048,8 @@ impl HubClient {
 pub struct WebhookIngressEnvelope {
     pub event_id: String,
     pub cursor: i64,
+    #[serde(default)]
+    pub target_device_id: String,
     pub channel: String,
     pub received_at_ms: i64,
     pub enc_hex: String,

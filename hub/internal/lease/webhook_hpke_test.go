@@ -131,6 +131,16 @@ func newWebhookHarness(t *testing.T, queueLimit int) *webhookHarness {
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
+	if err := st.UpsertDevice(ctx, store.Device{
+		AgentID:          vecAgentID,
+		DeviceID:         "dev-v",
+		AccountID:        "acct-webhook",
+		Ed25519PubKeyHex: hex.EncodeToString(bytes.Repeat([]byte{0x22}, 32)),
+		XWingPubKeyHex:   hex.EncodeToString(bytes.Repeat([]byte{0x33}, 1216)),
+		CreatedAtMs:      vecEpochMs,
+	}); err != nil {
+		t.Fatalf("UpsertDevice: %v", err)
+	}
 
 	secret := []byte("synthetic-webhook-hmac-secret-998877")
 	clk := func() time.Time { return time.UnixMilli(vecEpochMs) }

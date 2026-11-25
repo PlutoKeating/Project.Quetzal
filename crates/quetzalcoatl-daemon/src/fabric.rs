@@ -1174,7 +1174,7 @@ impl DaemonFabricRuntime {
         );
         state
             .channels
-            .deliver(channel, destination, text)
+            .deliver_with_idempotency(channel, destination, text, Some(idempotency_key))
             .map(|_| ())
     }
 

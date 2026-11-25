@@ -1145,6 +1145,62 @@ fn two_idle_daemons_dial_via_hub_discovery_and_converge_peer_only_after_hub_loss
         "两台空闲守护进程必须在有限心跳内通过 Hub 发现自行拨号建立 P2P 连接"
     );
 
+    // A 项：远端 holder 不得在本地绑定长连接，也不得授权有状态通道外发。
+    for client in [&client_a, &client_b] {
+        let _ = client.call(&IpcRequest::ChannelEnable {
+            channel: String::from("feishu"),
+        })?;
+    }
+    let nodes = run_json(&["nodes", "--json"], &home_a)?;
+    let holder = nodes["router_holder"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (holder_client, remote_client, remote_name) = if holder == device_a_id {
+        (&client_a, &client_b, "B")
+    } else {
+        (&client_b, &client_a, "A")
+    };
+    let _ = holder_client.call(&IpcRequest::Status)?;
+    match remote_client.call(&IpcRequest::Status)? {
+        IpcResponse::Status(st) => {
+            let feishu = st
+                .channels
+                .iter()
+                .find(|h| h.channel == "feishu")
+                .ok_or("missing feishu health")?;
+            if feishu.bound_witness_epoch.is_some() {
+                return Err(format!("remote daemon {remote_name} must not bind feishu").into());
+            }
+            let holder_report = feishu.holder_device_id.as_deref().unwrap_or("");
+            if !holder_report.is_empty() && !holder_report.starts_with("remote-holder:") {
+                return Err(format!(
+                    "remote daemon {remote_name} must not claim local ownership, got {holder_report:?}"
+                )
+                .into());
+            }
+        }
+        other => return Err(format!("unexpected remote status: {other:?}").into()),
+    }
+    match remote_client.call(&IpcRequest::ChannelDeliver {
+        channel: String::from("feishu"),
+        destination: None,
+        text: String::from("remote-holder-send"),
+    })? {
+        IpcResponse::Error { code, .. } => {
+            assert!(
+                matches!(
+                    code.as_str(),
+                    "PERMISSION_DENIED" | "INVALID_ID" | "PARTITION_RESTRICTED"
+                ),
+                "got {code}"
+            );
+        }
+        other => {
+            return Err(format!("remote holder stateful send must be denied: {other:?}").into());
+        }
+    }
+
     let baseline_b_events = match client_b.call(&IpcRequest::Status)? {
         IpcResponse::Status(st) => st.spine_events_count,
         other => return Err(format!("unexpected status: {other:?}").into()),

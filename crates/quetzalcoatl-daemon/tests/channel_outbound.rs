@@ -392,3 +392,20 @@ fn partition_outbox_replays_full_channel_payload_once_after_witnessed() -> TestR
     assert!(kernel.drain_reconciled_outbox(Epoch::new(2))?.is_empty());
     Ok(())
 }
+
+#[test]
+fn outbox_replay_attaches_idempotency_key_header() -> TestResult {
+    let home = home("idem")?;
+    let (port, server) = start_http_ok_server()?;
+    write_secret(
+        &home,
+        "webhook",
+        serde_json::json!({"url": format!("http://127.0.0.1:{port}/hook")}),
+    )?;
+    let mut runtime = ChannelRuntime::load(&home)?;
+    runtime.enable("webhook")?;
+    runtime.deliver_with_idempotency("webhook", "", "idem-body", Some("outbox-key-42"))?;
+    let wire = String::from_utf8_lossy(&server.join().map_err(|_| "server join")?).into_owned();
+    assert!(wire.contains("Idempotency-Key: outbox-key-42"));
+    Ok(())
+}

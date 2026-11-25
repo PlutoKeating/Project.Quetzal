@@ -533,6 +533,7 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
         }
         let (committed_keys, pending_items) = Self::scan_spine_delivery_state(kernel)?;
         // 同一幂等键可能对应多条 Outbox 行（分区重试/跨设备重建）：必须只保留一条，杜绝同键双发。
+        let delivered_keys = committed_keys.clone();
         let mut claimed_keys = committed_keys;
         let mut items = Vec::new();
         for item in pending_items {
@@ -546,11 +547,15 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
             if !claimed_keys.insert(idem_key.clone()) {
                 continue;
             }
-            if kernel
-                .commit_reconciled_outbox_item(&item, witness_epoch, local_wall_ms)
-                .is_err()
-            {
-                continue;
+            match kernel.commit_reconciled_outbox_item(&item, witness_epoch, local_wall_ms) {
+                Ok(ExternalWriteDisposition::DuplicateSuppressed { .. }) => {
+                    // 仅当脊柱已存在 delivered 见证时才视为已完成；仅有 abort/预写令牌仍须重试。
+                    if delivered_keys.contains(&idem_key) {
+                        continue;
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => continue,
             }
             items.push(OutboxReconcileItem {
                 item,

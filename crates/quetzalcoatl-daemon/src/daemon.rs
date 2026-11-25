@@ -1495,7 +1495,11 @@ impl SharedDaemonCore {
                     .list_all_events()
                     .map(|v| v.len())
                     .unwrap_or(0);
-                let _ = guard.channels.reconcile_lease(witness_epoch, &lease_holder);
+                let _ = guard.channels.reconcile_lease_for_local(
+                    witness_epoch,
+                    &lease_holder,
+                    &self.runtime_info.device_id.to_string(),
+                );
                 let channel_health = guard.channels.health();
                 let status = DaemonStatus {
                     pid: self.runtime_info.pid,
@@ -2163,7 +2167,11 @@ impl SharedDaemonCore {
                         detail: String::from("daemon lock poisoned"),
                     });
                 };
-                let _ = guard.channels.reconcile_lease(witness_epoch, &lease_holder);
+                let _ = guard.channels.reconcile_lease_for_local(
+                    witness_epoch,
+                    &lease_holder,
+                    &self.runtime_info.device_id.to_string(),
+                );
                 (IpcResponse::Channels(guard.channels.health()), false)
             }
             IpcRequest::ChannelEnable { channel } => {
@@ -2229,7 +2237,11 @@ impl SharedDaemonCore {
                         ),
                     });
                 }
-                let _ = guard.channels.reconcile_lease(witness_epoch, &lease_holder);
+                let _ = guard.channels.reconcile_lease_for_local(
+                    witness_epoch,
+                    &lease_holder,
+                    &self.runtime_info.device_id.to_string(),
+                );
                 let destination = destination.unwrap_or_default();
                 match guard.channels.deliver(&channel, &destination, &text) {
                     Ok(report) => (IpcResponse::ChannelDelivery(report), false),
@@ -2314,7 +2326,8 @@ impl SharedDaemonCore {
                     Err(err) => return ipc_error_response(err),
                 };
                 report.acked = acked;
-                report.next_cursor = batch.next_cursor;
+                // 游标只跨越连续 acked/dead-lettered 行；头部失败行必须保留在队首以便重试。
+                report.next_cursor = contiguous_ack_cursor(after, &batch.events, &ack_keys);
                 report.queue_depth = batch.queue_depth.saturating_sub(acked);
                 (IpcResponse::WebhookPull(report), false)
             }
@@ -2877,4 +2890,75 @@ pub fn import_v1_offline_or_via_ipc(
 #[allow(dead_code)]
 fn _discovery_reexport_guard() {
     let _ = discover_coding_agents;
+}
+
+/// 游标只能跨越连续已确认/已死信的信封；头部失败行必须留在下一轮队首。
+fn contiguous_ack_cursor(
+    after: i64,
+    events: &[quetzalcoatl_fabric::WebhookIngressEnvelope],
+    ack_keys: &[quetzalcoatl_fabric::WebhookIngressAckKey],
+) -> i64 {
+    let mut cursor = after;
+    for event in events {
+        let acked = ack_keys
+            .iter()
+            .any(|key| key.channel == event.channel && key.event_id == event.event_id);
+        if !acked {
+            break;
+        }
+        cursor = event.cursor;
+    }
+    cursor
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+mod webhook_cursor_tests {
+    use super::contiguous_ack_cursor;
+    use quetzalcoatl_fabric::{WebhookIngressAckKey, WebhookIngressEnvelope};
+
+    fn env(id: &str, cursor: i64) -> WebhookIngressEnvelope {
+        WebhookIngressEnvelope {
+            event_id: String::from(id),
+            cursor,
+            target_device_id: String::new(),
+            channel: String::from("webhook"),
+            received_at_ms: cursor,
+            enc_hex: String::new(),
+            ciphertext_hex: String::new(),
+            aad_json: String::new(),
+        }
+    }
+
+    #[test]
+    fn cursor_does_not_skip_unacked_head() {
+        let events = vec![env("a", 1), env("b", 2), env("c", 3)];
+        let acks = vec![
+            WebhookIngressAckKey {
+                channel: String::from("webhook"),
+                event_id: String::from("a"),
+            },
+            WebhookIngressAckKey {
+                channel: String::from("webhook"),
+                event_id: String::from("c"),
+            },
+        ];
+        assert_eq!(contiguous_ack_cursor(0, &events, &acks), 1);
+    }
+
+    #[test]
+    fn cursor_advances_over_contiguous_acked_rows() {
+        let events = vec![env("a", 5), env("b", 6)];
+        let acks = vec![
+            WebhookIngressAckKey {
+                channel: String::from("webhook"),
+                event_id: String::from("a"),
+            },
+            WebhookIngressAckKey {
+                channel: String::from("webhook"),
+                event_id: String::from("b"),
+            },
+        ];
+        assert_eq!(contiguous_ack_cursor(4, &events, &acks), 6);
+    }
 }

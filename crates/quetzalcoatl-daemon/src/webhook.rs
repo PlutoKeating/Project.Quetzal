@@ -112,17 +112,28 @@ pub fn decrypt_and_persist(
     let mut ack_keys = Vec::new();
     for envelope in envelopes {
         let retry_key = format!("{}:{}", envelope.channel, envelope.event_id);
-        let outcome = decrypt_envelope(ingress_key, runtime, envelope).and_then(|decoded| {
-            runtime
-                .normalize(
-                    &envelope.channel,
-                    &decoded,
-                    u64::try_from(envelope.received_at_ms).unwrap_or(0),
-                )
-                .map(|normalized| (decoded, normalized))
-        });
+        let legacy_device = engine.local_device().clone();
+        let outcome =
+            decrypt_envelope(ingress_key, &legacy_device, runtime, envelope).and_then(|decoded| {
+                runtime
+                    .normalize(
+                        &envelope.channel,
+                        &decoded.text,
+                        u64::try_from(envelope.received_at_ms).unwrap_or(0),
+                    )
+                    .map(|normalized| (decoded, normalized))
+            });
         match outcome {
             Ok((decoded, normalized)) => {
+                if decoded.legacy_key_used {
+                    let audit = json!({
+                        "kind": "channel.legacy_ingress_key",
+                        "channel": envelope.channel,
+                        "event_id": envelope.event_id,
+                    })
+                    .to_string();
+                    let _ = engine.append_event(PackCompartment::ExternalChannel, &audit, now_ms);
+                }
                 let sealed_audit = json!({
                     "kind": "channel.ingress.sealed",
                     "channel": envelope.channel,
@@ -153,7 +164,7 @@ pub fn decrypt_and_persist(
                             channel: envelope.channel.clone(),
                             received_at_ms: envelope.received_at_ms,
                             sealed_bytes: envelope.ciphertext_hex.len() / 2,
-                            plaintext_bytes: decoded.len(),
+                            plaintext_bytes: decoded.text.len(),
                             spine_seq: event.header.seq,
                         });
                         ack_keys.push(WebhookIngressAckKey {
@@ -195,15 +206,43 @@ pub fn decrypt_and_persist(
     (ack_keys, report)
 }
 
+struct DecryptedPayload {
+    text: Vec<u8>,
+    legacy_key_used: bool,
+}
+
 fn decrypt_envelope(
     ingress_key: &ChannelIngressKey,
+    legacy_device: &quetzalcoatl_crypto::DeviceIdentity,
     runtime: &ChannelRuntime,
     envelope: &WebhookIngressEnvelope,
-) -> Result<Vec<u8>> {
+) -> Result<DecryptedPayload> {
     let enc = hex_decode("webhook_enc", &envelope.enc_hex)?;
     let ciphertext = hex_decode("webhook_ciphertext", &envelope.ciphertext_hex)?;
-    let plaintext = ingress_key.open(envelope.aad_json.as_bytes(), &enc, &ciphertext)?;
-    runtime.decrypt_platform(&envelope.channel, &plaintext)
+    let (plaintext, legacy_key_used) =
+        match ingress_key.open(envelope.aad_json.as_bytes(), &enc, &ciphertext) {
+            Ok(plaintext) => (plaintext, false),
+            Err(err) if envelope.target_device_id.is_empty() => {
+                let sealed = quetzalcoatl_crypto::HpkeSealedBox {
+                    enc: enc.clone(),
+                    ciphertext: ciphertext.clone(),
+                };
+                let fallback = quetzalcoatl_crypto::hpke_xwing_open(
+                    legacy_device.xwing_keypair(),
+                    quetzalcoatl_crypto::WEBHOOK_INGRESS_INFO,
+                    envelope.aad_json.as_bytes(),
+                    &sealed,
+                )
+                .map_err(|_| err)?;
+                (fallback, true)
+            }
+            Err(err) => return Err(err),
+        };
+    let text = runtime.decrypt_platform(&envelope.channel, &plaintext)?;
+    Ok(DecryptedPayload {
+        text,
+        legacy_key_used,
+    })
 }
 
 fn record_retry(
@@ -216,9 +255,8 @@ fn record_retry(
     now_ms: u64,
 ) -> WebhookPullFailure {
     let attempts = retry.attempts.get(retry_key).copied().unwrap_or(0) + 1;
-    let dead = attempts >= MAX_ATTEMPTS;
-    if dead {
-        retry.attempts.remove(retry_key);
+    let mut dead = false;
+    if attempts >= MAX_ATTEMPTS {
         let payload = json!({
             "kind": "channel.dead_letter",
             "channel": envelope.channel,
@@ -227,7 +265,14 @@ fn record_retry(
             "error_code": err.code().as_str(),
         })
         .to_string();
-        let _ = engine.append_event(PackCompartment::ExternalChannel, &payload, now_ms);
+        // 只有审计写成功才允许死信；存储瞬时失败不消耗一次性重试额度。
+        if engine
+            .append_event(PackCompartment::ExternalChannel, &payload, now_ms)
+            .is_ok()
+        {
+            retry.attempts.remove(retry_key);
+            dead = true;
+        }
     } else {
         retry.attempts.insert(String::from(retry_key), attempts);
     }

@@ -86,12 +86,30 @@ fn contains_forbidden(text: &str) -> bool {
 }
 
 fn looks_secret_value(value: &str) -> bool {
-    let trimmed = value.trim();
-    trimmed.starts_with("-----BEGIN ")
-        || trimmed.starts_with("sk-")
-        || trimmed.starts_with("xoxb-")
-        || trimmed.starts_with("AKIA")
-        || trimmed.starts_with("Bearer ")
+    [
+        "-----BEGIN ",
+        "sk-",
+        "xoxb-",
+        "xoxp-",
+        "AKIA",
+        "ghp_",
+        "Bearer ",
+    ]
+    .iter()
+    .any(|marker| value.contains(marker))
+}
+
+fn contains_absolute_path_token(value: &str) -> bool {
+    value
+        .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ',' | ';' | '(' | ')'))
+        .filter(|token| !token.is_empty())
+        .any(|token| {
+            token.starts_with("/etc/")
+                || token.starts_with("/home/")
+                || token.starts_with("/root/")
+                || token.starts_with("C:\\")
+                || token.starts_with("D:\\")
+        })
 }
 
 fn looks_absolute_path(value: &str) -> bool {
@@ -138,7 +156,7 @@ fn scan_json(value: &serde_json::Value, reason: &mut Option<&'static str>) -> bo
                 *reason = Some("payload value contains an unambiguous secret pattern");
                 return true;
             }
-            if looks_absolute_path(text) {
+            if looks_absolute_path(text) || contains_absolute_path_token(text) {
                 *reason = Some("payload contains an absolute filesystem path");
                 return true;
             }

@@ -1612,7 +1612,7 @@ func (p *PostgresStore) DeleteWebhookIngressByKeys(ctx context.Context, agentID 
 	defer func() { _ = tx.Rollback() }()
 	var deleted int64
 	for _, key := range keys {
-		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, agentID, key.Channel, key.EventIDHash)
+		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3 AND (target_device_id = $4 OR target_device_id = '')`, agentID, key.Channel, key.EventIDHash, key.TargetDeviceID)
 		if err != nil {
 			return 0, err
 		}
@@ -1630,6 +1630,28 @@ func (p *PostgresStore) DeleteWebhookIngressByKeys(ctx context.Context, agentID 
 
 func (p *PostgresStore) DeleteWebhookIngressForDevice(ctx context.Context, agentID, deviceID string) (int64, error) {
 	res, err := p.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND target_device_id = $2`, agentID, deviceID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (p *PostgresStore) CountWebhookIngressEvents(ctx context.Context, agentID string) (int, error) {
+	var count int
+	err := p.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT channel, event_id_hash FROM webhook_ingress_queue WHERE agent_id = $1) AS events`, agentID).Scan(&count)
+	return count, err
+}
+
+func (p *PostgresStore) WebhookIngressEventExists(ctx context.Context, agentID, channel, eventIDHash string) (bool, error) {
+	var count int
+	if err := p.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, agentID, channel, eventIDHash).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (p *PostgresStore) DeleteWebhookIngressEvent(ctx context.Context, agentID, channel, eventIDHash string) (int64, error) {
+	res, err := p.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = $1 AND channel = $2 AND event_id_hash = $3`, agentID, channel, eventIDHash)
 	if err != nil {
 		return 0, err
 	}

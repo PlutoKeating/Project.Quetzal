@@ -190,7 +190,7 @@ func (fakeAuthz) RequireAgentOwner(w http.ResponseWriter, r *http.Request, agent
 	token := r.Header.Get("Authorization")
 	switch {
 	case token == "Bearer owner-a" && agentID == vecAgentID:
-		return &auth.Principal{AccountID: "acct-v", AgentID: agentID}, &store.Agent{AgentID: agentID, OwnerAccountID: "acct-v"}, true
+		return &auth.Principal{AccountID: "acct-v", AgentID: agentID, DeviceID: "dev-v"}, &store.Agent{AgentID: agentID, OwnerAccountID: "acct-v"}, true
 	case token == "Bearer owner-b":
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -308,6 +308,19 @@ func TestWebhookIngressOwnerRoutesLifecycleAndCrossAccount403(t *testing.T) {
 	code, raw = do(http.MethodGet, "/v1/webhook/"+vecAgentID+"/status", "token-v", nil)
 	if code != http.StatusOK || !bytes.Contains(raw, []byte(`"queue_depth":0`)) || !bytes.Contains(raw, []byte(`"key_id":"kid-life"`)) {
 		t.Fatalf("status after ack: %d %s", code, raw)
+	}
+	var statusBody struct {
+		Devices []struct {
+			DeviceID string `json:"device_id"`
+			Current  bool   `json:"current"`
+		} `json:"devices"`
+		DeviceID string `json:"device_id"`
+	}
+	if err := json.Unmarshal(raw, &statusBody); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if statusBody.DeviceID != "dev-v" || len(statusBody.Devices) == 0 || statusBody.Devices[0].DeviceID != "dev-v" || !statusBody.Devices[0].Current {
+		t.Fatalf("status must report caller device first/current: %s", raw)
 	}
 	body3 := []byte(`{"event_id":"ev_life_3","text":"third"}`)
 	if code, raw := do(http.MethodPost, "/v1/webhook/"+vecAgentID+"/webhook", "", body3); code != http.StatusAccepted {
@@ -462,7 +475,7 @@ func TestWebhookIngressSealsForEveryActiveDevice(t *testing.T) {
 	}
 	secret := []byte("multi-device-secret")
 	svc, err := lease.NewWebhookIngressService(st, lease.WebhookIngressConfig{
-		Secrets: map[string][]byte{"webhook": secret}, MaxBodyBytes: 64 * 1024, MaxQueuePerAgent: 8,
+		Secrets: map[string][]byte{"webhook": secret}, MaxBodyBytes: 64 * 1024, MaxQueuePerAgent: 1,
 	}, func() time.Time { return time.UnixMilli(nowMs) })
 	if err != nil {
 		t.Fatalf("service: %v", err)
@@ -497,5 +510,41 @@ func TestWebhookIngressSealsForEveryActiveDevice(t *testing.T) {
 	}
 	if len(devices) != 2 || devices[0] != "dev-a" || devices[1] != "dev-b" {
 		t.Fatalf("expected one sealed row per active device, got %v", devices)
+	}
+	secondBody := []byte(`{"event_id":"ev_multi_2","text":"second event"}`)
+	req2, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/webhook/"+vecAgentID+"/webhook", bytes.NewReader(secondBody))
+	req2.Header.Set("X-QZ-Signature", signedGeneric(secret, secondBody))
+	resp2, err := srv.Client().Do(req2)
+	if err != nil {
+		t.Fatalf("second event post: %v", err)
+	}
+	_ = resp2.Body.Close()
+	if resp2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("quota counts events not per-device rows; second event expected 429, got %d", resp2.StatusCode)
+	}
+	deleted, err := st.DeleteWebhookIngressByKeys(context.Background(), vecAgentID, []store.WebhookIngressKey{{
+		Channel: "webhook", EventIDHash: func() string {
+			sum := sha256.Sum256([]byte("ev_multi"))
+			return hex.EncodeToString(sum[:])
+		}(), TargetDeviceID: "dev-a",
+	}})
+	if err != nil || deleted != 1 {
+		t.Fatalf("device A ack must delete only its row: deleted=%d err=%v", deleted, err)
+	}
+	rowsB, err := st.DBForTest().Query(`SELECT target_device_id FROM webhook_ingress_queue WHERE agent_id = ?`, vecAgentID)
+	if err != nil {
+		t.Fatalf("rows after ack: %v", err)
+	}
+	defer rowsB.Close()
+	var survivors []string
+	for rowsB.Next() {
+		var device string
+		if err := rowsB.Scan(&device); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		survivors = append(survivors, device)
+	}
+	if len(survivors) != 1 || survivors[0] != "dev-b" {
+		t.Fatalf("device B copy must survive device A ack, got %v", survivors)
 	}
 }

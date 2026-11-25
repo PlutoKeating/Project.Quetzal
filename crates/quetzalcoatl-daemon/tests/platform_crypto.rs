@@ -40,3 +40,35 @@ fn corrupt_ciphertext_is_a_typed_integrity_error() -> Result<(), Box<dyn std::er
     assert_eq!(err.code().as_str(), "INTEGRITY_VIOLATION");
     Ok(())
 }
+
+#[test]
+fn wecom_43_char_unpadded_key_and_receive_id_validation() -> Result<(), Box<dyn std::error::Error>>
+{
+    let key43 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+    let ct = "43uuyl/uOF58KspcVgvH+2p6uUQPMvWw7gKAFf/9n1RqNAukV7va8QAayCBhm9I3FucvWFZNjS/Y5/r9SbbyuPbV0JcIU1C45p9cOwux+IU=";
+    let plain = quetzalcoatl_daemon::platform_crypto::decrypt_wecom_with_receive_id(
+        ct,
+        key43,
+        Some("synthetic-receive-id"),
+    )?;
+    assert_eq!(String::from_utf8(plain)?, "企业微信解密后的合成消息");
+    let err = quetzalcoatl_daemon::platform_crypto::decrypt_wecom_with_receive_id(
+        ct,
+        key43,
+        Some("wrong-receive-id"),
+    )
+    .err()
+    .ok_or("receive_id mismatch must fail")?;
+    assert_eq!(err.code().as_str(), "INTEGRITY_VIOLATION");
+    Ok(())
+}
+
+#[test]
+fn dingtalk_43_char_unpadded_key_uses_aes_branch() -> Result<(), Box<dyn std::error::Error>> {
+    let key43 = "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8";
+    let body = br#"{"encrypt":"257D26CF/G3RvK8mDomkfSds7wRSskqiD7cALiQUpxSV3xH91bDekkcCp+Am/JV9sVQMedVyOW/8TWdwUdsPfO9PHNzXDyOIvIFPUWElAVwPXnho+BS6LPsWiN+Uc1WDsDqh0IIDpSTNKwOPVJjSAg=="}"#;
+    let plain = decrypt_json_envelope(body, key43)?;
+    let value: serde_json::Value = serde_json::from_slice(&plain)?;
+    assert_eq!(value["msgId"], "ev_ding_dec");
+    Ok(())
+}

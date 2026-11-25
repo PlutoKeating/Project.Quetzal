@@ -394,6 +394,9 @@ type Store interface {
 	DeleteWebhookIngressByKeys(ctx context.Context, agentID string, keys []WebhookIngressKey) (int64, error)
 	CountWebhookIngress(ctx context.Context, agentID string) (int, error)
 	DeleteWebhookIngressForDevice(ctx context.Context, agentID, deviceID string) (int64, error)
+	CountWebhookIngressEvents(ctx context.Context, agentID string) (int, error)
+	WebhookIngressEventExists(ctx context.Context, agentID, channel, eventIDHash string) (bool, error)
+	DeleteWebhookIngressEvent(ctx context.Context, agentID, channel, eventIDHash string) (int64, error)
 
 	AcquireLease(ctx context.Context, agentID, deviceID string, expectedEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
 	RenewLease(ctx context.Context, agentID, deviceID string, witnessEpoch uint64, ttlMs, nowMs int64) (*LeaseRecord, error)
@@ -2289,8 +2292,9 @@ func (s *SQLiteStore) CountWebhookIngress(ctx context.Context, agentID string) (
 
 // WebhookIngressKey 是带通道隔离的确认键，防止跨通道误删同一 event id。
 type WebhookIngressKey struct {
-	Channel     string
-	EventIDHash string
+	Channel        string
+	EventIDHash    string
+	TargetDeviceID string
 }
 
 // DeleteWebhookIngressByKeys 仅删除调用者 Agent 拥有的 (channel, event_id_hash) 行。
@@ -2307,7 +2311,7 @@ func (s *SQLiteStore) DeleteWebhookIngressByKeys(ctx context.Context, agentID st
 	defer func() { _ = tx.Rollback() }()
 	var deleted int64
 	for _, key := range keys {
-		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, agentID, key.Channel, key.EventIDHash)
+		res, err := tx.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ? AND (target_device_id = ? OR target_device_id = '')`, agentID, key.Channel, key.EventIDHash, key.TargetDeviceID)
 		if err != nil {
 			return 0, err
 		}
@@ -2328,6 +2332,37 @@ func (s *SQLiteStore) DeleteWebhookIngressForDevice(ctx context.Context, agentID
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	res, err := s.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND target_device_id = ?`, agentID, deviceID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// CountWebhookIngressEvents 按事件计数（同事件多设备副本只算一个）。
+func (s *SQLiteStore) CountWebhookIngressEvents(ctx context.Context, agentID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT channel, event_id_hash FROM webhook_ingress_queue WHERE agent_id = ?)`, agentID).Scan(&count)
+	return count, err
+}
+
+// WebhookIngressEventExists 判断同一事件是否已为任一设备入队（幂等重投递）。
+func (s *SQLiteStore) WebhookIngressEventExists(ctx context.Context, agentID, channel, eventIDHash string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, agentID, channel, eventIDHash).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// DeleteWebhookIngressEvent 用于多设备批量密封失败时的事务性回滚。
+func (s *SQLiteStore) DeleteWebhookIngressEvent(ctx context.Context, agentID, channel, eventIDHash string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.ExecContext(ctx, `DELETE FROM webhook_ingress_queue WHERE agent_id = ? AND channel = ? AND event_id_hash = ?`, agentID, channel, eventIDHash)
 	if err != nil {
 		return 0, err
 	}

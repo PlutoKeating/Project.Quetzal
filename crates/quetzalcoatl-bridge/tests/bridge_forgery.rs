@@ -294,3 +294,32 @@ fn bridge_reads_legacy_core_events_for_own_agent_and_body_only() -> TestResult {
     assert_eq!(own[0].kind, "journal.note");
     Ok(())
 }
+
+#[test]
+fn bridge_rejects_embedded_secret_markers_and_absolute_path_tokens() -> TestResult {
+    let (mut engine, agent_id) = engine()?;
+    let key = BridgeKey {
+        role: BridgeRole::Bridge,
+        agent_id,
+        body_id: String::from("hermes-1"),
+    };
+    let mut bridge = SpineBridge::new(&mut engine, key);
+    let cases = [
+        r#"{"kind":"memory.observe","body":"hermes-1","note":"note: -----BEGIN RSA PRIVATE KEY----- abc"}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","note":"token sk-abc"}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","note":"/etc/passwd is here"}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","note":"see C:\\Windows\\system32"}"#,
+        r#"{"kind":"memory.observe","body":"hermes-1","note":"ghp_abcdef"}"#,
+    ];
+    for payload in cases {
+        let err = bridge
+            .append("memory.observe", "hermes-1", payload, 80)
+            .err()
+            .ok_or_else(|| format!("embedded secret/path must be denied: {payload}"))?;
+        assert_eq!(err.code(), ErrorCode::PermissionDenied);
+    }
+    let benign = r#"{"kind":"memory.observe","body":"hermes-1","note":"root cause of group chat lease renewal relationship"}"#;
+    bridge.append("memory.observe", "hermes-1", benign, 81)?;
+    assert_eq!(bridge.read_own()?.len(), 1);
+    Ok(())
+}

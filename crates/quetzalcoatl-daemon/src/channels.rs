@@ -116,10 +116,21 @@ impl ChannelRuntime {
         destination: &str,
         text: &str,
     ) -> Result<DeliveryReport> {
+        self.deliver_with_idempotency(channel, destination, text, None)
+    }
+
+    /// 出站发送并附加可选 `Idempotency-Key`（Outbox 重放时使用）。
+    pub fn deliver_with_idempotency(
+        &mut self,
+        channel: &str,
+        destination: &str,
+        text: &str,
+        idempotency_key: Option<&str>,
+    ) -> Result<DeliveryReport> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
-        let result = self.deliver_inner(channel, destination, text);
+        let result = self.deliver_inner(channel, destination, text, idempotency_key);
         match result {
             Ok(report) => {
                 self.supervisor.record_delivery(channel, now_ms, true, None);
@@ -138,6 +149,7 @@ impl ChannelRuntime {
         channel: &str,
         destination: &str,
         text: &str,
+        idempotency_key: Option<&str>,
     ) -> Result<DeliveryReport> {
         self.supervisor
             .authorize_send(channel)
@@ -157,8 +169,12 @@ impl ChannelRuntime {
             channel_error_to_qz(ChannelError::MissingCredential(String::from(channel)))
         })?;
         for part in &parts {
-            let spec = build_http_request(channel, creds, destination, &part.payload)
+            let mut spec = build_http_request(channel, creds, destination, &part.payload)
                 .map_err(channel_error_to_qz)?;
+            if let Some(key) = idempotency_key {
+                spec.headers
+                    .insert(String::from("Idempotency-Key"), String::from(key));
+            }
             let request = parse_upstream_request(&spec)?;
             let response =
                 self.http
@@ -229,9 +245,8 @@ impl ChannelRuntime {
 
     /// 平台加密回调解密：仅当载荷确为加密模式时要求本地密钥，明文载荷原样返回。
     pub fn decrypt_platform(&self, channel: &str, body: &[u8]) -> Result<Vec<u8>> {
-        let text = std::str::from_utf8(body).unwrap_or("");
         match channel {
-            "wecom" if text.contains("<Encrypt>") => {
+            "wecom" if extract_xml(body, "Encrypt").is_some() => {
                 let key = self
                     .credentials
                     .get(channel)
@@ -244,11 +259,13 @@ impl ChannelRuntime {
                         detail: String::from("WeCom 加密回调缺少 Encrypt 字段"),
                     }
                 })?;
-                crate::platform_crypto::decrypt_wecom(&encrypt, key)
+                let receive_id = self
+                    .credentials
+                    .get(channel)
+                    .and_then(|c| c.get("receive_id"));
+                crate::platform_crypto::decrypt_wecom_with_receive_id(&encrypt, key, receive_id)
             }
-            "feishu" | "dingtalk"
-                if text.contains("\"encrypt\"") || text.contains("\"Encrypt\"") =>
-            {
+            "feishu" | "dingtalk" if is_encrypted_json(body) => {
                 let keys: &[&str] = if channel == "feishu" {
                     &["encrypt_key", "aes_key"]
                 } else {
@@ -398,6 +415,13 @@ fn parse_upstream_request(spec: &HttpRequestSpec) -> Result<UpstreamRequest> {
             .collect(),
         body: spec.body.as_bytes().to_vec(),
     })
+}
+
+fn is_encrypted_json(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .is_some_and(|object| object.contains_key("encrypt") || object.contains_key("Encrypt"))
 }
 
 fn extract_xml(body: &[u8], tag: &str) -> Option<String> {
