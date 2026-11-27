@@ -203,6 +203,7 @@ qz import-v1 --soul-dir /path/to/v1-soul --db /path/to/v1-sessions.sqlite
 | [docs/ACCESSIBILITY_CHECKLIST.md](docs/ACCESSIBILITY_CHECKLIST.md) | 五端无障碍检查清单与延后项 |
 | [docs/RELEASE.md](docs/RELEASE.md) | 发版手册：tag/Secret、资产清单、验签、回滚、CI 矩阵与已知限制 |
 | [docs/V2_GOAL.html](docs/V2_GOAL.html) | 第一性原理蓝图（不改动） |
+| [docs/ORIGIN_GOAL.md](docs/ORIGIN_GOAL.md) | 目标用户人设与十个典型环境场景（项目的背景期待） |
 | [docs/bench/conscience-bench-2026-11-25.md](docs/bench/conscience-bench-2026-11-25.md) | `ConscienceBench` 认证报告 |
 
 ## 9. 验证门禁
