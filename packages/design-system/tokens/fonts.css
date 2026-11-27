@@ -1,0 +1,47 @@
+/* Quetzalcoatl — font faces
+   Sora (display + UI) and JetBrains Mono (technical), both SIL OFL 1.1.
+   Only the Latin subset is bundled here. In a production build prefer the
+   full packages so every subset loads on demand:
+     @import "@fontsource/sora/400.css";  (also 500, 600)
+     @import "@fontsource/jetbrains-mono/400.css";  (also 500)
+   Never load Sora 700+: the system has no bold. */
+
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../fonts/sora-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("../fonts/sora-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("../fonts/sora-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("../fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
+}

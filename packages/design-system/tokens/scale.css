@@ -1,0 +1,75 @@
+/* Quetzalcoatl — spacing, layout, shape, depth, motion */
+
+:root {
+  /* ── Spacing (rem, on the 17.5px root) ────────────────────────────── */
+  --qz-space-1: 0.2rem;
+  --qz-space-2: 0.4rem;
+  --qz-space-3: 0.7rem;
+  --qz-space-4: 1rem;
+  --qz-space-5: 1.25rem;
+  --qz-space-6: 1.5rem;
+  --qz-space-7: 2.25rem;
+  --qz-space-8: 3.25rem;
+  --qz-space-9: 4.5rem;
+  --qz-space-10: 7.5rem;
+  --qz-space-11: 8.5rem;
+
+  /* ── Layout ───────────────────────────────────────────────────────── */
+  --qz-container: 1180px;
+  --qz-container-nav: 1260px;
+  --qz-gutter: 2.25rem;
+  --qz-gutter-compact: 1.25rem;
+  --qz-nav-height: 74px;
+  --qz-section-pad: 7.5rem;          /* vertical rhythm between sections   */
+  --qz-section-pad-compact: 4.5rem;
+  --qz-close-pad: 8.5rem 0 7.5rem;
+  --qz-section-head-gap: 3.25rem;    /* heading block → content            */
+  --qz-cell-pad: 1.5rem 1.25rem;     /* hairline grid cell                 */
+
+  /* Reading layout (three-pane documentation) */
+  --qz-read-nav-height: 4.5rem;
+  --qz-read-sidebar: 19rem;
+  --qz-read-content: 54rem;
+  --qz-read-paragraph-gap: 2rem;
+
+  /* Breakpoints (reference values; custom properties cannot drive @media)
+     540  one column          640  compact stage panes
+     720  compact root/gutter 820  four → two columns
+     900  split stage stacks */
+
+  /* ── Radius: small, quiet, never pill-shaped containers ───────────── */
+  --qz-radius-xs: 3px;    /* scrollbar thumb                               */
+  --qz-radius-sm: 4px;    /* chips, tab segments, menu items               */
+  --qz-radius-md: 5px;    /* primary button, nav items                     */
+  --qz-radius-lg: 6px;    /* outline buttons, frames, popovers, code       */
+  --qz-radius-xl: 8px;    /* command / install bar                         */
+  --qz-radius-stage: 10px;/* top corners of a showcase stage only          */
+  --qz-radius-device: 14px;/* phone screenshot frame                       */
+  --qz-radius-dot: 999px; /* LEDs, pins, rings — never buttons             */
+
+  /* ── Stroke ───────────────────────────────────────────────────────── */
+  --qz-stroke-hair: 1px;
+  --qz-stroke-accent: 1.5px;  /* accent top edge, callout box, current nav */
+  --qz-stroke-trace: 1.8px;   /* primary line in a diagram                 */
+
+  /* ── Depth: there is exactly one shadow ───────────────────────────── */
+  --qz-shadow-popover: 0 12px 28px rgba(0, 0, 0, 0.72);
+  --qz-blur-nav: 16px;
+  --qz-blur-nav-reading: 14px;
+  --qz-blur-stage: 20px;
+
+  /* ── Motion: colour and opacity only, nothing travels ─────────────── */
+  --qz-duration-instant: 120ms;  /* menu items, optical edge (linear)      */
+  --qz-duration-fast: 150ms;     /* colour, border, background             */
+  --qz-duration-settle: 180ms;   /* section light response (ease-out)      */
+  --qz-duration-feedback: 1800ms;/* how long a "Copied" state stays        */
+  --qz-ease: ease;
+  --qz-ease-out: ease-out;
+
+  /* ── Stacking ─────────────────────────────────────────────────────── */
+  --qz-z-optics: 0;     /* fixed optical field, behind everything          */
+  --qz-z-page: 1;
+  --qz-z-nav: 40;
+  --qz-z-popover: 50;
+  --qz-z-grain: 60;     /* film grain sits over the whole page             */
+}

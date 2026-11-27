@@ -1,0 +1,91 @@
+/* Quetzalcoatl — colour tokens
+   The 96 / 4 rule: 96% of every screen is strictly achromatic (S = 0%).
+   The remaining 4% is light: Ice and Tungsten Amber, and nothing else. */
+
+:root {
+  color-scheme: dark;
+
+  /* ── Grounds (S = 0%) ─────────────────────────────────────────────── */
+  --qz-void: #000000;              /* page canvas; never lifted to grey   */
+  --qz-surface: #070707;           /* popovers, floating sheets            */
+  --qz-well: #0a0a0a;              /* code blocks, command frames, quotes  */
+  --qz-surface-elevated: #0e0e0e;  /* raised neutral surface               */
+  --qz-inline-code: #141414;       /* inline code chip                     */
+  --qz-scroll-thumb: #242424;
+  --qz-scroll-thumb-hover: #3d3d3d;
+
+  /* Translucent grounds — the only places blur is allowed */
+  --qz-glass-nav: rgba(0, 0, 0, 0.84);        /* sticky header, blur 16px  */
+  --qz-glass-nav-reading: rgba(0, 0, 0, 0.88);/* docs header, blur 14px    */
+  --qz-glass: rgba(10, 10, 10, 0.78);         /* generic smoked glass      */
+  --qz-glass-control: rgba(8, 8, 8, 0.72);    /* segmented control tray    */
+  --qz-glass-bar: rgba(8, 8, 8, 0.9);         /* command / install bar     */
+
+  /* ── Ink (S = 0%) ─────────────────────────────────────────────────── */
+  --qz-ink: #ffffff;            /* headlines, active text, primary action  */
+  --qz-ink-bright: #e5e5e5;     /* emphasised labels in diagrams           */
+  --qz-ink-soft: #d4d4d4;       /* long-form body, code text               */
+  --qz-ink-support: #b5b5b5;    /* supporting copy inside cells and SVG    */
+  --qz-ink-subtle: #a3a3a3;     /* captions, legends, quiet labels         */
+  --qz-ink-secondary: #8a8a8a;  /* subtitles, nav links, meta              */
+  --qz-ink-quiet: #666666;      /* group labels, table-of-contents         */
+  --qz-ink-muted: #525252;      /* inactive ticks, coordinates             */
+  --qz-ink-invert: #000000;     /* text on white or on a light accent      */
+
+  /* ── Lines (white at low alpha; always 1px unless stated) ─────────── */
+  --qz-line-ghost: rgba(255, 255, 255, 0.045);   /* diagram grid columns   */
+  --qz-hairline: rgba(255, 255, 255, 0.075);     /* structural divisions   */
+  --qz-border: rgba(255, 255, 255, 0.085);       /* cell separators        */
+  --qz-line-frame: rgba(255, 255, 255, 0.09);    /* code / image frames    */
+  --qz-line-rail: rgba(255, 255, 255, 0.1);      /* top/bottom of a rail   */
+  --qz-line-control: rgba(255, 255, 255, 0.14);  /* inputs, bars, popovers */
+  --qz-border-strong: rgba(255, 255, 255, 0.18); /* outline buttons        */
+  --qz-line-mark: rgba(255, 255, 255, 0.28);     /* crosshairs, quote rule */
+  --qz-line-hover: rgba(255, 255, 255, 0.42);    /* hovered outline        */
+
+  /* ── Fills (white at low alpha) ───────────────────────────────────── */
+  --qz-fill-hover: rgba(255, 255, 255, 0.035);
+  --qz-fill-press: rgba(255, 255, 255, 0.05);
+  --qz-fill-selected: rgba(255, 255, 255, 0.06);
+  --qz-fill-current: rgba(255, 255, 255, 0.08);
+  --qz-fill-active: rgba(255, 255, 255, 0.1);
+
+  /* ── Light: the 4% ────────────────────────────────────────────────── */
+  --qz-ice: #bae6fd;                          /* verified, active, focus   */
+  --qz-ice-rgb: 186, 230, 253;
+  --qz-ice-glow: rgba(125, 211, 252, 0.22);
+  --qz-amber: #e5a03d;                        /* prompt caret, drift, manual */
+  --qz-amber-rgb: 229, 160, 61;
+  --qz-amber-glow: rgba(229, 160, 61, 0.18);
+
+  /* Semantic roles — there is no green, red or blue in this system */
+  --qz-signal-positive: var(--qz-ice);   /* done, verified, auto, success  */
+  --qz-signal-attention: var(--qz-amber);/* needs a human, warning, manual */
+  --qz-signal-neutral: var(--qz-ink-muted);
+
+  /* ── Wordmark spectrum ────────────────────────────────────────────────
+     Six bands for .qz-wordmark and nothing else. They are not signals and
+     carry no meaning. Each hue has its own lightness and chroma so the six
+     look close in brightness; do not normalise them to one value.        */
+  --qz-spectrum-1: #69dd4a; /* green  */
+  --qz-spectrum-2: #f9d343; /* yellow */
+  --qz-spectrum-3: #ffac61; /* orange */
+  --qz-spectrum-4: #ff8d88; /* red    */
+  --qz-spectrum-5: #de87fe; /* purple */
+  --qz-spectrum-6: #2fc4ff; /* blue   */
+
+  --qz-selection: rgba(var(--qz-ice-rgb), 0.24);
+  --qz-selection-reading: rgba(255, 255, 255, 0.18);
+  --qz-focus: var(--qz-ice);
+}
+
+/* Wide-gamut screens: the four hues sRGB cannot make both light and saturated
+   get more chroma at the same lightness. */
+@media (color-gamut: p3) {
+  :root {
+    --qz-spectrum-3: color(display-p3 0.986 0.674 0.366);
+    --qz-spectrum-4: color(display-p3 0.99 0.547 0.518);
+    --qz-spectrum-5: color(display-p3 0.834 0.534 0.993);
+    --qz-spectrum-6: color(display-p3 0.345 0.76 0.994);
+  }
+}

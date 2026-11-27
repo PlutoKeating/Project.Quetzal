@@ -1,0 +1,94 @@
+/* Quetzalcoatl — optics
+   The signature of the system: "五彩斑斓的黑" (iridescent black).
+   The page is pure black. Light enters it the way sunlight diffracts on an
+   OLED panel: two very faint, very wide blooms, fixed to the viewport, and
+   1px specular lines where an edge catches them. Content scrolls over the
+   light; the light itself never moves.
+
+   Everything here is parameterised so a product can tune position, never hue. */
+
+:root {
+  /* ── Optical horizon: two anamorphic blooms ───────────────────────── */
+  --qz-horizon-y: 58%;            /* immersive pages: light sits low       */
+  --qz-horizon-ice-x: 32%;
+  --qz-horizon-amber-x: 70%;
+  --qz-horizon-ice-size: 48% 24%;
+  --qz-horizon-amber-size: 42% 22%;
+  --qz-horizon-ice-alpha: 0.14;   /* ceiling: never above 0.14             */
+  --qz-horizon-amber-alpha: 0.11; /* ceiling: never above 0.11             */
+
+  --qz-optical-horizon:
+    radial-gradient(var(--qz-horizon-ice-size) at var(--qz-horizon-ice-x) var(--qz-horizon-y), rgba(var(--qz-ice-rgb), var(--qz-horizon-ice-alpha)), transparent 72%),
+    radial-gradient(var(--qz-horizon-amber-size) at var(--qz-horizon-amber-x) var(--qz-horizon-y), rgba(var(--qz-amber-rgb), var(--qz-horizon-amber-alpha)), transparent 74%);
+
+  /* Reading pages: taller, softer, slightly higher so text stays calm */
+  --qz-optical-horizon-reading:
+    radial-gradient(55% 38% at 30% 48%, rgba(var(--qz-ice-rgb), 0.13), transparent 72%),
+    radial-gradient(48% 34% at 70% 46%, rgba(var(--qz-amber-rgb), 0.1), transparent 74%);
+
+  /* ── Specular lines: ice → white → amber, always 1px ──────────────── */
+  --qz-specular-seam: linear-gradient(90deg, transparent 0%, rgba(var(--qz-ice-rgb), 0.45) 30%, rgba(255, 255, 255, 0.85) 50%, rgba(var(--qz-amber-rgb), 0.42) 70%, transparent 100%);
+  --qz-specular-rim: linear-gradient(90deg, transparent 0%, rgba(var(--qz-ice-rgb), 0.35) 28%, rgba(255, 255, 255, 0.72) 50%, rgba(var(--qz-amber-rgb), 0.32) 72%, transparent 100%);
+  --qz-specular-quiet: linear-gradient(90deg, transparent 0%, rgba(var(--qz-ice-rgb), 0.3) 28%, rgba(255, 255, 255, 0.42) 50%, rgba(var(--qz-amber-rgb), 0.28) 72%, transparent 100%);
+  --qz-specular-rule: linear-gradient(90deg, transparent 0%, rgba(var(--qz-ice-rgb), 0.6) 30%, rgba(255, 255, 255, 0.7) 50%, rgba(var(--qz-amber-rgb), 0.55) 70%, transparent 100%);
+
+  /* ── Emitted light: a 6px LED is the only thing that glows ────────── */
+  --qz-led-glow: 0 0 8px rgba(var(--qz-ice-rgb), 0.8);
+
+  /* ── Film grain: monochrome, barely there ─────────────────────────── */
+  --qz-grain-opacity: 0.024;
+  --qz-grain-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* ── Smoked glass: a surface that dissolves back into the void ────── */
+  --qz-stage-glass: linear-gradient(180deg, rgba(12, 12, 12, 0.86) 0%, rgba(6, 6, 6, 0.94) 65%, rgba(0, 0, 0, 0) 100%);
+  --qz-stage-fade: linear-gradient(to bottom, #000 0%, #000 76%, transparent 100%);
+  --qz-stage-fade-compact: linear-gradient(to bottom, #000 0%, #000 88%, transparent 100%);
+
+  /* ── Scroll-coupled response (written by scripts/optics.js) ─────────
+     --qz-lit   0..1  how close a section's body is to the horizon
+     --qz-edge  0..1  how close a section's top edge is to the horizon
+     --qz-rim   0..1  how close a stage's top rim is to the horizon
+     --qz-near  0..1  how close a reading heading is to the horizon
+     Without the script each falls back to a resting value. */
+}
+
+/* Fixed layers. Place both as the first children of <body>. */
+.qz-optical-horizon {
+  position: fixed;
+  inset: 0;
+  z-index: var(--qz-z-optics);
+  pointer-events: none;
+  background: var(--qz-optical-horizon);
+}
+
+.qz-optical-horizon.is-reading {
+  background: var(--qz-optical-horizon-reading);
+}
+
+.qz-grain {
+  position: fixed;
+  inset: 0;
+  z-index: var(--qz-z-grain);
+  pointer-events: none;
+  opacity: var(--qz-grain-opacity);
+  background-image: var(--qz-grain-image);
+}
+
+/* A 1px specular line. Position it on the top edge of the thing it lights. */
+.qz-specular {
+  position: absolute;
+  top: -1px;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  pointer-events: none;
+  background: var(--qz-specular-seam);
+}
+
+@media print {
+  .qz-optical-horizon,
+  .qz-grain,
+  .qz-specular {
+    display: none;
+  }
+}

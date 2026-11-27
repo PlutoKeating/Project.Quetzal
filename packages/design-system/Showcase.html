@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="zh-CN" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quetzalcoatl design system — 五彩斑斓的黑</title>
+    <meta name="description" content="Quetzalcoatl 品牌设计系统的活样张：纯黑画布、固定的冰蓝与琥珀光学地平线、1px 高光线。" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      /* Specimen-only helpers. These are not part of the system. */
+      .sp-swatch {
+        display: block;
+        height: 56px;
+        margin-bottom: 0.9rem;
+        border: 1px solid var(--qz-line-control);
+        border-radius: var(--qz-radius-sm);
+      }
+      .sp-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 1.25rem 2rem;
+      }
+      .sp-row + .sp-row {
+        margin-top: 2.25rem;
+      }
+      .sp-type {
+        display: grid;
+        grid-template-columns: 9rem minmax(0, 1fr);
+        gap: 1.5rem;
+        align-items: baseline;
+        padding: 1.5rem 0;
+        border-bottom: 1px solid var(--qz-hairline);
+      }
+      .sp-type:first-child {
+        border-top: 1px solid var(--qz-line-rail);
+      }
+      .sp-type p {
+        margin: 0;
+      }
+      .sp-line {
+        position: relative;
+        height: 1px;
+        margin: 1.1rem 0 0.6rem;
+      }
+      .sp-gap {
+        margin-top: 3.25rem;
+      }
+      @media (max-width: 640px) {
+        .sp-type {
+          grid-template-columns: 1fr;
+          gap: 0.5rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="qz-optical-horizon" aria-hidden="true"></div>
+    <div class="qz-grain" aria-hidden="true"></div>
+
+    <div class="qz-page">
+      <header class="qz-nav">
+        <div class="qz-nav-inner">
+          <a href="#top" class="qz-brand" aria-label="Quetzalcoatl" dir="ltr"><span class="qz-wordmark">Quetzalcoatl</span></a>
+          <nav class="qz-nav-links" aria-label="样张目录">
+            <a href="#foundations">基础</a>
+            <a href="#components">组件</a>
+            <details class="qz-menu">
+              <summary class="qz-menu-trigger" aria-label="跳转到章节">
+                <span>01–09</span>
+                <svg viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </summary>
+              <div class="qz-menu-popover" role="menu">
+                <a href="#foundations" role="menuitem" class="qz-menu-item is-current"><span>颜色</span><span class="qz-menu-item-meta">01</span></a>
+                <a href="#optics" role="menuitem" class="qz-menu-item"><span>光学</span><span class="qz-menu-item-meta">02</span></a>
+                <a href="#type" role="menuitem" class="qz-menu-item"><span>字体</span><span class="qz-menu-item-meta">03</span></a>
+                <a href="#components" role="menuitem" class="qz-menu-item"><span>控件</span><span class="qz-menu-item-meta">04</span></a>
+                <a href="#diagram" role="menuitem" class="qz-menu-item"><span>图</span><span class="qz-menu-item-meta">07</span></a>
+                <a href="#reading" role="menuitem" class="qz-menu-item"><span>阅读</span><span class="qz-menu-item-meta">08</span></a>
+              </div>
+            </details>
+          </nav>
+        </div>
+      </header>
+
+      <main id="top">
+        <!-- Hero -->
+        <section class="qz-hero" data-qz-lit>
+          <div class="qz-container qz-hero-inner">
+            <h1 class="qz-display">五彩斑斓的黑</h1>
+            <p class="qz-lead">
+              纯黑的画布上有一层不扎眼的光，像阳光照在 OLED 屏幕上衍射出的光晕。内容在光上滑过，光自己不动。
+            </p>
+
+            <div class="qz-action-stack">
+              <div class="qz-segmented" role="tablist" aria-label="引入方式" dir="ltr">
+                <button type="button" role="tab" aria-selected="true" class="qz-segment is-active" data-seg="<link rel=&quot;stylesheet&quot; href=&quot;styles.css&quot; />">HTML</button>
+                <button type="button" role="tab" aria-selected="false" class="qz-segment" data-seg="@import &quot;quetzalcoatl/styles.css&quot;;">CSS</button>
+              </div>
+              <div class="qz-action-row">
+                <div class="qz-command-bar" dir="ltr">
+                  <code data-seg-code>&lt;link rel="stylesheet" href="styles.css" /&gt;</code>
+                  <button type="button" class="qz-btn-white" data-copy="&lt;link rel=&quot;stylesheet&quot; href=&quot;styles.css&quot; /&gt;" data-seg-copy data-copied-label="已复制" data-default-label="复制">复制</button>
+                </div>
+                <a href="#foundations" class="qz-link-arrow">
+                  <span>查看基础</span>
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="qz-dir-arrow">
+                    <path d="M3.5 8H12.5M9 4.5L12.5 8L9 11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </a>
+              </div>
+              <p class="qz-meta-line" dir="ltr">
+                <code>tokens</code><span aria-hidden="true">·</span><code>components</code><span aria-hidden="true">·</span><code>optics</code>
+              </p>
+            </div>
+
+            <div class="qz-hero-stage">
+              <div class="qz-stage-wrap" data-qz-rim>
+                <div class="qz-stage-rim" aria-hidden="true"></div>
+                <div class="qz-stage" aria-label="展示舞台示例">
+                  <div class="qz-stage-pane">
+                    <div class="qz-prompt-quote">
+                      <span class="qz-caret">&gt;</span>
+                      <span>做一个安静、可信、看起来属于未来的界面。</span>
+                    </div>
+                    <div class="qz-choices">
+                      <div class="qz-choice is-selected">
+                        <div class="qz-choice-head"><span>纯黑</span><span class="qz-led" aria-hidden="true"></span></div>
+                        <p>画布永远是 #000000</p>
+                      </div>
+                      <div class="qz-choice">
+                        <div class="qz-choice-head"><span>深灰</span><span class="qz-ring" aria-hidden="true"></span></div>
+                        <p>不抬升底色</p>
+                      </div>
+                      <div class="qz-choice">
+                        <div class="qz-choice-head"><span>浅色</span><span class="qz-ring" aria-hidden="true"></span></div>
+                        <p>没有浅色模式</p>
+                      </div>
+                    </div>
+                    <ul class="qz-milestones">
+                      <li><span class="qz-tick" aria-hidden="true"></span><span>画布与发丝线栅格</span></li>
+                      <li><span class="qz-tick" aria-hidden="true"></span><span>字重 500 的标题</span></li>
+                      <li class="is-active"><span class="qz-tick is-ice" aria-hidden="true"></span><span>光学地平线已就位</span></li>
+                    </ul>
+                  </div>
+                  <div class="qz-stage-divider" aria-hidden="true"></div>
+                  <div class="qz-stage-pane">
+                    <div class="qz-stage-label"><span class="qz-led" aria-hidden="true"></span><span>实时预览</span></div>
+                    <svg viewBox="0 0 460 250" fill="none" xmlns="http://www.w3.org/2000/svg" class="qz-diagram" role="img" aria-label="线框画法的界面示意">
+                      <line x1="0" y1="0.5" x2="460" y2="0.5" stroke="rgba(255,255,255,0.08)" />
+                      <line x1="92.5" y1="0" x2="92.5" y2="250" stroke="rgba(255,255,255,0.07)" />
+                      <rect x="14" y="20" width="46" height="5" fill="#FFFFFF" fill-opacity="0.78" />
+                      <rect x="14" y="44" width="56" height="4" fill="rgba(255,255,255,0.16)" />
+                      <rect x="14" y="60" width="42" height="4" fill="rgba(255,255,255,0.10)" />
+                      <rect x="14" y="76" width="50" height="4" fill="rgba(255,255,255,0.10)" />
+                      <rect x="116" y="20" width="152" height="9" fill="#FFFFFF" fill-opacity="0.88" />
+                      <rect x="116" y="38" width="204" height="4" fill="rgba(255,255,255,0.2)" />
+                      <rect x="116" y="64" width="154" height="86" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.11)" />
+                      <path d="M116 74V64H126 M260 64H270V74 M116 140V150H126 M260 150H270V140" stroke="#BAE6FD" stroke-width="1.2" />
+                      <rect x="130" y="82" width="64" height="5" fill="rgba(255,255,255,0.45)" />
+                      <rect x="130" y="98" width="114" height="4" fill="rgba(255,255,255,0.16)" />
+                      <rect x="130" y="110" width="88" height="4" fill="rgba(255,255,255,0.10)" />
+                      <rect x="130" y="126" width="48" height="10" fill="#FFFFFF" fill-opacity="0.9" />
+                      <rect x="286" y="64" width="154" height="86" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.09)" />
+                      <path d="M304 132 L338 116 L370 120 L400 94 L426 84" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="square" />
+                      <circle cx="400" cy="94" r="3" fill="#E5A03D" />
+                      <circle cx="426" cy="84" r="3.5" fill="#BAE6FD" />
+                      <line x1="116" y1="176" x2="440" y2="176" stroke="rgba(255,255,255,0.08)" />
+                      <rect x="116" y="194" width="88" height="5" fill="rgba(255,255,255,0.26)" />
+                      <rect x="116" y="210" width="276" height="4" fill="rgba(255,255,255,0.12)" />
+                      <rect x="116" y="222" width="220" height="4" fill="rgba(255,255,255,0.08)" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 01 Colour -->
+        <section class="qz-section" id="foundations" data-qz-lit>
+          <div class="qz-container">
+            <div class="qz-section-head">
+              <h2 class="qz-title">96% 是黑白，4% 是光</h2>
+              <p>每一屏 96% 的面积严格零饱和度。剩下的 4% 只有两种颜色：冰蓝表示已验证与进行中，琥珀表示需要人介入。没有第三种。</p>
+            </div>
+
+            <div class="qz-rail">
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: #000000"></span>
+                <span class="qz-cell-num">#000000</span>
+                <h3>Void</h3>
+                <p>页面画布，永不抬升。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: #0a0a0a"></span>
+                <span class="qz-cell-num">#0A0A0A</span>
+                <h3>Well</h3>
+                <p>代码块、命令框、引用。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: #e5a03d"></span>
+                <span class="qz-cell-num is-amber">#E5A03D</span>
+                <h3>Tungsten Amber</h3>
+                <p>提示符、偏离、手动。</p>
+              </div>
+              <div class="qz-cell is-accent">
+                <span class="sp-swatch" style="background: #bae6fd"></span>
+                <span class="qz-cell-num is-ice">#BAE6FD</span>
+                <h3>Optical Ice</h3>
+                <p>高光、已验证、激活。</p>
+              </div>
+            </div>
+
+            <div class="qz-rail sp-gap">
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: #ffffff"></span>
+                <span class="qz-cell-num">#FFFFFF</span>
+                <h3>Ink</h3>
+                <p>标题、激活文字、主按钮。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: #d4d4d4"></span>
+                <span class="qz-cell-num">#D4D4D4</span>
+                <h3>Ink soft</h3>
+                <p>长文正文与代码文字。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: #8a8a8a"></span>
+                <span class="qz-cell-num">#8A8A8A</span>
+                <h3>Ink secondary</h3>
+                <p>副标题、导航、元信息。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: #525252"></span>
+                <span class="qz-cell-num">#525252</span>
+                <h3>Ink muted</h3>
+                <p>未激活的刻度与坐标。</p>
+              </div>
+            </div>
+
+            <div class="qz-section-head sp-gap">
+              <h2 class="qz-title">唯一的例外：光谱字标</h2>
+              <p>品牌名可以带六条横向色带，色序来自 Apple 1977 年的彩虹标，大字号下的细缝来自 IBM 的八条纹标。六个颜色各有各的亮度和浓度，按人眼的感知校准到看起来接近等亮。除了名字，它们不出现在任何地方。</p>
+            </div>
+            <p class="qz-display" dir="ltr"><span class="qz-wordmark">Quetzalcoatl</span></p>
+            <div class="qz-rail is-grid is-3 sp-gap">
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: var(--qz-spectrum-1)"></span>
+                <span class="qz-cell-num">#69DD4A</span>
+                <h3>Spectrum 1</h3>
+                <p>绿。压在自身亮度上限之下。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: var(--qz-spectrum-2)"></span>
+                <span class="qz-cell-num">#F9D343</span>
+                <h3>Spectrum 2</h3>
+                <p>黄。再暗就会变成芥末色。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: var(--qz-spectrum-3)"></span>
+                <span class="qz-cell-num">#FFAC61</span>
+                <h3>Spectrum 3</h3>
+                <p>橙。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: var(--qz-spectrum-4)"></span>
+                <span class="qz-cell-num">#FF8D88</span>
+                <h3>Spectrum 4</h3>
+                <p>红。提亮，避免压过相邻色带。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: var(--qz-spectrum-5)"></span>
+                <span class="qz-cell-num">#DE87FE</span>
+                <h3>Spectrum 5</h3>
+                <p>紫。提亮。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="sp-swatch" style="background: var(--qz-spectrum-6)"></span>
+                <span class="qz-cell-num">#2FC4FF</span>
+                <h3>Spectrum 6</h3>
+                <p>蓝。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 Optics -->
+        <section class="qz-section" id="optics" data-qz-lit>
+          <div class="qz-container">
+            <div class="qz-section-head">
+              <h2 class="qz-title">光有来处，而且不动</h2>
+              <p>滚动这个页面：背景里的冰蓝与琥珀光晕固定在视口里，每个区块经过它时，顶边的高光线变亮，正文也随之亮起。只有不透明度在变化。</p>
+            </div>
+
+            <div class="qz-rail is-3">
+              <div class="qz-cell">
+                <span class="qz-cell-num">HORIZON</span>
+                <h3>光学地平线</h3>
+                <p>两个极宽极扁的径向渐变，固定在视口 58% 高处。冰蓝不超过 0.14，琥珀不超过 0.11。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="qz-cell-num">GRAIN</span>
+                <h3>胶片颗粒</h3>
+                <p>整页覆盖一层单色噪点，不透明度 0.024。它让纯黑不发死，不带任何色偏。</p>
+              </div>
+              <div class="qz-cell is-accent">
+                <span class="qz-cell-num is-ice">SPECULAR</span>
+                <h3>高光线</h3>
+                <p>永远 1px：透明、冰蓝、白、琥珀、透明。出现在接住光的边缘上。</p>
+                <div class="sp-line"><span class="qz-specular" style="top: 0; left: 0; right: 0"></span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 03 Type -->
+        <section class="qz-section" id="type" data-qz-lit>
+          <div class="qz-container">
+            <div class="qz-section-head">
+              <h2 class="qz-title">字重 500，从不加粗</h2>
+              <p>Sora 负责显示与界面，JetBrains Mono 负责一切技术内容。尺寸感来自紧的负字距和纯白，而不是笔画粗细。</p>
+            </div>
+
+            <div>
+              <div class="sp-type">
+                <span class="qz-meta">Display · 500</span>
+                <p class="qz-display">The quiet future</p>
+              </div>
+              <div class="sp-type">
+                <span class="qz-meta">Title · 500</span>
+                <p class="qz-title">把目标交给它，然后去做别的事</p>
+              </div>
+              <div class="sp-type">
+                <span class="qz-meta">Lead · 400</span>
+                <p class="qz-lead" style="margin: 0">副标题用次级墨色，行高 1.72，最宽 66 个字符。</p>
+              </div>
+              <div class="sp-type">
+                <span class="qz-meta">Body · 400</span>
+                <p style="color: var(--qz-ink-secondary); line-height: var(--qz-leading-body)">正文 1rem，行高 1.78。宁可留白，也不把画面填满。</p>
+              </div>
+              <div class="sp-type">
+                <span class="qz-meta">Mono · 400</span>
+                <p style="font-family: var(--qz-font-mono); font-size: var(--qz-text-control); color: var(--qz-ink-soft)" dir="ltr">quetzal build --target web · 0123456789</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 04 Controls -->
+        <section class="qz-section" id="components" data-qz-lit>
+          <div class="qz-container">
+            <div class="qz-section-head">
+              <h2 class="qz-title">唯一的实心是白色</h2>
+              <p>主操作是一块纯白按钮，一屏只有一个。其余控件都是画在黑色上的发丝线。</p>
+            </div>
+
+            <div class="sp-row">
+              <button type="button" class="qz-btn-white">主操作</button>
+              <button type="button" class="qz-btn-outline">次操作</button>
+              <a href="#components" class="qz-link-arrow">
+                <span>了解更多</span>
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="qz-dir-arrow">
+                  <path d="M3.5 8H12.5M9 4.5L12.5 8L9 11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </a>
+              <button type="button" class="qz-btn-copy" data-copy="quetzal" data-copied-label="已复制" data-default-label="复制">复制</button>
+              <button type="button" class="qz-btn-outline is-copied">已复制</button>
+            </div>
+
+            <div class="sp-row">
+              <div class="qz-segmented" role="tablist" aria-label="分段控件示例">
+                <button type="button" role="tab" aria-selected="true" class="qz-segment is-active">macOS / Linux</button>
+                <button type="button" role="tab" aria-selected="false" class="qz-segment">Windows</button>
+              </div>
+              <span class="qz-state is-ice" dir="ltr"><i aria-hidden="true"></i>AUTO</span>
+              <span class="qz-state is-amber" dir="ltr"><i aria-hidden="true"></i>MANUAL</span>
+              <span class="qz-meta" dir="ltr">v1.0.0 · MIT</span>
+            </div>
+
+            <div class="sp-row">
+              <label class="qz-input" style="width: min(100%, 20rem)">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.3" />
+                  <path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                </svg>
+                <input type="search" placeholder="搜索" aria-label="搜索示例" />
+              </label>
+              <nav class="qz-segmented" aria-label="锚点分段示例">
+                <a class="qz-segment" href="#components" aria-current="location">当前</a>
+                <a class="qz-segment" href="#components">其他</a>
+              </nav>
+            </div>
+          </div>
+        </section>
+
+        <!-- 05 Rail -->
+        <section class="qz-section" data-qz-lit>
+          <div class="qz-container">
+            <div class="qz-section-head">
+              <h2 class="qz-title">发丝线，不是盒子</h2>
+              <p>并列的内容放在发丝线栅格里：没有外框、没有底色、没有圆角。代表结果的那一格顶边换成冰蓝，一条栅格最多一个。</p>
+            </div>
+
+            <div class="qz-rail">
+              <div class="qz-cell">
+                <span class="qz-cell-num">01</span>
+                <h3>说出目标</h3>
+                <p>用一句自然语言描述想要的结果。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="qz-cell-num is-amber">02</span>
+                <h3>确认方向</h3>
+                <p>需要人拿主意的地方用琥珀标出。</p>
+              </div>
+              <div class="qz-cell">
+                <span class="qz-cell-num">03</span>
+                <h3>自动执行</h3>
+                <p>其余步骤安静地进行，不打扰。</p>
+              </div>
+              <div class="qz-cell is-accent">
+                <span class="qz-cell-num is-ice">04</span>
+                <h3>验证完成</h3>
+                <p>结果被验证之后，才出现冰蓝。</p>
+              </div>
+            </div>
+
+            <div class="qz-prompt-rail" style="margin-top: 2.25rem">
+              <div class="qz-prompt-text">
+                <span class="qz-caret" dir="ltr">&gt;</span>
+                <span>琥珀色的提示符只有一个含义：这是人说的话。</span>
+              </div>
+              <button type="button" class="qz-btn-outline" data-copy="琥珀色的提示符只有一个含义：这是人说的话。" data-copied-label="已复制" data-default-label="复制这句话">复制这句话</button>
+            </div>
+
+            <div class="sp-gap">
+              <div class="qz-rail-head" dir="ltr">
+                <span class="qz-caret">&gt;</span>
+                <span>Controls</span>
+                <span class="qz-meta">Terminal · Desktop · Mobile</span>
+              </div>
+              <div class="qz-rail is-2">
+                <div class="qz-cell">
+                  <div class="qz-cell-head">
+                    <h3>命令批准</h3>
+                    <span class="qz-state is-ice" dir="ltr"><i aria-hidden="true"></i>AUTO</span>
+                  </div>
+                  <p>冰蓝状态词：系统自己处理。</p>
+                </div>
+                <div class="qz-cell">
+                  <div class="qz-cell-head">
+                    <h3>方向提问</h3>
+                    <span class="qz-state is-amber" dir="ltr"><i aria-hidden="true"></i>MANUAL</span>
+                  </div>
+                  <p>琥珀状态词：等待人来决定。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 07 Diagram -->
+        <section class="qz-section" id="diagram" data-qz-lit>
+          <div class="qz-container">
+            <div class="qz-section-head">
+              <h2 class="qz-title">一图胜千言</h2>
+              <p>图直接画在黑色画布上，没有底板和外框。偏离的路径是灰色虚线和琥珀，达成的路径是白色实线和一层冰蓝辉光。</p>
+            </div>
+
+            <svg viewBox="0 0 760 288" fill="none" xmlns="http://www.w3.org/2000/svg" class="qz-diagram" role="img" aria-label="上方：没有约束的路径逐渐偏离并失败。下方：有约束的路径逐个里程碑到达目标。">
+              <defs>
+                <filter id="iceGlow" x="-15%" y="-40%" width="130%" height="180%">
+                  <feGaussianBlur stdDeviation="3.5" result="blur" />
+                  <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                </filter>
+              </defs>
+              <line x1="0" y1="0.5" x2="760" y2="0.5" stroke="rgba(255,255,255,0.08)" />
+              <line x1="0" y1="142.5" x2="760" y2="142.5" stroke="rgba(255,255,255,0.08)" />
+              <line x1="0" y1="287.5" x2="760" y2="287.5" stroke="rgba(255,255,255,0.08)" />
+              <line x1="190.5" y1="0" x2="190.5" y2="288" stroke="rgba(255,255,255,0.045)" />
+              <line x1="380.5" y1="0" x2="380.5" y2="288" stroke="rgba(255,255,255,0.045)" />
+              <line x1="570.5" y1="0" x2="570.5" y2="288" stroke="rgba(255,255,255,0.045)" />
+              <path d="M186.5 142.5H194.5 M190.5 138.5V146.5 M376.5 142.5H384.5 M380.5 138.5V146.5 M566.5 142.5H574.5 M570.5 138.5V146.5" stroke="rgba(255,255,255,0.28)" stroke-width="1" />
+
+              <text x="16" y="34" fill="#B5B5B5" font-family="var(--qz-font-sans)" font-size="15.5" font-weight="500">没有约束</text>
+              <text x="744" y="34" text-anchor="end" fill="#B5B5B5" font-family="var(--qz-font-mono)" font-size="12">drift</text>
+              <path d="M 24 92 C 140 60, 250 62, 360 82 C 470 102, 560 110, 736 100" stroke="#737373" stroke-width="1.6" stroke-dasharray="4 5" />
+              <circle cx="24" cy="92" r="4" fill="#8A8A8A" />
+              <circle cx="256" cy="68" r="4" fill="#8A8A8A" />
+              <circle cx="468" cy="96" r="4.5" fill="#E5A03D" />
+              <path d="M 730 94 L 742 106 M 742 94 L 730 106" stroke="#E5A03D" stroke-width="1.8" />
+              <text x="20" y="126" fill="#A3A3A3" font-family="var(--qz-font-sans)" font-size="13.5">开始</text>
+              <text x="256" y="126" text-anchor="middle" fill="#A3A3A3" font-family="var(--qz-font-sans)" font-size="13.5">自行发挥</text>
+              <text x="468" y="126" text-anchor="middle" fill="#E5A03D" font-family="var(--qz-font-sans)" font-size="13.5">偏离</text>
+              <text x="744" y="126" text-anchor="end" fill="#B5B5B5" font-family="var(--qz-font-sans)" font-size="13.5">未达成</text>
+
+              <text x="16" y="178" fill="#FFFFFF" font-family="var(--qz-font-sans)" font-size="16" font-weight="500">有约束</text>
+              <text x="744" y="178" text-anchor="end" fill="#E5E5E5" font-family="var(--qz-font-mono)" font-size="12">verified</text>
+              <path d="M 24 234 L 256 224 L 468 214 L 736 202" stroke="#BAE6FD" stroke-opacity="0.45" stroke-width="4" filter="url(#iceGlow)" />
+              <path d="M 24 234 L 256 224 L 468 214 L 736 202" stroke="#FFFFFF" stroke-width="1.8" />
+              <circle cx="24" cy="234" r="5" fill="#000000" stroke="#FFFFFF" stroke-width="1.8" />
+              <circle cx="256" cy="224" r="5" fill="#000000" stroke="#FFFFFF" stroke-width="1.8" />
+              <circle cx="468" cy="214" r="5" fill="#000000" stroke="#FFFFFF" stroke-width="1.8" />
+              <circle cx="736" cy="202" r="6" fill="#FFFFFF" />
+              <circle cx="736" cy="202" r="11" stroke="rgba(186,230,253,0.45)" stroke-width="1" />
+              <text x="20" y="270" fill="#E5E5E5" font-family="var(--qz-font-sans)" font-size="13.5">澄清</text>
+              <text x="256" y="270" text-anchor="middle" fill="#E5E5E5" font-family="var(--qz-font-sans)" font-size="13.5">里程碑</text>
+              <text x="468" y="270" text-anchor="middle" fill="#E5E5E5" font-family="var(--qz-font-sans)" font-size="13.5">验证</text>
+              <text x="744" y="270" text-anchor="end" fill="#FFFFFF" font-family="var(--qz-font-sans)" font-size="13.5" font-weight="500">达成</text>
+            </svg>
+          </div>
+        </section>
+
+        <!-- 08 Reading -->
+        <section class="qz-section" id="reading" data-qz-lit>
+          <div class="qz-container">
+            <div class="qz-section-head">
+              <h2 class="qz-title">安静的阅读</h2>
+              <p>长文用另一套刻度：正文更大、行高 1.7、段间距 2rem。二级标题下方的线在经过光学地平线时被点亮。</p>
+            </div>
+
+            <article class="qz-prose">
+              <h1>安装与第一次运行</h1>
+              <hr class="qz-seam" style="margin-top: 2rem" />
+              <p>这是正文段落的样子。颜色是 <code>#D4D4D4</code> 而不是纯白，这样长时间阅读不刺眼。行内链接<a href="#reading">保持中性的浅灰</a>，不使用冰蓝。</p>
+
+              <h2><span class="qz-step-no">1</span>准备环境</h2>
+              <p>教程步骤的编号是琥珀色的等宽数字，放在标题前面。</p>
+
+              <div class="qz-cmd">
+                <p class="qz-cmd-label">在终端里运行：</p>
+                <div class="qz-cmd-frame">
+                  <div class="qz-cmd-head"><span>Terminal</span></div>
+                  <div class="qz-cmd-body" dir="ltr">
+                    <code class="qz-cmd-text is-mono">curl -fsSL https://example.com/install.sh | bash</code>
+                    <button type="button" class="qz-btn-copy" data-copy="curl -fsSL https://example.com/install.sh | bash" data-copied-label="已复制" data-default-label="复制">复制</button>
+                  </div>
+                </div>
+              </div>
+
+              <h2><span class="qz-step-no">2</span>确认结果</h2>
+              <p>截图上的标注框有两种颜色：琥珀框出需要你操作的位置，冰蓝框出系统给出的结果。</p>
+
+              <figure class="qz-shot">
+                <div class="qz-shot-canvas" dir="ltr">
+                  <svg viewBox="0 0 800 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="示例界面截图" style="display: block; width: 100%; height: auto">
+                    <rect width="800" height="300" fill="#0a0a0a" />
+                    <rect x="32" y="32" width="150" height="8" fill="rgba(255,255,255,0.7)" />
+                    <rect x="32" y="56" width="280" height="5" fill="rgba(255,255,255,0.16)" />
+                    <rect x="32" y="110" width="430" height="46" rx="6" fill="none" stroke="rgba(255,255,255,0.14)" />
+                    <rect x="52" y="130" width="210" height="5" fill="rgba(255,255,255,0.22)" />
+                    <rect x="560" y="110" width="208" height="150" fill="none" stroke="rgba(255,255,255,0.09)" />
+                    <rect x="580" y="132" width="120" height="6" fill="rgba(255,255,255,0.4)" />
+                    <rect x="580" y="156" width="160" height="4" fill="rgba(255,255,255,0.14)" />
+                    <rect x="580" y="170" width="130" height="4" fill="rgba(255,255,255,0.1)" />
+                    <rect x="32" y="200" width="96" height="30" rx="5" fill="#ffffff" />
+                  </svg>
+                  <div class="qz-callout" style="left: 3%; top: 33%; width: 56%; height: 22%" aria-hidden="true"><span class="qz-pin">1</span></div>
+                  <div class="qz-callout is-ice pin-top-right" style="left: 69%; top: 33%; width: 28%; height: 57%" aria-hidden="true"><span class="qz-pin is-ice">2</span></div>
+                </div>
+                <ol class="qz-legend">
+                  <li><span class="qz-pin is-small" aria-hidden="true">1</span><span>在这里输入你的目标</span></li>
+                  <li><span class="qz-pin is-ice is-small" aria-hidden="true">2</span><span>验证结果出现在这里</span></li>
+                </ol>
+              </figure>
+
+              <blockquote><p>引用块只有一条左侧竖线和一层几乎不可见的底色。</p></blockquote>
+
+              <table>
+                <thead>
+                  <tr><th>信号</th><th>颜色</th><th>含义</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Ice</td><td><code>#BAE6FD</code></td><td>已验证、进行中、自动</td></tr>
+                  <tr><td>Amber</td><td><code>#E5A03D</code></td><td>需要人介入、偏离、手动</td></tr>
+                </tbody>
+              </table>
+            </article>
+          </div>
+        </section>
+
+        <!-- Close -->
+        <section class="qz-close" data-qz-lit>
+          <div class="qz-container qz-close-inner">
+            <h2 class="qz-monument">黑就是黑。光是稀缺的。</h2>
+            <p class="qz-close-note">想加更多光的时候，答案是不加。</p>
+            <div class="qz-action-stack">
+              <div class="qz-action-row">
+                <a href="README.md" class="qz-btn-outline">
+                  <span>阅读完整规范</span>
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="qz-dir-arrow">
+                    <path d="M3.5 8H12.5M9 4.5L12.5 8L9 11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="qz-footer">
+        <div class="qz-container qz-footer-inner">
+          <span>Quetzalcoatl design system</span>
+          <div class="qz-footer-links">
+            <a href="README.md">README</a>
+            <a href="guidelines/components.md">组件规范</a>
+            <a href="guidelines/diagrams.md">图的画法</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <script src="scripts/optics.js" defer></script>
+    <script>
+      // Specimen behaviour: copy feedback, segmented switch, close menu on outside click.
+      document.querySelectorAll("[data-copy]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.copy || "");
+          } catch {
+            return;
+          }
+          btn.textContent = btn.dataset.copiedLabel || "Copied";
+          btn.classList.add("is-copied");
+          window.setTimeout(() => {
+            btn.textContent = btn.dataset.defaultLabel || "Copy";
+            btn.classList.remove("is-copied");
+          }, 1800);
+        });
+      });
+
+      const segCode = document.querySelector("[data-seg-code]");
+      const segCopy = document.querySelector("[data-seg-copy]");
+      document.querySelectorAll("[data-seg]").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          tab.parentElement.querySelectorAll("[data-seg]").forEach((other) => {
+            const active = other === tab;
+            other.classList.toggle("is-active", active);
+            other.setAttribute("aria-selected", active ? "true" : "false");
+          });
+          segCode.textContent = tab.dataset.seg;
+          segCopy.dataset.copy = tab.dataset.seg;
+        });
+      });
+
+      document.addEventListener("click", (event) => {
+        document.querySelectorAll("details.qz-menu[open]").forEach((menu) => {
+          if (!menu.contains(event.target)) menu.removeAttribute("open");
+        });
+      });
+    </script>
+  </body>
+</html>

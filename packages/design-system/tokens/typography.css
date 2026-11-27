@@ -1,0 +1,65 @@
+/* Quetzalcoatl — typography tokens
+   Two families. Weights 400 / 500 / 600 only; display type is 500, never bold.
+   Size is built from tight negative tracking, not from weight. */
+
+:root {
+  --qz-font-display: "Sora", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", "Geeza Pro", "SF Arabic", "Noto Sans Arabic", "Segoe UI", sans-serif;
+  --qz-font-sans: var(--qz-font-display);
+  --qz-font-mono: "JetBrains Mono", "Geeza Pro", "SF Arabic", "Noto Sans Arabic", "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Noto Sans CJK TC", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --qz-weight-regular: 400;
+  --qz-weight-medium: 500;   /* every heading, every button               */
+  --qz-weight-semibold: 600; /* wordmark and numbered pins only           */
+
+  /* Root size: 17.5px on desktop, 16px at ≤720px (set in base.css) */
+  --qz-root-size: 17.5px;
+  --qz-root-size-compact: 16px;
+
+  /* ── Immersive scale (landing, marketing, product chrome) ─────────── */
+  --qz-text-display: clamp(2.8rem, 5.2vw, 4.35rem);  /* hero h1          */
+  --qz-text-monument: clamp(1.9rem, 3.4vw, 2.7rem);  /* closing headline */
+  --qz-text-title: clamp(1.75rem, 2.9vw, 2.35rem);   /* section h2       */
+  --qz-text-lead: clamp(1.02rem, 1.45vw, 1.16rem);   /* hero subtitle    */
+  --qz-text-wordmark: 1.28rem;
+  --qz-text-cell-title: 1.05rem;
+  --qz-text-body: 1rem;
+  --qz-text-sm: 0.94rem;
+  --qz-text-ui: 0.9rem;
+  --qz-text-control: 0.86rem;
+  --qz-text-caption: 0.84rem;
+  --qz-text-meta: 0.78rem;      /* mono meta, tabs, chips                */
+  --qz-text-micro: 0.75rem;
+
+  --qz-leading-display: 1.12;
+  --qz-leading-title: 1.24;
+  --qz-leading-cell-title: 1.35;
+  --qz-leading-lead: 1.72;
+  --qz-leading-body: 1.78;
+  --qz-leading-ui: 1.65;
+
+  --qz-tracking-display: -0.04em;
+  --qz-tracking-title: -0.035em;
+  --qz-tracking-wordmark: -0.025em;
+  --qz-tracking-label: 0.04em;   /* small group labels only              */
+
+  --qz-measure-lead: 66ch;
+  --qz-measure-section: 72ch;
+
+  /* ── Reading scale (documentation, long-form) ─────────────────────── */
+  --qz-read-h1: clamp(2.4rem, 3.72vw, 3rem);
+  --qz-read-h2: 1.82rem;
+  --qz-read-h3: 1.456rem;
+  --qz-read-body: 1.147rem;
+  --qz-read-nav: 0.936rem;
+  --qz-read-label: 0.79rem;
+  --qz-read-toc: 0.84rem;
+
+  --qz-read-leading-h1: 1.16;
+  --qz-read-leading-h2: 1.24;
+  --qz-read-leading-h3: 1.28;
+  --qz-read-leading-body: 1.7;
+
+  --qz-read-tracking-h1: -0.035em;
+  --qz-read-tracking-h2: -0.025em;
+  --qz-read-tracking-h3: -0.02em;
+}

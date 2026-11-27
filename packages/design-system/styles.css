@@ -1,0 +1,8 @@
+/* Quetzalcoatl design system — single entry point */
+@import "./tokens/fonts.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/scale.css";
+@import "./tokens/optics.css";
+@import "./tokens/base.css";
+@import "./components/components.css";
