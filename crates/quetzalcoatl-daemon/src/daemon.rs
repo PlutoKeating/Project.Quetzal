@@ -5,8 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -46,11 +45,10 @@ use quetzalcoatl_sandbox::{
     default_quetzalcoatl_home,
 };
 use quetzalcoatl_spine::{
-    MaterializedMessage, MaterializedStore, MaterializedThread, RusqliteWalStore, SpineEngine,
-    V1ImportReport, ZipExportOptions,
+    MaterializedStore, RusqliteWalStore, SpineEngine, V1ImportReport, ZipExportOptions,
 };
 use quetzalcoatl_types::{
-    AgentId, DeviceId, Epoch, HlcTimestamp, QuetzalcoatlError, Result, RunId, ThreadId,
+    AgentId, DeviceId, Epoch, HlcTimestamp, QuetzalcoatlError, Result, RunId,
 };
 use rand_core::{OsRng, RngCore};
 use rusqlite::Connection;
@@ -77,16 +75,16 @@ pub(crate) fn now_unix_ms() -> u64 {
         .unwrap_or(1_795_400_000_000)
 }
 
-/// 「模型未配置」的唯一错误出口：只说真实可行的三条路径，绝不引导用户去并不存在的控制台设置页。
-fn model_not_configured_error(console_addr: std::net::SocketAddr) -> QuetzalcoatlError {
+/// 「宿主没有可用凭据」的唯一错误出口：受管运行直接复用本机宿主已有的登录，
+/// 所以只说真实可行的路径，绝不引导用户去填 API Key。
+fn model_not_configured_error() -> QuetzalcoatlError {
     QuetzalcoatlError::ModelNotConfigured {
-        detail: format!(
-            "未配置模型。Quetzalcoatl 直接复用你本机已有的订阅凭据，任选一种后重试：\
+        detail: String::from(
+            "本机宿主没有可用的登录凭据。受管运行直接复用宿主自己的登录，任选一种后重试：\
              ① 在本机登录 Claude Code（终端运行 `claude`，再输入 /login）；\
              ② 在本机登录 Codex（终端运行 `codex login`）；\
-             ③ 设置环境变量 QUETZALCOATL_UPSTREAM_BEARER_TOKEN（自建 OpenAI/Anthropic 兼容网关可填任意占位值），\
-             然后重启 `qz up`。安装与配置说明：https://quetzal.plutokeating.beer/docs/install ；\
-             本机 Web 控制台：http://{console_addr}/（`qz open`，无桌面时只打印地址）"
+             ③ 设置环境变量 QUETZALCOATL_UPSTREAM_BEARER_TOKEN（自建兼容网关可填任意占位值），\
+             然后重启 `qz up`。说明：https://quetzal.plutokeating.beer/docs/install",
         ),
     }
 }
@@ -199,35 +197,24 @@ pub struct DaemonStatus {
     pub channels: Vec<ChannelHealth>,
 }
 
+/// 委派一次受管运行：把一件要做完的事交给本机宿主（Coding Agent）在隔离 worktree 里完成，
+/// 并在断网只读洁净室里验收。循环与模型调用都发生在宿主进程里，守护进程自身不调用模型。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChatRequest {
-    pub message: String,
-    pub thread_id: Option<ThreadId>,
+pub struct DelegateRunRequest {
+    /// 交给宿主的任务描述。
+    pub task: String,
     pub peer_id: Option<String>,
-    pub workspace_dir: Option<PathBuf>,
+    /// 目标仓库；Worker 只在由它派生的独立 worktree 里写入。
+    pub workspace_dir: PathBuf,
     pub verifier_dag: Option<CleanRoomVerifierDag>,
     pub router_attempted_forbidden_tools: Vec<String>,
 }
 
-impl ChatRequest {
-    #[must_use]
-    pub fn simple(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            thread_id: None,
-            peer_id: None,
-            workspace_dir: None,
-            verifier_dag: None,
-            router_attempted_forbidden_tools: Vec::new(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChatResponse {
-    pub reply: String,
+pub struct DelegateRunResponse {
+    /// 宿主进程的最终输出。
+    pub final_text: String,
     pub run_id: RunId,
-    pub delegated_to_worker: bool,
     pub verifier_runs: u64,
     pub verification_mark: Option<VerificationMark>,
     pub router_denied_capabilities: Vec<String>,
@@ -1137,140 +1124,14 @@ impl SharedDaemonCore {
         })
     }
 
-    /// 上游错误正文归一化：避免把网关已经加过的 `零凭据代理拒绝请求:` 再套一层前缀，
-    /// 并在网关回传结构化 JSON 时只取 `detail` 字段。
-    fn normalize_upstream_error_body(raw: &str) -> String {
-        let trimmed = raw.trim();
-        let candidate = serde_json::from_str::<serde_json::Value>(trimmed)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("detail")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            })
-            .unwrap_or_else(|| trimmed.to_owned());
-        let mut text = candidate.trim();
-        while let Some(rest) = text.strip_prefix("零凭据代理拒绝请求: ") {
-            text = rest.trim();
-        }
-        String::from(text)
-    }
-
-    fn execute_routine_gateway_turn(
-        &self,
-        grant: &quetzalcoatl_harness::GatewaySessionGrant,
-        user_message: &str,
-    ) -> Result<String> {
-        let req_payload = serde_json::json!({
-            "model": "claude-sonnet-4-5",
-            "max_tokens": 512,
-            "system": [
-                {
-                    "type": "text",
-                    "text": "You are Quetzalcoatl Router."
-                }
-            ],
-            "messages": [
-                {
-                    "role": "user",
-                    "content": user_message
-                }
-            ]
-        });
-        let req_bytes = serde_json::to_vec(&req_payload).map_err(|e| {
-            QuetzalcoatlError::SerializationError {
-                detail: format!("编码日常对话网关请求失败: {e}"),
-            }
-        })?;
-
-        let gw_addr = self.runtime_info.gateway_addr;
-        let mut stream =
-            TcpStream::connect_timeout(&gw_addr, Duration::from_secs(3)).map_err(|e| {
-                QuetzalcoatlError::StorageError {
-                    detail: format!("连接回环 LLM 网关 ({gw_addr}) 失败: {e}"),
-                }
-            })?;
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
-        let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
-
-        let head = format!(
-            "POST /run/{}/v1/messages HTTP/1.1\r\nHost: {}\r\nx-qz-token: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            grant.cap_token,
-            gw_addr,
-            grant.qz_token,
-            req_bytes.len()
-        );
-        stream
-            .write_all(head.as_bytes())
-            .and_then(|()| stream.write_all(&req_bytes))
-            .and_then(|()| stream.flush())
-            .map_err(|e| QuetzalcoatlError::StorageError {
-                detail: format!("向回环网关发送日常对话请求失败: {e}"),
-            })?;
-
-        let mut raw_resp = Vec::new();
-        stream
-            .read_to_end(&mut raw_resp)
-            .map_err(|e| QuetzalcoatlError::StorageError {
-                detail: format!("读取回环网关日常对话响应失败: {e}"),
-            })?;
-
-        let sep = raw_resp
-            .windows(4)
-            .position(|w| w == b"\r\n\r\n")
-            .ok_or_else(|| QuetzalcoatlError::SerializationError {
-                detail: String::from("回环网关日常对话响应缺少完整 HTTP 头"),
-            })?;
-        let head_str = std::str::from_utf8(&raw_resp[..sep]).map_err(|_| {
-            QuetzalcoatlError::SerializationError {
-                detail: String::from("回环网关响应头不是合法 UTF-8"),
-            }
-        })?;
-        let status_code = head_str
-            .lines()
-            .next()
-            .and_then(|l| l.split_whitespace().nth(1))
-            .and_then(|s| s.parse::<u16>().ok())
-            .unwrap_or(500);
-
-        let body_slice = &raw_resp[sep + 4..];
-        if status_code != 200 {
-            let err_summary =
-                Self::normalize_upstream_error_body(&String::from_utf8_lossy(body_slice));
-            if status_code == 401 || status_code == 403 {
-                return Err(QuetzalcoatlError::CredentialRejected {
-                    detail: format!("上游模型认证失败 (HTTP {status_code}): {err_summary}"),
-                });
-            }
-            return Err(QuetzalcoatlError::StorageError {
-                detail: format!("上游模型请求失败 (HTTP {status_code}): {err_summary}"),
-            });
-        }
-
-        let json: serde_json::Value = serde_json::from_slice(body_slice).map_err(|e| {
-            QuetzalcoatlError::SerializationError {
-                detail: format!("解析上游模型 JSON 响应失败: {e}"),
-            }
-        })?;
-        let text = json
-            .get("content")
-            .and_then(serde_json::Value::as_array)
-            .and_then(|arr| arr.first())
-            .and_then(|b| b.get("text"))
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| QuetzalcoatlError::SerializationError {
-                detail: String::from("上游模型响应缺少 content[0].text 字段"),
-            })?;
-
-        Ok(String::from(text))
-    }
-
-    fn handle_chat(self: &Arc<Self>, req: ChatRequest) -> Result<ChatResponse> {
+    fn handle_delegate_run(
+        self: &Arc<Self>,
+        req: DelegateRunRequest,
+    ) -> Result<DelegateRunResponse> {
         let now_ms = now_unix_ms();
         let bindings = default_authored_bindings();
 
-        // 第一步：组装良知与记忆，并在 Router 权限下校验任何被禁止的工具调用企图
+        // 第一步：组装良知与记忆（注入受管运行的网关会话），并在 Router 权限下校验任何被禁止的工具调用企图
         let (assembled, mut router_denied) = {
             let mut guard = self
                 .state
@@ -1281,7 +1142,7 @@ impl SharedDaemonCore {
 
             let mut asm_req = AssemblyRequest::new(BudgetProfile::Standard, now_ms);
             asm_req.peer_id = req.peer_id.clone();
-            asm_req.query = Some(req.message.clone());
+            asm_req.query = Some(req.task.clone());
             let assembled = ContextAssembler::assemble(&guard.conscience, &guard.graph, &asm_req)?;
 
             let mut denied = Vec::new();
@@ -1308,186 +1169,18 @@ impl SharedDaemonCore {
         let host_claude = host_home.as_ref().map(|h| h.join(".claude"));
         let host_codex = host_home.as_ref().map(|h| h.join(".codex"));
 
-        // 无任何模型凭据时在创建 worktree / 沙箱 / 网关会话之前就拒绝：
-        // 日常对话与工程工作区两条分支共用同一判定，绝不把「没配模型」伪装成上游 403。
+        // 宿主没有任何可用凭据时，在创建 worktree / 沙箱 / 网关会话之前就拒绝，
+        // 绝不把「宿主没登录」伪装成上游 403。
         let upstream_configured = self.config.upstream_bearer_token.is_some();
         if !upstream_configured
             && !host_oauth_available(host_claude.as_deref(), host_codex.as_deref())
         {
-            return Err(model_not_configured_error(self.runtime_info.ipc_http_addr));
+            return Err(model_not_configured_error());
         }
 
-        // 分支 A：日常对话 / 生活陪伴（不涉及工程工作区变更 -> Router 免校验零延迟结项，verifier_runs == 0）
-        let Some(target_repo) = req.workspace_dir.clone() else {
-            let run_id = {
-                let mut guard = self
-                    .state
-                    .lock()
-                    .map_err(|_| QuetzalcoatlError::StorageError {
-                        detail: String::from("quetzalcoatld 状态锁异常"),
-                    })?;
-                let run = guard
-                    .kernel
-                    .spawn_commit_run("routine-dialogue", None, now_ms)?;
-                let _ = guard.kernel.authorize_capability(
-                    PrincipalRole::Router,
-                    Some(run.run_id),
-                    CapabilitySet::All,
-                    ScopeChain::unrestricted(),
-                    bindings.clone(),
-                    &CapabilityInvocation::new("router.reply", "{}"),
-                    now_ms,
-                )?;
-                run.run_id
-            };
+        let target_repo = req.workspace_dir.clone();
 
-            let grant = self.harness_host.gateway().register_session(
-                &self.gateway_base_url,
-                GatewaySessionConfig {
-                    run_id,
-                    assembled_context: assembled,
-                    upstream_anthropic_bearer: self.config.upstream_bearer_token.clone(),
-                    upstream_openai_bearer: self.config.upstream_bearer_token.clone(),
-                    upstream_codex_bearer: self.config.upstream_bearer_token.clone(),
-                    upstream_codex_account_id: None,
-                    upstream_gemini_bearer: self.config.upstream_bearer_token.clone(),
-                },
-            )?;
-
-            // 提取并挂载宿主 ~/.claude / ~/.codex OAuth 令牌供日常对话出站使用
-            let scratch_base = sandbox_scratch_root(self.runtime_info.agent_id);
-            ensure_secure_private_dir(&scratch_base, Some(&self.config.quetzalcoatl_home))?;
-            let routine_stub_tmp = scratch_base.join(format!("routine-stubs/{run_id}"));
-            let routine_oauth = prepare_stripped_oauth_stubs(
-                host_claude.as_deref(),
-                host_codex.as_deref(),
-                &routine_stub_tmp,
-                &grant.ephemeral_stub_token,
-            )?;
-            let host_oauth_available = routine_oauth.extracted.claude_access_token.is_some()
-                || routine_oauth.extracted.codex_access_token.is_some();
-            let _ = self
-                .harness_host
-                .gateway()
-                .attach_extracted_oauth(&grant.cap_token, &routine_oauth.extracted);
-            let _ = fs::remove_dir_all(&routine_stub_tmp);
-
-            // 零上游凭据时绝不打真实云端：无 Bearer（QUETZALCOATL_UPSTREAM_BEARER_TOKEN）
-            // 且无宿主 Claude/Codex OAuth 就等于「模型未配置」。自建代理也必须显式给凭据（可任意占位值），
-            // 这样「没有模型」永远不会被误报成上游 403。
-            if !upstream_configured && !host_oauth_available {
-                if let Ok(mut guard) = self.state.lock() {
-                    let _ = guard
-                        .kernel
-                        .abort_run(run_id, "model not configured", now_unix_ms());
-                }
-                let _ = self.harness_host.gateway().revoke_session(&grant.cap_token);
-                return Err(model_not_configured_error(self.runtime_info.ipc_http_addr));
-            }
-
-            let turn_res = self.execute_routine_gateway_turn(&grant, &req.message);
-            let _ = self.harness_host.gateway().revoke_session(&grant.cap_token);
-
-            let reply_text = match turn_res {
-                Ok(txt) => txt,
-                Err(err) => {
-                    if let Ok(mut guard) = self.state.lock() {
-                        let _ =
-                            guard
-                                .kernel
-                                .abort_run(run_id, "routine upstream error", now_unix_ms());
-                    }
-                    return Err(err);
-                }
-            };
-
-            let report = {
-                let mut guard = self
-                    .state
-                    .lock()
-                    .map_err(|_| QuetzalcoatlError::StorageError {
-                        detail: String::from("quetzalcoatld 状态锁异常"),
-                    })?;
-                let completion = guard
-                    .kernel
-                    .complete_commit_run(run_id, None, now_unix_ms())?;
-
-                let tid = req.thread_id.unwrap_or_else(ThreadId::new_v4);
-                let thread_key = tid.to_string();
-                guard
-                    .kernel
-                    .spine_mut()
-                    .store_mut()
-                    .upsert_thread(&MaterializedThread {
-                        thread_id: tid,
-                        legacy_key: thread_key.clone(),
-                        title: String::from("Dialogue"),
-                        channel: String::from("local_cli"),
-                        created_ms: now_ms,
-                        updated_ms: now_ms,
-                        archived: false,
-                    })?;
-                guard
-                    .kernel
-                    .spine_mut()
-                    .store_mut()
-                    .upsert_message(&MaterializedMessage {
-                        message_id: Uuid::new_v4().to_string(),
-                        thread_key: thread_key.clone(),
-                        role: String::from("user"),
-                        channel: String::from("local_cli"),
-                        body_origin: String::from("local"),
-                        content: req.message.clone(),
-                        ts_ms: now_ms,
-                    })?;
-                guard
-                    .kernel
-                    .spine_mut()
-                    .store_mut()
-                    .upsert_message(&MaterializedMessage {
-                        message_id: Uuid::new_v4().to_string(),
-                        thread_key,
-                        role: String::from("assistant"),
-                        channel: String::from("local_cli"),
-                        body_origin: String::from("local"),
-                        content: reply_text.clone(),
-                        ts_ms: now_ms.saturating_add(1),
-                    })?;
-                let _ = guard.graph.observe(
-                    serde_json::json!({"role": "dialogue"}),
-                    ObserveOptions {
-                        text: Some(format!("Q: {} | A: {}", req.message, reply_text)),
-                        ..Default::default()
-                    },
-                );
-                let DaemonMutableState {
-                    ref mut persisted,
-                    ref conscience,
-                    ref graph,
-                    ..
-                } = *guard;
-                let _ = save_sovereign_snapshot(
-                    &self.config.quetzalcoatl_home,
-                    persisted,
-                    conscience,
-                    graph,
-                );
-                completion
-            };
-
-            return Ok(ChatResponse {
-                reply: reply_text,
-                run_id,
-                delegated_to_worker: false,
-                verifier_runs: report.verifier_runs,
-                verification_mark: report.verification_mark,
-                router_denied_capabilities: router_denied,
-                changed_files: Vec::new(),
-            });
-        };
-
-        // 分支 B：研发代码工程任务
-        // 1. 先强制校验沙箱包装器与 OS 沙箱后端可用性（缺失立即 fail-closed 返回 SandboxViolation！）
+        // 先强制校验沙箱包装器与 OS 沙箱后端可用性（缺失立即 fail-closed 返回 SandboxViolation！）
         let sandbox_exec_path = self.resolve_sandbox_exec_path()?;
 
         let scratch_base = sandbox_scratch_root(self.runtime_info.agent_id);
@@ -1514,7 +1207,7 @@ impl SharedDaemonCore {
                 now_ms,
             )?;
             let run = guard.kernel.spawn_commit_run(
-                format!("worker-code: {}", req.message),
+                format!("worker-code: {}", req.task),
                 Some(wt_dir.clone()),
                 now_ms,
             )?;
@@ -1675,16 +1368,16 @@ impl SharedDaemonCore {
         };
 
         let worker_outcome_res = if self.config.worker_binary_override.is_some() {
-            AcpJsonRpcDriver::new(selected_kind).execute_turn(&launch_ctx, &req.message)
+            AcpJsonRpcDriver::new(selected_kind).execute_turn(&launch_ctx, &req.task)
         } else {
             match selected_kind {
-                CodingAgentKind::OpenCode => OpenCodeDriver.execute_turn(&launch_ctx, &req.message),
+                CodingAgentKind::OpenCode => OpenCodeDriver.execute_turn(&launch_ctx, &req.task),
                 CodingAgentKind::ClaudeCode => {
-                    ClaudeCodeDriver.execute_turn(&launch_ctx, &req.message)
+                    ClaudeCodeDriver.execute_turn(&launch_ctx, &req.task)
                 }
-                CodingAgentKind::Codex => CodexDriver.execute_turn(&launch_ctx, &req.message),
-                CodingAgentKind::Pi => PiDriver.execute_turn(&launch_ctx, &req.message),
-                other => AcpJsonRpcDriver::new(other).execute_turn(&launch_ctx, &req.message),
+                CodingAgentKind::Codex => CodexDriver.execute_turn(&launch_ctx, &req.task),
+                CodingAgentKind::Pi => PiDriver.execute_turn(&launch_ctx, &req.task),
+                other => AcpJsonRpcDriver::new(other).execute_turn(&launch_ctx, &req.task),
             }
         };
 
@@ -1755,10 +1448,9 @@ impl SharedDaemonCore {
         let applied_files = wt_lease.apply_verified_to_repo()?;
         wt_lease.cleanup()?;
 
-        Ok(ChatResponse {
-            reply: worker_outcome.final_text,
+        Ok(DelegateRunResponse {
+            final_text: worker_outcome.final_text,
             run_id,
-            delegated_to_worker: true,
             verifier_runs: completion.verifier_runs,
             verification_mark: completion.verification_mark,
             router_denied_capabilities: router_denied,
@@ -1931,8 +1623,8 @@ impl SharedDaemonCore {
                     false,
                 ),
             },
-            IpcRequest::Chat(chat_req) => match self.handle_chat(chat_req) {
-                Ok(resp) => (IpcResponse::Chat(Box::new(resp)), false),
+            IpcRequest::DelegateRun(delegate_req) => match self.handle_delegate_run(delegate_req) {
+                Ok(resp) => (IpcResponse::DelegateRun(Box::new(resp)), false),
                 Err(err) => (
                     IpcResponse::Error {
                         code: String::from(err.code().as_str()),

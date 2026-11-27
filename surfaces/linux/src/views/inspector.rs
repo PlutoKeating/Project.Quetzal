@@ -27,8 +27,6 @@ pub struct InspectorView {
     pub audit_list: gtk::ListBox,
     /// 运行技术细节（pid / IPC 端点 / 脊柱水位 / 技术日志；仅检视态允许出现）。
     pub technical: gtk::Label,
-    /// 推理增量（流式 `Reasoning` 事件）。
-    pub reasoning: gtk::Label,
 }
 
 /// 构建检视态视图。
@@ -50,17 +48,6 @@ pub fn build() -> InspectorView {
     technical.set_visible(false);
     a11y::set_label(&technical, "连接技术原因");
 
-    let reasoning = gtk::Label::new(None);
-    reasoning.set_xalign(0.0);
-    reasoning.set_wrap(true);
-    reasoning.set_selectable(true);
-    reasoning.set_margin_start(18);
-    reasoning.set_margin_end(18);
-    reasoning.set_visible(false);
-    reasoning.add_css_class("caption");
-    reasoning.add_css_class("monospace");
-    a11y::set_label(&reasoning, "推理增量");
-
     let (runtime_group, runtime_list) = group("运行状态");
     let (conscience_group, conscience_list) = group("良知树");
     let (tool_group, tool_list) = group("工具");
@@ -81,7 +68,6 @@ pub fn build() -> InspectorView {
     a11y::set_label(&scroller, "检视内容滚动区");
 
     root.append(&technical);
-    root.append(&reasoning);
     root.append(&scroller);
 
     InspectorView {
@@ -91,7 +77,6 @@ pub fn build() -> InspectorView {
         tool_list,
         audit_list,
         technical,
-        reasoning,
     }
 }
 
@@ -121,13 +106,6 @@ pub fn render(view: &InspectorView, model: &UiModel) {
     } else {
         view.technical.set_text(&technical.join("\n"));
         view.technical.set_visible(true);
-    }
-
-    if model.session.reasoning.trim().is_empty() {
-        view.reasoning.set_visible(false);
-    } else {
-        view.reasoning.set_visible(true);
-        view.reasoning.set_text(&model.session.reasoning);
     }
 
     clear(&view.runtime_list);

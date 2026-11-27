@@ -17,13 +17,13 @@ workspace = true
 [dependencies]
 # 仅终端 CLI 可简写为 `qz`；桌面可执行文件一律全拼。
 # GTK4 是安全 Rust 绑定（宿主 crate 全量 #![forbid(unsafe_code)] 不受影响）。
-# `v4_10` 提供 GtkAccessible 属性/角色测试 API，`v4_14` 提供 announce() 实时播报。
+# `v4_10` 提供 GtkAccessible 属性/角色测试 API；`v4_14` 对齐宪章规定的 GTK >= 4.14 基线。
 gtk4 = { version = "0.11", features = ["v4_10", "v4_14"] }
 # 动态链接系统 `libadwaita-1`（LGPL-2.1，经 pkg-config 探测，非 cargo 静态依赖）。
 libadwaita = { version = "0.9", features = ["v1_9", "gtk_v4_10"] }
-# 零 FFI 开销的直接 Rust 依赖：单脊柱持有者薄客户端 + 三档密度差分视图 + 拉模式流。
+# 零 FFI 开销的直接 Rust 依赖：单脊柱持有者薄客户端 + 三档密度差分视图。
 quetzalcoatl-client-core = { workspace = true }
-# 仅消费本地 IPC 协议类型（ChatRequest/IpcResponse），绝不持有数据库连接。
+# 仅消费本地 IPC 协议类型（IpcRequest/IpcResponse/DesktopRow），绝不持有数据库连接。
 quetzalcoatl-daemon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

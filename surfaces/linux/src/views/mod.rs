@@ -3,8 +3,8 @@
 //! 三档认知密度的原生 GTK4/libadwaita 视图。
 //!
 //! 每个视图只接收 [`crate::model::UiModel`] 的只读快照并做投影渲染，永远不直接接触
-//! `spine.sqlite`、守护进程套接字或任何网络，因此三档切换可以纯替换可见页完成，天然
-//! 保持会话与流状态。
+//! `spine.sqlite`、守护进程套接字或任何网络，因此三档切换可以纯替换可见页完成，不会
+//! 重建或丢弃任何一行。
 
 pub mod companion;
 pub mod inspector;
@@ -13,6 +13,7 @@ pub mod workbench;
 use gtk4 as gtk;
 use libadwaita as adw;
 use libadwaita::prelude::*;
+use quetzalcoatl_client_core::ProjectedRow;
 
 /// 构建一个「标题 + boxed list」的原生分组。
 #[must_use]
@@ -68,6 +69,28 @@ pub fn empty_row(text: &str) -> adw::ActionRow {
     row.set_title_lines(2);
     row.add_css_class("dim-label");
     row
+}
+
+/// 用一组投影行重填只读列表；没有行时放一条占位说明。
+///
+/// `with_detail` 为 `false` 时每行只显示一句话摘要（陪伴态用）。
+pub fn fill_rows(list: &gtk::ListBox, rows: &[ProjectedRow], with_detail: bool, empty: &str) {
+    clear(list);
+    if rows.is_empty() {
+        list.append(&empty_row(empty));
+        return;
+    }
+    for row in rows {
+        let detail = if with_detail {
+            row.detail.as_deref()
+        } else {
+            None
+        };
+        let view_row = action_row(&row.summary, detail);
+        view_row.set_activatable(false);
+        crate::a11y::set_label(&view_row, &row.summary);
+        list.append(&view_row);
+    }
 }
 
 /// 递归收集一个视图根下面所有可见文案（Label/AdwActionRow/AdwExpanderRow/Button）。

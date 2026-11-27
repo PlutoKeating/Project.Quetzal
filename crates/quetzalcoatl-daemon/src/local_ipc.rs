@@ -31,7 +31,7 @@ use quetzalcoatl_channels::{ChannelHealth, DeliveryReport};
 use quetzalcoatl_fabric::WebhookIngressStatus;
 
 use crate::daemon::{
-    ChatRequest, ChatResponse, DaemonRuntimeInfo, DaemonStatus, ExploreWakeReport,
+    DaemonRuntimeInfo, DaemonStatus, DelegateRunRequest, DelegateRunResponse, ExploreWakeReport,
 };
 use crate::fabric::{
     FabricLoginRequest, FabricLoginResult, FabricNodesReport, FabricPairApproveResult,
@@ -163,7 +163,8 @@ pub enum IpcRequest {
     /// 桌面端三档密度快照（会话/目标/良知/审计行）；只读、只经本机认证 IPC。
     DesktopSnapshot,
     Agents,
-    Chat(ChatRequest),
+    /// 委派一次受管运行（宿主在隔离 worktree 里完成任务并经洁净室验收）。
+    DelegateRun(DelegateRunRequest),
     ExploreTick {
         synthesize_skill_id: Option<String>,
         synthesize_script_body: Option<String>,
@@ -361,7 +362,7 @@ pub enum IpcResponse {
         rows: Vec<DesktopRow>,
     },
     Agents(DiscoveryReport),
-    Chat(Box<ChatResponse>),
+    DelegateRun(Box<DelegateRunResponse>),
     ExploreTick(ExploreWakeReport),
     ConsciencePinned {
         pinned_system_tail: String,

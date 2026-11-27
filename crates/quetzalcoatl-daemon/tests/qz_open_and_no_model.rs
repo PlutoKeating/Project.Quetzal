@@ -3,9 +3,10 @@
 
 //! 新手验收回归：
 //! 1. `qz up` 打印 Web 控制台 URL，`qz open` 在无桌面时打印同一个 URL 并以 0 退出；
-//! 2. 没有任何模型凭据时，`qz chat` 返回单前缀的 `MODEL_NOT_CONFIGURED`，并**绝不**向上游发请求。
+//! 2. 宿主没有任何登录凭据时，`qz delegate` 返回单前缀的 `MODEL_NOT_CONFIGURED`，并**绝不**向上游发请求；
+//! 3. 自家对话入口 `qz chat` 已不存在。
 //!
-//! 「不向上游发请求」用一个本地计数监听器证明：它只统计 TCP 连接数，聊天前后必须为 0。
+//! 「不向上游发请求」用一个本地计数监听器证明：它只统计 TCP 连接数，前后必须为 0。
 
 mod common;
 
@@ -192,30 +193,43 @@ fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_ca
         String::from_utf8_lossy(&status_out.stderr)
     );
 
-    // 无模型：单前缀的 MODEL_NOT_CONFIGURED，带可执行指引，且不触碰上游。
-    let chat_out = run_qz(&qz, home.path(), &qz_home, &["chat", "你好"])?;
+    // 宿主没有任何登录凭据时委派受管运行：单前缀的 MODEL_NOT_CONFIGURED，带可执行指引，
+    // 在建 worktree、起沙箱、发上游请求之前就拒绝。
+    let repo = home.path().join("repo");
+    std::fs::create_dir_all(&repo)?;
+    let delegate_out = run_qz(
+        &qz,
+        home.path(),
+        &qz_home,
+        &[
+            "delegate",
+            "重构一下",
+            "--workspace",
+            repo.to_str().ok_or("repo path")?,
+        ],
+    )?;
     assert!(
-        !chat_out.status.success(),
-        "chat without a configured model must fail"
+        !delegate_out.status.success(),
+        "delegate without host credentials must fail"
     );
-    let stderr = String::from_utf8_lossy(&chat_out.stderr);
+    let stderr = String::from_utf8_lossy(&delegate_out.stderr);
     assert!(
         stderr.contains("MODEL_NOT_CONFIGURED"),
         "expected MODEL_NOT_CONFIGURED, got: {stderr}"
     );
-    // 指引必须是真实可行的路径（Claude Code / Codex 登录，或显式 Bearer），
-    // 不得再指向并不存在的「控制台 → 模型」设置页。
+    // 指引必须是真实可行的路径（宿主自己的登录，或显式 Bearer），
+    // 不得指向任何「填 API Key」的设置页。
     assert!(
         stderr.contains("登录 Claude Code") && stderr.contains("codex login"),
-        "error must list the real subscription-login paths: {stderr}"
+        "error must list the real host-login paths: {stderr}"
     );
     assert!(
         stderr.contains("QUETZALCOATL_UPSTREAM_BEARER_TOKEN"),
         "error must name the explicit bearer override: {stderr}"
     );
     assert!(
-        !stderr.contains("打开控制台 → 模型"),
-        "error must not point at a console screen that does not exist: {stderr}"
+        !stderr.contains("控制台"),
+        "error must not point at a console screen: {stderr}"
     );
     assert!(
         !stderr.contains("零凭据代理拒绝请求: 零凭据代理拒绝请求:"),
@@ -228,40 +242,18 @@ fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_ca
     assert_eq!(
         upstream.connection_count(),
         0,
-        "chat without credentials must not open any upstream connection"
+        "delegate without credentials must not open any upstream connection"
     );
 
-    // 工程工作区分支必须与日常对话分支一致：先拒绝，不建 worktree、不发上游请求。
-    let repo = home.path().join("repo");
-    std::fs::create_dir_all(&repo)?;
-    let workspace_chat = run_qz(
-        &qz,
-        home.path(),
-        &qz_home,
-        &[
-            "chat",
-            "重构一下",
-            "--workspace",
-            repo.to_str().ok_or("repo path")?,
-        ],
-    )?;
+    // 自家对话入口已拆除：`qz chat` 不是合法子命令。
+    let chat_out = run_qz(&qz, home.path(), &qz_home, &["chat", "你好"])?;
     assert!(
-        !workspace_chat.status.success(),
-        "workspace chat without a configured model must fail"
-    );
-    let workspace_stderr = String::from_utf8_lossy(&workspace_chat.stderr);
-    assert!(
-        workspace_stderr.contains("MODEL_NOT_CONFIGURED"),
-        "workspace branch must return MODEL_NOT_CONFIGURED, got: {workspace_stderr}"
+        !chat_out.status.success(),
+        "qz chat must not exist any more"
     );
     assert!(
-        !workspace_stderr.contains("上游模型认证失败"),
-        "workspace branch must not attempt an upstream auth call: {workspace_stderr}"
-    );
-    assert_eq!(
-        upstream.connection_count(),
-        0,
-        "workspace chat without credentials must not open any upstream connection"
+        !String::from_utf8_lossy(&chat_out.stderr).contains("MODEL_NOT_CONFIGURED"),
+        "qz chat must be rejected as an unknown command, not reach the daemon"
     );
 
     drop(guard);

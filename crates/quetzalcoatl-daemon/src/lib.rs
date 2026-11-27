@@ -17,9 +17,9 @@ pub mod webhook;
 
 pub use channels::{ChannelRuntime, LocalIntentSpool};
 pub use daemon::{
-    ChatRequest, ChatResponse, DaemonConfig, DaemonHandle, DaemonRuntimeInfo, DaemonStatus,
-    ExploreWakeReport, QuetzalcoatlDaemon, export_offline_or_via_ipc, import_v1_offline_or_via_ipc,
-    resolve_quetzalcoatl_home, resolve_web_console_dir,
+    DaemonConfig, DaemonHandle, DaemonRuntimeInfo, DaemonStatus, DelegateRunRequest,
+    DelegateRunResponse, ExploreWakeReport, QuetzalcoatlDaemon, export_offline_or_via_ipc,
+    import_v1_offline_or_via_ipc, resolve_quetzalcoatl_home, resolve_web_console_dir,
 };
 pub use domains::{DomainPackSummary, DomainPackView, DomainRuntime};
 pub use fabric::{

@@ -8,7 +8,7 @@ Quetzalcoatl 不是聊天应用，也不是又一个 agent 框架。它把一个
 数据以单写者签名的 HLC 事件脊柱保存，端到端加密后才能离开设备，不托管给任何中心服务。
 
 > **转向进行中（2026-11-28）**：本仓库正按 `.opencode/plans/2026-11-28-quetzalcoatl-host-native-plan.md` 从「自家对话端」
-> 转向「住进宿主」。下文仍有描述自家对话界面与 `qz chat` 的段落，它们会随该计划的 S1 与 S5 拆除；
+> 转向「住进宿主」。自家的对话入口已在 S1 拆除；下文仍有描述三档密度界面的段落，会随 S5 改写；
 > 逐场景的需求与现状以 [docs/USER_SCENARIOS.md](docs/USER_SCENARIOS.md) 为准。
 
 - 当前工作区版本：`2.0.0-alpha.4`（预发布；尚未执行 `v2.0.0` 签名发版）
@@ -145,7 +145,6 @@ CGO_ENABLED=0 go build ./cmd/quetzalcoatl-hub  # 在 hub/ 目录
 qz up                 # 启动本机 quetzalcoatld 并等待就绪
 qz status             # 守护进程 / 脊柱 / Heart / fabric 状态
 qz agents             # 发现已安装的 Coding Agent（并行探测）
-qz chat --interactive # 进入交互式对话
 qz export ./backup.zip
 qz pair start         # 抗量子 X-Wing 设备配对
 qz group list         # openmls 群房间

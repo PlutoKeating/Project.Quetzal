@@ -6,7 +6,8 @@
 //! * 本进程**只**通过 `quetzalcoatl-client-core::ThinClient` 访问脊柱；
 //!   守护进程不可达时进入类型化离线视图，绝不回退直连 `spine.sqlite`（防坑规范 #13）。
 //! * 在线时启动即拉取真实 `desktop_snapshot`（会话/运行进展/良知/审计），并以差分
-//!   `ViewPatch` 幂等落入 UI 模型；对话完成后再拉一次，保持界面与脊柱一致。
+//!   `ViewPatch` 幂等落入 UI 模型；「重新连接」时再拉一次。
+//! * 窗口只读：没有输入框，也不向守护进程发起任何对话请求。
 //! * 披露层级：pid / socket / 错误码等运行技术细节只进入检视态；工作台保持零术语。
 
 use std::cell::RefCell;
@@ -14,7 +15,6 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
-use std::sync::Arc;
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::{Duration, Instant};
 
@@ -24,15 +24,12 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
 
-use quetzalcoatl_client_core::{
-    CognitionDensity, StreamEvent, StreamEventKind, ThinClient, ViewRow, ViewState,
-};
-use quetzalcoatl_daemon::{ChatRequest, DesktopRow, IpcRequest, IpcResponse};
+use quetzalcoatl_client_core::{CognitionDensity, ThinClient, ViewRow, ViewState};
+use quetzalcoatl_daemon::{DesktopRow, IpcRequest, IpcResponse};
 
-use crate::a11y::LiveRegion;
 use crate::config::DesktopConfig;
 use crate::degrade;
-use crate::model::{ConnectionState, StreamIngest, UiModel};
+use crate::model::{ConnectionState, UiModel};
 use crate::tray::{self, TrayCallbacks, TrayHandle, TrayStatus};
 use crate::views::{companion, inspector, workbench};
 
@@ -62,8 +59,6 @@ pub struct Widgets {
     pub inspector: inspector::InspectorView,
     /// 全局离线/降级横幅。
     pub banner: adw::Banner,
-    /// 应用级实时播报区域（不随密度变化）。
-    pub live: LiveRegion,
     /// 托盘驻留状态。
     pub tray_status: TrayStatus,
 }
@@ -79,7 +74,7 @@ pub struct Desktop {
     /// 家目录。
     pub home: PathBuf,
     /// 薄客户端（在线时存在）。
-    pub client: Option<Arc<ThinClient>>,
+    pub client: Option<ThinClient>,
     /// 控件集合。
     pub widgets: Widgets,
     /// 主窗口。
@@ -125,7 +120,7 @@ pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
         }
     };
     if let Some(client) = &client {
-        hydrate_model(&mut model, client.as_ref());
+        hydrate_model(&mut model, client);
     }
 
     let companion = companion::build();
@@ -139,7 +134,7 @@ pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
         &companion.root,
         Some("companion"),
         "陪伴",
-        "chat-message-new-symbolic",
+        "go-home-symbolic",
     );
     stack.add_titled_with_icon(
         &workbench.root,
@@ -169,19 +164,12 @@ pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
     toolbar.add_top_bar(&banner);
     toolbar.set_content(Some(&stack));
 
-    let live = LiveRegion::new();
-    let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&toolbar));
-    overlay.add_overlay(live.widget());
-    live.widget().set_halign(gtk::Align::Start);
-    live.widget().set_valign(gtk::Align::Start);
-
     let maximize_requested = config.maximized;
     let window = adw::ApplicationWindow::builder()
         .title("Quetzalcoatl")
         .default_width(config.width)
         .default_height(config.height)
-        .content(&overlay)
+        .content(&toolbar)
         .build();
     if maximize_requested {
         window.maximize();
@@ -199,7 +187,6 @@ pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
             workbench,
             inspector,
             banner,
-            live,
             tray_status: TrayStatus::Disabled,
         },
         window,
@@ -216,7 +203,7 @@ pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
 }
 
 /// 调用守护进程健康握手；失败时返回零术语的离线说明。
-fn probe_daemon(home: &Path) -> (ConnectionState, Option<Arc<ThinClient>>) {
+fn probe_daemon(home: &Path) -> (ConnectionState, Option<ThinClient>) {
     match ThinClient::mount(home) {
         Ok(client) => {
             let endpoint = client.runtime_info().ipc_http_addr.to_string();
@@ -227,7 +214,7 @@ fn probe_daemon(home: &Path) -> (ConnectionState, Option<Arc<ThinClient>>) {
                         endpoint,
                         spine_events: status.spine_events_count,
                     },
-                    Some(Arc::new(client)),
+                    Some(client),
                 ),
                 Err(err) => (
                     ConnectionState::Offline {
@@ -251,14 +238,14 @@ fn hydrate_model(model: &mut UiModel, client: &ThinClient) {
     match client.call(&IpcRequest::DesktopSnapshot) {
         Ok(IpcResponse::DesktopSnapshot { rev, rows }) => apply_desktop_rows(model, rev, &rows),
         Ok(IpcResponse::Error { code, detail }) => {
-            model.notice("暂时读不到本机助手的动态，稍后会自动重试。");
+            model.notice("暂时读不到本机助手的动态。");
             model.technical(format!("desktop_snapshot {code}: {detail}"));
         }
         Ok(other) => {
             model.technical(format!("desktop_snapshot 返回了非快照响应: {other:?}"));
         }
         Err(err) => {
-            model.notice("暂时读不到本机助手的动态，稍后会自动重试。");
+            model.notice("暂时读不到本机助手的动态。");
             model.technical(format!("desktop_snapshot 传输失败: {err}"));
         }
     }
@@ -445,24 +432,6 @@ pub fn pump_until_mapped(widget: &impl IsA<gtk::Widget>, timeout_ms: u64) -> boo
     }
 }
 
-/// 消费一批流事件 → 刷新三档视图 → **恰好一次**应用级播报。
-pub fn ingest_stream_batch(state: &Rc<RefCell<Desktop>>, events: &[StreamEvent]) -> StreamIngest {
-    let (ingest, announcement) = {
-        let mut desktop = state.borrow_mut();
-        let ingest = desktop.model.ingest_stream(events);
-        let announcement = ingest
-            .preferred_announcement()
-            .map(str::to_owned)
-            .unwrap_or_default();
-        (ingest, announcement)
-    };
-    if !announcement.is_empty() {
-        state.borrow().widgets.live.announce(&announcement);
-    }
-    refresh(state);
-    ingest
-}
-
 fn wire_signals(state: &Rc<RefCell<Desktop>>) {
     let window = state.borrow().window.clone();
     let weak: Weak<RefCell<Desktop>> = Rc::downgrade(state);
@@ -484,7 +453,7 @@ fn wire_signals(state: &Rc<RefCell<Desktop>>) {
                 desktop.hold_guard.is_some()
             };
             if keep_alive {
-                // 托盘驻留中：关闭只隐藏窗口，进程继续在后台接收消息。
+                // 托盘驻留中：关闭只隐藏窗口，进程继续驻留在托盘。
                 window.set_visible(false);
                 return glib::Propagation::Stop;
             }
@@ -504,46 +473,7 @@ fn wire_signals(state: &Rc<RefCell<Desktop>>) {
             }
         });
 
-    let (companion_entry, companion_send) = {
-        let desktop = state.borrow();
-        (
-            desktop.widgets.companion.entry.clone(),
-            desktop.widgets.companion.send.clone(),
-        )
-    };
-    wire_composer(state, &companion_entry, &companion_send);
-
-    let (workbench_entry, workbench_send) = {
-        let desktop = state.borrow();
-        (
-            desktop.widgets.workbench.entry.clone(),
-            desktop.widgets.workbench.send.clone(),
-        )
-    };
-    wire_composer(state, &workbench_entry, &workbench_send);
-
     wire_approval_actions(state);
-}
-
-fn wire_composer(state: &Rc<RefCell<Desktop>>, entry: &gtk::Entry, send: &gtk::Button) {
-    let send_entry = entry.clone();
-    let send_weak = Rc::downgrade(state);
-    send.connect_clicked(move |_| {
-        let text = send_entry.text().to_string();
-        send_entry.set_text("");
-        if let Some(state) = send_weak.upgrade() {
-            send_message(&state, &text);
-        }
-    });
-
-    let activate_weak = Rc::downgrade(state);
-    entry.connect_activate(move |entry| {
-        let text = entry.text().to_string();
-        entry.set_text("");
-        if let Some(state) = activate_weak.upgrade() {
-            send_message(&state, &text);
-        }
-    });
 }
 
 fn wire_approval_actions(state: &Rc<RefCell<Desktop>>) {
@@ -574,141 +504,6 @@ fn wire_approval_actions(state: &Rc<RefCell<Desktop>>) {
         .insert_action_group("win", Some(&group));
 }
 
-fn send_message(state: &Rc<RefCell<Desktop>>, text: &str) {
-    if text.trim().is_empty() {
-        return;
-    }
-    let (client, online) = {
-        let desktop = state.borrow();
-        (desktop.client.clone(), desktop.model.connection.is_online())
-    };
-    {
-        let mut desktop = state.borrow_mut();
-        desktop.model.push_user_message(text);
-        if online {
-            desktop.model.session.streaming = true;
-        } else {
-            desktop
-                .model
-                .notice("还没连上本机助手，这句话只留在本机窗口里，不会被发送。");
-        }
-    }
-    refresh(state);
-
-    let Some(client) = client.filter(|_| online) else {
-        return;
-    };
-    let prompt = text.to_owned();
-    let (tx, rx) = mpsc::channel();
-    let spawned = std::thread::Builder::new()
-        .name(String::from("qz-desktop-chat"))
-        .spawn(move || {
-            let response = client.call(&IpcRequest::Chat(ChatRequest::simple(prompt)));
-            let _ = tx.send(response);
-        });
-    if spawned.is_err() {
-        let mut desktop = state.borrow_mut();
-        desktop.model.finish_stream();
-        desktop.model.notice("无法启动本机请求线程，请重试。");
-        drop(desktop);
-        refresh(state);
-        return;
-    }
-
-    let weak = Rc::downgrade(state);
-    glib::timeout_add_local(Duration::from_millis(120), move || match rx.try_recv() {
-        Ok(result) => {
-            if let Some(state) = weak.upgrade() {
-                apply_chat_result(&state, result);
-            }
-            glib::ControlFlow::Break
-        }
-        Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-        Err(TryRecvError::Disconnected) => {
-            if let Some(state) = weak.upgrade() {
-                {
-                    let mut desktop = state.borrow_mut();
-                    desktop.model.finish_stream();
-                    desktop.model.notice("本机请求线程意外结束，请重试。");
-                }
-                refresh(&state);
-            }
-            glib::ControlFlow::Break
-        }
-    });
-}
-
-fn apply_chat_result(
-    state: &Rc<RefCell<Desktop>>,
-    result: Result<IpcResponse, quetzalcoatl_client_core::ClientError>,
-) {
-    match result {
-        Ok(IpcResponse::Chat(chat)) => {
-            let reply = chat.reply.clone();
-            let delegated = chat.delegated_to_worker;
-            let seq = state.borrow().model.session.last_seq.saturating_add(1);
-            let _ = ingest_stream_batch(
-                state,
-                &[
-                    StreamEvent {
-                        seq,
-                        kind: StreamEventKind::Delta,
-                        text: reply,
-                    },
-                    StreamEvent {
-                        seq: seq.saturating_add(1),
-                        kind: StreamEventKind::Done,
-                        text: String::from("stop"),
-                    },
-                ],
-            );
-            {
-                let mut desktop = state.borrow_mut();
-                if delegated {
-                    desktop
-                        .model
-                        .notice("本轮由沙箱内的 Worker Agent 执行，并经洁净室校验。");
-                }
-            }
-        }
-        Ok(IpcResponse::Error { code, detail }) => {
-            // 常见拒绝要说人话：把「没配模型」这种可自解的文案直接放到用户看得到的提示里，
-            // 技术细节留在断言区，避免新人只看到一句「请稍后重试」而不知道下一步。
-            let notice = degrade::chat_error_notice(&code);
-            let mut desktop = state.borrow_mut();
-            desktop.model.finish_stream();
-            desktop.model.notice(notice);
-            desktop
-                .model
-                .technical(format!("chat 被拒绝 [{code}]: {detail}"));
-        }
-        Ok(other) => {
-            let mut desktop = state.borrow_mut();
-            desktop.model.finish_stream();
-            desktop.model.notice("这次没有收到回复，请稍后重试。");
-            desktop
-                .model
-                .technical(format!("chat 返回了非对话响应: {other:?}"));
-        }
-        Err(err) => {
-            let mut desktop = state.borrow_mut();
-            desktop.model.finish_stream();
-            desktop.model.notice("这次没有收到回复，请稍后重试。");
-            desktop.model.technical(format!("chat 传输失败: {err}"));
-        }
-    }
-    refresh_snapshot(state);
-    refresh(state);
-}
-
-fn refresh_snapshot(state: &Rc<RefCell<Desktop>>) {
-    let client = state.borrow().client.clone();
-    if let Some(client) = client {
-        let mut desktop = state.borrow_mut();
-        hydrate_model(&mut desktop.model, client.as_ref());
-    }
-}
-
 fn reconnect(state: &Rc<RefCell<Desktop>>) {
     let home = state.borrow().home.clone();
     let (connection, client) = probe_daemon(&home);
@@ -716,15 +511,15 @@ fn reconnect(state: &Rc<RefCell<Desktop>>) {
         let mut desktop = state.borrow_mut();
         let online = connection.is_online();
         desktop.model.connection = connection;
-        desktop.client = client.clone();
         desktop.model.notice(if online {
             String::from("已重新连接本机助手。")
         } else {
             String::from("还是连不上本机助手，请确认 quetzalcoatld 正在运行。")
         });
         if let Some(client) = &client {
-            hydrate_model(&mut desktop.model, client.as_ref());
+            hydrate_model(&mut desktop.model, client);
         }
+        desktop.client = client;
     }
     refresh(state);
 }

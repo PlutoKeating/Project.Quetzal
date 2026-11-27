@@ -46,7 +46,7 @@ const WS_CLOSE_UNAUTHORIZED: u16 = 4401;
 const WS_CLOSE_SESSION_IN_USE: u16 = 4409;
 
 /// Web 控制台仅允许这些方法（其余一律 `403 PERMISSION_DENIED`，与令牌无关）。
-const WEB_ALLOWED_METHODS: &[&str] = &["status", "agents", "chat", "web_commit_artifact"];
+const WEB_ALLOWED_METHODS: &[&str] = &["status", "agents", "web_commit_artifact"];
 
 // `'wasm-unsafe-eval'` 只放行 WebAssembly 编译，不等于 JS eval。
 const CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; \
@@ -423,13 +423,12 @@ impl WebConsole {
                 .unwrap_or("");
             return commit_reply(handler, artifact);
         }
-        let mut parsed: IpcRequest = match serde_json::from_value(value) {
+        let parsed: IpcRequest = match serde_json::from_value(value) {
             Ok(parsed) => parsed,
             Err(error) => {
                 return WebReply::ipc_error(400, "SERIALIZATION_ERROR", &error.to_string());
             }
         };
-        sanitize_web_request(&mut parsed);
         let (response, _) = handler.handle(parsed);
         match serde_json::to_value(&response) {
             Ok(value) => WebReply::json(200, &value),
@@ -575,7 +574,6 @@ impl WebConsole {
             return;
         }
 
-        let mut patch_rev = 1u64;
         while let Some(payload) = ws_read_message(stream) {
             let envelope: serde_json::Value = match serde_json::from_slice(&payload) {
                 Ok(value) => value,
@@ -599,7 +597,6 @@ impl WebConsole {
                     continue;
                 }
                 Some("resync") => {
-                    patch_rev = 1;
                     if ws_write_json(
                         stream,
                         &serde_json::json!({"type": "snapshot", "state": snapshot_for(handler)}),
@@ -690,7 +687,7 @@ impl WebConsole {
                 }
                 continue;
             }
-            let mut request: IpcRequest = match serde_json::from_value(request_value.clone()) {
+            let request: IpcRequest = match serde_json::from_value(request_value.clone()) {
                 Ok(value) => value,
                 Err(error) => {
                     if ws_write_json(
@@ -711,49 +708,7 @@ impl WebConsole {
                     continue;
                 }
             };
-            sanitize_web_request(&mut request);
             let (response, should_shutdown) = handler.handle(request);
-            if let IpcResponse::Chat(chat) = &response {
-                let run_id = format!("{}", chat.run_id);
-                if ws_write_json(
-                    stream,
-                    &serde_json::json!({
-                        "type": "token",
-                        "messageId": run_id,
-                        "seq": 0,
-                        "text": chat.reply,
-                    }),
-                )
-                .is_err()
-                {
-                    return;
-                }
-                let from_rev = patch_rev;
-                patch_rev = patch_rev.saturating_add(1);
-                let patch = serde_json::json!({
-                    "type": "patch",
-                    "patch": {
-                        "from_rev": from_rev,
-                        "to_rev": patch_rev,
-                        "density": "workbench",
-                        "ops": [{"op": "upsert", "row": {
-                            "key": format!("chat/{run_id}"),
-                            "kind": "assistant",
-                            "summary": chat.reply,
-                            "detail": format!(
-                                "worker={} verifier_runs={}",
-                                chat.delegated_to_worker, chat.verifier_runs
-                            ),
-                            "raw_json": serde_json::to_string(chat)
-                                .unwrap_or_else(|_| String::from("{}")),
-                            "updated_rev": patch_rev,
-                        }}],
-                    },
-                });
-                if ws_write_json(stream, &patch).is_err() {
-                    return;
-                }
-            }
             let Ok(response_value) = serde_json::to_value(&response) else {
                 if ws_write_json(
                     stream,
@@ -781,16 +736,6 @@ impl WebConsole {
                 return;
             }
         }
-    }
-}
-
-/// Web 调用者不得注入服务端专用上下文字段（工作区、Verifier DAG、对等身份与路由痕迹）。
-fn sanitize_web_request(request: &mut IpcRequest) {
-    if let IpcRequest::Chat(chat) = request {
-        chat.workspace_dir = None;
-        chat.verifier_dag = None;
-        chat.peer_id = None;
-        chat.router_attempted_forbidden_tools.clear();
     }
 }
 
@@ -1255,10 +1200,12 @@ mod tests {
 
     #[test]
     fn web_method_allowlist_is_read_only_and_explicit() {
-        for allowed in ["status", "agents", "chat", "web_commit_artifact"] {
+        for allowed in ["status", "agents", "web_commit_artifact"] {
             assert!(is_web_method_allowed(allowed), "{allowed} 应在白名单内");
         }
         for denied in [
+            "chat",
+            "delegate_run",
             "conscience_pinned",
             "desktop_snapshot",
             "export",
@@ -1370,36 +1317,19 @@ mod tests {
     }
 
     #[test]
-    fn web_chat_requests_are_sanitized_before_dispatch() {
+    fn web_callers_cannot_delegate_runs() {
         let console = WebConsole::new(Some(std::env::temp_dir()));
         let handler = CapturingHandler {
             last: Mutex::new(None),
         };
         let crafted = serde_json::json!({
-            "method": "chat",
+            "method": "delegate_run",
             "params": {
-                "message": "hello",
-                "thread_id": null,
-                "peer_id": "evil-peer",
+                "task": "改掉整个仓库",
+                "peer_id": null,
                 "workspace_dir": "/tmp/evil-repo",
-                "verifier_dag": {
-                    "nodes": [{
-                        "node_id": "n1",
-                        "depends_on": [],
-                        "verifier_suite_dir": "/tmp",
-                        "command": {
-                            "program": "/bin/true",
-                            "args": [],
-                            "current_dir": null,
-                            "extra_env": {},
-                            "allowlisted_host_env": [],
-                            "broker_unix_socket": null,
-                            "extra_ro_mounts": []
-                        },
-                        "expected_suite_blake3": null
-                    }]
-                },
-                "router_attempted_forbidden_tools": ["export"]
+                "verifier_dag": null,
+                "router_attempted_forbidden_tools": []
             }
         });
         let Ok(body) = serde_json::to_vec(&crafted) else {
@@ -1407,29 +1337,9 @@ mod tests {
         };
         let request = authed_request("POST", "/rpc", body, &console);
         let reply = console.http_rpc(&request, &handler);
-        assert_eq!(reply.status, 200);
-        let Some(captured) = handler.last.lock().ok().and_then(|guard| guard.clone()) else {
-            return;
-        };
-        match captured {
-            IpcRequest::Chat(chat) => {
-                assert!(chat.workspace_dir.is_none(), "Web 调用者不得指定工作区");
-                assert!(
-                    chat.verifier_dag.is_none(),
-                    "Web 调用者不得注入 Verifier DAG"
-                );
-                assert!(chat.peer_id.is_none(), "Web 调用者不得冒充对等节点");
-                assert!(
-                    chat.router_attempted_forbidden_tools.is_empty(),
-                    "服务端派生字段必须清空"
-                );
-                assert_eq!(chat.message, "hello");
-            }
-            other => assert!(
-                matches!(other, IpcRequest::Chat(_)),
-                "期望 chat 请求，实际 {other:?}"
-            ),
-        }
+        assert_eq!(reply.status, 403, "委派受管运行不允许经 Web 调用");
+        let reached = handler.last.lock().ok().and_then(|guard| guard.clone());
+        assert!(reached.is_none(), "被拒绝的方法不得到达守护进程");
     }
 
     #[test]

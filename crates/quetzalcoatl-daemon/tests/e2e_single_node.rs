@@ -17,7 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 use quetzalcoatl_daemon::{
-    ChatRequest, DaemonConfig, IpcClient, IpcRequest, IpcResponse, QuetzalcoatlDaemon,
+    DaemonConfig, DelegateRunRequest, IpcClient, IpcRequest, IpcResponse, QuetzalcoatlDaemon,
 };
 use quetzalcoatl_harness::GatewayUpstreamEndpoints;
 use quetzalcoatl_kernel::CleanRoomVerifierDag;
@@ -438,26 +438,22 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
         String::from_utf8_lossy(&import_out.stderr)
     );
 
-    // 4. 日常问答 `qz chat`：免检秒回（verifier_runs == 0），且上游收到 eWave 良知组装块
-    let routine_out = Command::new(&qz_bin)
+    // 4. 自家对话入口不存在：`qz chat` 不是合法子命令，守护进程也没有对话接口，
+    //    因此守护进程自身从不向上游模型发请求。
+    let chat_out = Command::new(&qz_bin)
         .env("QUETZALCOATL_HOME", &qz_home)
-        .args(["chat", "你好，请做日常陪伴问候", "--json"])
+        .args(["chat", "你好"])
         .output()?;
     assert!(
-        routine_out.status.success(),
-        "日常问答 qz chat 失败: {}",
-        String::from_utf8_lossy(&routine_out.stderr)
+        !chat_out.status.success(),
+        "qz chat 已拆除，必须以非零码退出"
     );
-    let routine_resp: serde_json::Value = serde_json::from_slice(&routine_out.stdout)?;
-    assert_eq!(routine_resp["delegated_to_worker"], false);
-    assert_eq!(routine_resp["verifier_runs"], 0);
-    assert!(routine_resp["verification_mark"].is_null());
-
     {
         let bodies = mock_upstream.captured_bodies.lock().map_err(|_| "lock")?;
-        assert!(!bodies.is_empty());
-        assert!(bodies[0].contains("<ewave_pinned>"));
-        assert!(bodies[0].contains("<ewave_volatile>"));
+        assert!(
+            bodies.is_empty(),
+            "守护进程自身不得调用模型，上游不应收到任何请求"
+        );
     }
 
     // 5a. 代码工程任务反例：0 用例空跑（Anti-Vacuity）校验器被洁净室拦截，主仓库保持原样！
@@ -470,11 +466,10 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
             vec![vacuous_script.to_string_lossy().into_owned()],
         ),
     );
-    let vacuous_res = ipc.call(&IpcRequest::Chat(ChatRequest {
-        message: String::from("尝试空跑测试混过验收"),
-        thread_id: None,
+    let vacuous_res = ipc.call(&IpcRequest::DelegateRun(DelegateRunRequest {
+        task: String::from("尝试空跑测试混过验收"),
         peer_id: None,
-        workspace_dir: Some(project_repo.clone()),
+        workspace_dir: project_repo.clone(),
         verifier_dag: Some(vacuous_dag),
         router_attempted_forbidden_tools: vec![String::from("shell"), String::from("edit")],
     }))?;
@@ -492,7 +487,7 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
     let code_out = Command::new(&qz_bin)
         .env("QUETZALCOATL_HOME", &qz_home)
         .args([
-            "chat",
+            "delegate",
             "实现 compute_sum 加法逻辑",
             "--workspace",
             &project_repo.to_string_lossy(),
@@ -505,11 +500,11 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
         .output()?;
     assert!(
         code_out.status.success(),
-        "工程任务 qz chat 失败: stderr={}",
+        "工程任务 qz delegate 失败: stderr={}",
         String::from_utf8_lossy(&code_out.stderr)
     );
     let code_resp: serde_json::Value = serde_json::from_slice(&code_out.stdout)?;
-    assert_eq!(code_resp["delegated_to_worker"], true);
+    assert!(code_resp["final_text"].is_string());
     assert_eq!(code_resp["verifier_runs"], 1);
     assert_eq!(
         code_resp["verification_mark"]["executed_test_count"], 4,
@@ -523,11 +518,10 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
     );
 
     // 同时核对 Router 若尝试调用 shell/edit 被确定性剥夺拦截
-    let router_guard_res = ipc.call(&IpcRequest::Chat(ChatRequest {
-        message: String::from("再次验证 Router 剥夺记录"),
-        thread_id: None,
+    let router_guard_res = ipc.call(&IpcRequest::DelegateRun(DelegateRunRequest {
+        task: String::from("再次验证 Router 剥夺记录"),
         peer_id: None,
-        workspace_dir: Some(project_repo.clone()),
+        workspace_dir: project_repo.clone(),
         verifier_dag: Some(CleanRoomVerifierDag::single(
             "unit-suite",
             verifier_suite,
@@ -539,8 +533,7 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
         router_attempted_forbidden_tools: vec![String::from("shell"), String::from("edit")],
     }))?;
     match router_guard_res {
-        IpcResponse::Chat(resp) => {
-            assert!(resp.delegated_to_worker);
+        IpcResponse::DelegateRun(resp) => {
             assert!(
                 resp.router_denied_capabilities
                     .contains(&String::from("shell"))
@@ -551,7 +544,7 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
             );
             assert!(resp.verification_mark.is_some());
         }
-        other => return Err(format!("预期返回 Chat 响应，实际收到: {other:?}").into()),
+        other => return Err(format!("预期返回 DelegateRun 响应，实际收到: {other:?}").into()),
     }
 
     // 6. 闲置期生物钟唤醒 `Explore Run`：沙箱内即时合成并运行本地技能成功，外发写动作被硬拒
@@ -581,7 +574,7 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
         other => return Err(format!("预期返回 ExploreTick，实际收到: {other:?}").into()),
     }
 
-    // 6b. 渐进式增强插件回环协议与 `qz chat --interactive` 验证
+    // 6b. 渐进式增强插件回环协议验证
     match ipc.call(&IpcRequest::ConsciencePinned)? {
         IpcResponse::ConsciencePinned { pinned_system_tail } => {
             assert!(pinned_system_tail.contains("<ewave_pinned>"));
@@ -593,19 +586,6 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
         conflict: String::from("none"),
         ids: vec![String::from("self-core-integrity")],
     })?;
-
-    let mut interactive_child = Command::new(&qz_bin)
-        .env("QUETZALCOATL_HOME", &qz_home)
-        .args(["chat", "--interactive", "--json"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()?;
-    if let Some(mut stdin_pipe) = interactive_child.stdin.take() {
-        stdin_pipe.write_all("交互模式冒烟问候\nexit\n".as_bytes())?;
-    }
-    let interactive_out = interactive_child.wait_with_output()?;
-    assert!(interactive_out.status.success());
-    assert!(String::from_utf8_lossy(&interactive_out.stdout).contains("\"verifier_runs\": 0"));
 
     // 校验四套渐进式增强插件包目录规范与严格 TypeScript 门禁（防坑规范 #4）
     let oc_plugin_file = root.join(
@@ -747,11 +727,10 @@ fn regression_r1_finding1_6_and_8_worker_runs_inside_os_sandbox_scoped_hook_toke
     let mut bad_daemon = QuetzalcoatlDaemon::start(bad_cfg)?;
     let bad_client =
         IpcClient::from_runtime_info(bad_daemon.runtime_info(), bad_daemon.ipc_token().to_owned());
-    let fail_closed_res = bad_client.call(&IpcRequest::Chat(ChatRequest {
-        message: String::from("must fail closed without /bin/sh fallback"),
-        thread_id: None,
+    let fail_closed_res = bad_client.call(&IpcRequest::DelegateRun(DelegateRunRequest {
+        task: String::from("must fail closed without /bin/sh fallback"),
         peer_id: None,
-        workspace_dir: Some(project_repo.clone()),
+        workspace_dir: project_repo.clone(),
         verifier_dag: None,
         router_attempted_forbidden_tools: Vec::new(),
     }))?;
@@ -855,11 +834,10 @@ echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
     let mut daemon = QuetzalcoatlDaemon::start(cfg)?;
     let client = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
 
-    let code_res = client.call(&IpcRequest::Chat(ChatRequest {
-        message: String::from("run confined worker probe"),
-        thread_id: None,
+    let code_res = client.call(&IpcRequest::DelegateRun(DelegateRunRequest {
+        task: String::from("run confined worker probe"),
         peer_id: None,
-        workspace_dir: Some(project_repo.clone()),
+        workspace_dir: project_repo.clone(),
         verifier_dag: Some(CleanRoomVerifierDag::single(
             "sbx-suite",
             verifier_suite,
@@ -868,9 +846,11 @@ echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
         router_attempted_forbidden_tools: Vec::new(),
     }))?;
     match code_res {
-        IpcResponse::Chat(resp) => {
-            assert!(resp.delegated_to_worker);
-            assert!(resp.reply.contains("Worker confined inside OS sandbox"));
+        IpcResponse::DelegateRun(resp) => {
+            assert!(
+                resp.final_text
+                    .contains("Worker confined inside OS sandbox")
+            );
             assert!(resp.verification_mark.is_some());
         }
         other => {
@@ -883,27 +863,6 @@ echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
     );
 
     daemon.shutdown()?;
-
-    // 3. Finding 8: Routine `qz chat` 当上游不可达或返回错误时，必须返回结构化错误而非静默吞掉伪装为 "Ack: ..."
-    let dead_port_home = tmp.path().join("dead_home");
-    let mut dead_cfg = DaemonConfig::new(dead_port_home);
-    let dead_ep = String::from("http://127.0.0.1:9");
-    dead_cfg.upstream_endpoints.anthropic_base_url = dead_ep.clone();
-    dead_cfg.upstream_endpoints.openai_base_url = dead_ep;
-    dead_cfg.upstream_bearer_token = Some(String::from("test-upstream-token"));
-    let mut dead_daemon = QuetzalcoatlDaemon::start(dead_cfg)?;
-    let dead_client = IpcClient::from_runtime_info(
-        dead_daemon.runtime_info(),
-        dead_daemon.ipc_token().to_owned(),
-    );
-    let dead_chat_res = dead_client.call(&IpcRequest::Chat(ChatRequest::simple(
-        "should not swallow upstream error as Ack",
-    )))?;
-    assert!(
-        matches!(dead_chat_res, IpcResponse::Error { .. }),
-        "上游失败时日常对话必须返回明确错误，严禁静默伪装成 Ack: ...，实际为: {dead_chat_res:?}"
-    );
-    dead_daemon.shutdown()?;
 
     Ok(())
 }

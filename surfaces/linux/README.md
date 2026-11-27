@@ -4,25 +4,28 @@ GTK4 + 动态链接 `libadwaita-1` 的纯原生桌面与托盘客户端，可与
 无缝配合，也支持在没有守护进程 / 没有 D-Bus 会话总线 / 没有托盘宿主的环境下优雅降级。
 **没有任何 WebView 套壳**（无 Electron、无 Tauri、无 WebKitGTK）。
 
+这是一个**只读窗口**：只展示守护进程快照（连接状态、会话、良知、审计），没有输入框，
+也不向守护进程发起任何对话请求。对话永远发生在用户自己的宿主里。
+
 ## 1. 三档认知密度
 
 | 密度 | 快捷键 | 披露层级 | 内容 |
 | --- | --- | --- | --- |
-| 陪伴（Companion） | `Ctrl+1` / `Ctrl+Shift+1` | `Summary` | 零术语、≥64pt 触点、流式对话正文 |
-| 工作台（Workbench） | `Ctrl+2` / `Ctrl+Shift+2` | `Summary + Detail` | 会话、项目、审批、工作流、消息输入与同一份对话正文 |
+| 陪伴（Companion） | `Ctrl+1` / `Ctrl+Shift+1` | `Summary` | 连接状态，以及会话、良知、审计的一句话摘要 |
+| 工作台（Workbench） | `Ctrl+2` / `Ctrl+Shift+2` | `Summary + Detail` | 会话、项目、审批、工作流 |
 | 检视（Inspector） | `Ctrl+3` / `Ctrl+Shift+3` | `Summary + Detail + Raw` | 良知树/锁定正文、工具、审计、运行技术细节 |
 
 快捷键注册为 `GAction` + accelerator（布局无关，AZERTY 等布局同样可用）；运行技术细节
 （pid、IPC 端点、错误码）只出现在检视态。在线启动时经本地认证 IPC 拉取
 `desktop_snapshot`（会话/运行进展/良知/审计),并以差分 `ViewPatch` 幂等落入 UI。
 
-切换只替换可见页，不重建窗口、不重放流，因此会话与流状态天然保持；当前密度写入
-配置目录，重启后自动恢复。
+切换只替换可见页，不重建窗口，也不会重建或丢弃任何快照行；当前密度写入配置目录，
+重启后自动恢复。
 
 ## 2. 构建
 
 ```bash
-# 依赖：GTK 4 >= 4.14（编译开启 gtk4 crate 的 v4_10/v4_14 特性，announce() 需 4.14）
+# 依赖：GTK 4 >= 4.14（编译开启 gtk4 crate 的 v4_10/v4_14 特性）
 #      与 libadwaita >= 1.9（编译开启 libadwaita crate 的 v1_9 + gtk_v4_10 特性）
 # 注意：加入本 crate 后，`cargo clippy/test --workspace` 也需要这两个开发包与 xvfb。
 sudo apt install libgtk-4-dev libadwaita-1-dev xvfb
@@ -90,10 +93,8 @@ SELF_TEST_OK window=visible density=workbench connected=true degraded=0 tray=no-
 
 ## 6. 无障碍（AT-SPI）
 
-- 每个交互控件都设置 `GtkAccessible` 名称/描述（`aria-label`/`aria-description` 等价物）；
-- 页栈由 `AdwViewSwitcher` 暴露 `tablist` 语义，`Ctrl+1/2/3` 与开关（Tab）顺序一致；
-- 流式回复区标记为持续更新区域，并在批次收束时调用 GTK 4.14 `announce()`（`aria-live` 等价物）；
-- 无 AT-SPI 总线时 `announce()` 为安全空操作。
+- 每个交互控件与每个分组都设置 `GtkAccessible` 名称（`aria-label` 等价物）；
+- 页栈由 `AdwViewSwitcher` 暴露 `tablist` 语义，`Ctrl+1/2/3` 与开关（Tab）顺序一致。
 
 ## 7. 许可证与 LGPL-2.1 边界
 
@@ -115,10 +116,7 @@ SELF_TEST_OK window=visible density=workbench connected=true degraded=0 tray=no-
   客户端指定绝对坐标，故只持久化尺寸/最大化，位置由合成器管理。
 - **审批动作**：`win.approve`/`win.deny` 目前只记录本地提示，守护进程尚未提供审批写回
   IPC（待后续任务接线，绝不伪造成功）。
-- **流式对话**：UI 模型完整支持 `quetzalcoatl-client-core` 的拉模式 `ViewStream` 批次
-  （测试直接以 `ScriptedSource` 驱动）；生产路径目前是 `Chat` IPC 在工作线程执行、
-  `glib::timeout_add_local` 轮询回包，并把整段回复映射为一个 `Delta + Done` 批次。
-  token 级 SSE 待守护进程侧暴露流式通道后接入，届时仅替换生产者、模型契约不变。
+- **快照刷新**：只在启动与点「重新连接」时拉取 `desktop_snapshot`，没有定时刷新。
 - **托盘菜单**：导出 `StatusNotifierItem` 且 `Menu=/NO_DBUS_MENU`（无 DBusMenu）；宿主调用
   `ContextMenu` 时由本端弹出原生 Gtk 菜单窗口，菜单项是 `app.show-window` / `app.quit`
   两个 GAction。

@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 //! Task 4.3 验收测试：Linux 纯原生桌面端的 ELF 动态链接合规、三档认知密度状态切换、
-//! 拉模式视图补丁回流、真实守护进程无头冒烟与降级路径。
+//! 视图补丁回流、只读窗口（无输入框、无发送按钮）、真实守护进程无头冒烟与降级路径。
 //!
 //! ## 为什么必须断言 `libadwaita-1` 是**动态**链接（LGPL-2.1 合规说明）
 //!
@@ -30,16 +30,13 @@ use std::time::{Duration, Instant};
 use gtk::glib;
 use libadwaita as adw;
 use quetzalcoatl_client_core::ThinClient;
-use quetzalcoatl_client_core::llm_stream_bridge::live_producer_threads;
-use quetzalcoatl_client_core::{
-    CognitionDensity, ScriptedSource, StreamEvent, StreamEventKind, ViewOp, ViewPatch, ViewRow,
-    ViewStream,
-};
+use quetzalcoatl_client_core::{CognitionDensity, ViewOp, ViewPatch, ViewRow};
 use quetzalcoatl_daemon::{DaemonConfig, IpcRequest, IpcResponse, QuetzalcoatlDaemon};
 use quetzalcoatl_desktop::app::{self, DesktopOptions};
 use quetzalcoatl_desktop::config::DesktopConfig;
 use quetzalcoatl_desktop::model::{self, ConnectionState, UiModel};
 use quetzalcoatl_desktop::tray;
+use quetzalcoatl_desktop::views::visible_text;
 use uuid::Uuid;
 
 use gtk::prelude::*;
@@ -50,6 +47,7 @@ const CHILD_GTK_OUT: &str = "QZ_DESKTOP_GTK_PROBE_OUT";
 const CHILD_GTK_CONFIG_DIR: &str = "QZ_DESKTOP_GTK_PROBE_CONFIG_DIR";
 const CHILD_SNAPSHOT_OUT: &str = "QZ_DESKTOP_SNAPSHOT_PROBE_OUT";
 const CHILD_ONLINE_UI_OUT: &str = "QZ_DESKTOP_ONLINE_UI_PROBE_OUT";
+const CHILD_READ_ONLY_OUT: &str = "QZ_DESKTOP_READ_ONLY_PROBE_OUT";
 const CHILD_TRAY_OUT: &str = "QZ_DESKTOP_TRAY_PROBE_OUT";
 const CHILD_LIFECYCLE_OUT: &str = "QZ_DESKTOP_LIFECYCLE_PROBE_OUT";
 const CHILD_TRAY_PROGRESS: &str = "QZ_DESKTOP_TRAY_PROBE_PROGRESS";
@@ -257,24 +255,66 @@ fn session_patch() -> ViewPatch {
     }
 }
 
-fn stream_events() -> Vec<StreamEvent> {
-    vec![
-        StreamEvent {
-            seq: 1,
-            kind: StreamEventKind::Delta,
-            text: String::from("土壤湿度已经连续三天偏低，"),
-        },
-        StreamEvent {
-            seq: 2,
-            kind: StreamEventKind::Delta,
-            text: String::from("我建议今晚补一次透水。"),
-        },
-        StreamEvent {
-            seq: 3,
-            kind: StreamEventKind::Done,
-            text: String::from("stop"),
-        },
-    ]
+/// 一棵控件树的输入面清点（含当前不可见的页面与控件）。
+struct InputSurface {
+    /// 遍历到的控件总数（防空转：树必须真的被走过）。
+    widgets: usize,
+    /// 可编辑输入控件的类型名。
+    editable: Vec<String>,
+    /// 文案或图标带「发送」含义的按钮。
+    send_buttons: Vec<String>,
+    /// 全部按钮文案。
+    buttons: Vec<String>,
+}
+
+fn walk_widgets(root: &gtk::Widget, visit: &mut dyn FnMut(&gtk::Widget)) {
+    visit(root);
+    let mut child = root.first_child();
+    while let Some(node) = child {
+        walk_widgets(&node, visit);
+        child = node.next_sibling();
+    }
+}
+
+fn input_surface(root: &impl IsA<gtk::Widget>) -> InputSurface {
+    let mut surface = InputSurface {
+        widgets: 0,
+        editable: Vec::new(),
+        send_buttons: Vec::new(),
+        buttons: Vec::new(),
+    };
+    walk_widgets(root.as_ref(), &mut |widget| {
+        surface.widgets += 1;
+        let editable = widget
+            .dynamic_cast_ref::<gtk::Editable>()
+            .is_some_and(|input| input.is_editable())
+            || widget
+                .dynamic_cast_ref::<gtk::TextView>()
+                .is_some_and(|input| input.is_editable());
+        if editable {
+            surface.editable.push(widget.type_().name().to_owned());
+        }
+        if let Some(button) = widget.dynamic_cast_ref::<gtk::Button>() {
+            let caption = button
+                .label()
+                .map(|label| label.to_string())
+                .unwrap_or_else(|| visible_text(button))
+                .trim()
+                .to_owned();
+            let icon = button
+                .icon_name()
+                .map(|name| name.to_string())
+                .unwrap_or_default();
+            if caption.contains("发送")
+                || caption.to_lowercase().contains("send")
+                || icon.contains("send")
+            {
+                surface.send_buttons.push(format!("{caption} {icon}"));
+            }
+            surface.buttons.push(caption);
+        }
+    });
+    surface
 }
 
 // ---------------------------------------------------------------------------
@@ -355,84 +395,41 @@ fn adwaita_and_gtk_are_dynamically_linked_and_never_statically_embedded() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. ViewPatch + 拉模式流到达 UI 模型，且绝不打开 spine.sqlite
+// 2. ViewPatch 到达 UI 模型，且绝不打开 spine.sqlite
 // ---------------------------------------------------------------------------
 
 #[test]
 #[ignore = "由父测试以子进程方式驱动（无环境变量时不做任何断言）"]
-fn patch_stream_child_probe() {
+fn patch_child_probe() {
     let Some(out_path) = std::env::var_os(CHILD_PATCH_OUT).map(PathBuf::from) else {
         return; // 父测试直接调用时跳过
     };
 
-    let mut report = serde_json::json!({ "ok": false });
     let mut model_ui = UiModel::offline("probe home 下没有守护进程");
     let patch_result = model_ui.apply_patch(&session_patch());
 
-    let stream = ViewStream::spawn_with_timeout(
-        ScriptedSource::new(stream_events()),
-        Duration::from_secs(5),
-    );
-    let mut batches = 0usize;
-    let mut deltas = String::new();
-    while !stream.is_finished() && batches < 8 {
-        match stream.next_events(16) {
-            Ok(events) => {
-                batches += 1;
-                let ingested = model_ui.ingest_stream(&events);
-                for event in events {
-                    if event.kind == StreamEventKind::Delta {
-                        deltas.push_str(&event.text);
-                    }
-                }
-                assert_eq!(
-                    ingested.applied,
-                    model_ui.session.last_seq.max(1) as usize,
-                    "每个事件都必须被 UI 模型消费"
-                );
-            }
-            Err(err) => {
-                report["ok"] = serde_json::Value::Bool(false);
-                report["error"] = serde_json::Value::String(format!("流拉取失败: {err}"));
-                let _ = fs::write(&out_path, report.to_string());
-                return;
-            }
-        }
-    }
-    let finished_err = stream.next_events(4);
-    let finished_is_typed = matches!(
-        finished_err,
-        Err(quetzalcoatl_client_core::StreamError::Finished)
-    );
-    drop(stream);
-    thread::sleep(Duration::from_millis(50));
-
     let rows = model_ui.view.rows.len();
-    report = serde_json::json!({
-        "ok": patch_result.is_ok() && finished_is_typed && rows == 7,
+    let report = serde_json::json!({
+        "ok": patch_result.is_ok() && rows == 7,
         "patch_ok": patch_result.is_ok(),
         "rows": rows,
         "rev": model_ui.view.rev,
-        "deltas": deltas,
-        "transcript": model_ui.session.transcript(),
-        "streaming": model_ui.session.streaming,
-        "finished_typed": finished_is_typed,
-        "batches": batches,
+        "sessions": model_ui.rows_of(model::KIND_SESSION).len(),
+        "conscience": model_ui.rows_of(model::KIND_CONSCIENCE).len(),
         "db_fds": spine_db_fds(),
-        "live_producers": live_producer_threads(),
         "connection_offline": matches!(model_ui.connection, ConnectionState::Offline { .. }),
     });
     fs::write(&out_path, report.to_string()).expect("写入补丁探针报告");
 }
 
 #[test]
-fn view_patch_and_pull_stream_reach_ui_model_without_touching_spine() {
+fn view_patch_reaches_ui_model_without_touching_spine() {
     let temp = TempDir::new("patch");
     let out = temp.path().join("patch.json");
     let exe = std::env::current_exe().expect("current exe");
     let output = Command::new(&exe)
         .arg("--exact")
-        .arg("patch_stream_child_probe")
+        .arg("patch_child_probe")
         .arg("--ignored")
         .arg("--nocapture")
         .env(CHILD_PATCH_OUT, &out)
@@ -457,37 +454,25 @@ fn view_patch_and_pull_stream_reach_ui_model_without_touching_spine() {
     assert_eq!(report["rows"].as_u64(), Some(7), "行数: {report}");
     assert_eq!(report["rev"].as_u64(), Some(7), "修订: {report}");
     assert_eq!(
-        report["deltas"].as_str(),
-        Some("土壤湿度已经连续三天偏低，我建议今晚补一次透水。"),
-        "流增量必须原样进入 UI 模型: {report}"
+        report["sessions"].as_u64(),
+        Some(1),
+        "会话行必须能按种类投影出来: {report}"
     );
     assert_eq!(
-        report["streaming"],
-        serde_json::Value::Bool(false),
-        "Done 事件必须收束流状态"
-    );
-    assert!(
-        report["transcript"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("今晚补一次透水")
+        report["conscience"].as_u64(),
+        Some(2),
+        "良知行必须能按种类投影出来: {report}"
     );
     assert_eq!(
         report["db_fds"].as_array().map(Vec::len),
         Some(0),
-        "UI 模型/流路径不得打开 spine.sqlite: {report}"
-    );
-    assert_eq!(
-        report["live_producers"].as_u64(),
-        Some(0),
-        "拉模式流 Drop 后不得残留生产者线程: {report}"
+        "UI 模型路径不得打开 spine.sqlite: {report}"
     );
     assert_eq!(
         report["connection_offline"],
         serde_json::Value::Bool(true),
         "无守护进程时必须是类型化离线态"
     );
-    assert_eq!(report["finished_typed"], serde_json::Value::Bool(true));
     assert!(
         !temp.path().join("spine").exists(),
         "薄客户端路径绝不创建 spine 目录"
@@ -533,14 +518,9 @@ fn gtk_child_probe() {
     });
 
     let patch = session_patch();
-    let events = stream_events();
-    let (base_rev, messages_before, streaming_text_before, page_before) = {
+    let (base_rev, rows_before, page_before) = {
         let mut guard = state.borrow_mut();
         guard.model.apply_patch(&patch).expect("应用视图补丁");
-        let ingested = guard.model.ingest_stream(&events);
-        assert!(ingested.deltas.contains("今晚补一次透水"));
-        guard.model.push_user_message("今晚要浇水吗？");
-        let base_rev = guard.model.view.rev;
         let page_before = guard
             .widgets
             .stack
@@ -548,9 +528,8 @@ fn gtk_child_probe() {
             .map(|s| s.to_string())
             .unwrap_or_default();
         (
-            base_rev,
-            guard.model.session.messages.len(),
-            guard.model.session.transcript(),
+            guard.model.view.rev,
+            guard.model.view.rows.clone(),
             page_before,
         )
     };
@@ -560,8 +539,8 @@ fn gtk_child_probe() {
 
     let mut switches = Vec::new();
     let mut pages_mapped = Vec::new();
-    let mut session_preserved = true;
-    let mut stream_preserved = true;
+    let mut rows_preserved = true;
+    let mut rows_rendered = Vec::new();
     // 快捷键必须是 GAction + accelerator（布局无关），而不是裸 keyval 匹配。
     let app = adw_application();
     app.register(None::<&gtk::gio::Cancellable>)
@@ -611,29 +590,39 @@ fn gtk_child_probe() {
             guard.widgets.workbench.root.is_mapped(),
             guard.widgets.inspector.root.is_mapped(),
         ));
-        session_preserved &= guard.model.session.messages.len() == messages_before
-            && guard.model.session.transcript() == streaming_text_before;
-        stream_preserved &= guard.model.session.last_seq == 3;
+        rows_preserved &= guard.model.view.rows == rows_before;
+        // 每一页都必须把快照行真的画出来，并严格守住自己的披露层级：
+        // 陪伴只有摘要，工作台多出细节，原始载荷只在检视。
+        let rendered = match page.as_str() {
+            "companion" => {
+                let text = visible_text(&guard.widgets.companion.root);
+                text.contains("与助手的第 3 次对话")
+                    && text.contains("ROOT (100) · 不可协商的宪法红线")
+                    && !text.contains("thread-synthetic-3")
+                    && !text.contains("\"tier\"")
+            }
+            "workbench" => {
+                let text = visible_text(&guard.widgets.workbench.root);
+                text.contains("与助手的第 3 次对话")
+                    && text.contains("线程 thread-synthetic-3 · 共 4 轮")
+                    && text.contains("等待批准：写入 3 个文件")
+                    && !text.contains("\"tier\"")
+            }
+            _ => {
+                let text = visible_text(&guard.widgets.inspector.root);
+                text.contains("ROOT (100) · 不可协商的宪法红线")
+                    && text.contains("层级 ROOT · 4 条锁定条款")
+                    && text.contains("\"tier\":\"ROOT\"")
+            }
+        };
+        rows_rendered.push((page, rendered));
     }
 
+    // 离线时陪伴页唯一的交互控件是「重新连接」，它必须以按钮角色暴露给辅助技术。
     let accessible_button = gtk::test_accessible_has_role(
-        &state.borrow().widgets.companion.send,
+        &state.borrow().widgets.companion.retry,
         gtk::AccessibleRole::Button,
-    );
-    // `aria-live` 等价物：GTK 4.14 的 announce() + 持续更新区域角色说明。
-    // 无 AT-SPI 总线时 announce() 必须是安全空操作（不 panic、不弹窗）。
-    let accessible_live = gtk::test_accessible_has_property(
-        &state.borrow().widgets.companion.transcript,
-        gtk::AccessibleProperty::RoleDescription,
-    ) && {
-        let state = state.borrow();
-        let realized = state.widgets.companion.transcript.is_realized();
-        quetzalcoatl_desktop::a11y::announce(
-            &state.widgets.companion.transcript,
-            "流式回复的无障碍播报探针",
-        );
-        realized
-    };
+    ) && state.borrow().widgets.companion.retry.is_visible();
     let rev_delta = state.borrow().model.view.rev - base_rev;
 
     let tray_status = tray::status_label(&state.borrow().widgets.tray_status).to_string();
@@ -678,10 +667,9 @@ fn gtk_child_probe() {
             && switches == vec!["companion", "workbench", "inspector", "companion"]
             && accels_installed
             && shortcuts.iter().all(|ok| *ok)
-            && session_preserved
-            && stream_preserved
+            && rows_preserved
+            && rows_rendered.iter().all(|(_, rendered)| *rendered)
             && accessible_button
-            && accessible_live
             && rev_delta == 4
             && reloaded.density == CognitionDensity::Inspector
             && restored_page == "inspector"
@@ -693,10 +681,9 @@ fn gtk_child_probe() {
         "shortcuts_mapped": shortcuts,
         "accels_installed": accels_installed,
         "pages_mapped": pages_mapped,
-        "session_preserved": session_preserved,
-        "stream_preserved": stream_preserved,
+        "rows_preserved": rows_preserved,
+        "rows_rendered": rows_rendered,
         "accessible_button": accessible_button,
-        "accessible_live": accessible_live,
         "rev_delta": rev_delta,
         "tray": tray_status,
         "reloaded_density": reloaded.density.label(),
@@ -787,8 +774,22 @@ fn three_density_switching_preserves_state_and_persists_under_xvfb() {
             .map(|values| values.iter().all(|v| v.as_bool() == Some(true)))
             .unwrap_or(false)
     );
+    assert_eq!(
+        report["rows_preserved"],
+        serde_json::Value::Bool(true),
+        "切换密度不得重建或丢弃任何快照行: {report}"
+    );
+    assert_eq!(
+        report["rows_rendered"],
+        serde_json::json!([
+            ["companion", true],
+            ["workbench", true],
+            ["inspector", true],
+            ["companion", true]
+        ]),
+        "每一页都必须按自己的披露层级画出快照行: {report}"
+    );
     assert_eq!(report["accessible_button"], serde_json::Value::Bool(true));
-    assert_eq!(report["accessible_live"], serde_json::Value::Bool(true));
     assert_eq!(report["window_visible"], serde_json::Value::Bool(true));
 
     // 可见性与无障碍角色的额外断言在子报告里逐页核对（被隐藏页不得占用布局）。
@@ -1131,7 +1132,7 @@ fn daemon_snapshot_populates_sessions_audit_and_conscience() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. 工作台披露契约 + 工作台流式回复 + 应用级播报（仅一次）
+// 7. 披露契约（真实守护进程）：陪伴/工作台零技术细节，技术细节只在检视
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1157,10 +1158,8 @@ fn online_ui_child_probe() {
     state.borrow().window.present();
     let _ = app::pump_until_mapped(&state.borrow().widgets.workbench.root, 4_000);
 
-    let workbench_text =
-        quetzalcoatl_desktop::views::visible_text(&state.borrow().widgets.workbench.root);
-    let inspector_text =
-        quetzalcoatl_desktop::views::visible_text(&state.borrow().widgets.inspector.root);
+    let workbench_text = visible_text(&state.borrow().widgets.workbench.root);
+    let inspector_text = visible_text(&state.borrow().widgets.inspector.root);
     let disclosure_plain = !workbench_text.contains("pid")
         && !workbench_text.contains("127.0.0.1")
         && !workbench_text.contains("unix:")
@@ -1172,81 +1171,34 @@ fn online_ui_child_probe() {
         && (inspector_text.contains("127.0.0.1") || inspector_text.contains("unix:"))
         && (inspector_text.contains("睡眠相位") || inspector_text.contains("脊柱事件"));
 
-    // 工作台必须看得见自己的流式回复（同一份会话模型）。
-    app::apply_density(&state, CognitionDensity::Workbench);
-    let first_batch = vec![
-        StreamEvent {
-            seq: 1,
-            kind: StreamEventKind::Delta,
-            text: String::from("土壤湿度已经连续三天偏低，"),
-        },
-        StreamEvent {
-            seq: 2,
-            kind: StreamEventKind::Delta,
-            text: String::from("我建议今晚补一次透水。"),
-        },
-        StreamEvent {
-            seq: 3,
-            kind: StreamEventKind::Done,
-            text: String::from("stop"),
-        },
-    ];
-    let ingested = app::ingest_stream_batch(&state, &first_batch);
+    // 陪伴页：在线时把会话/良知/审计的摘要行原样列出来，且不带任何运行技术细节。
+    app::apply_density(&state, CognitionDensity::Companion);
     app::pump_events(80);
-    let workbench_reply = state
-        .borrow()
-        .widgets
-        .workbench
-        .transcript
-        .text()
-        .to_string();
-    let reply_visible = workbench_reply.contains("今晚补一次透水")
-        && state.borrow().widgets.workbench.transcript.is_visible();
-
-    // 播报必须独立于当前密度：工作台态下也播，且每批只播一次。
-    let before = state.borrow().widgets.live.announcement_count();
-    let second_batch = vec![
-        StreamEvent {
-            seq: 4,
-            kind: StreamEventKind::Delta,
-            text: String::from("如果需要，我也可以列出浇水清单。"),
-        },
-        StreamEvent {
-            seq: 5,
-            kind: StreamEventKind::Done,
-            text: String::from("stop"),
-        },
-    ];
-    let _ = app::ingest_stream_batch(&state, &second_batch);
-    app::pump_events(80);
-    let announced = state.borrow().widgets.live.announcement_count() - before;
-    let delta_text = state.borrow().widgets.live.last_announcement();
-    let delta_only_ok = announced == 1 && delta_text.contains("浇水清单");
-
-    // 混合批次：错误必须压过部分正文。
-    let before_error = state.borrow().widgets.live.announcement_count();
-    let mixed_batch = vec![
-        StreamEvent {
-            seq: 6,
-            kind: StreamEventKind::Delta,
-            text: String::from("部分正文先到，"),
-        },
-        StreamEvent {
-            seq: 7,
-            kind: StreamEventKind::Error,
-            text: String::from("上游连接中断"),
-        },
-        StreamEvent {
-            seq: 8,
-            kind: StreamEventKind::Delta,
-            text: String::from("后续正文仍在流。"),
-        },
-    ];
-    let _ = app::ingest_stream_batch(&state, &mixed_batch);
-    app::pump_events(80);
-    let announced_error = state.borrow().widgets.live.announcement_count() - before_error;
-    let error_text = state.borrow().widgets.live.last_announcement();
-    let error_wins = announced_error == 1 && error_text.contains("上游连接中断");
+    let companion_text = visible_text(&state.borrow().widgets.companion.root);
+    let companion_plain = !companion_text.contains("pid")
+        && !companion_text.contains("127.0.0.1")
+        && !companion_text.contains("unix:")
+        && !companion_text.contains("STORAGE_")
+        && !companion_text.contains("IPC")
+        && !companion_text.contains("睡眠相位");
+    let (sessions, conscience, audits, companion_lists_snapshot) = {
+        let desktop = state.borrow();
+        let mut counts = [0usize; 3];
+        let mut listed = true;
+        for (slot, kind) in [
+            model::KIND_SESSION,
+            model::KIND_CONSCIENCE,
+            model::KIND_AUDIT,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let rows = desktop.model.rows_of(kind);
+            counts[slot] = rows.len();
+            listed &= rows.iter().all(|row| companion_text.contains(&row.summary));
+        }
+        (counts[0], counts[1], counts[2], listed)
+    };
 
     let page = state
         .borrow()
@@ -1255,41 +1207,33 @@ fn online_ui_child_probe() {
         .visible_child_name()
         .map(|s| s.to_string())
         .unwrap_or_default();
-    let live_independent = !state
-        .borrow()
-        .widgets
-        .live
-        .widget()
-        .is_ancestor(&state.borrow().widgets.stack);
-
-    let companion_text =
-        quetzalcoatl_desktop::views::visible_text(&state.borrow().widgets.companion.root);
+    let surface = input_surface(&state.borrow().window);
 
     report = serde_json::json!({
         "ok": disclosure_plain
             && inspector_technical
-            && reply_visible
-            && delta_only_ok
-            && error_wins
-            && page == "workbench"
-            && live_independent
-            && ingested.deltas.contains("今晚补一次透水")
-            && companion_text.contains("浇水清单"),
+            && companion_plain
+            && companion_lists_snapshot
+            && sessions > 0
+            && conscience > 0
+            && audits > 0
+            && page == "companion"
+            && surface.editable.is_empty()
+            && surface.send_buttons.is_empty(),
         "disclosure_plain": disclosure_plain,
         "inspector_technical": inspector_technical,
+        "companion_plain": companion_plain,
+        "companion_lists_snapshot": companion_lists_snapshot,
+        "sessions": sessions,
+        "conscience": conscience,
+        "audits": audits,
         "workbench_text": workbench_text,
         "inspector_text": inspector_text,
-        "reply_visible": reply_visible,
-        "workbench_reply": workbench_reply,
-        "announced": announced,
-        "announced_delta_text": delta_text,
-        "delta_only_ok": delta_only_ok,
-        "announced_error": announced_error,
-        "announced_error_text": error_text,
-        "error_wins": error_wins,
+        "companion_text": companion_text,
         "page": page,
-        "live_independent": live_independent,
-        "companion_shared": companion_text.contains("浇水清单"),
+        "widgets": surface.widgets,
+        "editable": surface.editable,
+        "send_buttons": surface.send_buttons,
         "db_fds": spine_db_fds(),
     });
     state.borrow().window.destroy();
@@ -1297,10 +1241,27 @@ fn online_ui_child_probe() {
 }
 
 #[test]
-fn workbench_stays_plain_and_shows_streaming_reply() {
+fn pages_keep_disclosure_layers_against_real_daemon() {
     let home = TempDir::new("online_ui_daemon");
     let out = home.path().join("online_ui.json");
     let mut daemon = start_real_daemon(home.path());
+
+    // 真实写入一条领域切换审计事件，保证审计行非空。
+    let client = ThinClient::mount(home.path()).expect("薄客户端挂载");
+    let packs = match client.call(&IpcRequest::DomainList) {
+        Ok(IpcResponse::DomainPacks { packs, .. }) => packs,
+        other => panic!("domain list 失败: {other:?}"),
+    };
+    let target = packs
+        .iter()
+        .map(|pack| pack.id.clone())
+        .find(|id| id != "personal-companion")
+        .expect("至少存在一个非默认领域包");
+    match client.call(&IpcRequest::DomainUse { id: target }) {
+        Ok(IpcResponse::DomainActivated(_)) | Ok(IpcResponse::DomainPacks { .. }) => {}
+        other => panic!("domain use 失败: {other:?}"),
+    }
+
     let output = spawn_probe("online_ui_child_probe", false)
         .env(CHILD_ONLINE_UI_OUT, &out)
         .env("QUETZALCOATL_HOME", home.path())
@@ -1321,11 +1282,26 @@ fn workbench_stays_plain_and_shows_streaming_reply() {
     );
     assert_eq!(report["disclosure_plain"], serde_json::Value::Bool(true));
     assert_eq!(report["inspector_technical"], serde_json::Value::Bool(true));
-    assert_eq!(report["reply_visible"], serde_json::Value::Bool(true));
-    assert_eq!(report["announced"].as_u64(), Some(1));
-    assert_eq!(report["delta_only_ok"], serde_json::Value::Bool(true));
-    assert_eq!(report["error_wins"], serde_json::Value::Bool(true));
-    assert_eq!(report["page"].as_str(), Some("workbench"));
+    assert_eq!(report["companion_plain"], serde_json::Value::Bool(true));
+    assert_eq!(
+        report["companion_lists_snapshot"],
+        serde_json::Value::Bool(true),
+        "陪伴页必须列出快照里的会话/良知/审计摘要: {report}"
+    );
+    assert!(report["sessions"].as_u64().unwrap_or(0) > 0, "{report}");
+    assert!(report["conscience"].as_u64().unwrap_or(0) > 0, "{report}");
+    assert!(report["audits"].as_u64().unwrap_or(0) > 0, "{report}");
+    assert_eq!(report["page"].as_str(), Some("companion"));
+    assert_eq!(
+        report["editable"].as_array().map(Vec::len),
+        Some(0),
+        "在线时窗口里也不得出现可编辑输入框: {report}"
+    );
+    assert_eq!(
+        report["send_buttons"].as_array().map(Vec::len),
+        Some(0),
+        "在线时窗口里也不得出现发送按钮: {report}"
+    );
     assert_eq!(
         report["db_fds"].as_array().map(Vec::len),
         Some(0),
@@ -1335,7 +1311,148 @@ fn workbench_stays_plain_and_shows_streaming_reply() {
 }
 
 // ---------------------------------------------------------------------------
-// 8. 托盘驻留：关闭隐藏 → 托盘唤醒 → 托盘菜单退出；无宿主时关闭即退出
+// 8. 只读窗口：任何页面都没有可编辑输入框，也没有「发送」按钮
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "由父测试以子进程方式驱动（需要 xvfb）"]
+fn read_only_child_probe() {
+    let Some(out_path) = std::env::var_os(CHILD_READ_ONLY_OUT).map(PathBuf::from) else {
+        return;
+    };
+    let mut report = serde_json::json!({ "ok": false });
+    if let Err(err) = gtk::init() {
+        report["error"] = serde_json::Value::String(format!("gtk init 失败: {err}"));
+        let _ = fs::write(&out_path, report.to_string());
+        return;
+    }
+    let home = quetzalcoatl_client_core::resolve_client_home(None);
+    let config_path = out_path.with_extension("desktop.json");
+    let state = app::build_desktop(DesktopOptions {
+        home,
+        config_path: Some(config_path),
+        self_test: false,
+    });
+    // 填入合成快照行（含待审批行），让每一页都处在「有内容」的形态下被检查。
+    state
+        .borrow_mut()
+        .model
+        .apply_patch(&session_patch())
+        .expect("应用视图补丁");
+    app::refresh(&state);
+    let window = state.borrow().window.clone();
+    window.present();
+    let mapped = app::pump_until_mapped(&window, 4_000);
+
+    let mut pages = Vec::new();
+    for density in [
+        CognitionDensity::Companion,
+        CognitionDensity::Workbench,
+        CognitionDensity::Inspector,
+    ] {
+        app::apply_density(&state, density);
+        app::pump_events(120);
+        let guard = state.borrow();
+        let page = guard
+            .widgets
+            .stack
+            .visible_child_name()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let page_mapped = guard
+            .widgets
+            .stack
+            .visible_child()
+            .is_some_and(|child| child.is_mapped());
+        // 从窗口根开始走：标题栏、横幅与三个页面（含当前不可见的两页）全部在内。
+        let surface = input_surface(&guard.window);
+        pages.push(serde_json::json!({
+            "page": page,
+            "mapped": page_mapped,
+            "widgets": surface.widgets,
+            "editable": surface.editable,
+            "send_buttons": surface.send_buttons,
+            "buttons": surface.buttons,
+        }));
+    }
+
+    report = serde_json::json!({ "ok": mapped, "mapped": mapped, "pages": pages });
+    state.borrow().window.destroy();
+    fs::write(&out_path, report.to_string()).expect("写入只读探针报告");
+}
+
+#[test]
+fn no_page_offers_an_editable_input_or_send_button() {
+    let home = TempDir::new("read_only_probe");
+    let out = home.path().join("read_only.json");
+    let output = spawn_probe("read_only_child_probe", false)
+        .env(CHILD_READ_ONLY_OUT, &out)
+        .env("QUETZALCOATL_HOME", home.path().join("home"))
+        .env_remove("DBUS_SESSION_BUS_ADDRESS")
+        .output()
+        .expect("spawn read-only probe");
+    assert!(
+        output.status.success(),
+        "只读探针失败: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&out).expect("读取只读探针报告")).expect("JSON");
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "报告: {report}"
+    );
+    let pages = report["pages"].as_array().expect("pages");
+    let visited: Vec<&str> = pages
+        .iter()
+        .map(|entry| entry["page"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        visited,
+        ["companion", "workbench", "inspector"],
+        "三个页面必须逐一被检查: {report}"
+    );
+    for entry in pages {
+        let page = entry["page"].as_str().unwrap_or_default();
+        assert_eq!(
+            entry["mapped"],
+            serde_json::Value::Bool(true),
+            "{page} 页必须真实显示后再检查: {entry}"
+        );
+        assert_eq!(
+            entry["editable"].as_array().map(Vec::len),
+            Some(0),
+            "{page} 页所在的窗口里不得存在可编辑输入框: {entry}"
+        );
+        assert_eq!(
+            entry["send_buttons"].as_array().map(Vec::len),
+            Some(0),
+            "{page} 页所在的窗口里不得存在发送按钮: {entry}"
+        );
+        // 防空转：遍历必须真的走到了按钮（离线的「重新连接」与合成审批行的「批准/拒绝」）。
+        let buttons: Vec<&str> = entry["buttons"]
+            .as_array()
+            .expect("buttons")
+            .iter()
+            .map(|value| value.as_str().unwrap_or_default())
+            .collect();
+        for expected in ["重新连接", "批准", "拒绝"] {
+            assert!(
+                buttons.contains(&expected),
+                "{page} 页的控件遍历没有走到「{expected}」按钮，断言可能空转: {entry}"
+            );
+        }
+        assert!(
+            entry["widgets"].as_u64().unwrap_or(0) > 40,
+            "{page} 页遍历到的控件太少，断言可能空转: {entry}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 9. 托盘驻留：关闭隐藏 → 托盘唤醒 → 托盘菜单退出；无宿主时关闭即退出
 // ---------------------------------------------------------------------------
 
 struct StubWatcher;

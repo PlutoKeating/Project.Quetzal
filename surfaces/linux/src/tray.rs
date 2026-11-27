@@ -131,7 +131,7 @@ pub fn start(title: &str, callbacks: TrayCallbacks) -> TrayHandle {
 
 fn unsupported(status: TrayStatus) -> TrayHandle {
     eprintln!(
-        "quetzalcoatl-desktop: 托盘降级为 `{}`（不影响窗口与对话）",
+        "quetzalcoatl-desktop: 托盘降级为 `{}`（不影响窗口）",
         status.label()
     );
     TrayHandle {

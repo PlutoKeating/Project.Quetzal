@@ -4,7 +4,7 @@
 //! `qz` — Quetzalcoatl 唯一简写终端命令行入口（自动本地 IPC 薄客户端切换，杜绝 `SQLITE_BUSY`）。
 
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
@@ -12,9 +12,9 @@ use std::time::{Duration, Instant};
 
 use quetzalcoatl_daemon::local_ipc::GroupSenderWire;
 use quetzalcoatl_daemon::{
-    ChatRequest, DaemonConfig, DaemonFabricConfig, FabricLoginRequest, IpcClient, IpcRequest,
-    IpcResponse, QuetzalcoatlDaemon, export_offline_or_via_ipc, import_v1_offline_or_via_ipc,
-    resolve_quetzalcoatl_home,
+    DaemonConfig, DaemonFabricConfig, DelegateRunRequest, FabricLoginRequest, IpcClient,
+    IpcRequest, IpcResponse, QuetzalcoatlDaemon, export_offline_or_via_ipc,
+    import_v1_offline_or_via_ipc, resolve_quetzalcoatl_home,
 };
 use quetzalcoatl_group::floor_control::{Mention, MentionKind};
 use quetzalcoatl_harness::{DiscoveryConfig, discover_coding_agents};
@@ -35,7 +35,7 @@ Commands:
   open        Open the local Web console (prints the URL when no desktop is available)
   status      Show daemon, sovereign spine, heart and fabric status
   agents      Discover installed Coding Agents (<10ms parallel probe)
-  chat        Send a message (--interactive or direct prompt)
+  delegate    Hand one task to a local coding agent in an isolated worktree; verified in the clean room
   export      Export readable Markdown + Spine ZIP archive
   import-v1   Idempotently migrate legacy V1 soul repo and SQLite sessions
   login       Authenticate against quetzalcoatl-hub (OPAQUE PIN or Bearer token)
@@ -916,19 +916,19 @@ fn run_agents(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn run_chat(args: &[String]) -> Result<()> {
+/// `qz delegate`：把一件要做完的事委派给本机宿主（Coding Agent）。宿主在独立 worktree 里完成，
+/// 结果经断网只读洁净室验收后才落回目标仓库。这是无人在场时的入口，不是对话。
+fn run_delegate(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
-    let mut interactive = false;
     let mut json_mode = false;
     let mut workspace_dir: Option<PathBuf> = None;
     let mut verifier_suite: Option<PathBuf> = None;
     let mut verifier_cmd: Option<String> = None;
-    let mut msg_parts = Vec::<String>::new();
+    let mut task_parts = Vec::<String>::new();
 
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
-            "--interactive" | "-i" => interactive = true,
             "--json" => json_mode = true,
             "--home" => {
                 i += 1;
@@ -958,9 +958,19 @@ fn run_chat(args: &[String]) -> Result<()> {
                 })?;
                 verifier_cmd = Some(v.clone());
             }
-            other => msg_parts.push(String::from(other)),
+            other => task_parts.push(String::from(other)),
         }
         i += 1;
+    }
+
+    let workspace_dir = workspace_dir.ok_or_else(|| QuetzalcoatlError::StorageError {
+        detail: String::from("qz delegate 需要 --workspace <目标仓库目录>"),
+    })?;
+    let task = task_parts.join(" ");
+    if task.trim().is_empty() {
+        return Err(QuetzalcoatlError::StorageError {
+            detail: String::from("qz delegate 需要一句任务描述"),
+        });
     }
 
     let qz_home = resolve_quetzalcoatl_home(home);
@@ -978,65 +988,24 @@ fn run_chat(args: &[String]) -> Result<()> {
         _ => None,
     };
 
-    if interactive {
-        let stdin = io::stdin();
-        for line_res in stdin.lock().lines() {
-            let line = line_res.map_err(|e| QuetzalcoatlError::StorageError {
-                detail: format!("读取终端输入失败: {e}"),
-            })?;
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if trimmed == "exit" || trimmed == "/quit" {
-                break;
-            }
-            send_single_chat_turn(
-                &client,
-                trimmed,
-                workspace_dir.clone(),
-                verifier_dag.clone(),
-                json_mode,
-            )?;
-        }
-        return Ok(());
-    }
-
-    let prompt = msg_parts.join(" ");
-    if prompt.trim().is_empty() {
-        return Err(QuetzalcoatlError::StorageError {
-            detail: String::from("qz chat 需要传入消息文本或 --interactive"),
-        });
-    }
-    send_single_chat_turn(&client, &prompt, workspace_dir, verifier_dag, json_mode)
-}
-
-fn send_single_chat_turn(
-    client: &IpcClient,
-    prompt: &str,
-    workspace_dir: Option<PathBuf>,
-    verifier_dag: Option<CleanRoomVerifierDag>,
-    json_mode: bool,
-) -> Result<()> {
-    let resp = client.call(&IpcRequest::Chat(ChatRequest {
-        message: String::from(prompt),
-        thread_id: None,
+    let resp = client.call(&IpcRequest::DelegateRun(DelegateRunRequest {
+        task,
         peer_id: None,
         workspace_dir,
         verifier_dag,
         router_attempted_forbidden_tools: Vec::new(),
     }))?;
     match resp {
-        IpcResponse::Chat(chat_resp) => {
+        IpcResponse::DelegateRun(run) => {
             if json_mode {
-                let s = serde_json::to_string_pretty(&*chat_resp).map_err(|e| {
+                let s = serde_json::to_string_pretty(&*run).map_err(|e| {
                     QuetzalcoatlError::SerializationError {
                         detail: e.to_string(),
                     }
                 })?;
                 println!("{s}");
             } else {
-                println!("{}", chat_resp.reply);
+                println!("{}", run.final_text);
             }
             let _ = io::stdout().flush();
             Ok(())
@@ -1804,7 +1773,7 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "open" => run_open(rest),
         "status" => run_status(rest),
         "agents" => run_agents(rest),
-        "chat" => run_chat(rest),
+        "delegate" => run_delegate(rest),
         "export" => run_export(rest),
         "import-v1" => run_import_v1(rest),
         "login" => run_login(rest),

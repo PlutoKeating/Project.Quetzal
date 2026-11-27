@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
-//! 工作台态（Workbench）：会话、项目、审批与工作流的可操作细节层。
+//! 工作台态（Workbench）：会话、项目、审批与工作流的细节层。
 //!
 //! 披露 `Summary + Detail`：**绝不**出现 pid / socket / 错误码等运行技术细节
 //! （那些只在检视态出现）。审批按钮挂 `win.approve` / `win.deny` 原生 `GSimpleAction`
-//! （键盘可达、可被辅助技术触发），对话区与陪伴态共享同一份会话/流模型。
+//! （键盘可达、可被辅助技术触发）。
 
 use gtk::glib::variant::ToVariant;
 use gtk4 as gtk;
@@ -12,7 +12,7 @@ use libadwaita::prelude::*;
 
 use crate::a11y;
 use crate::model::{self, UiModel};
-use crate::views::{action_row, clear, empty_row, group};
+use crate::views::{action_row, clear, empty_row, fill_rows, group};
 
 /// 审批动作对应的窗口动作名（由 [`crate::app`] 注册）。
 pub const ACTION_APPROVE: &str = "win.approve";
@@ -31,12 +31,6 @@ pub struct WorkbenchView {
     pub approval_list: gtk::ListBox,
     /// 工作流行列表。
     pub workflow_list: gtk::ListBox,
-    /// 对话正文（与陪伴态同一份模型，流式回复在此可见）。
-    pub transcript: gtk::Label,
-    /// 输入框（≥48pt）。
-    pub entry: gtk::Entry,
-    /// 发送按钮（≥48pt）。
-    pub send: gtk::Button,
     /// 一行零术语状态摘要。
     pub status: gtk::Label,
     /// 最新本地提示（审批动作/重连结果等）。
@@ -67,30 +61,12 @@ pub fn build() -> WorkbenchView {
     notice.set_visible(false);
     a11y::set_label(&notice, "最新提示");
 
-    let transcript = gtk::Label::new(Some("在这里输入，回答会出现在这里。"));
-    transcript.set_wrap(true);
-    transcript.set_selectable(true);
-    transcript.set_focusable(false);
-    transcript.set_xalign(0.0);
-    transcript.set_halign(gtk::Align::Fill);
-    a11y::set_label(&transcript, "对话内容");
-    a11y::set_description(&transcript, "与陪伴态共享的同一份对话，回复会实时更新");
-    a11y::mark_live_region(&transcript, "会持续更新的对话内容");
-
-    let (dialogue_group, dialogue_list) = group("对话");
-    let dialogue_row = gtk::ListBoxRow::new();
-    dialogue_row.set_activatable(false);
-    dialogue_row.set_selectable(false);
-    dialogue_row.set_child(Some(&transcript));
-    dialogue_list.append(&dialogue_row);
-
     let (session_group, session_list) = group("当前会话");
     let (project_group, project_list) = group("项目");
     let (approval_group, approval_list) = group("待批准的操作");
     let (workflow_group, workflow_list) = group("工作流");
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    content.append(&dialogue_group);
     content.append(&session_group);
     content.append(&project_group);
     content.append(&approval_group);
@@ -104,29 +80,9 @@ pub fn build() -> WorkbenchView {
         .build();
     a11y::set_label(&scroller, "工作台内容滚动区");
 
-    let entry = gtk::Entry::new();
-    entry.set_placeholder_text(Some("输入消息，按回车发送"));
-    entry.set_hexpand(true);
-    entry.set_size_request(-1, 48);
-    a11y::set_label(&entry, "消息输入框");
-
-    let send = gtk::Button::with_label("发送");
-    send.set_size_request(120, 48);
-    send.add_css_class("suggested-action");
-    a11y::set_label(&send, "发送消息");
-
-    let composer = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    composer.set_margin_top(10);
-    composer.set_margin_bottom(14);
-    composer.set_margin_start(18);
-    composer.set_margin_end(18);
-    composer.append(&entry);
-    composer.append(&send);
-
     root.append(&status);
     root.append(&notice);
     root.append(&scroller);
-    root.append(&composer);
 
     WorkbenchView {
         root,
@@ -134,9 +90,6 @@ pub fn build() -> WorkbenchView {
         project_list,
         approval_list,
         workflow_list,
-        transcript,
-        entry,
-        send,
         status,
         notice,
     }
@@ -154,54 +107,29 @@ pub fn render(view: &WorkbenchView, model: &UiModel) {
 
     if let Some(degraded) = model.degraded() {
         view.status.set_text(&format!("离线 · {}", degraded.title));
-        view.entry.set_sensitive(false);
-        view.send.set_sensitive(false);
     } else {
-        view.status.set_text(if model.session.streaming {
-            "已连接 · 正在回复…"
-        } else {
-            "已连接 · 助手在运行"
-        });
-        view.entry.set_sensitive(true);
-        view.send.set_sensitive(true);
+        view.status.set_text("已连接 · 助手在运行");
     }
 
-    let transcript = model.session.transcript();
-    if transcript.trim().is_empty() {
-        view.transcript.set_text("在这里输入，回答会出现在这里。");
-    } else {
-        view.transcript.set_text(&transcript);
-    }
-
-    fill_plain(
+    fill_rows(
         &view.session_list,
-        model,
-        model::KIND_SESSION,
+        &model.rows_of(model::KIND_SESSION),
+        true,
         "暂无会话记录",
     );
-    fill_plain(&view.project_list, model, model::KIND_PROJECT, "暂无项目");
-    fill_plain(
+    fill_rows(
+        &view.project_list,
+        &model.rows_of(model::KIND_PROJECT),
+        true,
+        "暂无项目",
+    );
+    fill_rows(
         &view.workflow_list,
-        model,
-        model::KIND_WORKFLOW,
+        &model.rows_of(model::KIND_WORKFLOW),
+        true,
         "暂无进行中的工作流",
     );
     fill_approvals(&view.approval_list, model);
-}
-
-fn fill_plain(list: &gtk::ListBox, model: &UiModel, kind: &str, empty: &str) {
-    clear(list);
-    let rows = model.rows_of(kind);
-    if rows.is_empty() {
-        list.append(&empty_row(empty));
-        return;
-    }
-    for row in rows {
-        let view_row = action_row(&row.summary, row.detail.as_deref());
-        view_row.set_activatable(false);
-        a11y::set_label(&view_row, &row.summary);
-        list.append(&view_row);
-    }
 }
 
 fn fill_approvals(list: &gtk::ListBox, model: &UiModel) {
