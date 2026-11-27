@@ -2,6 +2,8 @@
 
 > **面向执行代理（For Agentic Workers）**：进入实施态后，推荐使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans` 按 Sprint 与 Task 顺序逐项推进。所有任务步骤采用 `- [ ]` 复选框追踪状态；每完成一个 Task 必须运行对应验证门禁、记录实测证据并进行中文语义化原子 Git 提交。
 
+> **2026-11-28 状态更新**：本计划已完成的步骤是地基，其架构规范继续有效；未完成部分不再按本文执行。当前唯一有效的执行计划是 `.opencode/plans/2026-11-28-quetzalcoatl-host-native-plan.md`。Task 5.1 / 5.2 已**撤销**，Task 3.2 的 Step 3b 已**冻结**，决策 D-11、D-12、D-21、D-22、D-24 的处置见新计划第二部分。
+
 - **文档状态**：所有者已审批通过（Approved & Ready for Execution）
 - **定稿日期**：2026-11-24
 - **产品品牌全称**：**`Quetzalcoatl`**（羽蛇神；原项目名 `Quetzal`）
@@ -88,8 +90,8 @@
 | **D-08** | **`AGENTS.md` 编译器门禁** | 启用**最高等级面向 AI 自校正的编译器与架构门禁**：业务 crate `#![forbid(unsafe_code)]`、全局禁 `unwrap/expect/panic/todo`、盲内核静态依赖测试、`cargo-deny` 许可证门禁、确定性网络分区仿真测试 | 仅使用宽松默认编译级别、靠人工 Code Review 抓空指针或越界依赖 |
 | **D-09** | **Git 灵魂仓库的去留** | **完全废除 Git 灵魂仓库同步与旧 `SOUL_REPO_SPEC.md`**；100% 统一为签名 HLC 事件脊柱 + `zstd` E2EE Packfiles + 本地 SQLite WAL 物化视图 + 一键导出可读 Markdown+Spine ZIP 归档包 | 保留 SSH Git 同步（哪怕作为可选镜像插件也不保留，彻底斩断 Git 锁竞争与 SSH 门槛） |
 | **D-10** | **底层 Agent 执行解耦** | **彻底抛弃自研底层 Coding Agent Loop 毛坯房**，将任意成熟 Coding Agent 降维封装为可随时替换的末端原子级微服务 | 自研维护一套多模型 ReAct 编码循环去和 OpenCode/Claude Code 硬拼末端能力 |
-| **D-11** | **桌面通用双模适配架构** | `<10ms` 自动嗅探本机已登录 Agent（未装时默认推荐拉起 **OpenCode V2**，兼容已装 **Claude Code / Codex / Pi / Goose / Hermes / `dsh` / `agy`**）；控制面走 **ACP / 原生 JSON-RPC**；默认套**四层非侵入代理壳**，并对主流工具叠加**渐进式原生 Hook 增强** | 脆弱的终端 PTY 屏幕字符抓取（`agentapi` 模式）；或强绑单一 OpenCode 无法复用用户已有 Claude/Codex 订阅 |
-| **D-12** | **手机端内嵌轻量引擎** | 手机端无电脑亦可独立运行，且遵循纯原生契约：**Android 内嵌 `JetBrains Koog v1.3`**，**iOS 内嵌 `SwiftAgent` + 系统 `FoundationModels`**（云端流与记忆组装经 `UniFFI` 走共享 Rust 核心） | 手机端塞入 Node/Bun/`proot`；或把手机阉割成离了电脑就不能对话的纯遥控器；或在移动端塞 QuickJS 跑 JS 循环 |
+| **D-11** | **桌面通用双模适配架构【2026-11-28 修订：代理壳只用于受管运行与可选深度模式，用户会话默认走不挡路的挂点】** | `<10ms` 自动嗅探本机已登录 Agent（未装时默认推荐拉起 **OpenCode V2**，兼容已装 **Claude Code / Codex / Pi / Goose / Hermes / `dsh` / `agy`**）；控制面走 **ACP / 原生 JSON-RPC**；默认套**四层非侵入代理壳**，并对主流工具叠加**渐进式原生 Hook 增强** | 脆弱的终端 PTY 屏幕字符抓取（`agentapi` 模式）；或强绑单一 OpenCode 无法复用用户已有 Claude/Codex 订阅 |
+| **D-12** | **手机端内嵌轻量引擎【2026-11-28 撤销：被 000 号铁律取代】** | 手机端无电脑亦可独立运行，且遵循纯原生契约：**Android 内嵌 `JetBrains Koog v1.3`**，**iOS 内嵌 `SwiftAgent` + 系统 `FoundationModels`**（云端流与记忆组装经 `UniFFI` 走共享 Rust 核心） | 手机端塞入 Node/Bun/`proot`；或把手机阉割成离了电脑就不能对话的纯遥控器；或在移动端塞 QuickJS 跑 JS 循环 |
 | **D-13** | **`Project.eWave` 协同与 `GleanIt`** | `Project.eWave` 保持独立科研与核心算法仓，核心包兼容 **Apache-2.0**；`Quetzalcoatl` **直接承接并落地 `eWave ADR-005` 暂缓的 `GleanIt` 记忆治理中心愿景**，原生通过 `align()/merge()` 吸纳 `SayIt` 碎片子树 | 将 `eWave` 仅当无语义黑盒库且不打通 `SayIt -> GleanIt` 闭环；或拆散两仓统一数据模型 |
 | **D-14** | **认知与调度内核分层** | **盲内核 + 架构级能力剥夺式 `Router` + 双态隔离 `Worker Run`（`Explore ↔ Commit`）+ `Thread` 订阅直通** | 单一主循环软隔离（把分不分工完全交给提示词概率判断） |
 | **D-15** | **良知稳态与沙箱自由自演化** | **技能/脚本/触发器/`SELF_SOFT`/普通记忆在沙箱内 100% 即时自由自修改热生效（零人工弹窗）**；**核心价值（`SELF_CORE`）走 eWave C 档全自动多独立证据 + 冷却期 + `Reflector/Arbiter` + 反思维病毒免疫**；`Explore` 剥夺外部写权限 | 任何新技能/准则变更都弹窗等人工审批（扼杀生命自主性）；或允许单轮施压/群聊直接覆写 `SELF_CORE`（违背 eWave 纲领且易中思维病毒） |
@@ -98,10 +100,10 @@
 | **D-18** | **零门槛登录与密钥恢复槽** | **5 槽位全量支持**：① Passkey 一键登录 + WebAuthn `prf` 解封 ② Signal 式扫码抗量子混合 HPKE 秒级配对（含短码 PAKE 兜底） ③ 家庭/团队监护人托管分片恢复 ④ RFC 9807 `OPAQUE` 零知识 PIN + 可打印应急二维码卡 ⑤ 免账号纯离线本机芯片模式 | 强制用户输入 API Key、配 SSH 私钥或背诵 24 词助记词 |
 | **D-19** | **多主体隐私隔离模型** | **不设单 Agent 内部分舱，1 个 Agent = 1 条物理与密码学独占的主权脊柱**；凡涉及家庭/团队多人协作或公共岗位，**强制创建独立物理隔离的 Agent 实例**，通过群组协议协同 | 在同一个 Agent 脊柱内混装多人的私有与共享数据分舱（复杂度高且存在跨舱提示词污染泄密风险） |
 | **D-20** | **`Super-Group` 四大协同拓扑** | **四项全选原生支持**：① 多人类 + 各自私人主权 Agent 联邦群组 ② 群组/组织共有的常驻岗位角色 Agent ③ 单用户麾下异构 Coding Agent 专长编队 ④ 跨家庭/跨机构 JWS 签名 `AgentCard` + 衰减 `Mandate` 的受限 `A2A` 委托 | 仅支持 1 人对 1 Agent 单聊，或仅支持同质子代理 |
-| **D-21** | **群组控场与防冲突机制** | **`Router` 单声道对外发声 + `ANP-P9` 结构化提及（`@点名 / cc / @agents / @humans`）+ `max_hops=3` 熔断 + 房间无状态协调席（Facilitator）+ `last_seen_seq` 未读水位线提交屏障** | 无协调席纯对等自由抢答与乐观覆盖；或禁止私人 Agent 在群内发声协同 |
-| **D-22** | **语音与端侧小模型策略** | 内置 VAD 为**自研、确定性、常量可折叠的 16 kHz 单分支图的纯 Rust 转写**（帧能量 + 周期性；`tract-onnx` 仅作**开发期**解析/折叠/数值一致性校验，因其引入 **19.35 MiB** 而不进默认构建）；**Silero 权重未随包分发**，换用学习型 VAD 是**功能默认启用前**的跟踪项。开启离线语音或本地语义向量检索时按需下载动态 `ort` 与量化模型（**强制 POSIX+Windows 双杀遥测**）；按需 `ort` 运行时加载器**延后实现**（当前已有 `OrtInitializer` 包装器与 `ORT_DISABLE_TELEMETRY` 环境轴，具体加载器随首个需要端侧推理的 surface 落地） | 安装包预塞 150MB 离线模型与 C++ ONNX 库；或硬绑单一云厂商语音 SDK；或在未替换学习型 VAD 前默认启用语音功能 |
+| **D-21** | **群组控场与防冲突机制【2026-11-28 修订：群房间不做自有显示，协议与控场保留】** | **`Router` 单声道对外发声 + `ANP-P9` 结构化提及（`@点名 / cc / @agents / @humans`）+ `max_hops=3` 熔断 + 房间无状态协调席（Facilitator）+ `last_seen_seq` 未读水位线提交屏障** | 无协调席纯对等自由抢答与乐观覆盖；或禁止私人 Agent 在群内发声协同 |
+| **D-22** | **语音与端侧小模型策略【2026-11-28 冻结：语音冻结】** | 内置 VAD 为**自研、确定性、常量可折叠的 16 kHz 单分支图的纯 Rust 转写**（帧能量 + 周期性；`tract-onnx` 仅作**开发期**解析/折叠/数值一致性校验，因其引入 **19.35 MiB** 而不进默认构建）；**Silero 权重未随包分发**，换用学习型 VAD 是**功能默认启用前**的跟踪项。开启离线语音或本地语义向量检索时按需下载动态 `ort` 与量化模型（**强制 POSIX+Windows 双杀遥测**）；按需 `ort` 运行时加载器**延后实现**（当前已有 `OrtInitializer` 包装器与 `ORT_DISABLE_TELEMETRY` 环境轴，具体加载器随首个需要端侧推理的 surface 落地） | 安装包预塞 150MB 离线模型与 C++ ONNX 库；或硬绑单一云厂商语音 SDK；或在未替换学习型 VAD 前默认启用语音功能 |
 | **D-23** | **安卓商店合规策略** | **双渠道分包**：上架 Google Play 等应用商店的 `store` 标准包走官方 `AppFunctions / Intents`（合并清单 **0 处 `AccessibilityService`**）；屏幕自动化 `Hands` 拆分为独立开源 `full` 增强包/插件 | 单一 APK 强塞 `AccessibilityService` 导致被 Google Play 拒审下架及 Android 17 系统拦截 |
-| **D-24** | **五端界面与底层 TUI 分工 + 生态范围** | 兼容保留各底层 Coding Agent 自带 TUI/IDE 体验；自建五端纯原生界面 100% 聚焦**三档认知密度（伴生极简态 / 承诺与群组工作台态 / 主权工程态）**；首发包含 **5 大标杆领域包**、**7 大通道族**及兼容 Hermes/OpenClaw 的受限 **`spine-bridge`** | 从零重写编码 TUI 替代 OpenCode/Claude 原生终端；或只做极客单一研发场景 |
+| **D-24** | **五端界面与底层 TUI 分工 + 生态范围【2026-11-28 修订：只保留检视一档并演化为治理面】** | 兼容保留各底层 Coding Agent 自带 TUI/IDE 体验；自建五端纯原生界面 100% 聚焦**三档认知密度（伴生极简态 / 承诺与群组工作台态 / 主权工程态）**；首发包含 **5 大标杆领域包**、**7 大通道族**及兼容 Hermes/OpenClaw 的受限 **`spine-bridge`** | 从零重写编码 TUI 替代 OpenCode/Claude 原生终端；或只做极客单一研发场景 |
 | **D-25** | **里程碑交付节奏** | **稳健 5-Sprint 纵向自举推进**（Sprint 1 单机双模核与 eWave → Sprint 2 `iroh` 与 Go Hub 漂移 → Sprint 3 `Super-Group` 群组/通道/领域包 → Sprint 4 Web 与三大原生桌面端 → Sprint 5 双原生移动端与终验） | 把全部五大纯原生 GUI 与移动引擎挤压在单轮冲刺导致尾轮失控 |
 
 ---
@@ -492,7 +494,7 @@
 - [x] **Step 1: 编写混音回声不自激、真人 150ms 插嘴触发、二进制增量 `<3MB` 及零遥测断言测试**
 - [x] **Step 2: 运行测试确认红灯**
 - [x] **Step 3a: 实现声学打断管线（含非线性/增益阶跃/混响回声与多流键控）、折叠 VAD、`reembed()` 升级联动与按需包验签/原子落盘**
-- [ ] **Step 3b: 接入具体动态 `ort` 运行时加载器**（当前仅 `OrtInitializer` 包装 + 环境轴 + `dynamic-ort` 桥接占位；待首个需要端侧推理的 surface 落地）
+- [ ] **【冻结 2026-11-28】Step 3b: 接入具体动态 `ort` 运行时加载器**（当前仅 `OrtInitializer` 包装 + 环境轴 + `dynamic-ort` 桥接占位；待首个需要端侧推理的 surface 落地）
 - [x] **Step 4: 验证通过并提交**
 
 ---
@@ -663,7 +665,7 @@
 
 ---
 
-### Task 5.1：`quetzalcoatl-nse-ffi` 与 iOS 纯原生客户端（`SwiftUI + SwiftAgent + FoundationModels`）
+### Task 5.1：【撤销 2026-11-28，000 号铁律】`quetzalcoatl-nse-ffi` 与 iOS 纯原生客户端（`SwiftUI + SwiftAgent + FoundationModels`）
 
 **Files:**
 - Create: `crates/bindings/quetzalcoatl-nse-ffi/{Cargo.toml,src/lib.rs}`
@@ -674,14 +676,14 @@
 - Consumes: `quetzalcoatl-uniffi`（主进程）、`quetzalcoatl-nse-ffi`（NSE 扩展）
 - Produces: iOS 纯原生三态 App（`SwiftAgent` 云端模型经 Rust `UniFFI` 安全流调用，iOS 26+ 离线自动切换 `FoundationModels` + `CompactOnDevice(4096)` 预算；NSE 解密写 `<AppGroup>/spine-spool/` 防 `0xdead10cc`；支持灵动岛、iOS 26 `BGContinuedProcessingTask`、`AVAudioEngine` VPIO 硬件回声消除插嘴与 Siri `App Intents`）。
 
-- [ ] **Step 1: 编写 `quetzalcoatl-nse-ffi` 峰值分配 `<12MB` 硬断言、spool 合并幂等测试及 4096 Token 预算裁剪测试**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 `quetzalcoatl-nse-ffi` 与 `surfaces/ios` 全部原生模块**
-- [ ] **Step 4: 验证通过并提交**
+- [撤销] **Step 1: 编写 `quetzalcoatl-nse-ffi` 峰值分配 `<12MB` 硬断言、spool 合并幂等测试及 4096 Token 预算裁剪测试**
+- [撤销] **Step 2: 运行测试确认红灯**
+- [撤销] **Step 3: 实现 `quetzalcoatl-nse-ffi` 与 `surfaces/ios` 全部原生模块**
+- [撤销] **Step 4: 验证通过并提交**
 
 ---
 
-### Task 5.2：Android 纯原生客户端、`JetBrains Koog v1.3` 内嵌与 `store / full` 合规双包（`surfaces/android`）
+### Task 5.2：【撤销 2026-11-28，000 号铁律】Android 纯原生客户端、`JetBrains Koog v1.3` 内嵌与 `store / full` 合规双包（`surfaces/android`）
 
 **Files:**
 - Create: `surfaces/android/{build.gradle.kts,app/build.gradle.kts,app/src/main/,app/src/store/,app/src/full/}`
@@ -691,10 +693,10 @@
 - Consumes: `quetzalcoatl-uniffi`, `ai.koog:koog-agents:1.3.0`
 - Produces: `quetzalcoatl-android-store.apk`（Google Play 合规版，走 `AppFunctions / Intents`，零 `AccessibilityService`）与 `quetzalcoatl-android-full.apk`（含可选 `Hands` 无障碍增强模块），内置 `VOICE_COMMUNICATION` 硬件回声消除与网络切换无感重连。
 
-- [ ] **Step 1: 编写合并后 `AndroidManifest.xml` 静态扫描单测（若 `store` 包出现 `AccessibilityService` 或 `dataSync` 立即失败）及 `Koog` `AIAgentFeature` 良知拦截单测**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 实现 Jetpack Compose 三态界面、`Koog` 内嵌引擎、声学回声消除与双渠道构建配置**
-- [ ] **Step 4: 验证双包构建与单测全绿并提交**
+- [撤销] **Step 1: 编写合并后 `AndroidManifest.xml` 静态扫描单测（若 `store` 包出现 `AccessibilityService` 或 `dataSync` 立即失败）及 `Koog` `AIAgentFeature` 良知拦截单测**
+- [撤销] **Step 2: 运行测试确认红灯**
+- [撤销] **Step 3: 实现 Jetpack Compose 三态界面、`Koog` 内嵌引擎、声学回声消除与双渠道构建配置**
+- [撤销] **Step 4: 验证双包构建与单测全绿并提交**
 
 ---
 
