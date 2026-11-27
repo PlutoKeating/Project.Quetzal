@@ -1,19 +1,24 @@
 # Quetzalcoatl（羽蛇神）
 
-**一个人、一台机器、一条只属于你的签名记忆脊柱。**
+**你的 Agent 的海：一份只属于你、跟着你的设备走的人格与记忆。**
 
-Quetzalcoatl 是一个本地优先的个人主权智能体系统：你的记忆、良知、关系与工作产物全部以
-单写者签名的 HLC 事件脊柱保存，端到端加密后才能离开设备；具体的大模型供应商、聊天通道与
-业务工具对它而言都是可替换的外设。它不提供"云端人格"，也不会把长期记忆托管给任何中心服务。
+Quetzalcoatl 不是聊天应用，也不是又一个 agent 框架。它把一个 Agent 的人格、价值、关系与记忆
+存成一份带权威等级并签名的数据；在你已经在用的宿主（Claude Code、Codex、OpenCode 等）每次调用
+模型之前把它送进去，调用之后把输出当作信号、经独立审查才写回。对话和推理循环永远是宿主的。
+数据以单写者签名的 HLC 事件脊柱保存，端到端加密后才能离开设备，不托管给任何中心服务。
 
-- 当前工作区版本：`2.0.0-alpha.1`（尚未执行 `v2.0.0` 签名发版；发版门禁见计划 Task 5.4）
+> **转向进行中（2026-11-28）**：本仓库正按 `.opencode/plans/2026-11-28-quetzalcoatl-host-native-plan.md` 从「自家对话端」
+> 转向「住进宿主」。下文仍有描述自家对话界面与 `qz chat` 的段落，它们会随该计划的 S1 与 S5 拆除；
+> 逐场景的需求与现状以 [docs/USER_SCENARIOS.md](docs/USER_SCENARIOS.md) 为准。
+
+- 当前工作区版本：`2.0.0-alpha.4`（预发布；尚未执行 `v2.0.0` 签名发版）
 - 唯一终端简写：`qz`；其余二进制/服务/包名一律全拼 `quetzalcoatl-*`
 - 许可证：核心与客户端 `Apache-2.0`；`hub/` 引导服 `AGPL-3.0-only`（见 [许可证](#许可证)）
 - 已有自动化证据：`ConscienceBench` T1/T2/T3 认证报告
   [docs/bench/conscience-bench-2026-11-25.md](docs/bench/conscience-bench-2026-11-25.md)
 
-> **诚实边界**：本 README 只描述仓库中可验证的代码与脚本。iOS / Android 客户端由计划
-> Task 5.1 / 5.2 交付；本轮验证机暂停 VM，语音播报、VoiceOver、Narrator、TalkBack 等
+> **诚实边界**：本 README 只描述仓库中可验证的代码与脚本。iOS / Android 对话端已撤销
+> （不做自己的对话客户端）；本轮验证机暂停 VM，VoiceOver、Narrator 等
 > 实机无障碍走查均标记为 `Deferred (VMs paused by owner)`，详见
 > [docs/ACCESSIBILITY_CHECKLIST.md](docs/ACCESSIBILITY_CHECKLIST.md)。
 
@@ -43,7 +48,7 @@ Git 服务器的工具（V1 的 Git 灵魂仓库已彻底移除，见
 | Linux | `surfaces/linux`：`gtk4-rs` + 动态 `libadwaita-1` | 已实现，含 `--self-test` 无头冒烟 |
 | macOS | `surfaces/macos`：SwiftUI + `NSAccessibility` 播报 | 已实现；VoiceOver 实机走查 `Deferred (VMs paused by owner)` |
 | Windows | `surfaces/windows`：WinUI 3 + UI Automation + 原生托盘 | 已实现；窗口期 UIA 走查 `Deferred (VMs paused by owner)` |
-| iOS / Android | `SwiftAgent + FoundationModels` / `Jetpack Compose + Koog` | 由 Task 5.1 / 5.2 交付；运行时验收 `Deferred (VMs paused by owner)` |
+| iOS / Android | — | 对话端已撤销；手机上的治理面与推送另行审批 |
 
 共同契约：三档认知密度（陪伴 / 工作台 / 检视）、流式回复不阻塞 UI 线程、双通道无障碍播报、
 本机 `quetzalcoatld` 在线时一律走本地认证 IPC 薄客户端（防 `SQLITE_BUSY` 与双写）。

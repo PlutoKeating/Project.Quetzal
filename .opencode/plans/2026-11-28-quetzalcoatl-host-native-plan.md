@@ -146,22 +146,22 @@
 - Create: `.opencode/plans/2026-11-28-quetzalcoatl-host-native-plan.md`
 - Modify: `.opencode/plans/2026-11-24-quetzalcoatl-v2-architecture-and-plan.md`
 
-- [ ] **Step 1: 落盘本计划；旧计划顶部加指向本计划的状态说明，Task 5.1 / 5.2 标注撤销，Step 3b 标注冻结，D-11、D-12、D-21、D-22、D-24 标注处置**
+- [x] **Step 1: 落盘本计划；旧计划顶部加指向本计划的状态说明，Task 5.1 / 5.2 标注撤销，Step 3b 标注冻结，D-11、D-12、D-21、D-22、D-24 标注处置**
 
 ### Task 0.2：宪章修订
 
 **Files:**
 - Modify: `AGENTS.md`
 
-- [ ] **Step 1: 第 5 节最前加入 000 号铁律与海/浪判据；第 1 节冷启动清单加入两份依据文档与本计划；第 4、5 节撤掉移动端内嵌引擎条款并写入 P3、P5；第 6 节的 12、15、16 标注冻结或撤销（保留原文）**
+- [x] **Step 1: 第 5 节最前加入 000 号铁律与海/浪判据；第 1 节冷启动清单加入两份依据文档与本计划；第 4、5 节撤掉移动端内嵌引擎条款并写入 P3、P5；第 6 节的 12、15、16 标注冻结或撤销（保留原文）**
 
 ### Task 0.3：定位文档对齐
 
 **Files:**
 - Modify: `README.md`、`docs/ARCHITECTURE.md`、`docs/USER_SCENARIOS.md`
 
-- [ ] **Step 1: 改写定位段；`docs/USER_SCENARIOS.md` 第 6 节记下拍板结果**
-- [ ] **Step 2: 运行验证命令，全绿后提交**
+- [x] **Step 1: 改写定位段；`docs/USER_SCENARIOS.md` 第 6 节记下拍板结果**
+- [x] **Step 2: 运行验证命令，全绿后提交**
 
 ---
 
