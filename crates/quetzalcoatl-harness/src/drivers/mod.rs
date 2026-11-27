@@ -131,6 +131,11 @@ pub trait HarnessDriver: Send + Sync {
     fn execute_turn(&self, ctx: &HarnessLaunchContext, prompt: &str) -> Result<HarnessRunOutcome>;
 }
 
+/// 受管运行标记：守护进程自己拉起的宿主进程都带这个环境变量。
+/// 装在用户层的挂载（钩子、MCP、状态栏命令）见到它必须立即退出——
+/// 否则受管运行会触发用户层挂载，既形成递归，也会把后台运行的产出误记成用户的相处记录。
+pub const MANAGED_RUN_ENV: &str = "QUETZALCOATL_MANAGED_RUN";
+
 pub(crate) fn build_common_sandbox_env(ctx: &HarnessLaunchContext) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
     let default_path = if cfg!(windows) {
@@ -167,6 +172,7 @@ pub(crate) fn build_common_sandbox_env(ctx: &HarnessLaunchContext) -> BTreeMap<S
         String::from("1"),
     );
     env.insert(String::from("ORT_DISABLE_TELEMETRY"), String::from("1"));
+    env.insert(String::from(MANAGED_RUN_ENV), String::from("1"));
 
     if let Some(spec) = &ctx.sandbox_spec_path {
         env.insert(

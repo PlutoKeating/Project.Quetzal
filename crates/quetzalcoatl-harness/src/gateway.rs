@@ -1531,6 +1531,11 @@ fn write_mode_0600(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// 宿主配置目录里真正承载登录凭据的文件名。存根只复制这些文件：
+/// 用户层的设置（钩子、已启用插件）、缓存与统计都不是凭据，带进受管运行只会触发用户自己的挂载。
+const CLAUDE_CREDENTIAL_FILES: &[&str] = &[".credentials.json", "credentials.json"];
+const CODEX_CREDENTIAL_FILES: &[&str] = &["auth.json"];
+
 fn copy_and_strip_cred_dir(
     host_dir: &Path,
     stub_dir: &Path,
@@ -1560,10 +1565,12 @@ fn copy_and_strip_cred_dir(
         let Some(name) = name_os.to_str() else {
             continue;
         };
-        if !Path::new(name)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
-        {
+        let credential_files = if is_claude {
+            CLAUDE_CREDENTIAL_FILES
+        } else {
+            CODEX_CREDENTIAL_FILES
+        };
+        if !credential_files.contains(&name) {
             continue;
         }
         let raw = fs::read(entry.path()).map_err(|e| QuetzalcoatlError::StorageError {

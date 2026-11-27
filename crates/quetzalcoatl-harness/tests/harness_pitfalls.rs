@@ -21,8 +21,8 @@ use quetzalcoatl_ewave::{
 use quetzalcoatl_harness::{
     AcpJsonRpcDriver, ClaudeCodeDriver, CodexDriver, CodingAgentKind, DiscoveryConfig,
     GatewayConfig, GatewaySessionConfig, HarnessDriver, HarnessEvent, HarnessLaunchContext,
-    HttpsUpstreamTransport, LoopbackGateway, McpBridgeSession, OpenCodeDriver, PiDriver,
-    WorktreeManager, can_probe_linux_secret_service, count_anthropic_cache_controls,
+    HttpsUpstreamTransport, LoopbackGateway, MANAGED_RUN_ENV, McpBridgeSession, OpenCodeDriver,
+    PiDriver, WorktreeManager, can_probe_linux_secret_service, count_anthropic_cache_controls,
     discover_coding_agents, gemini_cli_env, host_oauth_available, matches_agent_version_signature,
     prepare_stripped_oauth_stubs,
 };
@@ -414,6 +414,18 @@ fn gateway_enforces_256bit_cap_token_qz_token_401_and_oauth_refresh_token_stripp
         }"#,
     )?;
 
+    // 用户层的宿主设置（钩子、已启用插件）与缓存文件不是凭据，绝不能被带进受管运行的存根：
+    // 否则受管运行会触发用户自己装的挂载（包括我们装进用户层的那一份），形成递归。
+    fs::write(
+        host_claude.join("settings.json"),
+        r#"{
+            "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "user-level-hook"}]}]},
+            "enabledPlugins": {"quetzalcoatl@quetzalcoatl-local": true}
+        }"#,
+    )?;
+    fs::write(host_claude.join("stats-cache.json"), r#"{"sessions": 3}"#)?;
+    fs::write(host_codex.join("version.json"), r#"{"latest": "0.0.0"}"#)?;
+
     let (conscience, graph) = build_sample_conscience_and_graph()?;
     let assembled = ContextAssembler::assemble(
         &conscience,
@@ -445,6 +457,24 @@ fn gateway_enforces_256bit_cap_token_qz_token_401_and_oauth_refresh_token_stripp
         Some("acct_plus_sub_77")
     );
 
+    let mut claude_stub_files: Vec<String> = fs::read_dir(&stub_probe.claude_config_dir)?
+        .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+        .collect();
+    claude_stub_files.sort();
+    assert_eq!(
+        claude_stub_files,
+        vec![String::from(".credentials.json")],
+        "Claude 存根只允许出现凭据文件，用户层 settings.json 等一律不带"
+    );
+    let mut codex_stub_files: Vec<String> = fs::read_dir(&stub_probe.codex_home_dir)?
+        .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+        .collect();
+    codex_stub_files.sort();
+    assert_eq!(
+        codex_stub_files,
+        vec![String::from("auth.json")],
+        "Codex 存根只允许出现凭据文件"
+    );
     let stripped_claude_json =
         fs::read_to_string(stub_probe.claude_config_dir.join(".credentials.json"))?;
     let stripped_codex_json = fs::read_to_string(stub_probe.codex_home_dir.join("auth.json"))?;
@@ -1883,6 +1913,17 @@ fn regression_r2_all_four_mcp_202_native_configs_subdir_delete_git_mv_and_secure
     assert!(claude_settings_json["hooks"]["PreCompact"].is_array());
 
     let codex_plan = CodexDriver.build_launch_plan(&ctx, "prompt")?;
+    for (name, plan_env) in [
+        ("OpenCode", &oc_plan.env),
+        ("Claude Code", &claude_plan.env),
+        ("Codex", &codex_plan.env),
+    ] {
+        assert_eq!(
+            plan_env.get(MANAGED_RUN_ENV).map(String::as_str),
+            Some("1"),
+            "{name} 的受管运行必须带受管标记，让用户层挂载见到即退出"
+        );
+    }
     assert!(
         codex_plan.args.iter().any(|a| a.starts_with("notify=[")),
         "CodexDriver 在挂载渐进增强器时必须传入原生 -c notify=[...] 钩子参数"
