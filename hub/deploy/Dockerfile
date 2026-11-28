@@ -14,6 +14,9 @@ ARG TARGETOS=linux
 ARG TARGETARCH
 # 写进 /v1/meta 的 server_version 与指标 quetzalcoatl_hub_build_info；不传则显示 dev。
 ARG VERSION=
+# 拉不到 proxy.golang.org 的网络可以换成镜像，例如 --build-arg GOPROXY=https://goproxy.cn,direct。
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

@@ -64,6 +64,7 @@ curl http://127.0.0.1:8443/healthz
 ```
 
 `HUB_VERSION` 只是写进二进制的版本号，会显示在 `/v1/meta` 里；请填你实际检出的版本。
+构建时拉不到 `proxy.golang.org`（例如国内网络）就加上 `HUB_GOPROXY=https://goproxy.cn,direct`。
 
 `hub.env` 里每个公网部署都要改的两项：
 

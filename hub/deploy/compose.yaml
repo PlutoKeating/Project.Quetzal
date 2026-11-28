@@ -24,6 +24,7 @@ services:
       dockerfile: deploy/Dockerfile
       args:
         VERSION: ${HUB_VERSION:-}
+        GOPROXY: ${HUB_GOPROXY:-https://proxy.golang.org,direct}
     restart: unless-stopped
     env_file:
       - hub.env
