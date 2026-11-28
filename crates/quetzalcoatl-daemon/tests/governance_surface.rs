@@ -358,3 +358,58 @@ fn an_export_carries_him_to_an_empty_home_and_only_the_passphrase_opens_it() -> 
     );
     Ok(())
 }
+
+#[test]
+fn notes_and_chat_exports_come_in_as_one_batch_and_can_be_taken_back_out() -> TestResult {
+    let root = common::temp_root("bring")?;
+    let _guard = TempGuard(root.clone());
+    let notes = root.join("notes");
+    fs::create_dir_all(notes.join("sub"))?;
+    fs::write(
+        notes.join("项目.md"),
+        "# 发布\n鸢尾花计划的发布日定在周四。\n# 数据库\n生产迁移先在预发环境演练。\n",
+    )?;
+    fs::write(
+        notes.join("sub/conversations.json"),
+        r#"[{"name":"旅行","chat_messages":[{"sender":"human","text":"我十月去京都，住鸭川附近"},{"sender":"assistant","text":"好的"}]}]"#,
+    )?;
+    fs::write(notes.join("photo.png"), [0u8, 1, 2])?;
+    let daemon = QuetzalcoatlDaemon::start(DaemonConfig::new(root.join("h")))?;
+    let client = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+
+    let brought = call(&client, &IpcRequest::ImportNotes { paths: vec![notes] })?;
+    assert_eq!(brought["data"]["added"], 3, "{brought}");
+    assert_eq!(brought["data"]["files"], 2, "{brought}");
+    let batch = brought["data"]["batch_id"].as_str().ok_or("batch")?.to_owned();
+    let found = call(
+        &client,
+        &IpcRequest::SeaMemories {
+            query: Some(String::from("京都 鸭川")),
+            state: None,
+            cursor: None,
+            limit: None,
+        },
+    )?;
+    let hit = &found["data"]["items"][0];
+    assert!(hit["text"].as_str().unwrap_or_default().contains("我十月去京都"));
+    assert!(!hit["text"].as_str().unwrap_or_default().contains("好的"));
+    assert_eq!(hit["source"]["kind"], "import");
+    assert!(hit["source"]["label"].as_str().unwrap_or_default().contains(&batch));
+
+    let undone = call(&client, &IpcRequest::ImportUndo { batch_id: batch })?;
+    assert_eq!(undone["data"]["erased"], 3, "{undone}");
+    let after = call(
+        &client,
+        &IpcRequest::SeaMemories {
+            query: None,
+            state: Some(String::from("all")),
+            cursor: None,
+            limit: Some(200),
+        },
+    )?;
+    assert!(
+        !after.to_string().contains("鸢尾花计划"),
+        "整批撤回后一条不剩: {after}"
+    );
+    Ok(())
+}

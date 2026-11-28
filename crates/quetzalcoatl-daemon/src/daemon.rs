@@ -1721,6 +1721,14 @@ impl SharedDaemonCore {
                 self.handle_host_turn_end(&host, &session_id, transcript_path),
                 false,
             ),
+            IpcRequest::ImportNotes { paths } => match self.import_notes(&paths) {
+                Ok(report) => (IpcResponse::ImportNotes(report), false),
+                Err(err) => ipc_error_response(err),
+            },
+            IpcRequest::ImportUndo { batch_id } => match self.undo_import(&batch_id) {
+                Ok(report) => (IpcResponse::ImportUndo(report), false),
+                Err(err) => ipc_error_response(err),
+            },
             IpcRequest::SayItPull => match self.pull_sayit() {
                 Ok(report) => (IpcResponse::SayItPull(report), false),
                 Err(err) => (

@@ -57,7 +57,10 @@ fn serve(state: Arc<Mutex<FakeSayIt>>) -> Result<String, Box<dyn Error>> {
             let (status, payload) = if !authorized {
                 ("401 Unauthorized", json!({"error": "unauthorized"}))
             } else if target == "/v1/me" {
-                ("200 OK", json!({"user_hash": "abc123", "account": "SayIt abc123", "head_rev": 0}))
+                (
+                    "200 OK",
+                    json!({"user_hash": "abc123", "account": "SayIt abc123", "head_rev": 0}),
+                )
             } else if let Some(query) = target.strip_prefix("/v1/records?") {
                 let after: u64 = query
                     .split('&')
@@ -76,7 +79,10 @@ fn serve(state: Arc<Mutex<FakeSayIt>>) -> Result<String, Box<dyn Error>> {
                     .last()
                     .and_then(|r| r["rev"].as_u64())
                     .unwrap_or(after);
-                ("200 OK", json!({"records": records, "next": next, "more": false, "head_rev": head}))
+                (
+                    "200 OK",
+                    json!({"records": records, "next": next, "more": false, "head_rev": head}),
+                )
             } else if method == "PUT" && target.starts_with("/v1/consumers/") {
                 let rev = serde_json::from_slice::<Value>(&body)
                     .ok()
@@ -133,7 +139,10 @@ fn what_was_said_in_sayit_flows_in_and_edits_and_deletions_follow() -> TestResul
     let base = serve(Arc::clone(&state))?;
     if let Ok(mut guard) = state.lock() {
         guard.changes = vec![
-            (1, record("s_1", 1, "周末咖啡车出摊", "周六上午九点在河边。")),
+            (
+                1,
+                record("s_1", 1, "周末咖啡车出摊", "周六上午九点在河边。"),
+            ),
             (2, record("s_2", 2, "鸢尾花计划", "发布日定在周四。")),
         ];
     }
@@ -155,21 +164,37 @@ fn what_was_said_in_sayit_flows_in_and_edits_and_deletions_follow() -> TestResul
     let first = serde_json::to_value(client.call(&IpcRequest::SayItPull)?)?;
     assert_eq!(first["data"]["added"], 2, "{first}");
     let now = texts(&client)?;
-    assert!(now.iter().any(|t| t.contains("周六上午九点在河边")), "{now:?}");
+    assert!(
+        now.iter().any(|t| t.contains("周六上午九点在河边")),
+        "{now:?}"
+    );
     assert!(now.iter().any(|t| t.contains("发布日定在周四")), "{now:?}");
 
     // 第一条改了，第二条删了。
     if let Ok(mut guard) = state.lock() {
-        guard.changes.push((3, record("s_1", 3, "周末咖啡车出摊", "改到周日上午十点。")));
-        guard.changes.push((4, json!({"id": "s_2", "rev": 4, "deleted": true})));
+        guard
+            .changes
+            .push((3, record("s_1", 3, "周末咖啡车出摊", "改到周日上午十点。")));
+        guard
+            .changes
+            .push((4, json!({"id": "s_2", "rev": 4, "deleted": true})));
     }
     let second = serde_json::to_value(client.call(&IpcRequest::SayItPull)?)?;
     assert_eq!(second["data"]["updated"], 1, "{second}");
     assert_eq!(second["data"]["erased"], 1, "{second}");
     let now = texts(&client)?;
-    assert!(now.iter().any(|t| t.contains("改到周日上午十点")), "{now:?}");
-    assert!(!now.iter().any(|t| t.contains("周六上午九点")), "旧版本不留: {now:?}");
-    assert!(!now.iter().any(|t| t.contains("发布日定在周四")), "删掉的抹除: {now:?}");
+    assert!(
+        now.iter().any(|t| t.contains("改到周日上午十点")),
+        "{now:?}"
+    );
+    assert!(
+        !now.iter().any(|t| t.contains("周六上午九点")),
+        "旧版本不留: {now:?}"
+    );
+    assert!(
+        !now.iter().any(|t| t.contains("发布日定在周四")),
+        "删掉的抹除: {now:?}"
+    );
 
     let cursors = state.lock().map(|s| s.cursors.clone()).unwrap_or_default();
     assert_eq!(cursors, vec![2, 4], "落盘之后才上报游标，且只增");

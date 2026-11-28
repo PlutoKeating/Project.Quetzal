@@ -47,6 +47,7 @@ Commands:
   delegate    Hand one task to a local coding agent in an isolated worktree; verified in the clean room
   export      Export readable Markdown + Spine ZIP; with a passphrase it also carries a recovery bundle
   import      Restore an export into an empty home (asks for the export passphrase)
+  bring       Bring in notes, host rule files and chat exports as memories; --undo <batch> takes a batch back out
   reflect     Have him look back on recent sessions now (normally runs by itself while you are away);
               --quiet stops him from bringing things up first, --speak-first turns it back on
   import-v1   Idempotently migrate legacy V1 soul repo and SQLite sessions
@@ -2095,6 +2096,69 @@ fn read_passphrase(from_stdin: bool, prompt: &str) -> Result<String> {
     Ok(passphrase)
 }
 
+/// `qz bring <文件或目录>...`：把已有的笔记、规则与对话导出带进来；`--undo <批次>` 整批撤回。
+fn run_bring(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut undo: Option<String> = None;
+    let mut paths: Vec<PathBuf> = Vec::new();
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
+            "--undo" => undo = Some(parse_flag_value(args, &mut i, "--undo")?.clone()),
+            other => paths.push(PathBuf::from(other)),
+        }
+        i += 1;
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?.with_timeout(Duration::from_secs(600));
+    if let Some(batch_id) = undo {
+        return match client.call(&IpcRequest::ImportUndo { batch_id })? {
+            IpcResponse::ImportUndo(report) => {
+                println!(
+                    "已撤回批次 {}：抹除了 {} 条。",
+                    report.batch_id, report.erased
+                );
+                Ok(())
+            }
+            IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+            other => Err(QuetzalcoatlError::StorageError {
+                detail: format!("未知的 IPC 响应: {other:?}"),
+            }),
+        };
+    }
+    if paths.is_empty() {
+        return Err(QuetzalcoatlError::StorageError {
+            detail: String::from(
+                "用法: qz bring <文件或目录>...（Markdown、纯文本、对话导出的 conversations.json）；qz bring --undo <批次>",
+            ),
+        });
+    }
+    let paths = paths
+        .into_iter()
+        .map(|p| fs::canonicalize(&p).unwrap_or(p))
+        .collect();
+    match client.call(&IpcRequest::ImportNotes { paths })? {
+        IpcResponse::ImportNotes(report) => {
+            println!(
+                "带进来 {} 条（来自 {} 个文件），批次 {}。不想要了：qz bring --undo {}",
+                report.added, report.files, report.batch_id, report.batch_id
+            );
+            if !report.skipped_files.is_empty() {
+                println!(
+                    "没有读的文件（格式不认识或太大）：{}",
+                    report.skipped_files.len()
+                );
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
 /// `qz reflect`：让他现在就回想一次最近的相处（平时在你不在场时自己进行）。
 fn run_reflect(args: &[String]) -> Result<()> {
     let quiet = args.iter().any(|a| a == "--quiet");
@@ -2368,6 +2432,7 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "sayit" => run_sayit(rest),
         "import" => run_import(rest),
         "reflect" => run_reflect(rest),
+        "bring" => run_bring(rest),
         "webhook" => run_webhook(rest),
         "domain" => run_domain(rest),
         other => Err(QuetzalcoatlError::StorageError {

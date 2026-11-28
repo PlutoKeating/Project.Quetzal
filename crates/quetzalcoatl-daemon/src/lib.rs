@@ -19,6 +19,7 @@ pub mod platform_crypto;
 /// 官方 Hub 的地址：`qz login` 不给 `--hub` 时用它。
 pub const OFFICIAL_HUB_URL: &str = "https://sync.quetzal.plutokeating.beer";
 
+pub mod notes_import;
 pub mod pair_adopt;
 pub mod reflection;
 pub mod sayit_pull;

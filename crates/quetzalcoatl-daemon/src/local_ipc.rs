@@ -186,6 +186,14 @@ pub enum IpcRequest {
     ReflectNow,
     /// 从 SayIt 拉一次（平时每隔几分钟自己拉）。
     SayItPull,
+    /// 把笔记、宿主的规则与记忆文件、对话导出包带进来（一批，可整批撤回）。
+    ImportNotes {
+        paths: Vec<PathBuf>,
+    },
+    /// 撤回一批导入：逐条抹除。
+    ImportUndo {
+        batch_id: String,
+    },
     /// 治理面（docs/GOVERNANCE_SURFACE.md 第 3 节）：只看和签。
     SeaOverview,
     SeaSelf,
@@ -454,6 +462,8 @@ pub enum IpcResponse {
     HostStatusLine(HostStatusLineView),
     Reflection(crate::reflection::ReflectionReport),
     SayItPull(crate::sayit_pull::SayItPullReport),
+    ImportNotes(crate::notes_import::ImportReport),
+    ImportUndo(crate::notes_import::UndoReport),
     SeaOverview(crate::sea_governance::SeaOverview),
     SeaSelf(crate::sea_governance::SeaSelf),
     SeaUser(crate::sea_governance::SeaUser),

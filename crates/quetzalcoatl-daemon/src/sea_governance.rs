@@ -352,7 +352,10 @@ fn memory_source(entry: &MemoryEntry) -> MemorySource {
         .first()
         .map(String::as_str)
         .unwrap_or_default();
-    let (kind, label) = if first_source.starts_with("sayit") {
+    let (kind, label) = if let Some(rest) = first_source.strip_prefix("import:") {
+        let batch = rest.split(':').next().unwrap_or_default();
+        ("import", format!("你带进来的笔记（批次 {batch}）"))
+    } else if first_source.starts_with("sayit") {
         ("sayit", String::from("SayIt"))
     } else if written_by.contains("import") || first_source.starts_with("v1") {
         ("import", String::from("从 V1 导入"))
