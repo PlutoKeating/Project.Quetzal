@@ -154,7 +154,8 @@ impl SpineSyncActor {
 
         let mut to_ingest = Vec::new();
         for rp in remote_packs {
-            if !existing_ids.contains(&rp.pack_id) && rp.aad.device_id != local_dev_id {
+            // 本机设备写的包也要（找回的设备本地没有），已经有的按包编号挡掉。
+            if !existing_ids.contains(&rp.pack_id) {
                 existing_ids.insert(rp.pack_id);
                 to_ingest.push(rp);
             }

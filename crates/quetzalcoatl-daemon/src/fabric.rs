@@ -1271,9 +1271,24 @@ impl DaemonFabricRuntime {
         if grew || got_keys {
             let _ = core.resync_sea_from_spine();
         }
+        // 有应急码时，恢复包变了就交给 Hub。
+        if let Ok(client) = self.hub_client(Some(&token)) {
+            let _ = core.upload_recovery_kit(&client, &self.rt);
+        }
         self.last_sync_ok_ms.store(now_unix_ms(), Ordering::SeqCst);
         self.last_sync_failed.store(false, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// 立刻把恢复包交给 Hub（刚生成应急码时）。没登录 Hub 时返回假。
+    pub(crate) fn upload_recovery_kit_now(&self) -> Result<bool> {
+        let Some(token) = self.session_token() else {
+            return Ok(false);
+        };
+        let Some(core) = self.core() else {
+            return Ok(false);
+        };
+        core.upload_recovery_kit(&self.hub_client(Some(&token))?, &self.rt)
     }
 
     /// 同步一次；失败了记下来，给状态栏与治理面看。

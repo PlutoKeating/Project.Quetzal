@@ -48,6 +48,8 @@ Commands:
   export      Export readable Markdown + Spine ZIP; with a passphrase it also carries a recovery bundle
   import      Restore an export into an empty home (asks for the export passphrase)
   approve     List what waits for your decision; approve <id> applies it, --deny drops it
+  recovery-code  Create (or replace) the emergency code that recovers him when every device is lost
+  recover     On a new machine, bring him back with the emergency code and your login PIN
   bring       Bring in notes, host rule files, chat exports and character cards as memories;
               --undo <batch> takes a batch back out; --watch <dir> keeps a notes folder flowing in
   reflect     Have him look back on recent sessions now (normally runs by itself while you are away);
@@ -2263,6 +2265,123 @@ fn read_passphrase(from_stdin: bool, prompt: &str) -> Result<String> {
     Ok(passphrase)
 }
 
+/// `qz recovery-code`：生成（或换掉）应急码；`--status` 只看现状。
+fn run_recovery_code(args: &[String]) -> Result<()> {
+    let status_only = args.iter().any(|a| a == "--status");
+    let rest: Vec<String> = args.iter().filter(|a| *a != "--status").cloned().collect();
+    let qz_home = resolve_quetzalcoatl_home(parse_optional_home(&rest)?);
+    let client = require_daemon(&qz_home)?.with_timeout(Duration::from_secs(120));
+    let request = if status_only {
+        IpcRequest::RecoveryCodeStatus
+    } else {
+        IpcRequest::RecoveryCodeCreate
+    };
+    match client.call(&request)? {
+        IpcResponse::RecoveryCode(status) => {
+            if let Some(code) = &status.code {
+                println!("应急码（只显示这一次，抄在安全的地方）：\n\n    {code}\n");
+                println!(
+                    "所有设备都丢了时，在新机器上执行 qz recover，输入它与登录口令，就能把他找回来。"
+                );
+                println!(
+                    "Hub 上只存用它封好的密文。再执行一次 qz recovery-code 会换一个新码，旧的作废。"
+                );
+            } else if !status.has_code {
+                println!("还没有应急码：执行 qz recovery-code 生成一个。");
+            }
+            if status.uploaded {
+                println!("恢复包已经交给 Hub，之后每次同步都会更新。");
+            } else if status.has_code {
+                println!("恢复包还没交给 Hub：接上 Hub（qz login）之后，下一次同步就会交。");
+            }
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
+/// `qz recover`：所有设备都丢了时，在新机器的空目录里用应急码与登录口令找回他。
+fn run_recover(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut hub: Option<String> = None;
+    let mut ca_file: Option<PathBuf> = None;
+    let mut from_stdin = false;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
+            "--hub" => hub = Some(parse_flag_value(args, &mut i, "--hub")?.clone()),
+            "--ca-file" => {
+                ca_file = Some(PathBuf::from(parse_flag_value(args, &mut i, "--ca-file")?))
+            }
+            "--stdin" => from_stdin = true,
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!(
+                        "qz recover 不认识参数 {other}（可用：--hub <地址>、--ca-file <证书>、--home <目录>、--stdin）"
+                    ),
+                });
+            }
+        }
+        i += 1;
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    if IpcClient::connect_from_home(&qz_home)?.is_some() {
+        return Err(QuetzalcoatlError::PermissionDenied {
+            detail: String::from(
+                "守护进程正在运行：找回只放进一个空目录。先 qz down，或者用 --home 指向一个新目录。",
+            ),
+        });
+    }
+    let hub = hub
+        .or_else(|| {
+            std::env::var("QUETZALCOATL_HUB_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        })
+        .unwrap_or_else(|| String::from(quetzalcoatl_daemon::OFFICIAL_HUB_URL));
+    let code = read_visible_line(from_stdin, "应急码: ")?;
+    let pin = read_passphrase(from_stdin, "登录口令: ")?;
+    let ca_file = ca_file.or_else(|| {
+        std::env::var_os("QUETZALCOATL_FABRIC_HUB_CA_FILE")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    });
+    let report = quetzalcoatl_daemon::recovery_kit::recover(
+        &qz_home,
+        &hub,
+        ca_file.as_deref(),
+        &code,
+        &pin,
+    )?;
+    println!(
+        "找回了（{}）。现在执行 qz up --fabric-hub {hub}，同步会把他的海拉回来。",
+        report.agent_id
+    );
+    Ok(())
+}
+
+/// 读一行看得见的输入（应急码）。
+fn read_visible_line(from_stdin: bool, prompt: &str) -> Result<String> {
+    use std::io::{BufRead, IsTerminal};
+    let stdin = std::io::stdin();
+    if !from_stdin && stdin.is_terminal() {
+        eprint!("{prompt}");
+        let _ = std::io::stderr().flush();
+    }
+    let mut line = String::new();
+    stdin
+        .lock()
+        .read_line(&mut line)
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("读输入失败: {e}"),
+        })?;
+    Ok(line.trim().to_owned())
+}
+
 /// `qz approve`：列出等你拍板的事；`qz approve <编号>` 合进去，加 `--deny` 不要。
 fn run_approve(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
@@ -2746,6 +2865,8 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "reflect" => run_reflect(rest),
         "bring" => run_bring(rest),
         "approve" => run_approve(rest),
+        "recovery-code" => run_recovery_code(rest),
+        "recover" => run_recover(rest),
         "webhook" => run_webhook(rest),
         "domain" => run_domain(rest),
         other => Err(QuetzalcoatlError::StorageError {

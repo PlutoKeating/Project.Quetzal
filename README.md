@@ -50,6 +50,7 @@ qz open          # 治理面：他、我、我们、往事、底线、宿主、�
 qz login         # 登录官方 Hub（第一次登录即注册），多设备从这里开始
 qz export ./sea.zip   # 人能读的海 + 签名事件 + 口令封存的恢复包
 qz import ./sea.zip   # 在新机器的空目录里原样恢复
+qz recovery-code      # 生成应急码：所有设备都丢了时，qz recover 凭它与登录口令找回他
 qz sayit connect      # 接上 SayIt：你在 SayIt 里记下的自动流进他的海
 qz bring ~/notes      # 把已有的笔记、对话导出与角色卡带进来；qz bring --undo <批次> 整批撤回
 qz bring --watch ~/vault  # 让一个笔记目录一直流进来：改了接替、删了抹除

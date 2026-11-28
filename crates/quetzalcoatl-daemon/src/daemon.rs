@@ -880,6 +880,33 @@ pub(crate) fn open_restored_spine(
     open_sovereign_spine(qz_home, &persisted, now_unix_ms())
 }
 
+/// 恢复包的明文：身份、种子、纪元钥匙、成员表、每个条目的钥匙与检索索引。
+/// `root_key_hex` 由调用方给（应急恢复包里留空，根密钥从 Hub 的口令登录取回）。
+pub(crate) fn recovery_payload(
+    qz_home: &Path,
+    parts: (
+        &SpineEngine<RusqliteWalStore>,
+        &Conscience,
+        &SerpentineGraph,
+        &PersistedSovereignState,
+    ),
+    root_key_hex: String,
+) -> Result<crate::sea_archive::RecoveryPayload> {
+    let (spine, conscience, graph, persisted) = parts;
+    Ok(crate::sea_archive::RecoveryPayload {
+        version: 1,
+        agent_id: persisted.agent_id,
+        device_id: persisted.device_id,
+        root_key_hex,
+        ed25519_seed_hex: persisted.ed25519_seed_hex.clone(),
+        xwing_seed_hex: persisted.xwing_seed_hex.clone(),
+        epoch1_key_hex: persisted.epoch1_key_hex.clone(),
+        membership_state_json: crate::sea_archive::read_membership_state(qz_home),
+        entry_keys: crate::sea_archive::collect_entry_keys(spine.store(), conscience)?,
+        graph_json_v2: graph.to_json_v2()?,
+    })
+}
+
 /// 导出：脊柱的签名事件与物化视图，加上人读得懂的海；给了口令时再加上恢复包。
 /// 返回这份导出能不能用来恢复。
 fn export_sea(
@@ -898,18 +925,11 @@ fn export_sea(
     let mut extra = crate::sea_archive::readable_sea_files(conscience);
     let recoverable = if let Some(passphrase) = passphrase {
         crate::sea_governance::require_owner_passphrase(qz_home, passphrase)?;
-        let payload = crate::sea_archive::RecoveryPayload {
-            version: 1,
-            agent_id: persisted.agent_id,
-            device_id: persisted.device_id,
-            root_key_hex: hex_encode(persisted.root_key(Some(passphrase))?.as_bytes()),
-            ed25519_seed_hex: persisted.ed25519_seed_hex.clone(),
-            xwing_seed_hex: persisted.xwing_seed_hex.clone(),
-            epoch1_key_hex: persisted.epoch1_key_hex.clone(),
-            membership_state_json: crate::sea_archive::read_membership_state(qz_home),
-            entry_keys: crate::sea_archive::collect_entry_keys(spine.store(), conscience)?,
-            graph_json_v2: graph.to_json_v2()?,
-        };
+        let payload = recovery_payload(
+            qz_home,
+            (spine, conscience, graph, persisted),
+            hex_encode(persisted.root_key(Some(passphrase))?.as_bytes()),
+        )?;
         extra.push((
             String::from(crate::sea_archive::RECOVERY_BUNDLE_PATH),
             crate::sea_archive::seal_recovery_bundle(&payload, passphrase)?,
@@ -1863,6 +1883,14 @@ impl SharedDaemonCore {
                 Err(err) => ipc_error_response(err),
             },
             IpcRequest::Approvals => (IpcResponse::Approvals(self.pending_approvals()), false),
+            IpcRequest::RecoveryCodeCreate => match self.create_recovery_code() {
+                Ok(status) => (IpcResponse::RecoveryCode(status), false),
+                Err(err) => ipc_error_response(err),
+            },
+            IpcRequest::RecoveryCodeStatus => (
+                IpcResponse::RecoveryCode(self.recovery_code_status()),
+                false,
+            ),
             IpcRequest::ApprovalDecide { id, approve } => {
                 match self.decide_approval(&id, approve) {
                     Ok(outcome) => (IpcResponse::ApprovalDecide(outcome), false),

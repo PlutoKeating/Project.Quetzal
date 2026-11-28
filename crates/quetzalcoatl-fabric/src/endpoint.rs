@@ -1695,6 +1695,25 @@ impl HubClient {
         device_id: DeviceId,
         pin: &[u8],
     ) -> Result<(HubAuthSession, AccountRootKey)> {
+        self.login_opaque_pin_as(agent_id, Some(device_id), pin)
+            .await
+    }
+
+    /// 不绑定设备的口令登录：所有设备都丢了、在新机器上找回时用（只能读写这个 Agent 的应急恢复包等账户级的东西）。
+    pub async fn login_opaque_pin_account(
+        &self,
+        agent_id: AgentId,
+        pin: &[u8],
+    ) -> Result<(HubAuthSession, AccountRootKey)> {
+        self.login_opaque_pin_as(agent_id, None, pin).await
+    }
+
+    async fn login_opaque_pin_as(
+        &self,
+        agent_id: AgentId,
+        device_id: Option<DeviceId>,
+        pin: &[u8],
+    ) -> Result<(HubAuthSession, AccountRootKey)> {
         let (blind_scalar, _) = opaque_random_scalar_and_point();
         let (client_eph_scalar, client_eph_pk) = opaque_random_scalar_and_point();
         let mut client_nonce = [0u8; 32];
@@ -1715,7 +1734,7 @@ impl HubClient {
             ))
             .json(&serde_json::json!({
                 "agent_id": agent_id.to_string(),
-                "device_id": device_id.to_string(),
+                "device_id": device_id.map(|d| d.to_string()).unwrap_or_default(),
                 "client_identity": client_id_str,
                 "ke1_hex": hex_encode(&ke1),
             }))
@@ -1852,7 +1871,8 @@ impl HubClient {
                 .unwrap_or_default()
                 .to_owned(),
             agent_id,
-            device_id,
+            // 不绑定设备的会话：设备编号记为全零。
+            device_id: device_id.unwrap_or_else(|| DeviceId::from(uuid::Uuid::nil())),
         };
         let s4 = &fin_json["slot4_envelope"];
         let wrapped_s4 = Slot4WrappedRootKey {
@@ -2216,6 +2236,81 @@ impl HubClient {
             .await
             .map_err(|e| QuetzalcoatlError::StorageError {
                 detail: format!("put_sealed_key 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        if !st.is_success() {
+            let raw = resp.bytes().await.unwrap_or_default();
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        Ok(())
+    }
+
+    /// 交上（或替换）这个 Agent 的应急恢复包：已经用应急码封好，Hub 只看得到密文。
+    pub async fn put_recovery_kit(
+        &self,
+        agent_id: AgentId,
+        kit: &quetzalcoatl_crypto::PassphraseSealed,
+    ) -> Result<()> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .put(format!("{}/v1/recovery/{agent_id}", self.config.base_url))
+            .bearer_auth(tok)
+            .json(kit)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("put_recovery_kit 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        if !st.is_success() {
+            let raw = resp.bytes().await.unwrap_or_default();
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        Ok(())
+    }
+
+    /// 取回应急恢复包；还没有交过时返回 `None`。
+    pub async fn get_recovery_kit(
+        &self,
+        agent_id: AgentId,
+    ) -> Result<Option<quetzalcoatl_crypto::PassphraseSealed>> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .get(format!("{}/v1/recovery/{agent_id}", self.config.base_url))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("get_recovery_kit 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp.bytes().await.unwrap_or_default();
+        if st.as_u16() == 404 {
+            return Ok(None);
+        }
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        serde_json::from_slice(&raw)
+            .map(Some)
+            .map_err(|e| QuetzalcoatlError::SerializationError {
+                detail: format!("应急恢复包解析失败: {e}"),
+            })
+    }
+
+    /// 删掉应急恢复包（换应急码、或者不要了）。
+    pub async fn delete_recovery_kit(&self, agent_id: AgentId) -> Result<()> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .delete(format!("{}/v1/recovery/{agent_id}", self.config.base_url))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("delete_recovery_kit 网络错误: {e}"),
             })?;
         let st = resp.status();
         if !st.is_success() {

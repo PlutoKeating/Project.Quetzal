@@ -255,6 +255,21 @@ Hub 端 `POST /v1/groups/{group_id}/commits` 请求体：
 名字：条目钥匙是 `sea.entry-key/<层>/<编号>`，纪元钥匙是 `epoch-key/<纪元>`。抹除时本机先销毁钥匙，
 再删 Hub 上的所有副本（离线时排队，联网后删）；其它设备重放到这次抹除时销毁自己那一把。
 
+### 9.2 应急恢复包
+
+所有设备都丢了时用。客户端生成应急码 `QZR-…`（Agent 编号与 128 位秘密的 base32，四个一组），
+把恢复包（设备身份、纪元钥匙、成员表、每个条目的钥匙、检索索引；**不含根私钥**）用应急码经 Argon2id
+派生的钥匙封存（用途 `quetzalcoatl-recovery-kit-v1`）后交给 Hub，变了才再交。根私钥由 OPAQUE 口令登录
+（不绑定设备时 `device_id` 为空）从 Hub 取回，所以找回要应急码与登录口令两样，Hub 只见密文。
+
+| 端点 | 作用 | 谁能调用 |
+| --- | --- | --- |
+| `PUT /v1/recovery/{agent_id}` | 交上（或替换）`{salt_hex, memory_kib, iterations, parallelism, nonce_hex, ciphertext_hex}` | 该 Agent 的所有者会话 |
+| `GET /v1/recovery/{agent_id}` | 取回；没有时 404 | 同上（口令登录得到的不绑定设备的会话也算） |
+| `DELETE /v1/recovery/{agent_id}` | 删掉 | 同上 |
+
+找回的设备沿用恢复包里的设备身份：它从 Hub 拉回本设备写过的密文包（同步不再跳过本设备的包，已有的按包编号去重）。
+
 ## 10. 通道信封与 Webhook 入站
 
 统一入站信封（`ChannelEnvelope`）：

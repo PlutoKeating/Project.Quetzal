@@ -123,6 +123,10 @@ pub enum IpcRequest {
     ExploreNow,
     /// 从 SayIt 拉一次（平时每隔几分钟自己拉）。
     SayItPull,
+    /// 生成（或换掉）应急码。
+    RecoveryCodeCreate,
+    /// 应急码的现状。
+    RecoveryCodeStatus,
     /// 等你拍板的事。
     Approvals,
     /// 拍板：同意就合进你的目录，不要就丢掉。
@@ -418,6 +422,7 @@ pub enum IpcResponse {
     Reflection(crate::reflection::ReflectionReport),
     SayItPull(crate::sayit_pull::SayItPullReport),
     Approvals(Vec<crate::approvals::ApprovalView>),
+    RecoveryCode(crate::recovery_kit::RecoveryCodeStatus),
     ApprovalDecide(crate::approvals::ApprovalOutcome),
     ImportNotes(crate::notes_import::ImportReport),
     ImportUndo(crate::notes_import::UndoReport),

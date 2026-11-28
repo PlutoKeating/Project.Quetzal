@@ -1671,3 +1671,145 @@ fn a_paired_device_becomes_the_same_agent_and_an_erase_reaches_it() -> TestResul
     assert_eq!(leftover, None, "B 上被抹除的正文还在");
     Ok(())
 }
+
+#[test]
+fn every_device_lost_he_comes_back_with_the_emergency_code_and_the_login_pin() -> TestResult {
+    let _serial = hub_serial();
+    let hub = RunningGoHub::spawn()?;
+    let tmp = TempDirGuard::new("qz_recover")?;
+    let home_a = tmp.path().join("a");
+    let home_c = tmp.path().join("c");
+    let ca_pem = tmp.path().join("ca.pem");
+    fs::write(&ca_pem, &hub.ca_cert_pem)?;
+    struct Down<'a>(Vec<&'a Path>);
+    impl Drop for Down<'_> {
+        fn drop(&mut self) {
+            for home in &self.0 {
+                let _ = Command::new(PathBuf::from(env!("CARGO_BIN_EXE_qz")))
+                    .env("QUETZALCOATL_HOME", home)
+                    .arg("down")
+                    .output();
+            }
+        }
+    }
+    let _down = Down(vec![home_a.as_path(), home_c.as_path()]);
+    let with_stdin =
+        |args: &[&str], home: &Path, input: &str| -> Result<std::process::Output, BoxError> {
+            let mut child = Command::new(PathBuf::from(env!("CARGO_BIN_EXE_qz")))
+                .env("QUETZALCOATL_HOME", home)
+                .env("QUETZALCOATL_HUB_URL", &hub.https_url)
+                .env("QUETZALCOATL_FABRIC_HUB_CA_FILE", &ca_pem)
+                .args(args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            if let Some(mut stdin) = child.stdin.take() {
+                use std::io::Write as _;
+                stdin.write_all(input.as_bytes())?;
+            }
+            Ok(child.wait_with_output()?)
+        };
+
+    // A：起来、登录、带进一片海、生成应急码。
+    let up = qz_env(&["up"], &home_a, &hub, &ca_pem)?;
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+    let login = with_stdin(&["login", "--pin-stdin"], &home_a, "recover-pin-7\n")?;
+    assert!(
+        login.status.success(),
+        "{}",
+        String::from_utf8_lossy(&login.stderr)
+    );
+    let soul = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../quetzalcoatl-spine/tests/fixtures/v1_soul_v14");
+    let import = qz_env(
+        &["import-v1", "--soul-dir", &soul.to_string_lossy()],
+        &home_a,
+        &hub,
+        &ca_pem,
+    )?;
+    assert!(
+        import.status.success(),
+        "{}",
+        String::from_utf8_lossy(&import.stderr)
+    );
+    let a_texts: Vec<String> = memories_of(&home_a)?
+        .iter()
+        .filter_map(|m| m["text"].as_str().map(String::from))
+        .collect();
+    assert!(a_texts.len() >= 5);
+    let created = qz_env(&["recovery-code"], &home_a, &hub, &ca_pem)?;
+    let said = String::from_utf8_lossy(&created.stdout).into_owned();
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let code = said
+        .split_whitespace()
+        .find(|word| word.starts_with("QZR-"))
+        .ok_or("应急码")?
+        .to_owned();
+    assert!(said.contains("恢复包已经交给 Hub"), "{said}");
+    // 等 A 把密文包同步上去，然后「丢了」A。
+    thread::sleep(Duration::from_secs(3));
+    let down = qz_env(&["down"], &home_a, &hub, &ca_pem)?;
+    assert!(down.status.success());
+
+    // 应急码不对、口令不对，都找不回。
+    let wrong_pin = with_stdin(
+        &["recover", "--stdin"],
+        &home_c,
+        &format!("{code}\nnot-the-pin-1\n"),
+    )?;
+    assert!(!wrong_pin.status.success(), "口令不对找不回");
+    let mut wrong_code = code.clone();
+    wrong_code.replace_range(
+        code.len() - 1..,
+        if code.ends_with('A') { "B" } else { "A" },
+    );
+    let bad = with_stdin(
+        &["recover", "--stdin"],
+        &home_c,
+        &format!("{wrong_code}\nrecover-pin-7\n"),
+    )?;
+    assert!(!bad.status.success(), "应急码不对找不回");
+
+    // 新机器：应急码 + 登录口令，起来之后同一片海同步回来。
+    let recovered = with_stdin(
+        &["recover", "--stdin"],
+        &home_c,
+        &format!("{code}\nrecover-pin-7\n"),
+    )?;
+    assert!(
+        recovered.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&recovered.stdout),
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    let up_c = qz_env(&["up"], &home_c, &hub, &ca_pem)?;
+    assert!(
+        up_c.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up_c.stderr)
+    );
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let c_texts: Vec<String> = memories_of(&home_c)?
+            .iter()
+            .filter_map(|m| m["text"].as_str().map(String::from))
+            .collect();
+        if a_texts.iter().all(|text| c_texts.contains(text)) {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("找回后没有拉回他的海: A={a_texts:?} C={c_texts:?}").into());
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    Ok(())
+}

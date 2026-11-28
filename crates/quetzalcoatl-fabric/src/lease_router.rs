@@ -745,7 +745,8 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
             Ok((next, packs)) => {
                 new_cursor = next;
                 for p in packs {
-                    if p.aad.device_id != local_device && seen_ids.insert(p.pack_id) {
+                    // 本机设备写的包也要：从应急恢复包找回的设备，本地一个包都没有。已经有的由 seen_ids 挡掉。
+                    if seen_ids.insert(p.pack_id) {
                         fetched_packs.push(p);
                     }
                 }
@@ -814,7 +815,8 @@ impl<C: MonotonicClock> FencedLeaseCoordinator<C> {
                         Ok((next, packs)) => {
                             new_cursor = next;
                             for p in packs {
-                                if p.aad.device_id != local_device && seen_ids.insert(p.pack_id) {
+                                // 本机设备写的包也要：从应急恢复包找回的设备，本地一个包都没有。已经有的由 seen_ids 挡掉。
+                                if seen_ids.insert(p.pack_id) {
                                     fetched_packs.push(p);
                                 }
                             }

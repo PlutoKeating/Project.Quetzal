@@ -24,6 +24,7 @@ pub const OFFICIAL_HUB_URL: &str = "https://sync.quetzal.plutokeating.beer";
 
 pub mod notes_import;
 pub mod pair_adopt;
+pub mod recovery_kit;
 pub mod reflection;
 pub mod sayit_pull;
 pub mod sea_archive;
