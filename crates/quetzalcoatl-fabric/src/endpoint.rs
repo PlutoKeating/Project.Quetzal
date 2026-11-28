@@ -2193,6 +2193,112 @@ impl HubClient {
         Ok(out)
     }
 
+    /// 把一份封存好的秘密寄给 Agent 的某台设备（Hub 只转交密文）。
+    pub async fn put_sealed_key(
+        &self,
+        agent_id: AgentId,
+        device_id: DeviceId,
+        name: &str,
+        sealed: &quetzalcoatl_crypto::DeviceSealedSecret,
+    ) -> Result<()> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .put(format!(
+                "{}/v1/keys/{agent_id}/{device_id}/{name}",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .json(sealed)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("put_sealed_key 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        if !st.is_success() {
+            let raw = resp.bytes().await.unwrap_or_default();
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        Ok(())
+    }
+
+    /// 取走寄给本机设备的全部秘密：名字与密文。
+    pub async fn list_sealed_keys(
+        &self,
+        agent_id: AgentId,
+        device_id: DeviceId,
+    ) -> Result<Vec<(String, quetzalcoatl_crypto::DeviceSealedSecret)>> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/v1/keys/{agent_id}/{device_id}",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("list_sealed_keys 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        let value: serde_json::Value =
+            serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+                detail: format!("解析封存钥匙列表失败: {e}"),
+            })?;
+        let mut out = Vec::new();
+        for item in value["items"].as_array().cloned().unwrap_or_default() {
+            let Some(name) = item["name"].as_str() else {
+                continue;
+            };
+            out.push((
+                String::from(name),
+                quetzalcoatl_crypto::DeviceSealedSecret {
+                    aad_utf8: item["aad_utf8"].as_str().unwrap_or_default().to_owned(),
+                    ciphertext_hex: item["ciphertext_hex"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    hpke_enc_hex: item["hpke_enc_hex"].as_str().unwrap_or_default().to_owned(),
+                },
+            ));
+        }
+        Ok(out)
+    }
+
+    /// 删掉某个名字在所有设备上的那一份（抹除时用）。
+    pub async fn delete_sealed_key(&self, agent_id: AgentId, name: &str) -> Result<()> {
+        let tok = self.require_token()?;
+        let resp = self
+            .http
+            .delete(format!(
+                "{}/v1/keys/{agent_id}/{name}",
+                self.config.base_url
+            ))
+            .bearer_auth(tok)
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("delete_sealed_key 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        if !st.is_success() {
+            let raw = resp.bytes().await.unwrap_or_default();
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        Ok(())
+    }
+
     /// 读 Hub 的元信息（不需要登录）。
     pub async fn get_meta(&self) -> Result<HubMeta> {
         let resp = self

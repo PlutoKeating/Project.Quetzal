@@ -494,6 +494,27 @@ pub fn entry_history<S: MaterializedStore>(
     Ok(versions)
 }
 
+/// 变更日志里被抹除过的全部条目（层与编号）。收到别的设备的抹除后，本机据此销毁对应的钥匙。
+pub fn erased_entries<S: MaterializedStore>(
+    spine: &SpineEngine<S>,
+) -> Result<Vec<(SeaLayer, String)>> {
+    let mut out = Vec::new();
+    for (event, _) in spine.store().list_all_events()? {
+        if !event.payload_utf8.contains(SEA_CHANGE_KIND) {
+            continue;
+        }
+        let Ok(change) = serde_json::from_str::<SeaChangeEvent>(&event.payload_utf8) else {
+            continue;
+        };
+        for delta in change.deltas {
+            if let SeaDelta::EntryRemove { layer, id } = delta {
+                out.push((layer, id));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// 由脊柱里的变更事件重放出良知。还没有任何变更事件时返回 `None`。
 ///
 /// `current_epoch` 之后的纪元写下的变更照常应用；多设备下由调用方保证只有持控制权的设备写变更。
