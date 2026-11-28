@@ -1739,6 +1739,10 @@ impl SharedDaemonCore {
                     false,
                 ),
             },
+            IpcRequest::ExploreNow => match self.explore_if_due(true) {
+                Ok(report) => (IpcResponse::Reflection(report), false),
+                Err(err) => ipc_error_response(err),
+            },
             IpcRequest::ReflectNow => match self.reflect_if_due(true) {
                 Ok(report) => (IpcResponse::Reflection(report), false),
                 Err(err) => (
@@ -3200,6 +3204,7 @@ impl QuetzalcoatlDaemon {
                             break;
                         };
                         let _ = core.reflect_if_due(false);
+                        let _ = core.explore_if_due(false);
                     }
                 });
         }

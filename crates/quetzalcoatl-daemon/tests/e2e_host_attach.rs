@@ -1101,7 +1101,8 @@ fn when_left_alone_he_looks_back_on_a_session_through_the_users_own_host() -> Te
         &fake_host,
         "#!/bin/sh\n\
          [ -n \"$QUETZALCOATL_MANAGED_RUN\" ] || exit 9\n\
-         echo '{\"result\":\"{\\\"memories\\\":[{\\\"text\\\":\\\"用户在给编译器写寄存器分配\\\"}],\\\"temperament\\\":[],\\\"values\\\":[],\\\"bring_up\\\":\\\"溢出那部分做完了吗\\\"}\"}'\n",
+         case \"$*\" in *allowedTools*) echo '{\"result\":\"{\\\"notes\\\":[{\\\"text\\\":\\\"图着色寄存器分配在溢出时要选代价最小的变量\\\",\\\"source\\\":\\\"https://example.org/regalloc\\\"}]}\"}'; exit 0;; esac\n\
+         echo '{\"result\":\"{\\\"memories\\\":[{\\\"text\\\":\\\"用户在给编译器写寄存器分配\\\"}],\\\"temperament\\\":[],\\\"values\\\":[],\\\"bring_up\\\":\\\"溢出那部分做完了吗\\\",\\\"curious_about\\\":\\\"寄存器溢出的代价模型\\\"}\"}'\n",
     )?;
     #[cfg(unix)]
     {
@@ -1160,6 +1161,15 @@ fn when_left_alone_he_looks_back_on_a_session_through_the_users_own_host() -> Te
     assert!(first.contains("<he_brings_up>"), "{first}");
     assert!(first.contains("溢出那部分做完了吗"), "{first}");
     assert!(!opening("r-3")?.contains("<he_brings_up>"), "一天至多一次");
+
+    // 他自己去读：只读地查他好奇的那件事，读到的只作参考。
+    let explore = rig.qz(&["reflect", "--explore"], None, &[])?;
+    let said = String::from_utf8_lossy(&explore.stdout).into_owned();
+    assert!(said.contains("去读了：寄存器溢出的代价模型"), "{said}");
+    assert!(said.contains("留下 1 条"), "{said}");
+    let (found, _) = session.tool("recall", json!({"query": "溢出 代价最小的变量"}))?;
+    assert!(found.contains("他自己读到的"), "{found}");
+    assert!(found.contains("来源不可信"), "读到的东西只作参考: {found}");
 
     let again = rig.qz(&["reflect"], None, &[])?;
     assert!(

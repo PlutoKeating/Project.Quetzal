@@ -49,7 +49,9 @@ Commands:
   import      Restore an export into an empty home (asks for the export passphrase)
   bring       Bring in notes, host rule files and chat exports as memories; --undo <batch> takes a batch back out
   reflect     Have him look back on recent sessions now (normally runs by itself while you are away);
-              --quiet stops him from bringing things up first, --speak-first turns it back on
+              --quiet stops him from bringing things up first, --speak-first turns it back on;
+              --explore sends him out to read about something he got curious about (read-only);
+              --quiet-hours 23-8 keeps both out of those hours (off to clear)
   import-v1   Idempotently migrate legacy V1 soul repo and SQLite sessions
   login       Sign in to the official Hub (or --hub <url>); the first sign-in registers this agent
   pair        Quantum-safe X-Wing device pairing (start | join | approve)
@@ -2163,13 +2165,47 @@ fn run_bring(args: &[String]) -> Result<()> {
 fn run_reflect(args: &[String]) -> Result<()> {
     let quiet = args.iter().any(|a| a == "--quiet");
     let speak = args.iter().any(|a| a == "--speak-first");
+    let explore = args.iter().any(|a| a == "--explore");
+    let quiet_hours = args
+        .iter()
+        .position(|a| a == "--quiet-hours")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     let rest: Vec<String> = args
         .iter()
-        .filter(|a| *a != "--quiet" && *a != "--speak-first")
-        .cloned()
+        .enumerate()
+        .filter(|(i, a)| {
+            !matches!(
+                a.as_str(),
+                "--quiet" | "--speak-first" | "--explore" | "--quiet-hours"
+            ) && !(quiet_hours.is_some()
+                && *i > 0
+                && args.get(i - 1).map(String::as_str) == Some("--quiet-hours"))
+        })
+        .map(|(_, a)| a.clone())
         .collect();
     let home = parse_optional_home(&rest)?;
     let qz_home = resolve_quetzalcoatl_home(home);
+    if let Some(window) = quiet_hours {
+        let parsed = if window == "off" {
+            None
+        } else {
+            let (start, end) = window
+                .split_once('-')
+                .and_then(|(a, b)| Some((a.parse::<u8>().ok()?, b.parse::<u8>().ok()?)))
+                .filter(|(a, b)| *a < 24 && *b <= 24)
+                .ok_or_else(|| QuetzalcoatlError::StorageError {
+                    detail: String::from("用法: qz reflect --quiet-hours 23-8（或 off）"),
+                })?;
+            Some((start, end))
+        };
+        quetzalcoatl_daemon::reflection::set_quiet_hours(&qz_home, parsed)?;
+        match parsed {
+            Some((start, end)) => println!("{start} 点到 {end} 点之间他不回想、也不出去读。"),
+            None => println!("不再设不打扰的时段。"),
+        }
+        return Ok(());
+    }
     if quiet || speak {
         quetzalcoatl_daemon::reflection::set_quiet(&qz_home, quiet)?;
         println!(
@@ -2183,12 +2219,17 @@ fn run_reflect(args: &[String]) -> Result<()> {
         return Ok(());
     }
     let client = require_daemon(&qz_home)?.with_timeout(Duration::from_secs(300));
-    match client.call(&IpcRequest::ReflectNow)? {
+    let request = if explore {
+        IpcRequest::ExploreNow
+    } else {
+        IpcRequest::ReflectNow
+    };
+    match client.call(&request)? {
         IpcResponse::Reflection(report) => {
             if report.ran {
                 println!(
-                    "回想了一段相处：提出 {} 条，留下 {} 条，{} 条等更多证据。",
-                    report.proposed, report.accepted, report.pending
+                    "{}：提出 {} 条，留下 {} 条，{} 条等更多证据。",
+                    report.note, report.proposed, report.accepted, report.pending
                 );
             } else {
                 println!("这次没有回想：{}。", report.note);

@@ -380,7 +380,10 @@ fn notes_and_chat_exports_come_in_as_one_batch_and_can_be_taken_back_out() -> Te
     let brought = call(&client, &IpcRequest::ImportNotes { paths: vec![notes] })?;
     assert_eq!(brought["data"]["added"], 3, "{brought}");
     assert_eq!(brought["data"]["files"], 2, "{brought}");
-    let batch = brought["data"]["batch_id"].as_str().ok_or("batch")?.to_owned();
+    let batch = brought["data"]["batch_id"]
+        .as_str()
+        .ok_or("batch")?
+        .to_owned();
     let found = call(
         &client,
         &IpcRequest::SeaMemories {
@@ -391,10 +394,20 @@ fn notes_and_chat_exports_come_in_as_one_batch_and_can_be_taken_back_out() -> Te
         },
     )?;
     let hit = &found["data"]["items"][0];
-    assert!(hit["text"].as_str().unwrap_or_default().contains("我十月去京都"));
+    assert!(
+        hit["text"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("我十月去京都")
+    );
     assert!(!hit["text"].as_str().unwrap_or_default().contains("好的"));
     assert_eq!(hit["source"]["kind"], "import");
-    assert!(hit["source"]["label"].as_str().unwrap_or_default().contains(&batch));
+    assert!(
+        hit["source"]["label"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(&batch)
+    );
 
     let undone = call(&client, &IpcRequest::ImportUndo { batch_id: batch })?;
     assert_eq!(undone["data"]["erased"], 3, "{undone}");
