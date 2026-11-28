@@ -41,6 +41,40 @@ pub(crate) struct ReflectionLedger {
     pub transcripts: BTreeMap<String, PathBuf>,
     #[serde(default)]
     pub last_run_ms: u64,
+    /// 他想在下次会话开场提的一件事（至多一件，说过就清掉）。
+    #[serde(default)]
+    pub bring_up: Option<String>,
+    /// 上一次他先开口的时刻：一天至多一次。
+    #[serde(default)]
+    pub last_brought_up_ms: u64,
+    /// 用户关掉了「他先开口」。
+    #[serde(default)]
+    pub quiet: bool,
+}
+
+/// 他先开口一天至多一次。
+const BRING_UP_INTERVAL_MS: u64 = 24 * 60 * 60 * 1_000;
+
+/// 会话开场时取走他想先说的那一件事（到时候了、没被关掉才给）。
+pub(crate) fn take_bring_up(qz_home: &Path, now_ms: u64) -> Option<String> {
+    let mut ledger = ReflectionLedger::load(qz_home);
+    if ledger.quiet || now_ms.saturating_sub(ledger.last_brought_up_ms) < BRING_UP_INTERVAL_MS {
+        return None;
+    }
+    let said = ledger.bring_up.take()?;
+    ledger.last_brought_up_ms = now_ms;
+    let _ = ledger.save(qz_home);
+    Some(said)
+}
+
+/// 打开或关掉「他先开口」。
+pub fn set_quiet(qz_home: &Path, quiet: bool) -> Result<()> {
+    let mut ledger = ReflectionLedger::load(qz_home);
+    ledger.quiet = quiet;
+    if quiet {
+        ledger.bring_up = None;
+    }
+    ledger.save(qz_home)
 }
 
 impl ReflectionLedger {
@@ -81,6 +115,9 @@ pub(crate) struct ReflectionOutput {
     pub temperament: Vec<ReflectionItem>,
     #[serde(default)]
     pub values: Vec<ReflectionItem>,
+    /// 下次见面时想先提的一件事（可以没有）。
+    #[serde(default)]
+    pub bring_up: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -162,7 +199,8 @@ fn build_prompt(agent_name: &str, core: &[String], excerpt: &str) -> String {
 只输出一个 JSON 对象，不要输出别的文字，形如：\
 {{\"memories\":[{{\"text\":\"一句脱离这段对话也读得懂的话\"}}],\
 \"temperament\":[{{\"text\":\"你的一种性情\"}}],\
-\"values\":[{{\"text\":\"你看重的一件事\"}}]}}。三类加起来最多 {MAX_ITEMS} 条。"
+\"values\":[{{\"text\":\"你看重的一件事\"}}],\
+\"bring_up\":\"下次见面时你想先提的一件事，一句话；真的有必要才写，否则写 null\"}}。三类加起来最多 {MAX_ITEMS} 条。"
     )
 }
 
@@ -426,8 +464,18 @@ impl SharedDaemonCore {
             &workdir,
         )?;
         ledger.reflected.insert(episode_id.clone());
+        let parsed = parse_output(&stdout);
+        if !ledger.quiet
+            && let Some(said) = parsed
+                .as_ref()
+                .and_then(|o| o.bring_up.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && s.chars().count() <= 200)
+        {
+            ledger.bring_up = Some(String::from(said));
+        }
         let _ = ledger.save(&qz_home);
-        let Some(output) = parse_output(&stdout) else {
+        let Some(output) = parsed else {
             return Ok(ReflectionReport {
                 ran: true,
                 episode_id: Some(episode_id),

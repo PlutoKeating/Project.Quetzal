@@ -1076,7 +1076,7 @@ fn when_left_alone_he_looks_back_on_a_session_through_the_users_own_host() -> Te
         &fake_host,
         "#!/bin/sh\n\
          [ -n \"$QUETZALCOATL_MANAGED_RUN\" ] || exit 9\n\
-         echo '{\"result\":\"{\\\"memories\\\":[{\\\"text\\\":\\\"用户在给编译器写寄存器分配\\\"}],\\\"temperament\\\":[],\\\"values\\\":[]}\"}'\n",
+         echo '{\"result\":\"{\\\"memories\\\":[{\\\"text\\\":\\\"用户在给编译器写寄存器分配\\\"}],\\\"temperament\\\":[],\\\"values\\\":[],\\\"bring_up\\\":\\\"溢出那部分做完了吗\\\"}\"}'\n",
     )?;
     #[cfg(unix)]
     {
@@ -1121,6 +1121,20 @@ fn when_left_alone_he_looks_back_on_a_session_through_the_users_own_host() -> Te
 
     let (found, _) = session.tool("recall", json!({"query": "寄存器分配"}))?;
     assert!(found.contains("用户在给编译器写寄存器分配"), "{found}");
+
+    // 他先开口：下一次开场提一句，同一天不再重复。
+    let opening = |id: &str| -> Result<String, Box<dyn Error>> {
+        let out = rig.fire(
+            "SessionStart",
+            &json!({"hook_event_name": "SessionStart", "session_id": id, "source": "startup"}),
+            &[],
+        )?;
+        injected_context(&out)
+    };
+    let first = opening("r-2")?;
+    assert!(first.contains("<he_brings_up>"), "{first}");
+    assert!(first.contains("溢出那部分做完了吗"), "{first}");
+    assert!(!opening("r-3")?.contains("<he_brings_up>"), "一天至多一次");
 
     let again = rig.qz(&["reflect"], None, &[])?;
     assert!(

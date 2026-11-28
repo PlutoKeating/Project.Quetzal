@@ -47,7 +47,8 @@ Commands:
   delegate    Hand one task to a local coding agent in an isolated worktree; verified in the clean room
   export      Export readable Markdown + Spine ZIP; with a passphrase it also carries a recovery bundle
   import      Restore an export into an empty home (asks for the export passphrase)
-  reflect     Have him look back on recent sessions now (normally runs by itself while you are away)
+  reflect     Have him look back on recent sessions now (normally runs by itself while you are away);
+              --quiet stops him from bringing things up first, --speak-first turns it back on
   import-v1   Idempotently migrate legacy V1 soul repo and SQLite sessions
   login       Sign in to the official Hub (or --hub <url>); the first sign-in registers this agent
   pair        Quantum-safe X-Wing device pairing (start | join | approve)
@@ -1863,8 +1864,27 @@ fn read_passphrase(from_stdin: bool, prompt: &str) -> Result<String> {
 
 /// `qz reflect`：让他现在就回想一次最近的相处（平时在你不在场时自己进行）。
 fn run_reflect(args: &[String]) -> Result<()> {
-    let home = parse_optional_home(args)?;
+    let quiet = args.iter().any(|a| a == "--quiet");
+    let speak = args.iter().any(|a| a == "--speak-first");
+    let rest: Vec<String> = args
+        .iter()
+        .filter(|a| *a != "--quiet" && *a != "--speak-first")
+        .cloned()
+        .collect();
+    let home = parse_optional_home(&rest)?;
     let qz_home = resolve_quetzalcoatl_home(home);
+    if quiet || speak {
+        quetzalcoatl_daemon::reflection::set_quiet(&qz_home, quiet)?;
+        println!(
+            "{}",
+            if quiet {
+                "他不再先开口。用 qz reflect --speak-first 恢复。"
+            } else {
+                "他会在有话想说时，在下次见面开场提一句（一天至多一次）。"
+            }
+        );
+        return Ok(());
+    }
     let client = require_daemon(&qz_home)?.with_timeout(Duration::from_secs(300));
     match client.call(&IpcRequest::ReflectNow)? {
         IpcResponse::Reflection(report) => {

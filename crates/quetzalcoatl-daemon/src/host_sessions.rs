@@ -704,6 +704,7 @@ fn session_start_context(
     pinned: &str,
     volatile: &str,
     first_meeting: bool,
+    bring_up: Option<&str>,
 ) -> String {
     let mut out = format!(
         "<quetzalcoatl agent=\"{agent_name}\">\n\
@@ -716,6 +717,12 @@ fn session_start_context(
     if !volatile.is_empty() {
         out.push_str(volatile);
         out.push('\n');
+    }
+    if let Some(said) = bring_up {
+        out.push_str("<he_brings_up>");
+        out.push_str("你在用户不在时回想过你们的相处，想在这次见面时先提一件事。等用户眼下的事做完、或者用户先打招呼时，自然地提一句，不要打断：");
+        out.push_str(said);
+        out.push_str("</he_brings_up>\n");
     }
     if first_meeting {
         out.push_str("<first_meeting>");
@@ -827,6 +834,12 @@ impl SharedDaemonCore {
 
         let pinned_ids = assembled.included_ids.clone();
         let off_by_directory = directory_is_off_record(cwd.as_deref());
+        // 他先开口：一天至多一件；无痕的会话里不提。
+        let bring_up = if off_by_directory {
+            None
+        } else {
+            crate::reflection::take_bring_up(&self.config.quetzalcoatl_home, now_ms)
+        };
         self.host_sessions
             .update(host, session_id, now_ms, |state| {
                 state.host = String::from(host);
@@ -846,6 +859,7 @@ impl SharedDaemonCore {
                 &assembled.pinned_system_tail,
                 &assembled.volatile_user_tail,
                 first_meeting,
+                bring_up.as_deref(),
             ),
         }
     }
