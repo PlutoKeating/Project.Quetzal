@@ -38,15 +38,13 @@
 
 ## 2. Linux（`surfaces/linux`）
 
-- [x] 每个交互控件设置 `GtkAccessible` 名称/描述（`aria-label` / `aria-description` 等价物）。
-- [x] 页栈由 `AdwViewSwitcher` 暴露 `tablist` 语义，`Ctrl+1/2/3` 与 Tab 顺序一致。
-- [x] 流式回复区标记为持续更新区域，批次收束时调用 GTK 4.14 `announce()`。
-- [x] 无 AT-SPI 总线时 `announce()` 为安全空操作，不崩溃。
-- [x] 陪伴态输入区最小高度 64（`surfaces/linux/src/views/companion.rs` 的 `set_size_request`）。
-- [ ] **延后（未实现）**：Linux 陪伴态零技术黑话的 `ZeroJargon` 静态守卫。macOS 与
-      Windows 端的对话界面连同其 `ZeroJargon` 守卫已随 000 号铁律删除；Linux 侧没有等价审计，
-      本轮不勾选，待补齐源码扫描测试后再改 `[x]`。
+- [x] 交互控件设置 `GtkAccessible` 标签（`surfaces/linux/src/a11y.rs` 的 `set_label`）。
+- [x] 状态颜色之外总有文字（冰蓝与琥珀从不单独承担含义）。
+- [x] 抹除经确认对话框，写明不可恢复。
+- [ ] **延后（未核实）**：键盘遍历顺序与对话框关闭后焦点的去向。
+- [x] 守护进程联系不上时，顶部一行状态词与下一步，写动作全部停用（不是只置灰）。
 - [x] 无头自检可运行：`xvfb-run -a quetzalcoatl-desktop --self-test --home <tmp>`。
+- [ ] **延后（未实现）**：页内容变化（写动作完成、断线）的屏幕阅读器播报。
 - [ ] **延后**：Orca + AT-SPI 实机朗读、200% 缩放的视觉效果与焦点环走查 —
       `Deferred (VMs paused by owner)`。
 
