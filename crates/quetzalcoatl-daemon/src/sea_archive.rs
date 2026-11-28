@@ -317,6 +317,7 @@ pub fn restore_from_archive(
         )?;
     }
     let (mut spine, _) = crate::daemon::open_restored_spine(qz_home)?;
+    crate::daemon::seal_restored_root(qz_home, spine.epoch_ring(), passphrase)?;
     let events_imported = spine.import_zip(zip_path, crate::daemon::now_unix_ms())?;
     for (name, value) in &payload.entry_keys {
         spine.store_mut().put_private_blob(name, value)?;

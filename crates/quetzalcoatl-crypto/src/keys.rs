@@ -1986,6 +1986,81 @@ impl EpochKeyRing {
         })
     }
 
+    /// 不用根私钥、只凭根公钥恢复密钥环：逐条核对签名后重放成员变更日志。
+    ///
+    /// 根私钥被口令包裹后，守护进程每次启动走这条路。`records` 是已知设备的完整公开记录
+    /// （本机加上持久化的其它设备）；每条「加入」变更都要能在其中找到公钥一致的那一台，
+    /// 被吊销掉的设备可以没有记录。
+    pub fn restore_verified(
+        agent_id: AgentId,
+        root_verifying_key: [u8; 32],
+        records: &[DevicePublicRecord],
+        membership_log: Vec<SignedMembershipChange>,
+        epoch_keys: BTreeMap<Epoch, EpochKey>,
+    ) -> Result<Self> {
+        let mut active: BTreeMap<DeviceId, Option<DevicePublicRecord>> = BTreeMap::new();
+        let mut current_epoch = Epoch::new(1);
+        for change in &membership_log {
+            if change.agent_id != agent_id {
+                return Err(integrity_err("成员变更日志里出现了别的 Agent"));
+            }
+            AccountRootKey::verify_membership_change(&root_verifying_key, change)?;
+            if change.epoch > current_epoch {
+                current_epoch = change.epoch;
+            }
+            match change.op {
+                MemberOperation::AddDevice => {
+                    let record = records
+                        .iter()
+                        .find(|r| r.device_id == change.device_id)
+                        .filter(|r| {
+                            r.ed25519_pubkey == change.ed25519_pubkey
+                                && ArtifactId::from_bytes(*blake3::hash(&r.xwing_pubkey).as_bytes())
+                                    == change.xwing_pubkey_blake3
+                        })
+                        .cloned();
+                    active.insert(change.device_id, record);
+                }
+                MemberOperation::RevokeDevice => {
+                    active.remove(&change.device_id);
+                }
+            }
+        }
+        let mut active_devices = BTreeMap::new();
+        for (device_id, record) in active {
+            let record = record.ok_or_else(|| {
+                integrity_err(format!("激活设备 {device_id} 缺少与签名一致的公开记录"))
+            })?;
+            active_devices.insert(device_id, record);
+        }
+        if active_devices.is_empty() {
+            return Err(integrity_err("成员变更日志重放后没有任何激活设备"));
+        }
+        if let Some(max_key_epoch) = epoch_keys.keys().next_back()
+            && *max_key_epoch > current_epoch
+        {
+            current_epoch = *max_key_epoch;
+        }
+        let mut wrapped_entries = BTreeMap::new();
+        if let Some(key) = epoch_keys.get(&current_epoch) {
+            for (device_id, record) in &active_devices {
+                wrapped_entries.insert(
+                    (current_epoch, *device_id),
+                    wrap_epoch_key_for_device(agent_id, current_epoch, key, record)?,
+                );
+            }
+        }
+        Ok(Self {
+            agent_id,
+            root_verifying_key,
+            current_epoch,
+            epoch_keys,
+            active_devices,
+            membership_log,
+            wrapped_entries,
+        })
+    }
+
     #[must_use]
     pub const fn agent_id(&self) -> AgentId {
         self.agent_id

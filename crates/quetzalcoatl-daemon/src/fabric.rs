@@ -175,6 +175,44 @@ struct PersistedMembershipState {
     extra_epoch_keys: Vec<(u64, String)>,
     #[serde(default)]
     peer_devices: Vec<DevicePublicRecord>,
+    /// 根签名的成员变更日志（含创世那一条）。根私钥用口令封存后，启动时靠它恢复设备环。
+    #[serde(default)]
+    membership_log: Vec<quetzalcoatl_crypto::SignedMembershipChange>,
+}
+
+/// 根私钥封存着时：只凭根公钥，核对签名后重放成员变更日志，恢复设备环。
+pub(crate) fn restore_ring_from_log(
+    qz_home: &Path,
+    agent_id: AgentId,
+    root_pubkey: [u8; 32],
+    local: DevicePublicRecord,
+    epoch1: EpochKey,
+) -> Result<EpochKeyRing> {
+    let state =
+        decode_membership_state(qz_home).ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("根密钥封存着，但找不到成员变更日志：无法恢复设备环"),
+        })?;
+    if state.membership_log.is_empty() {
+        return Err(QuetzalcoatlError::StorageError {
+            detail: String::from("根密钥封存着，但成员变更日志是空的：无法恢复设备环"),
+        });
+    }
+    let mut keys = std::collections::BTreeMap::new();
+    keys.insert(Epoch::new(1), epoch1);
+    for (epoch, key_hex) in &state.extra_epoch_keys {
+        if *epoch > 1 {
+            keys.insert(
+                Epoch::new(*epoch),
+                EpochKey::from_bytes(hex_decode_fixed::<32>(
+                    "membership.extra_epoch_key",
+                    key_hex,
+                )?),
+            );
+        }
+    }
+    let mut records = state.peer_devices.clone();
+    records.push(local);
+    EpochKeyRing::restore_verified(agent_id, root_pubkey, &records, state.membership_log, keys)
 }
 
 const FABRIC_MEMBERSHIP_REL_PATH: &str = "fabric/membership_state.json";
@@ -287,6 +325,7 @@ pub(crate) fn persist_membership(
     let state = PersistedMembershipState {
         extra_epoch_keys,
         peer_devices,
+        membership_log: ring.membership_log().to_vec(),
     };
     let bytes =
         serde_json::to_vec_pretty(&state).map_err(|e| QuetzalcoatlError::SerializationError {
@@ -339,6 +378,9 @@ pub struct FabricLoginRequest {
     pub pin: Option<String>,
     pub agent_id: Option<AgentId>,
     pub device_id: Option<DeviceId>,
+    /// 根密钥用口令封存后，第一次在这台 Hub 上注册要用它解开根密钥。
+    #[serde(default)]
+    pub passphrase: Option<String>,
 }
 
 /// `qz login` 结果（零令牌泄漏）。
@@ -896,18 +938,27 @@ impl DaemonFabricRuntime {
         Ok(guard.kernel.spine().local_device().clone())
     }
 
-    fn local_identity(&self) -> Result<(AgentId, DeviceId, AccountRootKey, Epoch)> {
+    /// 本机身份：Agent、设备、根公钥与当前纪元。不需要根私钥。
+    fn local_identity(&self) -> Result<(AgentId, DeviceId, [u8; 32], Epoch)> {
         let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
             detail: String::from("fabric 运行时尚未绑定守护进程内核"),
         })?;
         let guard = lock_or_storage(&core.state)?;
-        let root_bytes = hex_decode_fixed::<32>("root_key_hex", &guard.persisted.root_key_hex)?;
         Ok((
             guard.kernel.spine().agent_id(),
             guard.kernel.spine().local_device().device_id(),
-            AccountRootKey::from_bytes(root_bytes),
+            guard.persisted.root_pubkey()?,
             guard.kernel.spine().epoch_ring().current_epoch(),
         ))
+    }
+
+    /// 根私钥：封存了的要口令。
+    fn local_root(&self, passphrase: Option<&str>) -> Result<AccountRootKey> {
+        let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("fabric 运行时尚未绑定守护进程内核"),
+        })?;
+        let guard = lock_or_storage(&core.state)?;
+        guard.persisted.root_key(passphrase)
     }
 
     /// 分阶段心跳（Fix Round 1 / Important #3）：**任何 `core.state` 内核锁都绝不跨网络 I/O 持有**。
@@ -1484,7 +1535,7 @@ impl DaemonFabricRuntime {
             };
         }
 
-        let (agent_id, device_id, local_root, _epoch) = self.local_identity()?;
+        let (agent_id, device_id, local_root_pubkey, _epoch) = self.local_identity()?;
         if req.agent_id.is_some_and(|a| a != agent_id) {
             return Err(QuetzalcoatlError::PermissionDenied {
                 detail: String::from("--agent 与本地主权 Agent 不一致，拒绝登录他人脊柱"),
@@ -1520,6 +1571,7 @@ impl DaemonFabricRuntime {
                 && !matches!(err, QuetzalcoatlError::IntegrityViolation { .. })
             {
                 let device = self.local_device()?;
+                let local_root = self.local_root(req.passphrase.as_deref())?;
                 if let Ok(session) = self.rt.block_on(anon.register_agent_with_eddsa_passkey(
                     agent_id,
                     &device,
@@ -1548,7 +1600,7 @@ impl DaemonFabricRuntime {
                 }
                 Err(other) => return Err(other),
             };
-            if recovered_root.verifying_key_bytes()? != local_root.verifying_key_bytes()? {
+            if recovered_root.verifying_key_bytes()? != local_root_pubkey {
                 return Err(QuetzalcoatlError::IntegrityViolation {
                     detail: String::from("OPAQUE 登录解封的根密钥与本地主权根密钥不一致"),
                 });
@@ -1656,6 +1708,7 @@ impl DaemonFabricRuntime {
         qz_home: &Path,
         pairing_id: &str,
         short_code: &str,
+        passphrase: Option<&str>,
     ) -> Result<FabricPairApproveResult> {
         let session = self.require_session()?;
         if short_code.trim().is_empty() {
@@ -1664,7 +1717,8 @@ impl DaemonFabricRuntime {
             });
         }
         validate_pair_code_locally(qz_home, pairing_id, short_code)?;
-        let (_, _, root_key, epoch) = self.local_identity()?;
+        let (_, _, _, epoch) = self.local_identity()?;
+        let root_key = self.local_root(passphrase)?;
         let client = self.hub_client(Some(&session.session_token))?;
         let status = self.rt.block_on(client.pair_get(pairing_id))?;
         if status.agent_id != session.agent_id {
@@ -1696,14 +1750,10 @@ impl DaemonFabricRuntime {
             })?;
             let mut state = lock_or_storage(&core.state)?;
             let local_device = state.kernel.spine().local_device().device_id();
-            let root = AccountRootKey::from_bytes(hex_decode_fixed::<32>(
-                "root_key_hex",
-                &state.persisted.root_key_hex,
-            )?);
             {
                 let ring = state.kernel.spine_mut().epoch_ring_mut();
                 if !ring.is_device_active(joiner_record.device_id) {
-                    ring.add_device(&root, joiner_record.clone())?;
+                    ring.add_device(&root_key, joiner_record.clone())?;
                 }
             }
             state
@@ -1724,6 +1774,7 @@ impl DaemonFabricRuntime {
         &self,
         qz_home: &Path,
         device_id: DeviceId,
+        passphrase: Option<&str>,
     ) -> Result<FabricRevokeResult> {
         if self.session_token().is_none() {
             return Err(QuetzalcoatlError::CredentialRejected {
@@ -1736,10 +1787,7 @@ impl DaemonFabricRuntime {
             })?;
             let mut state = lock_or_storage(&core.state)?;
             let local_device = state.kernel.spine().local_device().device_id();
-            let root = AccountRootKey::from_bytes(hex_decode_fixed::<32>(
-                "root_key_hex",
-                &state.persisted.root_key_hex,
-            )?);
+            let root = state.persisted.root_key(passphrase)?;
             let (new_epoch, _change) = state
                 .kernel
                 .spine_mut()

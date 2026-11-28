@@ -287,7 +287,7 @@ impl ExclusiveSpineLock {
 pub(crate) struct PersistedSovereignState {
     agent_id: AgentId,
     device_id: DeviceId,
-    pub(crate) root_key_hex: String,
+    pub(crate) root: RootAtRest,
     ed25519_seed_hex: String,
     xwing_seed_hex: String,
     epoch1_key_hex: String,
@@ -314,10 +314,145 @@ struct SovereignStateFile {
     conscience: Option<Conscience>,
 }
 
-/// `identity/keys.json` 的内容：根私钥、设备种子与首个纪元密钥。
+/// 根私钥在磁盘上的样子：设口令之前是明文；设了口令之后用口令封存，只留公钥在外。
+#[derive(Clone)]
+pub(crate) enum RootAtRest {
+    Plain(String),
+    Sealed {
+        sealed: quetzalcoatl_crypto::PassphraseSealed,
+        pubkey: [u8; 32],
+    },
+}
+
+/// 封存根私钥时用的用途标签（与其它口令封存的东西互不通用）。
+const ROOT_KEY_PURPOSE: &str = "quetzalcoatl-root-key-v1";
+
+impl PersistedSovereignState {
+    /// 取出根私钥。封存了的要口令；口令不对就失败。
+    pub(crate) fn root_key(&self, passphrase: Option<&str>) -> Result<AccountRootKey> {
+        match &self.root {
+            RootAtRest::Plain(hex) => Ok(AccountRootKey::from_bytes(hex_decode_fixed::<32>(
+                "root_key_hex",
+                hex,
+            )?)),
+            RootAtRest::Sealed { sealed, pubkey } => {
+                let passphrase = passphrase.ok_or_else(|| QuetzalcoatlError::PermissionDenied {
+                    detail: String::from(
+                        "这一步要用根密钥，它用你的口令锁着：请输入口令（命令行加 --passphrase-stdin）。",
+                    ),
+                })?;
+                let raw =
+                    quetzalcoatl_crypto::open_with_passphrase(passphrase, ROOT_KEY_PURPOSE, sealed)
+                        .map_err(|_| QuetzalcoatlError::PermissionDenied {
+                            detail: String::from("口令不对。"),
+                        })?;
+                let bytes: [u8; 32] = raw.as_slice().try_into().map_err(|_| {
+                    QuetzalcoatlError::IntegrityViolation {
+                        detail: String::from("封存的根密钥长度不对"),
+                    }
+                })?;
+                let root = AccountRootKey::from_bytes(bytes);
+                if root.verifying_key_bytes()? != *pubkey {
+                    return Err(QuetzalcoatlError::IntegrityViolation {
+                        detail: String::from("解开的根密钥与记下的根公钥不一致"),
+                    });
+                }
+                Ok(root)
+            }
+        }
+    }
+
+    /// 根公钥：不需要口令。
+    pub(crate) fn root_pubkey(&self) -> Result<[u8; 32]> {
+        match &self.root {
+            RootAtRest::Plain(_) => self.root_key(None)?.verifying_key_bytes(),
+            RootAtRest::Sealed { pubkey, .. } => Ok(*pubkey),
+        }
+    }
+
+    fn keys_file(&self) -> SovereignKeysFile {
+        let (root_key_hex, root_key_sealed, root_pubkey_hex) = match &self.root {
+            RootAtRest::Plain(hex) => (Some(hex.clone()), None, None),
+            RootAtRest::Sealed { sealed, pubkey } => {
+                (None, Some(sealed.clone()), Some(hex_encode(pubkey)))
+            }
+        };
+        SovereignKeysFile {
+            root_key_hex,
+            root_key_sealed,
+            root_pubkey_hex,
+            ed25519_seed_hex: self.ed25519_seed_hex.clone(),
+            xwing_seed_hex: self.xwing_seed_hex.clone(),
+            epoch1_key_hex: self.epoch1_key_hex.clone(),
+        }
+    }
+}
+
+impl DaemonMutableState {
+    /// 口令核对通过之后调用：根私钥还是明文就用这个口令封存。
+    pub(crate) fn seal_root_with(&mut self, qz_home: &Path, passphrase: &str) -> Result<()> {
+        let ring = self.kernel.spine().epoch_ring().clone();
+        seal_root_key(qz_home, &mut self.persisted, &ring, passphrase)
+    }
+}
+
+/// 设口令之后：把根私钥用口令封存，磁盘上只留公钥。之后守护进程启动不再需要根私钥
+/// （设备环由签过名的成员变更日志按根公钥核对重放），只有加设备、吊销、签底线、导出恢复包、
+/// 第一次在 Hub 注册这几件事要口令。已经封存过的不动。
+pub(crate) fn seal_root_key(
+    qz_home: &Path,
+    persisted: &mut PersistedSovereignState,
+    ring: &EpochKeyRing,
+    passphrase: &str,
+) -> Result<()> {
+    let RootAtRest::Plain(hex) = &persisted.root else {
+        return Ok(());
+    };
+    let root = AccountRootKey::from_bytes(hex_decode_fixed::<32>("root_key_hex", hex)?);
+    // 先把签过名的成员变更日志落盘：之后的启动只能靠它恢复设备环。
+    crate::fabric::persist_membership(qz_home, ring, persisted.device_id)?;
+    let sealed =
+        quetzalcoatl_crypto::seal_with_passphrase(passphrase, ROOT_KEY_PURPOSE, root.as_bytes())?;
+    let next = RootAtRest::Sealed {
+        sealed,
+        pubkey: root.verifying_key_bytes()?,
+    };
+    let previous = std::mem::replace(&mut persisted.root, next);
+    if let Err(err) = write_json_private(
+        &qz_home.join(SOVEREIGN_KEYS_FILE),
+        &persisted.keys_file(),
+        "密钥文件",
+    ) {
+        persisted.root = previous;
+        return Err(err);
+    }
+    Ok(())
+}
+
+fn root_at_rest(keys: &SovereignKeysFile) -> Result<RootAtRest> {
+    if let Some(hex) = &keys.root_key_hex {
+        return Ok(RootAtRest::Plain(hex.clone()));
+    }
+    match (&keys.root_key_sealed, &keys.root_pubkey_hex) {
+        (Some(sealed), Some(pubkey)) => Ok(RootAtRest::Sealed {
+            sealed: sealed.clone(),
+            pubkey: hex_decode_fixed::<32>("root_pubkey_hex", pubkey)?,
+        }),
+        _ => Err(QuetzalcoatlError::StorageError {
+            detail: String::from("密钥文件里既没有根密钥，也没有封存的根密钥"),
+        }),
+    }
+}
+
+/// `identity/keys.json` 的内容：根私钥（明文或用口令封存）、设备种子与首个纪元密钥。
 #[derive(Serialize, Deserialize)]
 struct SovereignKeysFile {
-    root_key_hex: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    root_key_hex: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    root_key_sealed: Option<quetzalcoatl_crypto::PassphraseSealed>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    root_pubkey_hex: Option<String>,
     ed25519_seed_hex: String,
     xwing_seed_hex: String,
     epoch1_key_hex: String,
@@ -488,7 +623,9 @@ fn load_or_init_sovereign_bundle(
                 detail: String::from("主权身份文件里没有密钥，也找不到单独的密钥文件"),
             };
             let migrated = SovereignKeysFile {
-                root_key_hex: state.root_key_hex.clone().ok_or_else(missing)?,
+                root_key_hex: Some(state.root_key_hex.clone().ok_or_else(missing)?),
+                root_key_sealed: None,
+                root_pubkey_hex: None,
                 ed25519_seed_hex: state.ed25519_seed_hex.clone().ok_or_else(missing)?,
                 xwing_seed_hex: state.xwing_seed_hex.clone().ok_or_else(missing)?,
                 epoch1_key_hex: state.epoch1_key_hex.clone().ok_or_else(missing)?,
@@ -500,7 +637,7 @@ fn load_or_init_sovereign_bundle(
         PersistedSovereignState {
             agent_id: state.agent_id,
             device_id: state.device_id,
-            root_key_hex: keys.root_key_hex,
+            root: root_at_rest(&keys)?,
             ed25519_seed_hex: keys.ed25519_seed_hex,
             xwing_seed_hex: keys.xwing_seed_hex,
             epoch1_key_hex: keys.epoch1_key_hex,
@@ -519,26 +656,25 @@ fn load_or_init_sovereign_bundle(
         let created = PersistedSovereignState {
             agent_id: AgentId::new_v4(),
             device_id: DeviceId::new_v4(),
-            root_key_hex: hex_encode(&root_bytes),
+            root: RootAtRest::Plain(hex_encode(&root_bytes)),
             ed25519_seed_hex: hex_encode(&ed_seed),
             xwing_seed_hex: hex_encode(&xw_seed),
             epoch1_key_hex: hex_encode(&ep1_bytes),
             graph_json_v2: graph.to_json_v2()?,
         };
-        write_json_private(
-            &keys_path,
-            &SovereignKeysFile {
-                root_key_hex: created.root_key_hex.clone(),
-                ed25519_seed_hex: created.ed25519_seed_hex.clone(),
-                xwing_seed_hex: created.xwing_seed_hex.clone(),
-                epoch1_key_hex: created.epoch1_key_hex.clone(),
-            },
-            "密钥文件",
-        )?;
+        write_json_private(&keys_path, &created.keys_file(), "密钥文件")?;
         created
     };
 
     let (mut spine, root_key) = open_sovereign_spine(qz_home, &persisted, now_ms)?;
+    // 只有第一次启动（还没有任何良知事件）与配对接管时要用根私钥签出厂良知；那时它还没封存。
+    let seed_root = || {
+        root_key
+            .clone()
+            .ok_or_else(|| QuetzalcoatlError::StorageError {
+                detail: String::from("根密钥封存着，却要签出厂良知：变更日志不该是空的"),
+            })
+    };
 
     // 良知以脊柱里的变更事件为准。还没有任何变更事件时（全新安装，或从旧版升级上来），
     // 把出厂良知或旧快照里的良知收编为基线，从此只追加。
@@ -552,13 +688,14 @@ fn load_or_init_sovereign_bundle(
         }
         // 刚经配对接管、还没同步到旧设备的海：先用出厂良知顶着，但不写进变更日志，
         // 否则它会盖过旧设备的海。
-        None if adopting => default_seed_conscience(&root_key, now_ms)?,
+        None if adopting => default_seed_conscience(&seed_root()?, now_ms)?,
         None => {
+            let root = seed_root()?;
             let mut baseline = match legacy_conscience {
                 Some(legacy) => legacy,
-                None => default_seed_conscience(&root_key, now_ms)?,
+                None => default_seed_conscience(&root, now_ms)?,
             };
-            let _ = retire_legacy_seed(&mut baseline, &root_key, now_ms)?;
+            let _ = retire_legacy_seed(&mut baseline, &root, now_ms)?;
             journal::commit(
                 &mut spine,
                 None,
@@ -583,20 +720,35 @@ fn open_sovereign_spine(
     qz_home: &Path,
     persisted: &PersistedSovereignState,
     now_ms: u64,
-) -> Result<(SpineEngine<RusqliteWalStore>, AccountRootKey)> {
+) -> Result<(SpineEngine<RusqliteWalStore>, Option<AccountRootKey>)> {
     let sqlite_path = qz_home.join("spine/spine.sqlite");
-    let root_bytes = hex_decode_fixed::<32>("root_key_hex", &persisted.root_key_hex)?;
     let ed_seed = hex_decode_fixed::<32>("ed25519_seed_hex", &persisted.ed25519_seed_hex)?;
     let xw_seed = hex_decode_fixed::<32>("xwing_seed_hex", &persisted.xwing_seed_hex)?;
     let ep1_bytes = hex_decode_fixed::<32>("epoch1_key_hex", &persisted.epoch1_key_hex)?;
 
-    let root_key = AccountRootKey::from_bytes(root_bytes);
     let device = DeviceIdentity::from_seeds(persisted.device_id, ed_seed, xw_seed)?;
-    let mut ring =
-        EpochKeyRing::new_genesis(persisted.agent_id, &root_key, device.public_record())?;
-    ring.insert_epoch_key(Epoch::new(1), EpochKey::from_bytes(ep1_bytes));
-    // Important #4：重放已持久化的新增设备与踢人后的新纪元密钥，保证重启后鉴权目录与本地成员一致。
-    crate::fabric::apply_persisted_membership(qz_home, &mut ring, &root_key)?;
+    let (ring, root_key) = match &persisted.root {
+        RootAtRest::Plain(_) => {
+            let root_key = persisted.root_key(None)?;
+            let mut ring =
+                EpochKeyRing::new_genesis(persisted.agent_id, &root_key, device.public_record())?;
+            ring.insert_epoch_key(Epoch::new(1), EpochKey::from_bytes(ep1_bytes));
+            // Important #4：重放已持久化的新增设备与踢人后的新纪元密钥，保证重启后鉴权目录与本地成员一致。
+            crate::fabric::apply_persisted_membership(qz_home, &mut ring, &root_key)?;
+            (ring, Some(root_key))
+        }
+        RootAtRest::Sealed { pubkey, .. } => {
+            // 根私钥封存着：按根公钥核对签过名的成员变更日志，重放出设备环。
+            let ring = crate::fabric::restore_ring_from_log(
+                qz_home,
+                persisted.agent_id,
+                *pubkey,
+                device.public_record(),
+                EpochKey::from_bytes(ep1_bytes),
+            )?;
+            (ring, None)
+        }
+    };
 
     let store = RusqliteWalStore::open(&sqlite_path)?;
     let initial_hlc = store
@@ -628,7 +780,9 @@ pub(crate) fn write_restored_identity(
     write_json_private(
         &qz_home.join(SOVEREIGN_KEYS_FILE),
         &SovereignKeysFile {
-            root_key_hex: payload.root_key_hex.clone(),
+            root_key_hex: Some(payload.root_key_hex.clone()),
+            root_key_sealed: None,
+            root_pubkey_hex: None,
             ed25519_seed_hex: payload.ed25519_seed_hex.clone(),
             xwing_seed_hex: payload.xwing_seed_hex.clone(),
             epoch1_key_hex: payload.epoch1_key_hex.clone(),
@@ -660,7 +814,9 @@ pub(crate) fn write_adopted_identity(
     write_json_private(
         &qz_home.join(SOVEREIGN_KEYS_FILE),
         &SovereignKeysFile {
-            root_key_hex: adoption.root_key_hex.clone(),
+            root_key_hex: Some(adoption.root_key_hex.clone()),
+            root_key_sealed: None,
+            root_pubkey_hex: None,
             ed25519_seed_hex: adoption.ed25519_seed_hex.clone(),
             xwing_seed_hex: adoption.xwing_seed_hex.clone(),
             epoch1_key_hex: epoch1,
@@ -683,17 +839,39 @@ pub(crate) fn write_adopted_identity(
     )
 }
 
+/// 恢复之后：用恢复包的口令封存根私钥（这个口令也成为本机的口令）。
+pub(crate) fn seal_restored_root(
+    qz_home: &Path,
+    ring: &EpochKeyRing,
+    passphrase: &str,
+) -> Result<()> {
+    let state: SovereignStateFile =
+        read_json_file(&qz_home.join(SOVEREIGN_STATE_FILE), "主权身份文件")?;
+    let keys: SovereignKeysFile = read_json_file(&qz_home.join(SOVEREIGN_KEYS_FILE), "密钥文件")?;
+    let mut persisted = PersistedSovereignState {
+        agent_id: state.agent_id,
+        device_id: state.device_id,
+        root: root_at_rest(&keys)?,
+        ed25519_seed_hex: keys.ed25519_seed_hex,
+        xwing_seed_hex: keys.xwing_seed_hex,
+        epoch1_key_hex: keys.epoch1_key_hex,
+        graph_json_v2: state.graph_json_v2,
+    };
+    crate::sea_governance::require_owner_passphrase(qz_home, passphrase)?;
+    seal_root_key(qz_home, &mut persisted, ring, passphrase)
+}
+
 /// 恢复时：按刚写出的身份打开一个空脊柱，不收编任何基线。
 pub(crate) fn open_restored_spine(
     qz_home: &Path,
-) -> Result<(SpineEngine<RusqliteWalStore>, AccountRootKey)> {
+) -> Result<(SpineEngine<RusqliteWalStore>, Option<AccountRootKey>)> {
     let state: SovereignStateFile =
         read_json_file(&qz_home.join(SOVEREIGN_STATE_FILE), "主权身份文件")?;
     let keys: SovereignKeysFile = read_json_file(&qz_home.join(SOVEREIGN_KEYS_FILE), "密钥文件")?;
     let persisted = PersistedSovereignState {
         agent_id: state.agent_id,
         device_id: state.device_id,
-        root_key_hex: keys.root_key_hex,
+        root: root_at_rest(&keys)?,
         ed25519_seed_hex: keys.ed25519_seed_hex,
         xwing_seed_hex: keys.xwing_seed_hex,
         epoch1_key_hex: keys.epoch1_key_hex,
@@ -724,7 +902,7 @@ fn export_sea(
             version: 1,
             agent_id: persisted.agent_id,
             device_id: persisted.device_id,
-            root_key_hex: persisted.root_key_hex.clone(),
+            root_key_hex: hex_encode(persisted.root_key(Some(passphrase))?.as_bytes()),
             ed25519_seed_hex: persisted.ed25519_seed_hex.clone(),
             xwing_seed_hex: persisted.xwing_seed_hex.clone(),
             epoch1_key_hex: persisted.epoch1_key_hex.clone(),
@@ -1776,7 +1954,7 @@ impl SharedDaemonCore {
                 include_sealed_spine,
                 passphrase,
             } => {
-                let Ok(guard) = self.state.lock() else {
+                let Ok(mut guard) = self.state.lock() else {
                     return (
                         IpcResponse::Error {
                             code: String::from("STORAGE_ERROR"),
@@ -1799,16 +1977,23 @@ impl SharedDaemonCore {
                         &guard.persisted,
                     ),
                 ) {
-                    Ok(recoverable) => (
-                        IpcResponse::Ack {
-                            detail: String::from(if recoverable {
-                                "recoverable"
-                            } else {
-                                "readable-only"
-                            }),
-                        },
-                        false,
-                    ),
+                    Ok(recoverable) => {
+                        // 口令核对过了：根私钥还是明文就顺手用它封存。
+                        if let Some(passphrase) = passphrase.as_deref() {
+                            let _ =
+                                guard.seal_root_with(&self.config.quetzalcoatl_home, passphrase);
+                        }
+                        (
+                            IpcResponse::Ack {
+                                detail: String::from(if recoverable {
+                                    "recoverable"
+                                } else {
+                                    "readable-only"
+                                }),
+                            },
+                            false,
+                        )
+                    }
                     Err(err) => (
                         IpcResponse::Error {
                             code: String::from(err.code().as_str()),
@@ -1958,12 +2143,17 @@ impl SharedDaemonCore {
             IpcRequest::FabricPairApprove {
                 pairing_id,
                 short_code,
+                passphrase,
             } => {
                 let Some(runtime) = self.fabric_runtime() else {
                     return fabric_disabled_response();
                 };
-                match runtime.pair_approve(&self.config.quetzalcoatl_home, &pairing_id, &short_code)
-                {
+                match runtime.pair_approve(
+                    &self.config.quetzalcoatl_home,
+                    &pairing_id,
+                    &short_code,
+                    passphrase.as_deref(),
+                ) {
                     Ok(rep) => {
                         let _ = self.register_channel_ingress_key();
                         (IpcResponse::FabricPairApprove(Box::new(rep)), false)
@@ -1986,11 +2176,18 @@ impl SharedDaemonCore {
                     false,
                 )
             }
-            IpcRequest::FabricRevokeDevice { device_id } => {
+            IpcRequest::FabricRevokeDevice {
+                device_id,
+                passphrase,
+            } => {
                 let Some(runtime) = self.fabric_runtime() else {
                     return fabric_disabled_response();
                 };
-                match runtime.revoke_device(&self.config.quetzalcoatl_home, device_id) {
+                match runtime.revoke_device(
+                    &self.config.quetzalcoatl_home,
+                    device_id,
+                    passphrase.as_deref(),
+                ) {
                     Ok(rep) => (IpcResponse::FabricRevokeDevice(rep), false),
                     Err(err) => (
                         IpcResponse::Error {

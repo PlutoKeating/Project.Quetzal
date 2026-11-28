@@ -313,6 +313,57 @@ fn an_export_carries_him_to_an_empty_home_and_only_the_passphrase_opens_it() -> 
     assert_eq!(exported["data"]["detail"], "recoverable");
     daemon.shutdown()?;
 
+    // 口令有了之后，根私钥只以封存的样子留在磁盘上；守护进程照样能启动、照样能写。
+    let sealed_keys = |home: &PathBuf| -> Result<(), Box<dyn Error>> {
+        let keys: serde_json::Value =
+            serde_json::from_slice(&fs::read(home.join("identity/keys.json"))?)?;
+        assert!(
+            keys.get("root_key_hex").is_none(),
+            "根私钥不再以明文留着: {keys}"
+        );
+        assert!(keys.get("root_key_sealed").is_some(), "{keys}");
+        assert!(keys.get("root_pubkey_hex").is_some(), "{keys}");
+        Ok(())
+    };
+    sealed_keys(&home_a)?;
+    {
+        let again = QuetzalcoatlDaemon::start(DaemonConfig::new(home_a.clone()))?;
+        let client_again =
+            IpcClient::from_runtime_info(again.runtime_info(), again.ipc_token().to_owned());
+        let found = call(
+            &client_again,
+            &IpcRequest::SeaMemories {
+                query: Some(String::from("鸢尾花计划")),
+                state: None,
+                cursor: None,
+                limit: None,
+            },
+        )?;
+        assert_eq!(found["data"]["items"][0]["id"], kept.as_str(), "{found}");
+        // 签底线要用根私钥：口令不对签不了，对了照样签。
+        let wrong = call(
+            &client_again,
+            &IpcRequest::SeaBaselineSign {
+                directives: vec![quetzalcoatl_daemon::sea_governance::DirectiveDraft {
+                    title: String::from("不替我花钱"),
+                    text: String::from("没有我点头，不替我付任何钱。"),
+                }],
+                passphrase: String::from("湖边第四棵柳树下面"),
+            },
+        );
+        assert!(wrong.is_err(), "口令不对签不了");
+        call(
+            &client_again,
+            &IpcRequest::SeaBaselineSign {
+                directives: vec![quetzalcoatl_daemon::sea_governance::DirectiveDraft {
+                    title: String::from("不替我花钱"),
+                    text: String::from("没有我点头，不替我付任何钱。"),
+                }],
+                passphrase: String::from("湖边第三棵柳树下面"),
+            },
+        )?;
+    }
+
     // 人读得懂的那一份。
     let readable =
         quetzalcoatl_spine::read_archive_entry(&zip, "海/往事.md")?.ok_or("可读的往事")?;
@@ -329,6 +380,7 @@ fn an_export_carries_him_to_an_empty_home_and_only_the_passphrase_opens_it() -> 
         "已经有一片海的目录不接受恢复"
     );
 
+    sealed_keys(&home_b)?;
     let daemon_b = QuetzalcoatlDaemon::start(DaemonConfig::new(home_b.clone()))?;
     let client_b =
         IpcClient::from_runtime_info(daemon_b.runtime_info(), daemon_b.ipc_token().to_owned());

@@ -599,6 +599,20 @@ fn run_login(args: &[String]) -> Result<()> {
     }
     let qz_home = resolve_quetzalcoatl_home(home);
     let mut client = require_daemon(&qz_home)?;
+    // 第一次在这台 Hub 注册要用根私钥：它封存着时，在终端里问一次口令（不是终端就不问）。
+    let passphrase = if root_key_sealed(&qz_home) && !pin_from_stdin {
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() {
+            Some(read_passphrase(
+                false,
+                "口令（根密钥用它锁着；第一次注册这台 Hub 时要用）: ",
+            )?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let request = IpcRequest::FabricLogin(FabricLoginRequest {
         hub_url: hub.clone(),
         token,
@@ -606,6 +620,7 @@ fn run_login(args: &[String]) -> Result<()> {
         pin,
         agent_id: agent,
         device_id: device,
+        passphrase,
     });
     let mut resp = client.call(&request)?;
     // 守护进程还没接 Hub：带上这台 Hub 重启它，再登录一次。登录成功后会话落盘，以后启动自动接上。
@@ -687,6 +702,24 @@ struct PairArgs {
     code: Option<String>,
     device: Option<DeviceId>,
     json_mode: bool,
+    passphrase_stdin: bool,
+}
+
+/// 根私钥是否已经用口令封存（看本机的密钥文件，不经守护进程）。
+fn root_key_sealed(qz_home: &Path) -> bool {
+    fs::read(qz_home.join("identity/keys.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
+        .is_some_and(|keys| keys.get("root_key_sealed").is_some())
+}
+
+/// 要用根私钥的命令：根私钥封存着时问口令，否则不问。
+fn passphrase_for_root(qz_home: &Path, from_stdin: bool) -> Result<Option<String>> {
+    if root_key_sealed(qz_home) {
+        read_passphrase(from_stdin, "口令（根密钥用它锁着）: ").map(Some)
+    } else {
+        Ok(None)
+    }
 }
 
 fn parse_pair_args(args: &[String], allow_code: bool) -> Result<PairArgs> {
@@ -696,11 +729,13 @@ fn parse_pair_args(args: &[String], allow_code: bool) -> Result<PairArgs> {
         code: None,
         device: None,
         json_mode: false,
+        passphrase_stdin: false,
     };
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
             "--json" => out.json_mode = true,
+            "--passphrase-stdin" => out.passphrase_stdin = true,
             "--home" => out.home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
             "--hub" => out.hub = Some(parse_flag_value(args, &mut i, "--hub")?.clone()),
             "--code" if allow_code => {
@@ -901,9 +936,11 @@ fn run_pair_approve(args: &[String]) -> Result<()> {
     let qz_home = resolve_quetzalcoatl_home(parsed.home);
     let client = require_daemon(&qz_home)?;
     expect_fabric_hub(&client, parsed.hub.as_ref())?;
+    let passphrase = passphrase_for_root(&qz_home, parsed.passphrase_stdin)?;
     match client.call(&IpcRequest::FabricPairApprove {
         pairing_id,
         short_code,
+        passphrase,
     })? {
         IpcResponse::FabricPairApprove(res) => {
             if parsed.json_mode {
@@ -938,7 +975,11 @@ fn run_pair_revoke(args: &[String]) -> Result<()> {
     let qz_home = resolve_quetzalcoatl_home(parsed.home);
     let client = require_daemon(&qz_home)?;
     expect_fabric_hub(&client, parsed.hub.as_ref())?;
-    match client.call(&IpcRequest::FabricRevokeDevice { device_id: device })? {
+    let passphrase = passphrase_for_root(&qz_home, parsed.passphrase_stdin)?;
+    match client.call(&IpcRequest::FabricRevokeDevice {
+        device_id: device,
+        passphrase,
+    })? {
         IpcResponse::FabricRevokeDevice(res) => {
             if parsed.json_mode {
                 print_json(&res)?;

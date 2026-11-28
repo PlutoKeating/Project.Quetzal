@@ -242,12 +242,17 @@ pub enum IpcRequest {
     FabricPairApprove {
         pairing_id: String,
         short_code: String,
+        /// 根密钥用口令封存后，批准新设备要用它解开。
+        #[serde(default)]
+        passphrase: Option<String>,
     },
     /// `qz nodes`：列出 fabric 对等节点、路径类型与当前 Router 租约持有者。
     FabricNodes,
     /// `qz pair revoke --device <id>`：吊销已配对设备并前向轮换纪元密钥。
     FabricRevokeDevice {
         device_id: DeviceId,
+        #[serde(default)]
+        passphrase: Option<String>,
     },
     /// `qz group create`：创建零知识群房间并构造本地 openmls 引擎。
     GroupCreate {

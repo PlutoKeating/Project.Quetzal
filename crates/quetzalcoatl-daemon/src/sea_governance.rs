@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::Path;
 
-use quetzalcoatl_crypto::{AccountRootKey, PassphraseVerifier, hex_decode_fixed};
+use quetzalcoatl_crypto::PassphraseVerifier;
 use quetzalcoatl_ewave::journal::{self, SEA_CHANGE_KIND, SeaChangeEvent, SeaLayer};
 use quetzalcoatl_ewave::{
     Authority, Conscience, ConscienceManifest, MemoryEntry, ProtectedDirective, search_memories,
@@ -986,13 +986,11 @@ impl DaemonMutableState {
         &mut self,
         qz_home: &Path,
         directives: &[(String, String)],
+        passphrase: &str,
         epoch: quetzalcoatl_types::Epoch,
         now_ms: u64,
     ) -> Result<u64> {
-        let root_key = AccountRootKey::from_bytes(hex_decode_fixed::<32>(
-            "root_key_hex",
-            &self.persisted.root_key_hex,
-        )?);
+        let root_key = self.persisted.root_key(Some(passphrase))?;
         let root_directives: Vec<ProtectedDirective> = directives
             .iter()
             .enumerate()
@@ -1259,7 +1257,12 @@ impl SharedDaemonCore {
         }
         let epoch = self.sea_epoch();
         let now_ms = now_unix_ms();
-        match self.with_state(|state| state.sea_sign_baseline(&home, &cleaned, epoch, now_ms)) {
+        match self.with_state(|state| {
+            let signed = state.sea_sign_baseline(&home, &cleaned, passphrase, epoch, now_ms)?;
+            // 口令有了：根私钥从此用它封存。
+            state.seal_root_with(&home, passphrase)?;
+            Ok::<_, QuetzalcoatlError>(signed)
+        }) {
             Some(Ok(signed_at_ms)) => IpcResponse::SeaBaselineSign(BaselineSigned { signed_at_ms }),
             Some(Err(err)) => from_error(&err),
             None => error("STORAGE_ERROR", BUSY),
@@ -1297,9 +1300,10 @@ impl SharedDaemonCore {
                 "这台设备没有接入 Hub，没有可以吊销的其它设备。",
             );
         };
-        if let Err(err) = runtime.revoke_device(&home, device) {
+        if let Err(err) = runtime.revoke_device(&home, device, Some(passphrase)) {
             return from_error(&err);
         }
+        let _ = self.with_state(|state| state.seal_root_with(&home, passphrase));
         IpcResponse::SeaDeviceRevoke(self.sea_devices_view())
     }
 

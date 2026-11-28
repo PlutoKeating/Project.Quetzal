@@ -102,7 +102,7 @@
 | `sea_rhythm_set` | `{speak_first, quiet_hours: [开始, 结束] \| null}` | `SeaSelf`（节律只是你给他的安排，不改写他，不经签署） |
 | `sea_device_revoke` | `{device_id, passphrase}` | `DevicesView` |
 
-写方法都由本人在治理面上亲手触发，按本人的显式信号处理。`sea_baseline_sign` 与 `sea_device_revoke` 需要口令；第一次签署时这个口令即被设定（至少 8 个字符）。口令不对时错误码是 `PASSPHRASE_MISMATCH`，还没设过口令就吊销设备时是 `PASSPHRASE_NOT_SET`。无参方法的请求体可以不带 `params`。
+写方法都由本人在治理面上亲手触发，按本人的显式信号处理。`sea_baseline_sign` 与 `sea_device_revoke` 需要口令；第一次签署时这个口令即被设定（至少 8 个字符）。口令一旦设定，根私钥就用它封存，磁盘上只留根公钥：守护进程启动时按根公钥核对签过名的成员变更日志恢复设备环，不再需要根私钥；签底线、吊销设备、批准新设备（`qz pair approve`）、导出恢复包与第一次在 Hub 注册时才用口令解开它。口令不对时错误码是 `PASSPHRASE_MISMATCH`，还没设过口令就吊销设备时是 `PASSPHRASE_NOT_SET`。无参方法的请求体可以不带 `params`。
 
 ### 3.3 载荷
 

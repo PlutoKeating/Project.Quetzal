@@ -518,6 +518,7 @@ fn fabric_disabled_by_default_keeps_daemon_behavior_and_home_untouched() -> Test
         IpcRequest::FabricPairApprove {
             pairing_id: String::from("deadbeef"),
             short_code: String::from("AAAA-BBBB"),
+            passphrase: None,
         },
     ] {
         match client.call(&req)? {

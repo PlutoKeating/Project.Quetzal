@@ -773,6 +773,7 @@ fn paired_device_is_authorized_locally_and_revocation_refuses_it_at_runtime() ->
     // 3. 踢人：本地轮换纪元并持久化，随后运行时必须拒斥该设备。
     match client.call(&IpcRequest::FabricRevokeDevice {
         device_id: joiner.device_id(),
+        passphrase: None,
     })? {
         IpcResponse::FabricRevokeDevice(res) => {
             assert_eq!(res.device_id, joiner.device_id());
@@ -780,10 +781,20 @@ fn paired_device_is_authorized_locally_and_revocation_refuses_it_at_runtime() ->
         }
         other => return Err(format!("unexpected revoke response: {other:?}").into()),
     }
-    let membership_raw = fs::read_to_string(qz_home.join("fabric/membership_state.json"))?;
+    let membership: serde_json::Value =
+        serde_json::from_slice(&fs::read(qz_home.join("fabric/membership_state.json"))?)?;
     assert!(
-        !membership_raw.contains(&joiner.device_id().to_string()),
-        "吊销后成员状态不得再包含该设备"
+        !membership["peer_devices"]
+            .to_string()
+            .contains(&joiner.device_id().to_string()),
+        "吊销后成员状态的激活设备里不得再有该设备"
+    );
+    // 签过名的成员变更日志留着这次吊销（根私钥封存后靠它恢复设备环）。
+    assert!(
+        membership["membership_log"]
+            .as_array()
+            .is_some_and(|log| log.iter().any(|c| c["op"].to_string().contains("evoke"))),
+        "{membership}"
     );
 
     // 旧连接已被主动关闭；重连必须被硬拒。
@@ -939,6 +950,7 @@ fn revoke_of_unknown_device_is_a_typed_error_not_a_silent_ack() -> TestResult {
 
     match client.call(&IpcRequest::FabricRevokeDevice {
         device_id: DeviceId::new_v4(),
+        passphrase: None,
     })? {
         IpcResponse::Error { code, detail } => {
             assert_eq!(code, "INTEGRITY_VIOLATION");
