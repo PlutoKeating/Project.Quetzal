@@ -169,22 +169,22 @@ impl ClaudeCodeTarget {
     }
 }
 
-fn storage_error(detail: String) -> QuetzalcoatlError {
+pub(crate) fn storage_error(detail: String) -> QuetzalcoatlError {
     QuetzalcoatlError::StorageError { detail }
 }
 
 /// 按 POSIX shell 规则给路径加单引号。
-fn shell_quote(path: &Path) -> String {
+pub(crate) fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"))
 }
 
 /// 把一段文字写成 JSON 字符串字面量的内部（不含两端的引号），用来填进模板里已有的引号之间。
-fn json_string_inner(text: &str) -> String {
+pub(crate) fn json_string_inner(text: &str) -> String {
     let quoted = Value::String(String::from(text)).to_string();
     quoted[1..quoted.len() - 1].to_owned()
 }
 
-fn write_private(path: &Path, content: &str) -> Result<()> {
+pub(crate) fn write_private(path: &Path, content: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| storage_error(format!("创建目录失败 ({}): {e}", parent.display())))?;
@@ -227,7 +227,7 @@ fn write_plugin_source(target: &ClaudeCodeTarget) -> Result<()> {
 }
 
 /// 调用宿主命令行并等它结束；超时即杀掉。返回标准输出。
-fn run_host_cli(program: &Path, args: &[&str]) -> Result<String> {
+pub(crate) fn run_host_cli(program: &Path, args: &[&str]) -> Result<String> {
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
@@ -492,7 +492,7 @@ pub struct DoctorLine {
     pub detail: String,
 }
 
-fn line(ok: bool, label: &str, detail: impl Into<String>) -> DoctorLine {
+pub(crate) fn doctor_line(ok: bool, label: &str, detail: impl Into<String>) -> DoctorLine {
     DoctorLine {
         ok,
         label: String::from(label),
@@ -577,20 +577,20 @@ pub fn doctor_claude_code(qz_home: &Path, target: Option<&ClaudeCodeTarget>) -> 
             matches!(client.call(&IpcRequest::Status), Ok(IpcResponse::Status(_)))
         });
     lines.push(if daemon_up {
-        line(true, "守护进程", "在运行")
+        doctor_line(true, "守护进程", "在运行")
     } else {
-        line(false, "守护进程", "没有在运行。执行 `qz up`")
+        doctor_line(false, "守护进程", "没有在运行。执行 `qz up`")
     });
 
     let Some(target) = target else {
-        lines.push(line(
+        lines.push(doctor_line(
             false,
             "Claude Code",
             "本机没有找到。装好并登录后再执行 `qz connect`",
         ));
         return lines;
     };
-    lines.push(line(
+    lines.push(doctor_line(
         true,
         "Claude Code",
         target.claude_bin.to_string_lossy(),
@@ -602,13 +602,13 @@ pub fn doctor_claude_code(qz_home: &Path, target: Option<&ClaudeCodeTarget>) -> 
         .is_file();
     let enabled = plugin_enabled_in_host(target);
     lines.push(match (source_ready, enabled) {
-        (true, Some(true)) => line(true, "插件", "已装入并启用"),
-        (true, Some(false)) => line(
+        (true, Some(true)) => doctor_line(true, "插件", "已装入并启用"),
+        (true, Some(false)) => doctor_line(
             false,
             "插件",
             "已装入但被停用。在宿主里启用它，或重新执行 `qz connect`",
         ),
-        _ => line(false, "插件", "还没有接上。执行 `qz connect`"),
+        _ => doctor_line(false, "插件", "还没有接上。执行 `qz connect`"),
     });
 
     let core_sent = hooks_registered(target, "SessionStart") && daemon_up && {
@@ -621,9 +621,9 @@ pub fn doctor_claude_code(qz_home: &Path, target: Option<&ClaudeCodeTarget>) -> 
         !run_hook(qz_home, HOST_CLAUDE_CODE, &probe).is_empty()
     };
     lines.push(if core_sent {
-        line(true, "送核心", "会话开始时会带入他的核心")
+        doctor_line(true, "送核心", "会话开始时会带入他的核心")
     } else {
-        line(
+        doctor_line(
             false,
             "送核心",
             "这一步走不通：先看上面的守护进程与插件两行",
@@ -646,9 +646,9 @@ pub fn doctor_claude_code(qz_home: &Path, target: Option<&ClaudeCodeTarget>) -> 
                 )
             });
     lines.push(if recall_path {
-        line(true, "送往事", "每次提交前会带上相关往事")
+        doctor_line(true, "送往事", "每次提交前会带上相关往事")
     } else {
-        line(
+        doctor_line(
             false,
             "送往事",
             "这一步走不通：先看上面的守护进程与插件两行",
@@ -656,18 +656,18 @@ pub fn doctor_claude_code(qz_home: &Path, target: Option<&ClaudeCodeTarget>) -> 
     });
 
     lines.push(if hooks_registered(target, "Stop") {
-        line(true, "收信号", "回合结束时会向守护进程登记")
+        doctor_line(true, "收信号", "回合结束时会向守护进程登记")
     } else {
-        line(
+        doctor_line(
             false,
             "收信号",
             "回合结束的钩子没有登记。重新执行 `qz connect`",
         )
     });
     lines.push(if hooks_registered(target, "SessionStart") {
-        line(true, "压缩后不丢", "宿主压缩对话后会重新带入核心")
+        doctor_line(true, "压缩后不丢", "宿主压缩对话后会重新带入核心")
     } else {
-        line(
+        doctor_line(
             false,
             "压缩后不丢",
             "会话开始的钩子没有登记。重新执行 `qz connect`",

@@ -56,10 +56,27 @@ fn write_fake_claude(dir: &Path) -> std::io::Result<PathBuf> {
         log = log.display()
     );
     fs::write(&path, script)?;
+    // 假 Codex：同样只认插件子命令，把调用记进日志。测试里绝不碰真的 Codex。
+    let codex = dir.join("codex");
+    let codex_log = dir.join("codex-calls.log");
+    fs::write(
+        &codex,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.171.0'; exit 0; fi\n\
+             echo \"$*\" >> '{log}'\n\
+             case \"$1 $2\" in\n\
+               'plugin list') echo '{{\"installed\":[{{\"pluginId\":\"quetzalcoatl@quetzalcoatl-local\",\"enabled\":true}}]}}' ;;\n\
+               *) echo '{{}}' ;;\n\
+             esac\n",
+            log = codex_log.display()
+        ),
+    )?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+        fs::set_permissions(&codex, fs::Permissions::from_mode(0o755))?;
     }
     Ok(path)
 }
@@ -386,7 +403,11 @@ fn a_claude_code_session_gets_his_core_then_relevant_memories_and_survives_compa
     ] {
         assert!(report.contains(item), "诊断缺少「{item}」一行: {report}");
     }
-    assert!(!report.contains("○"), "此刻不应有任何一项不通: {report}");
+    let claude_part = report.split("\nCodex").next().unwrap_or_default();
+    assert!(
+        !claude_part.contains("○"),
+        "Claude Code 这一段此刻不应有任何一项不通: {report}"
+    );
 
     // 我们停机：宿主照常。钩子以成功码退出、不输出、很快返回。
     daemon.shutdown()?;
@@ -488,6 +509,7 @@ fn connect_is_repeatable_respects_the_users_own_status_line_and_undoes_cleanly()
 fn connect_without_the_host_says_what_to_do_next() -> TestResult {
     let rig = Rig::new("nohost")?;
     fs::remove_file(rig.fake_claude_dir.join("claude"))?;
+    fs::remove_file(rig.fake_claude_dir.join("codex"))?;
     let out = Command::new(qz())
         .args(["connect"])
         .env("QUETZALCOATL_HOME", &rig.qz_home)
@@ -496,7 +518,10 @@ fn connect_without_the_host_says_what_to_do_next() -> TestResult {
         .output()?;
     assert!(!out.status.success(), "没有宿主时接上应当失败");
     let said = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert!(said.contains("Claude Code"), "要说清缺的是哪个宿主: {said}");
+    assert!(
+        said.contains("Claude Code") && said.contains("Codex"),
+        "要说清缺的是哪个宿主: {said}"
+    );
     assert!(said.contains("qz connect"), "要说清下一步: {said}");
     Ok(())
 }
@@ -1140,6 +1165,66 @@ fn when_left_alone_he_looks_back_on_a_session_through_the_users_own_host() -> Te
     assert!(
         String::from_utf8_lossy(&again.stdout).contains("没有新的相处可回想"),
         "同一段相处只回想一次"
+    );
+    Ok(())
+}
+
+#[test]
+fn codex_gets_the_same_plugin_through_its_own_plugin_commands_and_can_be_undone() -> TestResult {
+    let rig = Rig::new("codex")?;
+    let connect = rig.qz(&["connect"], None, &[])?;
+    assert!(
+        connect.status.success(),
+        "{}",
+        String::from_utf8_lossy(&connect.stderr)
+    );
+    let said = String::from_utf8_lossy(&connect.stdout).into_owned();
+    assert!(said.contains("已接上 Codex"), "{said}");
+    assert!(
+        said.contains("/hooks"),
+        "要说清第一次需要在 Codex 里信任钩子: {said}"
+    );
+
+    let source = rig.qz_home.join("hosts/codex/marketplace");
+    let plugin = source.join("plugins/quetzalcoatl");
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(plugin.join(".codex-plugin/plugin.json"))?)?;
+    assert_eq!(
+        manifest["version"],
+        env!("CARGO_PKG_VERSION"),
+        "按版本号刷新缓存"
+    );
+    let hooks = fs::read_to_string(plugin.join("hooks/hooks.json"))?;
+    assert!(hooks.contains("hook --host codex"), "{hooks}");
+    for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"] {
+        assert!(hooks.contains(event), "钩子表缺 {event}");
+    }
+    let mcp = fs::read_to_string(plugin.join(".mcp.json"))?;
+    assert!(mcp.contains(&qz().to_string_lossy().into_owned()), "{mcp}");
+    assert!(!mcp.contains("{{"), "模板占位符必须全部替换");
+
+    let calls = fs::read_to_string(rig.fake_claude_dir.join("codex-calls.log"))?;
+    assert!(calls.contains("plugin marketplace add --json"), "{calls}");
+    assert!(
+        calls.contains("plugin add quetzalcoatl@quetzalcoatl-local"),
+        "{calls}"
+    );
+
+    let doctor = rig.qz(&["doctor"], None, &[])?;
+    let report = String::from_utf8_lossy(&doctor.stdout).into_owned();
+    assert!(report.contains("Codex"), "{report}");
+    assert!(report.contains("钩子信任"), "{report}");
+
+    let undo = rig.qz(&["connect", "--undo"], None, &[])?;
+    assert!(undo.status.success());
+    assert!(
+        !rig.qz_home.join("hosts/codex").exists(),
+        "撤下后本地插件源不留"
+    );
+    let calls = fs::read_to_string(rig.fake_claude_dir.join("codex-calls.log"))?;
+    assert!(
+        calls.contains("plugin remove quetzalcoatl@quetzalcoatl-local"),
+        "{calls}"
     );
     Ok(())
 }

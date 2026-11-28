@@ -1,0 +1,12 @@
+{
+  "name": "quetzalcoatl-local",
+  "interface": { "displayName": "Quetzalcoatl" },
+  "plugins": [
+    {
+      "name": "quetzalcoatl",
+      "source": { "source": "local", "path": "./plugins/quetzalcoatl" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_USE" },
+      "category": "Productivity"
+    }
+  ]
+}

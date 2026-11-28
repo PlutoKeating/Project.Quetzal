@@ -9,6 +9,7 @@ pub mod domains;
 pub mod fabric;
 pub mod group;
 pub mod host_connect;
+pub mod host_connect_codex;
 pub mod host_hook;
 pub mod host_mcp;
 pub mod host_sessions;

@@ -38,7 +38,7 @@ Usage:
 
 Commands:
   up          Start local quetzalcoatld daemon and wait until it is ready
-  connect     Attach to the hosts on this machine (Claude Code); --undo detaches cleanly
+  connect     Attach to the hosts on this machine (Claude Code, Codex); --undo detaches cleanly
   doctor      Check, host by host, that his core, memories and signals get through
   down        Gracefully shut down running quetzalcoatld
   open        Open the local governance surface (prints the URL when no desktop is available)
@@ -1161,6 +1161,36 @@ fn locate_claude_code_target(qz_home: &Path) -> Result<Option<ClaudeCodeTarget>>
     }))
 }
 
+fn locate_codex_target(
+    qz_home: &Path,
+) -> Result<Option<quetzalcoatl_daemon::host_connect_codex::CodexTarget>> {
+    let report = discover_coding_agents_patiently(&DiscoveryConfig {
+        probe_timeout: Duration::from_secs(3),
+        ..DiscoveryConfig::default()
+    })?;
+    let Some(agent) = report
+        .agents
+        .iter()
+        .find(|agent| agent.kind == CodingAgentKind::Codex)
+    else {
+        return Ok(None);
+    };
+    let qz_bin = std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("无法确定 qz 自身的路径: {e}"),
+        })?;
+    let Some(codex_home) = quetzalcoatl_daemon::host_connect_codex::codex_home_dir() else {
+        return Ok(None);
+    };
+    Ok(Some(quetzalcoatl_daemon::host_connect_codex::CodexTarget {
+        qz_home: qz_home.to_path_buf(),
+        qz_bin,
+        codex_bin: agent.binary_path.clone(),
+        codex_home,
+    }))
+}
+
 /// `qz connect`：把他接进本机已有的宿主。`--undo` 撤下。
 fn run_connect(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
@@ -1181,20 +1211,46 @@ fn run_connect(args: &[String]) -> Result<()> {
         i += 1;
     }
     let qz_home = resolve_quetzalcoatl_home(home);
-    let Some(target) = locate_claude_code_target(&qz_home)? else {
+    let claude = locate_claude_code_target(&qz_home)?;
+    let codex = locate_codex_target(&qz_home)?;
+    if claude.is_none() && codex.is_none() {
         return Err(QuetzalcoatlError::StorageError {
             detail: String::from(
-                "本机没有找到 Claude Code。装好并登录它之后，再执行 `qz connect`。",
+                "本机没有找到 Claude Code，也没有找到 Codex。装好并登录其中一个之后，再执行 `qz connect`。",
             ),
         });
-    };
+    }
 
     if undo {
-        disconnect_claude_code(&target)?;
-        println!("已从 Claude Code 撤下。它的配置里不再有 Quetzalcoatl 的任何东西。");
+        if let Some(target) = &claude {
+            disconnect_claude_code(target)?;
+            println!("已从 Claude Code 撤下。它的配置里不再有 Quetzalcoatl 的任何东西。");
+        }
+        if let Some(target) = &codex {
+            quetzalcoatl_daemon::host_connect_codex::disconnect_codex(target)?;
+            println!("已从 Codex 撤下。");
+        }
         return Ok(());
     }
 
+    if let Some(target) = &codex {
+        match quetzalcoatl_daemon::host_connect_codex::connect_codex(target) {
+            Ok(()) => {
+                println!("已接上 Codex。");
+                println!(
+                    "  第一次打开 Codex 时，在 /hooks 里信任 Quetzalcoatl 的钩子；工具通道不需要这一步"
+                );
+            }
+            Err(err) => println!(
+                "Codex 没有接上：{}",
+                err.detail().unwrap_or("宿主的插件命令失败")
+            ),
+        }
+    }
+    let Some(target) = claude else {
+        println!("打开你的宿主，他在了。想确认每一步都通，执行 `qz doctor`。");
+        return Ok(());
+    };
     let report = connect_claude_code(&target)?;
     println!("已接上 Claude Code。");
     match report.status_line {
@@ -1232,6 +1288,15 @@ fn run_doctor(args: &[String]) -> Result<()> {
         // 实心点 = 通；空心点 = 需要你看一眼。颜色之外另有文字，不靠颜色区分。
         let mark = if item.ok { "●" } else { "○" };
         println!("  {mark} {}  {}", item.label, item.detail);
+    }
+    if let Some(codex) = locate_codex_target(&qz_home)?
+        && codex.plugin_source_dir().exists()
+    {
+        println!("Codex");
+        for item in quetzalcoatl_daemon::host_connect_codex::doctor_codex(&qz_home, &codex) {
+            let mark = if item.ok { "●" } else { "○" };
+            println!("  {mark} {}  {}", item.label, item.detail);
+        }
     }
     Ok(())
 }

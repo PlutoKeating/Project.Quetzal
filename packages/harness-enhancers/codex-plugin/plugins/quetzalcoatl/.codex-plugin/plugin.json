@@ -1,0 +1,7 @@
+{
+  "name": "quetzalcoatl",
+  "version": "{{QZ_VERSION}}",
+  "description": "把你的 Agent 的核心与相关往事送进这个会话。任何失败都放行，不影响宿主。",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "quetzalcoatl": {
+      "command": "{{QZ_BIN_RAW}}",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

@@ -11,7 +11,7 @@ export const messages: Messages = {
         { kind: "h2", id: "connect", step: 1, text: "接上" },
         { kind: "p", text: "安装时已经自动接过一次。之后新装了宿主，或者想重接一次，运行：" },
         { kind: "cmd", head: "Terminal", text: "qz connect" },
-        { kind: "p", text: "首个支持的宿主是 Claude Code。OpenCode、Codex 与 DeepSeek Harness 随后。" },
+        { kind: "p", text: "目前支持 Claude Code 与 Codex，本机装了哪个就接哪个。Codex 会把新装的钩子标为未信任：第一次打开 Codex 时，在 /hooks 里信任 Quetzalcoatl 的钩子。OpenCode 与 DeepSeek Harness 随后。" },
         { kind: "h2", id: "use", step: 2, text: "照常启动宿主" },
         { kind: "p", text: "接上之后，你的用法没有任何变化。多出来的只有四件事：" },
         {
@@ -46,7 +46,7 @@ export const messages: Messages = {
         { kind: "h2", id: "connect", step: 1, text: "Connect" },
         { kind: "p", text: "The installer already connected it once. If you add a host later, or want to connect again, run:" },
         { kind: "cmd", head: "Terminal", text: "qz connect" },
-        { kind: "p", text: "The first supported host is Claude Code. OpenCode, Codex and DeepSeek Harness follow." },
+        { kind: "p", text: "Claude Code and Codex are supported; whichever is installed gets connected. Codex marks newly installed hooks as untrusted: the first time you open Codex, trust the Quetzalcoatl hooks under /hooks. OpenCode and DeepSeek Harness follow." },
         { kind: "h2", id: "use", step: 2, text: "Start your host as usual" },
         { kind: "p", text: "Once connected, nothing about how you work changes. Only four things are new:" },
         {

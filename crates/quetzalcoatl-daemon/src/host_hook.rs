@@ -143,12 +143,21 @@ const SHELL_WRAPPERS: &[&str] = &[
 
 /// 模型想在命令行里调用宿主专用子命令时，给宿主的拒绝答复；否则为空。
 fn guard_shell_command(event: &Value) -> Option<String> {
-    if text_field(event, "hook_event_name") != Some("PreToolUse")
-        || text_field(event, "tool_name") != Some("Bash")
-    {
+    if text_field(event, "hook_event_name") != Some("PreToolUse") {
         return None;
     }
-    let command = event.get("tool_input")?.get("command")?.as_str()?;
+    // 各宿主的命令行工具名字不同（Claude Code 叫 Bash），参数里都有 command：
+    // 一段字符串，或者一组参数。
+    let command = match event.get("tool_input")?.get("command")? {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => return None,
+    };
+    let command = command.as_str();
     command_calls_host_only_entry(command).then(|| {
         serde_json::json!({
             "hookSpecificOutput": {
