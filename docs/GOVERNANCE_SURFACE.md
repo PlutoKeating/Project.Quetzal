@@ -88,7 +88,7 @@
 | `sea_devices` | 无 | `DevicesView` |
 | `sea_audit` | `{cursor?, limit?}` | `{items: AuditItem[], next_cursor: string \| null}` |
 
-`state` 取 `active`（默认）、`muted`、`expired`。`limit` 默认 50，上限 200。
+`state` 取 `active`（默认）、`muted`、`expired`、`all`。「我」页两栏的每一条都是往事，所以 `sea_memory` 与三个写方法对它们同样适用。`limit` 默认 50，上限 200。
 
 ### 3.2 写
 
@@ -101,7 +101,7 @@
 | `sea_focus_set` | `{self_weight}` | `SeaUs` |
 | `sea_device_revoke` | `{device_id, passphrase}` | `DevicesView` |
 
-写方法都由本人在治理面上亲手触发，按本人的显式信号处理。`sea_baseline_sign` 与 `sea_device_revoke` 需要口令；第一次签署时这个口令即被设定。
+写方法都由本人在治理面上亲手触发，按本人的显式信号处理。`sea_baseline_sign` 与 `sea_device_revoke` 需要口令；第一次签署时这个口令即被设定（至少 8 个字符）。口令不对时错误码是 `PASSPHRASE_MISMATCH`，还没设过口令就吊销设备时是 `PASSPHRASE_NOT_SET`。无参方法的请求体可以不带 `params`。
 
 ### 3.3 载荷
 
@@ -123,7 +123,7 @@ SeaSelf {
 }
 
 SeaUser {
-  preferences: [{ id, statement, since_ms, by_owner }]
+  preferences: [{ id, statement, since_ms, by_owner, muted }]   // USER_PREF 层的往事
   facts:       MemoryItem[]
 }
 
