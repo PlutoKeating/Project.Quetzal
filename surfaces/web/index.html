@@ -1,21 +1,28 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" dir="ltr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"
     />
-    <title>羽蛇神 · Quetzalcoatl</title>
+    <title>Quetzalcoatl</title>
     <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/optics.js" defer></script>
     <script type="module" src="/assets/app.js"></script>
   </head>
   <body>
-    <div id="app" data-boot="pending">
-      <p class="boot-message">正在启动羽蛇神…（需要启用 JavaScript）</p>
+    <div class="qz-optical-horizon" aria-hidden="true"></div>
+    <div class="qz-grain" aria-hidden="true"></div>
+    <div class="qz-page">
+      <div id="app" class="qz-app" data-boot="pending" aria-busy="true">
+        <p class="qz-app-boot">正在连接本机的守护进程</p>
+      </div>
+      <noscript>
+        <p class="qz-app-boot">治理面需要启用 JavaScript 才能读取本机的守护进程。</p>
+      </noscript>
     </div>
-    <noscript>羽蛇神需要 JavaScript 才能在本机运行。</noscript>
   </body>
 </html>

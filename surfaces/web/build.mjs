@@ -1,19 +1,24 @@
-// 构建：esbuild 打包两个 ES 模块入口（应用 / WASM 缓存 Worker）与一份 CSS。
-// 产出纯静态资源，无内联脚本、无 eval、无远程依赖，可直接由 quetzalcoatld 同源托管。
+// 构建：一份脚本、一份样式、设计系统的字体与光学脚本。
+// 视觉语言只有一份：样式、字体与光学脚本都在构建时取自 packages/design-system，这里不另存副本。
+// 产出纯静态资源，无内联脚本、无内联样式、无远程依赖，由 quetzalcoatld 同源托管。
 import { build } from "esbuild";
-import { copyFile, cp, mkdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-await rm("dist", { recursive: true, force: true });
+const here = dirname(fileURLToPath(import.meta.url));
+const design = resolve(here, "../../packages/design-system");
+const dist = join(here, "dist");
+const assets = join(dist, "assets");
+const target = ["chrome120", "firefox121", "safari17"];
 
-await mkdir("dist/assets", { recursive: true });
+await rm(dist, { recursive: true, force: true });
+await mkdir(join(assets, "fonts"), { recursive: true });
 
 await build({
-  entryPoints: {
-    app: "src/main.ts",
-    wasm_cache_worker: "src/worker/wasm_cache_worker.ts",
-    styles: "src/styles/app.css",
-  },
-  outdir: "dist/assets",
+  absWorkingDir: here,
+  entryPoints: { app: "src/main.ts" },
+  outdir: assets,
   entryNames: "[name]",
   bundle: true,
   format: "esm",
@@ -21,22 +26,35 @@ await build({
   minify: true,
   sourcemap: false,
   legalComments: "none",
-  target: ["chrome120", "firefox121", "safari17"],
+  target,
   logLevel: "info",
 });
 
-await copyFile("index.html", "dist/index.html");
+// 设计系统的唯一入口 styles.css 连同它引用的字体一起打包；字体保留原文件名。
+await build({
+  absWorkingDir: here,
+  entryPoints: { styles: join(design, "styles.css") },
+  outdir: assets,
+  entryNames: "[name]",
+  assetNames: "fonts/[name]",
+  loader: { ".woff2": "file" },
+  bundle: true,
+  minify: true,
+  sourcemap: false,
+  legalComments: "none",
+  target,
+  logLevel: "info",
+});
 
-try {
-  await cp("public", "dist", { recursive: true });
-} catch (error) {
-  if (error?.code !== "ENOENT") throw error;
+await copyFile(join(design, "scripts/optics.js"), join(assets, "optics.js"));
+
+// 字体以 SIL OFL 1.1 分发：许可文本跟着字体走。
+for (const name of await readdir(join(design, "fonts"))) {
+  if (name.startsWith("LICENSE")) {
+    await copyFile(join(design, "fonts", name), join(assets, "fonts", name));
+  }
 }
 
-// WASM 缓存宿主是可选资产：默认构建刻意排除，保证 `no-wasm` 降级路径可确定性测试。
-// 需要时先运行 scripts/build-web-wasm.sh，再以 QZ_WEB_WITH_WASM=1 构建。
-if (process.env.QZ_WEB_WITH_WASM !== "1") {
-  await rm("dist/wasm", { recursive: true, force: true });
-}
+await copyFile(join(here, "index.html"), join(dist, "index.html"));
 
-console.log("surfaces/web/dist 已生成（index.html + assets/{app.js,styles.css,wasm_cache_worker.js}）");
+console.log("surfaces/web/dist 已生成（index.html + assets/{app.js,styles.css,optics.js,fonts/*}）");

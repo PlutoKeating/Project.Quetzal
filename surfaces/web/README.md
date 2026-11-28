@@ -1,162 +1,116 @@
-# `surfaces/web` — 羽蛇神纯原生三态 Web 客户端
+# `surfaces/web` — 治理面（Web）
 
-TypeScript（`strict: true` / `noUncheckedIndexedAccess: true`）实现的零框架浏览器客户端：
-原生 DOM + 极小的内部渲染器（`src/render/dom.ts`），ES modules，无 WebView、无 UI 框架、
-无第三方字体 / 分析 / CDN 依赖。所有交互都在同源（`http://127.0.0.1:<port>`）完成，
-静态资源由本机 `quetzalcoatld` 直接托管。
+Quetzalcoatl 唯一的自有界面在浏览器里的落地。它只做两件事：**看**和**签**。没有输入框，没有「和他聊聊」——想聊，去宿主。
+
+规范在 [`docs/GOVERNANCE_SURFACE.md`](../../docs/GOVERNANCE_SURFACE.md)：用户来这里要什么、三栏版面、每一页的结构、与守护进程的接口。视觉语言只有一份，在 [`packages/design-system`](../../packages/design-system)；这里不带任何样式，也不重述数值。
+
+TypeScript（`strict`、`noUncheckedIndexedAccess`、无裸 `any`），原生 DOM，无框架，无远程依赖。页面由本机 `quetzalcoatld` 同源托管，`qz open` 打开。
 
 ## 构建与测试
 
 ```bash
-npm --prefix surfaces/web ci          # 安装锁定的开发依赖
-npm --prefix surfaces/web run build   # → surfaces/web/dist（index.html + assets/*）
-npm --prefix surfaces/web test        # typecheck + vitest + Playwright（含真实守护进程）
+npm --prefix surfaces/web ci
+npm --prefix surfaces/web run typecheck
+npm --prefix surfaces/web run test:unit   # vitest + jsdom
+npm --prefix surfaces/web run test:e2e    # Playwright：假守护进程 + 真 quetzalcoatld 冒烟
+npm --prefix surfaces/web run build       # → dist/
+npm --prefix surfaces/web run preview     # 构建并起假守护进程：http://127.0.0.1:43117
 ```
 
-- `npm run build`：esbuild 打包 `src/main.ts`、`src/worker/wasm_cache_worker.ts` 与
-  `src/styles/app.css`，产出纯静态资源；`dist/` 与 `node_modules/` 均不入库。
-- `npm run test:unit`：vitest + jsdom，覆盖补丁幂等/删除、密度持久化、双 `aria-live`
-  通道去重与整句刷写、320px/200% 布局不变量（断言 CSS 令牌与 `min-height`）、
-  离线繁忙态、引导记忆、产物提交状态与降级矩阵。
-- `npm run test:e2e`：Playwright + 缓存中的 Chromium，不使用下载。
-  `e2e/global-setup.ts` 会：
-  1. 构建 `dist`；
-  2. 若 `target/debug/quetzalcoatld` 不存在则现场 `cargo build`（可用
-     `QUETZALCOATL_DAEMON_BIN` 指定已有二进制）；
-  3. 以临时 `QUETZALCOATL_HOME` + `QUETZALCOATL_WEB_DIR=surfaces/web/dist`
-     启动**真实** `quetzalcoatld`，等 `/health` 就绪后运行浏览器验收。
-  真实守护进程无法启动时测试**直接失败**（绝不 skip）。
+- `build`：esbuild 打出 `dist/assets/app.js`；设计系统的 `styles.css` 连同字体打成 `dist/assets/styles.css` 与 `dist/assets/fonts/*`；`scripts/optics.js` 原样复制为 `dist/assets/optics.js`。产物是纯静态文件，无内联脚本、无内联样式。
+- `test:e2e` 的 `e2e/global-setup.ts` 会构建 `dist`，并以临时 `QUETZALCOATL_HOME` 启动**真实**的 `quetzalcoatld`（`target/debug/quetzalcoatld`，或 `QUETZALCOATL_DAEMON_BIN` 指定的二进制；都没有时现场 `cargo build`）。启动不了时测试直接失败，不跳过。
+- `preview` 可加 `-- --scenario fresh` 看刚装好、什么都没有的样子。
 
-## `quetzalcoatld` 同源托管
+## 版面
 
-守护进程在**不额外开端口**的前提下，把本地回环 IPC 端口同时用作 Web 控制台入口：
+三栏，各有固定职责：
 
-| 配置 | 行为 |
+| 栏 | 内容 |
 | --- | --- |
-| `QUETZALCOATL_WEB_DIR=<dir>` | 托管 `<dir>` 下的静态资源 |
-| `quetzalcoatld --web-dir <dir>` | 同上（显式 CLI 优先于默认探测） |
-| 可执行文件旁存在 `web/` 目录 | 自动托管（`target/release/web` 等） |
-| 以上皆无 | 只保留 `/health`；静态、`/auth/local`、`/rpc` 全部 404，IPC 不受影响 |
+| 左：导航 | 品牌名（回到总览）与八页的入口；有事在等的那一页旁有一个琥珀色信号点。守护进程联系不上时，上方多一行状态词与下一步 |
+| 中：正文 | 当前页。光学地平线只落在这里 |
+| 右：出处 | 当前选中条目的来历；没有选中时是这一页的一句话说明，永不留空 |
 
-**显式配置 web 根后**，所有非 `/v1/*` 路径由 Web 控制台处理，并复用本地 IPC 的严格
-回环 `Host`/`Origin` 校验（拒绝 DNS 重绑定与跨源页面）；未配置时仅 `/health` 存活，
-包括 WebSocket upgrade 在内的其余路径一律 `404`：
+窄屏（≤ 900px）：导航收成顶部一行可横向滚动的入口；出处栏变成正文下方的一段，选中条目后跟到它正下方。
 
-| 路径 | 方法 | 说明 |
+| 视图 | 地址 | 结构 |
 | --- | --- | --- |
-| `/`、`/assets/*` | GET/HEAD | 静态资源；无扩展名的深链回退 `index.html`；拒绝 `%`、`..`、点文件与逃逸根目录的符号链接；HEAD 无响应体 |
-| `/health` | GET/HEAD | `{"status":"ok","version":"...","web":true}`，零令牌 |
-| `/auth/local` | POST | **只有同源浏览器页面**可获取 256-bit 会话令牌：缺失 `Origin`（curl）或与 `Host` 不一致一律 `403`；非浏览器本机客户端请走既有 gateway/admin IPC |
-| `/rpc/snapshot` | GET | `Authorization: Bearer <token>` → 完整 `ViewState` 快照 |
-| `/rpc` | POST | `Authorization: Bearer <token>` + `IpcRequest` JSON（HTTP 兜底），仅白名单方法 |
-| `/rpc` | WebSocket | `Upgrade: websocket`；首帧 `{"auth":"<token>"}` 认证后进入 RPC |
+| 总览 | `#/` | 居中的名字与「相处第 N 天」，其下三格：宿主、等你的事、同步 |
+| 他 | `#/self` | 核心价值的编号栅格、性情（小一级）、可展开证据链的变化时间线 |
+| 我 | `#/user` | 偏好与事实两栏对照；选中的一条就地展开三个动作 |
+| 我们 | `#/us` | 承诺的编号栅格；一根带下限线的横向刻度（全站唯一的滑杆） |
+| 往事 | `#/memories` | 主从：搜索、分段、分页的列表，和选中条目的全文、来历、生效时间与动作 |
+| 底线 | `#/baseline` | 编号的条款清单、签署条（全站唯一的白色主按钮）、只读的部署约束 |
+| 宿主 | `#/hosts` | 每个宿主一行四格：送核心、送往事、收信号、压缩后不丢 |
+| 设备 | `#/devices` | 这台设备与同步并排在最上；其余按最近在线排序，行末是吊销 |
+| 记录 | `#/audit` | 按天分组的时间线，每条一行：时间、动作、对象 |
 
-**Web 只读方法白名单**：`status`、`agents`、`chat`、`web_commit_artifact`
-（`chat` 的 `workspace_dir`/`verifier_dag`/`peer_id`/`router_attempted_forbidden_tools`
-在服务端强制清空）。其余方法（`export`、`import_v1`、`fabric_*`、`group_*`、
-`channel_*`、`shutdown`、`set_permission`、`self_update`、`secrets`、未知方法……）即使
-持有有效令牌也返回 `403 PERMISSION_DENIED`；WS 返回同 code 的 typed error 帧。
-Web 会话令牌**不是**管理员主令牌，不能用于 `/v1/rpc`。
+全站仅有的文本输入：往事搜索、改一条时的文本、底线的短题与短句、口令。
 
-**连接策略**：一个会话令牌只绑定**一条** WebSocket 连接（第二条 → close `4409`
-`SESSION_IN_USE`，连接关闭即销毁）；并发 WebSocket 上限 32，第 33 条握手收到
-`503 too_many_connections`。
+## 与守护进程的接口
 
-WebSocket 帧（服务端 → 客户端）：
+握手沿用本机会话：`POST /auth/local`（浏览器自带同源 `Origin`）取得会话令牌；之后每次调用是一次 `POST /rpc`，带 `Authorization: Bearer <token>`。
 
 ```jsonc
-{"type":"ready","transport":"websocket"}
-{"type":"snapshot","state":{"rev":1,"density":"workbench","rows":{...}}}
-{"type":"patch","patch":{"from_rev":1,"to_rev":2,"density":"workbench","ops":[...]}}}
-{"type":"token","messageId":"...","seq":0,"text":"..."}   // 只进 aria-live="polite"
-{"type":"tool"|"approval"|"error","id":"...","title":"...","detail":"..."} // 只进 assertive
-{"type":"response","id":7,"response":{"kind":"status","data":{...}}}
+// 请求（没有参数的方法不带 params）
+{"method": "sea_memories", "params": {"query": "咖啡", "limit": 50}}
+// 成功
+{"kind": "sea_memories", "data": {"items": [], "next_cursor": null, "total": 0}}
+// 失败
+{"kind": "error", "data": {"code": "PASSPHRASE_REJECTED", "detail": "口令不对。"}}
 ```
 
-真实守护进程的快照额外包含：`conscience/{root,operator,self_core,memory}/<id>`
-（仅层级/标题/披露标志，**绝不下发受保护正文**）、`artifact/md/<name>`（脊柱
-Markdown 产物）、`artifact/run/<id>`（物化 Run）与 `session/active`（个人/群组会话）。
-Workbench 的「提交」经 `web_commit_artifact` 调用真实 `GroupSend` 路径；会话为个人时
-按钮禁用并显示原因。
+十六个方法（十个读、六个写）的参数与载荷类型在 `src/api/types.ts`，类型化客户端在 `src/api/client.ts`。答复在进入界面之前逐字段解码（`src/api/decode.ts`）；形状不符时指出是哪个字段，界面显示「读取失败」而不是在渲染中途崩溃。会话令牌作废（401）时重新握手并重试一次。
 
-`/auth/local` 每次签发独立会话令牌（12 小时 TTL、内存驻留、最多 256 个），
-**绝不回传**管理员 IPC 主令牌；会话令牌与单条 WS 连接绑定且关闭即销毁；
-旧 `/v1/rpc` + `x-qz-ipc-token` 通道完全不受影响。
-CSP 统一为 `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; ...`（`wasm-unsafe-eval`
-只放行 WebAssembly 编译，不开放 JS `eval`），并附加 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`。
+## 状态
 
-## 三档认知密度
-
-| 密度 | 目标 | 披露层级 | 关键行为 |
-| --- | --- | --- | --- |
-| Companion | 长辈 / 随身 | 仅 `summary` | 10 秒三步零术语引导（可跳过并记忆）、`--tap-target: 64px`、纯自然语言 |
-| Workbench | 桌面工作 | `summary + detail` | 真实脊柱产物卡片、复制引用、本地提交清单；群组会话可「提交」，个人会话显示禁用原因 |
-| Inspector | 工程 / 审计 | `summary + detail + raw_json` | 全部状态行、良知树、原始 JSON 快照 |
-
-- 切换即时（同步重渲染）并写入 `localStorage["qz.web.density"]`；Web 端首次打开为
-  Companion（10 秒零术语引导），非法持久化值回退 Companion 而不是崩溃。
-- 键盘：`Alt+1/2/3` 任意位置切换；切换后焦点落到新视图 `<h1 tabindex="-1">`，
-  并在礼貌通道播报「已切换到…视图」。`aria-pressed` 标记当前密度。
-- 状态与消息在切换间完整保留；`ViewPatch` 只在服务端修订号上推进，密度切换不污染修订序列。
-
-## 无障碍（a11y）
-
-- **双通道播报**：`#qz-live-polite`（`role="status"`、`aria-live="polite"`）只接收流式正文，
-  按 `messageId#seq` 去重，并按句读标点或 250ms 空闲整句刷写（避免逐 token 结巴），
-  保留 240 字符滑动窗口；`#qz-live-assertive`
-  （`role="alert"`、`aria-live="assertive"`）只接收工具、审批与错误事件，按事件 id 去重。
-  同一 token 文本在任何情况下都不会同时进入两个通道（单测逐 token 双向断言）。
-- 可聚焦的按钮均有 ≥64pt 的 `min-height`；审批卡片提供「允许 / 暂不允许」键盘可聚焦按钮。
-- 320px 视口 + 200% 字号：无横向溢出、无文本裁切（`overflow-wrap: anywhere`，
-  正文/容器无固定像素宽高），主按钮完整落在视口内且高度 ≥64pt（Playwright 断言）。
-  密度切换、流式事件重渲染都会恢复标题焦点，键盘用户不会因事件刷新丢焦点。
-- 正文区域不设 `aria-live`，避免与两个播报通道重复朗读。
-
-## 降级矩阵（绝不白屏、绝不伪装）
-
-| 情形 | 检测 | 表现 |
+| 情形 | 判定 | 界面 |
 | --- | --- | --- |
-| 守护进程未运行 | `POST /auth/local` 失败 → `DaemonUnavailable` | 先显示「正在连接…」（不闪错），失败后 Companion 外壳 + 「本机守护进程未运行」面板、输入禁用、移除 `aria-busy` 后用 `role="alert"` 播报、可重试 |
-| WebSocket 不可用 | 握手异常 / 超时 / 关闭 | 自动回退 `POST /rpc`，徽标显示「HTTP 回退」，消息仍可发送 |
-| 补丁序裂 | `from_rev !== 本地 rev` | 显式 `PatchSequenceError` + assertive 播报 + 请求 `{"type":"resync"}` 重发快照 |
-| 无 WASM 产物 | Worker `HEAD /wasm/quetzalcoatl_wasm_bg.wasm` 非 2xx | `degraded: "no-wasm"`，改用内存缓存，徽标明示「刷新后草稿丢失」 |
-| WASM 初始化失败 | glue/OPFS/Web Lock 异常 | `degraded: "wasm-error"`，内存缓存，保留可诊断详情 |
-| 会话重复连接 | 同一令牌第二条 WS | close `4409 SESSION_IN_USE`，页面重新认证后可恢复 |
-| Web 连接过多 | 并发 > 32 | 握手 `503 too_many_connections`（typed JSON） |
-| Worker 不可用 | `Worker` 缺失 / 初始化超时 | `degraded: "worker-unavailable"`，内存缓存 |
-| `localStorage` 被禁用 | 读写抛异常 | 密度仍在内存内即时切换，不影响任何功能 |
+| 联系不上 | 握手或请求没有回来 | 导航上方一行琥珀色状态词与 `qz up`；读过的页面保留上一次的内容，所有写动作停用；每 4 秒自动再试，连上后自己恢复。从没读过的页面显示「联系不上」的版面 |
+| 接口未就绪 | 握手成功，但方法不被认识（`403 PERMISSION_DENIED`、未知变体、`404`/`501`） | 「接口未就绪」的版面：现状、三步、方法名与答复、重试 |
+| 读取失败 | 其它 `kind: "error"`，或答复读不懂 | 「读取失败」的版面：原因、方法、代码、重试 |
+| 空 | 这一页或它的一部分还没有内容 | 每页各自的版面：它为什么是空的、内容从哪里来、下一步 |
+| 写入失败 | 写方法返回错误 | 原内容不动，动作旁写明原因，并经断言通道播报 |
 
-## 可选 WASM OPFS 单写者缓存
+写操作成功后，被改的那一条就地更新，出处栏追加一行（「刚刚由你修改」等），经礼貌通道播报。不弹提示条，不跳转。
 
-默认 `npm run build` **不**包含 WASM（因此降级路径是确定性的、可测试的）。
-如需启用 OPFS 单写者缓存：
+## 无障碍
 
-```bash
-scripts/build-web-wasm.sh            # wasm-bindgen 0.2.130 + wasm32 target（缺失时退出码 77）
-QZ_WEB_WITH_WASM=1 npm --prefix surfaces/web run build
-```
+- 地标：`header`（品牌与导航）、`nav`、`main`、`aside`（出处）。每页恰好一个 `h1`；换页后焦点落到它上面。
+- 第一个 Tab 停靠点是「跳到正文」。所有控件都有 1px 冰蓝的可见焦点环。
+- 一组可选的条目只占一个 Tab 停靠点，组内用方向键、Home、End 移动；分段控件同理。
+- 重绘之后焦点回到原来的控件；写操作在途时用 `aria-disabled` 而不是 `disabled`，焦点不会掉出页面。
+- 抹除与吊销用原生 `<dialog>`：焦点圈在里面，Esc 取消，关闭后回到触发它的按钮。
+- 颜色从不是唯一信号：冰蓝（已生效、已验证、通）与琥珀（需要你、是你说的、不通）总带着文字。
 
-`wasm_cache_worker.ts` 在 `dist/wasm/` 存在时动态加载 glue 并调用 `OpfsSpine.open()`；
-每次写入前由 Rust 侧通过 `navigator.locks`（独占、`ifAvailable`）获取写者租约，
-取不到即 fail-fast，绝不做无锁写入。WASM 缺失时 Worker 上报 `degraded: "no-wasm"`，
-主线程回退内存缓存——这条降级路径由单测与 Playwright 持续验证。
+## 假守护进程
+
+`e2e/mock-daemon.mjs` 按契约应答十六个方法，静态托管 `dist`，供预览与 Playwright 使用。数据全部是合成的。写操作真的改变它内存里的数据并追加一条记录。
+
+测试专用的控制口（不需要令牌）：
+
+| 路径 | 作用 |
+| --- | --- |
+| `POST /__mock/reset` `{"scenario": "full" \| "fresh"}` | 换一套数据 |
+| `POST /__mock/fail` `{"method", "code", "detail", "status"?, "times"?}` | 让某个方法接下来失败 |
+| `GET /__mock/state` | 看内存里的现状 |
+
+`full` 场景里的口令是 `mock-passphrase`。
 
 ## 目录
 
 ```
 surfaces/web/
-├── src/
-│   ├── app.ts                 # 三档壳层、状态机接线、焦点/快捷键/引导与产物提交
-│   ├── model/{state,density}.ts
-│   ├── transport/{client,protocol}.ts
-│   ├── cache/{wasm_cache,worker_cache}.ts
-│   ├── worker/{wasm_cache_core,wasm_cache_worker}.ts
-│   ├── a11y/live_regions.ts
-│   ├── render/dom.ts
-│   └── tiers/{companion,workbench,inspector}/view.ts
-├── tests/                     # vitest（jsdom）
-├── e2e/                       # Playwright（mock + 真实 quetzalcoatld）
+├── index.html              # 骨架：光学地平线、胶片颗粒、.qz-page
 ├── build.mjs
-├── index.html
-└── playwright.config.ts
+├── src/
+│   ├── main.ts
+│   ├── app.ts              # 三栏骨架、路由、连接状态、写动作的停用
+│   ├── api/{types,decode,client}.ts
+│   ├── shell/{routes,provenance}.ts
+│   ├── ui/{dom,format,marks,situation,dialog,announcer}.ts
+│   ├── views/{base,entry,overview,self,user,us,memories,baseline,hosts,devices,audit}.ts
+│   ├── cache/、worker/      # WASM / OPFS 缓存设施：另一条产品线的地基，治理面不引用
+├── tests/                  # vitest
+└── e2e/                    # Playwright、假守护进程、真守护进程冒烟
 ```

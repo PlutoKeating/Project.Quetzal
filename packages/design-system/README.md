@@ -188,4 +188,4 @@ Quetzalcoatl 是我们的企业品牌设计系统。它的全部视觉语言来�
 - 光谱字标的色带位置按 Sora 的字形度量写死，换字体必须重新测量 `--qz-wm-top` 与 `--qz-wm-band`。
 - 只打包了 Latin 子集字体；生产环境请使用 `@fontsource/sora` 与 `@fontsource/jetbrains-mono` 以获得完整子集。
 - 系统只有深色，没有浅色模式，也不打算有。
-- 来源网站没有表单与对话框。目前只补充定义了单行输入框 `.qz-input`（个人站点的搜索需要）；复选框、开关、下拉、多行文本和模态对话框仍未定义，需要时按本文的原则新增并回写到这里。
+- 来源网站没有表单与对话框。治理面补充定义了字段 `.qz-field`、单行与多行输入框（`.qz-input`、`.qz-input.is-multiline`）、口令框 `.qz-input.is-secret`、确认对话框 `.qz-dialog` 与刻度滑杆 `.qz-scale`（见 `guidelines/components.md` 的「应用组件」）；复选框、开关与下拉仍未定义，需要时按本文的原则新增并回写到这里。

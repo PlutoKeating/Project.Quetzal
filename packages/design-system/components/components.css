@@ -1570,3 +1570,1401 @@ html[dir="rtl"] .qz-rail.is-grid > .qz-cell {
     display: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Application components
+   Added for the governance surface (docs/GOVERNANCE_SURFACE.md): a product
+   that only shows and signs. Everything below is new; no rule above changes.
+   See guidelines/components.md, "应用组件".
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ═══ Accessibility helpers ════════════════════════════════════════════ */
+
+/* Text for screen readers only */
+.qz-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip link: invisible until it takes keyboard focus */
+.qz-skip-link {
+  position: absolute;
+  top: var(--qz-space-3);
+  inset-inline-start: var(--qz-space-3);
+  z-index: var(--qz-z-popover);
+  padding: var(--qz-space-2) var(--qz-space-4);
+  border: 1px solid var(--qz-line-control);
+  border-radius: var(--qz-radius-md);
+  background: var(--qz-surface);
+  color: var(--qz-ink);
+  font-size: var(--qz-text-control);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.qz-skip-link:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Inline code chip outside prose: a command inside a sentence */
+.qz-code-chip {
+  padding: 0.12em 0.4em;
+  border-radius: var(--qz-radius-sm);
+  background: var(--qz-inline-code);
+  color: var(--qz-ink-soft);
+  font-family: var(--qz-font-mono);
+  font-size: 0.88em;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ═══ App shell: navigation · body · provenance ════════════════════════ */
+
+/* Three columns with fixed duties. The two side columns are opaque void:
+   the optical horizon only ever falls on the body column. */
+.qz-app {
+  --qz-app-nav-width: clamp(11.5rem, 16vw, 15rem);
+  --qz-app-aside-width: clamp(14rem, 22vw, 20rem);
+  --qz-app-layout: wide; /* "narrow" at ≤ 900px; scripts read this instead of restating the breakpoint */
+  position: relative;
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--qz-app-nav-width) minmax(0, 1fr) var(--qz-app-aside-width);
+  grid-template-areas: "nav main aside";
+  min-height: 100vh;
+}
+
+.qz-app-boot {
+  grid-area: main;
+  margin: 0;
+  padding: var(--qz-space-8) var(--qz-gutter);
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-meta);
+  color: var(--qz-ink-secondary);
+}
+
+.qz-app-nav {
+  grid-area: nav;
+  min-width: 0;
+  border-inline-end: 1px solid var(--qz-border);
+  background: var(--qz-void);
+}
+
+.qz-app-nav-inner {
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+/* One amber line above the navigation when the daemon cannot be reached */
+.qz-app-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--qz-space-2) var(--qz-space-4);
+  padding: var(--qz-space-4) var(--qz-space-6);
+  border-bottom: 1px solid var(--qz-hairline);
+  font-size: var(--qz-text-caption);
+  line-height: var(--qz-leading-ui);
+  color: var(--qz-ink-support);
+}
+
+.qz-app-status[hidden] {
+  display: none;
+}
+
+.qz-app-status p {
+  margin: 0;
+}
+
+.qz-app-brand {
+  display: flex;
+  align-items: center;
+  height: var(--qz-nav-height);
+  padding-inline: calc(var(--qz-space-4) + var(--qz-space-3) + var(--qz-space-1));
+}
+
+.qz-app-nav .qz-sidenav {
+  padding: 0 var(--qz-space-4) var(--qz-space-9);
+  border-inline-end: 0;
+}
+
+.qz-app-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.qz-app-nav .qz-sidenav a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qz-space-3);
+}
+
+/* Signal beside a navigation entry: something on that page is waiting */
+.qz-nav-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--qz-space-2);
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-micro);
+  font-weight: 400;
+  color: var(--qz-amber);
+}
+
+.qz-app-main {
+  grid-area: main;
+  min-width: 0;
+  padding: var(--qz-space-8) var(--qz-gutter) var(--qz-space-10);
+  container: qz-main / inline-size;
+}
+
+.qz-app-main:focus {
+  outline: none;
+}
+
+.qz-app-aside {
+  grid-area: aside;
+  min-width: 0;
+  border-inline-start: 1px solid var(--qz-border);
+  background: var(--qz-void);
+}
+
+.qz-app-aside-inner {
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: var(--qz-space-8) var(--qz-space-6) var(--qz-space-9);
+}
+
+.qz-aside-title {
+  margin: var(--qz-space-2) 0 0;
+  font-size: var(--qz-text-cell-title);
+  font-weight: 500;
+  line-height: var(--qz-leading-cell-title);
+  color: var(--qz-ink);
+  overflow-wrap: anywhere;
+}
+
+.qz-aside-lead {
+  margin: var(--qz-space-3) 0 0;
+  font-size: var(--qz-text-ui);
+  line-height: var(--qz-leading-ui);
+  color: var(--qz-ink-support);
+  overflow-wrap: anywhere;
+}
+
+.qz-app-aside .qz-aside-block {
+  margin-top: var(--qz-space-6);
+  margin-bottom: 0;
+}
+
+.qz-aside-block .qz-state {
+  white-space: normal;
+}
+
+/* Nothing in the app is clickable while it is disabled */
+.qz-app :disabled,
+.qz-app [aria-disabled="true"],
+.qz-dialog :disabled,
+.qz-dialog [aria-disabled="true"] {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+/* ═══ View: one page inside the body column ════════════════════════════ */
+
+.qz-view {
+  width: 100%;
+  max-width: var(--qz-container);
+  margin: 0 auto;
+}
+
+.qz-view-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--qz-space-4) var(--qz-space-7);
+  margin-bottom: var(--qz-space-8);
+}
+
+.qz-view-head[hidden] {
+  display: none;
+}
+
+.qz-view-head .qz-title:focus,
+.qz-presence .qz-display:focus {
+  outline: none;
+}
+
+.qz-view-lead {
+  margin: var(--qz-space-3) 0 0;
+  max-width: var(--qz-measure-lead);
+  font-size: var(--qz-text-body);
+  line-height: var(--qz-leading-body);
+  color: var(--qz-ink-secondary);
+}
+
+/* A section inside a view. Its top edge catches the light like .qz-section. */
+.qz-view-section {
+  position: relative;
+  margin-top: var(--qz-space-8);
+  padding-top: var(--qz-space-7);
+  border-top: 1px solid var(--qz-hairline);
+}
+
+.qz-view-section::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  pointer-events: none;
+  opacity: var(--qz-edge, 0.35);
+  background: var(--qz-specular-seam);
+  transition: opacity var(--qz-duration-instant) linear;
+}
+
+.qz-view-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--qz-space-2) var(--qz-space-6);
+  margin-bottom: var(--qz-space-6);
+}
+
+.qz-view-section-title {
+  margin: 0;
+  font-size: var(--qz-read-h3);
+  font-weight: 500;
+  line-height: var(--qz-read-leading-h3);
+  letter-spacing: var(--qz-read-tracking-h3);
+  color: var(--qz-ink);
+}
+
+/* One step down: a section that follows and supports the one before it */
+.qz-view-section-title.is-minor {
+  font-size: var(--qz-text-cell-title);
+  letter-spacing: 0;
+}
+
+.qz-view-section-note {
+  margin: 0;
+  font-size: var(--qz-text-caption);
+  line-height: var(--qz-leading-ui);
+  color: var(--qz-ink-secondary);
+}
+
+/* Presence: a centred name at display size, and one line under it */
+.qz-presence {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--qz-space-9) 0;
+  text-align: center;
+}
+
+.qz-presence .qz-lead {
+  margin-top: var(--qz-space-4);
+}
+
+.qz-presence .qz-meta-line {
+  margin-top: var(--qz-space-6);
+}
+
+/* ═══ Cell additions ═══════════════════════════════════════════════════ */
+
+/* A cell title at any heading level */
+.qz-cell .qz-cell-title,
+.qz-cell-title {
+  margin: 0 0 var(--qz-space-3);
+  font-size: var(--qz-text-cell-title);
+  font-weight: 500;
+  line-height: var(--qz-leading-cell-title);
+  color: var(--qz-ink);
+}
+
+.qz-cell-head .qz-cell-title {
+  margin: 0;
+}
+
+/* A dated or counted fact under a cell's sentence */
+.qz-cell .qz-cell-note {
+  margin: var(--qz-space-3) 0 0;
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-meta);
+  color: var(--qz-ink-secondary);
+}
+
+/* A second, quieter sentence inside a cell */
+.qz-cell .qz-cell-sub {
+  margin: var(--qz-space-3) 0 0;
+  font-size: var(--qz-text-caption);
+  color: var(--qz-ink-secondary);
+}
+
+.qz-cell-head + .qz-cell-sub {
+  margin-top: calc(var(--qz-space-2) * -1);
+  margin-bottom: var(--qz-space-5);
+}
+
+.qz-cell .qz-link-arrow {
+  margin-top: var(--qz-space-4);
+  padding-inline: 0;
+}
+
+/* A heading that sits in a rail head row */
+.qz-rail-title {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+
+/* A rail together with its head row; groups keep their distance */
+.qz-rail-group + .qz-rail-group {
+  margin-top: var(--qz-space-7);
+}
+
+/* A group with nothing to list yet: the head row and one sentence */
+.qz-rail-group-note {
+  margin: 0;
+  padding: var(--qz-space-4) var(--qz-space-1);
+  border-bottom: 1px solid var(--qz-line-rail);
+  font-size: var(--qz-text-ui);
+  line-height: var(--qz-leading-ui);
+  color: var(--qz-ink-secondary);
+}
+
+/* A state word that reports a fact and asks for nothing */
+.qz-state.is-quiet {
+  color: var(--qz-ink-support);
+  font-weight: 400;
+}
+
+/* ═══ Pick: selecting one item to see where it came from ═══════════════ */
+
+/* The button holds the item's own text; its hit area is the whole item. */
+.qz-pick {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.qz-pick::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.qz-pick:focus-visible {
+  outline: none;
+}
+
+.qz-pick:focus-visible::after {
+  outline: 1px solid var(--qz-focus);
+  outline-offset: -1px;
+}
+
+.qz-cell.is-pickable {
+  position: relative;
+  transition: background var(--qz-duration-fast) var(--qz-ease);
+}
+
+.qz-cell.is-pickable:hover {
+  background: var(--qz-fill-hover);
+}
+
+.qz-cell.is-current {
+  background: var(--qz-fill-selected);
+}
+
+/* ═══ List of rows ═════════════════════════════════════════════════════ */
+
+.qz-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--qz-line-rail);
+}
+
+.qz-row {
+  position: relative;
+  padding: var(--qz-space-4);
+  border-bottom: 1px solid var(--qz-hairline);
+  border-inline-start: var(--qz-stroke-accent) solid transparent;
+  transition: background var(--qz-duration-fast) var(--qz-ease), border-color var(--qz-duration-fast) var(--qz-ease);
+}
+
+.qz-row:hover {
+  background: var(--qz-fill-hover);
+}
+
+.qz-row.is-current {
+  background: var(--qz-fill-selected);
+  border-inline-start-color: var(--qz-ink);
+}
+
+.qz-row-text {
+  display: block;
+  font-size: var(--qz-text-sm);
+  line-height: var(--qz-leading-ui);
+  color: var(--qz-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.qz-row.is-current .qz-row-text {
+  color: var(--qz-ink);
+}
+
+.qz-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--qz-space-2) var(--qz-space-4);
+  margin-top: var(--qz-space-2);
+}
+
+/* Whatever opens under a selected row sits above its hit area */
+.qz-row-detail {
+  position: relative;
+  z-index: 1;
+  margin-top: var(--qz-space-4);
+}
+
+/* A row with one action at its end */
+.qz-row.has-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--qz-space-3) var(--qz-space-5);
+}
+
+.qz-row.has-action > .qz-row-action {
+  position: relative;
+  z-index: 1;
+}
+
+.qz-row.has-action > .qz-row-detail {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+/* A ledger row: time, action, object, actor on one line */
+.qz-row.is-ledger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--qz-space-1) var(--qz-space-4);
+}
+
+.qz-ledger-time {
+  flex: 0 0 3.25rem;
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-meta);
+  color: var(--qz-ink-secondary);
+}
+
+.qz-ledger-kind {
+  flex: 0 0 5.5rem;
+  font-size: var(--qz-text-caption);
+  font-weight: 500;
+  color: var(--qz-ink);
+}
+
+.qz-row.is-ledger .qz-pick {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.qz-row.is-ledger > .qz-row-detail {
+  flex: 1 0 100%;
+  margin-top: var(--qz-space-3);
+}
+
+.qz-list-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qz-space-3) var(--qz-space-5);
+  padding: var(--qz-space-4);
+}
+
+/* ═══ Signals list: a marker, a sentence, a quiet fact ═════════════════ */
+
+.qz-signals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--qz-space-3);
+}
+
+.qz-signal {
+  display: flex;
+  align-items: center;
+  gap: var(--qz-space-3);
+  font-size: var(--qz-text-ui);
+  line-height: 1.5;
+  color: var(--qz-ink-soft);
+}
+
+.qz-signal > .qz-meta {
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+.qz-signal a {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-color: var(--qz-line-mark);
+  transition: color var(--qz-duration-fast) var(--qz-ease);
+}
+
+.qz-signal a:hover {
+  color: var(--qz-ink);
+  text-decoration-color: var(--qz-ink);
+}
+
+/* ═══ Definition list: where something came from ═══════════════════════ */
+
+.qz-deflist {
+  display: grid;
+  grid-template-columns: minmax(4rem, max-content) minmax(0, 1fr);
+  margin: 0;
+  border-top: 1px solid var(--qz-hairline);
+}
+
+.qz-deflist dt,
+.qz-deflist dd {
+  margin: 0;
+  padding: var(--qz-space-3) 0;
+  border-bottom: 1px solid var(--qz-hairline);
+  line-height: var(--qz-leading-ui);
+}
+
+.qz-deflist dt {
+  padding-inline-end: var(--qz-space-5);
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-meta);
+  color: var(--qz-ink-quiet);
+}
+
+.qz-deflist dd {
+  font-size: var(--qz-text-caption);
+  color: var(--qz-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.qz-deflist dd.is-mono {
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-meta);
+}
+
+/* ═══ Timeline ═════════════════════════════════════════════════════════ */
+
+.qz-timeline-day {
+  margin: var(--qz-space-7) 0 var(--qz-space-3);
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-meta);
+  font-weight: 500;
+  color: var(--qz-ink-secondary);
+}
+
+.qz-timeline-day:first-child {
+  margin-top: 0;
+}
+
+.qz-timeline {
+  list-style: none;
+  margin: 0;
+  margin-inline-start: 2px;
+  padding: 0;
+  border-inline-start: 1px solid var(--qz-border-strong);
+}
+
+.qz-timeline-item {
+  position: relative;
+  padding: var(--qz-space-3) var(--qz-space-4) var(--qz-space-3) var(--qz-space-6);
+  transition: background var(--qz-duration-fast) var(--qz-ease);
+}
+
+/* The node: a 5px square tick sitting on the rail */
+.qz-timeline-item::before {
+  content: "";
+  position: absolute;
+  top: 1.15rem;
+  inset-inline-start: -3px;
+  width: 5px;
+  height: 5px;
+  background: var(--qz-ink-muted);
+}
+
+.qz-timeline-item.is-amber::before {
+  background: var(--qz-amber);
+}
+
+.qz-timeline-item.is-current::before {
+  background: var(--qz-ink);
+}
+
+.qz-timeline-item.qz-row {
+  border-inline-start: 0;
+  border-bottom: 0;
+}
+
+.qz-timeline-time {
+  display: block;
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-meta);
+  color: var(--qz-ink-secondary);
+}
+
+.qz-timeline-text {
+  margin: var(--qz-space-1) 0 0;
+  font-size: var(--qz-text-sm);
+  line-height: var(--qz-leading-ui);
+  color: var(--qz-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.qz-timeline-item .qz-signals {
+  margin-top: var(--qz-space-3);
+}
+
+/* Compact: the short history inside the provenance column */
+.qz-timeline.is-compact .qz-timeline-item {
+  padding: var(--qz-space-2) 0 var(--qz-space-2) var(--qz-space-5);
+}
+
+.qz-timeline.is-compact .qz-timeline-item::before {
+  top: 0.95rem;
+}
+
+.qz-timeline.is-compact .qz-timeline-text {
+  font-size: var(--qz-text-caption);
+}
+
+/* ═══ Split: a list and the one item chosen from it ════════════════════ */
+
+.qz-split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  border-top: 1px solid var(--qz-line-rail);
+  border-bottom: 1px solid var(--qz-line-rail);
+}
+
+.qz-split-list {
+  min-width: 0;
+  border-inline-end: 1px solid var(--qz-border);
+}
+
+.qz-split-list .qz-list {
+  border-top: 0;
+}
+
+.qz-split-detail {
+  min-width: 0;
+  padding: var(--qz-space-6) 0 var(--qz-space-7);
+  padding-inline-start: var(--qz-space-7);
+}
+
+.qz-split-detail-inner {
+  position: sticky;
+  top: var(--qz-space-6);
+}
+
+.qz-split-back {
+  display: none;
+  margin-bottom: var(--qz-space-4);
+}
+
+.qz-detail-text {
+  margin: var(--qz-space-4) 0 var(--qz-space-6);
+  font-size: var(--qz-read-body);
+  line-height: var(--qz-read-leading-body);
+  color: var(--qz-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.qz-detail .qz-actions {
+  margin-top: var(--qz-space-6);
+}
+
+/* ═══ Toolbar and actions ══════════════════════════════════════════════ */
+
+.qz-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--qz-space-4) var(--qz-space-5);
+  margin-bottom: var(--qz-space-5);
+}
+
+.qz-toolbar .qz-input {
+  flex: 1 1 14rem;
+}
+
+.qz-toolbar > .qz-meta {
+  margin-inline-start: auto;
+}
+
+.qz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--qz-space-3);
+}
+
+/* Outline button at row scale */
+.qz-btn-outline.is-compact {
+  padding: 0.36rem 0.8rem;
+  font-size: var(--qz-text-meta);
+}
+
+/* A toggle that is on */
+.qz-actions .qz-btn-outline[aria-pressed="true"] {
+  border-color: var(--qz-line-hover);
+  background: var(--qz-fill-active);
+}
+
+/* Quiet text button: cancel, back, expand */
+.qz-btn-text {
+  appearance: none;
+  flex-shrink: 0;
+  padding: var(--qz-space-2) var(--qz-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--qz-ink-support);
+  font-family: var(--qz-font-sans);
+  font-size: var(--qz-text-control);
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-color: var(--qz-line-mark);
+  cursor: pointer;
+  transition: color var(--qz-duration-fast) var(--qz-ease), text-decoration-color var(--qz-duration-fast) var(--qz-ease);
+}
+
+.qz-btn-text:hover {
+  color: var(--qz-ink);
+  text-decoration-color: var(--qz-ink);
+}
+
+/* ═══ Form fields ══════════════════════════════════════════════════════ */
+
+.qz-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--qz-space-2);
+  min-width: 0;
+}
+
+.qz-field-label {
+  font-size: var(--qz-text-caption);
+  font-weight: 500;
+  color: var(--qz-ink-soft);
+}
+
+.qz-field-hint {
+  margin: 0;
+  font-size: var(--qz-text-meta);
+  line-height: var(--qz-leading-ui);
+  color: var(--qz-ink-secondary);
+}
+
+.qz-field-hint.is-amber {
+  color: var(--qz-amber);
+}
+
+.qz-field-hint[hidden] {
+  display: none;
+}
+
+/* Multi-line text in the same family as .qz-input */
+.qz-input.is-multiline {
+  align-items: stretch;
+  padding-block: var(--qz-space-3);
+}
+
+.qz-input.is-multiline textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 5.5rem;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  background: transparent;
+  color: var(--qz-ink);
+  caret-color: var(--qz-amber);
+  font-family: var(--qz-font-sans);
+  font-size: var(--qz-text-sm);
+  line-height: var(--qz-leading-ui);
+}
+
+/* Passphrase: a secret typed by its owner */
+.qz-input.is-secret input {
+  font-family: var(--qz-font-mono);
+  letter-spacing: 0.08em;
+}
+
+/* ═══ Clauses: a short numbered document ═══════════════════════════════ */
+
+.qz-clauses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--qz-line-rail);
+}
+
+.qz-clause {
+  position: relative;
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--qz-space-3) var(--qz-space-5);
+  padding: var(--qz-space-5) var(--qz-space-4);
+  border-bottom: 1px solid var(--qz-hairline);
+  border-inline-start: var(--qz-stroke-accent) solid transparent;
+  transition: background var(--qz-duration-fast) var(--qz-ease);
+}
+
+.qz-clause.is-current {
+  background: var(--qz-fill-selected);
+  border-inline-start-color: var(--qz-ink);
+}
+
+.qz-clause-no {
+  padding-top: 0.2rem;
+  font-family: var(--qz-font-mono);
+  font-size: var(--qz-text-caption);
+  color: var(--qz-ink-secondary);
+}
+
+.qz-clause-title {
+  margin: 0;
+  font-size: var(--qz-text-cell-title);
+  font-weight: 500;
+  line-height: var(--qz-leading-cell-title);
+  color: var(--qz-ink);
+}
+
+.qz-clause-text {
+  margin: var(--qz-space-2) 0 0;
+  font-size: var(--qz-text-ui);
+  line-height: var(--qz-leading-ui);
+  color: var(--qz-ink-support);
+  overflow-wrap: anywhere;
+}
+
+.qz-clause .qz-actions,
+.qz-clause-form {
+  position: relative;
+  z-index: 1;
+}
+
+.qz-clause-form {
+  display: grid;
+  gap: var(--qz-space-4);
+}
+
+.qz-clauses + .qz-actions {
+  margin-top: var(--qz-space-5);
+}
+
+/* ═══ Sign bar: what signing means, and the one white button ═══════════ */
+
+.qz-sign-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--qz-space-5) var(--qz-space-7);
+  margin-top: var(--qz-space-7);
+  padding: var(--qz-space-6) 0;
+  border-top: 1px solid var(--qz-line-rail);
+  border-bottom: 1px solid var(--qz-line-rail);
+}
+
+.qz-sign-bar-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--qz-space-4) var(--qz-space-5);
+  margin-top: var(--qz-space-4);
+}
+
+.qz-sign-bar > .qz-field-hint {
+  grid-column: 1 / -1;
+}
+
+/* ═══ Scale: one marker between two ends, and a line it cannot cross ═══ */
+
+.qz-scale {
+  --qz-scale-thumb: 0.8rem;
+  --qz-scale-height: 2.5rem;
+  --qz-scale-limit: 100; /* 0–100: where the forbidden zone begins */
+}
+
+.qz-scale-ends {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--qz-space-5);
+  font-size: var(--qz-text-cell-title);
+  font-weight: 500;
+  color: var(--qz-ink);
+}
+
+.qz-scale-track {
+  position: relative;
+  height: var(--qz-scale-height);
+  margin: var(--qz-space-3) calc(var(--qz-scale-thumb) / 2) 0;
+}
+
+/* The rail the marker may travel */
+.qz-scale-track::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  inset-inline: 0 calc(100% - var(--qz-scale-limit) * 1%);
+  height: 1px;
+  background: var(--qz-border-strong);
+}
+
+/* A tick every tenth */
+.qz-scale-ticks {
+  position: absolute;
+  top: calc(50% - 0.3rem);
+  inset-inline: 0;
+  height: 0.6rem;
+  border-inline-end: 1px solid var(--qz-line-mark);
+  background-image: repeating-linear-gradient(to right, var(--qz-line-mark) 0 1px, transparent 1px 10%);
+  pointer-events: none;
+}
+
+/* Beyond the limit: a dashed rail, and a solid line where it starts */
+.qz-scale-limit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline: calc(var(--qz-scale-limit) * 1%) 0;
+  border-inline-start: var(--qz-stroke-accent) solid var(--qz-ink);
+  background: repeating-linear-gradient(to right, var(--qz-ink-muted) 0 4px, transparent 4px 8px) left center / 100% 1px no-repeat;
+  pointer-events: none;
+}
+
+.qz-scale-input {
+  position: absolute;
+  top: 0;
+  inset-inline-start: calc(var(--qz-scale-thumb) / -2);
+  width: calc(var(--qz-scale-limit) * 1% + var(--qz-scale-thumb));
+  height: 100%;
+  margin: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--qz-ink); /* the browser's own range tint is not a system colour */
+  accent-color: var(--qz-ink);
+  cursor: pointer;
+}
+
+.qz-scale-input::-webkit-slider-runnable-track {
+  height: var(--qz-scale-height);
+  background: transparent;
+}
+
+.qz-scale-input::-moz-range-track {
+  height: var(--qz-scale-height);
+  background: transparent;
+}
+
+.qz-scale-input::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--qz-scale-thumb);
+  height: var(--qz-scale-thumb);
+  margin-top: calc((var(--qz-scale-height) - var(--qz-scale-thumb)) / 2);
+  border: 0;
+  border-radius: var(--qz-radius-dot);
+  background: var(--qz-ink);
+}
+
+.qz-scale-input::-moz-range-thumb {
+  width: var(--qz-scale-thumb);
+  height: var(--qz-scale-thumb);
+  border: 0;
+  border-radius: var(--qz-radius-dot);
+  background: var(--qz-ink);
+}
+
+.qz-scale-input:focus-visible {
+  outline: none;
+}
+
+.qz-scale-input:focus-visible::-webkit-slider-thumb {
+  outline: 1px solid var(--qz-focus);
+  outline-offset: 3px;
+}
+
+.qz-scale-input:focus-visible::-moz-range-thumb {
+  outline: 1px solid var(--qz-focus);
+  outline-offset: 3px;
+}
+
+.qz-scale-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--qz-space-2) var(--qz-space-6);
+  margin-top: var(--qz-space-4);
+}
+
+.qz-scale-legend .qz-meta-line {
+  justify-content: flex-start;
+}
+
+.qz-scale + .qz-field-hint {
+  margin-top: var(--qz-space-4);
+}
+
+/* ═══ Dialog: a second look before something that cannot be undone ═════ */
+
+.qz-dialog {
+  width: min(32rem, calc(100vw - 2 * var(--qz-gutter-compact)));
+  padding: var(--qz-space-7);
+  border: 1px solid var(--qz-line-control);
+  border-radius: var(--qz-radius-lg);
+  background: var(--qz-surface);
+  color: var(--qz-ink);
+  box-shadow: var(--qz-shadow-popover);
+}
+
+.qz-dialog::backdrop {
+  background: var(--qz-glass-nav);
+}
+
+.qz-dialog-title {
+  margin: var(--qz-space-4) 0 0;
+  font-size: var(--qz-read-h3);
+  font-weight: 500;
+  line-height: var(--qz-read-leading-h3);
+  letter-spacing: var(--qz-read-tracking-h3);
+  color: var(--qz-ink);
+}
+
+.qz-dialog-body {
+  margin-top: var(--qz-space-4);
+  font-size: var(--qz-text-sm);
+  line-height: var(--qz-leading-body);
+  color: var(--qz-ink-support);
+}
+
+.qz-dialog-body p {
+  margin: var(--qz-space-3) 0 0;
+}
+
+.qz-dialog-body .qz-prompt-quote {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.qz-dialog .qz-field {
+  margin-top: var(--qz-space-6);
+}
+
+.qz-dialog .qz-field + .qz-field-hint {
+  margin-top: var(--qz-space-3);
+}
+
+.qz-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--qz-space-4);
+  margin-top: var(--qz-space-7);
+}
+
+/* ═══ Situation: where things stand, and the next step ═════════════════ */
+
+.qz-situation {
+  padding: var(--qz-space-6) 0 var(--qz-space-7);
+}
+
+.qz-situation-title {
+  margin: var(--qz-space-4) 0 0;
+  max-width: var(--qz-measure-lead);
+  font-size: var(--qz-read-h3);
+  font-weight: 500;
+  line-height: var(--qz-read-leading-h3);
+  letter-spacing: var(--qz-read-tracking-h3);
+  color: var(--qz-ink);
+}
+
+.qz-situation-body {
+  margin: var(--qz-space-3) 0 0;
+  max-width: var(--qz-measure-lead);
+  font-size: var(--qz-text-body);
+  line-height: var(--qz-leading-body);
+  color: var(--qz-ink-secondary);
+}
+
+.qz-situation .qz-rail,
+.qz-situation .qz-cmd,
+.qz-situation .qz-deflist {
+  margin-top: var(--qz-space-7);
+}
+
+.qz-situation .qz-cmd {
+  max-width: var(--qz-measure-lead);
+}
+
+.qz-situation .qz-actions {
+  margin-top: var(--qz-space-6);
+}
+
+/* Compact: one part of a page is empty, the rest is not */
+.qz-situation.is-compact {
+  padding: var(--qz-space-5) 0;
+}
+
+.qz-situation.is-compact .qz-situation-title {
+  margin-top: var(--qz-space-3);
+  font-size: var(--qz-text-cell-title);
+  line-height: var(--qz-leading-cell-title);
+  letter-spacing: 0;
+}
+
+.qz-situation.is-compact .qz-situation-body {
+  font-size: var(--qz-text-ui);
+  line-height: var(--qz-leading-ui);
+}
+
+.qz-situation.is-compact .qz-cmd,
+.qz-situation.is-compact .qz-actions {
+  margin-top: var(--qz-space-4);
+}
+
+/* ═══ App components: responsive ═══════════════════════════════════════ */
+
+/* Rails inside the body column answer to the column, not the viewport.
+   Four cells hold one row down to 38rem, then pair up; three go straight to
+   one column, so a rail never ends on a half-empty row. */
+.qz-app-main .qz-cell-head {
+  flex-wrap: wrap;
+  row-gap: var(--qz-space-1);
+}
+
+@container qz-main (max-width: 38rem) {
+  .qz-rail.is-grid:not(.is-2):not(.is-3) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qz-clause {
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+  }
+
+  .qz-clause > .qz-actions {
+    grid-column: 2;
+  }
+
+  .qz-sign-bar {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    justify-items: start;
+  }
+
+  .qz-sign-bar > :first-child {
+    justify-self: stretch;
+  }
+}
+
+@container qz-main (max-width: 30rem) {
+  .qz-rail.is-grid.is-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container qz-main (max-width: 24rem) {
+  .qz-rail.is-grid,
+  .qz-rail.is-grid.is-2,
+  .qz-rail.is-grid:not(.is-2):not(.is-3) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* A two-column comparison stacks: first one side, then the other */
+  .qz-rail.is-2:not(.is-grid) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qz-rail.is-2:not(.is-grid) > .qz-cell {
+    border-inline-end: none;
+    border-bottom: 1px solid var(--qz-border);
+  }
+
+  .qz-rail.is-2:not(.is-grid) > .qz-cell:last-child {
+    border-bottom: none;
+  }
+}
+
+@media (max-width: 900px) {
+  /* Navigation becomes one row across the top; provenance follows the body */
+  .qz-app {
+    --qz-app-layout: narrow;
+    display: block;
+  }
+
+  .qz-app-nav {
+    position: sticky;
+    top: 0;
+    z-index: var(--qz-z-nav);
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--qz-hairline);
+  }
+
+  .qz-app-nav-inner {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .qz-app-status {
+    padding: var(--qz-space-3) var(--qz-gutter-compact);
+  }
+
+  .qz-app-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--qz-space-4);
+    padding-inline-start: var(--qz-gutter-compact);
+  }
+
+  .qz-app-brand {
+    flex-shrink: 0;
+    height: 3.5rem;
+    padding-inline: 0;
+  }
+
+  .qz-app-nav .qz-sidenav {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .qz-app-nav .qz-sidenav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .qz-app-nav-list {
+    display: flex;
+    gap: var(--qz-space-1);
+    padding-inline-end: var(--qz-gutter-compact);
+  }
+
+  .qz-app-nav .qz-sidenav a {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .qz-app-main {
+    padding: var(--qz-space-7) var(--qz-gutter-compact) var(--qz-space-9);
+  }
+
+  .qz-app-aside {
+    border-inline-start: 0;
+    border-top: 1px solid var(--qz-hairline);
+  }
+
+  .qz-app-aside-inner {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: var(--qz-space-6) var(--qz-gutter-compact) var(--qz-space-8);
+  }
+
+  /* Following: the provenance opens right under the item it describes */
+  .qz-app-aside.is-following {
+    position: relative;
+    z-index: 1;
+    grid-column: 1 / -1;
+    flex: 1 0 100%;
+    margin-top: var(--qz-space-4);
+    background: transparent;
+  }
+
+  .qz-app-aside.is-following .qz-app-aside-inner {
+    padding: var(--qz-space-4) 0 0;
+  }
+
+  /* The item's own text is right above; do not say it twice */
+  .qz-app-aside.is-following .qz-aside-title {
+    display: none;
+  }
+
+  .qz-view-head {
+    margin-bottom: var(--qz-space-7);
+  }
+
+  .qz-presence {
+    padding: var(--qz-space-7) 0 var(--qz-space-8);
+  }
+
+  /* Split drills in: the list, or the one item chosen from it */
+  .qz-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qz-split-list {
+    border-inline-end: 0;
+  }
+
+  .qz-split-detail {
+    padding-inline-start: 0;
+  }
+
+  .qz-split-detail-inner {
+    position: static;
+  }
+
+  .qz-split:not(.has-selection) .qz-split-detail,
+  .qz-split.has-selection .qz-split-list {
+    display: none;
+  }
+
+  .qz-split-back {
+    display: inline-flex;
+  }
+}
+
+@media print {
+  .qz-view-section::before,
+  .qz-skip-link {
+    display: none;
+  }
+}

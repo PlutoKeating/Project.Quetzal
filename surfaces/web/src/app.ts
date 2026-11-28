@@ -1,680 +1,420 @@
-import { LiveRegions } from "./a11y/live_regions.js";
-import { DEFAULT_DENSITY, DensityController, type DensityStorage } from "./model/density.js";
-import {
-  PatchSequenceError,
-  ViewStateModel,
-  compareCodeUnits,
-  densityLabel,
-  isDensity,
-  type Density,
-  type ViewPatch,
-  type ViewSnapshot,
-} from "./model/state.js";
-import { h } from "./render/dom.js";
-import {
-  DaemonUnavailable,
-  type AppTransport,
-  type ConnectionState,
-  type ToolCardEvent,
-  type TransportHandlers,
-} from "./transport/client.js";
-import type { SpineCache } from "./cache/wasm_cache.js";
-import { renderCompanion } from "./tiers/companion/view.js";
-import { renderInspector } from "./tiers/inspector/view.js";
-import { renderWorkbench } from "./tiers/workbench/view.js";
-import type { TierActions, TierContext, ToolCardState, TranscriptItem } from "./tiers/types.js";
+// 治理面的骨架：三栏，各有固定职责，从不互换。
+//   左：导航——八页的入口，每个入口旁可以有一个信号点；上方是守护进程联系不上时的那一行。
+//   中：正文——当前页。
+//   右：出处——当前选中条目的来历；没有选中时是这一页的一句话说明。
+// 这里只有「看」和「签」。没有任何地方可以输入一句话发给他。
+import { DaemonUnreachable, type SeaApi } from "./api/client.js";
+import type { SeaOverview } from "./api/types.js";
+import { ProvenancePane, type Provenance } from "./shell/provenance.js";
+import { hrefFor, OVERVIEW, PAGES, parseRoute, type Route, type ViewKey } from "./shell/routes.js";
+import { Announcer } from "./ui/announcer.js";
+import { confirmDialog, type ConfirmRequest } from "./ui/dialog.js";
+import { h, onRovingKey, type Child } from "./ui/dom.js";
+import { command, stateWord } from "./ui/marks.js";
+import { describeError } from "./ui/situation.js";
+import { AuditView } from "./views/audit.js";
+import { BaselineView } from "./views/baseline.js";
+import type { View, ViewContext, WriteControl } from "./views/base.js";
+import { DevicesView } from "./views/devices.js";
+import { HostsView } from "./views/hosts.js";
+import { MemoriesView } from "./views/memories.js";
+import { OverviewView } from "./views/overview.js";
+import { SelfView } from "./views/self.js";
+import { UsView } from "./views/us.js";
+import { UserView } from "./views/user.js";
 
-export interface QuetzalcoatlAppOptions {
-  transport: AppTransport;
-  storage?: DensityStorage | null;
-  cache?: SpineCache;
-  density?: Density;
+export type Connection = "connecting" | "online" | "unreachable";
+
+export interface AppOptions {
+  api: SeaApi;
+  now?: () => number;
+  /** 当前是否窄屏；默认读设计系统在骨架上声明的版面状态。 */
+  narrow?: () => boolean;
+  /** 联系不上时隔多久自动再试一次。 */
+  retryMs?: number;
 }
 
-interface RenderOptions {
-  focusHeading?: boolean;
-  focusComposer?: boolean;
+const DEFAULT_RETRY_MS = 4000;
+const TITLE = "Quetzalcoatl";
+
+interface NavSignal {
+  /** 入口旁显示的数字；没有数字时只有一个点。 */
+  count: number | null;
+  /** 读屏读到的那句话。 */
+  text: string;
 }
 
-const DRAFT_KEY = "web-composer-draft";
-const DRAFT_SAVE_DELAY_MS = 300;
-const MAX_DRAFT_CHARS = 4096;
-
-const SHORTCUTS: Record<string, Density> = {
-  "1": "companion",
-  "2": "workbench",
-  "3": "inspector",
-};
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** 纯原生三档认知密度 Web 应用（无 UI 框架、无 WebView、无第三方运行时）。 */
-export class QuetzalcoatlApp {
-  readonly #root: HTMLElement;
-  readonly #doc: Document;
-  readonly #transport: AppTransport;
-  readonly #density: DensityController;
-  readonly #cache: SpineCache | null;
-  readonly #model = new ViewStateModel();
-  readonly #live: LiveRegions;
-  readonly #storage: DensityStorage | null;
-  readonly #transcript: TranscriptItem[] = [];
-  readonly #cards: ToolCardState[] = [];
-  readonly #selection = new Set<string>();
-  readonly #lastSeq = new Map<string, number>();
-  #online = false;
-  #transportKind: "websocket" | "http" = "http";
-  #offlineDetail = "";
-  #started = false;
-  #localSeq = 0;
-  #eventSeq = 0;
-  #lastUserText = "";
-  #resyncInFlight = false;
-  #draftTimer: ReturnType<typeof setTimeout> | null = null;
-  readonly #encoder = new TextEncoder();
-  readonly #decoder = new TextDecoder();
-  #starting = false;
-  #onboarded = false;
-  #onboardingVisible = false;
-  #onboardingStep = 1;
-  #onboardingStepTimer: ReturnType<typeof setInterval> | null = null;
-  #onboardingEndTimer: ReturnType<typeof setTimeout> | null = null;
-
-  #host!: HTMLElement;
-  #input!: HTMLTextAreaElement;
-  #submit!: HTMLButtonElement;
-  #transportEl!: HTMLElement;
-  #cacheEl!: HTMLElement;
-  #densityButtons = new Map<Density, HTMLButtonElement>();
-
-  constructor(root: HTMLElement, options: QuetzalcoatlAppOptions) {
-    this.#root = root;
-    this.#doc = root.ownerDocument;
-    this.#transport = options.transport;
-    this.#storage = options.storage ?? null;
-    this.#density = new DensityController(options.storage ?? null, options.density ?? DEFAULT_DENSITY);
-    this.#cache = options.cache ?? null;
-    this.#live = new LiveRegions(this.#doc);
-    this.#model.setDensity(this.#density.current);
-    this.#onboarded = this.#readOnboarded();
-    this.#onboardingVisible = !this.#onboarded;
+/** 导航上的信号点：只表示「这一页有事在等你」，所以只有琥珀色。 */
+export function navSignals(overview: SeaOverview | null): Partial<Record<ViewKey, NavSignal>> {
+  if (!overview) return {};
+  const signals: Partial<Record<ViewKey, NavSignal>> = {};
+  if (overview.pending.disclosures > 0) {
+    signals.self = {
+      count: overview.pending.disclosures,
+      text: `${overview.pending.disclosures} 处变化等你看`,
+    };
   }
+  if (!overview.baseline.signed) signals.baseline = { count: null, text: "待签署" };
+  if (!overview.hosts.some((host) => host.connected)) {
+    signals.hosts = { count: null, text: "没有接上任何宿主" };
+  }
+  if (overview.sync.state === "behind") signals.devices = { count: null, text: "同步落后" };
+  return signals;
+}
 
-  get density(): Density {
-    return this.#density.current;
+export class GovernanceApp {
+  readonly #root: HTMLElement;
+  readonly #api: SeaApi;
+  readonly #now: () => number;
+  readonly #narrow: () => boolean;
+  readonly #retryMs: number;
+  readonly #announcer = new Announcer();
+  readonly #views = new Map<ViewKey, View>();
+  readonly #provenance: ProvenancePane;
+  readonly #status: HTMLElement;
+  readonly #brand: HTMLAnchorElement;
+  readonly #navList: HTMLElement;
+  readonly #main: HTMLElement;
+  readonly #ctx: ViewContext;
+
+  #connection: Connection = "connecting";
+  #overview: SeaOverview | null = null;
+  #overviewInFlight: Promise<SeaOverview> | null = null;
+  #route: Route = { info: OVERVIEW, param: null };
+  #current: View | null = null;
+  #retryTimer: ReturnType<typeof setTimeout> | null = null;
+  #unlight: (() => void) | null = null;
+  #disposed = false;
+  readonly #onHashChange = (): void => void this.#navigate(true);
+  readonly #onViewport = (): void => this.#provenance.place();
+
+  constructor(root: HTMLElement, options: AppOptions) {
+    this.#root = root;
+    this.#now = options.now ?? (() => Date.now());
+    this.#retryMs = options.retryMs ?? DEFAULT_RETRY_MS;
+    // 宽窄的分界只写在设计系统里：骨架在窄屏下把 --qz-app-layout 声明为 narrow，这里读它。
+    this.#narrow =
+      options.narrow ??
+      (() => getComputedStyle(root).getPropertyValue("--qz-app-layout").trim() === "narrow");
+    this.#api = this.#observe(options.api);
+
+    this.#status = h("div", {
+      class: "qz-app-status",
+      role: "status",
+      hidden: true,
+      "data-role": "daemon-status",
+    });
+    this.#brand = h(
+      "a",
+      { class: "qz-brand", href: hrefFor("overview"), "data-nav": "overview" },
+      h("span", { class: "qz-wordmark" }, TITLE),
+      h("span", { class: "qz-sr-only" }, "总览"),
+    );
+    this.#navList = h("ul", { class: "qz-app-nav-list" });
+    this.#main = h("main", { class: "qz-app-main", id: "sea-main", tabindex: "-1" });
+    this.#provenance = new ProvenancePane(this.#narrow, (element) => {
+      if (element.previousElementSibling !== this.#main) this.#main.after(element);
+    });
+
+    this.#ctx = {
+      api: this.#api,
+      now: this.#now,
+      narrow: this.#narrow,
+      writable: () => this.#connection === "online",
+      guard: (control, blocked = false) => this.#guard(control, blocked),
+      provenance: (content: Provenance, anchor: HTMLElement | null = null) =>
+        this.#provenance.show(content, anchor),
+      say: (message) => this.#announcer.say(message),
+      alert: (message) => this.#announcer.alert(message),
+      confirm: (request: ConfirmRequest) =>
+        confirmDialog(
+          {
+            mount: this.#root,
+            describe: describeError,
+            alert: (message) => this.#announcer.alert(message),
+          },
+          request,
+        ),
+      loadOverview: () => this.#loadOverview(),
+      overviewChanged: () => void this.#loadOverview().catch(() => undefined),
+      relight: () => this.#relight(),
+    };
   }
 
   async start(): Promise<void> {
-    if (this.#started) return;
-    this.#started = true;
-    this.#starting = true;
-    this.#root.setAttribute("aria-busy", "true");
-    this.#buildShell();
-    this.#render();
-    this.#scheduleOnboarding();
-    await this.#restoreDraft();
-    try {
-      await this.#transport.connect(this.#handlers());
-      if (!this.#online) {
-        // 传输层已认证成功但尚未收到 ready 帧：先按在线渲染，ready/快照随后补齐。
-        this.#online = true;
-      }
-      this.#starting = false;
-      this.#root.removeAttribute("aria-busy");
-      this.#render();
-    } catch (error) {
-      this.#starting = false;
-      this.#online = false;
-      this.#offlineDetail =
-        error instanceof DaemonUnavailable ? error.detail : describe(error);
-      // 先退出繁忙态，再播报错误：离线 alert 绝不能落在 aria-busy 子树里。
-      this.#root.removeAttribute("aria-busy");
-      this.#render();
-      this.#live.announceEvent("error", {
-        id: `daemon-offline-${this.#eventSeq}`,
-        title: "本机守护进程未运行",
-        detail: "当前为只读降级视图；启动 quetzalcoatld 后点“重试连接”。",
-      });
-      this.#eventSeq += 1;
-    }
+    this.#root.replaceChildren(
+      h("a", { class: "qz-skip-link", href: "#sea-main", "data-role": "skip-link" }, "跳到正文"),
+      h(
+        "header",
+        { class: "qz-app-nav" },
+        h(
+          "div",
+          { class: "qz-app-nav-inner" },
+          this.#status,
+          h(
+            "div",
+            { class: "qz-app-bar" },
+            h("div", { class: "qz-app-brand" }, this.#brand),
+            h("nav", { class: "qz-sidenav", "aria-label": "页面" }, this.#navList),
+          ),
+        ),
+      ),
+      this.#main,
+      this.#provenance.element,
+      this.#announcer.polite,
+      this.#announcer.assertive,
+    );
+    this.#root.classList.add("qz-app");
+    // 「跳到正文」只移动焦点，不改地址：地址里的 # 是页面路由。
+    this.#root.querySelector<HTMLElement>('[data-role="skip-link"]')?.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.#current?.focusHeading();
+    });
+    this.#main.addEventListener("keydown", onRovingKey);
+    this.#renderNav();
+    this.#renderStatus();
+    globalThis.addEventListener("hashchange", this.#onHashChange);
+    globalThis.addEventListener("resize", this.#onViewport);
+
+    const overview = this.#loadOverview().catch(() => undefined);
+    await this.#navigate(false);
+    await overview;
+    this.#root.removeAttribute("aria-busy");
+    this.#root.dataset["boot"] = "ready";
   }
 
-  switchDensity(next: Density): void {
-    if (!isDensity(next)) return;
-    this.#density.set(next);
-    this.#model.setDensity(next);
-    this.#render({ focusHeading: true });
-    this.#live.announceStatus(`已切换到${densityLabel(next)}视图`);
+  dispose(): void {
+    this.#disposed = true;
+    globalThis.removeEventListener("hashchange", this.#onHashChange);
+    globalThis.removeEventListener("resize", this.#onViewport);
+    if (this.#retryTimer !== null) clearTimeout(this.#retryTimer);
+    this.#unlight?.();
   }
 
-  async sendMessage(text: string): Promise<void> {
-    const value = text.trim();
-    if (value.length === 0) return;
-    this.#lastUserText = value;
-    if (!this.#online) {
-      this.#live.announceEvent("error", {
-        id: `send-offline-${this.#eventSeq}`,
-        title: "消息未发送：本机守护进程未运行",
-      });
-      this.#eventSeq += 1;
-      return;
-    }
-    this.#localSeq += 1;
-    this.#live.resetStream();
-    this.#transcript.push({ id: `local-${this.#localSeq}`, role: "user", text: value });
-    this.#render({ focusComposer: true });
-    try {
-      await this.#transport.sendChat(value);
-    } catch (error) {
-      this.#pushCard({
-        kind: "error",
-        id: `send-error-${this.#eventSeq}`,
-        title: "消息发送失败",
-        detail: describe(error),
-      });
-    }
+  get connection(): Connection {
+    return this.#connection;
   }
 
-  reloadDensity(): void {
-    this.#render({ focusHeading: false });
-  }
-
-  #handlers(): TransportHandlers {
+  /** 每一次调用的结局都告诉骨架：守护进程此刻联系得上吗。 */
+  #observe(api: SeaApi): SeaApi {
+    const track = <A extends unknown[], R>(call: (...args: A) => Promise<R>) => {
+      return async (...args: A): Promise<R> => {
+        try {
+          const result = await call(...args);
+          this.#setConnection("online");
+          return result;
+        } catch (error) {
+          // 守护进程答复了一个错误，也说明它联系得上。
+          this.#setConnection(error instanceof DaemonUnreachable ? "unreachable" : "online");
+          throw error;
+        }
+      };
+    };
     return {
-      onSnapshot: (snapshot) => this.#applySnapshot(snapshot),
-      onPatch: (patch) => this.#applyPatch(patch),
-      onToken: (token) => this.#applyToken(token.messageId, token.seq, token.text),
-      onToolCard: (card) => this.#applyToolCard(card),
-      onConnection: (state) => this.#applyConnection(state),
+      overview: track(() => api.overview()),
+      self: track(() => api.self()),
+      user: track(() => api.user()),
+      us: track(() => api.us()),
+      memories: track((query?: Parameters<SeaApi["memories"]>[0]) => api.memories(query)),
+      memory: track((id: string) => api.memory(id)),
+      baseline: track(() => api.baseline()),
+      hosts: track(() => api.hosts()),
+      devices: track(() => api.devices()),
+      audit: track((query?: Parameters<SeaApi["audit"]>[0]) => api.audit(query)),
+      entryUpdate: track((id: string, text: string) => api.entryUpdate(id, text)),
+      entryMute: track((id: string, muted: boolean) => api.entryMute(id, muted)),
+      entryErase: track((id: string) => api.entryErase(id)),
+      baselineSign: track((directives: Parameters<SeaApi["baselineSign"]>[0], passphrase: string) =>
+        api.baselineSign(directives, passphrase),
+      ),
+      focusSet: track((selfWeight: number) => api.focusSet(selfWeight)),
+      deviceRevoke: track((deviceId: string, passphrase: string) =>
+        api.deviceRevoke(deviceId, passphrase),
+      ),
     };
   }
 
-  #applyConnection(state: ConnectionState): void {
-    const wasOnline = this.#online;
-    this.#online = state.online;
-    if (state.transport === "websocket" || state.transport === "http") {
-      this.#transportKind = state.transport;
+  #setConnection(next: Connection): void {
+    if (this.#disposed || next === this.#connection) return;
+    const previous = this.#connection;
+    this.#connection = next;
+    this.#root.dataset["connection"] = next;
+    this.#renderStatus();
+    this.#applyWritable();
+    if (next === "unreachable") {
+      this.#announcer.alert("联系不上本机的守护进程。页面保留上一次的内容，写动作暂时不可用。");
+      this.#scheduleRetry();
+      return;
     }
-    this.#offlineDetail = state.online ? "" : state.detail ?? this.#offlineDetail;
-    if (!state.online) {
-      this.#live.announceEvent("error", {
-        id: `connection-lost-${this.#eventSeq}`,
-        title: "与守护进程的连接已断开",
-        detail: state.detail ?? "正在尝试恢复",
+    if (this.#retryTimer !== null) {
+      clearTimeout(this.#retryTimer);
+      this.#retryTimer = null;
+    }
+    if (previous === "unreachable") {
+      this.#announcer.say("重新连上了守护进程。");
+      // 重新连上：导航的信号点和眼前这一页都重读一遍。
+      void this.#loadOverview().catch(() => undefined);
+      void this.#current?.show(this.#route.param);
+    }
+  }
+
+  #scheduleRetry(): void {
+    if (this.#retryTimer !== null || this.#disposed) return;
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = null;
+      this.#loadOverview().catch(() => {
+        if (this.#connection === "unreachable") this.#scheduleRetry();
       });
-      this.#eventSeq += 1;
-    } else if (!wasOnline && this.#started) {
-      this.#live.announceStatus("已重新连上本机守护进程");
+    }, this.#retryMs);
+  }
+
+  #loadOverview(): Promise<SeaOverview> {
+    this.#overviewInFlight ??= this.#api
+      .overview()
+      .then((overview) => {
+        this.#overview = overview;
+        this.#renderNav();
+        return overview;
+      })
+      .finally(() => {
+        this.#overviewInFlight = null;
+      });
+    return this.#overviewInFlight;
+  }
+
+  #guard<T extends WriteControl>(control: T, blocked: boolean): T {
+    control.dataset["write"] = "true";
+    control.dataset["blocked"] = String(blocked);
+    control.disabled = blocked || this.#connection !== "online";
+    return control;
+  }
+
+  #applyWritable(): void {
+    const online = this.#connection === "online";
+    for (const control of this.#root.querySelectorAll<WriteControl>("[data-write]")) {
+      control.disabled = !online || control.dataset["blocked"] === "true";
     }
-    this.#render();
   }
 
-  #applySnapshot(snapshot: ViewSnapshot): void {
-    this.#model.replace(snapshot);
-    this.#model.setDensity(this.#density.current);
-    this.#online = true;
-    this.#offlineDetail = "";
-    this.#lastSeq.clear();
-    this.#rebuildAssistantTranscript();
-    this.#render();
-  }
-
-  #applyPatch(patch: ViewPatch): void {
-    try {
-      const outcome = this.#model.apply(patch);
-      if (outcome === "duplicate") return;
-    } catch (error) {
-      if (error instanceof PatchSequenceError) {
-        this.#live.announceEvent("error", {
-          id: `patch-resync-${this.#eventSeq}`,
-          title: "视图补丁序裂，正在重新同步",
-          detail: error.message,
-        });
-        this.#eventSeq += 1;
-        void this.#requestResync();
-      }
+  #renderStatus(): void {
+    this.#root.dataset["connection"] = this.#connection;
+    if (this.#connection !== "unreachable") {
+      this.#status.hidden = true;
+      this.#status.replaceChildren();
       return;
     }
-    for (const op of Array.isArray(patch.ops) ? patch.ops : []) {
-      if (op.op === "upsert") {
-        this.#mergeAssistantRow(op.row.key, op.row.kind, op.row.summary);
-        continue;
-      }
-      const id = op.key.startsWith("chat/") ? op.key.slice(5) : op.key;
-      const index = this.#transcript.findIndex((item) => item.id === id);
-      if (index >= 0) this.#transcript.splice(index, 1);
-      this.#lastSeq.delete(id);
-    }
-    this.#render();
-  }
-
-  #mergeAssistantRow(key: string, kind: string, summary: string): void {
-    if (kind !== "assistant") return;
-    const id = key.startsWith("chat/") ? key.slice(5) : key;
-    if (id.length === 0 || summary.length === 0) return;
-    const existing = this.#transcript.find((item) => item.id === id);
-    if (existing) {
-      if (existing.text !== summary) existing.text = summary;
-      return;
-    }
-    this.#transcript.push({ id, role: "assistant", text: summary });
-  }
-
-  #applyToken(messageId: string, seq: number, text: string): void {
-    const spoken = this.#live.appendToken(messageId, seq, text);
-    if (!spoken) return;
-    const last = this.#lastSeq.get(messageId) ?? -1;
-    if (seq <= last) return;
-    this.#lastSeq.set(messageId, seq);
-    let item = this.#transcript.find((entry) => entry.id === messageId);
-    if (!item) {
-      item = { id: messageId, role: "assistant", text: "" };
-      this.#transcript.push(item);
-    }
-    item.text += text;
-    this.#render();
-  }
-
-  #applyToolCard(card: ToolCardEvent): void {
-    this.#pushCard(card);
-  }
-
-  #pushCard(card: ToolCardEvent): void {
-    this.#live.announceEvent(card.kind, {
-      id: card.id,
-      title: card.title,
-      ...(card.detail ? { detail: card.detail } : {}),
-    });
-    if (!this.#cards.some((entry) => entry.id === card.id)) {
-      this.#cards.push(card);
-    }
-    this.#render();
-  }
-
-  #rebuildAssistantTranscript(): void {
-    const users = this.#transcript.filter((item) => item.role === "user");
-    const assistants: TranscriptItem[] = [];
-    for (const row of this.#model.rows().values()) {
-      if (row.kind !== "assistant") continue;
-      const id = row.key.startsWith("chat/") ? row.key.slice(5) : row.key;
-      assistants.push({ id, role: "assistant", text: row.summary });
-    }
-    assistants.sort((left, right) => compareCodeUnits(left.id, right.id));
-    this.#transcript.length = 0;
-    this.#transcript.push(...users, ...assistants);
-  }
-
-  async #requestResync(): Promise<void> {
-    if (this.#resyncInFlight) return;
-    this.#resyncInFlight = true;
-    try {
-      const candidate = this.#transport as AppTransport & { resync?: () => Promise<void> };
-      if (typeof candidate.resync === "function") {
-        await candidate.resync();
-      }
-    } catch {
-      // 无法重同步时保留本地状态，等待下一次快照。
-    } finally {
-      this.#resyncInFlight = false;
-    }
-  }
-
-  #buildShell(): void {
-    const nav = h("nav", { class: "density-nav", "data-density-controls": "", "aria-label": "认知密度" });
-    for (const density of ["companion", "workbench", "inspector"] as const) {
-      const index = density === "companion" ? "1" : density === "workbench" ? "2" : "3";
-      const button = h(
+    this.#status.hidden = false;
+    this.#status.replaceChildren(
+      stateWord("amber", "联系不上守护进程"),
+      h("p", null, "下面是上一次的内容，写动作暂时不可用。在终端运行 ", command("qz up"), "。"),
+      h(
         "button",
         {
-          class: "btn density-btn",
           type: "button",
-          "data-density": density,
-          "aria-pressed": "false",
-          "aria-label": `${densityLabel(density)}视图（快捷键 Alt+${index}）`,
-          title: `Alt+${index}`,
-          onClick: () => this.switchDensity(density),
+          class: "qz-btn-outline is-compact",
+          "data-action": "reconnect",
+          onclick: () => {
+            void this.#loadOverview().catch(() => undefined);
+            void this.#current?.show(this.#route.param);
+          },
         },
-        densityLabel(density),
-      );
-      this.#densityButtons.set(density, button);
-      nav.append(button);
-    }
-
-    this.#transportEl = h("span", { class: "meta-item", "data-role": "transport" }, "连接中");
-    this.#cacheEl = h("span", { class: "meta-item", "data-role": "cache" }, "缓存：未检测");
-
-    const header = h(
-      "header",
-      { class: "app-header" },
-      h(
-        "div",
-        { class: "brand" },
-        h("span", { class: "brand-mark", "aria-hidden": "true" }, "羽"),
-        h("span", { class: "brand-name" }, "羽蛇神"),
+        "重试",
       ),
-      nav,
-      h("div", { class: "meta" }, this.#transportEl, this.#cacheEl),
     );
-
-    this.#host = h("main", { class: "tier-host", "data-role": "tier-host" });
-
-    this.#input = h("textarea", {
-      id: "qz-composer-input",
-      class: "composer-input",
-      "data-role": "composer-input",
-      rows: "2",
-      "aria-label": "说一句话，我来帮你安排",
-      placeholder: "说一句话，我来帮你安排…",
-    });
-    this.#submit = h(
-      "button",
-      { class: "btn composer-submit", type: "submit", "data-role": "composer-submit" },
-      "发送",
-    );
-    const form = h(
-      "form",
-      { class: "composer", "data-role": "composer", "aria-label": "对话输入" },
-      this.#input,
-      this.#submit,
-    );
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const value = this.#input.value;
-      this.#input.value = "";
-      this.#clearDraft();
-      void this.sendMessage(value);
-    });
-    this.#input.addEventListener("input", () => this.#queueDraftSave());
-
-    this.#root.classList.add("qz-root");
-    this.#root.replaceChildren(header, this.#host, form, this.#live.polite, this.#live.assertive);
-    this.#doc.addEventListener("keydown", (event) => {
-      if (!event.altKey || event.ctrlKey || event.metaKey) return;
-      const density = SHORTCUTS[event.key];
-      if (!density) return;
-      event.preventDefault();
-      this.switchDensity(density);
-    });
   }
 
-  async #restoreDraft(): Promise<void> {
-    if (!this.#cache) return;
-    try {
-      const bytes = await this.#cache.get(DRAFT_KEY);
-      if (bytes && bytes.byteLength > 0 && bytes.byteLength <= MAX_DRAFT_CHARS * 4) {
-        this.#input.value = this.#decoder.decode(bytes);
-      }
-    } catch {
-      // 缓存不可读不影响输入。
-    }
-  }
-
-  #queueDraftSave(): void {
-    if (!this.#cache) return;
-    if (this.#draftTimer !== null) clearTimeout(this.#draftTimer);
-    this.#draftTimer = setTimeout(() => {
-      this.#draftTimer = null;
-      const value = this.#input.value.slice(0, MAX_DRAFT_CHARS);
-      void this.#cache?.set(DRAFT_KEY, this.#encoder.encode(value)).catch(() => undefined);
-    }, DRAFT_SAVE_DELAY_MS);
-  }
-
-  #clearDraft(): void {
-    if (!this.#cache) return;
-    if (this.#draftTimer !== null) {
-      clearTimeout(this.#draftTimer);
-      this.#draftTimer = null;
-    }
-    void this.#cache.set(DRAFT_KEY, new Uint8Array()).catch(() => undefined);
-  }
-
-  #actions(): TierActions {
-    return {
-      toggleSelection: (key) => {
-        if (this.#selection.has(key)) this.#selection.delete(key);
-        else this.#selection.add(key);
-        this.#render();
-      },
-      copyReference: (key) => {
-        const clipboard = this.#doc.defaultView?.navigator?.clipboard;
-        if (clipboard && typeof clipboard.writeText === "function") {
-          void clipboard.writeText(`qz://${key}`).catch(() => undefined);
+  #renderNav(): void {
+    const signals = navSignals(this.#overview);
+    const currentKey = this.#route.info.key;
+    if (currentKey === "overview") this.#brand.setAttribute("aria-current", "page");
+    else this.#brand.removeAttribute("aria-current");
+    this.#navList.replaceChildren(
+      ...PAGES.map((page) => {
+        const signal = signals[page.key];
+        const children: Child[] = [h("span", null, page.label)];
+        if (signal) {
+          children.push(
+            h(
+              "span",
+              { class: "qz-nav-signal", "data-role": "nav-signal" },
+              h("span", { class: "qz-dot is-amber", "aria-hidden": "true" }),
+              signal.count === null ? null : h("span", { "aria-hidden": "true" }, String(signal.count)),
+              h("span", { class: "qz-sr-only" }, signal.text),
+            ),
+          );
         }
-        this.#live.announceStatus("已复制引用");
-      },
-      resolveApproval: (id) => {
-        const index = this.#cards.findIndex((card) => card.id === id);
-        if (index >= 0) this.#cards.splice(index, 1);
-        this.#live.announceStatus("已记录你的选择（仅保存在本机）");
-        this.#render();
-      },
-      retryConnection: () => {
-        void this.#retryConnection();
-      },
-      retryMessage: () => {
-        if (this.#lastUserText.length > 0) void this.sendMessage(this.#lastUserText);
-      },
-      commitArtifact: (key) => {
-        void this.#commitArtifact(key);
-      },
-      skipOnboarding: () => {
-        this.#completeOnboarding(true);
-      },
-    };
+        return h(
+          "li",
+          null,
+          h(
+            "a",
+            {
+              href: hrefFor(page.key),
+              "aria-current": page.key === currentKey ? "page" : null,
+              "data-nav": page.key,
+            },
+            ...children,
+          ),
+        );
+      }),
+    );
   }
 
-  async #commitArtifact(key: string): Promise<void> {
-    const commit = this.#transport.commitArtifact;
-    if (typeof commit !== "function") {
-      this.#pushCard({
-        kind: "error",
-        id: `commit-unsupported-${this.#eventSeq}`,
-        title: "当前传输不支持产物提交",
-      });
-      return;
-    }
-    try {
-      const result = await commit.call(this.#transport, key);
-      if (result.ok) {
-        this.#live.announceStatus(result.detail);
-      } else {
-        this.#pushCard({
-          kind: "error",
-          id: `commit-error-${this.#eventSeq}`,
-          title: "产物提交失败",
-          detail: `${result.detail}${result.code ? `（${result.code}）` : ""}`,
-        });
-      }
-    } catch (error) {
-      this.#pushCard({
-        kind: "error",
-        id: `commit-error-${this.#eventSeq}`,
-        title: "产物提交失败",
-        detail: describe(error),
+  #view(key: ViewKey): View {
+    const existing = this.#views.get(key);
+    if (existing) return existing;
+    const ctx = this.#ctx;
+    const created: View =
+      key === "self"
+        ? new SelfView(ctx)
+        : key === "user"
+          ? new UserView(ctx)
+          : key === "us"
+            ? new UsView(ctx)
+            : key === "memories"
+              ? new MemoriesView(ctx)
+              : key === "baseline"
+                ? new BaselineView(ctx)
+                : key === "hosts"
+                  ? new HostsView(ctx)
+                  : key === "devices"
+                    ? new DevicesView(ctx)
+                    : key === "audit"
+                      ? new AuditView(ctx)
+                      : new OverviewView(ctx);
+    this.#views.set(key, created);
+    return created;
+  }
+
+  async #navigate(moveFocus: boolean): Promise<void> {
+    const route = parseRoute(globalThis.location.hash);
+    this.#route = route;
+    const view = this.#view(route.info.key);
+    this.#current = view;
+    this.#root.dataset["view"] = route.info.key;
+    document.title = route.info.key === "overview" ? TITLE : `${route.info.label} · ${TITLE}`;
+    // 换页的一瞬间出处栏先回到这一页的一句话，不留空白，也不留上一页的条目。
+    this.#provenance.show({ lead: route.info.sentence });
+    this.#main.replaceChildren(view.element);
+    this.#renderNav();
+    if (moveFocus) {
+      globalThis.scrollTo(0, 0);
+      this.#navList.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
       });
     }
+    const shown = view.show(route.param);
+    if (moveFocus) view.focusHeading();
+    await shown;
+    if (this.#current !== view) return;
+    this.#applyWritable();
+    // 标题可能在读取之后才出现（总览的标题是他的名字）。
+    if (moveFocus && !view.element.contains(document.activeElement)) view.focusHeading();
   }
 
-  #readOnboarded(): boolean {
-    try {
-      return this.#storage?.getItem("qz.web.onboarded") === "1";
-    } catch {
-      return false;
-    }
-  }
-
-  #writeOnboarded(): void {
-    try {
-      this.#storage?.setItem("qz.web.onboarded", "1");
-    } catch {
-      // 持久化失败不影响本次会话内的隐藏。
-    }
-  }
-
-  #scheduleOnboarding(): void {
-    if (!this.#onboardingVisible) return;
-    this.#onboardingStepTimer = setInterval(() => {
-      if (!this.#onboardingVisible) return;
-      if (this.#onboardingStep < 3) {
-        this.#onboardingStep += 1;
-        this.#render();
-      }
-    }, 4000);
-    this.#onboardingEndTimer = setTimeout(() => {
-      this.#completeOnboarding(true);
-    }, 10_000);
-  }
-
-  #completeOnboarding(persist: boolean): void {
-    this.#onboardingVisible = false;
-    this.#onboarded = true;
-    if (this.#onboardingStepTimer !== null) {
-      clearInterval(this.#onboardingStepTimer);
-      this.#onboardingStepTimer = null;
-    }
-    if (this.#onboardingEndTimer !== null) {
-      clearTimeout(this.#onboardingEndTimer);
-      this.#onboardingEndTimer = null;
-    }
-    if (persist) this.#writeOnboarded();
-    this.#render();
-  }
-
-  #sessionInfo(): TierContext["session"] {
-    const rows = [...this.#model.rows().values()];
-    const row = rows.find((candidate) => candidate.kind === "session");
-    if (!row) {
-      return {
-        kind: "personal",
-        roomId: null,
-        detail: "提交产物需要先加入群组房间；当前为个人会话。",
-      };
-    }
-    let kind: "personal" | "group" = "personal";
-    let roomId: string | null = null;
-    if (row.raw_json) {
-      try {
-        const parsed: unknown = JSON.parse(row.raw_json);
-        if (typeof parsed === "object" && parsed !== null) {
-          const record = parsed as Record<string, unknown>;
-          if (record["kind"] === "group") kind = "group";
-          if (typeof record["room_id"] === "string") roomId = record["room_id"];
-        }
-      } catch {
-        // 畸形会话行按个人会话 fail-closed。
-      }
-    }
-    return {
-      kind,
-      roomId,
-      detail: row.detail ?? (kind === "group" ? row.summary : "当前为个人会话。"),
-    };
-  }
-
-  async #retryConnection(): Promise<void> {
-    this.#offlineDetail = "";
-    this.#starting = true;
-    this.#root.setAttribute("aria-busy", "true");
-    this.#render();
-    try {
-      await this.#transport.connect(this.#handlers());
-      this.#online = true;
-    } catch (error) {
-      this.#online = false;
-      this.#offlineDetail = error instanceof DaemonUnavailable ? error.detail : describe(error);
-    }
-    this.#starting = false;
-    this.#root.removeAttribute("aria-busy");
-    this.#render();
-  }
-
-  #tierContext(): TierContext {
-    // 密度是纯视图关注点：投影永远以用户当前选择为准，服务端补丁不得把界面拉回 Workbench。
-    this.#model.setDensity(this.#density.current);
-    return {
-      density: this.#density.current,
-      rev: this.#model.rev,
-      rows: this.#model.visibleRows(),
-      transcript: this.#transcript,
-      cards: this.#cards,
-      selection: this.#selection,
-      online: this.#online,
-      starting: this.#starting,
-      offlineDetail: this.#offlineDetail,
-      session: this.#sessionInfo(),
-      onboarding: this.#onboardingVisible
-        ? { step: this.#onboardingStep, total: 3 }
-        : null,
-      rawSnapshot: JSON.stringify(this.#model.snapshot(), null, 2),
-      actions: this.#actions(),
-    };
-  }
-
-  #render(options: RenderOptions = {}): void {
-    this.#root.dataset.density = this.#density.current;
-    this.#root.dataset.connection = this.#online ? "online" : "offline";
-    this.#root.dataset.transport = this.#online ? this.#transportKind : "offline";
-
-    for (const [density, button] of this.#densityButtons) {
-      button.setAttribute("aria-pressed", density === this.#density.current ? "true" : "false");
-    }
-    this.#transportEl.textContent = !this.#online
-      ? "离线"
-      : this.#transportKind === "websocket"
-        ? "WebSocket"
-        : "HTTP 回退";
-    this.#renderCache();
-
-    const active = this.#doc.activeElement as HTMLElement | null;
-    const focusKey = active?.closest<HTMLElement>("[data-focus-key]")?.dataset["focusKey"] ?? null;
-    // 标题自身在重渲染时会被替换：记住"焦点原本在标题上"，替换后重新落位，
-    // 避免流式事件追加渲染导致键盘用户丢失焦点。
-    const keepHeadingFocus = active?.tagName === "H1" && this.#host.contains(active);
-
-    const ctx = this.#tierContext();
-    const tier =
-      this.#density.current === "companion"
-        ? renderCompanion(ctx)
-        : this.#density.current === "workbench"
-          ? renderWorkbench(ctx)
-          : renderInspector(ctx);
-    this.#host.replaceChildren(tier);
-
-    this.#input.disabled = this.#starting || !this.#online;
-    this.#submit.disabled = this.#starting || !this.#online;
-
-    if (options.focusHeading || keepHeadingFocus) {
-      this.#host.querySelector<HTMLElement>("h1")?.focus();
-    } else if (options.focusComposer && this.#online) {
-      this.#input.focus();
-    } else if (focusKey) {
-      const restored = [...this.#host.querySelectorAll<HTMLElement>("[data-focus-key]")].find(
-        (element) => element.dataset["focusKey"] === focusKey,
-      );
-      restored?.focus();
-    }
-  }
-
-  #renderCache(): void {
-    this.#cacheEl.replaceChildren();
-    this.#cacheEl.removeAttribute("data-cache-degraded");
-    this.#cacheEl.removeAttribute("title");
-    const cache = this.#cache;
-    if (!cache) {
-      this.#cacheEl.textContent = "缓存：未检测";
-      return;
-    }
-    if (cache.status.degraded) {
-      this.#cacheEl.dataset["cacheDegraded"] = cache.status.degraded;
-      this.#cacheEl.textContent = "缓存：内存（刷新后草稿丢失）";
-      this.#cacheEl.setAttribute("title", cache.status.detail);
-      return;
-    }
-    this.#cacheEl.textContent = "缓存：OPFS 单写者";
-    this.#cacheEl.setAttribute("title", cache.status.detail);
+  #relight(): void {
+    this.#unlight?.();
+    this.#unlight = globalThis.QuetzalcoatlOptics?.init(this.#main) ?? null;
   }
 }
-
-export { PatchSequenceError };

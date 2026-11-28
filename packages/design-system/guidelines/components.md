@@ -194,3 +194,142 @@
 ## 页脚 `.qz-footer`
 
 顶部发丝线，上下 2.25rem，0.84rem `--qz-ink-secondary`。左侧一句版权或许可，右侧一排链接；悬停与当前项为白色。没有多列站点地图，没有 logo。
+
+---
+
+# 应用组件
+
+以下组件为治理面（`docs/GOVERNANCE_SURFACE.md`）追加：一个只「看」和「签」的产品界面。它们全部取用既有 token，不引入新的颜色、阴影或动效；上文各组件的行为不变。
+
+## 应用骨架 `.qz-app`
+
+三栏，各有固定职责，从不互换。
+
+```html
+<div class="qz-page">
+  <div class="qz-app">
+    <a class="qz-skip-link" href="#main">跳到正文</a>
+    <header class="qz-app-nav">
+      <div class="qz-app-nav-inner">
+        <div class="qz-app-status" role="status" hidden>…</div>
+        <div class="qz-app-bar">
+          <div class="qz-app-brand"><a class="qz-brand"><span class="qz-wordmark">Quetzalcoatl</span></a></div>
+          <nav class="qz-sidenav"><ul class="qz-app-nav-list"><li><a aria-current="page">…</a></li></ul></nav>
+        </div>
+      </div>
+    </header>
+    <main class="qz-app-main">…</main>
+    <aside class="qz-app-aside"><div class="qz-app-aside-inner">…</div></aside>
+  </div>
+</div>
+```
+
+- 左栏 `.qz-app-nav` 与右栏 `.qz-app-aside` 是不透明的 `--qz-void`，光学地平线只落在中间的 `.qz-app-main`。两栏内容各自 sticky。
+- 导航入口沿用 `.qz-sidenav` 的链接样式；入口旁的 `.qz-nav-signal`（琥珀圆点加可选数字）只表示「这一页有事在等你」，必须带读屏文字。
+- `.qz-app-status`：导航上方的一行，由琥珀状态词、一句下一步和一个紧凑描边按钮组成。只在后端联系不上时出现。
+- `.qz-app-main` 是一个 `container`（名为 `qz-main`）：其中的 `.qz-rail.is-grid` 按这一栏的宽度换列（四格在 38rem 以下成对，三格在 30rem 以下直接单列，24rem 以下全部单列），而不是按视口。
+- ≤ 900px：导航收成顶部一行，入口横向滚动、不折叠成汉堡菜单；右栏变成正文下方的一段。此时 `.qz-app` 上的 `--qz-app-layout` 为 `narrow`，脚本读它而不是重述断点。
+- `.qz-app-aside.is-following`：窄屏下把右栏挪到选中条目的内部，紧跟在它下面；条目自己的文字不再重复。
+- 骨架内的 `:disabled` 与 `[aria-disabled="true"]` 一律 0.38 不透明度。写操作在途时用 `aria-disabled` 而不是 `disabled`，以免键盘焦点丢失。
+
+## 视图 `.qz-view`
+
+- `.qz-view-head`：左侧 `h1.qz-title` 加一句 `.qz-view-lead`，右侧是这一页的状态词（可选）。
+- `.qz-view-section`：视图内的区块。顶部一条发丝线，其上叠一条随滚动点亮的高光线（加 `data-qz-lit`）。标题用 `.qz-view-section-title`；紧随并从属于上一区块的用 `.is-minor`，字号小一级。
+- `.qz-presence`：居中的 `.qz-display` 名字、一句 `.qz-lead` 和一行 `.qz-meta-line`。一个产品里只用一次。
+- 单元格补充：`.qz-cell-title`（任意标题级别的单元格标题）、`.qz-cell-note`（等宽的日期或计数）、`.qz-cell-sub`（第二句更安静的话）。`.qz-rail-group` 把一条栅格和它的 `.qz-rail-head` 结成一组，组与组之间留 2.25rem；组里还没有东西可列时用一句 `.qz-rail-group-note`。
+
+## 选取 `.qz-pick`
+
+选中一个条目以查看它的来历。
+
+- `.qz-pick` 是一个只带条目自身文字的 `<button>`，它的 `::after` 铺满所在容器，因此整个条目都可点，而标题层级与文字语义保持不变。容器是 `.qz-row`、`.qz-clause` 或 `.qz-cell.is-pickable`。
+- 选中态：容器加 `.is-current`（0.06 白填充；行与条款另有 `inline-start` 一条 1.5px 白线），按钮加 `aria-current="true"`。不使用冰蓝。
+- 焦点环画在整个容器上：1px 冰蓝，内收 1px。
+- 条目内部其它可交互的内容放进 `.qz-row-detail` / `.qz-row-action`，它们位于点击区之上。
+- 一组条目加 `data-roving` 后只占一个 Tab 停靠点，组内用方向键移动。
+
+## 行列表 `.qz-list` / `.qz-row`
+
+- `.qz-list` 顶部一条 0.10 白线，行与行之间是发丝线。没有外框。
+- `.qz-row`：`.qz-pick > .qz-row-text` 加一行 `.qz-row-meta`（等宽元信息与状态词）。
+- `.qz-row.has-action`：行末带一个紧凑描边按钮。`.qz-row.is-ledger`：一行里依次是等宽时间 `.qz-ledger-time`、动作 `.qz-ledger-kind`、对象（`.qz-pick`）与执行者。
+- `.qz-list-foot`：列表底部的计数与「再看一些」。列表按页读取，不做无限滚动。
+- `.qz-signals` / `.qz-signal`：一个标记、一句话、一个靠右的安静事实。用于格子里的短清单。
+
+## 定义列表 `.qz-deflist`
+
+两列的 `<dl>`：左是等宽的术语，右是值；行间发丝线。值是标识符时加 `.is-mono`。
+
+## 时间线 `.qz-timeline`
+
+- 一条 0.18 白的竖轨，节点是压在轨上的 5px 方刻度。节点默认中性；`.is-amber` 表示这一步由人亲手做出；`.is-current` 为白色。
+- `.qz-timeline-day` 是按天分组的小标题（等宽）。条目里依次是 `.qz-timeline-time` 与 `.qz-timeline-text`。
+- `.is-compact` 用于侧栏里的短历史。
+
+## 主从 `.qz-split`
+
+左侧 `.qz-split-list` 是结果，右侧 `.qz-split-detail` 是选中条目的全文与动作，中间一条发丝线；详情在滚动时保持可见。≤ 900px 改为钻取：没有选中时只显示列表，选中后（容器加 `.has-selection`）只显示详情和一个 `.qz-split-back`。
+
+## 工具条与动作
+
+- `.qz-toolbar`：一行里放输入框、分段控件和靠右的计数。
+- `.qz-actions`：左对齐的一排按钮。
+- `.qz-btn-outline.is-compact`：行内尺度的描边按钮。在 `.qz-actions` 里带 `aria-pressed="true"` 时显示为按下（0.10 白填充、0.42 白边）。
+- `.qz-btn-text`：最安静的文字按钮（取消、返回、展开），带低透明度下划线。
+- `.qz-state.is-quiet`：只陈述事实、不向人要什么的状态词，比冰蓝和琥珀都安静。
+- `.qz-code-chip`：句子里的一条命令。
+
+## 表单
+
+- `.qz-field`：`.qz-field-label` + 控件 + `.qz-field-hint`。出错时提示加 `.is-amber`（需要人介入），并同时以文字说明原因。
+- `.qz-input.is-multiline`：多行文本，容器与单行输入框同族，内部放 `<textarea>`。
+- `.qz-input.is-secret`：口令。等宽、略放字距。
+- 复选框、开关与下拉仍未定义。
+
+## 条款 `.qz-clauses`
+
+一份简短的编号文书：每条是 `.qz-clause-no`（等宽两位数）、`.qz-clause-title`、`.qz-clause-text`，行末是这一条的动作；编辑时这一行换成 `.qz-clause-form`。
+
+## 签署条 `.qz-sign-bar`
+
+上下各一条 0.10 白线。左侧说明签署意味着什么并放口令字段（`.qz-sign-bar-fields`），右侧是这一屏唯一的 `.qz-btn-white`。
+
+## 刻度 `.qz-scale`
+
+两端之间的一个标记，和一条它越不过去的线。
+
+```html
+<div class="qz-scale">            <!-- 经 CSSOM 设置 --qz-scale-limit: 0–100 -->
+  <div class="qz-scale-ends"><span>甲</span><span>乙</span></div>
+  <div class="qz-scale-track">
+    <div class="qz-scale-ticks"></div>
+    <div class="qz-scale-limit"></div>
+    <input class="qz-scale-input" type="range" min="0" max="<limit>" />
+  </div>
+  <div class="qz-scale-legend">…</div>
+</div>
+```
+
+- 底轨是一条 0.18 白线，每十分之一一个刻度；标记是一个白色圆点。
+- `--qz-scale-limit` 之外是虚线，起点处一条 1.5px 的白色竖线。原生滑杆只覆盖允许的那一段，所以标记在物理上到不了线的另一边。
+- 没有填充色、没有冰蓝；焦点环是标记外的 1px 冰蓝。一个产品里至多一根。
+
+## 对话框 `.qz-dialog`
+
+原生 `<dialog>` 的模态，用于不可撤回的动作之前的再次确认。
+
+- `#070707` 底、0.14 白边、6px 圆角，带系统唯一的阴影；背景遮罩是 84% 的黑，不加模糊。出现与消失都没有动画。
+- 自上而下：琥珀状态词、`.qz-dialog-title`、`.qz-dialog-body`（可含 `.qz-prompt-quote` 引出被操作的原文）、可选字段、`.qz-dialog-actions`（右对齐：`.qz-btn-text` 取消 + `.qz-btn-outline` 确认）。
+- 对话框里不放 `.qz-btn-white`。没有字段时默认焦点在「取消」。
+
+## 状态版面 `.qz-situation`
+
+空、失败、未就绪、联系不上：说清现状和下一步，而不是一行灰字。
+
+- 自上而下：状态词、`.qz-situation-title`、`.qz-situation-body`，然后是步骤（`.qz-rail.is-grid.is-3`）、事实（`.qz-deflist`）、命令（`.qz-cmd`）与一个动作，按需取用。
+- `.is-compact`：页面只有一部分为空时，嵌在那一部分原本的位置。
+
+## 无障碍
+
+- `.qz-sr-only`：只给读屏的文字。`.qz-skip-link`：只在获得键盘焦点时可见的「跳到正文」。

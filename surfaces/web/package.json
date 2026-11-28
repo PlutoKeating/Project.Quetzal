@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Quetzalcoatl 纯原生三档认知密度浏览器客户端",
+  "description": "Quetzalcoatl 治理面（Web）：只有看和签",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "build": "node build.mjs",
+    "preview": "node build.mjs && node e2e/mock-daemon.mjs --port 43117 --static dist",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
