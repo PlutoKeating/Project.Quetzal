@@ -44,7 +44,7 @@ Git 服务器的工具（V1 的 Git 灵魂仓库已彻底移除，见
 
 | 端 | 实现 | 状态（本仓库） |
 | --- | --- | --- |
-| Web | `surfaces/web`：TypeScript + 原生 DOM + Web Worker WASM/OPFS | 已实现，含 vitest / Playwright |
+| Web | `surfaces/web`：TypeScript + 原生 DOM，由守护进程同源托管的治理面 | 已实现，含 vitest / Playwright |
 | Linux | `surfaces/linux`：`gtk4-rs` + 动态 `libadwaita-1` | 已实现，含 `--self-test` 无头冒烟 |
 | macOS | `surfaces/macos`：SwiftUI 最小治理外壳（说明 + 打开 `qz open`） | 只剩外壳，对话界面已按 000 号铁律删除 |
 | Windows | `surfaces/windows`：WinUI 3 最小治理外壳（说明 + 打开 `qz open`） | 只剩外壳，对话界面已按 000 号铁律删除 |
@@ -58,7 +58,7 @@ Git 服务器的工具（V1 的 Git 灵魂仓库已彻底移除，见
 ```mermaid
 flowchart TB
   subgraph Clients["五端纯原生客户端"]
-    Web["Web (TS + WASM/OPFS)"]
+    Web["Web 治理面 (TS)"]
     Linux["Linux (GTK4/Adwaita)"]
     Mac["macOS (SwiftUI)"]
     Win["Windows (WinUI 3)"]

@@ -26,7 +26,7 @@
 | L0 状态与密码脊柱 | 事件、HLC、密文包、根密钥、设备纪元 | `crates/quetzalcoatl-types`、`crates/quetzalcoatl-crypto`、`crates/quetzalcoatl-spine` |
 | L1 运行时与治理 | 良知、盲内核、沙箱、洁净室、语音门 | `crates/quetzalcoatl-ewave`、`crates/quetzalcoatl-kernel`、`crates/quetzalcoatl-sandbox`、`crates/quetzalcoatl-voice-ai` |
 | L2 连接与协同 | 打洞/同步/租约、群组、通道、能力、桥接、领域包 | `crates/quetzalcoatl-fabric`、`crates/quetzalcoatl-group`、`crates/quetzalcoatl-channels`、`crates/quetzalcoatl-capabilities`、`crates/quetzalcoatl-bridge`、`crates/quetzalcoatl-domains`、`hub/` |
-| L3 宿主与表面 | 守护进程、Harness 宿主、五端客户端、绑定 | `crates/quetzalcoatl-daemon`、`crates/quetzalcoatl-harness`、`crates/quetzalcoatl-client-core`、`crates/bindings/quetzalcoatl-uniffi`、`crates/bindings/quetzalcoatl-wasm`、`surfaces/` |
+| L3 宿主与表面 | 守护进程、Harness 宿主、五端客户端、绑定 | `crates/quetzalcoatl-daemon`、`crates/quetzalcoatl-harness`、`crates/quetzalcoatl-client-core`、`crates/bindings/quetzalcoatl-uniffi`、`surfaces/` |
 
 依赖方向严格自上而下：L0 不依赖 L1+；`quetzalcoatl-kernel` 的依赖白名单由
 `crates/quetzalcoatl-kernel/tests/blind_boundary.rs` 在测试中静态校验。
@@ -52,7 +52,6 @@
 | `quetzalcoatl-daemon` | `crates/quetzalcoatl-daemon` | `quetzalcoatld` / `qz`、本地 IPC、Web 控制台、运行编排 |
 | `quetzalcoatl-client-core` | `crates/quetzalcoatl-client-core` | 五端共享的三档差分视图、拉模式流、IPC 模式判定 |
 | `quetzalcoatl-uniffi` | `crates/bindings/quetzalcoatl-uniffi` | Swift / Kotlin / C# 绑定，仅导出拉模式接口 |
-| `quetzalcoatl-wasm` | `crates/bindings/quetzalcoatl-wasm` | Web Worker WASM：E2EE、OPFS、浏览器专项 |
 | `quetzalcoatl-desktop` | `surfaces/linux` | Linux GTK4 客户端（唯一加入 Rust workspace 的界面 crate） |
 
 Go 服务端全部位于 `hub/`：入口 `hub/cmd/quetzalcoatl-hub`，内部包 `hub/internal/auth`、
@@ -252,7 +251,7 @@ sequenceDiagram
 
 ```text
 crates/                 Rust 内核、绑定与守护进程
-  bindings/             UniFFI / WASM 绑定
+  bindings/             UniFFI 绑定
 packages/               声明式插件包（通道/能力/领域/桥接/Harness 增强）
 surfaces/               五端客户端（Web/Linux/macOS/Windows + 移动端规划）
 hub/                    Go 零知识引导服 quetzalcoatl-hub

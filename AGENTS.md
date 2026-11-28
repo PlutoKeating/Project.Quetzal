@@ -66,7 +66,7 @@
    - 覆盖范围：暂无。Android 对话端与内嵌引擎（`JetBrains Koog`）已按 000 号铁律撤销；手机上的治理面与推送另行审批，届时沿用下述门禁。
    - **强制门禁**：严格执行 `store`（零 `AccessibilityService`、零 `dataSync` 前台服务）与 `full` 双渠道分包及合并清单静态扫描测试。
 5. **TypeScript（TS 5.9+）**：
-   - 覆盖范围：`surfaces/web`（Web Worker WASM E2EE + OPFS 原生 DOM 三态客户端）、`website/` 与 `packages/harness-enhancers/*`。
+   - 覆盖范围：`surfaces/web`（守护进程同源托管的原生 DOM 治理面）、`website/` 与 `packages/harness-enhancers/*`。
    - **强制门禁**：`strict: true`、`noUncheckedIndexedAccess: true`、禁止裸 `any`。
 6. **C#（.NET 9+）**：
    - 覆盖范围：`surfaces/windows`（Windows 10 1809+ / Windows 11 纯原生 `WinUI 3` Fluent 客户端）。
@@ -89,7 +89,7 @@
 
 以下 22 条铁律对应真实编译失败、死锁、活锁、OOM、封号或安全绕过漏洞，编码与审查时必须逐条核验。
 
-> **2026-11-28 修订**：第 1–4 条约束的是回环网关，只适用于受管运行与可选的深度模式；第 12 条随语音冻结；第 15、16 条随手机对话端撤销。原文保留备查。
+> **2026-11-28 修订**：第 1–4 条约束的是回环网关，只适用于受管运行与可选的深度模式；第 12 条随语音冻结；第 15、16 条随手机对话端撤销；第 17 条随浏览器端客户端撤销（Web 只剩守护进程同源托管的治理面）。原文保留备查。
 
 1. **回环网关路径级能力令牌与 OAuth `refresh_token` 剥离保护**：`quetzalcoatld` 为每个受管会话生成 256-bit 路径能力密钥（`http://127.0.0.1:<port>/run/<cap_token>/...`）做常量时间校验防本机 SSRF 蹭用；同时在沙箱外由 `quetzalcoatld` 托管真实 `~/.claude` / `~/.codex` 长期 `refresh_token`，仅向沙箱挂载剥离了 `refresh_token` 的临时 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` 存根，由网关在出站瞬间换上真令牌，彻底防止沙箱内脚本窃取订阅刷新凭据。
 2. **Anthropic 累积前缀缓存保护（`tools → system → messages`）与 4-`cache_control` 归一化**：回环网关**严禁触碰 `system[0]`** 且必须原样透传 `anthropic-beta`、`anthropic-version`、`Authorization` 与 `/v1/messages/count_tokens`；仅将会话期内恒定不变的 `PINNED`（`ROOT+OPERATOR+SELF_CORE`）追加在 `system[last]`，将每轮易变的 `RELATION`、`RECALL`、`VOLATILE`（`FocusConfig` 权重与披露通知）及 `<ewave_check>` 统一注入**最后一条 `user/tool_result` 消息末尾**；转发前统计全请求 `cache_control` 总数并自动合并归拢，严禁超过 4 个触发 HTTP 400。
@@ -107,7 +107,7 @@
 14. **`UniFFI = "=0.32.0"` 精确锁死与拉模式异步流**：`Cargo.toml` 精确用 `=` 锁定 `uniffi` 与 `uniffi-bindgen-cs` 配对版本，全面禁用外语回调接口（规避 C# 异步回调生成同步签名 Bug `#165` 与 GC 委托悬垂崩溃），统一采用 `ViewStream::next_events()` 拉模式流。
 15. **【撤销】iOS `<12MB` NSE Spool 模式防 `0xdead10cc` 杀后台**：推送解密扩展 `quetzalcoatl-nse-ffi` 不链接 `tokio/iroh`，`zstd` 解压窗口 `<=1MiB`，且**严禁打开主库 `rusqlite` WAL**——解密后仅向 `<AppGroup>/spine-spool/` 写只追加小文件，由主进程前台/后台任务安全合并并在挂起前释放全部文件锁。
 16. **【撤销】iOS `SwiftAgent` 编译期 Trait 桥接、锁屏钥匙串权限与 `<=8B` 端侧模型禁跑 `Reflector`**：① `SwiftAgent` 启用 SPM `traits: ["OpenFoundationModels"]` 编译，同时注册 `AppleOnDeviceLanguageModel`（`#available(iOS 26, *)` + `CompactOnDevice(4096)` 预算）与 `QuetzalRustCloudLanguageModel`（经 `UniFFI` 逐轮动态重组装良知），实现运行期无缝切换；② 移动端后台主密钥采用 iOS `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` / Android `setUserAuthenticationRequired(false)` 确保持锁屏唤醒可用；③ **严禁 `<=8B` 端侧小模型（含苹果 3B 模型）充当 `Reflector/Judge` 审议 `>= USER_PREF / SELF_CORE` 写回**（离线手机产生的 episode 标为 `pending`，待连上云端大模型或桌面节点后再巩固，防小模型自我谄媚污染核心价值）。
-17. **WASM 浏览器三项平台特化**：`wasm32-unknown-unknown` 目标下自动切换为 `navigator.locks` + OPFS `journal_mode=PERSIST; locking_mode=EXCLUSIVE` SQLite VFS、纯 Rust `ruzstd` 与纯 WSS 中继模式。
+17. **【撤销】WASM 浏览器三项平台特化**：`wasm32-unknown-unknown` 目标下自动切换为 `navigator.locks` + OPFS `journal_mode=PERSIST; locking_mode=EXCLUSIVE` SQLite VFS、纯 Rust `ruzstd` 与纯 WSS 中继模式。
 18. **公网 Webhook 零知识 HPKE 入站与 S3 Presigned `PUT`**：`quetzalcoatl-hub` 接收外部平台 Webhook 时仅在内存验 HMAC 后立即用 Agent 的 `ChannelIngressKey` 做 HPKE 密封入队（零明文落盘）；对象存储统一用兼容 Cloudflare R2 / MinIO / AWS S3 的 **Presigned `PUT`**（带签名 `Content-Length` 与 `sha256`）替代兼容性差的 `PresignedPostPolicy`。
 19. **共享角色 Agent「1 实例 = 1 群信任域」防跨群串味与 `StewardGrant` 可吊销托管**：不设单实例内部分舱的前提下，严禁将同一个共享角色 Agent 同时拉入机密等级不同的两个群房间（不同保密群各自孵化独立共享角色 Agent）；其 `AccountRootKey` 由主监护节点持有并辅以分片备份，协管员通过绑定 `openmls` 成员身份的 `StewardGrant` 行权，踢出群即自动吊销管理权并轮换 `EpochKey[e+1]`。
 20. **群聊非主人发言降权（防 `S1/S4` 冒充）与出站隐私门禁**：个人主权 Agent 在群房间收到的非本人消息一律包裹为 `<group_room_context authority="UNTRUSTED">`（仅计 `S8` 信号，`S1/S4` 强制验本人设备签名），且 `Router` 出站门禁拦截任何未经 `eWave::Grant` 或本人群内授权的私有 `MEMORY / USER_PREF` 引用。

@@ -332,14 +332,12 @@ jobs:
           npm run build
           npm run test:unit
 
-      - name: Stage and archive (intentional no-wasm build)
+      - name: Stage and archive the governance surface
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          # 默认发布形态有意不含 WASM：`no-wasm` 是可确定测试的降级路径。
-          # 需要 WASM 缓存的自托管者运行 scripts/build-web-wasm.sh 后以 QZ_WEB_WITH_WASM=1 自行重建。
           tar -czf "dist/quetzalcoatl-$VERSION-web.tar.gz" -C surfaces/web/dist .
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

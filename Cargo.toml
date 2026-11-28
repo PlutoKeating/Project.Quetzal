@@ -18,7 +18,6 @@ members = [
     "crates/quetzalcoatl-daemon",
     "crates/quetzalcoatl-client-core",
     "crates/bindings/quetzalcoatl-uniffi",
-    "crates/bindings/quetzalcoatl-wasm",
     "surfaces/linux",
 ]
 

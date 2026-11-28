@@ -91,9 +91,7 @@ git push origin v2.0.0                       # 需维护者显式授权
   签名证书接入前不发布 Windows 安装包。Release 正文里会说明这一点。
 - **macOS 本轮也不发二进制资产**：SwiftPM 构建由 `macos-14` CI 验证，但 Developer ID 签名
   与公证未接入；`v2.0.0-alpha.1` 的 Release 只有 Linux/Web/Hub 资产。
-- **Web 资产是有意的 no-wasm 构建**：`quetzalcoatl-<version>-web.tar.gz` 不含 WASM 缓存宿主，
-  这是可确定测试的默认降级路径。需要 WASM 的自托管者运行 `scripts/build-web-wasm.sh` 后
-  以 `QZ_WEB_WITH_WASM=1` 重建。
+- **Web 资产是治理面**：`quetzalcoatl-<version>-web.tar.gz` 是守护进程同源托管的治理面静态资源（`qz open` 打开）。
 - **不发布 npm**：V2 没有 npm 包；`release.yml` 不包含任何 npm publish 步骤。
   官网 Worker 的 npm 版本封顶在「包不存在」时视为**无上限**（`capReleases` 收到空版本即原样
   返回），不会因为 npm 缺失而隐藏 GitHub 上已签名的版本。

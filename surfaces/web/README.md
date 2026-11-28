@@ -110,7 +110,6 @@ surfaces/web/
 │   ├── shell/{routes,provenance}.ts
 │   ├── ui/{dom,format,marks,situation,dialog,announcer}.ts
 │   ├── views/{base,entry,overview,self,user,us,memories,baseline,hosts,devices,audit}.ts
-│   ├── cache/、worker/      # WASM / OPFS 缓存设施：另一条产品线的地基，治理面不引用
 ├── tests/                  # vitest
 └── e2e/                    # Playwright、假守护进程、真守护进程冒烟
 ```
