@@ -4122,7 +4122,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-bridge"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "quetzalcoatl-crypto",
  "quetzalcoatl-spine",
@@ -4134,7 +4134,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-capabilities"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "quetzalcoatl-ewave",
  "quetzalcoatl-types",
@@ -4146,7 +4146,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-channels"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "base64 0.22.1",
  "hmac",
@@ -4158,7 +4158,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-crypto"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "argon2",
  "blake3",
@@ -4181,7 +4181,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-daemon"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -4219,7 +4219,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-desktop"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "gtk4",
  "libadwaita",
@@ -4233,7 +4233,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-domains"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "ed25519-dalek 2.2.0",
@@ -4249,7 +4249,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-ewave"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "ed25519-dalek 2.2.0",
@@ -4265,7 +4265,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-fabric"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "ed25519-dalek 2.2.0",
@@ -4294,7 +4294,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-group"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "chacha20poly1305",
@@ -4317,7 +4317,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-harness"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "quetzalcoatl-crypto",
@@ -4340,7 +4340,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-kernel"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "ed25519-dalek 2.2.0",
@@ -4356,7 +4356,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-sandbox"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "quetzalcoatl-crypto",
@@ -4371,7 +4371,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-spine"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "quetzalcoatl-crypto",
@@ -4385,7 +4385,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-types"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -4396,7 +4396,7 @@ dependencies = [
 
 [[package]]
 name = "quetzalcoatl-voice-ai"
-version = "2.0.0-alpha.6"
+version = "2.0.0-alpha.7"
 dependencies = [
  "blake3",
  "ed25519-dalek 2.2.0",
