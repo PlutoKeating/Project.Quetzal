@@ -718,6 +718,8 @@ pub(crate) struct DaemonFabricRuntime {
     core_slot: SharedCoreSlot,
     stop: Arc<AtomicBool>,
     ticker: Mutex<Option<JoinHandle<()>>>,
+    /// 最近一次读到的 Hub 元信息与读到的时刻。
+    hub_meta: Mutex<Option<(quetzalcoatl_fabric::HubMeta, u64)>>,
 }
 
 struct FabricBootInput {
@@ -805,6 +807,7 @@ impl DaemonFabricRuntime {
             core_slot: input.core_slot,
             stop: Arc::new(AtomicBool::new(false)),
             ticker: Mutex::new(None),
+            hub_meta: Mutex::new(None),
         });
         Ok(runtime)
     }
@@ -859,6 +862,14 @@ impl DaemonFabricRuntime {
         })
     }
 
+    fn local_device(&self) -> Result<DeviceIdentity> {
+        let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("fabric 运行时尚未绑定守护进程内核"),
+        })?;
+        let guard = lock_or_storage(&core.state)?;
+        Ok(guard.kernel.spine().local_device().clone())
+    }
+
     fn local_identity(&self) -> Result<(AgentId, DeviceId, AccountRootKey, Epoch)> {
         let core = self.core().ok_or_else(|| QuetzalcoatlError::StorageError {
             detail: String::from("fabric 运行时尚未绑定守护进程内核"),
@@ -876,6 +887,52 @@ impl DaemonFabricRuntime {
     /// 分阶段心跳（Fix Round 1 / Important #3）：**任何 `core.state` 内核锁都绝不跨网络 I/O 持有**。
     /// 阶段 0（短锁）快照 → 阶段 1（零锁）Hub 心跳 + 逐对等节点直连同步 → 阶段 2（短锁）合入 →
     /// 阶段 3（零锁）真实外部投递 → 阶段 4（短锁）写见证记录 → 阶段 5（零锁）上传见证包。
+    /// 隔一段时间读一次 Hub 的元信息（版本与公告）。读不到不影响同步。
+    fn refresh_hub_meta(&self) {
+        const META_TTL_MS: u64 = 6 * 60 * 60 * 1_000;
+        let now = now_unix_ms();
+        let fresh = self
+            .hub_meta
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|(_, at)| now.saturating_sub(*at) < META_TTL_MS)
+            })
+            .unwrap_or(false);
+        if fresh {
+            return;
+        }
+        let Ok(client) = self.hub_client(None) else {
+            return;
+        };
+        if let Ok(meta) = self.rt.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), client.get_meta()).await
+        }) && let Ok(meta) = meta
+            && let Ok(mut guard) = self.hub_meta.lock()
+        {
+            *guard = Some((meta, now));
+        }
+    }
+
+    /// 本机版本与 Hub 相比的处境；还没读到元信息时视为最新。
+    pub(crate) fn update_state(&self) -> crate::version_gate::UpdateState {
+        self.hub_meta
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard.as_ref().map(|(meta, _)| {
+                    crate::version_gate::update_state(
+                        crate::version_gate::CLIENT_VERSION,
+                        &meta.server_version,
+                        &meta.min_client_version,
+                    )
+                })
+            })
+            .unwrap_or(crate::version_gate::UpdateState::Current)
+    }
+
     pub(crate) fn tick_now(&self) -> Result<()> {
         if self.stop.load(Ordering::Relaxed) || self.session_token().is_none() {
             return Ok(());
@@ -888,6 +945,15 @@ impl DaemonFabricRuntime {
             return Ok(());
         }
         let inflight = TickInflightGuard(&self.tick_inflight);
+        self.refresh_hub_meta();
+        // 低于 Hub 要求的最低版本时暂停同步，直到升级。
+        if matches!(
+            self.update_state(),
+            crate::version_gate::UpdateState::Required(_)
+        ) {
+            drop(inflight);
+            return Ok(());
+        }
         let Some(core) = self.core() else {
             return Ok(());
         };
@@ -1381,9 +1447,33 @@ impl DaemonFabricRuntime {
             )
         } else if let Some(pin) = &req.pin {
             let anon = self.hub_client(None)?;
-            let login_res =
+            let mut login_res =
                 self.rt
                     .block_on(anon.login_opaque_pin(agent_id, device_id, pin.as_bytes()));
+            // 第一次登录这台 Hub：账户还不存在时，用本机的根密钥与设备身份注册，
+            // 并把这个口令登记为登录口令，然后再登录一次。口令不对（信封认证失败）时不注册。
+            if let Err(err) = &login_res
+                && !matches!(err, QuetzalcoatlError::IntegrityViolation { .. })
+            {
+                let device = self.local_device()?;
+                if let Ok(session) = self.rt.block_on(anon.register_agent_with_eddsa_passkey(
+                    agent_id,
+                    &device,
+                    &local_root,
+                )) {
+                    let authenticated = anon.with_session_token(session.session_token);
+                    self.rt.block_on(authenticated.register_opaque_pin(
+                        agent_id,
+                        pin.as_bytes(),
+                        &local_root,
+                    ))?;
+                    login_res = self.rt.block_on(anon.login_opaque_pin(
+                        agent_id,
+                        device_id,
+                        pin.as_bytes(),
+                    ));
+                }
+            }
             let (session, recovered_root) = match login_res {
                 Ok(pair) => pair,
                 // 错误 PIN 会在 OPAQUE Envelope 认证标签处失败：对用户必须呈现为凭据被拒而非存储故障。

@@ -48,7 +48,7 @@ Commands:
   export      Export readable Markdown + Spine ZIP; with a passphrase it also carries a recovery bundle
   import      Restore an export into an empty home (asks for the export passphrase)
   import-v1   Idempotently migrate legacy V1 soul repo and SQLite sessions
-  login       Authenticate against quetzalcoatl-hub (OPAQUE PIN or Bearer token)
+  login       Sign in to the official Hub (or --hub <url>); the first sign-in registers this agent
   pair        Quantum-safe X-Wing device pairing (start | join | approve)
   nodes       List fabric peers, path kind, Router holder and witness_epoch
   group       openmls 群组：create | invite | join | leave | list | send | members | revoke-steward
@@ -537,11 +537,13 @@ fn run_login(args: &[String]) -> Result<()> {
     let mut agent: Option<AgentId> = None;
     let mut device: Option<DeviceId> = None;
     let mut json_mode = false;
+    let mut pin_from_stdin = false;
 
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
             "--json" => json_mode = true,
+            "--pin-stdin" => pin_from_stdin = true,
             "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
             "--hub" => hub_url = Some(parse_flag_value(args, &mut i, "--hub")?.clone()),
             "--token" => token = Some(parse_flag_value(args, &mut i, "--token")?.clone()),
@@ -574,26 +576,57 @@ fn run_login(args: &[String]) -> Result<()> {
         i += 1;
     }
 
-    let hub = hub_url.ok_or_else(|| QuetzalcoatlError::StorageError {
-        detail: String::from(
-            "用法: qz login --hub <url> (--pin <pin> | --token <token>) [--ca-file <pem>]",
-        ),
-    })?;
+    // 不给地址就是官方 Hub；QUETZALCOATL_HUB_URL 可以改成自建的。
+    let hub = hub_url
+        .or_else(|| {
+            std::env::var("QUETZALCOATL_HUB_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        })
+        .unwrap_or_else(|| String::from(quetzalcoatl_daemon::OFFICIAL_HUB_URL));
     if token.is_none() && pin.is_none() {
-        return Err(QuetzalcoatlError::CredentialRejected {
-            detail: String::from("qz login 需要 --pin 或 --token 之一"),
-        });
+        pin = Some(read_passphrase(
+            pin_from_stdin,
+            "登录口令（第一次登录这台 Hub 时即设定）: ",
+        )?);
     }
     let qz_home = resolve_quetzalcoatl_home(home);
-    let client = require_daemon(&qz_home)?;
-    let resp = client.call(&IpcRequest::FabricLogin(FabricLoginRequest {
-        hub_url: hub,
+    let mut client = require_daemon(&qz_home)?;
+    let request = IpcRequest::FabricLogin(FabricLoginRequest {
+        hub_url: hub.clone(),
         token,
         ca_file,
         pin,
         agent_id: agent,
         device_id: device,
-    }))?;
+    });
+    let mut resp = client.call(&request)?;
+    // 守护进程还没接 Hub：带上这台 Hub 重启它，再登录一次。登录成功后会话落盘，以后启动自动接上。
+    if let IpcResponse::Error { detail, .. } = &resp
+        && detail.contains("fabric 未启用")
+    {
+        let me = std::env::current_exe().map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("无法确定 qz 自身的路径: {e}"),
+        })?;
+        let home_arg = qz_home.to_string_lossy().into_owned();
+        let _ = Command::new(&me)
+            .args(["down", "--home", &home_arg])
+            .status();
+        let up = Command::new(&me)
+            .args(["up", "--home", &home_arg, "--fabric-hub", &hub])
+            .stdout(Stdio::null())
+            .status()
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("重启守护进程失败: {e}"),
+            })?;
+        if !up.success() {
+            return Err(QuetzalcoatlError::StorageError {
+                detail: String::from("带上 Hub 地址重启守护进程失败，看看 qz status。"),
+            });
+        }
+        client = require_daemon(&qz_home)?;
+        resp = client.call(&request)?;
+    }
     match resp {
         IpcResponse::FabricLogin(res) => {
             if json_mode {

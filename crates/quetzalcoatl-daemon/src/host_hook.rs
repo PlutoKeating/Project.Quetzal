@@ -250,6 +250,14 @@ pub fn format_status_line(view: Option<&HostStatusLineView>, color: bool) -> Str
     if needs_owner {
         line.push_str(&format!(" · {} 件事等你", view.pending_for_owner));
     }
+    if let Some(version) = &view.update {
+        let note = if view.update_required {
+            format!("需要升级到 {version} 才能同步")
+        } else {
+            format!("有新版 {version}")
+        };
+        line.push_str(&format!(" · {}", paint(color, ANSI_AMBER, &note)));
+    }
     line
 }
 
@@ -338,6 +346,8 @@ mod tests {
             recalled_last_turn: 3,
             pending_for_owner: 0,
             off_record: false,
+            update: None,
+            update_required: false,
         };
         assert_eq!(
             format_status_line(Some(&calm), false),
@@ -363,6 +373,20 @@ mod tests {
             format_status_line(Some(&private), false),
             "● 栗子 · 已接上 · 无痕"
         );
+        let behind = HostStatusLineView {
+            off_record: false,
+            update: Some(String::from("2.0.0")),
+            ..private.clone()
+        };
+        assert_eq!(
+            format_status_line(Some(&behind), false),
+            "● 栗子 · 已接上 · 带入 3 · 有新版 2.0.0"
+        );
+        let blocked = HostStatusLineView {
+            update_required: true,
+            ..behind
+        };
+        assert!(format_status_line(Some(&blocked), false).ends_with("需要升级到 2.0.0 才能同步"));
     }
 
     #[test]

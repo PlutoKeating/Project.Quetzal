@@ -12,7 +12,7 @@ pub mod worker_pool;
 pub use endpoint::{
     FABRIC_ALPN, FabricNode, FabricNodeConfig, FabricPeerEndpoint, FabricRelaySettings,
     FabricRpcHandler, FabricRpcRequest, FabricRpcResponse, GroupCommitReceipt, GroupCommitRecord,
-    GroupMemberRecord, GroupRoomRecord, HubAuthSession, HubClient, HubClientConfig,
+    GroupMemberRecord, GroupRoomRecord, HubAuthSession, HubClient, HubClientConfig, HubMeta,
     LeaseWitnessRecord, PairHpkeBundle, PairInitiateResponse, PairStatusResponse, PeerPathKind,
     PeerStatusSnapshot, QadReportSnapshot, WebhookIngressAckKey, WebhookIngressBatch,
     WebhookIngressDeviceKey, WebhookIngressEnvelope, WebhookIngressStatus,

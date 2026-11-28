@@ -79,6 +79,11 @@ pub struct HostStatusLineView {
     pub pending_for_owner: usize,
     /// 这个会话是否处在无痕状态。
     pub off_record: bool,
+    /// 有新版时是版本号；`required` 为真表示低于 Hub 要求的最低版本，同步已暂停。
+    #[serde(default)]
+    pub update: Option<String>,
+    #[serde(default)]
+    pub update_required: bool,
 }
 
 /// 用户原话里认出的、需要本人亲口说才算数的意图。
@@ -490,6 +495,8 @@ impl HostSessionRegistry {
             recalled_last_turn,
             pending_for_owner: self.pending_for_owner.load(Ordering::Relaxed),
             off_record,
+            update: None,
+            update_required: false,
         }
     }
 
@@ -1017,7 +1024,18 @@ impl SharedDaemonCore {
 
     /// 状态栏：只读登记表，不碰全局状态锁。
     pub(crate) fn handle_host_status_line(&self, session_id: Option<&str>) -> IpcResponse {
-        IpcResponse::HostStatusLine(self.host_sessions.status_line(session_id))
+        let mut view = self.host_sessions.status_line(session_id);
+        if let Some(runtime) = self.fabric_runtime() {
+            match runtime.update_state() {
+                crate::version_gate::UpdateState::Current => {}
+                crate::version_gate::UpdateState::Available(version) => view.update = Some(version),
+                crate::version_gate::UpdateState::Required(version) => {
+                    view.update = Some(version);
+                    view.update_required = true;
+                }
+            }
+        }
+        IpcResponse::HostStatusLine(view)
     }
 
     /// 宿主会话里的工具调用。工具集是显式写死的，不经运行期授权计算。

@@ -1243,6 +1243,17 @@ pub struct LeaseWitnessRecord {
     pub updated_at_ms: i64,
 }
 
+/// Hub 的元信息：版本、要求的最低客户端版本与公告。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HubMeta {
+    #[serde(default)]
+    pub server_version: String,
+    #[serde(default)]
+    pub min_client_version: String,
+    #[serde(default)]
+    pub announcement: String,
+}
+
 /// `quetzalcoatl-hub` 认证会话信息。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HubAuthSession {
@@ -2180,6 +2191,31 @@ impl HubClient {
             }
         }
         Ok(out)
+    }
+
+    /// 读 Hub 的元信息（不需要登录）。
+    pub async fn get_meta(&self) -> Result<HubMeta> {
+        let resp = self
+            .http
+            .get(format!("{}/v1/meta", self.config.base_url))
+            .send()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("get_meta 网络错误: {e}"),
+            })?;
+        let st = resp.status();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: e.to_string(),
+            })?;
+        if !st.is_success() {
+            return Err(Self::parse_hub_error(st, &raw));
+        }
+        serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: format!("解析 Hub 元信息失败: {e}"),
+        })
     }
 
     pub async fn list_active_devices(&self, agent_id: AgentId) -> Result<Vec<DevicePublicRecord>> {
