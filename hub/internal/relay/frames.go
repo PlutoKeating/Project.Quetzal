@@ -220,8 +220,16 @@ func readULEB128(src []byte) (uint64, int, error) {
 	return 0, 0, ErrInvalidFrame
 }
 
+// ValidateEndpointID 拒绝不是合法 Ed25519 公钥的端点编号，包括小阶点。
+//
+// 小阶点（例如全零之外的单位元编码）配上全零签名能通过宽松的签名校验，
+// 任何人都可以拿它冒充一个端点；把公钥乘以余因子 8 后得到单位元的，一律拒绝。
 func ValidateEndpointID(pk [32]byte) error {
-	if _, err := new(edwards25519.Point).SetBytes(pk[:]); err != nil {
+	p, err := new(edwards25519.Point).SetBytes(pk[:])
+	if err != nil {
+		return ErrInvalidPublicKey
+	}
+	if new(edwards25519.Point).MultByCofactor(p).Equal(edwards25519.NewIdentityPoint()) == 1 {
 		return ErrInvalidPublicKey
 	}
 	return nil
