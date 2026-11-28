@@ -773,7 +773,7 @@ pub fn normalize_nfkc_lower_trim(input: &str) -> String {
     normalized.to_lowercase().trim().to_string()
 }
 
-const fn is_ewave_cjk(c: char) -> bool {
+pub(crate) const fn is_ewave_cjk(c: char) -> bool {
     matches!(
         c,
         '\u{3040}'..='\u{30ff}'

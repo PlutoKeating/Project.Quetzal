@@ -8,6 +8,7 @@ pub mod arbiter;
 pub mod assembler;
 pub mod conscience;
 pub mod graph;
+pub mod recall;
 
 pub use align::{
     AlignOptions, AlignmentPair, AlignmentResult, MergeOptions, MergeResult, SayItIngestContext,
@@ -19,7 +20,7 @@ pub use arbiter::{
 };
 pub use assembler::{
     ANTI_MIND_VIRUS_IMMUNITY_CLAUSE, AssembledContext, AssemblyRequest, BudgetProfile,
-    ContextAssembler, GrantAccessRecord, IncomingPeerMessage,
+    ContextAssembler, GrantAccessRecord, IncomingPeerMessage, InjectionSurface,
 };
 pub use conscience::{
     Authority, Conscience, ConscienceManifest, DisclosureNotice, Episode, FocusConfig,
@@ -39,3 +40,4 @@ pub use graph::{
     cosine_similarity, fnv1a_utf16, hash_embed, hash_embed_64, lexical_jaccard,
     normalize_nfkc_lower_trim, normalize_vector,
 };
+pub use recall::{LexicalIndex, RecalledMemory, lexical_terms, search_memories};
