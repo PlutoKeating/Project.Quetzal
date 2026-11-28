@@ -407,7 +407,6 @@ fn web_rpc_enforces_method_allowlist_and_web_token_cannot_touch_admin_ipc() -> T
     assert_eq!(status.status, 200, "status 必须在 Web 允许清单内");
 
     for method in [
-        "conscience_pinned",
         "export",
         "import_v1",
         "fabric_login",

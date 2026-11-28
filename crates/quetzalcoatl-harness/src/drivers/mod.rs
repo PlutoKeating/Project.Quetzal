@@ -98,10 +98,7 @@ pub struct HarnessLaunchContext {
     pub codex_stub_dir: Option<PathBuf>,
     pub active_codex_provider: String,
     pub codex_uses_chatgpt_oauth: bool,
-    pub enhancers_root_dir: Option<PathBuf>,
     pub mcp_endpoint_url: Option<String>,
-    pub daemon_ipc_url: Option<String>,
-    pub daemon_ipc_token: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -194,12 +191,6 @@ pub(crate) fn build_common_sandbox_env(ctx: &HarnessLaunchContext) -> BTreeMap<S
     }
     if let Some(mcp_url) = &ctx.mcp_endpoint_url {
         env.insert(String::from("QUETZALCOATL_MCP_URL"), mcp_url.clone());
-    }
-    if let Some(daemon_url) = &ctx.daemon_ipc_url {
-        env.insert(String::from("QUETZALCOATL_DAEMON_URL"), daemon_url.clone());
-    }
-    if let Some(ipc_tok) = &ctx.daemon_ipc_token {
-        env.insert(String::from("QUETZALCOATL_IPC_TOKEN"), ipc_tok.clone());
     }
     env
 }

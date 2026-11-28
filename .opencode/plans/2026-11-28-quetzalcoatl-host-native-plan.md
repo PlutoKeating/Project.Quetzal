@@ -206,10 +206,10 @@
 - Modify: `surfaces/web/src/app.ts`、`surfaces/web/src/transport/client.ts`、`surfaces/web/src/transport/protocol.ts`、`surfaces/web/src/tiers`、`surfaces/linux/src/app.rs`、`surfaces/linux/src/views`
 - Test: `surfaces/web/tests`、`surfaces/web/e2e`、`surfaces/linux/tests/dynamic_link_and_ui.rs`
 
-- [ ] **Step 1: 改写用例：页面上不存在输入框与对话记录；只读检视视图可用**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: Web 与 Linux 去掉输入框、对话记录、发送路径与三档切换，暂时只留检视视图**
-- [ ] **Step 4: 全门禁、vitest、Playwright、Linux 无头冒烟通过后提交**
+- [x] **Step 1: 改写用例：页面上不存在输入框与对话记录；只读检视视图可用**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: Web 与 Linux 去掉输入框、对话记录、发送路径与三档切换，暂时只留检视视图**
+- [x] **Step 4: 全门禁、vitest、Playwright、Linux 无头冒烟通过后提交**
 
 ### Task 1.4：受管运行标记与配置隔离
 
@@ -227,8 +227,8 @@
 **Files:**
 - Modify: `README.md`、`docs/ARCHITECTURE.md`、`docs/MIGRATION_V1_TO_V2.md`、`docs/USER_SCENARIOS.md`、`website/app`（安装页与首页文案）
 
-- [ ] **Step 1: 删去对话命令与对话界面的描述；`docs/USER_SCENARIOS.md` 的现状栏与附录 C 更新**
-- [ ] **Step 2: 文档门禁与官网单测通过后提交**
+- [x] **Step 1: 删去对话命令与对话界面的描述；`docs/USER_SCENARIOS.md` 的现状栏与附录 C 更新**
+- [x] **Step 2: 文档门禁与官网单测通过后提交**
 
 ---
 
@@ -561,8 +561,8 @@
   > **现状**：没有做。守护进程里还没有待办队列；受管运行越权时目前直接拒绝。
 - [x] **Task 7.2**：验收入口翻转——在宿主里用斜杠命令触发洁净室验收，回执回到对话里；S1 留下的命令行入口只保留给无人在场的场景。
   > **落地说明**：`/quetzalcoatl:delegate` 把要做完的事交给后台：在会话目录派生的独立工作树里由宿主做，做完在洁净室验收，立刻返回编号，`/quetzalcoatl:delegate-status` 查进展。只认用户亲自用命令交办。
-- [ ] **Task 7.3**：受管运行的钩子换成 S2 的钩子命令，退役 `packages/harness-enhancers` 里的 node 脚本。
-  > **现状**：没有做。
+- [x] **Task 7.3**：受管运行的钩子换成 S2 的钩子命令，退役 `packages/harness-enhancers` 里的 node 脚本。
+  > **落地说明**：四个 node 包（`claude-code-hooks`、`codex-hooks`、`opencode-v2-plugin`、`pi-extension`）连同只为它们存在的「压缩后取回核心」「自检上报」两个 IPC 方法与按运行签发的受限钩子令牌一并删除。受管运行不需要钩子：核心由回环网关每次请求钉在 `system` 末尾，压缩丢不了；而 `qz hook` 在受管运行里本来就直接放行。沙箱里从此没有通往守护进程的令牌与地址。
 
 ---
 

@@ -206,10 +206,9 @@ sequenceDiagram
   `crates/quetzalcoatl-capabilities`。
 - **桥接**：`packages/bridge/spine-bridge` 把 Hermes / OpenClaw 的只读记忆映射为 `Role::Bridge`
   事件；不接受对 `ROOT`/`OPERATOR` 的写回。
-- **Harness 增强**：`packages/harness-enhancers/opencode-v2-plugin`、`claude-code-hooks`、
-  `codex-hooks`、`pi-extension`。OpenCode 插件按目录结构导出
-  `Plugin.define`，入口为
-  `packages/harness-enhancers/opencode-v2-plugin/.opencode/plugins/quetzalcoatl/index.ts`。
+- **宿主插件**：`packages/harness-enhancers/` 下每个宿主一个插件包，钩子一律调用 `qz hook --host <宿主>`、
+  工具一律经 `qz mcp`，插件里不写逻辑。受管运行不挂任何钩子：核心由回环网关在每次请求里钉在
+  `system` 末尾，压缩也丢不了；沙箱里没有通往守护进程本地 IPC 的令牌与地址。
 
 ## 12. 领域包
 

@@ -488,8 +488,6 @@ mod tests {
             "host_turn_end",
             "host_status_line",
             "host_tool_call",
-            "conscience_pinned",
-            "desktop_snapshot",
             "export",
             "import_v1",
             "fabric_login",

@@ -574,46 +574,6 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
         other => return Err(format!("预期返回 ExploreTick，实际收到: {other:?}").into()),
     }
 
-    // 6b. 渐进式增强插件回环协议验证
-    match ipc.call(&IpcRequest::ConsciencePinned)? {
-        IpcResponse::ConsciencePinned { pinned_system_tail } => {
-            assert!(pinned_system_tail.contains("<ewave_pinned>"));
-            assert!(pinned_system_tail.contains("ANTI_MIND_VIRUS"));
-        }
-        other => return Err(format!("预期返回 ConsciencePinned，实际收到: {other:?}").into()),
-    }
-    let _ = ipc.call(&IpcRequest::EwaveCheckReport {
-        conflict: String::from("none"),
-        ids: vec![String::from("self-core-integrity")],
-    })?;
-
-    // 校验四套渐进式增强插件包目录规范与严格 TypeScript 门禁（防坑规范 #4）
-    let oc_plugin_file = root.join(
-        "packages/harness-enhancers/opencode-v2-plugin/.opencode/plugins/quetzalcoatl/index.ts",
-    );
-    let oc_plugin_src = fs::read_to_string(&oc_plugin_file)?;
-    assert!(oc_plugin_src.contains("Plugin.define"));
-    assert!(oc_plugin_src.contains("id: \"quetzalcoatl\""));
-    for pkg in [
-        "opencode-v2-plugin",
-        "pi-extension",
-        "claude-code-hooks",
-        "codex-hooks",
-    ] {
-        let tsconfig_raw = fs::read_to_string(
-            root.join(format!("packages/harness-enhancers/{pkg}/tsconfig.json")),
-        )?;
-        let tsconfig_json: serde_json::Value = serde_json::from_str(&tsconfig_raw)?;
-        assert_eq!(
-            tsconfig_json["compilerOptions"]["strict"],
-            serde_json::Value::Bool(true)
-        );
-        assert_eq!(
-            tsconfig_json["compilerOptions"]["noUncheckedIndexedAccess"],
-            serde_json::Value::Bool(true)
-        );
-    }
-
     // 7. 在线执行 `qz export`（经本地 IPC 无锁冲突导出）
     let online_zip = tmp.path().join("online_export.zip");
     let export_online_out = Command::new(&qz_bin)
@@ -681,7 +641,7 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
 }
 
 #[test]
-fn regression_r1_finding1_6_and_8_worker_runs_inside_os_sandbox_scoped_hook_token_mcp_and_routine_error_propagation()
+fn regression_r1_finding1_6_and_8_worker_runs_inside_os_sandbox_without_daemon_access_mcp_and_routine_error_propagation()
 -> TestResult {
     let tmp = TempDirGuard::new("qz_r1_sandbox_worker_e2e")?;
     let qz_home = tmp.path().join("qz_home");
@@ -753,8 +713,7 @@ fn regression_r1_finding1_6_and_8_worker_runs_inside_os_sandbox_scoped_hook_toke
     // Worker 必须在真实 OS 沙箱 (bwrap) 内执行：
     // - 读取 $QUETZALCOATL_HOME/identity/sovereign_state.json 与 daemon.token 必须失败（被空 tmpfs 遮蔽）！
     // - 读取剥离后的 CLAUDE_CONFIG_DIR / CODEX_HOME 存根目录必须成功（不被 bwrap --tmpfs /tmp 抹掉）！
-    // - QUETZALCOATL_MCP_URL 必须已挂载并绑定，且 QUETZALCOATL_IPC_TOKEN 为单次 Run 作用域受限令牌：
-    //   用该令牌调用 Shutdown 必须被守护进程拒绝（403），而调用 ewave_check_report 允许（200）！
+    // - QUETZALCOATL_MCP_URL 必须已挂载并绑定；沙箱里没有任何通往守护进程本地 IPC 的令牌。
     let mock_upstream = MockUpstreamServer::start()?;
     let sandbox_exec_bin = PathBuf::from(env!("CARGO_BIN_EXE_qz"))
         .parent()
@@ -799,20 +758,12 @@ fi
 MCP_OUT=$(/usr/bin/curl -s -f -X POST "$QUETZALCOATL_MCP_URL" -H "Content-Type: application/json" -d '{{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{{}}}}')
 echo "$MCP_OUT" | grep -q 'ewave.recall' || exit 75
 
-# (D) 断言注入的 QUETZALCOATL_IPC_TOKEN 是仅限该 Run 的受限钩子令牌：调用管理员 shutdown 必须返回 403，调用 ewave_check_report 返回 200！
-SHUTDOWN_CODE=$(/usr/bin/curl -s -o /dev/null -w '%{{http_code}}' -X POST "$QUETZALCOATL_DAEMON_URL/v1/rpc" -H "x-qz-ipc-token: $QUETZALCOATL_IPC_TOKEN" -H "Content-Type: application/json" -d '{{"method":"shutdown"}}')
-if [ "$SHUTDOWN_CODE" != "403" ]; then
-  echo "CRITICAL: Worker hook token allowed or unexpected code on shutdown: $SHUTDOWN_CODE" >&2
+# (D) 沙箱里没有守护进程的令牌与地址：模型执行的脚本够不着本地 IPC。
+if [ -n "$QUETZALCOATL_IPC_TOKEN" ] || [ -n "$QUETZALCOATL_DAEMON_URL" ]; then
+  echo "CRITICAL: daemon IPC handle leaked into the Worker sandbox" >&2
   exit 76
 fi
-HOOK_CODE=$(/usr/bin/curl -s -o /dev/null -w '%{{http_code}}' -X POST "$QUETZALCOATL_DAEMON_URL/v1/rpc" -H "x-qz-ipc-token: $QUETZALCOATL_IPC_TOKEN" -H "Content-Type: application/json" -d '{{"method":"ewave_check_report","params":{{"conflict":"none","ids":[]}}}}')
-if [ "$HOOK_CODE" != "200" ]; then
-  echo "Expected 200 for ewave_check_report with hook token, got $HOOK_CODE" >&2
-  exit 77
-fi
 printf 'pub fn v() -> u32 {{ 99 }} // sandbox_confined\n' > src/lib.rs
-echo "SAND_HOOK_TOKEN=$QUETZALCOATL_IPC_TOKEN" > src/hook_tok.tmp
-rm -f src/hook_tok.tmp
 echo '{{"type":"text","part":{{"type":"text","text":"Worker confined inside OS sandbox <ewave_check conflict=\"none\" ids=\"\"/>"}}}}'
 echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
 "#,

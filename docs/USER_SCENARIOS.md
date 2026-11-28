@@ -662,7 +662,7 @@
 | 用户自己的宿主会话的挂载（S2 接通 Claude Code） | `crates/quetzalcoatl-daemon/src/host_connect.rs`、`crates/quetzalcoatl-daemon/src/host_sessions.rs`、`packages/harness-enhancers/claude-code-plugin` |
 | 出厂良知是中性种子；旧版写死的工程条款在加载时被替换（S2） | `crates/quetzalcoatl-daemon/src/daemon.rs` 的 `default_seed_conscience` 与 `retire_legacy_seed` |
 | 仲裁器已接到写回与反思（S4、S8） | `crates/quetzalcoatl-daemon/src/sea_ops.rs`、`crates/quetzalcoatl-daemon/src/reflection.rs` |
-| 自检上报仍无人读取 | `crates/quetzalcoatl-daemon/src/daemon.rs` 的 `ewave_check_reports` 只有写入 |
+| 受管运行不挂钩子，沙箱里够不着守护进程（S7） | `crates/quetzalcoatl-harness/src/drivers/mod.rs` 的 `build_common_sandbox_env` |
 | 探索只被测试调用 | `crates/quetzalcoatl-daemon/tests/e2e_single_node.rs` 是 `ExploreTick` 唯一的调用方 |
 | 输入框已删除，界面只剩治理面（S1、S5） | `surfaces/web/src/views`、`docs/GOVERNANCE_SURFACE.md` |
 | macOS 与 Windows 只剩最小治理外壳 | `surfaces/macos/README.md`、`surfaces/windows/README.md` |

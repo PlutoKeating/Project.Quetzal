@@ -36,17 +36,6 @@ impl HarnessDriver for PiDriver {
         );
 
         let mut args = vec![String::from("--mode"), String::from("rpc")];
-        if let Some(enh_root) = &ctx.enhancers_root_dir {
-            let ext_file = enh_root.join("pi-extension/src/index.ts");
-            env.insert(
-                String::from("QUETZALCOATL_PI_EXTENSION_PATH"),
-                ext_file.to_string_lossy().into_owned(),
-            );
-            if ext_file.is_file() {
-                args.push(String::from("--extension"));
-                args.push(ext_file.to_string_lossy().into_owned());
-            }
-        }
         args.push(String::from("-p"));
         args.push(String::from(prompt));
 

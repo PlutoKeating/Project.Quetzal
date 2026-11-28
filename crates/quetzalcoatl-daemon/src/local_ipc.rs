@@ -12,19 +12,16 @@ use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use quetzalcoatl_crypto::hex_encode;
 use quetzalcoatl_group::floor_control::Mention;
 use quetzalcoatl_harness::DiscoveryReport;
 use quetzalcoatl_spine::V1ImportReport;
-use quetzalcoatl_types::{AgentId, DeviceId, QuetzalcoatlError, Result, RunId};
-use rand_core::{OsRng, RngCore};
+use quetzalcoatl_types::{AgentId, DeviceId, QuetzalcoatlError, Result};
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroizing;
 
 use quetzalcoatl_capabilities::SayItBatchOutcome;
 use quetzalcoatl_channels::{ChannelHealth, DeliveryReport};
@@ -84,63 +81,6 @@ pub(crate) fn decode_hex_32_constant(s: &str) -> ([u8; 32], bool) {
     (out, ok)
 }
 
-type ScopedTokenEntry = (RunId, Zeroizing<[u8; 32]>);
-
-/// 绑定单次 `Worker Run` 的最小权限渐进钩子令牌表（严禁向沙箱暴露守护进程管理员主令牌）。
-#[derive(Clone, Default)]
-pub(crate) struct ScopedHookTokenRegistry {
-    tokens: Arc<Mutex<Vec<ScopedTokenEntry>>>,
-}
-
-impl ScopedHookTokenRegistry {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn mint_for_run(&self, run_id: RunId) -> Result<String> {
-        let mut raw = [0u8; 32];
-        OsRng.fill_bytes(&mut raw);
-        let hex = hex_encode(&raw);
-        let mut guard = self
-            .tokens
-            .lock()
-            .map_err(|_| QuetzalcoatlError::StorageError {
-                detail: String::from("ScopedHookTokenRegistry 锁异常"),
-            })?;
-        guard.retain(|(rid, _)| *rid != run_id);
-        guard.push((run_id, Zeroizing::new(raw)));
-        Ok(hex)
-    }
-
-    pub fn revoke_for_run(&self, run_id: RunId) {
-        if let Ok(mut guard) = self.tokens.lock() {
-            guard.retain(|(rid, _)| *rid != run_id);
-        }
-    }
-
-    #[must_use]
-    pub fn match_constant_time(&self, candidate: &[u8; 32], syntax_ok: bool) -> Option<RunId> {
-        let Ok(guard) = self.tokens.lock() else {
-            return None;
-        };
-        let mut matched: Option<RunId> = None;
-        for (rid, secret) in guard.iter() {
-            let eq = constant_time_eq_32(candidate, secret);
-            if syntax_ok && eq {
-                matched = Some(*rid);
-            }
-        }
-        matched
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum IpcCallerAuth {
-    MasterAdmin,
-    ScopedWorkerHook(RunId),
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
 pub enum IpcRequest {
@@ -152,11 +92,6 @@ pub enum IpcRequest {
         synthesize_skill_id: Option<String>,
         synthesize_script_body: Option<String>,
         attempt_external_send: bool,
-    },
-    ConsciencePinned,
-    EwaveCheckReport {
-        conflict: String,
-        ids: Vec<String>,
     },
     /// 用户自己的宿主会话开始（含恢复、清空、压缩之后）：取回要送进去的核心。
     HostSessionStart {
@@ -458,9 +393,6 @@ pub enum IpcResponse {
     Agents(DiscoveryReport),
     DelegateRun(Box<DelegateRunResponse>),
     ExploreTick(ExploreWakeReport),
-    ConsciencePinned {
-        pinned_system_tail: String,
-    },
     /// 要送进宿主会话的文字；为空串表示这一次什么都不带。
     HostContext {
         context: String,
@@ -680,7 +612,6 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
     bind_addr: SocketAddr,
     unix_socket_path: Option<PathBuf>,
     ipc_token_bytes: [u8; 32],
-    hook_tokens: ScopedHookTokenRegistry,
     stop: Arc<AtomicBool>,
     handler: Arc<H>,
     web_dir: Option<PathBuf>,
@@ -710,7 +641,6 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
 
     let stop_tcp = Arc::clone(&stop);
     let handler_tcp = Arc::clone(&handler);
-    let hooks_tcp = hook_tokens.clone();
     let web_tcp = Arc::clone(&web_console);
     let tcp_join = thread::spawn(move || {
         while !stop_tcp.load(Ordering::Relaxed) {
@@ -724,13 +654,11 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
                     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
                     let h = Arc::clone(&handler_tcp);
                     let stop_conn = Arc::clone(&stop_tcp);
-                    let hk = hooks_tcp.clone();
                     let web_conn = Arc::clone(&web_tcp);
                     thread::spawn(move || {
                         let should_shutdown = serve_single_ipc_stream(
                             &mut stream,
                             &ipc_token_bytes,
-                            &hk,
                             h.as_ref(),
                             web_conn.as_ref(),
                         );
@@ -781,7 +709,6 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
 
         let stop_uds = Arc::clone(&stop);
         let handler_uds = Arc::clone(&handler);
-        let hooks_uds = hook_tokens;
         let web_uds = Arc::clone(&web_console);
         let cleanup_sock = sock_path.clone();
         let join = thread::spawn(move || {
@@ -793,13 +720,11 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
                         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
                         let h = Arc::clone(&handler_uds);
                         let stop_conn = Arc::clone(&stop_uds);
-                        let hk = hooks_uds.clone();
                         let web_conn = Arc::clone(&web_uds);
                         thread::spawn(move || {
                             let should_shutdown = serve_single_ipc_stream(
                                 &mut stream,
                                 &ipc_token_bytes,
-                                &hk,
                                 h.as_ref(),
                                 web_conn.as_ref(),
                             );
@@ -825,7 +750,7 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
 
     #[cfg(not(unix))]
     let bound_uds_path: Option<PathBuf> = {
-        let _ = (unix_socket_path, hook_tokens);
+        let _ = unix_socket_path;
         None
     };
 
@@ -842,7 +767,6 @@ pub(crate) fn start_local_ipc_server<H: IpcHandler>(
 fn serve_single_ipc_stream<S: Read + Write, H: IpcHandler + ?Sized>(
     stream: &mut S,
     expected_token_bytes: &[u8; 32],
-    hook_tokens: &ScopedHookTokenRegistry,
     handler: &H,
     web_console: &WebConsole,
 ) -> bool {
@@ -893,13 +817,7 @@ fn serve_single_ipc_stream<S: Read + Write, H: IpcHandler + ?Sized>(
         None => ([0u8; 32], false),
     };
     let is_master = syntax_ok && constant_time_eq_32(&cand_tok, expected_token_bytes);
-    let scoped_run = hook_tokens.match_constant_time(&cand_tok, syntax_ok);
-
-    let caller_auth = if is_master {
-        IpcCallerAuth::MasterAdmin
-    } else if let Some(rid) = scoped_run {
-        IpcCallerAuth::ScopedWorkerHook(rid)
-    } else {
+    if !is_master {
         write_ipc_http_json(
             stream,
             401,
@@ -909,20 +827,9 @@ fn serve_single_ipc_stream<S: Read + Write, H: IpcHandler + ?Sized>(
             },
         );
         return false;
-    };
+    }
 
     if parsed.target == "/v1/health" {
-        if caller_auth != IpcCallerAuth::MasterAdmin {
-            write_ipc_http_json(
-                stream,
-                403,
-                &IpcResponse::Error {
-                    code: String::from("PERMISSION_DENIED"),
-                    detail: String::from("run-scoped hook token cannot access admin health"),
-                },
-            );
-            return false;
-        }
         let (resp, _) = handler.handle(IpcRequest::Status);
         write_ipc_http_json(stream, 200, &resp);
         return false;
@@ -942,26 +849,6 @@ fn serve_single_ipc_stream<S: Read + Write, H: IpcHandler + ?Sized>(
             return false;
         }
     };
-
-    // 单次 Run 受限钩子令牌仅允许拉取压缩重钉扎良知 (ConsciencePinned) 与上报 <ewave_check>，严禁执行管理员动作！
-    if let IpcCallerAuth::ScopedWorkerHook(_run_id) = caller_auth
-        && !matches!(
-            rpc_req,
-            IpcRequest::ConsciencePinned | IpcRequest::EwaveCheckReport { .. }
-        )
-    {
-        write_ipc_http_json(
-            stream,
-            403,
-            &IpcResponse::Error {
-                code: String::from("PERMISSION_DENIED"),
-                detail: String::from(
-                    "run-scoped Worker hook token is forbidden from invoking privileged daemon RPC",
-                ),
-            },
-        );
-        return false;
-    }
 
     let (resp, should_shutdown) = handler.handle(rpc_req);
     write_ipc_http_json(stream, 200, &resp);

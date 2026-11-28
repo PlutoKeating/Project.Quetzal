@@ -57,8 +57,7 @@ use uuid::Uuid;
 
 use crate::fabric::{DaemonFabricConfig, DaemonFabricRuntime, FabricStatus};
 use crate::local_ipc::{
-    IpcClient, IpcHandler, IpcRequest, IpcResponse, LocalIpcServerHandle, ScopedHookTokenRegistry,
-    start_local_ipc_server,
+    IpcClient, IpcHandler, IpcRequest, IpcResponse, LocalIpcServerHandle, start_local_ipc_server,
 };
 
 #[must_use]
@@ -862,28 +861,6 @@ fn sandbox_scratch_root(agent_id: AgentId) -> PathBuf {
     base.join(format!("quetzalcoatl-scratch-{agent_id}"))
 }
 
-fn locate_enhancers_root() -> Option<PathBuf> {
-    if let Ok(env_dir) = std::env::var("QUETZALCOATL_ENHANCERS_DIR") {
-        let p = PathBuf::from(env_dir);
-        if p.is_dir() {
-            return Some(p);
-        }
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        let mut cursor = exe.parent();
-        for _ in 0..5 {
-            if let Some(dir) = cursor {
-                let cand = dir.join("packages/harness-enhancers");
-                if cand.is_dir() {
-                    return Some(cand);
-                }
-                cursor = dir.parent();
-            }
-        }
-    }
-    None
-}
-
 fn is_executable_regular_file(path: &Path) -> bool {
     let Ok(meta) = fs::metadata(path) else {
         return false;
@@ -914,7 +891,6 @@ pub(crate) struct DaemonMutableState {
     pub(crate) channels: crate::channels::ChannelRuntime,
     /// 领域包运行时：默认 `personal-companion`，切换留痕并持久化。
     pub(crate) domains: crate::domains::DomainRuntime,
-    ewave_check_reports: Vec<(String, Vec<String>)>,
 }
 
 impl DaemonMutableState {
@@ -951,7 +927,6 @@ pub(crate) struct SharedDaemonCore {
     pub(crate) config: DaemonConfig,
     pub(crate) runtime_info: DaemonRuntimeInfo,
     worker_sandbox: Arc<SandboxManager>,
-    hook_tokens: ScopedHookTokenRegistry,
     harness_host: HarnessHost,
     gateway_base_url: String,
     pub(crate) state: Mutex<DaemonMutableState>,
@@ -1288,9 +1263,6 @@ impl SharedDaemonCore {
         })?;
         write_private_file(&spec_file_path, &spec_json_bytes)?;
 
-        // 签发绑定单次 Run 的最小权限钩子令牌（绝不将守护进程管理员主令牌注入 Worker 沙箱！）
-        let scoped_hook_token = self.hook_tokens.mint_for_run(run_id)?;
-
         // 启动绑定当前 Worker Run 的会话级本地 MCP JSON-RPC 服务
         let weak_core = Arc::downgrade(self);
         let mcp_bindings = bindings.clone();
@@ -1326,16 +1298,10 @@ impl SharedDaemonCore {
             now_wall_ms: now_unix_ms(),
         })?;
 
-        let enhancers_root = locate_enhancers_root();
         let mut extra_ro_mounts = vec![stub_root.clone(), spec_file_path.clone()];
         let main_git_dir = target_repo.join(".git");
         if main_git_dir.exists() {
             extra_ro_mounts.push(main_git_dir);
-        }
-        if let Some(enh) = &enhancers_root
-            && enh.exists()
-        {
-            extra_ro_mounts.push(enh.clone());
         }
 
         let (selected_kind, worker_bin) = if let Some(override_bin) =
@@ -1378,10 +1344,7 @@ impl SharedDaemonCore {
             codex_stub_dir: Some(oauth_stubs.codex_home_dir),
             active_codex_provider: String::from("openai"),
             codex_uses_chatgpt_oauth: oauth_stubs.extracted.codex_account_id.is_some(),
-            enhancers_root_dir: enhancers_root,
             mcp_endpoint_url: Some(mcp_server.endpoint_url().to_owned()),
-            daemon_ipc_url: Some(format!("http://{}", self.runtime_info.ipc_http_addr)),
-            daemon_ipc_token: Some(scoped_hook_token),
         };
 
         let worker_outcome_res = if self.config.worker_binary_override.is_some() {
@@ -1398,8 +1361,7 @@ impl SharedDaemonCore {
             }
         };
 
-        // Worker 回合结束立即吊销会话能力令牌、钩子令牌与本地 MCP 服务
-        self.hook_tokens.revoke_for_run(run_id);
+        // Worker 回合结束立即吊销会话能力令牌与本地 MCP 服务
         mcp_server.shutdown();
         let _ = self
             .harness_host
@@ -1664,36 +1626,6 @@ impl SharedDaemonCore {
                     false,
                 ),
             },
-            IpcRequest::ConsciencePinned => {
-                let Ok(guard) = self.state.lock() else {
-                    return (
-                        IpcResponse::Error {
-                            code: String::from("STORAGE_ERROR"),
-                            detail: String::from("daemon lock poisoned"),
-                        },
-                        false,
-                    );
-                };
-                match ContextAssembler::assemble(
-                    &guard.conscience,
-                    &guard.graph,
-                    &AssemblyRequest::new(BudgetProfile::Standard, now_unix_ms()),
-                ) {
-                    Ok(asm) => (
-                        IpcResponse::ConsciencePinned {
-                            pinned_system_tail: asm.pinned_system_tail,
-                        },
-                        false,
-                    ),
-                    Err(err) => (
-                        IpcResponse::Error {
-                            code: String::from(err.code().as_str()),
-                            detail: err.to_string(),
-                        },
-                        false,
-                    ),
-                }
-            }
             IpcRequest::HostSessionStart {
                 host,
                 session_id,
@@ -1808,17 +1740,6 @@ impl SharedDaemonCore {
                 } else {
                     (self.handle_host_tool_call(&tool, &arguments), false)
                 }
-            }
-            IpcRequest::EwaveCheckReport { conflict, ids } => {
-                if let Ok(mut guard) = self.state.lock() {
-                    guard.ewave_check_reports.push((conflict, ids));
-                }
-                (
-                    IpcResponse::Ack {
-                        detail: String::from("ewave_check recorded"),
-                    },
-                    false,
-                )
             }
             IpcRequest::Export {
                 zip_path,
@@ -3022,7 +2943,6 @@ impl QuetzalcoatlDaemon {
         let mut ipc_token_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut ipc_token_bytes);
         let ipc_token = hex_encode(&ipc_token_bytes);
-        let hook_tokens = ScopedHookTokenRegistry::new();
 
         let run_dir = config.quetzalcoatl_home.join("run");
         fs::create_dir_all(&run_dir).map_err(|e| QuetzalcoatlError::StorageError {
@@ -3140,7 +3060,6 @@ impl QuetzalcoatlDaemon {
             config.ipc_bind_addr,
             uds_target,
             ipc_token_bytes,
-            hook_tokens.clone(),
             stop,
             Arc::new(DeferredHandler {
                 slot: Arc::clone(&core_holder),
@@ -3166,7 +3085,6 @@ impl QuetzalcoatlDaemon {
             config,
             runtime_info: runtime_info.clone(),
             worker_sandbox,
-            hook_tokens,
             harness_host,
             gateway_base_url,
             state: Mutex::new(DaemonMutableState {
@@ -3180,7 +3098,6 @@ impl QuetzalcoatlDaemon {
                 voice: voice_runtime,
                 channels: channel_runtime,
                 domains: domain_runtime,
-                ewave_check_reports: Vec::new(),
             }),
             host_sessions: crate::host_sessions::HostSessionRegistry::default(),
             fabric: Mutex::new(fabric_runtime.clone()),

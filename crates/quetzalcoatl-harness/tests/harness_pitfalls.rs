@@ -990,10 +990,7 @@ fn codex_and_gemini_gateway_ws_426_zstd_decompression_raw_encrypted_content_and_
         codex_stub_dir: Some(tmp.path().join("codex_stub")),
         active_codex_provider: String::from("openai"),
         codex_uses_chatgpt_oauth: true,
-        enhancers_root_dir: None,
         mcp_endpoint_url: None,
-        daemon_ipc_url: None,
-        daemon_ipc_token: None,
     };
 
     let oc_plan = OpenCodeDriver.build_launch_plan(&launch_ctx, "fix bug")?;
@@ -1222,10 +1219,7 @@ fn mcp_bridge_and_isolated_git_worktree_enforce_blind_kernel_router_deprivation(
                 codex_stub_dir: None,
                 active_codex_provider: String::from("openai"),
                 codex_uses_chatgpt_oauth: false,
-                enhancers_root_dir: None,
                 mcp_endpoint_url: None,
-                daemon_ipc_url: None,
-                daemon_ipc_token: None,
             },
             "Update value to 42",
         )?;
@@ -1690,11 +1684,6 @@ fn regression_r1_finding6_and_7_codex_opencode_json_parsers_provider_urls_claude
     let tmp = TempDirGuard::new("qz_r1_f6_f7")?;
     let empty_claude_stub = tmp.path().join("empty_claude_stub");
     fs::create_dir_all(&empty_claude_stub)?;
-    let enhancers_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .ok_or("repo root")?
-        .join("packages/harness-enhancers");
 
     let grant = quetzalcoatl_harness::GatewaySessionGrant {
         run_id: RunId::new_v4(),
@@ -1716,10 +1705,7 @@ fn regression_r1_finding6_and_7_codex_opencode_json_parsers_provider_urls_claude
         codex_stub_dir: None,
         active_codex_provider: String::from("openai"),
         codex_uses_chatgpt_oauth: false,
-        enhancers_root_dir: Some(enhancers_root),
         mcp_endpoint_url: Some(String::from("http://127.0.0.1:19090/mcp")),
-        daemon_ipc_url: None,
-        daemon_ipc_token: None,
     };
 
     let codex_apikey_plan = CodexDriver.build_launch_plan(&api_key_codex_ctx, "test prompt")?;
@@ -1734,11 +1720,6 @@ fn regression_r1_finding6_and_7_codex_opencode_json_parsers_provider_urls_claude
     assert!(
         joined_codex_args.contains("mcp_servers.quetzalcoatl.url="),
         "绑定 mcp_endpoint_url 时 Codex 启动计划应挂载 MCP 配置"
-    );
-    assert!(
-        codex_apikey_plan
-            .env
-            .contains_key("QUETZALCOATL_CODEX_HOOKS_PATH")
     );
 
     let claude_fallback_plan =
@@ -1870,11 +1851,6 @@ fn regression_r2_all_four_mcp_202_native_configs_subdir_delete_git_mv_and_secure
     mcp_http.shutdown();
 
     // 1b. OpenCode / Claude / Codex 原生 MCP 配置与原生 CLI 钩子参数透传
-    let enhancers_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .ok_or("repo root")?
-        .join("packages/harness-enhancers");
     let grant = quetzalcoatl_harness::GatewaySessionGrant {
         run_id: RunId::new_v4(),
         cap_token: "a".repeat(64),
@@ -1895,10 +1871,7 @@ fn regression_r2_all_four_mcp_202_native_configs_subdir_delete_git_mv_and_secure
         codex_stub_dir: None,
         active_codex_provider: String::from("openai"),
         codex_uses_chatgpt_oauth: false,
-        enhancers_root_dir: Some(enhancers_root),
         mcp_endpoint_url: Some(sample_mcp_url.clone()),
-        daemon_ipc_url: Some(String::from("http://127.0.0.1:17777")),
-        daemon_ipc_token: Some("d".repeat(64)),
     };
 
     let oc_plan = OpenCodeDriver.build_launch_plan(&ctx, "prompt")?;
@@ -1924,15 +1897,11 @@ fn regression_r2_all_four_mcp_202_native_configs_subdir_delete_git_mv_and_secure
         claude_mcp_json["mcpServers"]["quetzalcoatl"]["url"].as_str(),
         Some(sample_mcp_url.as_str())
     );
-    let settings_idx = claude_plan
-        .args
-        .iter()
-        .position(|a| a == "--settings")
-        .ok_or("ClaudeCodeDriver 在挂载渐进增强器时必须传入原生 --settings 钩子")?;
-    let claude_settings_json: serde_json::Value =
-        serde_json::from_str(&claude_plan.args[settings_idx + 1])?;
-    assert!(claude_settings_json["hooks"]["Stop"].is_array());
-    assert!(claude_settings_json["hooks"]["PreCompact"].is_array());
+    // 受管运行不挂任何钩子：核心由回环网关每次请求钉在 system 末尾，压缩也丢不了。
+    assert!(
+        !claude_plan.args.iter().any(|a| a == "--settings"),
+        "受管运行不再挂钩子脚本"
+    );
 
     let codex_plan = CodexDriver.build_launch_plan(&ctx, "prompt")?;
     for (name, plan_env) in [
@@ -1947,9 +1916,16 @@ fn regression_r2_all_four_mcp_202_native_configs_subdir_delete_git_mv_and_secure
         );
     }
     assert!(
-        codex_plan.args.iter().any(|a| a.starts_with("notify=[")),
-        "CodexDriver 在挂载渐进增强器时必须传入原生 -c notify=[...] 钩子参数"
+        !codex_plan.args.iter().any(|a| a.starts_with("notify=[")),
+        "受管运行不再挂通知脚本"
     );
+    for plan_env in [&oc_plan.env, &claude_plan.env, &codex_plan.env] {
+        assert!(
+            !plan_env.contains_key("QUETZALCOATL_IPC_TOKEN")
+                && !plan_env.contains_key("QUETZALCOATL_DAEMON_URL"),
+            "沙箱里没有通往守护进程的路"
+        );
+    }
 
     // 2 & 3. 子目录文件删除 (`rm src/obsolete.rs`) 与暂存重命名 (`git mv src/old_name.rs src/new_name.rs`) 同步验证
     let repo_dir = tmp.path().join("repo");

@@ -67,44 +67,6 @@ impl HarnessDriver for ClaudeCodeDriver {
             args.push(mcp_cfg.to_string());
         }
 
-        if let Some(enh_root) = &ctx.enhancers_root_dir {
-            env.insert(
-                String::from("QUETZALCOATL_CLAUDE_HOOKS_PATH"),
-                enh_root
-                    .join("claude-code-hooks/src/index.ts")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-            let runner_path = enh_root.join("claude-code-hooks/bin/claude-hook-runner.mjs");
-            let hook_cmd = format!("node \"{}\"", runner_path.display());
-            let settings_json = serde_json::json!({
-                "hooks": {
-                    "PreCompact": [
-                        {
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": hook_cmd
-                                }
-                            ]
-                        }
-                    ],
-                    "Stop": [
-                        {
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": hook_cmd
-                                }
-                            ]
-                        }
-                    ]
-                }
-            });
-            args.push(String::from("--settings"));
-            args.push(settings_json.to_string());
-        }
-
         args.push(String::from(prompt));
 
         Ok(HarnessLaunchPlan {

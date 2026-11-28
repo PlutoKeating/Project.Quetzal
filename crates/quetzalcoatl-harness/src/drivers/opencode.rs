@@ -104,21 +104,6 @@ impl HarnessDriver for OpenCodeDriver {
                 inline_cfg.to_string(),
             );
         }
-        if let Some(enh_root) = &ctx.enhancers_root_dir {
-            let plugin_dir = enh_root.join("opencode-v2-plugin/.opencode");
-            env.insert(
-                String::from("OPENCODE_CONFIG_DIR"),
-                plugin_dir.to_string_lossy().into_owned(),
-            );
-            env.insert(
-                String::from("QUETZALCOATL_OPENCODE_PLUGIN_DIR"),
-                plugin_dir
-                    .join("plugins/quetzalcoatl")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-        }
-
         let plan = HarnessLaunchPlan {
             program: ctx.binary_path.clone(),
             args: vec![
