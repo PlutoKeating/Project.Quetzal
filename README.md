@@ -214,6 +214,7 @@ qz import-v1 --soul-dir /path/to/v1-soul --db /path/to/v1-sessions.sqlite
 | [docs/GOVERNANCE_SURFACE.md](docs/GOVERNANCE_SURFACE.md) | 治理面规范：用户来这里要什么、三栏版面、动作与状态、与守护进程的接口 |
 | [docs/USER_SCENARIOS.md](docs/USER_SCENARIOS.md) | 用户场景与链路：34 类场景逐步写清原始需求、手边该有的控件与现状；与铁律冲突之处与依赖顺序 |
 | [docs/bench/conscience-bench-2026-11-25.md](docs/bench/conscience-bench-2026-11-25.md) | `ConscienceBench` 认证报告 |
+| [docs/bench/recall-eval-2026-11-28.md](docs/bench/recall-eval-2026-11-28.md) | 召回评测基线：按词匹配能带入什么、带不入什么 |
 
 ## 9. 验证门禁
 
