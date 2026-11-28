@@ -3179,7 +3179,7 @@ impl QuetzalcoatlDaemon {
             }
             runtime.start_ticker();
             // 重启续用既有会话时立即抢占一次 witness_epoch，避免状态短暂停留在 Standby。
-            let _ = runtime.tick_now();
+            runtime.tick_and_record();
         }
 
         write_private_file(&run_dir.join("daemon.token"), ipc_token.as_bytes())?;

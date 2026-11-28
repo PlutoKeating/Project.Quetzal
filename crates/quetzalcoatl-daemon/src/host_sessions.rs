@@ -86,6 +86,9 @@ pub struct HostStatusLineView {
     pub update: Option<String>,
     #[serde(default)]
     pub update_required: bool,
+    /// 接了 Hub、但同步失败或很久没走完。
+    #[serde(default)]
+    pub sync_stalled: bool,
 }
 
 /// 用户原话里认出的、需要本人亲口说才算数的意图。
@@ -484,6 +487,15 @@ struct ActiveSession {
     model_writes: usize,
 }
 
+/// 同步多久没走完算「中断」：三次心跳的时间。
+const SYNC_STALL_MS: u64 = 3 * 60 * 1_000;
+
+/// 接了 Hub 的设备：最近一次同步失败，或者上次走完已经过了很久（还没走完过的不算，刚启动）。
+pub(crate) fn sync_stalled(health: (Option<u64>, bool), now_ms: u64) -> bool {
+    let (last_ok, failed) = health;
+    failed || last_ok.is_some_and(|at| now_ms.saturating_sub(at) > SYNC_STALL_MS)
+}
+
 impl HostSessionRegistry {
     fn remember_sea_facts(&self, conscience: &Conscience) {
         if let Ok(mut name) = self.agent_name.lock() {
@@ -551,6 +563,7 @@ impl HostSessionRegistry {
             off_record,
             update: None,
             update_required: false,
+            sync_stalled: false,
         }
     }
 
@@ -1112,6 +1125,8 @@ impl SharedDaemonCore {
     pub(crate) fn handle_host_status_line(&self, session_id: Option<&str>) -> IpcResponse {
         let mut view = self.host_sessions.status_line(session_id);
         if let Some(runtime) = self.fabric_runtime() {
+            view.sync_stalled =
+                crate::host_sessions::sync_stalled(runtime.sync_health(), now_unix_ms());
             match runtime.update_state() {
                 crate::version_gate::UpdateState::Current => {}
                 crate::version_gate::UpdateState::Available(version) => view.update = Some(version),

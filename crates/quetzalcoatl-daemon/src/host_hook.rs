@@ -259,6 +259,9 @@ pub fn format_status_line(view: Option<&HostStatusLineView>, color: bool) -> Str
     if needs_owner {
         line.push_str(&format!(" · {} 件事等你", view.pending_for_owner));
     }
+    if view.sync_stalled {
+        line.push_str(&format!(" · {}", paint(color, ANSI_AMBER, "同步中断")));
+    }
     if let Some(version) = &view.update {
         let note = if view.update_required {
             format!("需要升级到 {version} 才能同步")
@@ -357,10 +360,19 @@ mod tests {
             off_record: false,
             update: None,
             update_required: false,
+            sync_stalled: false,
         };
         assert_eq!(
             format_status_line(Some(&calm), false),
             "● 栗子 · 已接上 · 带入 3"
+        );
+        let stalled = HostStatusLineView {
+            sync_stalled: true,
+            ..calm.clone()
+        };
+        assert_eq!(
+            format_status_line(Some(&stalled), false),
+            "● 栗子 · 已接上 · 带入 3 · 同步中断"
         );
         let waiting = HostStatusLineView {
             pending_for_owner: 2,
@@ -396,6 +408,22 @@ mod tests {
             ..behind
         };
         assert!(format_status_line(Some(&blocked), false).ends_with("需要升级到 2.0.0 才能同步"));
+    }
+
+    #[test]
+    fn sync_counts_as_stalled_only_after_a_failure_or_a_long_silence() {
+        use crate::host_sessions::sync_stalled;
+        let now = 10_000_000;
+        assert!(
+            !sync_stalled((None, false), now),
+            "刚启动、还没同步过不算中断"
+        );
+        assert!(!sync_stalled((Some(now - 30_000), false), now));
+        assert!(
+            sync_stalled((Some(now - 600_000), false), now),
+            "很久没走完"
+        );
+        assert!(sync_stalled((Some(now - 1_000), true), now), "最近一次失败");
     }
 
     #[test]

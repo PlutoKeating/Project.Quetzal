@@ -722,6 +722,10 @@ pub(crate) struct DaemonFabricRuntime {
     hub_meta: Mutex<Option<(quetzalcoatl_fabric::HubMeta, u64)>>,
     /// 上次重放良知时脊柱里的事件数：变了才重放。
     last_replayed_events: AtomicU64,
+    /// 上次同步走完的时刻（0 表示还没有过）。
+    last_sync_ok_ms: AtomicU64,
+    /// 最近一次同步失败了（下一次走完就复位）。
+    last_sync_failed: std::sync::atomic::AtomicBool,
 }
 
 struct FabricBootInput {
@@ -811,6 +815,8 @@ impl DaemonFabricRuntime {
             ticker: Mutex::new(None),
             hub_meta: Mutex::new(None),
             last_replayed_events: AtomicU64::new(0),
+            last_sync_ok_ms: AtomicU64::new(0),
+            last_sync_failed: std::sync::atomic::AtomicBool::new(false),
         });
         Ok(runtime)
     }
@@ -1214,7 +1220,25 @@ impl DaemonFabricRuntime {
         if grew || got_keys {
             let _ = core.resync_sea_from_spine();
         }
+        self.last_sync_ok_ms.store(now_unix_ms(), Ordering::SeqCst);
+        self.last_sync_failed.store(false, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// 同步一次；失败了记下来，给状态栏与治理面看。
+    pub(crate) fn tick_and_record(&self) {
+        if self.tick_now().is_err() {
+            self.last_sync_failed.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// 同步的近况：上次走完的时刻，与最近一次是否失败。
+    pub(crate) fn sync_health(&self) -> (Option<u64>, bool) {
+        let ok = self.last_sync_ok_ms.load(Ordering::SeqCst);
+        (
+            (ok > 0).then_some(ok),
+            self.last_sync_failed.load(Ordering::SeqCst),
+        )
     }
 
     /// 对账重放通道外发项：仅在重获 Witnessed 后执行真实投递。
@@ -1321,7 +1345,7 @@ impl DaemonFabricRuntime {
                 let Some(runtime) = weak.upgrade() else {
                     break;
                 };
-                let _ = runtime.tick_now();
+                runtime.tick_and_record();
             }
         });
         *slot = Some(join);

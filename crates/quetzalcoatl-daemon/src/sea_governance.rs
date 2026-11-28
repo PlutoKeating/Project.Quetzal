@@ -1031,6 +1031,7 @@ impl SharedDaemonCore {
         let devices = self.sea_devices_view();
         let last_seen = self.host_sessions.last_seen_ms();
         let pending_approvals = self.approvals.len();
+        let sync_health = self.fabric_runtime().map(|runtime| runtime.sync_health());
         let Some(overview) = self.with_state(|state| {
             let conscience = &state.conscience;
             let active = || {
@@ -1074,14 +1075,18 @@ impl SharedDaemonCore {
                 },
                 hosts: Vec::new(),
                 sync: SyncSummary {
-                    state: String::from(if devices.hub.url.is_some() {
-                        "synced"
-                    } else {
-                        "local-only"
+                    state: String::from(match (&devices.hub.url, sync_health) {
+                        (None, _) => "local-only",
+                        (Some(_), Some(health))
+                            if crate::host_sessions::sync_stalled(health, now_unix_ms()) =>
+                        {
+                            "behind"
+                        }
+                        (Some(_), _) => "synced",
                     }),
                     hub_url: devices.hub.url.clone(),
                     devices: devices.devices.len().max(1),
-                    last_synced_ms: None,
+                    last_synced_ms: sync_health.and_then(|(last_ok, _)| last_ok),
                 },
             }
         }) else {
