@@ -1,6 +1,6 @@
 {
   "name": "@quetzalcoatl/pi-extension",
-  "version": "2.0.0-alpha.4",
+  "version": "2.0.0-alpha.5",
   "description": "Quetzalcoatl V2 progressive RPC extension for Pi Coding Agent v1.6+",
   "license": "Apache-2.0",
   "type": "module",

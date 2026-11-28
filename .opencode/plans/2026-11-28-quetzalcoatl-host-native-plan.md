@@ -518,11 +518,15 @@
 **Files:**
 - Modify: `crates/quetzalcoatl-client-core`（删 `llm_stream_bridge.rs`）、`crates/bindings`、`surfaces/linux`、`surfaces/macos`、`surfaces/windows`
 
-- [ ] **Step 1–4: 共享核心与绑定去掉对话流；Linux 改成与 Web 同构的治理面；macOS 与 Windows 删对话视图，只留能编译的治理外壳（以 CI 原生跑点为准）**
+- [x] **Step 1–4: 共享核心与绑定去掉对话流；Linux 改成与 Web 同构的治理面；macOS 与 Windows 删对话视图，只留能编译的治理外壳（以 CI 原生跑点为准）**
+
+> **落地说明**：比原计划删得更彻底：Linux 改成九页治理面以后，共享客户端核心、UniFFI 绑定与浏览器端 WASM 客户端都没有了使用者，一并删除（宪章第 6 节第 14、17 条标为撤销）。macOS 与 Windows 只剩打开 `qz open` 的外壳，本机没有工具链，只能靠 CI 的原生跑点验证。
 
 ### Task 5.6：文档与官网
 
-- [ ] **Step 1: README、架构、无障碍清单、官网文案同步；升预发布版本**
+- [x] **Step 1: README、架构、无障碍清单、官网文案同步；升预发布版本**
+
+> **落地说明**：README 按「住进宿主」重写，架构文档的客户端一节、无障碍清单的 Linux 一节、官网的接上宿主与多设备两页同步；版本升到 2.0.0-alpha.5。
 
 ---
 
@@ -580,7 +584,7 @@
 ## S9：更多宿主与外面的进来
 
 - [ ] **Task 9.1**：OpenCode、Codex、DeepSeek Harness 的接入；发现新宿主时通知一键接上；诊断里的接入表。
-  > **现状**：进行中：已核实 Codex 0.171 与 OpenCode 2.4.1 各有插件、钩子与 MCP 挂点，接入代码尚未写。
+  > **现状**：Codex 已接上（本地插件源 + 同形钩子 + 工具通道，第一次要在 Codex 里信任钩子；对话记录核对认得 Codex 的格式）。OpenCode 2.4.1 的 v2 插件形状已核实（`Plugin.define`、`session.hook("prompt"|"context")`），但它的钩子要真实会话才能验证、工具在宿主里的名字未定，接入代码尚未写。DeepSeek Harness 未开始。
 - [ ] **Task 9.2**：SayIt 自动合龙（需要 SayIt 仓库配合，跨仓改动另行确认）。
   > **现状**：接口已与 SayIt 会话商定（变更流 + 按内容寻址的快照 + 游标；SayIt 侧文档 `docs/READ_API.md`），等 SayIt 实现后再写拉取端。
 - [ ] **Task 9.3**：通用导入（宿主自带的规则与记忆、各家对话导出包、角色卡），每次导入可整批撤回；只读的外部笔记来源。

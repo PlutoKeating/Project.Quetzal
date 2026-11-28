@@ -1,6 +1,6 @@
 {
   "name": "@quetzalcoatl/claude-code-hooks",
-  "version": "2.0.0-alpha.4",
+  "version": "2.0.0-alpha.5",
   "description": "Quetzalcoatl V2 PreCompact and Stop conscience hooks for Claude Code",
   "license": "Apache-2.0",
   "type": "module",
