@@ -661,10 +661,10 @@
 | 守护进程自己调模型的对话轮已删除（S1）；保留的受管运行入口 | `crates/quetzalcoatl-daemon/src/daemon.rs` 的 `handle_delegate_run` |
 | 用户自己的宿主会话的挂载（S2 接通 Claude Code） | `crates/quetzalcoatl-daemon/src/host_connect.rs`、`crates/quetzalcoatl-daemon/src/host_sessions.rs`、`packages/harness-enhancers/claude-code-plugin` |
 | 出厂良知是中性种子；旧版写死的工程条款在加载时被替换（S2） | `crates/quetzalcoatl-daemon/src/daemon.rs` 的 `default_seed_conscience` 与 `retire_legacy_seed` |
-| 仲裁器未被使用 | 同文件，字段 `_arbiter` |
-| 自检上报无人读取 | 同文件，`ewave_check_reports` 只有写入 |
+| 仲裁器已接到写回与反思（S4、S8） | `crates/quetzalcoatl-daemon/src/sea_ops.rs`、`crates/quetzalcoatl-daemon/src/reflection.rs` |
+| 自检上报仍无人读取 | `crates/quetzalcoatl-daemon/src/daemon.rs` 的 `ewave_check_reports` 只有写入 |
 | 探索只被测试调用 | `crates/quetzalcoatl-daemon/tests/e2e_single_node.rs` 是 `ExploreTick` 唯一的调用方 |
-| 界面以输入框为中心 | `surfaces/web/src/app.ts`、`surfaces/linux/src/views/companion.rs` |
-| macOS 与 Windows 端数据来自合成流 | `surfaces/macos/Sources/QuetzalcoatlCore/DemoData.swift` |
-| 导入实现存在但没有入口 | `crates/quetzalcoatl-spine/src/archive.rs` 的 `import_zip_archive` |
-| Hub 无部署产物、无管理端点、客户端无默认地址 | `hub/cmd/quetzalcoatl-hub/main.go`；全仓没有编排文件 |
+| 输入框已删除，界面只剩治理面（S1、S5） | `surfaces/web/src/views`、`docs/GOVERNANCE_SURFACE.md` |
+| macOS 与 Windows 只剩最小治理外壳 | `surfaces/macos/README.md`、`surfaces/windows/README.md` |
+| 导出带恢复包，`qz import` 恢复（S5） | `crates/quetzalcoatl-daemon/src/sea_archive.rs` |
+| Hub 部署包、元信息与指标端点、客户端内置官方地址（S6） | `hub/deploy/`、`hub/internal/ops/`、`crates/quetzalcoatl-daemon/src/lib.rs` 的 `OFFICIAL_HUB_URL` |

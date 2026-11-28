@@ -188,7 +188,7 @@ jobs:
         run: xvfb-run -a cargo test -p quetzalcoatl-desktop --test dynamic_link_and_ui
 
   macos:
-    name: macos / Swift 6 strict concurrency
+    name: macos / Swift 6 governance shell
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -201,22 +201,12 @@ jobs:
           swift --version
           xcode-select -p
 
-      - name: Build + test (Swift Testing; CLT-only needs explicit Testing.framework search paths)
+      - name: Build the minimal governance shell
         working-directory: surfaces/macos
-        run: |
-          set -euo pipefail
-          swift build
-          if xcode-select -p | grep -q CommandLineTools; then
-            swift test \
-              -Xswiftc -F -Xswiftc /Library/Developer/CommandLineTools/Library/Developer/Frameworks \
-              -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/Frameworks \
-              -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/usr/lib
-          else
-            swift test
-          fi
+        run: swift build
 
   windows:
-    name: windows / WinUI 3 x64 source + tests
+    name: windows / WinUI 3 x64 governance shell
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
@@ -243,20 +233,10 @@ jobs:
         working-directory: surfaces/windows
         run: dotnet restore Quetzalcoatl.Windows.sln -p:Platform=x64
 
-      # 必过门禁：Desktop 是 net9.0、Interop 是 net9.0-windows；两者都不依赖 WinUI 的 Appx/PRI 任务。
-      - name: Build Desktop + Interop + UiSmoke (required)
-        working-directory: surfaces/windows
-        shell: bash
-        run: |
-          dotnet build src/Quetzalcoatl.Desktop/Quetzalcoatl.Desktop.csproj -p:Platform=x64 --no-restore
-          dotnet build src/Quetzalcoatl.Interop/Quetzalcoatl.Interop.csproj -p:Platform=x64 --no-restore
-          dotnet build tests/Quetzalcoatl.UiSmoke/Quetzalcoatl.UiSmoke.csproj -p:Platform=x64 --no-restore
-
       # WinUI 3 App 需要 VS 2022 的 Microsoft.Build.AppxPackage.dll。windows-2022 镜像通常自带
       # UniversalBuildTools；这里只容忍「该任务缺失」这一已知环境缺口，任何 C#/XAML/MSBuild
       # 编译器错误（CS#### / XLS#### / WMC#### / XamlCompiler / error MSB####）一律阻断。
-      - name: Build WinUI 3 App (real compiler errors are fatal)
-        id: app
+      - name: Build the minimal WinUI 3 governance shell (real compiler errors are fatal)
         working-directory: surfaces/windows
         shell: bash
         run: |
@@ -267,49 +247,16 @@ jobs:
           set -e
           if [ "$rc" -eq 0 ]; then
             echo "WinUI 3 App build: OK"
-            echo "built=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           real_error=$(grep -E "error (CS[0-9]{4}|XLS[0-9]+|WMC[0-9]+|XamlCompiler|MSB[0-9]{4})" app-build.log | head -n 5 || true)
           if [ -z "$real_error" ] && grep -q "Microsoft.Build.AppxPackage.dll" app-build.log; then
-            echo "::warning::known runner gap (missing Appx/PRI MSBuild task); App.exe was not built, Desktop/Interop/UiSmoke tests still run."
-            {
-              echo "### WinUI 3 App: SKIPPED (known runner gap)"
-              echo '```'
-              grep -n "AppxPackage\|AppxMSBuildToolsPath" app-build.log | tail -n 10 || true
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::known runner gap (missing Appx/PRI MSBuild task); App.exe was not built."
             exit 0
           fi
           echo "::error::WinUI 3 App build failed with a real compiler/XAML/MSBuild error"
           printf "%s\n" "$real_error"
           exit "$rc"
-
-      - name: Tests (Desktop + Interop, required)
-        working-directory: surfaces/windows
-        shell: bash
-        run: |
-          dotnet test tests/Quetzalcoatl.Desktop.Tests/Quetzalcoatl.Desktop.Tests.csproj \
-            -p:Platform=x64 --no-restore --logger "console;verbosity=normal"
-          dotnet test tests/Quetzalcoatl.Interop.Tests/Quetzalcoatl.Interop.Tests.csproj \
-            -p:Platform=x64 --no-restore --logger "console;verbosity=normal"
-
-      # 仓库自带 surfaces/windows/scripts/run-tests.ps1 覆盖同一批构建+测试+自检+UIA 冒烟，
-      # 但它对已知的 Appx/PRI 缺口会直接 throw；CI 需要「只容忍该缺口」的语义，故不原样调用。
-      # UiSmoke 只有在 App.exe 真实产出时才运行；非交互会话以 77(SKIP) 退出，如实记录。
-      - name: UI Automation smoke (77 = SKIP without an interactive desktop)
-        if: steps.app.outputs.built == 'true'
-        working-directory: surfaces/windows
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem -Path "tests/Quetzalcoatl.UiSmoke/bin" -Filter Quetzalcoatl.UiSmoke.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          $app = Get-ChildItem -Path "src/Quetzalcoatl.App/bin" -Filter Quetzalcoatl.App.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe -or -not $app) { throw "UiSmoke or App executable not found after a successful App build" }
-          & $exe.FullName --app $app.FullName --report "$env:RUNNER_TEMP/ui-smoke.txt" --timeout 60
-          $code = $LASTEXITCODE
-          if ($code -eq 77) { Write-Host "SKIP: UI Automation needs an interactive desktop session"; exit 0 }
-          if ($code -ne 0) { throw "UI Automation smoke failed (exit=$code)" }
 
   mobile:
     name: mobile (deferred — Task 5.1 / 5.2)

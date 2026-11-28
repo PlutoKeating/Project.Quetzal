@@ -43,10 +43,9 @@
 - [x] 流式回复区标记为持续更新区域，批次收束时调用 GTK 4.14 `announce()`。
 - [x] 无 AT-SPI 总线时 `announce()` 为安全空操作，不崩溃。
 - [x] 陪伴态输入区最小高度 64（`surfaces/linux/src/views/companion.rs` 的 `set_size_request`）。
-- [ ] **延后（未实现）**：Linux 陪伴态零技术黑话的 `ZeroJargon` 静态守卫。该守卫目前只在
-      macOS（`surfaces/macos/Sources/QuetzalcoatlCore/ZeroJargon.swift`）与
-      Windows（`surfaces/windows/src/Quetzalcoatl.Desktop/A11y/ZeroJargon.cs`）实现；
-      Linux 侧没有等价审计，本轮不勾选，待补齐源码扫描测试后再改 `[x]`。
+- [ ] **延后（未实现）**：Linux 陪伴态零技术黑话的 `ZeroJargon` 静态守卫。macOS 与
+      Windows 端的对话界面连同其 `ZeroJargon` 守卫已随 000 号铁律删除；Linux 侧没有等价审计，
+      本轮不勾选，待补齐源码扫描测试后再改 `[x]`。
 - [x] 无头自检可运行：`xvfb-run -a quetzalcoatl-desktop --self-test --home <tmp>`。
 - [ ] **延后**：Orca + AT-SPI 实机朗读、200% 缩放的视觉效果与焦点环走查 —
       `Deferred (VMs paused by owner)`。
@@ -55,34 +54,23 @@
 
 ## 3. macOS（`surfaces/macos`）
 
-- [x] 每个交互控件有 `.accessibilityIdentifier` / `.accessibilityLabel`；按钮与文本框使用原生
-      traits。
-- [x] 密度切换按钮带 `.isSelected` trait 与 `⌘1/2/3`。
-- [x] 对话正文/标题/连接状态/未连接说明是内容承载控件：不设 `.accessibilityLabel`，VoiceOver
-      朗读真实内容。
-- [x] 播报双通道：连接状态只在变化时更新；每批流事件恰好一次
-      `NSAccessibility.post(.announcementRequested)`（`medium` 优先级）。
-- [x] `AccessibilityCatalog` 是唯一事实来源，单测扫描真实 SwiftUI 源码，未登记 id 即失败。
-- [ ] **延后**：VoiceOver 实机走查（图形桌面会话）— `Deferred (VMs paused by owner)`。
-- [ ] **延后**：窗口运行期冒烟（需要登录的交互式 macOS 会话）— `Deferred (VMs paused by owner)`。
+按 000 号铁律，macOS 端只剩一个最小治理外壳（一段说明文字与一个「打开本机治理面」按钮），
+对话视图、输入框、流式播报与三档密度已删除，原有的无障碍契约与源码扫描单测随之移除。
 
-证据：`surfaces/macos/README.md`、`surfaces/macos/Tests`（Swift Testing）。
+- [x] 按钮使用原生 SwiftUI 控件，带 `.accessibilityIdentifier`，VoiceOver 朗读按钮文字。
+- [ ] **延后**：VoiceOver 实机走查 — `Deferred (VMs paused by owner)`。
+
+证据：`surfaces/macos/README.md`。
 
 ## 4. Windows（`surfaces/windows`）
 
-- [x] 每个交互控件设置 `AutomationProperties.AutomationId` / `Name`，保留原生 Invoke / Value /
-      SelectionItem 模式。
-- [x] 密度切换使用原生 `TabView` + `SelectionItem`，`Ctrl+1/2/3` 键盘加速器。
-- [x] 对话区/标题/状态/说明是内容承载控件，不设 `AutomationProperties.Name`；区块说明只放
-      `HelpText`。
-- [x] `status.connection` 保留 `LiveSetting=Polite`，只在连接状态变化时播报；流式回复由
-      `StreamingAnnouncer` + `AutomationPeer.RaiseNotificationEvent` 每批恰好一次。
-- [x] `DesktopControlCatalog` 唯一事实来源，单测静态比对真实 XAML；漂移即 `dotnet test` 失败。
-- [ ] **延后**：登录桌面下的窗口冒烟与 UIA 树实机走查 — `Deferred (VMs paused by owner)`。
-      验证机无交互式用户会话时 `Quetzalcoatl.UiSmoke` 如实返回 `77`，视为未执行而非通过。
+按 000 号铁律，Windows 端只剩一个最小治理外壳（一段说明文字与一个「打开本机治理面」按钮），
+对话视图、输入框、流式播报、托盘与 UIA 冒烟工程已删除。
+
+- [x] 按钮设置 `AutomationProperties.Name`，使用原生 WinUI 3 控件，保留 Invoke 模式。
 - [ ] **延后**：Narrator 实机朗读与高对比度主题走查 — `Deferred (VMs paused by owner)`。
 
-证据：`surfaces/windows/README.md`、`surfaces/windows/tests`。
+证据：`surfaces/windows/README.md`。
 
 ## 5. iOS / Android
 

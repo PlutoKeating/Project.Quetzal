@@ -87,7 +87,7 @@ git push origin v2.0.0                       # 需维护者显式授权
 | `SHA256SUMS` | 每个资产一行 `<sha256>  <文件名>`，外加 `commit <40-hex> <tag>` | 安装器、镜像 Worker、人工复核 |
 | `SHA256SUMS.sig` | `SHA256SUMS` 的 Ed25519 签名（base64 文本） | 安装器、人工复核 |
 
-- **Windows 不发二进制资产**：`surfaces/windows` 目前只有源码与 CI 构建证据，exe/msix 代码
+- **Windows 不发二进制资产**：`surfaces/windows`（最小治理外壳）目前只有源码与 CI 构建证据，exe/msix 代码
   签名证书接入前不发布 Windows 安装包。Release 正文里会说明这一点。
 - **macOS 本轮也不发二进制资产**：SwiftPM 构建由 `macos-14` CI 验证，但 Developer ID 签名
   与公证未接入；`v2.0.0-alpha.1` 的 Release 只有 Linux/Web/Hub 资产。
@@ -224,8 +224,8 @@ HOME="$H" QZ_PREFIX="$H/prefix" QUETZALCOATL_HOME="$H/qzhome" \
 | `go` | ubuntu-24.04 | `CGO_ENABLED=0 go build`、`go vet`、`CGO_ENABLED=1 go test -race`（race 需要 cgo） | 阻断 |
 | `web` | ubuntu-24.04 | `surfaces/web`（typecheck + vitest + Playwright chromium）与 `website`（typecheck + vitest + prerender build）、文档链接、安装器与清单测试 | 阻断 |
 | `linux-desktop` | ubuntu-26.04 | GTK4 release 构建 + `dynamic_link_and_ui`（ELF 动态链接 LGPL-2.1 + 无头 UI 契约） | 阻断 |
-| `macos` | macos-14 | `swift build` + `swift test`；CLT-only 时显式传入 `Testing.framework` 搜索路径 | 阻断 |
-| `windows` | windows-2022 | Desktop/Interop/UiSmoke 构建与 `dotnet test` **必过**；WinUI 3 App 只容忍 runner 缺 Appx/PRI 任务这一已知缺口，C#/XAML/MSBuild 编译器错误一律阻断 | 阻断（窄例外） |
+| `macos` | macos-14 | 最小治理外壳 `swift build` | 阻断 |
+| `windows` | windows-2022 | 最小治理外壳 WinUI 3 App 构建；只容忍 runner 缺 Appx/PRI 任务这一已知缺口，C#/XAML/MSBuild 编译器错误一律阻断 | 阻断（窄例外） |
 | `mobile` | — | `if: false` 占位，不运行、不声称通过 | 不适用 |
 
 为什么 Rust 两个 job 用 ubuntu-26.04：`surfaces/linux` 的 `libadwaita` crate 开启了
@@ -243,15 +243,11 @@ Go / Web 等不依赖 GTK 的 job 仍固定在 ubuntu-24.04。
 - **Windows App 的 Appx/PRI 依赖**：WinUI 3 App 需要 VS 2022 的
   `Microsoft.Build.AppxPackage.dll`。`windows-2022` 镜像通常自带 UniversalBuildTools，
   因此 CI 会真实构建；仅当失败日志**只**包含该缺失任务（无 `error CS####` / `XLS####` /
-  `WMC####` / `XamlCompiler` / `error MSB####`）时才判定为已知环境缺口并在 step summary
-  标注 `SKIPPED`，否则按真实编译错误失败。Desktop/Interop 测试始终必过；App 成功产出时
-  还会运行 `Quetzalcoatl.UiSmoke`（无交互桌面以 77=SKIP 退出）。
+  `WMC####` / `XamlCompiler` / `error MSB####`）时才判定为已知环境缺口并给出警告，
+  否则按真实编译错误失败。
 - **Windows arm64 构建 `Deferred:`**：本仓库没有 Windows arm64 硬件/VM，WinUI 3 的
-  arm64 交叉构建还依赖 arm64 MSIX 签名资产。当前只验证 x64 源码与测试；恢复 arm64 验证机后
+  arm64 交叉构建还依赖 arm64 MSIX 签名资产。当前只验证 x64 源码；恢复 arm64 验证机后
   再补 `Platform=ARM64` job（不改 `Platforms=x64` 的现有工程契约）。
-- **`surfaces/windows/scripts/run-tests.ps1` 不在 CI 原样调用**：它是本地一键驱动（构建 +
-  单测 + 自检 + UIA 冒烟），但对已知的 Appx/PRI 缺口会直接 `throw`。CI 需要「只容忍该缺口、
-  真实编译错误仍失败」的语义，因此复刻其步骤并在 App 成功产出时补跑 UiSmoke。
 - **arm64 CLI/Hub 构建**运行在 GitHub 托管的 `ubuntu-24.04-arm` 上；不再使用 qemu 交叉
   编译，因此没有交叉工具链漂移。若该 runner 标签在组织策略下不可用，需改为自托管 arm64
   runner 或启用 `cross`（会新增构建依赖，需单独评审）。

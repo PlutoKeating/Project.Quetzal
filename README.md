@@ -46,8 +46,8 @@ Git 服务器的工具（V1 的 Git 灵魂仓库已彻底移除，见
 | --- | --- | --- |
 | Web | `surfaces/web`：TypeScript + 原生 DOM + Web Worker WASM/OPFS | 已实现，含 vitest / Playwright |
 | Linux | `surfaces/linux`：`gtk4-rs` + 动态 `libadwaita-1` | 已实现，含 `--self-test` 无头冒烟 |
-| macOS | `surfaces/macos`：SwiftUI + `NSAccessibility` 播报 | 已实现；VoiceOver 实机走查 `Deferred (VMs paused by owner)` |
-| Windows | `surfaces/windows`：WinUI 3 + UI Automation + 原生托盘 | 已实现；窗口期 UIA 走查 `Deferred (VMs paused by owner)` |
+| macOS | `surfaces/macos`：SwiftUI 最小治理外壳（说明 + 打开 `qz open`） | 只剩外壳，对话界面已按 000 号铁律删除 |
+| Windows | `surfaces/windows`：WinUI 3 最小治理外壳（说明 + 打开 `qz open`） | 只剩外壳，对话界面已按 000 号铁律删除 |
 | iOS / Android | — | 对话端已撤销；手机上的治理面与推送另行审批 |
 
 共同契约：三档认知密度（陪伴 / 工作台 / 检视）、流式回复不阻塞 UI 线程、双通道无障碍播报、
