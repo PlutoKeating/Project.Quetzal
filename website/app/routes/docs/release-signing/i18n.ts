@@ -10,7 +10,7 @@ const verify = (lang: Lang): string => {
     lang === "zh"
       ? { version: "换成你要验证的版本", pem: "公钥 -> PEM（原始 32 字节前加一段固定前缀）", sig: "先验证清单的签名", one: "再核对这一个安装包", mac: "macOS 上用 shasum -a 256 -c" }
       : { version: "replace with the version you are verifying", pem: "public key -> PEM (a fixed prefix in front of the raw 32 bytes)", sig: "first verify the manifest signature", one: "then check this one package", mac: "on macOS use shasum -a 256 -c" };
-  return `VERSION=2.0.0-alpha.7        # ${c.version}
+  return `VERSION=2.0.0-alpha.8        # ${c.version}
 ASSET=quetzalcoatl-$VERSION-linux-x64.tar.gz
 BASE="${SITE_ORIGIN}/dl/v$VERSION"
 
