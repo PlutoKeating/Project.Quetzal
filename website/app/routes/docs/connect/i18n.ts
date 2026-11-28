@@ -11,7 +11,7 @@ export const messages: Messages = {
         { kind: "h2", id: "connect", step: 1, text: "接上" },
         { kind: "p", text: "安装时已经自动接过一次。之后新装了宿主，或者想重接一次，运行：" },
         { kind: "cmd", head: "Terminal", text: "qz connect" },
-        { kind: "p", text: "目前支持 Claude Code 与 Codex，本机装了哪个就接哪个。Codex 会把新装的钩子标为未信任：第一次打开 Codex 时，在 /hooks 里信任 Quetzalcoatl 的钩子。OpenCode 与 DeepSeek Harness 随后。" },
+        { kind: "p", text: "目前支持 Claude Code、Codex、OpenCode 与 DeepSeek Harness，本机装了哪个就接哪个。Codex 会把新装的钩子标为未信任：第一次打开 Codex 时，在 /hooks 里信任 Quetzalcoatl 的钩子。OpenCode 的插件放进它自己的配置目录，由它的后台服务加载，不改你的配置文件；DeepSeek Harness 在它的用户层补丁末尾加一段带标记的插入，已经开着的 dsh 重启后生效，撤下时你自己写的部分一字不动。" },
         { kind: "h2", id: "use", step: 2, text: "照常启动宿主" },
         { kind: "p", text: "接上之后，你的用法没有任何变化。多出来的只有四件事：" },
         {
@@ -46,7 +46,7 @@ export const messages: Messages = {
         { kind: "h2", id: "connect", step: 1, text: "Connect" },
         { kind: "p", text: "The installer already connected it once. If you add a host later, or want to connect again, run:" },
         { kind: "cmd", head: "Terminal", text: "qz connect" },
-        { kind: "p", text: "Claude Code and Codex are supported; whichever is installed gets connected. Codex marks newly installed hooks as untrusted: the first time you open Codex, trust the Quetzalcoatl hooks under /hooks. OpenCode and DeepSeek Harness follow." },
+        { kind: "p", text: "Claude Code, Codex, OpenCode and DeepSeek Harness are supported; whichever is installed gets connected. Codex marks newly installed hooks as untrusted: the first time you open Codex, trust the Quetzalcoatl hooks under /hooks. For OpenCode the plugin goes into its own config directory and its background service loads it, without touching your config file. For DeepSeek Harness a marked block is appended to its user-level patch; restart a running dsh for it to take effect, and undoing it leaves everything you wrote untouched." },
         { kind: "h2", id: "use", step: 2, text: "Start your host as usual" },
         { kind: "p", text: "Once connected, nothing about how you work changes. Only four things are new:" },
         {
