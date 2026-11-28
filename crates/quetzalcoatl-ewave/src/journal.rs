@@ -110,13 +110,14 @@ pub trait EntryKeyStore {
 /// 把条目钥匙放在脊柱本地库的私有存储里（不进签名链、不进导出的密文包）。
 pub struct StoreEntryKeys<'a, S: MaterializedStore>(pub &'a mut S);
 
-fn entry_key_blob(layer: SeaLayer, id: &str) -> String {
+/// 一个条目的钥匙在私有状态块里的名字。
+pub fn entry_key_blob_name(layer: SeaLayer, id: &str) -> String {
     format!("{ENTRY_KEY_PREFIX}/{}/{id}", layer.as_str())
 }
 
 impl<S: MaterializedStore> EntryKeyStore for StoreEntryKeys<'_, S> {
     fn load_key(&self, layer: SeaLayer, id: &str) -> Result<Option<EntryKey>> {
-        match self.0.get_private_blob(&entry_key_blob(layer, id))? {
+        match self.0.get_private_blob(&entry_key_blob_name(layer, id))? {
             Some(hex) => Ok(Some(EntryKey::from_hex(hex.trim())?)),
             None => Ok(None),
         }
@@ -128,12 +129,12 @@ impl<S: MaterializedStore> EntryKeyStore for StoreEntryKeys<'_, S> {
         }
         let key = EntryKey::generate();
         self.0
-            .put_private_blob(&entry_key_blob(layer, id), &key.to_hex())?;
+            .put_private_blob(&entry_key_blob_name(layer, id), &key.to_hex())?;
         Ok(key)
     }
 
     fn destroy_key(&mut self, layer: SeaLayer, id: &str) -> Result<()> {
-        self.0.delete_private_blob(&entry_key_blob(layer, id))
+        self.0.delete_private_blob(&entry_key_blob_name(layer, id))
     }
 }
 
@@ -437,6 +438,60 @@ impl Rebuilt {
             pending_disclosures: self.disclosures,
         })
     }
+}
+
+/// 一个条目的一个版本：谁、什么时候写下的，当时的完整内容。
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntryVersion {
+    pub at_ms: u64,
+    pub actor: String,
+    pub summary: String,
+    pub value: serde_json::Value,
+}
+
+/// 按时间先后列出一个条目的每一个版本。钥匙已经销毁（被抹除）的条目返回空。
+pub fn entry_history<S: MaterializedStore>(
+    spine: &mut SpineEngine<S>,
+    layer: SeaLayer,
+    id: &str,
+) -> Result<Vec<EntryVersion>> {
+    let keys = StoreEntryKeys(spine.store_mut());
+    let Some(key) = keys.load_key(layer, id)? else {
+        return Ok(Vec::new());
+    };
+    let mut versions = Vec::new();
+    for (event, _) in spine.store().list_all_events()? {
+        if !event.payload_utf8.contains(SEA_CHANGE_KIND) || !event.payload_utf8.contains(id) {
+            continue;
+        }
+        let Ok(change) = serde_json::from_str::<SeaChangeEvent>(&event.payload_utf8) else {
+            continue;
+        };
+        for delta in &change.deltas {
+            if let SeaDelta::EntryPut {
+                layer: delta_layer,
+                id: delta_id,
+                sealed,
+            } = delta
+                && *delta_layer == layer
+                && delta_id == id
+            {
+                let plaintext = open_entry(&key, id, sealed)?;
+                let value = serde_json::from_slice(&plaintext).map_err(|e| {
+                    QuetzalcoatlError::SerializationError {
+                        detail: format!("条目版本无法解析: {e}"),
+                    }
+                })?;
+                versions.push(EntryVersion {
+                    at_ms: change.at_ms,
+                    actor: change.actor.clone(),
+                    summary: change.summary.clone(),
+                    value,
+                });
+            }
+        }
+    }
+    Ok(versions)
 }
 
 /// 由脊柱里的变更事件重放出良知。还没有任何变更事件时返回 `None`。
