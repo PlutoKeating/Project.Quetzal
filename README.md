@@ -7,20 +7,19 @@ Quetzalcoatl 不是聊天应用，也不是又一个 agent 框架。它把一个
 模型之前把它送进去，调用之后把输出当作信号、经独立审查才写回。对话和推理循环永远是宿主的。
 数据以单写者签名的 HLC 事件脊柱保存，端到端加密后才能离开设备，不托管给任何中心服务。
 
-> **转向进行中（2026-11-28）**：本仓库正按 `.opencode/plans/2026-11-28-quetzalcoatl-host-native-plan.md` 从「自家对话端」
-> 转向「住进宿主」。自家的对话入口已在 S1 拆除；下文仍有描述三档密度界面的段落，会随 S5 改写；
-> 逐场景的需求与现状以 [docs/USER_SCENARIOS.md](docs/USER_SCENARIOS.md) 为准。
+逐场景的需求与现状以 [docs/USER_SCENARIOS.md](docs/USER_SCENARIOS.md) 为准；当前执行计划是
+`.opencode/plans/2026-11-28-quetzalcoatl-host-native-plan.md`。
 
-- 当前工作区版本：`2.0.0-alpha.4`（预发布；尚未执行 `v2.0.0` 签名发版）
+- 当前工作区版本：`2.0.0-alpha.5`（预发布）
 - 唯一终端简写：`qz`；其余二进制/服务/包名一律全拼 `quetzalcoatl-*`
 - 许可证：核心与客户端 `Apache-2.0`；`hub/` 引导服 `AGPL-3.0-only`（见 [许可证](#许可证)）
 - 已有自动化证据：`ConscienceBench` T1/T2/T3 认证报告
-  [docs/bench/conscience-bench-2026-11-25.md](docs/bench/conscience-bench-2026-11-25.md)
+  [docs/bench/conscience-bench-2026-11-25.md](docs/bench/conscience-bench-2026-11-25.md)；召回评测基线
+  [docs/bench/recall-eval-2026-11-28.md](docs/bench/recall-eval-2026-11-28.md)
 
-> **诚实边界**：本 README 只描述仓库中可验证的代码与脚本。iOS / Android 对话端已撤销
-> （不做自己的对话客户端）；本轮验证机暂停 VM，VoiceOver、Narrator 等
-> 实机无障碍走查均标记为 `Deferred (VMs paused by owner)`，详见
-> [docs/ACCESSIBILITY_CHECKLIST.md](docs/ACCESSIBILITY_CHECKLIST.md)。
+> **诚实边界**：本 README 只描述仓库中可验证的代码与脚本。不做自己的对话客户端：iOS / Android 对话端已撤销，
+> macOS 与 Windows 只剩打开治理面的外壳；本轮验证机暂停 VM，实机无障碍走查标记为
+> `Deferred (VMs paused by owner)`，详见 [docs/ACCESSIBILITY_CHECKLIST.md](docs/ACCESSIBILITY_CHECKLIST.md)。
 
 ---
 
@@ -28,41 +27,55 @@ Quetzalcoatl 不是聊天应用，也不是又一个 agent 框架。它把一个
 
 | 维度 | 设计选择 |
 | --- | --- |
-| 记忆 | 单写者签名 HLC 事件脊柱 + SQLite WAL 物化视图；分支、合并、压缩全部经签名事件表达 |
+| 住在哪 | 用户已经在用的宿主里（目前 Claude Code 与 Codex）：经钩子、工具通道（MCP）、斜杠命令与状态栏挂上，任何失败都放行 |
+| 送进去 | 会话开始送入他的核心（底线、部署约束、核心价值、性情、对你的了解），每次提交带上相关往事，压缩后重送 |
+| 写回来 | 你亲口说的「记住 / 不对 / 别再提 / 忘掉」当场生效并与对话记录核对；模型自己想记的只作参考；你不在时他借你的宿主回想相处，提议经仲裁才沉淀 |
+| 记忆 | 单写者签名 HLC 事件脊柱 + SQLite WAL 物化视图；良知的每次变更是一条可重放的事件，条目正文各用一把钥匙封存，抹除即销毁钥匙 |
 | 隐私 | `zstd` + 分桶填充 + `XChaCha20-Poly1305` 的 E2EE Packfile；Hub 只存密文与配额 |
-| 良知 | `ROOT(100)` / `OPERATOR(80)` / `SELF_CORE(70)` 绝对锁死；有界段在预算内自演化 |
-| 运行时 | 盲微内核 + 无容器 OS 沙箱 + 洁净室 `Verifier`；不重造底层 Coding Agent |
-| 组网 | `iroh 1.5` 打洞 + 自建 `quetzalcoatl-hub`（中继 / QAD / 配额 / 密文同步） |
-| 多人 | 1 Agent = 1 独占脊柱；多人/多角色一律物理隔离实例，经 `openmls` 群组协同 |
-| 客户端 | 五个纯原生端（Web / Linux / macOS / Windows / 移动端），零 WebView 套壳、零跨平台 UI 框架 |
+| 良知 | `ROOT(100)` / `OPERATOR(80)` / `SELF_CORE(70)` 锁死；底线由你亲手签；有界段在预算内演化 |
+| 运行时 | 盲微内核 + 无容器 OS 沙箱 + 洁净室 `Verifier`；守护进程自身不调用模型，不重造底层 Coding Agent |
+| 组网 | `iroh 1.5` 打洞 + `quetzalcoatl-hub`（中继 / QAD / 配额 / 密文同步），默认登录官方 Hub |
+| 自有界面 | 只有治理面：只看和签，没有输入框 |
 
-它**不是**：通用聊天 SaaS、云端 RAG 记忆库、浏览器插件式助理，也不是一个把灵魂仓库同步到
+它**不是**：聊天应用、又一个 agent 框架、云端 RAG 记忆库，也不是一个把灵魂仓库同步到
 Git 服务器的工具（V1 的 Git 灵魂仓库已彻底移除，见
 [docs/MIGRATION_V1_TO_V2.md](docs/MIGRATION_V1_TO_V2.md)）。
 
-## 2. 五端纯原生客户端
+## 2. 用起来
 
-| 端 | 实现 | 状态（本仓库） |
+```bash
+curl -fsSL https://quetzal.plutokeating.beer/install | bash   # 装完自动接上本机的宿主
+qz doctor        # 逐个宿主核对：送核心、送往事、收信号、压缩后不丢
+qz open          # 治理面：他、我、我们、往事、底线、宿主、设备、记录
+qz login         # 登录官方 Hub（第一次登录即注册），多设备从这里开始
+qz export ./sea.zip   # 人能读的海 + 签名事件 + 口令封存的恢复包
+qz import ./sea.zip   # 在新机器的空目录里原样恢复
+```
+
+在宿主里说人话就行（也有 `/quetzalcoatl:remember`、`/quetzalcoatl:correct`、`/quetzalcoatl:hush`、
+`/quetzalcoatl:forget`、`/quetzalcoatl:why`、`/quetzalcoatl:learned`、`/quetzalcoatl:off-record`、`/quetzalcoatl:delegate` 等命令）。
+
+| 界面 | 实现 | 状态（本仓库） |
 | --- | --- | --- |
-| Web | `surfaces/web`：TypeScript + 原生 DOM，由守护进程同源托管的治理面 | 已实现，含 vitest / Playwright |
-| Linux | `surfaces/linux`：`gtk4-rs` + 动态 `libadwaita-1` | 已实现，含 `--self-test` 无头冒烟 |
-| macOS | `surfaces/macos`：SwiftUI 最小治理外壳（说明 + 打开 `qz open`） | 只剩外壳，对话界面已按 000 号铁律删除 |
-| Windows | `surfaces/windows`：WinUI 3 最小治理外壳（说明 + 打开 `qz open`） | 只剩外壳，对话界面已按 000 号铁律删除 |
+| 宿主插件 | `packages/harness-enhancers/claude-code-plugin`、`packages/harness-enhancers/codex-plugin` | 已实现，由 `qz connect` 装入 |
+| Web 治理面 | `surfaces/web`：TypeScript + 原生 DOM，由守护进程同源托管 | 已实现，含 vitest / Playwright |
+| Linux 治理面 | `surfaces/linux`：`gtk4-rs` + 动态 `libadwaita-1` | 已实现，含无头冒烟 |
+| macOS | `surfaces/macos`：SwiftUI 最小外壳（说明 + 打开 `qz open`） | 只剩外壳 |
+| Windows | `surfaces/windows`：WinUI 3 最小外壳（说明 + 打开 `qz open`） | 只剩外壳 |
 | iOS / Android | — | 对话端已撤销；手机上的治理面与推送另行审批 |
-
-共同契约：三档认知密度（陪伴 / 工作台 / 检视）、流式回复不阻塞 UI 线程、双通道无障碍播报、
-本机 `quetzalcoatld` 在线时一律走本地认证 IPC 薄客户端（防 `SQLITE_BUSY` 与双写）。
 
 ## 3. 架构总览
 
 ```mermaid
 flowchart TB
-  subgraph Clients["五端纯原生客户端"]
+  subgraph Hosts["用户自己的宿主"]
+    CC["Claude Code"]
+    Codex["Codex"]
+  end
+
+  subgraph Clients["治理面（只看和签）"]
     Web["Web 治理面 (TS)"]
-    Linux["Linux (GTK4/Adwaita)"]
-    Mac["macOS (SwiftUI)"]
-    Win["Windows (WinUI 3)"]
-    Mobile["iOS / Android (规划中)"]
+    Linux["Linux 治理面 (GTK4/Adwaita)"]
   end
 
   subgraph Daemon["quetzalcoatld（单主机唯一脊柱持有者）"]
@@ -87,6 +100,7 @@ flowchart TB
     Channels["七通道族<br/>飞书 / 企微 / 钉钉 / TG / 邮件 / Webhook / 系统意图"]
   end
 
+  Hosts -- "钩子 / MCP（qz hook、qz mcp）" --> IPC
   Clients --> IPC
   IPC --> Kernel
   IPC --> Ewave
@@ -143,12 +157,15 @@ CGO_ENABLED=0 go build ./cmd/quetzalcoatl-hub  # 在 hub/ 目录
 
 ```bash
 qz up                 # 启动本机 quetzalcoatld 并等待就绪
-qz connect            # 把他接进本机的宿主（Claude Code）；--undo 撤下
+qz connect            # 把他接进本机的宿主（Claude Code、Codex）；--undo 撤下
 qz doctor             # 按宿主体检：送核心、送往事、收信号、压缩后不丢
 qz open               # 打开治理面（只有「看」和「签」）
 qz status             # 守护进程 / 脊柱 / Heart / fabric 状态
 qz agents             # 发现已安装的 Coding Agent（并行探测）
+qz login              # 登录官方 Hub（--hub 指向自建的）
+qz reflect            # 让他现在就回想一次最近的相处
 qz export ./backup.zip
+qz import ./backup.zip
 qz pair start         # 抗量子 X-Wing 设备配对
 qz group list         # openmls 群房间
 qz channel list       # 七大通道族
@@ -179,9 +196,12 @@ qz import-v1 --soul-dir /path/to/v1-soul --db /path/to/v1-sessions.sqlite
    Host 校验；外部网页无法凭 DNS 重绑定调用本地 RPC。
 4. **凭据不进沙箱**：真实 OAuth `refresh_token` 由 `quetzalcoatld` 托管，沙箱只拿到剥离后的
    临时配置目录；`CredentialBroker` 出站时才换上真令牌。
-5. **零知识 Hub**：Hub 只见 HPKE 密封的 webhook 队列、密文 Packfile、哈希与配额；不持有
+5. **改动要你亲口说**：宿主会话里的纠正、不主动提、抹除只在你这一句话里说了才执行，回合结束与对话记录核对；
+   模型在命令行里调用宿主专用入口会被拒；对话里的改动最高只写到「关于我」，底线只能在治理面签。
+6. **抹除是真删**：每个条目一把钥匙，抹除即销毁钥匙；本机库、预写日志、全文索引与检索索引里都不留正文。
+7. **零知识 Hub**：Hub 只见 HPKE 密封的 webhook 队列、密文 Packfile、哈希与配额；不持有
    任何明文记忆或模型密钥。
-6. **供应链**：`deny.toml` 硬阻断 GPL/AGPL 进入 `Apache-2.0` 工作区；发布产物经
+8. **供应链**：`deny.toml` 硬阻断 GPL/AGPL 进入 `Apache-2.0` 工作区；发布产物经
    `scripts/gen-sums.sh` 生成 `SHA256SUMS` + Ed25519 签名；仓库零密钥、零真实个人数据。
 
 完整威胁模型与边界见 [docs/SECURITY.md](docs/SECURITY.md)。
@@ -241,13 +261,19 @@ CONSCIENCE_BENCH_REPORT_DIR=docs/bench \
   cargo test -p quetzalcoatl-ewave --test conscience_bench_suite
 ```
 
-跨平台 CI（Swift / Kotlin / C# / TypeScript 全矩阵）由计划 Task 5.4 的 GitHub Actions
-工作流承载；本仓库尚未提供该工作流，故不作"已通过"声明。
+召回评测（同样默认零副作用）：
+
+```bash
+RECALL_EVAL_REPORT_DIR=docs/bench \
+  cargo test -p quetzalcoatl-ewave --test recall_eval -- --nocapture
+```
+
+GitHub Actions（`.github/workflows/ci.yml`）另在 macOS 与 Windows 上构建两端外壳。
 
 ## 10. 参与开发
 
-- 冷启动先读 `AGENTS.md`、`docs/V2_GOAL.html` 与
-  `.opencode/plans/2026-11-24-quetzalcoatl-v2-architecture-and-plan.md`；
+- 冷启动先读 `AGENTS.md`、`docs/ORIGIN_GOAL.md`、`docs/USER_SCENARIOS.md` 与当前执行计划
+  `.opencode/plans/2026-11-28-quetzalcoatl-host-native-plan.md`；
 - 提交信息使用中文说明真实工程意图，禁止 AI 署名 trailer；
 - 禁止提交任何密钥、真实个人记忆样本、设备标识符或私有 IP/MAC；
 - 运行态数据只写入 `QUETZALCOATL_HOME`（POSIX 默认 `~/.quetzalcoatl`）。
