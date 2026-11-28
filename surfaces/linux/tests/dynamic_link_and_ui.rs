@@ -436,7 +436,7 @@ fn tray_child_probe() {
         let _ = fs::write(&out_path, report.to_string());
         return;
     };
-    let home = quetzalcoatl_client_core::resolve_client_home(None);
+    let home = quetzalcoatl_daemon::resolve_quetzalcoatl_home(None);
     let config_path = out_path.with_extension("desktop.json");
     let checks = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, bool)>::new()));
     let tray_status = std::rc::Rc::new(std::cell::RefCell::new(String::from("unknown")));
@@ -640,7 +640,7 @@ fn lifecycle_child_probe() {
     let Some(out_path) = std::env::var_os(CHILD_LIFECYCLE_OUT).map(PathBuf::from) else {
         return;
     };
-    let home = quetzalcoatl_client_core::resolve_client_home(None);
+    let home = quetzalcoatl_daemon::resolve_quetzalcoatl_home(None);
     let config_path = out_path.with_extension("desktop.json");
     let fallback = std::rc::Rc::new(std::cell::Cell::new(false));
     let tray_status = std::rc::Rc::new(std::cell::RefCell::new(String::from("unknown")));
@@ -993,7 +993,7 @@ fn gov_options(out: &Path) -> DesktopOptions {
     };
     config.save_to(Some(&config_path)).expect("写入窗口配置");
     DesktopOptions {
-        home: quetzalcoatl_client_core::resolve_client_home(None),
+        home: quetzalcoatl_daemon::resolve_quetzalcoatl_home(None),
         config_path: Some(config_path),
         self_test: false,
     }

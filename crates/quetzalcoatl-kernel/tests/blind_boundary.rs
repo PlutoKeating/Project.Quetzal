@@ -181,7 +181,6 @@ fn cargo_metadata_proves_zero_upper_layer_and_vendor_dependencies() -> TestResul
         "quetzalcoatl-fabric",
         "quetzalcoatl-group",
         "quetzalcoatl-voice-ai",
-        "quetzalcoatl-client-core",
         "quetzalcoatl-nse-ffi",
         "reqwest",
         "hyper",
@@ -201,7 +200,6 @@ fn cargo_metadata_proves_zero_upper_layer_and_vendor_dependencies() -> TestResul
         "ort",
         "tract-onnx",
         "sonora-aec3",
-        "uniffi",
     ];
     for forbidden in forbidden_crates {
         assert!(

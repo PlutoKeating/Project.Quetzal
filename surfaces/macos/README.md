@@ -5,7 +5,7 @@
 「打开本机治理面」按钮（经 `PATH` 调用 `qz open`，失败时提示在终端运行）。
 
 - `Swift 6`（严格并发）+ `SwiftUI`，macOS 14+，无 WebView 套壳；
-- 不链接 `quetzalcoatl-uniffi`，不持有任何数据库或 IPC 句柄。
+- 不持有任何数据库或 IPC 句柄。
 
 ```bash
 cd surfaces/macos

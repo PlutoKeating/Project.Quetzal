@@ -1,9 +1,0 @@
-{
-  "tool": "uniffi-bindgen-cs",
-  "tool_version": "0.12.0",
-  "paired_uniffi_version": "0.32.0",
-  "distribution": "git-tag v0.12.0+v0.32.0 (https://github.com/NordSecurity/uniffi-bindgen-cs)",
-  "crates_io_published": false,
-  "install_command": "curl -sSL -o src.tgz 'https://codeload.github.com/NordSecurity/uniffi-bindgen-cs/tar.gz/refs/tags/v0.12.0%2Bv0.32.0' && tar xzf src.tgz && (cd uniffi-bindgen-cs-0.12.0-v0.32.0 && cargo install --path ./bindgen --locked)",
-  "gap_note": "uniffi-bindgen-cs 未发布到 crates.io（index 查询 404），因此无法写入 Cargo.toml 依赖；改为按与 uniffi = \"=0.32.0\" 配对的 Git 标签安装同名工具。tests/api_surface.rs 强制校验工具实际报告的配对 uniffi 版本与本工作区锁定版本一致。"
-}

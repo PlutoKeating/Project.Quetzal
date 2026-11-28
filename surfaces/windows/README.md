@@ -5,7 +5,7 @@
 「打开本机治理面」按钮（调用 `qz open`，找不到 `qz` 时提示在终端运行）。
 
 - `C# / .NET 9 + WinUI 3`，`Nullable=enable`，`TreatWarningsAsErrors=true`（见 `Directory.Build.props`）；
-- 没有 WebView 套壳，不链接 `quetzalcoatl-uniffi`，不持有任何数据库或 IPC 句柄；
+- 没有 WebView 套壳，不持有任何数据库或 IPC 句柄；
 - 构建需要 Windows 与 VS 2022 Build Tools 的「通用 Windows 平台生成工具」（Appx/PRI 任务）：
 
 ```powershell

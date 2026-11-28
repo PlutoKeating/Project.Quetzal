@@ -46,9 +46,7 @@ pub use group::{
     GroupRoomRuntime, GroupRoomSummary, GroupSendOutcome, base64_decode, base64_encode,
 };
 pub use ingress_key::{ChannelIngressKey, ingress_and_device_keys_differ};
-pub use local_ipc::{
-    DesktopRow, IpcClient, IpcRequest, IpcResponse, validate_loopback_host_and_origin,
-};
+pub use local_ipc::{IpcClient, IpcRequest, IpcResponse, validate_loopback_host_and_origin};
 pub use platform_crypto::{decrypt_json_envelope, decrypt_wecom};
 pub use sea_governance::DirectiveDraft;
 pub use voice::{

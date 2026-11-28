@@ -26,7 +26,7 @@
 | L0 状态与密码脊柱 | 事件、HLC、密文包、根密钥、设备纪元 | `crates/quetzalcoatl-types`、`crates/quetzalcoatl-crypto`、`crates/quetzalcoatl-spine` |
 | L1 运行时与治理 | 良知、盲内核、沙箱、洁净室、语音门 | `crates/quetzalcoatl-ewave`、`crates/quetzalcoatl-kernel`、`crates/quetzalcoatl-sandbox`、`crates/quetzalcoatl-voice-ai` |
 | L2 连接与协同 | 打洞/同步/租约、群组、通道、能力、桥接、领域包 | `crates/quetzalcoatl-fabric`、`crates/quetzalcoatl-group`、`crates/quetzalcoatl-channels`、`crates/quetzalcoatl-capabilities`、`crates/quetzalcoatl-bridge`、`crates/quetzalcoatl-domains`、`hub/` |
-| L3 宿主与表面 | 守护进程、Harness 宿主、五端客户端、绑定 | `crates/quetzalcoatl-daemon`、`crates/quetzalcoatl-harness`、`crates/quetzalcoatl-client-core`、`crates/bindings/quetzalcoatl-uniffi`、`surfaces/` |
+| L3 宿主与表面 | 守护进程、Harness 宿主、五端客户端、绑定 | `crates/quetzalcoatl-daemon`、`crates/quetzalcoatl-harness`、`surfaces/`、`packages/harness-enhancers/` |
 
 依赖方向严格自上而下：L0 不依赖 L1+；`quetzalcoatl-kernel` 的依赖白名单由
 `crates/quetzalcoatl-kernel/tests/blind_boundary.rs` 在测试中静态校验。
@@ -50,8 +50,6 @@
 | `quetzalcoatl-voice-ai` | `crates/quetzalcoatl-voice-ai` | `<3MB` 纯 Rust AEC/VAD、按需零遥测 ORT 加载 |
 | `quetzalcoatl-harness` | `crates/quetzalcoatl-harness` | Coding Agent 发现、回环网关、MCP 桥、四层安全壳 |
 | `quetzalcoatl-daemon` | `crates/quetzalcoatl-daemon` | `quetzalcoatld` / `qz`、本地 IPC、Web 控制台、运行编排 |
-| `quetzalcoatl-client-core` | `crates/quetzalcoatl-client-core` | 五端共享的三档差分视图、拉模式流、IPC 模式判定 |
-| `quetzalcoatl-uniffi` | `crates/bindings/quetzalcoatl-uniffi` | Swift / Kotlin / C# 绑定，仅导出拉模式接口 |
 | `quetzalcoatl-desktop` | `surfaces/linux` | Linux GTK4 客户端（唯一加入 Rust workspace 的界面 crate） |
 
 Go 服务端全部位于 `hub/`：入口 `hub/cmd/quetzalcoatl-hub`，内部包 `hub/internal/auth`、
@@ -238,11 +236,12 @@ sequenceDiagram
 
 ## 14. 客户端
 
-`crates/quetzalcoatl-client-core` 是五端共享的纯 Rust 核心：
+自有界面只有两类，都不是对话客户端：
 
-- 三档密度 `Companion / Workbench / Inspector`，以 `ViewPatch` 差分幂等重放。
-- 只暴露 `ViewStream::next_events()` 拉模式流，禁止外语回调。
-- 在线检测到守护进程即走 IPC；不可达时返回 `ClientError::DaemonUnavailable`，绝不直接打开数据库。
+- **宿主插件**（`packages/harness-enhancers/claude-code-plugin`、`packages/harness-enhancers/codex-plugin`）：
+  由 `qz connect` 装进用户自己的宿主；钩子与工具通道都是 `qz` 的子命令，每次调用现读本机运行态文件，失败一律放行。
+- **治理面**（Web 与 Linux 同构，规范见 `docs/GOVERNANCE_SURFACE.md`）：只看和签，经本机认证通道调用守护进程的
+  `sea_*` 方法，绝不直接打开数据库。macOS 与 Windows 只剩打开治理面的外壳。
 
 各端实现细节以其 README 为准：`surfaces/web/README.md`、`surfaces/linux/README.md`、
 `surfaces/macos/README.md`、`surfaces/windows/README.md`。
@@ -250,10 +249,9 @@ sequenceDiagram
 ## 15. 目录布局
 
 ```text
-crates/                 Rust 内核、绑定与守护进程
-  bindings/             UniFFI 绑定
-packages/               声明式插件包（通道/能力/领域/桥接/Harness 增强）
-surfaces/               五端客户端（Web/Linux/macOS/Windows + 移动端规划）
+crates/                 Rust 内核与守护进程
+packages/               声明式插件包（通道/能力/领域/桥接/宿主插件）
+surfaces/               治理面（Web、Linux）与 macOS、Windows 外壳
 hub/                    Go 零知识引导服 quetzalcoatl-hub
 spec/vectors/           跨语言规范向量（Rust 与 Go 共用）
 scripts/                安装器、发布签名、生成器与脚本测试

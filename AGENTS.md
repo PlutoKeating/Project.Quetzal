@@ -52,7 +52,7 @@
 本项目以第一性原理选择各层最优语言，并启用最高等级编译期静态检查辅助 AI Agent 自校正；**100% 放弃跨平台 UI 框架（Flutter / React Native / Compose Desktop）与桌面 WebView 套壳（Electron / Tauri）**：
 
 1. **Rust（`edition = "2024"`, `rust-version = "1.91"`）**：
-   - 覆盖范围：盲微内核、密码学与签名 HLC 脊柱、`quetzalcoatl-ewave`、`iroh v1.5` 组网、OS 沙箱与零凭据代理、桌面通用双模 Harness 宿主、`<3MB` 纯 Rust AEC/VAD、`quetzalcoatl-client-core`、`qz` CLI 及 Linux 原生 `gtk4-rs / relm4` 客户端。
+   - 覆盖范围：盲微内核、密码学与签名 HLC 脊柱、`quetzalcoatl-ewave`、`iroh v1.5` 组网、OS 沙箱与零凭据代理、桌面通用双模 Harness 宿主、`<3MB` 纯 Rust AEC/VAD、`qz` CLI 及 Linux 原生 `gtk4-rs` 治理面。
    - **强制门禁**：`[workspace.lints]` 全局开启 `unsafe_code = "forbid"` 与 `clippy::{unwrap_used, expect_used, panic, todo} = "deny"`，所有业务 crate 必须声明 `lints.workspace = true`（仅极少数底层 OS FFI 垫片可在独立受控边界内经显式审计豁免，核心业务 crate 一律 `#![forbid(unsafe_code)]`）。
    - 每次提交前必跑：`cargo deny check licenses bans sources && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`。
    - 全量 `cargo clippy/test --workspace` 现已覆盖 `surfaces/linux`（`gtk4-rs` + 动态 `libadwaita`），因此 Linux 开发/CI 机器必须预装 `libgtk-4-dev`（>= 4.14）、`libadwaita-1-dev`（>= 1.9）与无头测试所需的 `xvfb`。
@@ -89,7 +89,7 @@
 
 以下 22 条铁律对应真实编译失败、死锁、活锁、OOM、封号或安全绕过漏洞，编码与审查时必须逐条核验。
 
-> **2026-11-28 修订**：第 1–4 条约束的是回环网关，只适用于受管运行与可选的深度模式；第 12 条随语音冻结；第 15、16 条随手机对话端撤销；第 17 条随浏览器端客户端撤销（Web 只剩守护进程同源托管的治理面）。原文保留备查。
+> **2026-11-28 修订**：第 1–4 条约束的是回环网关，只适用于受管运行与可选的深度模式；第 12 条随语音冻结；第 15、16 条随手机对话端撤销；第 17 条随浏览器端客户端撤销（Web 只剩守护进程同源托管的治理面）；第 14 条随 UniFFI 绑定撤销（没有任何一端再经它调用核心）。原文保留备查。
 
 1. **回环网关路径级能力令牌与 OAuth `refresh_token` 剥离保护**：`quetzalcoatld` 为每个受管会话生成 256-bit 路径能力密钥（`http://127.0.0.1:<port>/run/<cap_token>/...`）做常量时间校验防本机 SSRF 蹭用；同时在沙箱外由 `quetzalcoatld` 托管真实 `~/.claude` / `~/.codex` 长期 `refresh_token`，仅向沙箱挂载剥离了 `refresh_token` 的临时 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` 存根，由网关在出站瞬间换上真令牌，彻底防止沙箱内脚本窃取订阅刷新凭据。
 2. **Anthropic 累积前缀缓存保护（`tools → system → messages`）与 4-`cache_control` 归一化**：回环网关**严禁触碰 `system[0]`** 且必须原样透传 `anthropic-beta`、`anthropic-version`、`Authorization` 与 `/v1/messages/count_tokens`；仅将会话期内恒定不变的 `PINNED`（`ROOT+OPERATOR+SELF_CORE`）追加在 `system[last]`，将每轮易变的 `RELATION`、`RECALL`、`VOLATILE`（`FocusConfig` 权重与披露通知）及 `<ewave_check>` 统一注入**最后一条 `user/tool_result` 消息末尾**；转发前统计全请求 `cache_control` 总数并自动合并归拢，严禁超过 4 个触发 HTTP 400。
@@ -104,7 +104,7 @@
 11. **`SayIt`（`sayit-handoff.md` v2.1）四项对齐与重归档幂等契约**：① 快照 `meta` 显式标记 `{ emb_model_id, emb_dim }`，异源模型子树进入 `quetzalcoatl-ewave::merge()` 时自动用本脊柱规范嵌入器重算向量（离线时先走 `semanticWeight=0` 词法+结构对齐并入队后台 `reembed()`），防 `EWAVE_DIMENSION` 崩溃；② 分支对齐强制校验 `data.role`（`project / record / section`）同粒度匹配；③ 记录 `(sayit_user_hash, slice_id, session_id, snapshot_sha256)`，当用户在 SayIt 改归属重编译覆盖同 `sessionId` 快照时，先双时态 `invalidate()` 旧版独占节点再合并新版；④ 将 `@plutokeating/ewave` 中的宿主区域相关 `localeCompare` 统一升级为确定性 UTF-16 码元序（与 `fnv1a` 对齐），并将 `packages/ewave` 许可证对齐至 `Apache-2.0`。
 12. **【冻结】`<3MB` 内置 VAD 与双杀 ONNX 遥测**：内置 VAD 是自研常量可折叠 16 kHz 单分支图的**纯 Rust 转写**（能量 + 周期性，确定性；`tract-onnx` 仅在开发期做解析/折叠/数值一致性验收，因增加 **19.35 MiB** 而不进默认构建）；**Silero 权重未捆绑**，替换为学习型 VAD 是功能默认启用前的跟踪项。按需动态加载 `ort` 时，**同时**在启动器环境注入 `ORT_DISABLE_TELEMETRY=1`（杀 POSIX 1DS 遥测）并由 `OrtInitializer` 强制桥接调用 `ort::init_from(...).with_telemetry(false)`（杀 Windows ETW 遥测），桥接报告遥测未关闭即 fail-closed；具体 `ort` 运行时加载器延后至首个需要端侧推理的 surface。
 13. **单物理主机唯一脊柱持有者防互踢**：桌面上仅后台 `quetzalcoatld` 直接打开 `spine.sqlite` WAL 与 `iroh` 节点密钥；本机 GTK4 / SwiftUI / WinUI 3 与 `qz` CLI 检测到 `quetzalcoatld` 在线时一律走本地 IPC 薄客户端模式，杜绝 `SQLITE_BUSY` 与中继互踢。
-14. **`UniFFI = "=0.32.0"` 精确锁死与拉模式异步流**：`Cargo.toml` 精确用 `=` 锁定 `uniffi` 与 `uniffi-bindgen-cs` 配对版本，全面禁用外语回调接口（规避 C# 异步回调生成同步签名 Bug `#165` 与 GC 委托悬垂崩溃），统一采用 `ViewStream::next_events()` 拉模式流。
+14. **【撤销】`UniFFI = "=0.32.0"` 精确锁死与拉模式异步流**：`Cargo.toml` 精确用 `=` 锁定 `uniffi` 与 `uniffi-bindgen-cs` 配对版本，全面禁用外语回调接口（规避 C# 异步回调生成同步签名 Bug `#165` 与 GC 委托悬垂崩溃），统一采用 `ViewStream::next_events()` 拉模式流。
 15. **【撤销】iOS `<12MB` NSE Spool 模式防 `0xdead10cc` 杀后台**：推送解密扩展 `quetzalcoatl-nse-ffi` 不链接 `tokio/iroh`，`zstd` 解压窗口 `<=1MiB`，且**严禁打开主库 `rusqlite` WAL**——解密后仅向 `<AppGroup>/spine-spool/` 写只追加小文件，由主进程前台/后台任务安全合并并在挂起前释放全部文件锁。
 16. **【撤销】iOS `SwiftAgent` 编译期 Trait 桥接、锁屏钥匙串权限与 `<=8B` 端侧模型禁跑 `Reflector`**：① `SwiftAgent` 启用 SPM `traits: ["OpenFoundationModels"]` 编译，同时注册 `AppleOnDeviceLanguageModel`（`#available(iOS 26, *)` + `CompactOnDevice(4096)` 预算）与 `QuetzalRustCloudLanguageModel`（经 `UniFFI` 逐轮动态重组装良知），实现运行期无缝切换；② 移动端后台主密钥采用 iOS `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` / Android `setUserAuthenticationRequired(false)` 确保持锁屏唤醒可用；③ **严禁 `<=8B` 端侧小模型（含苹果 3B 模型）充当 `Reflector/Judge` 审议 `>= USER_PREF / SELF_CORE` 写回**（离线手机产生的 episode 标为 `pending`，待连上云端大模型或桌面节点后再巩固，防小模型自我谄媚污染核心价值）。
 17. **【撤销】WASM 浏览器三项平台特化**：`wasm32-unknown-unknown` 目标下自动切换为 `navigator.locks` + OPFS `journal_mode=PERSIST; locking_mode=EXCLUSIVE` SQLite VFS、纯 Rust `ruzstd` 与纯 WSS 中继模式。

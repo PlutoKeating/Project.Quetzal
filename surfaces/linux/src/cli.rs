@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use quetzalcoatl_client_core::resolve_client_home;
+use quetzalcoatl_daemon::resolve_quetzalcoatl_home;
 
 use crate::app::DesktopOptions;
 
@@ -69,7 +69,7 @@ pub fn parse(args: &[String]) -> Cli {
     }
 
     Cli::Run(DesktopOptions {
-        home: resolve_client_home(home),
+        home: resolve_quetzalcoatl_home(home),
         config_path: crate::config::DesktopConfig::default_path(),
         self_test,
     })
