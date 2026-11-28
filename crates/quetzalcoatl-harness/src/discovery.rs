@@ -326,7 +326,15 @@ fn probe_single_candidate(
                     });
                 }
 
-                if matches_agent_version_signature(bin_name, &out_str) {
+                // DeepSeek Harness 的 `--version` 只打印版本号；它装在 npm 包 `@deepseek-ai/dsh` 里，
+                // 这个安装位置本身就是特征（Debian 的 dsh 不会在那里）。
+                let installed_as_dsh_package = kind == CodingAgentKind::Dsh
+                    && fs::canonicalize(&binary_path).is_ok_and(|canon| {
+                        canon
+                            .to_string_lossy()
+                            .contains("/node_modules/@deepseek-ai/dsh/")
+                    });
+                if installed_as_dsh_package || matches_agent_version_signature(bin_name, &out_str) {
                     return ProbeOutcome::Accepted(DiscoveredAgent {
                         kind,
                         binary_path,

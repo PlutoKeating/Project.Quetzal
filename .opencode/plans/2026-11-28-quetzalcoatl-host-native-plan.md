@@ -585,8 +585,12 @@
 
 ## S9：更多宿主与外面的进来
 
-- [ ] **Task 9.1**：OpenCode、Codex、DeepSeek Harness 的接入；发现新宿主时通知一键接上；诊断里的接入表。
-  > **现状**：Codex 已接上（本地插件源 + 同形钩子 + 工具通道，第一次要在 Codex 里信任钩子；对话记录核对认得 Codex 的格式）。OpenCode 2.4.1 的 v2 插件形状已核实（`Plugin.define`、`session.hook("prompt"|"context")`），但它的钩子要真实会话才能验证、工具在宿主里的名字未定，接入代码尚未写。DeepSeek Harness 未开始。
+- [x] **Task 9.1**：OpenCode、Codex、DeepSeek Harness 的接入；发现新宿主时通知一键接上；诊断里的接入表。
+  > **落地说明**：`qz connect` 一次接上本机有的全部宿主，`qz doctor` 按宿主列出每一步，治理面「宿主」页列出四个宿主并标明装了没有、接上没有、下一步该做什么（新装的宿主在那里显示「未接上 · qz connect」，这就是「发现即可一键接上」的入口，不另弹通知）。
+  > - Codex：本地插件源 + 同形钩子 + 工具通道，第一次要在 Codex 里信任钩子；对话记录核对认得 Codex 的格式。
+  > - OpenCode 2.4.1：插件目录放进 `~/.config/opencode/plugins/`，由它自己加载（TypeScript 入口）；插件自己登记 `qz mcp`，不改用户的配置文件。核心在每次 `context`（含压缩）里放进 `system`。在隔离目录里用真 OpenCode 核实了加载与 MCP 登记；挂点行为由用例用 node 加载同一份插件、经真守护进程验证。
+  > - DeepSeek Harness 0.2.1：插件放在 `QUETZALCOATL_HOME` 下按绝对路径加载，在 `~/.dsh/cordis.patch.yml` 末尾加一段带标记的插入（插件 + `dsh-mcp-client`），对所有 profile 生效，撤下时用户自己的补丁一字不动。核心是系统提示的一节，往事是动态上下文。在隔离目录里用真 dsh 核实了补丁合成与插件导入。`dsh --version` 只打印版本号，发现改为认它装在 `@deepseek-ai/dsh` 包里。
+  > - 这两个宿主的对话记录（OpenCode 的 SQLite、dsh 的 zstd JSONL）不交给回合结束的挂点，以本人名义的改动按「核对不了」处理（不撤回），仍只能写到「关于我」。
 - [x] **Task 9.2**：SayIt 自动合龙（需要 SayIt 仓库配合，跨仓改动另行确认）。
   > **落地说明**：SayIt 0.4.0 上线了只读接口（SayIt 仓库 `docs/READ_API.md`）。`qz sayit connect` 用个人令牌接上（令牌只存本机，0600），守护进程每五分钟按修订号增量取记录：一条记录成为一条往事（来源标为 SayIt），记录改了旧的抹除、新的接替，删了或移出令牌范围就抹除；落盘之后才上报游标，SayIt 据此显示「已入海」。用的是记录的 Markdown 而不是子树快照：往事要能在治理面里读、能导出、能真删，快照只进检索图做不到这些。没有跨仓改 SayIt。
 - [x] **Task 9.3**：通用导入（宿主自带的规则与记忆、各家对话导出包、角色卡），每次导入可整批撤回；只读的外部笔记来源。

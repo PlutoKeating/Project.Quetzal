@@ -139,8 +139,10 @@ jobs:
           npx playwright install --with-deps chromium
           npm test
 
-      - name: OpenCode plugin — strict typecheck
-        run: surfaces/web/node_modules/.bin/tsc -p packages/harness-enhancers/opencode-plugin/tsconfig.json
+      - name: Host plugins (OpenCode, DeepSeek Harness) — strict typecheck
+        run: |
+          surfaces/web/node_modules/.bin/tsc -p packages/harness-enhancers/opencode-plugin/tsconfig.json
+          surfaces/web/node_modules/.bin/tsc -p packages/harness-enhancers/dsh-plugin/tsconfig.json
 
       - name: Website — install, typecheck, unit tests, prerender build
         working-directory: website

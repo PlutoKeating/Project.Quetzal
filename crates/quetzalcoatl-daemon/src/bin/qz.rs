@@ -1325,6 +1325,35 @@ fn locate_opencode_target(
     ))
 }
 
+fn locate_dsh_target(
+    qz_home: &Path,
+) -> Result<Option<quetzalcoatl_daemon::host_connect_dsh::DshTarget>> {
+    let report = discover_coding_agents_patiently(&DiscoveryConfig {
+        probe_timeout: Duration::from_secs(3),
+        ..DiscoveryConfig::default()
+    })?;
+    if !report
+        .agents
+        .iter()
+        .any(|agent| agent.kind == CodingAgentKind::Dsh)
+    {
+        return Ok(None);
+    }
+    let qz_bin = std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("无法确定 qz 自身的路径: {e}"),
+        })?;
+    let Some(dsh_home) = quetzalcoatl_daemon::host_connect_dsh::dsh_home_dir() else {
+        return Ok(None);
+    };
+    Ok(Some(quetzalcoatl_daemon::host_connect_dsh::DshTarget {
+        qz_home: qz_home.to_path_buf(),
+        qz_bin,
+        dsh_home,
+    }))
+}
+
 /// `qz connect`：把他接进本机已有的宿主。`--undo` 撤下。
 fn run_connect(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
@@ -1348,10 +1377,11 @@ fn run_connect(args: &[String]) -> Result<()> {
     let claude = locate_claude_code_target(&qz_home)?;
     let codex = locate_codex_target(&qz_home)?;
     let opencode = locate_opencode_target(&qz_home)?;
-    if claude.is_none() && codex.is_none() && opencode.is_none() {
+    let dsh = locate_dsh_target(&qz_home)?;
+    if claude.is_none() && codex.is_none() && opencode.is_none() && dsh.is_none() {
         return Err(QuetzalcoatlError::StorageError {
             detail: String::from(
-                "本机没有找到 Claude Code、Codex 或 OpenCode。装好并登录其中一个之后，再执行 `qz connect`。",
+                "本机没有找到 Claude Code、Codex、OpenCode 或 DeepSeek Harness。装好并登录其中一个之后，再执行 `qz connect`。",
             ),
         });
     }
@@ -1369,7 +1399,24 @@ fn run_connect(args: &[String]) -> Result<()> {
             quetzalcoatl_daemon::host_connect_opencode::disconnect_opencode(target)?;
             println!("已从 OpenCode 撤下。");
         }
+        if let Some(target) = &dsh {
+            quetzalcoatl_daemon::host_connect_dsh::disconnect_dsh(target)?;
+            println!("已从 DeepSeek Harness 撤下。它的补丁里你自己写的部分没有动。");
+        }
         return Ok(());
+    }
+
+    if let Some(target) = &dsh {
+        match quetzalcoatl_daemon::host_connect_dsh::connect_dsh(target) {
+            Ok(()) => {
+                println!("已接上 DeepSeek Harness。");
+                println!("  对所有 dsh profile 生效；已经开着的 dsh 重启后生效");
+            }
+            Err(err) => println!(
+                "DeepSeek Harness 没有接上：{}",
+                err.detail().unwrap_or("写补丁失败")
+            ),
+        }
     }
 
     if let Some(target) = &opencode {
@@ -1456,6 +1503,15 @@ fn run_doctor(args: &[String]) -> Result<()> {
         println!("OpenCode");
         for item in quetzalcoatl_daemon::host_connect_opencode::doctor_opencode(&qz_home, &opencode)
         {
+            let mark = if item.ok { "●" } else { "○" };
+            println!("  {mark} {}  {}", item.label, item.detail);
+        }
+    }
+    if let Some(dsh) = locate_dsh_target(&qz_home)?
+        && dsh.plugin_path().exists()
+    {
+        println!("DeepSeek Harness");
+        for item in quetzalcoatl_daemon::host_connect_dsh::doctor_dsh(&qz_home, &dsh) {
             let mark = if item.ok { "●" } else { "○" };
             println!("  {mark} {}  {}", item.label, item.detail);
         }

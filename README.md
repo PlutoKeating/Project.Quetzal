@@ -27,7 +27,7 @@ Quetzalcoatl 不是聊天应用，也不是又一个 agent 框架。它把一个
 
 | 维度 | 设计选择 |
 | --- | --- |
-| 住在哪 | 用户已经在用的宿主里（目前 Claude Code 与 Codex）：经钩子、工具通道（MCP）、斜杠命令与状态栏挂上，任何失败都放行 |
+| 住在哪 | 用户已经在用的宿主里（目前 Claude Code、Codex、OpenCode 与 DeepSeek Harness）：经钩子、工具通道（MCP）、斜杠命令与状态栏挂上，任何失败都放行 |
 | 送进去 | 会话开始送入他的核心（底线、部署约束、核心价值、性情、对你的了解），每次提交带上相关往事，压缩后重送 |
 | 写回来 | 你亲口说的「记住 / 不对 / 别再提 / 忘掉」当场生效并与对话记录核对；模型自己想记的只作参考；你不在时他借你的宿主回想相处，提议经仲裁才沉淀 |
 | 记忆 | 单写者签名 HLC 事件脊柱 + SQLite WAL 物化视图；良知的每次变更是一条可重放的事件，条目正文各用一把钥匙封存，抹除即销毁钥匙 |
@@ -73,6 +73,8 @@ flowchart TB
   subgraph Hosts["用户自己的宿主"]
     CC["Claude Code"]
     Codex["Codex"]
+    OC["OpenCode"]
+    DSH["DeepSeek Harness"]
   end
 
   subgraph Clients["治理面（只看和签）"]
@@ -159,7 +161,7 @@ CGO_ENABLED=0 go build ./cmd/quetzalcoatl-hub  # 在 hub/ 目录
 
 ```bash
 qz up                 # 启动本机 quetzalcoatld 并等待就绪
-qz connect            # 把他接进本机的宿主（Claude Code、Codex）；--undo 撤下
+qz connect            # 把他接进本机的宿主（Claude Code、Codex、OpenCode、DeepSeek Harness）；--undo 撤下
 qz doctor             # 按宿主体检：送核心、送往事、收信号、压缩后不丢
 qz open               # 打开治理面（只有「看」和「签」）
 qz status             # 守护进程 / 脊柱 / Heart / fabric 状态

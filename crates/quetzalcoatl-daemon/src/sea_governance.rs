@@ -444,6 +444,7 @@ fn host_display_name(host: &str) -> &str {
         "claude-code" => "Claude Code",
         "opencode" => "OpenCode",
         "codex" => "Codex",
+        "dsh" => "DeepSeek Harness",
         other => other,
     }
 }
@@ -1357,6 +1358,11 @@ impl SharedDaemonCore {
                 crate::host_connect_opencode::HOST_OPENCODE,
                 "OpenCode",
                 crate::host_connect_opencode::opencode_local_state(home),
+            ),
+            view(
+                crate::host_connect_dsh::HOST_DSH,
+                "DeepSeek Harness",
+                crate::host_connect_dsh::dsh_local_state(home),
             ),
         ]
     }

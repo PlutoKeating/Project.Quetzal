@@ -85,6 +85,17 @@ fn write_fake_claude(dir: &Path) -> std::io::Result<PathBuf> {
         fs::set_permissions(&codex, fs::Permissions::from_mode(0o755))?;
         fs::set_permissions(&opencode, fs::Permissions::from_mode(0o755))?;
     }
+    // 假 DeepSeek Harness：只回答版本号。
+    let dsh = dir.join("dsh");
+    fs::write(
+        &dsh,
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'DeepSeek Harness 0.2.1'; exit 0; fi\nexit 0\n",
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&dsh, fs::Permissions::from_mode(0o755))?;
+    }
     Ok(path)
 }
 
@@ -518,6 +529,7 @@ fn connect_without_the_host_says_what_to_do_next() -> TestResult {
     fs::remove_file(rig.fake_claude_dir.join("claude"))?;
     fs::remove_file(rig.fake_claude_dir.join("codex"))?;
     fs::remove_file(rig.fake_claude_dir.join("opencode"))?;
+    fs::remove_file(rig.fake_claude_dir.join("dsh"))?;
     let out = Command::new(qz())
         .args(["connect"])
         .env("QUETZALCOATL_HOME", &rig.qz_home)
@@ -527,7 +539,10 @@ fn connect_without_the_host_says_what_to_do_next() -> TestResult {
     assert!(!out.status.success(), "没有宿主时接上应当失败");
     let said = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(
-        said.contains("Claude Code") && said.contains("Codex") && said.contains("OpenCode"),
+        said.contains("Claude Code")
+            && said.contains("Codex")
+            && said.contains("OpenCode")
+            && said.contains("DeepSeek Harness"),
         "要说清缺的是哪个宿主: {said}"
     );
     assert!(said.contains("qz connect"), "要说清下一步: {said}");
@@ -1363,5 +1378,100 @@ fn opencode_gets_a_plugin_directory_that_brings_him_in_and_guards_the_shell() ->
     let undo = rig.qz(&["connect", "--undo"], None, &[])?;
     assert!(undo.status.success());
     assert!(!plugin_dir.exists(), "撤下后插件目录不留");
+    Ok(())
+}
+
+/// 用 node 加载 dsh 会加载的那份插件，给它一个替身 Cordis 上下文，按 dsh 的顺序触发挂点。
+const DSH_DRIVER: &str = r#"
+const [pluginPath, prompt] = process.argv.slice(2);
+const plugin = await import(pluginPath);
+const on = new Map();
+const providers = {};
+const ctx = {
+  on: (name, cb) => { on.set(name, cb); return () => {}; },
+  systemPrompt: {
+    section: (s) => { providers.section = s; return () => {}; },
+    context: (c) => { providers.context = c; return () => {}; },
+  },
+};
+plugin.apply(ctx);
+const agent = { session: { id: "ds-1", cwd: process.cwd() } };
+const next = async () => ({ kind: "enter", messages: [] });
+await on.get("agent/pre-step")({ agent, messages: [{ content: [{ type: "text", text: prompt }], source: { kind: "user" } }], turn: 1, step: 1 }, next);
+const allowNext = async () => ({ kind: "allow" });
+const denied = await on.get("tools/pre-execute")({ name: "shell", arguments: { command: "qz hook --host dsh" }, agent }, allowNext);
+const allowed = await on.get("tools/pre-execute")({ name: "shell", arguments: { command: "ls" }, agent }, allowNext);
+await on.get("agent/turn-stopping")({ agent, turn: 1 });
+console.log(JSON.stringify({ name: plugin.name, inject: plugin.inject, core: providers.section.text(), recall: providers.context.text(), denied, allowed }));
+"#;
+
+#[test]
+fn deepseek_harness_gets_a_marked_patch_block_and_a_plugin_that_brings_him_in() -> TestResult {
+    let rig = Rig::new("dsh")?;
+    let mut daemon = start_daemon_with_fixture(&rig)?;
+    let dsh_home = rig.root.join(".dsh");
+    fs::create_dir_all(&dsh_home)?;
+    let theirs = "# my overrides\n- id: ui-theme\n  config:\n    fontSize: 14\n";
+    fs::write(dsh_home.join("cordis.patch.yml"), theirs)?;
+
+    let connect = rig.qz(&["connect"], None, &[])?;
+    let said = String::from_utf8_lossy(&connect.stdout).into_owned();
+    assert!(
+        connect.status.success(),
+        "{}",
+        String::from_utf8_lossy(&connect.stderr)
+    );
+    assert!(said.contains("已接上 DeepSeek Harness"), "{said}");
+    let patch = fs::read_to_string(dsh_home.join("cordis.patch.yml"))?;
+    assert!(patch.starts_with(theirs), "用户自己的补丁原样保留: {patch}");
+    assert!(patch.contains("@deepseek-ai/dsh-mcp-client"), "{patch}");
+    let plugin = rig.qz_home.join("hosts/dsh/plugin/index.ts");
+    assert!(
+        patch.contains(&plugin.to_string_lossy().into_owned()),
+        "{patch}"
+    );
+    let source = fs::read_to_string(&plugin)?;
+    assert!(
+        !source.contains(daemon.ipc_token()),
+        "插件里不得出现守护进程令牌"
+    );
+
+    let driver = rig.root.join("dsh-driver.mjs");
+    fs::write(&driver, DSH_DRIVER)?;
+    let run = Command::new("node")
+        .arg(&driver)
+        .arg(&plugin)
+        .arg("数据库迁移方案是什么")
+        .env("QUETZALCOATL_HOME", &rig.qz_home)
+        .env("HOME", &rig.root)
+        .env_remove("QUETZALCOATL_MANAGED_RUN")
+        .current_dir(&rig.root)
+        .output()?;
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let out: Value = serde_json::from_slice(&run.stdout)?;
+    assert_eq!(out["inject"][0], "systemPrompt");
+    let core = out["core"].as_str().unwrap_or_default();
+    assert!(!core.is_empty(), "开场带入核心: {out}");
+    assert_eq!(
+        out["denied"]["kind"], "deny",
+        "模型在命令行里调 qz hook 要被拦下: {out}"
+    );
+    assert_eq!(out["allowed"]["kind"], "allow", "别的命令照常放行");
+
+    daemon.shutdown()?;
+    let doctor = rig.qz(&["doctor"], None, &[])?;
+    assert!(String::from_utf8_lossy(&doctor.stdout).contains("DeepSeek Harness"));
+    let undo = rig.qz(&["connect", "--undo"], None, &[])?;
+    assert!(undo.status.success());
+    assert_eq!(
+        fs::read_to_string(dsh_home.join("cordis.patch.yml"))?,
+        theirs,
+        "撤下后用户自己的补丁一字不差"
+    );
+    assert!(!plugin.exists(), "撤下后插件不留");
     Ok(())
 }

@@ -1,0 +1,12 @@
+# >>> quetzalcoatl (qz connect; qz connect --undo 会删掉这一段)
+- insert:
+    - id: quetzalcoatl
+      name: "{{PLUGIN_URL}}"
+    - id: mcp-quetzalcoatl
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: quetzalcoatl
+        transport: stdio
+        command: "{{QZ_BIN_RAW}}"
+        args: [mcp, --host, dsh]
+# <<< quetzalcoatl
