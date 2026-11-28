@@ -1414,7 +1414,7 @@ impl SharedDaemonCore {
         })
     }
 
-    fn handle_delegate_run(
+    pub(crate) fn handle_delegate_run(
         self: &Arc<Self>,
         req: DelegateRunRequest,
     ) -> Result<DelegateRunResponse> {
@@ -2044,7 +2044,11 @@ impl SharedDaemonCore {
                 session_id,
             } => (self.handle_host_status_line(session_id.as_deref()), false),
             IpcRequest::HostToolCall { tool, arguments } => {
-                (self.handle_host_tool_call(&tool, &arguments), false)
+                if tool == crate::host_sessions::TOOL_DELEGATE {
+                    (self.host_tool_delegate(&arguments), false)
+                } else {
+                    (self.handle_host_tool_call(&tool, &arguments), false)
+                }
             }
             IpcRequest::EwaveCheckReport { conflict, ids } => {
                 if let Ok(mut guard) = self.state.lock() {

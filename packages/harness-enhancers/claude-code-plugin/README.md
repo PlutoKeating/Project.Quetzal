@@ -27,6 +27,8 @@
 | 「记了什么」 | `/quetzalcoatl:learned` | 列出这个会话里留下的改动 |
 | 「这段无痕」 | `/quetzalcoatl:off-record` | 这一段什么都不留；状态栏显示「无痕」 |
 | 「恢复记录」 | `/quetzalcoatl:on-record` | 结束无痕 |
+| （只用命令） | `/quetzalcoatl:delegate` | 把一件要做完的事交给后台：在独立工作树里做，做完在洁净室里验收 |
+| 「交办的事怎么样了」 | `/quetzalcoatl:delegate-status` | 进展与验收结果 |
 
 在目录里放一个名为 `.quetzalcoatl-off-record` 的空文件，这个目录及其子目录里的会话一律无痕。
 

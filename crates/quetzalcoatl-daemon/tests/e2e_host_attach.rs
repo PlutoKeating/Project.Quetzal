@@ -352,7 +352,15 @@ fn a_claude_code_session_gets_his_core_then_relevant_memories_and_survives_compa
     assert_eq!(
         tools,
         vec![
-            "recall", "remember", "correct", "mute", "forget", "why", "learned"
+            "recall",
+            "remember",
+            "correct",
+            "mute",
+            "forget",
+            "why",
+            "learned",
+            "delegate",
+            "delegate_status"
         ],
         "工具集是显式写死的"
     );
@@ -1030,6 +1038,31 @@ fn the_first_sessions_get_to_know_the_user_and_then_stop_asking() -> TestResult 
     assert!(
         !opening("f-3")?.contains("<first_meeting>"),
         "认识了之后不再问"
+    );
+    Ok(())
+}
+
+#[test]
+fn only_the_user_can_hand_off_a_task_and_its_progress_can_be_checked() -> TestResult {
+    let (rig, _daemon) = connected_rig("deleg")?;
+    let session = Session::start(&rig, "d-1")?;
+
+    session.say("帮我看看这个仓库的结构")?;
+    let (reply, is_error) = session.tool("delegate", json!({"task": "重写整个仓库"}))?;
+    assert!(is_error, "模型自己不能交办: {reply}");
+    session.end_turn()?;
+
+    session.say("/quetzalcoatl:delegate 给 README 加一行安装说明")?;
+    let (reply, is_error) = session.tool(
+        "delegate",
+        json!({"task": "给 README 加一行安装说明，做完即可"}),
+    )?;
+    assert!(!is_error, "{reply}");
+    assert!(reply.contains("[dlg-"), "{reply}");
+    let (status, _) = session.tool("delegate_status", json!({}))?;
+    assert!(
+        status.contains("给 README 加一行安装说明"),
+        "交办的事查得到: {status}"
     );
     Ok(())
 }

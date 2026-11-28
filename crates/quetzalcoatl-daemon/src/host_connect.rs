@@ -44,6 +44,18 @@ const TPL_COMMANDS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "delegate.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/delegate.md"
+        ),
+    ),
+    (
+        "delegate-status.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/delegate-status.md"
+        ),
+    ),
+    (
         "forget.md",
         include_str!(
             "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/forget.md"

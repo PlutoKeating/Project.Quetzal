@@ -66,6 +66,8 @@ pub const TOOL_MUTE: &str = "mute";
 pub const TOOL_FORGET: &str = "forget";
 pub const TOOL_WHY: &str = "why";
 pub const TOOL_LEARNED: &str = "learned";
+pub const TOOL_DELEGATE: &str = "delegate";
+pub const TOOL_DELEGATE_STATUS: &str = "delegate_status";
 
 /// 状态栏一行所需的数据。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +95,8 @@ pub(crate) enum OwnerIntent {
     Correct,
     Mute,
     Forget,
+    /// 把一件要做完的事交给后台，做完要验收。只认斜杠命令。
+    Delegate,
 }
 
 const REMEMBER_PHRASES: &[&str] = &[
@@ -171,6 +175,7 @@ const COMMAND_INTENTS: &[(&str, OwnerIntent)] = &[
     ("correct", OwnerIntent::Correct),
     ("hush", OwnerIntent::Mute),
     ("forget", OwnerIntent::Forget),
+    ("delegate", OwnerIntent::Delegate),
 ];
 
 fn slash_command_name(prompt: &str) -> Option<String> {
@@ -375,6 +380,8 @@ struct HostSessionState {
     /// 这个会话里做过的全部改动。
     session_writes: Vec<TurnWrite>,
     model_writes: usize,
+    /// 会话的工作目录：交办的事在它派生出的独立工作树里做。
+    cwd: Option<PathBuf>,
 }
 
 impl HostSessionState {
@@ -389,13 +396,23 @@ impl HostSessionState {
             turn: None,
             session_writes: Vec::new(),
             model_writes: 0,
+            cwd: None,
         }
     }
 }
 
 /// 宿主会话登记表。它有自己的锁，读它不需要全局状态锁。
+/// 交给后台的一件事。
+#[derive(Clone, Debug)]
+enum Delegation {
+    Running { task: String, started_ms: u64 },
+    Done { task: String, report: String },
+    Failed { task: String, detail: String },
+}
+
 pub(crate) struct HostSessionRegistry {
     sessions: Mutex<BTreeMap<String, HostSessionState>>,
+    delegations: Mutex<BTreeMap<String, Delegation>>,
     agent_name: Mutex<String>,
     pending_for_owner: AtomicUsize,
     /// 宿主在执行我们的工具之前登记的票据：这次调用属于哪个会话。
@@ -406,6 +423,7 @@ impl Default for HostSessionRegistry {
     fn default() -> Self {
         Self {
             sessions: Mutex::new(BTreeMap::new()),
+            delegations: Mutex::new(BTreeMap::new()),
             agent_name: Mutex::new(String::from(DEFAULT_AGENT_NAME)),
             pending_for_owner: AtomicUsize::new(0),
             tool_tickets: Mutex::new(Vec::new()),
@@ -424,6 +442,7 @@ struct ToolTicket {
 struct ActiveSession {
     session_id: String,
     host: String,
+    cwd: Option<PathBuf>,
     off_record: bool,
     intents: BTreeSet<OwnerIntent>,
     prompt: String,
@@ -566,6 +585,7 @@ impl HostSessionRegistry {
         Some(ActiveSession {
             session_id: session_id.clone(),
             host: state.host.clone(),
+            cwd: state.cwd.clone(),
             off_record: state.off_record,
             intents: live_turn
                 .map(|turn| turn.intents.clone())
@@ -810,6 +830,9 @@ impl SharedDaemonCore {
         self.host_sessions
             .update(host, session_id, now_ms, |state| {
                 state.host = String::from(host);
+                if cwd.is_some() {
+                    state.cwd.clone_from(&cwd);
+                }
                 state.pinned_ids = pinned_ids;
                 state.last_turn_ids = Vec::new();
                 state.off_record_by_directory = off_by_directory;
@@ -847,6 +870,9 @@ impl SharedDaemonCore {
         let off_by_directory = directory_is_off_record(cwd.as_deref());
         self.host_sessions
             .update(host, session_id, now_ms, |state| {
+                if cwd.is_some() {
+                    state.cwd.clone_from(&cwd);
+                }
                 if off_by_directory {
                     state.off_record_by_directory = true;
                 }
@@ -1052,6 +1078,7 @@ impl SharedDaemonCore {
             TOOL_FORGET => self.host_tool_forget(arguments),
             TOOL_WHY => self.host_tool_why(arguments),
             TOOL_LEARNED => self.host_tool_learned(arguments),
+            TOOL_DELEGATE_STATUS => self.host_tool_delegate_status(arguments),
             other => tool_error(format!("没有名为 {other} 的工具。")),
         }
     }
@@ -1364,6 +1391,122 @@ impl SharedDaemonCore {
             tool_ok("这个会话里还没有留下任何东西。")
         } else {
             tool_ok(format!("这个会话里留下的：\n{}", lines.join("\n")))
+        }
+    }
+}
+
+impl SharedDaemonCore {
+    /// 交办：把一件要做完的事交给本机的宿主在后台、在独立工作树里做，做完在洁净室里验收。
+    /// 只认用户用斜杠命令亲自交办的；立刻返回编号，用 `delegate_status` 查进展。
+    pub(crate) fn host_tool_delegate(
+        self: &std::sync::Arc<Self>,
+        arguments: &serde_json::Value,
+    ) -> IpcResponse {
+        let Some(task) = text_arg(arguments, "task") else {
+            return tool_error("需要 task：要做完的那件事，说清楚做到什么程度算完。");
+        };
+        let now_ms = now_unix_ms();
+        let Some(active) =
+            self.host_sessions
+                .session_for_tool_call(TOOL_DELEGATE, arguments, now_ms)
+        else {
+            return tool_error("没有进行中的会话。");
+        };
+        if !active.intents.contains(&OwnerIntent::Delegate) {
+            return tool_error("交办要用户自己用 /quetzalcoatl:delegate 发起。");
+        }
+        let Some(workspace_dir) = active.cwd.clone() else {
+            return tool_error("不知道这个会话在哪个目录里，没法交办。");
+        };
+        let id = format!("dlg-{}", uuid::Uuid::new_v4().simple());
+        if let Ok(mut runs) = self.host_sessions.delegations.lock() {
+            runs.insert(
+                id.clone(),
+                Delegation::Running {
+                    task: String::from(task),
+                    started_ms: now_ms,
+                },
+            );
+        }
+        let core = std::sync::Arc::clone(self);
+        let run_id = id.clone();
+        let task_text = String::from(task);
+        let spawned = std::thread::Builder::new()
+            .name(String::from("quetzalcoatl-delegate"))
+            .spawn(move || {
+                let outcome = core.handle_delegate_run(crate::daemon::DelegateRunRequest {
+                    task: task_text.clone(),
+                    peer_id: None,
+                    workspace_dir,
+                    verifier_dag: None,
+                    router_attempted_forbidden_tools: Vec::new(),
+                });
+                let finished = match outcome {
+                    Ok(done) => Delegation::Done {
+                        task: task_text,
+                        report: format!(
+                            "{}验收：{}；改动的文件：{}",
+                            if done.final_text.trim().is_empty() {
+                                String::new()
+                            } else {
+                                format!("{}\n", excerpt(&done.final_text))
+                            },
+                            if done.verification_mark.is_some() {
+                                "通过"
+                            } else {
+                                "没有通过"
+                            },
+                            if done.changed_files.is_empty() {
+                                String::from("（无）")
+                            } else {
+                                done.changed_files.join("、")
+                            }
+                        ),
+                    },
+                    Err(err) => Delegation::Failed {
+                        task: task_text,
+                        detail: err.detail().map_or_else(|| err.to_string(), str::to_owned),
+                    },
+                };
+                if let Ok(mut runs) = core.host_sessions.delegations.lock() {
+                    runs.insert(run_id, finished);
+                }
+            });
+        if spawned.is_err() {
+            return tool_error("后台没能启动这件事，请稍后再试。");
+        }
+        tool_ok(format!(
+            "已交给后台：[{id}]。它会在独立的工作树里做，做完在洁净室里验收；用 delegate_status 查进展。"
+        ))
+    }
+
+    pub(crate) fn host_tool_delegate_status(&self, arguments: &serde_json::Value) -> IpcResponse {
+        let wanted = text_arg(arguments, "id");
+        let Ok(runs) = self.host_sessions.delegations.lock() else {
+            return tool_error(BUSY_NOTICE);
+        };
+        let now_ms = now_unix_ms();
+        let lines: Vec<String> = runs
+            .iter()
+            .filter(|(id, _)| wanted.is_none_or(|w| w == id.as_str()))
+            .map(|(id, run)| match run {
+                Delegation::Running { task, started_ms } => format!(
+                    "[{id}] 进行中（{} 分钟）：{}",
+                    now_ms.saturating_sub(*started_ms) / 60_000,
+                    excerpt(task)
+                ),
+                Delegation::Done { task, report } => {
+                    format!("[{id}] 做完了：{}\n{report}", excerpt(task))
+                }
+                Delegation::Failed { task, detail } => {
+                    format!("[{id}] 没做成：{}\n原因：{detail}", excerpt(task))
+                }
+            })
+            .collect();
+        if lines.is_empty() {
+            tool_ok("没有交办过的事。")
+        } else {
+            tool_ok(lines.join("\n"))
         }
     }
 }

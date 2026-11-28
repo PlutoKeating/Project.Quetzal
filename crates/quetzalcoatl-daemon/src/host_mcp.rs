@@ -11,7 +11,8 @@ use serde_json::{Value, json};
 
 use crate::host_hook::is_managed_run;
 use crate::host_sessions::{
-    TOOL_CORRECT, TOOL_FORGET, TOOL_LEARNED, TOOL_MUTE, TOOL_RECALL, TOOL_REMEMBER, TOOL_WHY,
+    TOOL_CORRECT, TOOL_DELEGATE, TOOL_DELEGATE_STATUS, TOOL_FORGET, TOOL_LEARNED, TOOL_MUTE,
+    TOOL_RECALL, TOOL_REMEMBER, TOOL_WHY,
 };
 use crate::local_ipc::{IpcClient, IpcRequest, IpcResponse};
 
@@ -111,7 +112,28 @@ pub fn tool_descriptors() -> Value {
         {
             "name": TOOL_LEARNED,
             "description": "列出这个会话里留下的改动。用户问「记了什么」时使用。",
-            "inputSchema": no_arguments
+            "inputSchema": no_arguments.clone()
+        },
+        {
+            "name": TOOL_DELEGATE,
+            "description": "把一件要做完的事交给后台：在当前仓库派生的独立工作树里由另一个宿主进程去做，做完在断网的洁净室里验收。只有用户用 /quetzalcoatl:delegate 亲自交办时才能用。立刻返回编号。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task": {"type": "string", "description": "要做完的事，说清楚做到什么程度算完。"}
+                },
+                "required": ["task"]
+            }
+        },
+        {
+            "name": TOOL_DELEGATE_STATUS,
+            "description": "查看交给后台的事做到哪了、验收是否通过。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "可选：只看这一件（交办时返回的编号）。"}
+                }
+            }
         }
     ])
 }
@@ -251,7 +273,15 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "recall", "remember", "correct", "mute", "forget", "why", "learned"
+                "recall",
+                "remember",
+                "correct",
+                "mute",
+                "forget",
+                "why",
+                "learned",
+                "delegate",
+                "delegate_status"
             ],
             "工具清单是显式写死的"
         );
