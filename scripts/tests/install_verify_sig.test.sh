@@ -328,6 +328,19 @@ mkdir -p "$C10"
 check "--version v1.0.0 is normalised, not doubled" run_installer "$C10" vprefix "$BASE/v1.0.0" --version v1.0.0 --no-desktop
 check "v-prefixed request installed 1.0.0" bash -c "'$C10/prefix/bin/qz' --version | grep -q '1.0.0'"
 
+# ---------------------------------------------------------------- 10c2. upgrade while the daemon is running
+C12="$WORK/c12"
+mkdir -p "$C12"
+check "first install for the busy-binary upgrade" run_installer "$C12" busy1 "$BASE/v1.0.0" --version 1.0.0 --no-desktop
+# 让已装好的 quetzalcoatld 正在运行（换成 sleep 的副本），再装一次：不能因为 Text file busy 失败。
+cp "$(command -v sleep)" "$C12/prefix/bin/quetzalcoatld"
+"$C12/prefix/bin/quetzalcoatld" 30 &
+BUSY_PID=$!
+check "upgrading over a running daemon binary succeeds" run_installer "$C12" busy2 "$BASE/v1.0.0" --version 1.0.0 --no-desktop
+check "the running binary was replaced, not left in place" bash -c "head -c 2 '$C12/prefix/bin/quetzalcoatld' | grep -q '#!'"
+kill "$BUSY_PID" 2>/dev/null || true
+wait "$BUSY_PID" 2>/dev/null || true
+
 # ---------------------------------------------------------------- 10d. test key override needs its gate
 C11="$WORK/c11"
 mkdir -p "$C11"

@@ -483,8 +483,13 @@ install_binaries() {
   mkdir -p "$PREFIX/bin" || die "could not create $PREFIX/bin"
   for f in "$stage"/bin/*; do
     [ -f "$f" ] || continue
-    cp "$f" "$PREFIX/bin/" || die "could not install $(basename "$f")"
-    chmod 0755 "$PREFIX/bin/$(basename "$f")" || die "could not chmod $(basename "$f")"
+    # 先写到同目录的临时名，再改名换上：正在运行的旧守护进程不挡升级（直接覆盖会 Text file busy）。
+    local name tmp
+    name=$(basename "$f")
+    tmp="$PREFIX/bin/.$name.new.$$"
+    cp "$f" "$tmp" || die "could not install $name"
+    chmod 0755 "$tmp" || die "could not chmod $name"
+    mv -f "$tmp" "$PREFIX/bin/$name" || { rm -f "$tmp"; die "could not install $name"; }
   done
   # Web 控制台随包安装：bin/web 与 quetzalcoatld 同目录，守护进程零环境变量即可托管。
   if [ -d "$stage/bin/web" ]; then
@@ -686,10 +691,10 @@ do_install() {
     *) say "Add $PREFIX/bin to PATH." ;;
   esac
   if [ "$ATTACHED" = 1 ]; then
-    say "Attached to Claude Code. Open it as you always do: he is there."
+    say "Attached to the hosts on this machine (Claude Code, Codex, OpenCode, DeepSeek Harness). Open one as you always do: he is there."
     say "  detach any time: qz connect --undo"
   else
-    say "No host attached yet. Install and sign in to Claude Code, then run: qz connect"
+    say "No host attached yet. Install and sign in to Claude Code, Codex, OpenCode or DeepSeek Harness, then run: qz connect"
   fi
   say "Start the daemon if it is not running: qz up      Check every step: qz doctor"
   say "Docs: $SITE/docs/start/install"
