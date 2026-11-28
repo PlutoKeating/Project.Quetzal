@@ -9,11 +9,13 @@
 //! 3. `EpochKeyRing`（基于 X-Wing HPKE 的激活设备纪元密钥包裹与踢人前向轮换 `EpochKey[e+1]`）；
 //! 4. `seal_packfile` / `open_packfile`（`zstd windowLog<=20` 1MiB 解压上限护栏 + 2 的幂次分桶填充防 CRIME + 随机 `PerPackDEK` `XChaCha20-Poly1305` + 规范化结构 `AAD`）。
 
+pub mod device_seal;
 pub mod entry_seal;
 pub mod keys;
 pub mod pack;
 pub mod passphrase;
 
+pub use device_seal::{DeviceSealedSecret, open_for_device, seal_for_device};
 pub use entry_seal::{EntryKey, SealedEntry, open_entry, seal_entry};
 pub use keys::{
     AccountRootKey, DeviceIdentity, DevicePublicRecord, EPOCH_KEY_WRAP_INFO, EpochKey,
