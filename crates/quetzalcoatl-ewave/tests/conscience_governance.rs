@@ -176,6 +176,7 @@ fn make_sample_conscience(
             evidence_count: 2,
             constant: idx == 0,
             untrusted: false,
+            muted: false,
             pressure_flags: Vec::new(),
             authority: Authority::Memory,
             mutability: Mutability::memory_free(),

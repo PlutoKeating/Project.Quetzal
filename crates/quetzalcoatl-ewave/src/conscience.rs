@@ -741,6 +741,9 @@ pub struct MemoryEntry {
     pub evidence_count: usize,
     pub constant: bool,
     pub untrusted: bool,
+    /// 不主动提：自动带入时跳过这一条，用户主动问起时仍然找得到。
+    #[serde(default)]
+    pub muted: bool,
     pub pressure_flags: Vec<String>,
     pub authority: Authority,
     pub mutability: Mutability,

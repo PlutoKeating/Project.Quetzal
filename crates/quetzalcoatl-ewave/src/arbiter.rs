@@ -167,6 +167,9 @@ fn signal_allows_target(signal: SignalKind, authority: Authority) -> bool {
     }
 }
 
+/// 有界段修正预算的巩固周期：一个条目这么久没有再变，预算就重新计起。
+const BOUNDED_BUDGET_WINDOW_MS: u64 = 30 * 24 * HOUR_MS;
+
 fn reflector_identity_key(m: &ModelRef) -> String {
     m.model_hash.clone().unwrap_or_else(|| m.reference.clone())
 }
@@ -491,10 +494,14 @@ impl ConscienceArbiter {
         let mut duplicate_count = 0usize;
 
         for prop in proposals {
-            let ev_hash = if prop.evidence_hash.trim().is_empty() {
-                compute_evidence_hash(&prop.evidence_episode_ids)
-            } else {
+            let ev_hash = if !prop.evidence_hash.trim().is_empty() {
                 prop.evidence_hash.clone()
+            } else if prop.evidence_episode_ids.is_empty() {
+                // 没有引用任何相处记录时，证据摘要对所有提案都一样；这时改用提案内容本身做幂等键，
+                // 否则同一条目的第二次不同修改会被当成重复而忽略。
+                compute_evidence_hash(&[format!("value:{}", prop.new_value)])
+            } else {
+                compute_evidence_hash(&prop.evidence_episode_ids)
             };
             let refl_key = reflector_identity_key(&prop.reflector);
             let full_idem_key = (prop.target_id.clone(), ev_hash.clone(), refl_key.clone());
@@ -690,6 +697,7 @@ impl ConscienceArbiter {
                     evidence_count: referenced_episodes.len().max(1),
                     constant: false,
                     untrusted,
+                    muted: false,
                     pressure_flags: Vec::new(),
                     authority: Authority::Memory,
                     mutability: Mutability::memory_free(),
@@ -781,15 +789,19 @@ impl ConscienceArbiter {
                     Authority::SelfSoft => Mutability::self_soft_default(),
                     _ => Mutability::relation_default(),
                 };
-                let mut existing_mut = conscience
-                    .values
-                    .iter()
-                    .find(|v| {
-                        v.id == prop.target_id
-                            && v.invalid_at_ms.is_none()
-                            && v.authority == prop.target_authority
-                    })
-                    .map_or(default_mut, |v| v.mutability.clone());
+                let existing_value = conscience.values.iter().find(|v| {
+                    v.id == prop.target_id
+                        && v.invalid_at_ms.is_none()
+                        && v.authority == prop.target_authority
+                });
+                let mut existing_mut = existing_value.map_or(default_mut, |v| v.mutability.clone());
+                // 修正预算约束的是「短时间内被带偏的幅度」。一个条目稳定了一个巩固周期之后，
+                // 预算重新计起；否则同一条偏好改过几次就再也改不动了。
+                if existing_value.is_some_and(|v| {
+                    now_ms.saturating_sub(v.valid_from_ms) >= BOUNDED_BUDGET_WINDOW_MS
+                }) {
+                    existing_mut.budget_spent = 0.0;
+                }
 
                 if referenced_episodes.len() < existing_mut.min_evidence {
                     self.processed_keys

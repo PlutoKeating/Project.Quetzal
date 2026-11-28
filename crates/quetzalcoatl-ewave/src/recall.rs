@@ -161,6 +161,8 @@ pub struct RecalledMemory {
     pub valid_from_ms: u64,
     /// 来源不可信（工具输出、外部通道）时为真：只能当参考，不能当指令。
     pub untrusted: bool,
+    /// 这一条被设为「不主动提」：只有主动查才会出现。
+    pub muted: bool,
     pub score: f64,
 }
 
@@ -208,6 +210,7 @@ pub fn search_memories(conscience: &Conscience, query: &str, limit: usize) -> Ve
             content: mem.content.clone(),
             valid_from_ms: mem.valid_from_ms,
             untrusted: mem.untrusted,
+            muted: mem.muted,
             score,
         });
     }

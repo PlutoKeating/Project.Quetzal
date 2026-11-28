@@ -492,6 +492,12 @@ impl ContextAssembler {
             .map(normalize_nfkc_lower_trim)
             .unwrap_or_default();
         let query_terms = lexical_terms(&norm_query);
+        let muted_ids: BTreeSet<&str> = conscience
+            .memories
+            .iter()
+            .filter(|m| m.muted)
+            .map(|m| m.id.as_str())
+            .collect();
 
         if let Some(query_str) = &request.query {
             let trimmed_q = query_str.trim();
@@ -505,6 +511,10 @@ impl ContextAssembler {
                     },
                 )?;
                 for reg in regions {
+                    // 设为「不主动提」的往事不自动带入（用户主动查时仍然找得到）。
+                    if muted_ids.contains(reg.anchor.id.as_str()) {
+                        continue;
+                    }
                     // 记忆图的激活总会返回最近的几个节点，哪怕它们和提问毫无关系。
                     // 送进用户的宿主会话之前，再要求节点文字与提问有足够的共同词。
                     if host_session
@@ -574,7 +584,7 @@ impl ContextAssembler {
         for mem in conscience
             .memories
             .iter()
-            .filter(|m| m.invalid_at_ms.is_none())
+            .filter(|m| m.invalid_at_ms.is_none() && !m.muted)
         {
             if seen_recall_ids.contains(&mem.id) {
                 continue;

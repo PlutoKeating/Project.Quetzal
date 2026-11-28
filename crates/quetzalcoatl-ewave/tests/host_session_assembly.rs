@@ -42,6 +42,7 @@ fn memory(id: &str, content: &str, triggers: &[&str], constant: bool) -> MemoryE
         evidence_count: 1,
         constant,
         untrusted: false,
+        muted: false,
         pressure_flags: Vec::new(),
         authority: Authority::Memory,
         mutability: Mutability::memory_free(),

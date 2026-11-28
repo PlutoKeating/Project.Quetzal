@@ -8,6 +8,7 @@ pub mod arbiter;
 pub mod assembler;
 pub mod conscience;
 pub mod graph;
+pub mod journal;
 pub mod recall;
 
 pub use align::{

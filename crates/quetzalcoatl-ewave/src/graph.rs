@@ -2705,6 +2705,45 @@ impl SerpentineGraph {
             .ok_or_else(|| QuetzalcoatlError::invalid_id("NodeId", format!("未知节点 {id}")))
     }
 
+    /// 抹除一个条目在图里的全部痕迹：让它的每个版本失效，并清空文字、标签与附带数据。
+    ///
+    /// 结构（父子关系、时间、聚类统计量）保留，图的不变量不受影响。这是本人抹除时用的，
+    /// 不受机械锁约束。返回被处理的节点数。
+    pub fn redact_entry(&mut self, entry_id: &str, at_ms: u64) -> Result<usize> {
+        let versioned = format!("{entry_id}@");
+        let targets: Vec<NodeId> = self
+            .nodes
+            .values()
+            .filter(|node| {
+                node.kind != NodeKind::Root
+                    && (node.id == entry_id
+                        || node.id.starts_with(&versioned)
+                        || ["conscience_id", "memory_id"].iter().any(|key| {
+                            node.data.get(*key).and_then(serde_json::Value::as_str)
+                                == Some(entry_id)
+                        }))
+            })
+            .map(|node| node.id.clone())
+            .collect();
+        for id in &targets {
+            if let Some(node) = self.nodes.get_mut(id) {
+                if node.time.invalid_at.is_none() {
+                    node.time.invalid_at = Some(at_ms);
+                }
+                node.text = None;
+                node.label = None;
+                node.data = serde_json::Value::Null;
+                node.meta.clear();
+                node.updated_at = at_ms;
+            }
+        }
+        if !targets.is_empty() {
+            self.updated_at = self.updated_at.max(at_ms);
+            self.rebuild()?;
+        }
+        Ok(targets.len())
+    }
+
     /// 设置子树机械锁（`read_only` 或 `structure_frozen`）。
     pub fn lock(
         &mut self,
