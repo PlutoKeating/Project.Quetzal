@@ -10,7 +10,7 @@ Quetzalcoatl 不是聊天应用，也不是又一个 agent 框架。它把一个
 逐场景的需求与现状以 [docs/USER_SCENARIOS.md](docs/USER_SCENARIOS.md) 为准；当前执行计划是
 `.opencode/plans/2026-11-28-quetzalcoatl-host-native-plan.md`。
 
-- 当前工作区版本：`2.0.0-alpha.8`（预发布）
+- 当前工作区版本：`2.0.0-alpha.9`（预发布）
 - 唯一终端简写：`qz`；其余二进制/服务/包名一律全拼 `quetzalcoatl-*`
 - 许可证：核心与客户端 `Apache-2.0`；`hub/` 引导服 `AGPL-3.0-only`（见 [许可证](#许可证)）
 - 已有自动化证据：`ConscienceBench` T1/T2/T3 认证报告

@@ -4,6 +4,14 @@
 `## <version>` 抽取对应小节，作为 GitHub Release 的 notes。新增版本时在文件顶部追加小节，
 标题格式固定为 `## <version>`（可带日期）。
 
+## 2.0.0-alpha.9
+
+- 治理面「宿主」页：没接上（或没装）的宿主只占一行、写明 `qz connect`，不再铺四格一样的「不通」；「几步不通」只数接上了的宿主。Web 与 Linux 同改。
+- 安装器：升级时守护进程还在跑也能换上新版本（原来会因 Text file busy 失败）；结尾提示改为四个宿主。
+- Linux 治理面：签底线与吊销设备这两个带口令的写多给些时间（第一次签署要封存根私钥）。
+- Hub 镜像构建可以指定 Go 模块镜像（`HUB_GOPROXY`）。
+- 官网文档补上 `qz bring`、`qz sayit connect`、`qz reflect`、`qz approve`、`qz recovery-code`、`qz recover`，「带走与恢复」新增应急码与带进来两节。
+
 ## 2.0.0-alpha.8
 
 - 修正：SayIt 自动流入第一次拉取就会失败——SayIt 给的采集时刻是毫秒数，客户端原来按字符串解析。对 SayIt 真实的 Worker 走查过一遍：流入、SayIt 上显示「已入海」、在 SayIt 里删掉后抹除。
