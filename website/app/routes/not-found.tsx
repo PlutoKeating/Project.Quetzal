@@ -1,32 +1,36 @@
-import { Link, useLocation } from "react-router";
-import { localized, useChrome, useLang } from "~/i18n/core";
+import { Link } from "react-router";
+import { ArrowRight } from "~/components/icons";
+import { chrome, langFromPath, localized, useLang } from "~/i18n/core";
 
 export function meta({ location }: { location: { pathname: string } }) {
-  const lang = location.pathname === "/en" || location.pathname.startsWith("/en/") ? "en" : "zh";
-  return [
-    { title: lang === "zh" ? "页面不存在 · Quetzalcoatl" : "Not found · Quetzalcoatl" },
-    { name: "robots", content: "noindex" },
-  ];
+  const t = chrome[langFromPath(location.pathname)];
+  return [{ title: `${t.notFound.metaTitle} · Quetzalcoatl` }, { name: "robots", content: "noindex" }];
 }
 
+/** 这一页只有一件事可做：回到首页。所以白色主按钮在这里。 */
 export default function NotFound() {
   const lang = useLang();
-  const { pathname } = useLocation();
-  const { t } = useChrome();
+  const t = chrome[lang];
   return (
-    <div className="wrap not-found">
-      <p className="eyebrow">Quetzalcoatl</p>
-      <h1>404</h1>
-      <p style={{ color: "inherit" }}>{lang === "zh" ? "这条路径上没有脊柱。" : "There is no spine on this path."}</p>
-      <p>
-        <Link to={localized(lang, "/")}>{t.nav.home}</Link>
-        {" · "}
-        <Link to={localized(lang, "/docs")}>{t.nav.docs}</Link>
-        {" · "}
-        <Link to={localized(lang, "/download")} aria-current={pathname === localized(lang, "/download") ? "page" : undefined}>
-          {t.nav.download}
-        </Link>
-      </p>
-    </div>
+    <section className="qz-hero" data-qz-lit>
+      <div className="qz-container qz-hero-inner">
+        <p className="qz-meta" dir="ltr">
+          404
+        </p>
+        <h1 className="qz-display">{t.notFound.title}</h1>
+        <p className="qz-lead">{t.notFound.lead}</p>
+        <div className="qz-action-stack">
+          <div className="qz-action-row">
+            <Link to={localized(lang, "/")} className="qz-btn-white">
+              {t.notFound.home}
+            </Link>
+            <Link to={localized(lang, "/docs")} className="qz-link-arrow">
+              <span>{t.notFound.docs}</span>
+              <ArrowRight />
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // 构建后处理：
-//   1. 预渲染的 /404 复制为 404.html（Workers 静态资源的 not_found_handling）
+//   1. 预渲染的 /404 与 /en/404 复制为 404.html 与 en/404.html（Workers 静态资源的 not_found_handling 取最近的一份）
 //   2. 把 scripts/install.sh 与 scripts/install.ps1 再放一份到站点根（/install、/install.ps1）；
 //      Worker 的 run_worker_first 会先接管这两个路径，静态副本只是边缘/直连兜底，内容同源同字节
 //   3. _headers：全站安全响应头（CSP 的 script-src 在下面逐页用 <meta> 收紧到 sha256）
-//   4. 每个 HTML 的 <head> 最前面插入按页计算的内联脚本 CSP（含每个内联脚本的 sha256），
+//   4. _redirects：已删除页面的旧地址 301 到新页面（清单在 app/lib/moved.json）
+//   5. 每个 HTML 的 <head> 最前面插入按页计算的内联脚本 CSP（含每个内联脚本的 sha256），
 //      并补 <link rel="canonical">；hreflang 由 app/root.tsx 在渲染时输出
-//   5. 断言每页 CSP 覆盖了该页所有内联脚本（漏一个就会被浏览器拦掉，宁可构建失败）
-//   6. sitemap.xml / robots.txt
-//   5. sitemap.xml
+//   6. 断言每页 CSP 覆盖了该页所有内联脚本（漏一个就会被浏览器拦掉，宁可构建失败）
+//   7. 断言每页的骨架符合设计系统：<body> 最前面是光学地平线与胶片颗粒，内容包在 .qz-page 里，
+//      至多一个白色主按钮；光学脚本与字体确实从 packages/design-system 进了产物
+//   8. sitemap.xml / robots.txt
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -17,9 +19,12 @@ import { fileURLToPath } from "node:url";
 const client = fileURLToPath(new URL("../build/client", import.meta.url));
 const origin = process.env.SITE_ORIGIN ?? "https://quetzal.plutokeating.beer";
 
-const notFound = join(client, "404", "index.html");
-if (!existsSync(notFound)) throw new Error(`postbuild: missing prerendered 404 at ${notFound}`);
-copyFileSync(notFound, join(client, "404.html"));
+// 两种语言各一份 404.html：Workers 静态资源对不存在的地址取「最近的」404.html，/en/ 下的取英文那一份。
+for (const dir of ["", "en"]) {
+  const notFound = join(client, dir, "404", "index.html");
+  if (!existsSync(notFound)) throw new Error(`postbuild: missing prerendered 404 at ${notFound}`);
+  copyFileSync(notFound, join(client, dir, "404.html"));
+}
 
 for (const [name, source] of [
   ["install", "../../scripts/install.sh"],
@@ -64,6 +69,13 @@ writeFileSync(
     "  Cache-Control: public, max-age=300",
     "",
   ].join("\n"),
+);
+
+// 已删除页面的旧地址：301 到接替它的页面，中文与 /en 各一条。
+const moved = JSON.parse(readFileSync(fileURLToPath(new URL("../app/lib/moved.json", import.meta.url)), "utf8"));
+writeFileSync(
+  join(client, "_redirects"),
+  moved.flatMap(([from, to]) => [`${from} ${to} 301`, `/en${from} /en${to} 301`]).join("\n") + "\n",
 );
 
 const INLINE = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
@@ -112,8 +124,32 @@ for (const file of pages) {
   for (const match of html.matchAll(INLINE)) {
     if (!csp.includes(sha(match[1] ?? ""))) throw new Error(`postbuild: inline script on ${file} is outside the CSP`);
   }
+  // 设计系统的页面骨架：两层光学层是 <body> 最前面的两个子元素，内容包在 .qz-page 里。
+  if (!file.includes("__spa-fallback")) {
+    if (!/<body[^>]*><div class="qz-optical-horizon(?: is-reading)?" aria-hidden="true"><\/div><div class="qz-grain" aria-hidden="true"><\/div><div class="qz-page/.test(html)) {
+      throw new Error(`postbuild: ${file} does not start with the optical horizon, the grain and .qz-page`);
+    }
+    if ((html.match(/class="qz-btn-white/g) ?? []).length > 1) throw new Error(`postbuild: ${file} has more than one white primary button`);
+    if (!/<script src="\/assets\/optics-[\w-]+\.js" defer=""><\/script>/.test(html)) throw new Error(`postbuild: ${file} does not load the optics script`);
+    if (/qz chat/.test(html)) throw new Error(`postbuild: ${file} mentions qz chat`);
+  }
   writeFileSync(file, html);
   touched += 1;
+}
+
+// 光学脚本与字体必须原样来自设计系统：逐字节比对，防止官网里悄悄长出第二份。
+const system = fileURLToPath(new URL("../../packages/design-system", import.meta.url));
+const assets = readdirSync(join(client, "assets"));
+const optics = assets.find((name) => /^optics-[\w-]+\.js$/.test(name));
+if (!optics || !readFileSync(join(client, "assets", optics)).equals(readFileSync(join(system, "scripts", "optics.js")))) {
+  throw new Error("postbuild: the optics script in the build is not the design system's scripts/optics.js");
+}
+for (const font of readdirSync(join(system, "fonts")).filter((name) => name.endsWith(".woff2"))) {
+  const stem = font.replace(/\.woff2$/, "");
+  const built = assets.find((name) => name.startsWith(`${stem}-`) && name.endsWith(".woff2"));
+  if (!built || !readFileSync(join(client, "assets", built)).equals(readFileSync(join(system, "fonts", font)))) {
+    throw new Error(`postbuild: font ${font} in the build is not the design system's copy`);
+  }
 }
 
 const urls = pages
@@ -130,4 +166,4 @@ const sitemap = [
 writeFileSync(join(client, "sitemap.xml"), sitemap);
 writeFileSync(join(client, "robots.txt"), `User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
 
-console.log(`postbuild: ${touched} pages got a per-page CSP, ${urls.length} URLs in sitemap.xml`);
+console.log(`postbuild: ${touched} pages got a per-page CSP and passed the shell check, ${urls.length} URLs in sitemap.xml, ${moved.length * 2} redirects`);

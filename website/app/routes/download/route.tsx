@@ -2,45 +2,42 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import {
   GITHUB_RELEASES_API,
-  assetsOf,
   findPlatformAsset,
-  isAllowedAsset,
   isInstallableRelease,
   isPrerelease,
   pickLatest,
   type PlatformId,
   type Release,
 } from "@shared/releases";
-import { useChrome, useLang, localized } from "~/i18n/core";
-import { messages } from "./i18n";
+import { Inline, Rail } from "~/components/Blocks";
+import { CommandBar } from "~/components/CommandBar";
+import { ArrowRight } from "~/components/icons";
+import { INSTALL_COMMAND, SOURCE_BUILD_COMMAND, langFromPath, localized, useLang } from "~/i18n/core";
+import { pageMeta } from "~/lib/meta";
+import { type Os, messages } from "./i18n";
 
 export function meta({ location }: { location: { pathname: string } }) {
-  const lang = location.pathname === "/en" || location.pathname.startsWith("/en/") ? "en" : "zh";
-  const m = messages[lang];
-  return [
-    { title: `${m.metaTitle} · Quetzalcoatl` },
-    { name: "description", content: m.metaDescription },
-    { property: "og:title", content: m.metaTitle },
-    { property: "og:description", content: m.metaDescription },
-  ];
+  const m = messages[langFromPath(location.pathname)];
+  return pageMeta(`${m.metaTitle} · Quetzalcoatl`, m.metaDescription);
 }
 
-const PLATFORM_ORDER: PlatformId[] = ["linux-x64", "linux-arm64", "macos-arm64", "macos-x64", "windows-x64", "windows-arm64"];
+const OS_ORDER: Os[] = ["linux", "macos", "windows"];
+/** 目前只有 Linux 有安装包；另外两个平台从源码构建。 */
+const PACKAGED: Record<Os, PlatformId[]> = { linux: ["linux-x64", "linux-arm64"], macos: [], windows: [] };
+const ARCH_LABEL: Partial<Record<PlatformId, string>> = { "linux-x64": "Linux x64", "linux-arm64": "Linux arm64" };
 
-function detectPlatform(): PlatformId {
-  if (typeof navigator === "undefined") return "linux-x64";
+function detectOs(): Os {
+  const hash = location.hash.slice(1);
+  if (OS_ORDER.includes(hash as Os)) return hash as Os;
   const ua = navigator.userAgent;
-  const hash = typeof location !== "undefined" ? location.hash.slice(1) : "";
-  if (PLATFORM_ORDER.includes(hash as PlatformId)) return hash as PlatformId;
-  if (/Windows/i.test(ua)) return /ARM64|arm64/i.test(ua) ? "windows-arm64" : "windows-x64";
-  if (/Macintosh|Mac OS X/i.test(ua)) return /arm64|aarch64/i.test(ua) ? "macos-arm64" : "macos-x64";
-  if (/Linux/i.test(ua)) return /aarch64|arm64/i.test(ua) ? "linux-arm64" : "linux-x64";
-  return "linux-x64";
+  if (/Windows/i.test(ua)) return "windows";
+  if (/Macintosh|Mac OS X/i.test(ua)) return "macos";
+  return "linux";
 }
 
 function formatBytes(size: unknown): string {
   const n = typeof size === "number" ? size : Number(size);
-  if (!Number.isFinite(n) || n <= 0) return "—";
+  if (!Number.isFinite(n) || n <= 0) return "";
   const units = ["B", "KiB", "MiB", "GiB"];
   let value = n;
   let unit = 0;
@@ -48,7 +45,7 @@ function formatBytes(size: unknown): string {
     value /= 1024;
     unit += 1;
   }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit] ?? "B"}`;
 }
 
 type State = { status: "loading" } | { status: "error" } | { status: "ready"; releases: Release[] };
@@ -72,10 +69,9 @@ async function loadReleases(): Promise<Release[]> {
 
 export default function Download() {
   const lang = useLang();
-  const { t } = useChrome();
   const m = messages[lang];
   const [state, setState] = useState<State>({ status: "loading" });
-  const [platform, setPlatform] = useState<PlatformId>("linux-x64");
+  const [os, setOs] = useState<Os>("linux");
   const link = (path: string) => localized(lang, path);
 
   const load = useCallback(() => {
@@ -86,160 +82,165 @@ export default function Download() {
   }, []);
 
   useEffect(() => load(), [load]);
-  useEffect(() => setPlatform(detectPlatform()), []);
+  useEffect(() => setOs(detectOs()), []);
 
   const installable = state.status === "ready" ? state.releases.filter(isInstallableRelease) : [];
   const latest = pickLatest(installable) ?? installable[0];
-  const prerelease = latest ? isPrerelease(latest) : false;
   const version = latest ? String(latest.tag_name ?? "").replace(/^v/, "") : "";
-  const asset = latest ? findPlatformAsset(latest, platform) : undefined;
-  const assetUrl = asset ? String(asset.browser_download_url ?? "") : "";
-  const isWindows = platform.startsWith("windows");
-  const installCommand = isWindows
-    ? "irm https://quetzal.plutokeating.beer/install.ps1 | iex"
-    : "curl -fsSL https://quetzal.plutokeating.beer/install | bash";
+  const published = latest ? String(latest.published_at ?? "").slice(0, 10) : "";
+  const packaged = PACKAGED[os];
+  const fromSource = packaged.length === 0;
+  const command = fromSource ? SOURCE_BUILD_COMMAND : INSTALL_COMMAND;
+  const under = fromSource ? m.under.source : m.under.installer;
+
+  const releaseMeta = latest
+    ? [m.release.signed, isPrerelease(latest) ? m.release.prerelease : "", published].filter(Boolean).join(" · ")
+    : state.status === "loading"
+      ? m.release.loading
+      : "";
 
   return (
     <>
-      <section className="hero">
-        <div className="wrap">
-          <p className="eyebrow">Quetzalcoatl</p>
-          <h1>{t.download.title}</h1>
-          <p className="lead">{m.intro}</p>
-        </div>
-      </section>
+      {/* 访客此刻想要的只有一样：适合这台机器的那一行命令。版本与安装包就在它下面。 */}
+      <section className="qz-hero" data-qz-lit>
+        <div className="qz-container qz-hero-inner">
+          <h1 className="qz-display">
+            {m.title.before}
+            <span className="qz-wordmark" dir="ltr">
+              Quetzalcoatl
+            </span>
+            {m.title.after}
+          </h1>
+          <p className="qz-lead">{m.lead}</p>
 
-      <section className="section">
-        <div className="wrap">
-          <div className="platform-tabs" role="tablist" aria-label={t.download.choose}>
-            {PLATFORM_ORDER.map((id) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={platform === id}
-                onClick={() => setPlatform(id)}
-              >
-                {m.platforms[id].label}
-              </button>
-            ))}
+          <div className="qz-action-stack">
+            <div className="qz-segmented" role="tablist" aria-label={m.choose}>
+              {OS_ORDER.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  id={`os-${id}`}
+                  aria-selected={os === id}
+                  aria-controls="os-panel"
+                  className={os === id ? "qz-segment is-active" : "qz-segment"}
+                  onClick={() => setOs(id)}
+                >
+                  {m.os[id]}
+                </button>
+              ))}
+            </div>
+            <div className="qz-action-row">
+              <CommandBar command={command} />
+            </div>
+            <p className="qz-meta-line">
+              {under.flatMap((item, i) => [
+                i > 0 ? (
+                  <span key={`dot-${item}`} aria-hidden="true">
+                    ·
+                  </span>
+                ) : null,
+                <span key={item}>{item}</span>,
+              ])}
+            </p>
           </div>
 
-          <div className="release-panel">
-            {state.status === "loading" ? <p className="release-note">{t.download.latest}…</p> : null}
-            {state.status === "error" ? (
-              <div>
-                <p className="release-note">{t.download.loadFailed}</p>
-                <button type="button" className="btn ghost" onClick={load}>
-                  {t.download.retry}
-                </button>
-              </div>
-            ) : null}
-            {state.status === "ready" && !latest ? (
-              <p className="release-note">{t.download.noRelease}</p>
-            ) : null}
-
-            {latest ? (
+          <div className="qz-hero-stage site-panel" role="tabpanel" id="os-panel" aria-labelledby={`os-${os}`}>
+            {fromSource ? (
+              <Rail
+                cols={2}
+                head={{ name: version ? `v${version}` : m.os[os], meta: version ? m.os[os] : undefined }}
+                cells={[
+                  { title: m.release.noPackage.title, text: m.release.noPackage.text },
+                  { title: m.release.fromSource.title, text: m.release.fromSource.text, href: "/docs/start/install#source", line: { kind: "cmd", text: "qz connect" } },
+                ]}
+                lang={lang}
+              />
+            ) : (
               <>
-                <h2>
-                  Quetzalcoatl {version} <span className="badge">{t.download.signed}</span>
-                  {prerelease ? (
-                    <span className="badge">{lang === "en" ? "pre-release" : "预发布"}</span>
-                  ) : null}
-                </h2>
-                {prerelease ? (
-                  <p className="release-note">
-                    {lang === "en"
-                      ? "This is a pre-release. It is signed and installable, but interfaces may still change."
-                      : "这是预发布版本：已签名、可安装，但接口仍可能变化。"}
-                  </p>
-                ) : null}
-                <div className="release-meta">
-                  <span>{m.platforms[platform].label}</span>
-                  <span>{m.platforms[platform].note}</span>
-                  {asset ? (
-                    <span>
-                      {t.download.size}: {formatBytes(asset.size)}
-                    </span>
-                  ) : null}
+                <div className="qz-rail-head">
+                  <span className="qz-caret" dir="ltr" aria-hidden="true">
+                    &gt;
+                  </span>
+                  <span dir="ltr" className="site-nowrap">
+                    {version ? `v${version}` : m.os[os]}
+                  </span>
+                  {releaseMeta ? <span className="qz-meta">{releaseMeta}</span> : null}
                 </div>
-                {!asset ? (
-                  <p className="release-note" role="status">
-                    {lang === "en"
-                      ? `This pre-release ships no ${m.platforms[platform].label} build: ${version} only publishes Linux x64/arm64 CLI packages plus the hub/desktop/web bundles. macOS and Windows native clients arrive with the stable release; until then build them from source (see the repository's docs/RELEASE.md). The command below will not find an asset for this platform.`
-                      : `本预发布没有 ${m.platforms[platform].label} 产物：${version} 只发布 Linux x64/arm64 命令行包，以及 hub / 桌面 / Web 打包件。macOS 与 Windows 原生端随正式版发布；在此之前请从源码构建（见仓库 docs/RELEASE.md）。下面的安装命令在这个平台上找不到可下载产物。`}
-                  </p>
-                ) : null}
-                <div className="release-actions">
-                  {assetUrl ? (
-                    <a className="btn" href={assetUrl} rel="noreferrer noopener">
-                      {t.download.direct}
-                    </a>
-                  ) : null}
-                  <Link className="btn ghost" to={link("/docs/start/install")}>
-                    {t.download.guide}
-                  </Link>
-                  <Link to={link("/docs/reference/release-signing")}>{t.footer.signing}</Link>
-                </div>
-                <p className="release-note">{m.cliNote}</p>
-
-                <h3 style={{ marginTop: "24px" }}>{t.download.assets}</h3>
-                <ul className="asset-list">
-                  {assetsOf(latest).map((a) => {
-                    const name = String(a.name ?? "");
-                    const url = String(a.browser_download_url ?? "");
+                <div className="qz-rail is-2">
+                  {packaged.map((platform) => {
+                    const asset = latest ? findPlatformAsset(latest, platform) : undefined;
+                    const url = asset ? String(asset.browser_download_url ?? "") : "";
+                    const size = asset ? formatBytes(asset.size) : "";
                     return (
-                      <li key={name}>
-                        {isAllowedAsset(name) ? (
-                          <a href={url} rel="noreferrer noopener">
-                            {name}
-                          </a>
-                        ) : (
-                          <span>{name}</span>
-                        )}
-                        <span>{formatBytes(a.size)}</span>
-                      </li>
+                      <div key={platform} className="qz-cell">
+                        <h3 dir="ltr">{ARCH_LABEL[platform] ?? platform}</h3>
+                        <p>
+                          {state.status === "loading"
+                            ? m.release.loading
+                            : state.status === "error"
+                              ? m.release.failed
+                              : !latest
+                                ? m.release.none
+                                : asset
+                                  ? size
+                                    ? `${m.release.size} ${size}`
+                                    : m.release.signed
+                                  : m.release.missing}
+                        </p>
+                        {url ? (
+                          <div className="site-cell-action">
+                            <a href={url} className="qz-btn-outline" rel="noreferrer noopener">
+                              {m.release.archive}
+                            </a>
+                          </div>
+                        ) : null}
+                      </div>
                     );
                   })}
-                </ul>
-                <p className="release-note">{t.download.unsignedHidden}</p>
+                </div>
+                {state.status === "error" ? (
+                  <button type="button" className="qz-btn-outline site-gap" onClick={load}>
+                    {m.release.retry}
+                  </button>
+                ) : null}
               </>
-            ) : null}
+            )}
+            <p className="qz-meta site-gap">{m.release.lead}</p>
           </div>
-
-          <h2 style={{ marginTop: "32px" }}>{t.download.installing}</h2>
-          <div className="codeblock">
-            <div className="codeblock-head">
-              <span>{isWindows ? "powershell" : "shell"}</span>
-              <span>{m.platforms[platform].label}</span>
-            </div>
-            <pre>
-              <code>{installCommand}</code>
-            </pre>
-          </div>
-          <p className="release-note">{m.verifyText}</p>
         </div>
       </section>
 
-      <section className="section">
-        <div className="wrap">
-          <div className="grid two">
-            <div className="card">
-              <h3>{m.cliTitle}</h3>
-              <p>{m.cliNote}</p>
-            </div>
-            <div className="card">
-              <h3>{m.requirementsTitle}</h3>
-              <ul>
-                {m.requirements.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
+      {/* 凭什么敢用一行命令装：安装器按固定顺序做的三件事。 */}
+      <section className="qz-section" data-qz-lit>
+        <div className="qz-container">
+          <div className="qz-section-head">
+            <h2 className="qz-title">{m.steps.title}</h2>
+            <p>{m.steps.lead}</p>
           </div>
-          <div className="callout" style={{ marginTop: "24px" }}>
-            <strong>{m.verifyTitle}</strong> {m.verifyText}{" "}
-            <Link to={link("/docs/reference/release-signing")}>{t.footer.signing} →</Link>
+          <Rail cols={3} cells={m.steps.cells} lang={lang} />
+          <div className="site-gap">
+            <Link to={link("/docs/reference/release-signing")} className="qz-link-arrow">
+              <span>{m.steps.verify}</span>
+              <ArrowRight />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="qz-close" data-qz-lit>
+        <div className="qz-container qz-close-inner">
+          <h2 className="qz-monument">{m.close.title}</h2>
+          <p className="qz-close-note">
+            <Inline text={m.close.note} lang={lang} />
+          </p>
+          <div className="qz-action-stack">
+            <div className="qz-action-row">
+              <Link to={link("/docs/start/connect")} className="qz-btn-outline">
+                <span>{m.close.connect}</span>
+                <ArrowRight />
+              </Link>
+            </div>
           </div>
         </div>
       </section>

@@ -1,0 +1,205 @@
+/* 官网的版面胶水。
+   视觉语言全部来自 packages/design-system（tokens 与 .qz-* 组件）；这里只放设计系统尚未提供的
+   「怎么摆」：文档三栏的栅格与吸顶、图的宽窄两版切换、几处间距。规则：
+   - 只用 --qz-* token，不出现颜色字面量；
+   - 只定义 .site-* 类，不改写任何 .qz-* 组件。
+   这些版面一旦稳定，应回写进设计系统（见 website/README.md 的「缺口」一节）。 */
+
+/* 锚点跳转时，标题不被吸顶的导航盖住 */
+html {
+  scroll-padding-top: calc(var(--qz-read-nav-height) + var(--qz-space-6));
+}
+
+/* ── 跳到正文 ───────────────────────────────────────────────────────── */
+
+.site-skip {
+  position: absolute;
+  top: var(--qz-space-3);
+  inset-inline-start: var(--qz-gutter-compact);
+  z-index: var(--qz-z-popover);
+  background: var(--qz-void);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.site-skip:focus {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.site-main {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 阅读模式：导航换成阅读刻度（值都在设计系统里，这里只是换用） ───── */
+
+.site-reading {
+  --qz-nav-height: var(--qz-read-nav-height);
+  --qz-glass-nav: var(--qz-glass-nav-reading);
+  --qz-blur-nav: var(--qz-blur-nav-reading);
+  /* 三栏通栏铺开，导航也跟着通栏，品牌名与侧栏左缘对齐 */
+  --qz-container-nav: 100%;
+}
+
+/* ── 文档三栏：侧栏 / 正文 / 目录 ───────────────────────────────────── */
+
+.site-docs {
+  flex: 1 0 auto;
+  display: grid;
+  grid-template-columns: var(--qz-read-sidebar) minmax(0, 1fr) calc(var(--qz-read-sidebar) - var(--qz-space-9));
+}
+
+.site-docs-main {
+  min-width: 0;
+  padding: var(--qz-space-8) var(--qz-gutter) var(--qz-space-10);
+}
+
+/* 侧栏与目录各自吸在导航下面，内容超出时自己滚 */
+.site-sticky {
+  position: sticky;
+  top: calc(var(--qz-nav-height) + var(--qz-space-7));
+  max-height: calc(100vh - var(--qz-nav-height) - var(--qz-space-7));
+  overflow-y: auto;
+}
+
+.site-docs-toc {
+  padding: var(--qz-space-7) var(--qz-space-6) var(--qz-space-9) 0;
+}
+
+/* 窄屏上代替侧栏的那一行：分组名 + 「全部文档」菜单 */
+.site-docs-menu {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qz-space-4);
+  margin-bottom: var(--qz-space-7);
+}
+
+.site-nowrap {
+  white-space: nowrap;
+}
+
+.site-seam {
+  margin-top: var(--qz-read-paragraph-gap);
+}
+
+/* 正文流里不属于长文的块（发丝线栅格、图） */
+.site-block {
+  max-width: var(--qz-read-content);
+  margin-top: var(--qz-read-paragraph-gap);
+}
+
+.site-pager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--qz-space-4);
+  max-width: var(--qz-read-content);
+  margin-top: var(--qz-space-9);
+  padding-top: var(--qz-space-5);
+  border-top: var(--qz-stroke-hair) solid var(--qz-hairline);
+}
+
+.site-pager-next {
+  margin-inline-start: auto;
+}
+
+/* ── 图：同一张图的宽版与窄版，按容器宽度切换 ───────────────────────── */
+
+.site-figure {
+  container-type: inline-size;
+}
+
+.site-figure-bare {
+  margin: 0;
+}
+
+.site-figure-compact {
+  display: none;
+  max-width: 26rem;
+  margin-inline: auto;
+}
+
+@container (max-width: 640px) {
+  .site-figure-wide {
+    display: none;
+  }
+
+  .site-figure-compact {
+    display: block;
+  }
+}
+
+/* 舞台里的线框图：分栏堆叠成单列后不跟着放大，保持在一栏的宽度 */
+.site-stage-art {
+  width: 100%;
+  max-width: 30rem;
+}
+
+/* ── 小间距 ─────────────────────────────────────────────────────────── */
+
+.site-gap {
+  margin-top: var(--qz-space-7);
+}
+
+.site-gap-lg {
+  margin-top: var(--qz-space-8);
+}
+
+/* 单元格标题里的方向箭头 */
+.site-inline-arrow {
+  width: 0.86em;
+  height: 0.86em;
+  margin-inline-start: 0.4em;
+  vertical-align: -0.06em;
+}
+
+/* 单元格里的一行等宽示例 */
+.site-cell-line {
+  display: block;
+  margin-top: var(--qz-space-3);
+}
+
+/* 单元格末尾的一个次级操作 */
+.site-cell-action {
+  display: flex;
+  margin-top: var(--qz-space-4);
+}
+
+/* 分段控件切换出来的内容整块换，不做过渡 */
+.site-panel {
+  width: 100%;
+  text-align: start;
+}
+
+@media (max-width: 1360px) {
+  .site-docs {
+    grid-template-columns: var(--qz-read-sidebar) minmax(0, 1fr);
+  }
+
+  .site-docs-toc {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .site-docs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .site-docs-side {
+    display: none;
+  }
+
+  .site-docs-menu {
+    display: flex;
+  }
+}
+
+@media (max-width: 720px) {
+  .site-docs-main {
+    padding: var(--qz-space-7) var(--qz-gutter-compact) var(--qz-space-9);
+  }
+}

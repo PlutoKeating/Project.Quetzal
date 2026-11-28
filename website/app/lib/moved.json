@@ -1,0 +1,9 @@
+[
+  ["/docs/advanced/linux", "/docs/start/install"],
+  ["/docs/advanced/macos", "/docs/start/install"],
+  ["/docs/advanced/windows", "/docs/start/install"],
+  ["/docs/advanced/other-machines", "/docs/advanced/self-host-hub"],
+  ["/docs/advanced/custom-adapter", "/docs/start/connect"],
+  ["/docs/guide/multi-body", "/docs/guide/devices"],
+  ["/docs/reference/spine-backup", "/docs/guide/export"]
+]

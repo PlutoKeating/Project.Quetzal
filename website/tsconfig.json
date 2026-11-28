@@ -19,7 +19,8 @@
     "baseUrl": ".",
     "paths": {
       "~/*": ["app/*"],
-      "@shared/*": ["shared/*"]
+      "@shared/*": ["shared/*"],
+      "@design/*": ["../packages/design-system/*"]
     }
   },
   "include": ["app", "shared", "worker", "*.ts", "*.mjs", "scripts/**/*.mjs"]

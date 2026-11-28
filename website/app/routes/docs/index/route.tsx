@@ -1,38 +1,27 @@
-import { Link } from "react-router";
 import { DocShell } from "~/components/DocShell";
-import { docMeta } from "~/components/DocPage";
-import { localized, useChrome, useLang } from "~/i18n/core";
-import { DOC_NAV, navGroups } from "~/lib/pages";
+import { chrome, useLang } from "~/i18n/core";
+import type { Block } from "~/lib/content";
+import { docMeta } from "~/lib/meta";
+import { DOC_NAV } from "~/lib/pages";
 import { messages } from "./i18n";
 
 export const meta = ({ location }: { location: { pathname: string } }) => docMeta(messages, location);
 
-const SECTION_LABEL = { start: "start", guide: "guide", advanced: "advanced", reference: "reference" } as const;
-
+/** 文档总览：先一张图，再一条命令，最后是全部页面的目录（发丝线栅格，直接取自站点地图）。 */
 export default function Page() {
   const lang = useLang();
-  const { t } = useChrome();
-  const doc = messages[lang].doc;
-  const groups = navGroups();
-  return (
-    <DocShell path="/docs" doc={doc}>
-      <div className="cards">
-        {groups.flatMap((group) =>
-          group.items
-            .filter((item) => item.path !== "/docs")
-            .map((item) => (
-              <div key={item.path}>
-                <span className="kicker">{t.docsSections[SECTION_LABEL[group.section]]}</span>
-                <h3>
-                  <Link to={localized(lang, item.path)}>{item.label[lang]}</Link>
-                </h3>
-                <p>
-                  {DOC_NAV.find((d) => d.path === item.path)?.section === "reference" ? t.footer.reference : t.footer.learn}
-                </p>
-              </div>
-            )),
-        )}
-      </div>
-    </DocShell>
-  );
+  const m = messages[lang];
+  const pages = DOC_NAV.filter((d) => d.path !== "/docs");
+  const directory: Block = {
+    kind: "rail",
+    cols: 2,
+    head: { name: m.directory, meta: String(pages.length).padStart(2, "0") },
+    cells: pages.map((d) => ({
+      num: chrome[lang].docs.sections[d.section],
+      title: d.label[lang],
+      text: d.summary[lang],
+      href: d.path,
+    })),
+  };
+  return <DocShell path="/docs" doc={{ ...m.doc, blocks: [...m.doc.blocks, directory] }} />;
 }

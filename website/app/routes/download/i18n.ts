@@ -1,73 +1,110 @@
 import type { Lang } from "~/i18n/core";
-import type { PlatformId } from "@shared/releases";
+import type { RailCell } from "~/lib/content";
+
+export type Os = "linux" | "macos" | "windows";
 
 export type DownloadMessages = {
   metaTitle: string;
   metaDescription: string;
-  intro: string;
-  cliTitle: string;
-  cliNote: string;
-  requirementsTitle: string;
-  requirements: string[];
-  verifyTitle: string;
-  verifyText: string;
-  platforms: Record<PlatformId, { label: string; note: string }>;
+  /** 标题里品牌名前后的文字；品牌名本身用光谱字标 */
+  title: { before: string; after: string };
+  lead: string;
+  choose: string;
+  os: Record<Os, string>;
+  /** 命令条下面的一行说明 */
+  under: { installer: string[]; source: string[] };
+  steps: { title: string; lead: string; cells: RailCell[]; verify: string };
+  release: {
+    lead: string;
+    loading: string;
+    failed: string;
+    none: string;
+    retry: string;
+    signed: string;
+    prerelease: string;
+    archive: string;
+    size: string;
+    missing: string;
+    noPackage: { title: string; text: string };
+    fromSource: { title: string; text: string };
+  };
+  close: { title: string; note: string; connect: string };
 };
 
 const zh: DownloadMessages = {
   metaTitle: "下载",
-  metaDescription: "下载经 Ed25519 签名校验的 Quetzalcoatl 内核、守护进程与六种原生客户端。",
-  intro:
-    "每个资产都在 SHA256SUMS 里，清单由 Ed25519 签名。你可以直接用安装脚本（它替你验签），也可以下载压缩包自己核对。下载页只展示本产品带完整签名清单的发布；预发布版本会标注 pre-release。",
-  cliTitle: "命令行与守护进程",
-  cliNote:
-    "压缩包包含 qz、quetzalcoatld 与 quetzalcoatl-sandbox-exec；原生桌面客户端随同一版本发布时，会出现在该版本的资产列表里。",
-  requirementsTitle: "运行要求",
-  requirements: [
-    "Linux：glibc 2.31+，x86_64 或 arm64，GTK 4.14+ 与 libadwaita 1.9+ 用于原生窗口",
-    "macOS：12 及以上，Intel 与 Apple silicon",
-    "Windows：10 1809+ 或 11，PowerShell 5.1+",
-    "Android / iOS：随应用商店或对应安装包发布，需要 iOS 18+ / Android 10+",
-  ],
-  verifyTitle: "先验签，再安装",
-  verifyText:
-    "安装脚本用内置公钥验证 SHA256SUMS.sig，再核对资产哈希，最后跑 qz --version 健康检查。任何一步失败都会回滚到上一个版本。自己核对的命令见发布签名页。",
-  platforms: {
-    "linux-x64": { label: "Linux x64", note: "Debian / Ubuntu / Fedora / Arch，glibc 2.31+" },
-    "linux-arm64": { label: "Linux arm64", note: "树莓派、ARM 服务器与 Asahi" },
-    "macos-arm64": { label: "macOS Apple silicon", note: "M 系列，macOS 12+" },
-    "macos-x64": { label: "macOS Intel", note: "x86_64，macOS 12+" },
-    "windows-x64": { label: "Windows x64", note: "Windows 10 1809+ / 11" },
-    "windows-arm64": { label: "Windows arm64", note: "Windows 11 on ARM" },
+  metaDescription: "一行命令安装 Quetzalcoatl。安装器先验证签名、再核对内容，最后一步自动接进本机已有的宿主。",
+  title: { before: "下载 ", after: "" },
+  lead: "一行命令。安装器先验证签名，再核对内容，最后一步把它接进本机已有的宿主。",
+  choose: "选择你的系统",
+  os: { linux: "Linux", macos: "macOS", windows: "Windows" },
+  under: {
+    installer: ["x64 与 arm64 自动识别", "先验签，后安装"],
+    source: ["这个平台目前只有源码构建", "构建后运行 qz connect"],
   },
+  steps: {
+    title: "安装器做的三件事",
+    lead: "顺序固定。前一步对不上，后一步不会发生。",
+    cells: [
+      { num: "01", title: "验证签名", text: "安装包的清单带签名，公钥写在安装器里。签名对不上，什么都不会装。" },
+      { num: "02", title: "核对内容", text: "下载到的每个文件，都和签过名的清单逐一核对。" },
+      { num: "03", tone: "ice", title: "接上宿主", text: "安装的最后一步，自动把它接进本机已有的宿主。", accent: true },
+    ],
+    verify: "自己动手验签",
+  },
+  release: {
+    lead: "这里只列出带完整签名清单的发布。",
+    loading: "正在读取版本信息",
+    failed: "版本信息暂时读不到。上面的安装命令不受影响。",
+    none: "目前还没有带完整签名清单的发布。",
+    retry: "重试",
+    signed: "已签名",
+    prerelease: "预发布",
+    archive: "下载压缩包",
+    size: "大小",
+    missing: "这个版本没有这个架构的安装包。",
+    noPackage: { title: "安装包", text: "这个平台目前没有安装包。" },
+    fromSource: { title: "从源码构建", text: "在本机构建出同样的命令行与后台服务，再把它接上宿主。" },
+  },
+  close: { title: "装好之后，打开你的宿主。", note: "状态栏上出现他的名字，就是接上了。", connect: "接上宿主" },
 };
 
 const en: DownloadMessages = {
   metaTitle: "Download",
-  metaDescription: "Download the Ed25519-signed Quetzalcoatl kernel, daemon and six native clients.",
-  intro:
-    "Every asset is listed in SHA256SUMS, and the manifest is Ed25519 signed. Use the installer (it verifies for you) or download an archive and check it yourself. This page lists this product's releases with a complete signed manifest; pre-releases are labelled as such.",
-  cliTitle: "Command line and daemon",
-  cliNote:
-    "Archives contain qz, quetzalcoatld and quetzalcoatl-sandbox-exec. When a native desktop client ships with the same version, it appears in that release's asset list.",
-  requirementsTitle: "Requirements",
-  requirements: [
-    "Linux: glibc 2.31+, x86_64 or arm64; GTK 4.14+ and libadwaita 1.9+ for the native window",
-    "macOS: 12 or newer, Intel or Apple silicon",
-    "Windows: 10 1809+ or 11, PowerShell 5.1+",
-    "Android / iOS: via the stores or the matching package; iOS 18+ / Android 10+",
-  ],
-  verifyTitle: "Verify first, install second",
-  verifyText:
-    "The installer verifies SHA256SUMS.sig with the embedded key, checks the artifact hash, then runs a qz --version health check. Any failure rolls back to the previous version. Commands to check it yourself are on the release signing page.",
-  platforms: {
-    "linux-x64": { label: "Linux x64", note: "Debian / Ubuntu / Fedora / Arch, glibc 2.31+" },
-    "linux-arm64": { label: "Linux arm64", note: "Raspberry Pi, ARM servers and Asahi" },
-    "macos-arm64": { label: "macOS Apple silicon", note: "M-series, macOS 12+" },
-    "macos-x64": { label: "macOS Intel", note: "x86_64, macOS 12+" },
-    "windows-x64": { label: "Windows x64", note: "Windows 10 1809+ / 11" },
-    "windows-arm64": { label: "Windows arm64", note: "Windows 11 on ARM" },
+  metaDescription: "Install Quetzalcoatl with one command. The installer verifies the signature, checks the contents, and as its last step connects it to the hosts already on this machine.",
+  title: { before: "Download ", after: "" },
+  lead: "One command. The installer verifies the signature, checks the contents, and as its last step connects it to the hosts already on this machine.",
+  choose: "Choose your system",
+  os: { linux: "Linux", macos: "macOS", windows: "Windows" },
+  under: {
+    installer: ["x64 and arm64 detected for you", "verified before it installs"],
+    source: ["this platform builds from source for now", "then run qz connect"],
   },
+  steps: {
+    title: "Three things the installer does",
+    lead: "The order is fixed. If one step does not match, the next never happens.",
+    cells: [
+      { num: "01", title: "Verify the signature", text: "The package manifest is signed, and the public key is written into the installer. If the signature does not match, nothing is installed." },
+      { num: "02", title: "Check the contents", text: "Every downloaded file is checked against the signed manifest." },
+      { num: "03", tone: "ice", title: "Connect the host", text: "As its last step, the installer connects it to the hosts already on this machine.", accent: true },
+    ],
+    verify: "Verify it by hand",
+  },
+  release: {
+    lead: "Only releases with a complete signed manifest are listed here.",
+    loading: "Reading release information",
+    failed: "Release information is unavailable right now. The install command above is unaffected.",
+    none: "There is no release with a complete signed manifest yet.",
+    retry: "Retry",
+    signed: "signed",
+    prerelease: "pre-release",
+    archive: "Download the archive",
+    size: "Size",
+    missing: "This release has no package for this architecture.",
+    noPackage: { title: "Packages", text: "There is no package for this platform yet." },
+    fromSource: { title: "Build from source", text: "Build the same command line and background service on your machine, then connect it to a host." },
+  },
+  close: { title: "Once it is installed, open your host.", note: "When the name appears in the status bar, it is connected.", connect: "Connect a host" },
 };
 
 export const messages: Record<Lang, DownloadMessages> = { zh, en };

@@ -1,281 +1,105 @@
+import { SITE_ORIGIN } from "~/i18n/core";
+import type { Lang } from "~/i18n/core";
 import type { Messages } from "~/lib/content";
+
+// 与 scripts/install.sh 里的 RELEASE_PUBKEY 是同一把钥匙；轮换时两处一起改。
+export const RELEASE_PUBKEY = "QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8";
+
+const verify = (lang: Lang): string => {
+  const c =
+    lang === "zh"
+      ? { version: "换成你要验证的版本", pem: "公钥 -> PEM（原始 32 字节前加一段固定前缀）", sig: "先验证清单的签名", one: "再核对这一个安装包", mac: "macOS 上用 shasum -a 256 -c" }
+      : { version: "replace with the version you are verifying", pem: "public key -> PEM (a fixed prefix in front of the raw 32 bytes)", sig: "first verify the manifest signature", one: "then check this one package", mac: "on macOS use shasum -a 256 -c" };
+  return `VERSION=2.0.0-alpha.4        # ${c.version}
+ASSET=quetzalcoatl-$VERSION-linux-x64.tar.gz
+BASE="${SITE_ORIGIN}/dl/v$VERSION"
+
+curl -fsSLO "$BASE/SHA256SUMS"
+curl -fsSLO "$BASE/SHA256SUMS.sig"
+curl -fsSLO "$BASE/$ASSET"
+
+# ${c.pem}
+PUB=${RELEASE_PUBKEY}
+python3 - "$PUB" > release.pub <<'PY'
+import base64, sys
+raw = base64.urlsafe_b64decode(sys.argv[1] + "=" * (-len(sys.argv[1]) % 4))
+der = bytes.fromhex("302a300506032b6570032100") + raw
+print("-----BEGIN PUBLIC KEY-----")
+print(base64.b64encode(der).decode())
+print("-----END PUBLIC KEY-----")
+PY
+
+# ${c.sig}
+openssl base64 -d -A -in SHA256SUMS.sig -out SHA256SUMS.sig.bin
+openssl pkeyutl -verify -pubin -inkey release.pub -rawin \\
+  -in SHA256SUMS -sigfile SHA256SUMS.sig.bin
+
+# ${c.one}
+grep "  $ASSET\\$" SHA256SUMS > "$ASSET.sha256"
+sha256sum -c "$ASSET.sha256"      # ${c.mac}`;
+};
 
 export const messages: Messages = {
   zh: {
     metaTitle: "发布签名与校验",
     doc: {
       title: "发布签名与校验",
-      description: "Ed25519 公钥、SHA256SUMS 格式、自己动手验签的命令，以及官网镜像的 digest 校验。",
-      lead:
-        "每个发布都用同一把 Ed25519 密钥签名清单。公钥写死在安装器、Windows 安装脚本与这份文档里——换掉镜像、换掉 GitHub 账号，都换不掉公钥。",
+      lead: "每个发布物都由同一把密钥签名。公钥写在安装器里，也写在这一页；换掉下载源，换不掉公钥。",
       blocks: [
         { kind: "h2", id: "key", text: "发布公钥" },
-        {
-          kind: "p",
-          text: "Ed25519，原始 32 字节公钥的 base64url（无填充）：",
-        },
-        {
-          kind: "code",
-          title: "public key",
-          text: `QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8`,
-        },
-        {
-          kind: "p",
-          text:
-            "私钥只存在于 GitHub Actions Secret `RELEASE_SIGNING_KEY`（PKCS#8 PEM），不在仓库、不在任何构建产物里；发版时 CI 把它写成 0600 临时文件，再调用 `scripts/gen-sums.sh` 生成签名清单。本仓库暂未提交发版工作流（由 Task 5.4 负责），生成器本身已入库并带自测。轮换密钥时需要同时更新 `scripts/install.sh`、`scripts/install.ps1` 与本文档，并保留旧公钥一个版本的过渡期。",
-        },
-        { kind: "h2", id: "assets", text: "资产与清单" },
+        { kind: "cmd", label: "Ed25519，原始 32 字节的 base64url：", head: "Public key", text: RELEASE_PUBKEY },
+        { kind: "h2", id: "manifest", text: "清单里有什么" },
+        { kind: "p", text: "每个发布带一份清单和它的签名。安装器只信清单的签名；安装包对不对，由签过名的清单说了算。" },
         {
           kind: "table",
-          head: ["资产", "内容"],
+          head: ["文件", "内容"],
           rows: [
-            ["`quetzalcoatl-<版本>-linux-x64.tar.gz`", "`bin/qz`、`bin/quetzalcoatld`、`bin/quetzalcoatl-sandbox-exec`"],
-            ["`quetzalcoatl-<版本>-macos-arm64.tar.gz`", "同上（Intel 为 `macos-x64`）"],
-            ["`quetzalcoatl-<版本>-windows-x64.zip`", "同上，可执行文件带 `.exe`"],
-            ["`SHA256SUMS`", "每个资产一行 `<sha256>  <文件名>`，外加一行 `commit <40 位提交> <tag>`"],
-            ["`SHA256SUMS.sig`", "`SHA256SUMS` 的 Ed25519 签名，base64 文本"],
+            ["`SHA256SUMS`", "每个安装包一行校验值，外加一行把这个版本钉在源码的某一次提交上"],
+            ["`SHA256SUMS.sig`", "这份清单的签名"],
+            ["`quetzalcoatl-<版本>-linux-x64.tar.gz`", "Linux x64 的安装包；arm64 同理"],
           ],
         },
-        {
-          kind: "code",
-          title: "SHA256SUMS",
-          text: `9f2c…（64 位十六进制）  quetzalcoatl-0.1.0-linux-x64.tar.gz
-1a77…（64 位十六进制）  quetzalcoatl-0.1.0-macos-arm64.tar.gz
-commit 3f9a1c0d2e4b5a69788796a5b4c3d2e1f0011223 v0.1.0`,
-        },
-        {
-          kind: "p",
-          text:
-            "`commit` 行把版本钉在源码提交上。安装器不只看哈希，也要求这一行的 tag 与要装的版本一致——防止把 A 版本的清单配 B 版本的二进制。",
-        },
-        { kind: "h2", id: "generate", text: "在仓库内生成清单" },
-        {
-          kind: "p",
-          text:
-            "`scripts/gen-sums.sh` 就是发版工作流会调用的那一步：给它一个只放发布资产的目录，它按上面的格式写出 `SHA256SUMS` 与 `SHA256SUMS.sig`，并拒绝 `quetzalcoatl-*` 之外的文件。",
-        },
-        {
-          kind: "code",
-          title: "shell",
-          text: `# 用 PKCS#8 Ed25519 私钥签发
-scripts/gen-sums.sh dist/ --tag v0.1.0 --commit "$(git rev-parse HEAD)" --key /secure/release-signing.pem
-
-# 只校验：重新验签 + 逐个核对哈希
-scripts/gen-sums.sh dist/ --tag v0.1.0 --check --key /secure/release-signing.pem
-
-# CI：Secret 落成 0600 临时文件，或直接给 PEM 文本
-RELEASE_SIGNING_KEY_FILE=/tmp/release.pem scripts/gen-sums.sh dist/ --tag "$TAG"
-RELEASE_SIGNING_KEY="$(cat /tmp/release.pem)" scripts/gen-sums.sh dist/ --tag "$TAG"`,
-        },
-        {
-          kind: "note",
-          text:
-            "输出里会打印公钥的 sha256 指纹，便于核对签的是不是那把钥匙。`--check` 对篡改、缺文件与清单里多出的文件都返回非零；`scripts/tests/gen_sums.test.sh` 会用一次性密钥签一份清单，再用安装器从假发布源把它装上。",
-        },
-
-        { kind: "h2", id: "verify", text: "自己验证（Linux / macOS）" },
-        {
-          kind: "code",
-          title: "shell",
-          text: `TAG=v0.1.0
-ASSET=quetzalcoatl-0.1.0-linux-x64.tar.gz
-BASE="https://quetzal.plutokeating.beer/dl/$TAG"
-
-curl -fsSLO "$BASE/SHA256SUMS"
-curl -fsSLO "$BASE/SHA256SUMS.sig"
-curl -fsSLO "$BASE/$ASSET"
-
-# 公钥 -> SPKI PEM（原始 32 字节前加 302a300506032b6570032100）
-PUB=QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8
-python3 - "$PUB" > release.pub <<'PY'
-import base64, sys
-raw = base64.urlsafe_b64decode(sys.argv[1] + "=" * (-len(sys.argv[1]) % 4))
-der = bytes.fromhex("302a300506032b6570032100") + raw
-print("-----BEGIN PUBLIC KEY-----")
-print(base64.b64encode(der).decode())
-print("-----END PUBLIC KEY-----")
-PY
-
-openssl base64 -d -A -in SHA256SUMS.sig -out SHA256SUMS.sig.bin
-openssl pkeyutl -verify -pubin -inkey release.pub -rawin \\
-  -in SHA256SUMS -sigfile SHA256SUMS.sig.bin
-
-# 只核对这一个资产（commit 行不是 sha256sum 的格式）
-grep "  $ASSET\\$" SHA256SUMS > "$ASSET.sha256"
-sha256sum -c "$ASSET.sha256"      # macOS：shasum -a 256 -c "$ASSET.sha256"`,
-        },
-        {
-          kind: "note",
-          text:
-            "签名校验必须放在哈希校验之前。反过来做，等于让不可信的清单决定「什么算正确」。安装器与上面的命令都是先验签、再对哈希。",
-        },
-        { kind: "h2", id: "windows", text: "Windows" },
-        {
-          kind: "p",
-          text:
-            "Windows PowerShell 5.1 与 .NET Framework 没有 Ed25519 API，所以 `install.ps1` 内置了一份 RFC 8032 的验签实现（`Test-Ed25519`，基于 `System.Numerics.BigInteger`，无外部依赖）。它先用它验证 `SHA256SUMS.sig`，再用 `Get-FileHash` 核对 zip。要复核，读 `scripts/install.ps1` 里的这个函数即可——没有黑盒。",
-        },
-        { kind: "h2", id: "mirror", text: "官网镜像与 digest" },
-        {
-          kind: "p",
-          text:
-            "下载地址默认走本 Worker：`/dl/<tag>/<asset>`。Worker 只代理本仓库、符合命名规则的资产，并在转发时用 GitHub 发布 JSON 里的 `digest` 核对 SHA-256：小的清单文件整体校验，大的二进制边转发边算、扣住最后一块，核对通过才放出。不符就让流出错，且在 Cloudflare 边缘不缓存。核对通过的资产缓存 7 天（按 tag 不可变）。",
-        },
+        { kind: "h2", id: "verify", text: "自己动手验证" },
+        { kind: "cmd", label: "Linux 与 macOS：", head: "Terminal", text: verify("zh") },
+        { kind: "note", text: "先验签名，再核对校验值。顺序反过来，等于让一份还没验证过的清单决定什么算正确。安装器走的也是这个顺序。" },
+        { kind: "h2", id: "mirror", text: "本站的下载地址" },
+        { kind: "p", text: "安装包默认经本站下载。本站在转发每个文件时再核对一次校验值：对不上就中断，不把它交给你。即使本站被换掉，签名这一关仍然在你的机器上。" },
+        { kind: "h2", id: "never", text: "没有的东西" },
         {
           kind: "ul",
-          items: [
-            "`/api/releases` 与 `/api/releases/latest` 是 GitHub 发布接口的镜像，资产地址改写成 `/dl/…`，原地址保留在 `github_download_url`。",
-            "发布列表按 npm 上引导包的版本封顶，永远不会推荐一个 npm 通道还装不到的版本。",
-            "上游取不到发布 JSON、无法核对 digest 时，Worker 直接 502 拒绝转发，而不是送出一份未经核对的字节；安装器与客户端会改走 GitHub 直连，签名校验仍是最后一道门。",
-          ],
-        },
-        { kind: "h2", id: "not-signed", text: "不签名、不发布的东西" },
-        {
-          kind: "ul",
-          items: [
-            "没有面向用户的「跳过校验」开关，也没有 TOFU（首次使用即信任）模式。",
-            "不提供未签名的夜间构建下载；要试新代码请从源码构建。",
-            "镜像方无法替换资产：换掉字节，哈希与签名至少有一道会失败。",
-            "`QZ_TEST_RELEASE_PUBKEY`（Windows：`QUETZALCOATL_TEST_RELEASE_PUBKEY`）只用于测试；必须同时设置 `QZ_ALLOW_TEST_PUBKEY=1`（Windows：`QUETZALCOATL_ALLOW_TEST_PUBKEY=1`），否则安装器直接拒绝运行。生产环境不设这两个变量。",
-          ],
+          items: ["没有跳过校验的开关。", "没有「第一次用就默认信任」的模式。", "不提供未签名的构建。想试新代码，请从源码构建。"],
         },
       ],
     },
   },
   en: {
-    metaTitle: "Release signing and verification",
+    metaTitle: "Release signing",
     doc: {
-      title: "Release signing and verification",
-      description: "The Ed25519 public key, the SHA256SUMS format, commands to verify by hand, and how the site mirror checks GitHub digests.",
-      lead:
-        "Every release signs its manifest with one Ed25519 key. The public key is baked into the installers, the Windows script and this page. Swapping a mirror or a GitHub account cannot swap the key.",
+      title: "Release signing",
+      lead: "Every release is signed with the same key. The public key is written into the installer and onto this page; replacing the download source does not replace the key.",
       blocks: [
         { kind: "h2", id: "key", text: "Release public key" },
-        { kind: "p", text: "Ed25519, base64url of the raw 32-byte public key (no padding):" },
-        {
-          kind: "code",
-          title: "public key",
-          text: `QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8`,
-        },
-        {
-          kind: "p",
-          text:
-            "The private key exists only as the GitHub Actions secret `RELEASE_SIGNING_KEY` (PKCS#8 PEM). It is not in the repository and not in any build artifact; a release writes it to a 0600 temp file and calls `scripts/gen-sums.sh`. The release workflow itself is not committed yet (Task 5.4 owns it), but the manifest generator is in-tree with its own test. Rotating the key means updating `scripts/install.sh`, `scripts/install.ps1` and this page, and keeping the old key valid for one release window.",
-        },
-        { kind: "h2", id: "assets", text: "Assets and manifest" },
+        { kind: "cmd", label: "Ed25519, the raw 32 bytes as base64url:", head: "Public key", text: RELEASE_PUBKEY },
+        { kind: "h2", id: "manifest", text: "What the manifest holds" },
+        { kind: "p", text: "Each release ships a manifest and its signature. The installer trusts only the manifest signature; whether a package is right is decided by the signed manifest." },
         {
           kind: "table",
-          head: ["Asset", "Contents"],
+          head: ["File", "Contents"],
           rows: [
-            ["`quetzalcoatl-<version>-linux-x64.tar.gz`", "`bin/qz`, `bin/quetzalcoatld`, `bin/quetzalcoatl-sandbox-exec`"],
-            ["`quetzalcoatl-<version>-macos-arm64.tar.gz`", "The same (Intel is `macos-x64`)"],
-            ["`quetzalcoatl-<version>-windows-x64.zip`", "The same, executables with `.exe`"],
-            ["`SHA256SUMS`", "One `<sha256>  <file>` line per asset plus a `commit <40-hex> <tag>` line"],
-            ["`SHA256SUMS.sig`", "The Ed25519 signature of `SHA256SUMS`, base64 text"],
+            ["`SHA256SUMS`", "one checksum line per package, plus one line that pins this version to a source commit"],
+            ["`SHA256SUMS.sig`", "the signature of that manifest"],
+            ["`quetzalcoatl-<version>-linux-x64.tar.gz`", "the Linux x64 package; arm64 follows the same pattern"],
           ],
         },
-        {
-          kind: "code",
-          title: "SHA256SUMS",
-          text: `9f2c… (64 hex chars)  quetzalcoatl-0.1.0-linux-x64.tar.gz
-1a77… (64 hex chars)  quetzalcoatl-0.1.0-macos-arm64.tar.gz
-commit 3f9a1c0d2e4b5a69788796a5b4c3d2e1f0011223 v0.1.0`,
-        },
-        {
-          kind: "p",
-          text:
-            "The `commit` line pins the release to a source commit. The installer checks not only hashes but that this tag matches the version being installed, so a manifest from version A cannot be paired with a binary from version B.",
-        },
-        { kind: "h2", id: "generate", text: "Generate the manifest in-tree" },
-        {
-          kind: "p",
-          text:
-            "`scripts/gen-sums.sh` is the step a release workflow calls: point it at a directory that contains only release assets, and it writes `SHA256SUMS` and `SHA256SUMS.sig` in the format above, refusing anything that is not a `quetzalcoatl-*` asset.",
-        },
-        {
-          kind: "code",
-          title: "shell",
-          text: `# sign with a PKCS#8 Ed25519 private key
-scripts/gen-sums.sh dist/ --tag v0.1.0 --commit "$(git rev-parse HEAD)" --key /secure/release-signing.pem
-
-# verify only: re-check the signature and every hash
-scripts/gen-sums.sh dist/ --tag v0.1.0 --check --key /secure/release-signing.pem
-
-# CI: turn the secret into a 0600 file, or pass the PEM text
-RELEASE_SIGNING_KEY_FILE=/tmp/release.pem scripts/gen-sums.sh dist/ --tag "$TAG"
-RELEASE_SIGNING_KEY="$(cat /tmp/release.pem)" scripts/gen-sums.sh dist/ --tag "$TAG"`,
-        },
-        {
-          kind: "note",
-          text:
-            "The output prints the public key's sha256 fingerprint so you can confirm which key signed. `--check` fails on tampering, missing files and files that the manifest does not list. `scripts/tests/gen_sums.test.sh` signs a release with a throwaway key and then installs it with the installer from a fake server.",
-        },
-
-        { kind: "h2", id: "verify", text: "Verify by hand (Linux / macOS)" },
-        {
-          kind: "code",
-          title: "shell",
-          text: `TAG=v0.1.0
-ASSET=quetzalcoatl-0.1.0-linux-x64.tar.gz
-BASE="https://quetzal.plutokeating.beer/dl/$TAG"
-
-curl -fsSLO "$BASE/SHA256SUMS"
-curl -fsSLO "$BASE/SHA256SUMS.sig"
-curl -fsSLO "$BASE/$ASSET"
-
-# public key -> SPKI PEM (DER prefix 302a300506032b6570032100 + raw 32 bytes)
-PUB=QbWLzC1yhOWroLTHtHiAAvVWq1UtWDiQP--D9wHaLU8
-python3 - "$PUB" > release.pub <<'PY'
-import base64, sys
-raw = base64.urlsafe_b64decode(sys.argv[1] + "=" * (-len(sys.argv[1]) % 4))
-der = bytes.fromhex("302a300506032b6570032100") + raw
-print("-----BEGIN PUBLIC KEY-----")
-print(base64.b64encode(der).decode())
-print("-----END PUBLIC KEY-----")
-PY
-
-openssl base64 -d -A -in SHA256SUMS.sig -out SHA256SUMS.sig.bin
-openssl pkeyutl -verify -pubin -inkey release.pub -rawin \\
-  -in SHA256SUMS -sigfile SHA256SUMS.sig.bin
-
-# check just this asset (the commit line is not sha256sum format)
-grep "  $ASSET\\$" SHA256SUMS > "$ASSET.sha256"
-sha256sum -c "$ASSET.sha256"      # macOS: shasum -a 256 -c "$ASSET.sha256"`,
-        },
-        {
-          kind: "note",
-          text:
-            "Verify the signature before the hash. Doing it the other way round lets an untrusted manifest decide what correct means. The installer and the commands above always verify first and hash second.",
-        },
-        { kind: "h2", id: "windows", text: "Windows" },
-        {
-          kind: "p",
-          text:
-            "Windows PowerShell 5.1 and .NET Framework have no Ed25519 API, so `install.ps1` carries an RFC 8032 verifier (`Test-Ed25519`, built on `System.Numerics.BigInteger`, no external dependency). It checks `SHA256SUMS.sig` with it, then checks the zip with `Get-FileHash`. Read that function in `scripts/install.ps1` — there is no black box.",
-        },
-        { kind: "h2", id: "mirror", text: "The site mirror and digests" },
-        {
-          kind: "p",
-          text:
-            "Downloads default to this Worker: `/dl/<tag>/<asset>`. It relays only this repository's correctly named assets, and checks each stream against the `digest` recorded in GitHub's release JSON: small manifests are buffered and checked whole; large binaries are hashed while streaming with the final chunk held back until the digest matches. A mismatch errors the stream and is never cached at Cloudflare's edge. Verified assets are cached for seven days (tags are immutable).",
-        },
+        { kind: "h2", id: "verify", text: "Verify it by hand" },
+        { kind: "cmd", label: "Linux and macOS:", head: "Terminal", text: verify("en") },
+        { kind: "note", text: "Verify the signature first, then the checksum. The other way round lets an unverified manifest decide what counts as correct. The installer follows the same order." },
+        { kind: "h2", id: "mirror", text: "This site's download address" },
+        { kind: "p", text: "Packages download through this site by default. The site checks each file's checksum again while relaying it: on a mismatch it stops and does not hand the file over. Even if this site were replaced, the signature check still happens on your machine." },
+        { kind: "h2", id: "never", text: "What does not exist" },
         {
           kind: "ul",
-          items: [
-            "`/api/releases` and `/api/releases/latest` mirror GitHub's release API, rewriting asset URLs to `/dl/…` while keeping the original as `github_download_url`.",
-            "The list is capped by the npm bootstrapper's published version, so it never advertises a release that channel cannot install yet.",
-            "When the upstream release JSON is unavailable and the digest cannot be checked, the Worker answers 502 instead of serving unverified bytes. The installer and clients fall back to GitHub directly; signature verification remains the last gate.",
-          ],
-        },
-        { kind: "h2", id: "not-signed", text: "What is not signed or published" },
-        {
-          kind: "ul",
-          items: [
-            "There is no user-facing skip-verification switch and no trust-on-first-use mode.",
-            "Unsigned nightly downloads are not offered; build from source to try unreleased code.",
-            "A mirror cannot substitute an asset: change the bytes and either the hash or the signature fails.",
-            "`QZ_TEST_RELEASE_PUBKEY` (Windows: `QUETZALCOATL_TEST_RELEASE_PUBKEY`) is test-only. It also requires `QZ_ALLOW_TEST_PUBKEY=1` (Windows: `QUETZALCOATL_ALLOW_TEST_PUBKEY=1`); without that gate the installer refuses to run. Production sets neither.",
-          ],
+          items: ["There is no switch to skip verification.", "There is no trust-on-first-use mode.", "There are no unsigned builds. To try new code, build from source."],
         },
       ],
     },
