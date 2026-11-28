@@ -57,7 +57,7 @@
 
 Go 服务端全部位于 `hub/`：入口 `hub/cmd/quetzalcoatl-hub`，内部包 `hub/internal/auth`、
 `hub/internal/lease`、`hub/internal/spine`、`hub/internal/relay`、`hub/internal/groupds`、
-`hub/internal/llmproxy`、`hub/internal/store`。
+`hub/internal/ops`（运行指标与元信息）、`hub/internal/store`。部署包在 `hub/deploy`。
 
 ## 4. 数据流
 

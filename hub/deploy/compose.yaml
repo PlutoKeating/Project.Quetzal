@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# quetzalcoatl-hub 单服务编排。用法见同目录 README.md。
+#
+#   cp hub.env.example hub.env   # 按需填写
+#   docker compose up -d --build
+#
+# 下面几个变量由 compose 自己读取（写在命令行环境或本目录的 .env 里），不会传进容器，
+# 也不是 Hub 的配置项：
+#
+#   HUB_HTTP_PUBLISH  HTTP 端口发布到宿主机的哪里。默认 127.0.0.1:8443，只有本机的隧道或
+#                     反向代理够得着；自带证书直出时改成 443（即 0.0.0.0:443）。
+#   HUB_QAD_PUBLISH   地址发现的 UDP 端口发布到哪里。默认 0.0.0.0:7842，直接对公网。
+#   HUB_VERSION       构建镜像时写进二进制的版本号，显示在 /v1/meta 里。默认 dev。
+#   HUB_IMAGE         镜像名。默认 quetzalcoatl-hub:local。
+
+name: quetzalcoatl-hub
+
+services:
+  hub:
+    image: ${HUB_IMAGE:-quetzalcoatl-hub:local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VERSION: ${HUB_VERSION:-}
+    restart: unless-stopped
+    env_file:
+      - hub.env
+    environment:
+      # 容器内固定监听全部地址、固定用卷里的数据目录；对外暴露范围由下面的 ports 决定。
+      # 这两项会覆盖 hub.env 里的同名设置。
+      QUETZALCOATL_HUB_ADDR: 0.0.0.0:8443
+      QUETZALCOATL_HUB_DATA_DIR: /var/lib/quetzalcoatl-hub
+    ports:
+      - "${HUB_HTTP_PUBLISH:-127.0.0.1:8443}:8443/tcp"
+      # 地址发现走 UDP，任何 HTTP 隧道或反向代理都转发不了它，必须直接发布到公网，
+      # 并在主机防火墙与云安全组里放行。
+      - "${HUB_QAD_PUBLISH:-0.0.0.0:7842}:7842/udp"
+    volumes:
+      - hub-data:/var/lib/quetzalcoatl-hub
+      # 自带证书时把证书目录只读挂进来（文件须对 UID 65532 可读），并在 hub.env 里设置
+      # QUETZALCOATL_HUB_TLS_CERT_FILE / QUETZALCOATL_HUB_TLS_KEY_FILE：
+      # - /etc/quetzalcoatl-hub/certs:/certs:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # 镜像里没有 shell 和 curl：由二进制自己请求本机的 /healthz。
+      test: ["CMD", "/usr/local/bin/quetzalcoatl-hub", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 20s
+
+volumes:
+  # 根密钥、数据库与密文包都在这里。备份方法见 README.md。
+  hub-data:

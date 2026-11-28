@@ -95,7 +95,36 @@ type Server struct {
 	clients map[[32]byte]*endpointState
 	sentTo  map[[32]byte]map[[32]byte]struct{}
 
+	connections         atomic.Int64
+	connectionsAccepted atomic.Uint64
+	forwardedFrames     atomic.Uint64
+	forwardedBytes      atomic.Uint64
+	droppedFrames       atomic.Uint64
+
 	wg sync.WaitGroup
+}
+
+// Stats 是中继的运行计数快照：只有总量，不含任何端点标识。
+type Stats struct {
+	// Connections 是当前已通过握手、仍在册的连接数。
+	Connections int64
+	// ConnectionsAccepted 是累计通过握手的连接数。
+	ConnectionsAccepted uint64
+	// ForwardedFrames / ForwardedBytes 是累计交给目标连接发送队列的数据报帧数与载荷字节数。
+	ForwardedFrames uint64
+	ForwardedBytes  uint64
+	// DroppedFrames 是因目标连接发送队列已满而丢弃的数据报帧数。
+	DroppedFrames uint64
+}
+
+func (s *Server) Stats() Stats {
+	return Stats{
+		Connections:         s.connections.Load(),
+		ConnectionsAccepted: s.connectionsAccepted.Load(),
+		ForwardedFrames:     s.forwardedFrames.Load(),
+		ForwardedBytes:      s.forwardedBytes.Load(),
+		DroppedFrames:       s.droppedFrames.Load(),
+	}
 }
 
 func NewServer(cfg Config) *Server {
@@ -324,7 +353,12 @@ func (s *Server) serveUpgradedClient(
 		cc.stop()
 		return
 	}
-	defer s.unregisterClient(cc)
+	s.connections.Add(1)
+	s.connectionsAccepted.Add(1)
+	defer func() {
+		s.unregisterClient(cc)
+		s.connections.Add(-1)
+	}()
 
 	if err := ws.writeBinary(EncodeServerConfirmsAuth()); err != nil {
 		cc.stop()
@@ -487,9 +521,12 @@ func (s *Server) forwardDatagram(src [32]byte, dst [32]byte, dg Datagrams, isBat
 	}
 	select {
 	case dstConn.packetCh <- msg:
+		s.forwardedFrames.Add(1)
+		s.forwardedBytes.Add(uint64(len(dg.Contents)))
 	case <-dstConn.done:
 	default:
 		// Per-client queue full: drop packet to avoid head-of-line blocking sender
+		s.droppedFrames.Add(1)
 	}
 }
 

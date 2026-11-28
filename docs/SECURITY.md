@@ -82,7 +82,7 @@ flowchart LR
 - **入站 webhook**：仅在内存验证平台 HMAC，立即用 Agent `ChannelIngressKey` 做 HPKE 密封入队；
   不写明文日志。
 - **对象存储**：Presigned `PUT` 绑定 `Content-Length` 与 `sha256`，防止上传替换。
-- **LLM 代理**：仅转发与配额，不落请求正文；不修改 `system[0]` 与认证头。
+- **管理面**：只有运行指标与元信息，不含任何账户、Agent 或设备标识；Hub 不代理模型调用。
 - **可用性**：Hub 被完全攻破时，最坏后果是拒绝服务与密文/配额泄露，不是明文记忆泄露。
 
 ## 6. 凭据代理（零凭据沙箱）

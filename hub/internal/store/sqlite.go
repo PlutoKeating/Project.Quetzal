@@ -427,6 +427,8 @@ type Store interface {
 	GetGroupCommit(ctx context.Context, groupID string, serverSeq uint64) (*GroupCommit, error)
 	ListGroupCommits(ctx context.Context, groupID string, afterSeq uint64, limit int) ([]GroupCommit, error)
 	GroupRoomHead(ctx context.Context, groupID string) (uint64, uint64, error)
+
+	Totals(ctx context.Context, nowMs int64) (Totals, error)
 }
 
 const sqliteSchemaDDL = `

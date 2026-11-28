@@ -240,9 +240,9 @@ jobs:
           set -euo pipefail
           version="${{ needs.prepare.outputs.version }}"
           mkdir -p ../dist
-          # Hub 没有 ldflags 注入的版本变量：版本只体现在资产名与 SHA256SUMS 的 commit/tag 行。
+          # 版本经 ldflags 注入：`/v1/meta` 与 `/metrics` 里的 server_version 就是发版号。
           CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" go build -trimpath \
-            -ldflags "-s -w" \
+            -ldflags "-s -w -X main.version=$version" \
             -o "../dist/quetzalcoatl-$version-hub-linux-${{ matrix.arch }}" \
             ./cmd/quetzalcoatl-hub
 

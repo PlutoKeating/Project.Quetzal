@@ -1425,3 +1425,153 @@ func TestQADUDPServerIPv4AndIPv6ObservedAddress(t *testing.T) {
 		}
 	}
 }
+
+// --- 运行计数：只报总量，供 /metrics 使用 ---
+
+func waitForRelayStats(t *testing.T, srv *relay.Server, done func(relay.Stats) bool) relay.Stats {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		stats := srv.Stats()
+		if done(stats) {
+			return stats
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("relay stats did not converge: %+v", stats)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestWSRelayStatsCountConnectionsAndForwardedPayload(t *testing.T) {
+	srv := relay.NewServer(relay.Config{WriteTimeout: 2 * time.Second, QueueDepth: 64})
+	defer func() { _ = srv.Close() }()
+
+	mux := http.NewServeMux()
+	srv.RegisterRoutes(mux)
+	httpSrv := httptest.NewServer(mux)
+	defer httpSrv.Close()
+
+	if stats := srv.Stats(); stats != (relay.Stats{}) {
+		t.Fatalf("fresh relay must report zeros, got %+v", stats)
+	}
+
+	// 握手失败的连接不计入：公钥有效，但签的不是服务端给的挑战。
+	rejected := dialTestWS(t, httpSrv.URL+"/relay", "iroh-relay-v2", nil, nil)
+	if _, err := rejected.readBinary(t); err != nil {
+		t.Fatalf("read challenge: %v", err)
+	}
+	privBad, pubBad := keypairFromByte(0x50)
+	var badSig [64]byte
+	copy(badSig[:], ed25519.Sign(privBad, []byte("not the server challenge")))
+	rejected.writeBinary(t, relay.EncodeClientAuth(relay.ClientAuth{PublicKey: pubBad, Signature: badSig}))
+	if denied, err := rejected.readBinary(t); err != nil || len(denied) == 0 || denied[0] == 0x02 {
+		t.Fatalf("bad signature must be denied, got %x err=%v", denied, err)
+	}
+	rejected.close()
+
+	privA, pubA := keypairFromByte(0x51)
+	privB, pubB := keypairFromByte(0x52)
+	wsA := authenticateChallengeWS(t, httpSrv.URL, privA, pubA)
+	defer wsA.close()
+	wsB := authenticateChallengeWS(t, httpSrv.URL, privB, pubB)
+	defer wsB.close()
+
+	if stats := srv.Stats(); stats.Connections != 2 || stats.ConnectionsAccepted != 2 {
+		t.Fatalf("after two authenticated clients: %+v", stats)
+	}
+
+	payloads := [][]byte{[]byte("quic-packet-1"), []byte("a-longer-quic-packet-2")}
+	wantBytes := 0
+	for _, payload := range payloads {
+		frame, err := relay.EncodeClientToRelayMsg(relay.ClientToRelayMsg{
+			Type:          relay.FrameClientToRelayDatagram,
+			DstEndpointID: pubB,
+			Datagrams:     relay.Datagrams{Contents: payload},
+		})
+		if err != nil {
+			t.Fatalf("encode datagram: %v", err)
+		}
+		wsA.writeBinary(t, frame)
+		if _, err := wsB.readBinary(t); err != nil {
+			t.Fatalf("B read datagram: %v", err)
+		}
+		wantBytes += len(payload)
+	}
+
+	// 发往不在线端点的数据报既不算转发，也不算因队列满而丢弃。
+	_, pubGone := keypairFromByte(0x53)
+	toNobody, err := relay.EncodeClientToRelayMsg(relay.ClientToRelayMsg{
+		Type:          relay.FrameClientToRelayDatagram,
+		DstEndpointID: pubGone,
+		Datagrams:     relay.Datagrams{Contents: []byte("nobody-home")},
+	})
+	if err != nil {
+		t.Fatalf("encode datagram: %v", err)
+	}
+	wsA.writeBinary(t, toNobody)
+	// 再发一帧给 B 并等它送达：同一连接按序处理，届时上一帧必然已被处理完。
+	marker, err := relay.EncodeClientToRelayMsg(relay.ClientToRelayMsg{
+		Type:          relay.FrameClientToRelayDatagram,
+		DstEndpointID: pubB,
+		Datagrams:     relay.Datagrams{Contents: []byte("marker")},
+	})
+	if err != nil {
+		t.Fatalf("encode marker: %v", err)
+	}
+	wsA.writeBinary(t, marker)
+	if _, err := wsB.readBinary(t); err != nil {
+		t.Fatalf("B read marker: %v", err)
+	}
+	wantBytes += len("marker")
+
+	stats := srv.Stats()
+	if stats.ForwardedFrames != 3 || stats.ForwardedBytes != uint64(wantBytes) || stats.DroppedFrames != 0 {
+		t.Fatalf("forwarding counters: %+v, want 3 frames / %d bytes / 0 dropped", stats, wantBytes)
+	}
+
+	wsA.close()
+	wsB.close()
+	final := waitForRelayStats(t, srv, func(s relay.Stats) bool { return s.Connections == 0 })
+	if final.ConnectionsAccepted != 2 || final.ForwardedFrames != 3 {
+		t.Fatalf("cumulative counters must survive disconnects: %+v", final)
+	}
+}
+
+func TestQADStatsCountRequestsAndReports(t *testing.T) {
+	cert := generateSelfSignedCert(t)
+	qad, err := relay.StartQADServer("127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
+	})
+	if err != nil {
+		t.Fatalf("StartQADServer: %v", err)
+	}
+	defer func() { _ = qad.Close() }()
+	addr := qad.Addr().(*net.UDPAddr)
+
+	if stats := qad.Stats(); stats != (relay.QADStats{}) {
+		t.Fatalf("fresh QAD server must report zeros, got %+v", stats)
+	}
+
+	// 不成形的数据报不构成一次请求。
+	junk, err := net.DialUDP("udp4", nil, addr)
+	if err != nil {
+		t.Fatalf("dial udp: %v", err)
+	}
+	if _, err := junk.Write(bytes.Repeat([]byte{0x00}, 1200)); err != nil {
+		t.Fatalf("write junk: %v", err)
+	}
+	_ = junk.Close()
+
+	const probes = 3
+	for i := 0; i < probes; i++ {
+		runQADClientProbe(t, "udp4", addr, nil)
+	}
+
+	// 报告帧的重传不得重复计数：等过若干个重传周期后再读数。
+	time.Sleep(500 * time.Millisecond)
+	if stats := qad.Stats(); stats.Requests != probes || stats.Reports != probes {
+		t.Fatalf("QAD stats = %+v, want %d requests and %d reports", stats, probes, probes)
+	}
+}

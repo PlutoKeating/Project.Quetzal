@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -31,11 +32,45 @@ import (
 	"quetzalcoatl-hub/internal/auth"
 	"quetzalcoatl-hub/internal/groupds"
 	"quetzalcoatl-hub/internal/lease"
-	"quetzalcoatl-hub/internal/llmproxy"
+	"quetzalcoatl-hub/internal/ops"
 	"quetzalcoatl-hub/internal/relay"
 	"quetzalcoatl-hub/internal/spine"
 	"quetzalcoatl-hub/internal/store"
 )
+
+// version 由发版构建用 `-ldflags "-X main.version=<版本号>"` 注入；
+// 未注入时退回到构建时记录的 VCS 修订号。
+var version string
+
+func buildVersion() string {
+	if v := strings.TrimSpace(version); v != "" {
+		return v
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	var revision string
+	var modified bool
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
+		}
+	}
+	if revision == "" {
+		return "dev"
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if modified {
+		return "dev+" + revision + ".dirty"
+	}
+	return "dev+" + revision
+}
 
 func envOrDefault(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
@@ -308,11 +343,17 @@ func errOrNil(err error) error {
 	return err
 }
 
+// webhookSecretChannels 是可以经 QUETZALCOATL_HUB_WEBHOOK_SECRET_<通道> 单独配置验签密钥的通道。
+var webhookSecretChannels = []string{"feishu", "wecom", "dingtalk", "telegram", "email", "webhook"}
+
+func webhookSecretEnvKey(channel string) string {
+	return "QUETZALCOATL_HUB_WEBHOOK_SECRET_" + strings.ToUpper(strings.ReplaceAll(channel, "-", "_"))
+}
+
 // loadWebhookPlatformSecrets 只从环境变量或 0600 文件加载平台 HMAC 密钥；
 // 绝不写日志、绝不回显密钥内容。`system-intents` 是纯本地通道，无需密钥。
 func loadWebhookPlatformSecrets() (map[string][]byte, error) {
 	secrets := make(map[string][]byte)
-	channels := []string{"feishu", "wecom", "dingtalk", "telegram", "email", "webhook"}
 	filePath := strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_WEBHOOK_SECRETS_FILE"))
 	if filePath != "" {
 		raw, err := os.ReadFile(filePath)
@@ -330,9 +371,8 @@ func loadWebhookPlatformSecrets() (map[string][]byte, error) {
 			secrets[channel] = []byte(value)
 		}
 	}
-	for _, channel := range channels {
-		envKey := "QUETZALCOATL_HUB_WEBHOOK_SECRET_" + strings.ToUpper(strings.ReplaceAll(channel, "-", "_"))
-		if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
+	for _, channel := range webhookSecretChannels {
+		if value := strings.TrimSpace(os.Getenv(webhookSecretEnvKey(channel))); value != "" {
 			secrets[channel] = []byte(value)
 		}
 	}
@@ -364,12 +404,87 @@ func defaultHubDataDir() string {
 	return filepath.Join(userHome, ".quetzalcoatl", "hub")
 }
 
-func main() {
-	addr := envOrDefault("QUETZALCOATL_HUB_ADDR", "127.0.0.1:8443")
-	certFile := strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_TLS_CERT_FILE"))
-	keyFile := strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_TLS_KEY_FILE"))
+type listenConfig struct {
+	addr        string
+	certFile    string
+	keyFile     string
+	enableHTTPS bool
+}
+
+func loadListenConfig() listenConfig {
+	cfg := listenConfig{
+		addr:     envOrDefault("QUETZALCOATL_HUB_ADDR", "127.0.0.1:8443"),
+		certFile: strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_TLS_CERT_FILE")),
+		keyFile:  strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_TLS_KEY_FILE")),
+	}
 	tlsFlag := strings.ToLower(strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_TLS")))
-	enableHTTPS := tlsFlag == "1" || tlsFlag == "true" || (certFile != "" && keyFile != "")
+	cfg.enableHTTPS = tlsFlag == "1" || tlsFlag == "true" || (cfg.certFile != "" && cfg.keyFile != "")
+	return cfg
+}
+
+// healthcheckURL 把监听地址换算成本机可达的 /healthz 地址：通配或缺省主机一律走回环。
+func healthcheckURL(cfg listenConfig) (string, error) {
+	host, port, err := net.SplitHostPort(cfg.addr)
+	if err != nil {
+		return "", fmt.Errorf("parse QUETZALCOATL_HUB_ADDR %q: %w", cfg.addr, err)
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	scheme := "http"
+	if cfg.enableHTTPS {
+		scheme = "https"
+	}
+	return scheme + "://" + net.JoinHostPort(host, port) + "/healthz", nil
+}
+
+// runHealthcheck 供容器与进程管理器探活：最终镜像里没有 shell 与 curl，只能由二进制自检。
+func runHealthcheck() error {
+	target, err := healthcheckURL(loadListenConfig())
+	if err != nil {
+		return err
+	}
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{
+			// 只探本机进程是否应答，不发送任何凭据，也不采信响应内容；
+			// 证书签给的是公网域名，对回环地址校验必然不过，故此处不校验。
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13},
+		},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Get(target)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s returned HTTP %d", target, resp.StatusCode)
+	}
+	return nil
+}
+
+func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "healthcheck":
+			if err := runHealthcheck(); err != nil {
+				fmt.Fprintf(os.Stderr, "quetzalcoatl-hub healthcheck failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "version":
+			fmt.Println(buildVersion())
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "quetzalcoatl-hub: unknown command %q (commands: healthcheck, version; no arguments starts the server)\n", os.Args[1])
+			os.Exit(2)
+		}
+	}
+
+	startedAt := time.Now()
+	listen := loadListenConfig()
+	addr, certFile, keyFile, enableHTTPS := listen.addr, listen.certFile, listen.keyFile, listen.enableHTTPS
 
 	defaultScheme := "http://"
 	if enableHTTPS {
@@ -488,22 +603,6 @@ func main() {
 	relaySvc := relay.NewServer(relay.Config{})
 	defer func() { _ = relaySvc.Close() }()
 
-	llmTracker := llmproxy.NewQuotaTracker(llmproxy.QuotaLimits{
-		AccountDailyTokens: envInt64OrDefault("QUETZALCOATL_HUB_LLM_ACCOUNT_DAILY_TOKENS", 1_000_000),
-		AccountTotalTokens: envInt64OrDefault("QUETZALCOATL_HUB_LLM_ACCOUNT_TOTAL_TOKENS", 0),
-		AgentDailyTokens:   envInt64OrDefault("QUETZALCOATL_HUB_LLM_AGENT_DAILY_TOKENS", 500_000),
-		AgentTotalTokens:   envInt64OrDefault("QUETZALCOATL_HUB_LLM_AGENT_TOTAL_TOKENS", 0),
-	}, time.Now)
-	llmWriteTimeoutMs := envInt64OrDefault("QUETZALCOATL_HUB_LLM_WRITE_TIMEOUT_MS", 15_000)
-	llmSvc, err := llmproxy.NewService(authSvc, llmTracker, llmproxy.Config{
-		UpstreamBaseURL:   os.Getenv("QUETZALCOATL_HUB_LLM_UPSTREAM_URL"),
-		UpstreamAPIKey:    os.Getenv("QUETZALCOATL_HUB_LLM_API_KEY"),
-		ChunkWriteTimeout: time.Duration(llmWriteTimeoutMs) * time.Millisecond,
-	})
-	if err != nil {
-		log.Fatalf("quetzalcoatl-hub failed to initialize llm proxy: %v", err)
-	}
-
 	var qadSrv *relay.QADServer
 	if qadAddr, enableQAD := resolveQADBindAddr(); enableQAD {
 		qadSrv, err = relay.StartQADServer(qadAddr, tlsCfg)
@@ -512,6 +611,36 @@ func main() {
 		}
 		log.Printf("quetzalcoatl-hub QAD listening on %s/udp", qadSrv.Addr().String())
 		defer func() { _ = qadSrv.Close() }()
+	}
+
+	metricsCfg := ops.MetricsConfig{
+		Version:                buildVersion(),
+		StartedAt:              startedAt,
+		Token:                  strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_METRICS_TOKEN")),
+		DefaultAgentQuotaBytes: quotaBytes,
+		Store:                  st,
+		Relay:                  relaySvc.Stats,
+	}
+	if qadSrv != nil {
+		metricsCfg.QAD = qadSrv.Stats
+	}
+	metricsSvc, err := ops.NewMetrics(metricsCfg)
+	if err != nil {
+		log.Fatalf("quetzalcoatl-hub invalid QUETZALCOATL_HUB_METRICS_TOKEN: %v", err)
+	}
+	if metricsSvc.TokenRequired() {
+		log.Printf("quetzalcoatl-hub /metrics requires the bearer token")
+	} else {
+		log.Printf("quetzalcoatl-hub /metrics is limited to direct loopback requests (set QUETZALCOATL_HUB_METRICS_TOKEN to scrape it remotely)")
+	}
+
+	metaSvc, err := ops.NewMeta(ops.MetaConfig{
+		ServerVersion:    buildVersion(),
+		MinClientVersion: strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_MIN_CLIENT_VERSION")),
+		Announcement:     strings.TrimSpace(os.Getenv("QUETZALCOATL_HUB_ANNOUNCEMENT")),
+	})
+	if err != nil {
+		log.Fatalf("quetzalcoatl-hub invalid QUETZALCOATL_HUB_MIN_CLIENT_VERSION or QUETZALCOATL_HUB_ANNOUNCEMENT: %v", err)
 	}
 
 	mux := http.NewServeMux()
@@ -532,7 +661,8 @@ func main() {
 	webhookSvc.RegisterOwnerRoutes(mux, authSvc)
 	groupSvc.RegisterRoutes(mux)
 	relaySvc.RegisterRoutes(mux)
-	llmSvc.RegisterRoutes(mux)
+	metricsSvc.RegisterRoutes(mux)
+	metaSvc.RegisterRoutes(mux)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -554,7 +684,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("quetzalcoatl-hub listening on %s (tls=%v)", addr, enableHTTPS)
+		log.Printf("quetzalcoatl-hub listening on %s (tls=%v, version=%s)", addr, enableHTTPS, buildVersion())
 		var serveErr error
 		if enableHTTPS {
 			serveErr = srv.ListenAndServeTLS("", "")

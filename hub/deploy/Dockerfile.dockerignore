@@ -1,0 +1,8 @@
+# 只把构建需要的源码送进构建上下文；测试文件与本地产物不参与镜像构建。
+*
+!go.mod
+!go.sum
+!cmd
+!internal
+**/*_test.go
+cmd/quetzalcoatl-hub/quetzalcoatl-hub

@@ -17,6 +17,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/chacha20"
@@ -330,8 +331,23 @@ type QADServer struct {
 	byServerCID map[[qadServerCIDLen]byte]*qadSession
 	byInitDCID  map[string]*qadSession
 
+	requests atomic.Uint64
+	reports  atomic.Uint64
+
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+}
+
+// QADStats 是地址发现的运行计数快照：只有总量，不含任何对端地址。
+type QADStats struct {
+	// Requests 是累计受理的地址发现请求数（每个新建的 QUIC 会话计一次）。
+	Requests uint64
+	// Reports 是累计完成握手并回报了对端公网地址的会话数（重传不重复计）。
+	Reports uint64
+}
+
+func (q *QADServer) Stats() QADStats {
+	return QADStats{Requests: q.requests.Load(), Reports: q.reports.Load()}
 }
 
 func StartQADServer(bindAddr string, baseTLS *tls.Config) (*QADServer, error) {
@@ -589,6 +605,7 @@ func (q *QADServer) createSessionLocked(origDCID, clientSCID []byte, remote *net
 	}
 	q.byServerCID[scid] = sess
 	q.byInitDCID[string(origDCID)] = sess
+	q.requests.Add(1)
 	return sess, nil
 }
 
@@ -1121,6 +1138,9 @@ func (q *QADServer) sendHandshakeDoneAndObservedLocked(sess *qadSession, now tim
 	frames = append(frames, 0x1e) // HANDSHAKE_DONE
 	if sess.clientWantsObservedAddr && sess.remoteAddr != nil {
 		frames = encodeObservedAddrFrame(frames, sess.remoteAddr, 0)
+		if !sess.reportSent {
+			q.reports.Add(1)
+		}
 	}
 	sess.reportSent = true
 	sess.lastReportSentAt = now

@@ -151,7 +151,8 @@ max_hlc, min_hlc, padded_len, uncompressed_blake3, v
 | `GET` | `/v1/webhook/{agent_id}/status` | 队列状态 |
 | `PUT` | `/v1/blobs/put/{upload_id}` | 分片上传 |
 | `GET` | `/v1/blobs/get/{blob_key...}` | 分片下载 |
-| `*` | `/v1/llm/` | 模型代理前缀（见 §7） |
+| `GET` | `/v1/meta` | 公开的元信息：服务端版本、最低客户端版本、公告（见 §7） |
+| `GET` | `/metrics` | 运行指标，仅限管理员（见 §7） |
 
 `/v1/lease/*` 请求体字段：`agent_id`、`device_id`、`expected_epoch`（acquire）、
 `witness_epoch`（renew/release）、`ttl_ms`。纪元落后返回 `STALE_LEASE_EPOCH`。
@@ -168,16 +169,21 @@ max_hlc, min_hlc, padded_len, uncompressed_blake3, v
 - **对象存储**：统一使用 S3 兼容 Presigned `PUT`（Cloudflare R2 / MinIO / AWS S3），签名覆盖
   `Content-Length` 与 `sha256`；不使用兼容性差的 `PresignedPostPolicy`。
 
-## 7. 模型代理
+## 7. 运行指标与元信息
 
-`/v1/llm/` 由 `hub/internal/llmproxy` 处理，仅做配额与透明转发：
+Hub 看不到内容（这是设计），所以它的管理面只有运行状况，由 `hub/internal/ops` 提供：
 
-- 配额单位是 token，分为账户日/总量与 Agent 日/总量（`QUETZALCOATL_HUB_LLM_*`）。
-- 透传认证头与请求正文；不改写 `system[0]`，不缓存正文。
-- 上游未配置时返回 `503`，`code` 为 Hub 本地的 `UPSTREAM_UNCONFIGURED`（不属于 Rust
-  `ErrorCode` 枚举），绝不伪造回复。
-- `zstd` 请求解压、Codex WebSocket `426` 降级、Anthropic `<=4 cache_control` 归一化发生在
-  **本机回环网关** `crates/quetzalcoatl-harness/src/gateway.rs`，不在此 Hub 代理。
+- **`GET /v1/meta`**：公开、无需鉴权，返回 `server_version`、`min_client_version`、`announcement`
+  与 `server_time_ms`。`min_client_version` 来自 `QUETZALCOATL_HUB_MIN_CLIENT_VERSION`（空表示
+  不设门槛），`announcement` 来自 `QUETZALCOATL_HUB_ANNOUNCEMENT`。客户端据此提示升级，并在低于
+  最低版本时停止同步。
+- **`GET /metrics`**：Prometheus 文本格式，指标前缀 `quetzalcoatl_hub_`：账户与 Agent 数量、
+  已存密文包数量与字节数、配额、当前中继连接数与累计转发量、地址发现请求数、入站队列深度、
+  持有租约的 Agent 数。**不输出任何账户、Agent 或设备标识。** 配置了
+  `QUETZALCOATL_HUB_METRICS_TOKEN` 时要求 `Authorization: Bearer`；没有配置时只接受不带转发头的
+  回环请求，其余一律 `404`。
+
+Hub 不提供模型代理：模型调用永远发生在用户自己的宿主里。
 
 ## 8. 群组提交协议
 
