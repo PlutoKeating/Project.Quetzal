@@ -145,6 +145,10 @@ impl Rig {
             .env("PATH", path_env)
             .env("NO_COLOR", "1")
             .env("QUETZALCOATL_NOTIFY", "0")
+            // 宿主的配置目录一律落在测试目录里（CI 机器会预设 XDG_CONFIG_HOME）。
+            .env("XDG_CONFIG_HOME", self.root.join(".config"))
+            .env("DSH_HOME", self.root.join(".dsh"))
+            .env_remove("CODEX_HOME")
             .env_remove("QUETZALCOATL_MANAGED_RUN")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
