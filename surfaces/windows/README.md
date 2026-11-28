@@ -6,6 +6,7 @@
 
 - `C# / .NET 9 + WinUI 3`，`Nullable=enable`，`TreatWarningsAsErrors=true`（见 `Directory.Build.props`）；
 - 没有 WebView 套壳，不持有任何数据库或 IPC 句柄；
+- 外观取自 Quetzalcoatl 设计系统（`packages/design-system/tokens`）：纯黑底、白字，唯一的实色是白色主按钮。
 - 构建需要 Windows 与 VS 2022 Build Tools 的「通用 Windows 平台生成工具」（Appx/PRI 任务）：
 
 ```powershell
