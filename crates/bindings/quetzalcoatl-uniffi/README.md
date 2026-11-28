@@ -1,6 +1,6 @@
 # `quetzalcoatl-uniffi`
 
-Swift 6 / Kotlin 2.2 / .NET 9+ 的 **拉模式** UniFFI 绑定层（防坑规范 #14）。
+Swift 6 / Kotlin 2.2 / .NET 9+ 的 UniFFI 绑定层（只读视图会话，无回调）（防坑规范 #14）。
 
 ## 版本锁定与 `uniffi-bindgen-cs` 缺口
 
@@ -30,8 +30,8 @@ Swift 6 / Kotlin 2.2 / .NET 9+ 的 **拉模式** UniFFI 绑定层（防坑规范
 * 符号门禁：同一个测试对真实 `cdylib` 执行 `nm -D`，断言 **0 个
   `init_callback_vtable_*` 符号**（UniFFI 只为外语回调接口生成该符号）。
 
-宿主统一使用 `FfiViewStream.next_events(maxEvents)` 主动拉取（C# `IAsyncEnumerable`
-封装由 `surfaces/windows` 在 Task 4.3 落地，仍是拉模式）。
+对话流（原 `FfiViewStream`）已按 000 号铁律撤销：本层只导出只读视图会话 `FfiViewSession`，
+宿主始终主动调用方法取数，不存在推送通道。
 
 ## 生成与编译冒烟脚本
 

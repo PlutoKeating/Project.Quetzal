@@ -15,17 +15,16 @@ fn swift_bindings_generate_and_typecheck_when_toolchain_present() {
     let target = generated.join("QuetzalcoatlBindings.swift");
     let source = fs::read_to_string(&target).expect("读取生成的 Swift 绑定");
 
-    for symbol in [
-        "FfiViewStream",
-        "FfiViewSession",
-        "FfiCognitionDensity",
-        "nextEvents",
-    ] {
+    for symbol in ["FfiViewSession", "FfiCognitionDensity", "densityPatch"] {
         assert!(
             source.contains(symbol),
             "Swift 绑定缺少导出的符号 `{symbol}`"
         );
     }
+    assert!(
+        !source.contains("FfiViewStream"),
+        "对话流已按 000 号铁律撤销，绑定不得再导出 FfiViewStream"
+    );
     assert!(
         !source.contains("CallbackInterface"),
         "Swift 绑定不得包含任何外语回调接口（拉模式唯一）"

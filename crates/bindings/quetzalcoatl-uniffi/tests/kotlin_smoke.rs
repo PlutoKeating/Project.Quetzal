@@ -15,15 +15,19 @@ fn kotlin_bindings_generate_and_compile_when_toolchain_present() {
     let target = generated.join("org/quetzalcoatl/bindings/quetzalcoatl_uniffi.kt");
     let source = fs::read_to_string(&target).expect("读取生成的 Kotlin 绑定");
 
-    for symbol in ["class FfiViewStream", "class FfiViewSession", "nextEvents"] {
+    for symbol in ["class FfiViewSession", "densityPatch"] {
         assert!(
             source.contains(symbol),
             "Kotlin 绑定缺少导出的符号 `{symbol}`"
         );
     }
     assert!(
-        !source.contains("interface FfiViewStreamInterface : FfiConverterCallbackInterface"),
-        "Kotlin 绑定不得把 ViewStream 暴露为外语回调接口"
+        !source.contains("FfiViewStream"),
+        "对话流已按 000 号铁律撤销，绑定不得再导出 FfiViewStream"
+    );
+    assert!(
+        !source.contains("FfiConverterCallbackInterface"),
+        "Kotlin 绑定不得包含任何外语回调接口"
     );
 
     let Some(kotlinc) = common::find_tool(&["kotlinc"]) else {
