@@ -101,9 +101,9 @@ impl Shell {
         side_column.add_css_class("qz-app-nav");
         side_column.set_width_request(NAV_WIDTH);
         side_column.set_hexpand(false);
-        let brand = gtk::Label::new(Some("Quetzalcoatl"));
+        let brand = crate::ui::spectrum_wordmark("Quetzalcoatl", 18.0);
         brand.add_css_class("qz-app-brand");
-        brand.set_xalign(0.0);
+        brand.set_widget_name("brand");
         side_column.append(&brand);
         let list = vbox(2);
         list.add_css_class("qz-app-nav-list");

@@ -30,11 +30,13 @@
   --qz-ink-secondary: #8a8a8a;  /* subtitles, nav links, meta              */
   --qz-ink-quiet: #666666;      /* group labels, table-of-contents         */
   --qz-ink-muted: #525252;      /* inactive ticks, coordinates             */
+  --qz-ink-drift: #737373;      /* a diagram's drifting (wrong) path       */
   --qz-ink-invert: #000000;     /* text on white or on a light accent      */
 
   /* ── Lines (white at low alpha; always 1px unless stated) ─────────── */
   --qz-line-ghost: rgba(255, 255, 255, 0.045);   /* diagram grid columns   */
   --qz-hairline: rgba(255, 255, 255, 0.075);     /* structural divisions   */
+  --qz-line-edge: rgba(255, 255, 255, 0.08);     /* diagram canvas edges   */
   --qz-border: rgba(255, 255, 255, 0.085);       /* cell separators        */
   --qz-line-frame: rgba(255, 255, 255, 0.09);    /* code / image frames    */
   --qz-line-rail: rgba(255, 255, 255, 0.1);      /* top/bottom of a rail   */

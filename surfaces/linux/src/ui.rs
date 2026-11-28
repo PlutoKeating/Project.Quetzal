@@ -640,3 +640,63 @@ pub fn cap_label_width(root: &impl IsA<gtk::Widget>, chars: i32) {
         }
     }
 }
+
+/// 设计系统的六色字标（`.qz-wordmark`）：自上而下六条色带，裁进字形里。
+/// GTK 的样式表做不到「背景裁进文字」，这里用快照逐条裁剪、按带着色画同一段文字，
+/// 结果是矢量的渲染节点，放大缩小都清晰。数值与 `tokens/colors.css` 的 `--qz-spectrum-*`
+/// 及 `components.css` 的 `--qz-wm-top`、`--qz-wm-band` 一致。
+#[must_use]
+pub fn spectrum_wordmark(text: &str, size_px: f64) -> gtk::Picture {
+    const SPECTRUM: [(f32, f32, f32); 6] = [
+        (0x69 as f32, 0xdd as f32, 0x4a as f32),
+        (0xf9 as f32, 0xd3 as f32, 0x43 as f32),
+        (0xff as f32, 0xac as f32, 0x61 as f32),
+        (0xff as f32, 0x8d as f32, 0x88 as f32),
+        (0xde as f32, 0x87 as f32, 0xfe as f32),
+        (0x2f as f32, 0xc4 as f32, 0xff as f32),
+    ];
+    const TOP_EM: f64 = 0.3;
+    const BAND_EM: f64 = 0.118;
+    let probe = gtk::Label::new(None);
+    let layout = probe.create_pango_layout(Some(text));
+    let mut font = pango::FontDescription::from_string("Sora");
+    font.set_absolute_size(size_px * f64::from(pango::SCALE));
+    font.set_weight(pango::Weight::Semibold);
+    layout.set_font_description(Some(&font));
+    let spacing = pango::AttrInt::new_letter_spacing((-0.4 * f64::from(pango::SCALE)) as i32);
+    let attrs = pango::AttrList::new();
+    attrs.insert(spacing);
+    layout.set_attributes(Some(&attrs));
+    let (width, height) = layout.pixel_size();
+    let (width, height) = (width as f32, height as f32);
+    let edge = |k: usize| ((TOP_EM + k as f64 * BAND_EM) * size_px) as f32;
+    let snapshot = gtk::Snapshot::new();
+    for (index, (r, g, b)) in SPECTRUM.iter().enumerate() {
+        let top = if index == 0 { 0.0 } else { edge(index) };
+        let bottom = if index == SPECTRUM.len() - 1 {
+            height
+        } else {
+            edge(index + 1)
+        };
+        snapshot.push_clip(&gtk::graphene::Rect::new(
+            0.0,
+            top,
+            width,
+            (bottom - top).max(0.0),
+        ));
+        snapshot.append_layout(
+            &layout,
+            &gtk::gdk::RGBA::new(r / 255.0, g / 255.0, b / 255.0, 1.0),
+        );
+        snapshot.pop();
+    }
+    let picture = gtk::Picture::new();
+    if let Some(paintable) = snapshot.to_paintable(Some(&gtk::graphene::Size::new(width, height))) {
+        picture.set_paintable(Some(&paintable));
+    }
+    picture.set_can_shrink(false);
+    picture.set_halign(gtk::Align::Start);
+    picture.set_alternative_text(Some(text));
+    picture.update_property(&[gtk::accessible::Property::Label(text)]);
+    picture
+}

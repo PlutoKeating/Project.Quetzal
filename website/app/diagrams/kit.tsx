@@ -15,14 +15,14 @@ export const ink = {
   amber: "var(--qz-amber)",
 } as const;
 
-/** 结构线。edge 与 drift 是 diagrams.md 规定、而设计系统尚未给出 token 的两个值。 */
+/** 结构线，全部取设计系统的 token。 */
 export const line = {
-  edge: "rgba(255,255,255,0.08)",
+  edge: "var(--qz-line-edge)",
   ghost: "var(--qz-line-ghost)",
   mark: "var(--qz-line-mark)",
   link: "var(--qz-border-strong)",
   node: "var(--qz-line-control)",
-  drift: "#737373",
+  drift: "var(--qz-ink-drift)",
 } as const;
 
 const font = { sans: "var(--qz-font-sans)", mono: "var(--qz-font-mono)" } as const;
