@@ -10,7 +10,8 @@ pub mod mcp_bridge;
 
 pub use discovery::{
     CodingAgentKind, DiscoveredAgent, DiscoveryConfig, DiscoveryReport, RejectedCandidate,
-    can_probe_linux_secret_service, discover_coding_agents, matches_agent_version_signature,
+    can_probe_linux_secret_service, discover_coding_agents, discover_coding_agents_patiently,
+    matches_agent_version_signature,
 };
 pub use drivers::{
     EwaveCheckTag, HarnessDriver, HarnessEvent, HarnessLaunchContext, HarnessLaunchPlan,

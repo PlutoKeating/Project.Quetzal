@@ -384,9 +384,20 @@ fn probe_single_candidate(
 
 /// 并发扫描本机已安装的 Coding Agent，保证总耗时严格 `<10ms` 且完全免疫同名命令撞车与无头 Keyring 卡死。
 pub fn discover_coding_agents(config: &DiscoveryConfig) -> Result<DiscoveryReport> {
+    discover_within(config, config.probe_timeout.min(Duration::from_millis(6)))
+}
+
+/// 不赶时间的扫描：给每个候选的版本探测留足 `config.probe_timeout`。
+///
+/// 用户主动执行的命令（接上宿主、诊断）用这个：宿主的命令行启动要上百毫秒，
+/// 机器忙的时候更久，热路径上的 `<10ms` 预算会把它误判成「没装」。
+pub fn discover_coding_agents_patiently(config: &DiscoveryConfig) -> Result<DiscoveryReport> {
+    discover_within(config, config.probe_timeout)
+}
+
+fn discover_within(config: &DiscoveryConfig, budget: Duration) -> Result<DiscoveryReport> {
     let started = Instant::now();
-    let bounded_timeout = config.probe_timeout.min(Duration::from_millis(6));
-    let deadline = started + bounded_timeout;
+    let deadline = started + budget;
 
     let dbus_val = if let Some(overridden) = config.env_overrides.get("DBUS_SESSION_BUS_ADDRESS") {
         Some(overridden.clone())
