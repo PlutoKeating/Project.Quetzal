@@ -1,6 +1,6 @@
 [package]
 name = "quetzalcoatl-desktop"
-description = "Quetzalcoatl V2 Linux 纯原生 GTK4 + 动态 libadwaita 桌面三态与托盘客户端"
+description = "Quetzalcoatl V2 Linux 纯原生 GTK4 + 动态 libadwaita 治理面（只看和签）与托盘客户端"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,6 +21,8 @@ workspace = true
 gtk4 = { version = "0.11", features = ["v4_10", "v4_14"] }
 # 动态链接系统 `libadwaita-1`（LGPL-2.1，经 pkg-config 探测，非 cargo 静态依赖）。
 libadwaita = { version = "0.9", features = ["v1_9", "gtk_v4_10"] }
+# 登记随包字体需要 `pango_font_map_add_font_file`（Pango >= 1.56）。
+pango = { version = "0.22", features = ["v1_56"] }
 # 零 FFI 开销的直接 Rust 依赖：单脊柱持有者薄客户端 + 三档密度差分视图。
 quetzalcoatl-client-core = { workspace = true }
 # 仅消费本地 IPC 协议类型（IpcRequest/IpcResponse/DesktopRow），绝不持有数据库连接。

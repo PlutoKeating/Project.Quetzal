@@ -1,40 +1,38 @@
 #![forbid(unsafe_code)]
 
-//! 桌面应用外壳：GTK4 `Application`、三态 `ViewStack`、快捷动作、托盘驻留与 IPC 接线。
+//! 桌面应用外壳：GTK4 `Application`、治理面窗口、快捷动作、托盘驻留与自检。
 //!
 //! 关键不变量：
-//! * 本进程**只**通过 `quetzalcoatl-client-core::ThinClient` 访问脊柱；
-//!   守护进程不可达时进入类型化离线视图，绝不回退直连 `spine.sqlite`（防坑规范 #13）。
-//! * 在线时启动即拉取真实 `desktop_snapshot`（会话/运行进展/良知/审计），并以差分
-//!   `ViewPatch` 幂等落入 UI 模型；「重新连接」时再拉一次。
-//! * 窗口只读：没有输入框，也不向守护进程发起任何对话请求。
-//! * 披露层级：pid / socket / 错误码等运行技术细节只进入检视态；工作台保持零术语。
+//! * 治理面**只「看」和「签」**：没有任何给他发一句话的输入框，也不发起任何对话请求
+//!   （000 号铁律：对话永远发生在别人的宿主里）；
+//! * 本进程只经本机认证 IPC 调用守护进程的 `sea_*` 方法，守护进程不可达时整页保留上一次的内容、
+//!   顶部一行琥珀色状态词与下一步，绝不回退直连 `spine.sqlite`（防坑规范 #13）；
+//! * 写动作（改、不主动提、抹除、签署、吊销、迎合滑杆）都由本人亲手触发，守护进程联系不上时一律不可用。
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::{Duration, Instant};
 
 use gtk::gio::prelude::ApplicationExtManual;
 use gtk::glib;
-use gtk::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
+use libadwaita::prelude::*;
 
-use quetzalcoatl_client_core::{CognitionDensity, ThinClient, ViewRow, ViewState};
-use quetzalcoatl_daemon::{DesktopRow, IpcRequest, IpcResponse};
-
+use crate::api::Api;
 use crate::config::DesktopConfig;
-use crate::degrade;
-use crate::model::{ConnectionState, UiModel};
+use crate::routes::{PAGES, PageKey};
+use crate::shell::Shell;
 use crate::tray::{self, TrayCallbacks, TrayHandle, TrayStatus};
-use crate::views::{companion, inspector, workbench};
 
 /// 应用 ID（与 `.desktop` 文件的 `StartupWMClass` 一致）。
 pub const APPLICATION_ID: &str = "org.quetzalcoatl.Desktop";
+
+/// 窄屏版面的断点：窗口宽度不超过它时，导航收成顶部一行、出处落到正文下方。
+pub const NARROW_BREAKPOINT: &str = "max-width: 900sp";
 
 /// 启动参数。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,34 +45,22 @@ pub struct DesktopOptions {
     pub self_test: bool,
 }
 
-/// 三档视图的持久控件集合。
+/// 持久控件。
 pub struct Widgets {
-    /// 密度页栈。
-    pub stack: adw::ViewStack,
-    /// 陪伴态。
-    pub companion: companion::CompanionView,
-    /// 工作台态。
-    pub workbench: workbench::WorkbenchView,
-    /// 检视态。
-    pub inspector: inspector::InspectorView,
-    /// 全局离线/降级横幅。
-    pub banner: adw::Banner,
     /// 托盘驻留状态。
     pub tray_status: TrayStatus,
 }
 
 /// 桌面应用状态（单线程 GTK 主上下文内使用）。
 pub struct Desktop {
-    /// UI 模型。
-    pub model: UiModel,
     /// 持久化配置。
     pub config: DesktopConfig,
     /// 配置文件路径。
     pub config_path: Option<PathBuf>,
     /// 家目录。
     pub home: PathBuf,
-    /// 薄客户端（在线时存在）。
-    pub client: Option<ThinClient>,
+    /// 治理面外壳（导航、九页、出处栏）。
+    pub shell: Rc<Shell>,
     /// 控件集合。
     pub widgets: Widgets,
     /// 主窗口。
@@ -90,9 +76,8 @@ pub struct Desktop {
 impl std::fmt::Debug for Desktop {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Desktop")
-            .field("density", &self.model.density())
-            .field("online", &self.model.connection.is_online())
-            .field("rows", &self.model.view.rows.len())
+            .field("page", &self.shell.current().info().slug)
+            .field("online", &self.shell.ctx.online())
             .field("tray", &self.widgets.tray_status)
             .finish_non_exhaustive()
     }
@@ -104,65 +89,17 @@ impl std::fmt::Debug for Desktop {
 /// 由 [`run_with_hook`] 的激活阶段统一接线。
 #[must_use]
 pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
+    crate::style::install();
     let config = DesktopConfig::load_from(options.config_path.as_deref());
-    let density = config.density;
-    let (connection, client) = probe_daemon(&options.home);
-    let mut model = match connection {
-        ConnectionState::Online {
-            pid,
-            endpoint,
-            spine_events,
-        } => UiModel::online(pid, endpoint, spine_events, density),
-        offline @ ConnectionState::Offline { .. } => {
-            let mut model = UiModel::offline_with_density(String::new(), density);
-            model.connection = offline;
-            model
-        }
-    };
-    if let Some(client) = &client {
-        hydrate_model(&mut model, client);
-    }
 
-    let companion = companion::build();
-    let workbench = workbench::build();
-    let inspector = inspector::build();
-
-    let stack = adw::ViewStack::new();
-    // 显式给每个密度页一个存在的 symbolic 图标：libadwaita 在宽模式下会渲染页图标，
-    // 缺省会落到 `image-missing`（真实安装验收里就是三个红叉），既是视觉缺陷也降低可辨识度。
-    stack.add_titled_with_icon(
-        &companion.root,
-        Some("companion"),
-        "陪伴",
-        "go-home-symbolic",
-    );
-    stack.add_titled_with_icon(
-        &workbench.root,
-        Some("workbench"),
-        "工作台",
-        "view-grid-symbolic",
-    );
-    stack.add_titled_with_icon(
-        &inspector.root,
-        Some("inspector"),
-        "检视",
-        "system-search-symbolic",
-    );
-    stack.set_visible_child_name(density.label());
-
-    let switcher = adw::ViewSwitcher::new();
-    switcher.set_stack(Some(&stack));
-    switcher.set_policy(adw::ViewSwitcherPolicy::Wide);
-    let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&switcher));
-
-    let banner = adw::Banner::new("");
-    banner.set_revealed(false);
-
+    let shell = Shell::new(Api::new(options.home.clone()));
     let toolbar = adw::ToolbarView::new();
+    let header = adw::HeaderBar::new();
+    header.add_css_class("qz-header");
+    // 窗口标题随页走；标题区不放任何东西，让出一整条安静的细线。
+    header.set_title_widget(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
     toolbar.add_top_bar(&header);
-    toolbar.add_top_bar(&banner);
-    toolbar.set_content(Some(&stack));
+    toolbar.set_content(Some(&shell.root));
 
     let maximize_requested = config.maximized;
     let window = adw::ApplicationWindow::builder()
@@ -171,22 +108,36 @@ pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
         .default_height(config.height)
         .content(&toolbar)
         .build();
+    window.add_css_class("qz-window");
+    window.set_size_request(360, 400);
+    shell.attach_window(window.upcast_ref());
     if maximize_requested {
         window.maximize();
     }
 
+    if let Ok(condition) = adw::BreakpointCondition::parse(NARROW_BREAKPOINT) {
+        let breakpoint = adw::Breakpoint::new(condition);
+        let narrow = Rc::downgrade(&shell);
+        breakpoint.connect_apply(move |_| {
+            if let Some(shell) = narrow.upgrade() {
+                shell.set_narrow(true);
+            }
+        });
+        let wide = Rc::downgrade(&shell);
+        breakpoint.connect_unapply(move |_| {
+            if let Some(shell) = wide.upgrade() {
+                shell.set_narrow(false);
+            }
+        });
+        window.add_breakpoint(breakpoint);
+    }
+
     let desktop = Rc::new(RefCell::new(Desktop {
-        model,
-        config,
+        config: config.clone(),
         config_path: options.config_path,
         home: options.home,
-        client,
+        shell: shell.clone(),
         widgets: Widgets {
-            stack,
-            companion,
-            workbench,
-            inspector,
-            banner,
             tray_status: TrayStatus::Disabled,
         },
         window,
@@ -198,98 +149,17 @@ pub fn build_desktop(options: DesktopOptions) -> Rc<RefCell<Desktop>> {
     }));
 
     wire_signals(&desktop);
-    refresh(&desktop);
+    shell.start();
+    if let Some(key) = PageKey::from_slug(&config.page)
+        && key != PageKey::Overview
+    {
+        shell.navigate(key);
+    }
     desktop
 }
 
-/// 调用守护进程健康握手；失败时返回零术语的离线说明。
-fn probe_daemon(home: &Path) -> (ConnectionState, Option<ThinClient>) {
-    match ThinClient::mount(home) {
-        Ok(client) => {
-            let endpoint = client.runtime_info().ipc_http_addr.to_string();
-            match client.status() {
-                Ok(status) => (
-                    ConnectionState::Online {
-                        pid: status.pid,
-                        endpoint,
-                        spine_events: status.spine_events_count,
-                    },
-                    Some(client),
-                ),
-                Err(err) => (
-                    ConnectionState::Offline {
-                        view: degrade::explain_client_error(&err),
-                    },
-                    None,
-                ),
-            }
-        }
-        Err(err) => (
-            ConnectionState::Offline {
-                view: degrade::explain_client_error(&err),
-            },
-            None,
-        ),
-    }
-}
-
-/// 从真实本地 IPC 拉取快照 + 良知正文，并以差分补丁落入 UI 模型。
-fn hydrate_model(model: &mut UiModel, client: &ThinClient) {
-    match client.call(&IpcRequest::DesktopSnapshot) {
-        Ok(IpcResponse::DesktopSnapshot { rev, rows }) => apply_desktop_rows(model, rev, &rows),
-        Ok(IpcResponse::Error { code, detail }) => {
-            model.notice("暂时读不到本机助手的动态。");
-            model.technical(format!("desktop_snapshot {code}: {detail}"));
-        }
-        Ok(other) => {
-            model.technical(format!("desktop_snapshot 返回了非快照响应: {other:?}"));
-        }
-        Err(err) => {
-            model.notice("暂时读不到本机助手的动态。");
-            model.technical(format!("desktop_snapshot 传输失败: {err}"));
-        }
-    }
-    match client.call(&IpcRequest::ConsciencePinned) {
-        Ok(IpcResponse::ConsciencePinned { pinned_system_tail }) => {
-            model.conscience_body = Some(pinned_system_tail);
-        }
-        Ok(_) => model.technical(String::from("conscience_pinned 返回了非预期响应")),
-        Err(err) => model.technical(format!("conscience_pinned 失败: {err}")),
-    }
-}
-
-fn apply_desktop_rows(model: &mut UiModel, rev: u64, rows: &[DesktopRow]) {
-    let mut map: BTreeMap<String, ViewRow> = BTreeMap::new();
-    for row in rows {
-        map.insert(
-            row.key.clone(),
-            ViewRow {
-                key: row.key.clone(),
-                kind: row.kind.clone(),
-                summary: row.summary.clone(),
-                detail: row.detail.clone(),
-                raw_json: row.raw_json.clone(),
-                updated_rev: row.updated_rev,
-            },
-        );
-    }
-    let target = ViewState {
-        rev: rev.max(model.view.rev.saturating_add(1)),
-        density: model.density(),
-        rows: map,
-    };
-    match model.view.diff(&target) {
-        Ok(patch) => {
-            if let Err(err) = model.apply_patch(&patch) {
-                model.technical(format!("视图补丁应用失败: {err}"));
-            }
-        }
-        Err(err) => model.technical(format!("视图差分失败: {err}")),
-    }
-}
-
 impl Desktop {
-    /// 把当前密度与窗口尺寸原子写盘。
+    /// 把当前页与窗口尺寸原子写盘。
     pub fn persist_config(&self) -> io::Result<()> {
         let mut config = self.config.clone();
         let (width, height) = (self.window.width(), self.window.height());
@@ -300,77 +170,47 @@ impl Desktop {
         if self.window.is_mapped() {
             config.maximized = self.window.is_maximized();
         }
+        config.page = self.shell.current().info().slug.to_owned();
         config.sanitized().save_to(self.config_path.as_deref())
     }
 }
 
-/// 把模型投影到三档原生视图、横幅与页栈。
-pub fn refresh(state: &Rc<RefCell<Desktop>>) {
-    let desktop = state.borrow();
-    companion::render(&desktop.widgets.companion, &desktop.model);
-    workbench::render(&desktop.widgets.workbench, &desktop.model);
-    inspector::render(&desktop.widgets.inspector, &desktop.model);
-
-    if let Some(degraded) = desktop.model.degraded() {
-        desktop.widgets.banner.set_title(&degraded.title);
-        desktop.widgets.banner.set_revealed(true);
-    } else {
-        desktop.widgets.banner.set_revealed(false);
-    }
-
-    let density = desktop.model.density();
-    if desktop.widgets.stack.visible_child_name().as_deref() != Some(density.label()) {
-        desktop
-            .widgets
-            .stack
-            .set_visible_child_name(density.label());
-    }
-    let title = match density {
-        CognitionDensity::Companion => "Quetzalcoatl · 陪伴",
-        CognitionDensity::Workbench => "Quetzalcoatl · 工作台",
-        CognitionDensity::Inspector => "Quetzalcoatl · 检视",
-    };
-    desktop.window.set_title(Some(title));
-}
-
-/// 即时切换认知密度（快捷动作 `Ctrl+1/2/3` 与视图切换器共用此入口）。
-pub fn apply_density(state: &Rc<RefCell<Desktop>>, density: CognitionDensity) {
-    {
-        let mut desktop = state.borrow_mut();
-        if desktop.model.set_density(density).is_ok() {
-            desktop.config.density = density;
-            let _ = desktop.persist_config();
-        }
-    }
-    refresh(state);
-}
-
-/// 注册三档密度的 `GAction` 与布局无关的 accelerator（`<Primary>1/2/3`）。
+/// 注册九页的 `GAction` 与布局无关的 accelerator（`<Primary>1..9`），以及重读（`<Primary>r`）。
 ///
 /// 用 action accelerator 而不是裸 keyval 匹配：AZERTY 等布局下 `1` 需要 `Shift`，
 /// accelerator 会按「产生该字符的按键组合」匹配；`Ctrl+Shift+1` 也能命中同一动作。
-pub fn install_density_actions<A>(app: &A, state: Weak<RefCell<Desktop>>)
+pub fn install_page_actions<A>(app: &A, shell: Weak<Shell>)
 where
     A: IsA<gtk::Application> + IsA<gtk::gio::ActionMap> + IsA<gtk::gio::ActionGroup>,
 {
-    let bindings = [
-        ("density-companion", CognitionDensity::Companion, "1"),
-        ("density-workbench", CognitionDensity::Workbench, "2"),
-        ("density-inspector", CognitionDensity::Inspector, "3"),
-    ];
-    for (name, density, digit) in bindings {
-        let accelerator = format!("<Primary>{digit}");
-        let shifted = format!("<Primary><Shift>{digit}");
-        let action = gtk::gio::SimpleAction::new(name, None);
-        let weak = state.clone();
+    for (index, info) in PAGES.iter().enumerate() {
+        let digit = index + 1;
+        let name = format!("page-{digit}");
+        let action = gtk::gio::SimpleAction::new(&name, None);
+        let weak = shell.clone();
+        let key = info.key;
         action.connect_activate(move |_, _| {
-            if let Some(state) = weak.upgrade() {
-                apply_density(&state, density);
+            if let Some(shell) = weak.upgrade() {
+                shell.navigate(key);
             }
         });
         app.add_action(&action);
-        app.set_accels_for_action(&format!("app.{name}"), &[&accelerator, &shifted]);
+        app.set_accels_for_action(
+            &format!("app.{name}"),
+            &[
+                &format!("<Primary>{digit}"),
+                &format!("<Primary><Shift>{digit}"),
+            ],
+        );
     }
+    let reload = gtk::gio::SimpleAction::new("reload", None);
+    reload.connect_activate(move |_, _| {
+        if let Some(shell) = shell.upgrade() {
+            shell.reload();
+        }
+    });
+    app.add_action(&reload);
+    app.set_accels_for_action("app.reload", &["<Primary>r", "F5"]);
 }
 
 fn install_app_actions(app: &adw::Application, state: Weak<RefCell<Desktop>>) {
@@ -432,13 +272,26 @@ pub fn pump_until_mapped(widget: &impl IsA<gtk::Widget>, timeout_ms: u64) -> boo
     }
 }
 
+/// 处理主循环事件直到条件成立（或超时）；返回条件是否成立。
+pub fn pump_until(timeout_ms: u64, mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    loop {
+        pump_events(10);
+        if condition() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+    }
+}
+
 fn wire_signals(state: &Rc<RefCell<Desktop>>) {
     let window = state.borrow().window.clone();
     let weak: Weak<RefCell<Desktop>> = Rc::downgrade(state);
 
-    let close_weak = weak.clone();
     window.connect_close_request(move |window| {
-        if let Some(state) = close_weak.upgrade() {
+        if let Some(state) = weak.upgrade() {
             let (width, height) = (window.width(), window.height());
             let keep_alive = {
                 let mut desktop = state.borrow_mut();
@@ -460,68 +313,6 @@ fn wire_signals(state: &Rc<RefCell<Desktop>>) {
         }
         glib::Propagation::Proceed
     });
-
-    let retry_weak = weak.clone();
-    state
-        .borrow()
-        .widgets
-        .companion
-        .retry
-        .connect_clicked(move |_| {
-            if let Some(state) = retry_weak.upgrade() {
-                reconnect(&state);
-            }
-        });
-
-    wire_approval_actions(state);
-}
-
-fn wire_approval_actions(state: &Rc<RefCell<Desktop>>) {
-    let group = gtk::gio::SimpleActionGroup::new();
-    for (name, decision) in [("approve", "已批准"), ("deny", "已拒绝")] {
-        let action = gtk::gio::SimpleAction::new(name, Some(glib::VariantTy::STRING));
-        let weak = Rc::downgrade(state);
-        let decision = String::from(decision);
-        action.connect_activate(move |_, target| {
-            let key = target
-                .and_then(|value| value.get::<String>())
-                .unwrap_or_default();
-            if let Some(state) = weak.upgrade() {
-                {
-                    let mut desktop = state.borrow_mut();
-                    desktop.model.notice(format!(
-                        "{decision}：{key}（等待守护进程审批通道接线，尚未写回脊柱）"
-                    ));
-                }
-                refresh(&state);
-            }
-        });
-        group.add_action(&action);
-    }
-    state
-        .borrow()
-        .window
-        .insert_action_group("win", Some(&group));
-}
-
-fn reconnect(state: &Rc<RefCell<Desktop>>) {
-    let home = state.borrow().home.clone();
-    let (connection, client) = probe_daemon(&home);
-    {
-        let mut desktop = state.borrow_mut();
-        let online = connection.is_online();
-        desktop.model.connection = connection;
-        desktop.model.notice(if online {
-            String::from("已重新连接本机助手。")
-        } else {
-            String::from("还是连不上本机助手，请确认 quetzalcoatld 正在运行。")
-        });
-        if let Some(client) = &client {
-            hydrate_model(&mut desktop.model, client);
-        }
-        desktop.client = client;
-    }
-    refresh(state);
 }
 
 fn present_window(state: &Rc<RefCell<Desktop>>) {
@@ -551,10 +342,11 @@ fn show_tray_menu(state: &Rc<RefCell<Desktop>>) {
                 .resizable(false)
                 .build();
             menu.add_css_class("tray-menu");
+            menu.add_css_class("qz-window");
             if let Some(app) = &app {
                 menu.set_application(Some(app));
             }
-            let root = gtk::Box::new(gtk::Orientation::Vertical, 12);
+            let root = crate::ui::vbox(12);
             root.set_margin_top(16);
             root.set_margin_bottom(16);
             root.set_margin_start(16);
@@ -562,17 +354,16 @@ fn show_tray_menu(state: &Rc<RefCell<Desktop>>) {
 
             let title = gtk::Label::new(Some("Quetzalcoatl"));
             title.set_xalign(0.0);
-            title.add_css_class("title-4");
+            title.add_css_class("qz-cell-title");
             crate::a11y::set_label(&title, "托盘菜单标题");
 
-            let show = gtk::Button::with_label("显示主窗口");
+            let show = crate::ui::button_outline("显示主窗口", false);
             show.set_size_request(-1, 56);
             show.set_action_name(Some("app.show-window"));
             crate::a11y::set_label(&show, "显示 Quetzalcoatl 主窗口");
 
-            let quit = gtk::Button::with_label("退出 Quetzalcoatl");
+            let quit = crate::ui::button_outline("退出 Quetzalcoatl", false);
             quit.set_size_request(-1, 56);
-            quit.add_css_class("destructive-action");
             quit.set_action_name(Some("app.quit"));
             crate::a11y::set_label(&quit, "退出 Quetzalcoatl");
 
@@ -669,7 +460,8 @@ where
             state.app = Some(app.clone());
             state.window.set_application(Some(app));
         }
-        install_density_actions(app, Rc::downgrade(&desktop));
+        let shell = Rc::downgrade(&desktop.borrow().shell);
+        install_page_actions(app, shell);
         install_app_actions(app, Rc::downgrade(&desktop));
         attach_tray(app, &desktop);
         desktop.borrow().window.present();
@@ -683,18 +475,24 @@ where
 
 fn schedule_self_test(app: &adw::Application, desktop: Rc<RefCell<Desktop>>) {
     let app = app.clone();
-    glib::timeout_add_local_once(Duration::from_millis(600), move || {
+    // 等第一批读取回来（联系上了，或确认联系不上）再自检，最多等 3 秒。
+    let started = Instant::now();
+    glib::timeout_add_local(Duration::from_millis(50), move || {
+        let answered = desktop.borrow().shell.ctx.answered();
+        if !answered && started.elapsed() < Duration::from_secs(3) {
+            return glib::ControlFlow::Continue;
+        }
         let visible = {
             let state = desktop.borrow();
             let visible = state.window.is_visible();
-            let density = state.model.density().label();
-            let connected = state.model.connection.is_online();
-            let degraded = u8::from(state.model.degraded().is_some());
-            let tray = state.widgets.tray_status.label();
-            let rows = state.model.view.rows.len();
+            let ctx = &state.shell.ctx;
+            let connected = ctx.online() && ctx.ever_online();
+            let page = state.shell.current().info().slug;
             println!(
-                "SELF_TEST_OK window={} density={density} connected={connected} degraded={degraded} tray={tray} rows={rows}",
-                if visible { "visible" } else { "hidden" }
+                "SELF_TEST_OK window={} page={page} connected={connected} degraded={} tray={}",
+                if visible { "visible" } else { "hidden" },
+                u8::from(!connected),
+                state.widgets.tray_status.label(),
             );
             visible
         };
@@ -702,5 +500,6 @@ fn schedule_self_test(app: &adw::Application, desktop: Rc<RefCell<Desktop>>) {
             eprintln!("quetzalcoatl-desktop: 自检失败，主窗口未能显示");
         }
         app.quit();
+        glib::ControlFlow::Break
     });
 }

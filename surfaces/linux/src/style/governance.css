@@ -1,0 +1,784 @@
+/* Quetzalcoatl 治理面 · GTK 样式层
+   全部取值来自 packages/design-system/tokens（colors / typography / scale）；
+   各视图只挂类名，不在代码里写任何颜色、字号或间距。
+   只有两种语义色：冰蓝（已生效、通）与琥珀（需要你、你说的、不通），且颜色永远配文字。 */
+
+/* ── 颜色 token ───────────────────────────────────────────────────── */
+@define-color qz_void #000000;
+@define-color qz_surface #070707;
+@define-color qz_well #0a0a0a;
+@define-color qz_ink #ffffff;
+@define-color qz_ink_soft #d4d4d4;
+@define-color qz_ink_support #b5b5b5;
+@define-color qz_ink_secondary #8a8a8a;
+@define-color qz_ink_quiet #666666;
+@define-color qz_ink_muted #525252;
+@define-color qz_line_hairline rgba(255, 255, 255, 0.075);
+@define-color qz_line_border rgba(255, 255, 255, 0.085);
+@define-color qz_line_rail rgba(255, 255, 255, 0.1);
+@define-color qz_line_control rgba(255, 255, 255, 0.14);
+@define-color qz_line_strong rgba(255, 255, 255, 0.18);
+@define-color qz_line_mark rgba(255, 255, 255, 0.28);
+@define-color qz_line_hover rgba(255, 255, 255, 0.42);
+@define-color qz_fill_hover rgba(255, 255, 255, 0.035);
+@define-color qz_fill_selected rgba(255, 255, 255, 0.06);
+@define-color qz_fill_active rgba(255, 255, 255, 0.1);
+@define-color qz_ice #bae6fd;
+@define-color qz_amber #e5a03d;
+
+/* libadwaita 的命名颜色全部落回纯黑与白：这里没有任何别的底色。 */
+@define-color window_bg_color #000000;
+@define-color window_fg_color #ffffff;
+@define-color view_bg_color #000000;
+@define-color view_fg_color #ffffff;
+@define-color headerbar_bg_color #000000;
+@define-color headerbar_fg_color #8a8a8a;
+@define-color headerbar_backdrop_color #000000;
+@define-color headerbar_border_color rgba(255, 255, 255, 0.075);
+@define-color headerbar_shade_color rgba(0, 0, 0, 0);
+@define-color dialog_bg_color #070707;
+@define-color dialog_fg_color #ffffff;
+@define-color popover_bg_color #070707;
+@define-color popover_fg_color #ffffff;
+@define-color accent_bg_color #ffffff;
+@define-color accent_fg_color #000000;
+@define-color accent_color #bae6fd;
+
+/* ── 基底 ─────────────────────────────────────────────────────────── */
+window.qz-window,
+window.qz-window .qz-root,
+dialog.qz-dialog,
+window.qz-dialog {
+  background-color: @qz_void;
+  color: @qz_ink;
+  font-family: "Sora", "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+dialog.qz-dialog,
+window.qz-dialog {
+  background-color: @qz_surface;
+}
+
+.qz-mono,
+.qz-meta,
+.qz-state,
+.qz-code-chip {
+  font-family: "JetBrains Mono", "Noto Sans Mono CJK SC", monospace;
+}
+
+headerbar.qz-header {
+  min-height: 34px;
+  background: @qz_void;
+  box-shadow: none;
+  border-bottom: 1px solid @qz_line_hairline;
+  color: @qz_ink_secondary;
+}
+
+headerbar.qz-header windowcontrols button {
+  color: @qz_ink_secondary;
+}
+
+.qz-header-title {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 1.6px;
+  color: @qz_ink_quiet;
+}
+
+/* ── 一行状态：守护进程联系不上 ───────────────────────────────────── */
+.qz-app-status {
+  padding: 10px 24px;
+  border-bottom: 1px solid @qz_line_hairline;
+  background: @qz_void;
+}
+
+.qz-status-text {
+  font-size: 13px;
+  color: @qz_ink_support;
+}
+
+/* ── 骨架：导航 · 正文 · 出处 ─────────────────────────────────────── */
+.qz-app-nav {
+  background: @qz_void;
+  border-right: 1px solid @qz_line_border;
+}
+
+.qz-app-brand {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  padding: 22px 24px 18px 24px;
+}
+
+.qz-app-nav-list {
+  padding: 0 12px 24px 12px;
+}
+
+button.qz-nav-item {
+  min-height: 0;
+  min-width: 0;
+  padding: 7px 12px;
+  border-radius: 5px;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  border: none;
+  border-left: 1.5px solid transparent;
+  color: #8f8f8f;
+  font-size: 14px;
+  font-weight: 400;
+  transition: color 150ms, background-color 150ms;
+}
+
+button.qz-nav-item:hover {
+  color: @qz_ink;
+  background: @qz_fill_hover;
+}
+
+button.qz-nav-item.is-current {
+  color: @qz_ink;
+  font-weight: 500;
+  background: @qz_fill_selected;
+  border-left-color: @qz_ink;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.qz-nav-signal {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: @qz_amber;
+}
+
+.qz-nav-group-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: @qz_ink_quiet;
+  padding: 18px 12px 6px 12px;
+}
+
+.qz-app-aside {
+  background: @qz_void;
+  border-left: 1px solid @qz_line_border;
+}
+
+.qz-app-aside-inner.is-following {
+  border-top: 1px solid @qz_line_hairline;
+  margin-top: 32px;
+  padding-top: 8px;
+}
+
+.qz-app-main {
+  background: @qz_void;
+}
+
+/* 窄屏：导航收成一行横向滚动的入口 */
+.qz-topnav {
+  background: @qz_void;
+  border-bottom: 1px solid @qz_line_border;
+  padding: 2px 8px;
+}
+
+.qz-topnav button.qz-nav-item {
+  border-left: none;
+  border-bottom: 1.5px solid transparent;
+  border-radius: 0;
+  padding: 9px 12px;
+}
+
+.qz-topnav button.qz-nav-item.is-current {
+  border-bottom-color: @qz_ink;
+  background: transparent;
+}
+
+/* ── 排印 ─────────────────────────────────────────────────────────── */
+.qz-display {
+  font-size: 60px;
+  font-weight: 500;
+  letter-spacing: -2.4px;
+  line-height: 1.1;
+}
+
+.qz-title {
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -1px;
+}
+
+.qz-lead {
+  font-size: 17px;
+  color: @qz_ink_secondary;
+}
+
+.qz-view-lead {
+  font-size: 14px;
+  color: @qz_ink_secondary;
+}
+
+.qz-section-title {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+}
+
+.qz-section-title.is-minor {
+  font-size: 16px;
+}
+
+.qz-section-note {
+  font-size: 13px;
+  color: @qz_ink_secondary;
+}
+
+.qz-cell-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.qz-body {
+  font-size: 14px;
+  color: @qz_ink_support;
+}
+
+.qz-meta {
+  font-size: 12px;
+  color: @qz_ink_secondary;
+}
+
+.qz-cell-num {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: @qz_ink_secondary;
+}
+
+.qz-code-chip {
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #141414;
+  color: @qz_ink_soft;
+}
+
+.qz-label-small {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: @qz_ink_quiet;
+}
+
+/* ── 信号：状态词与圆点 ──────────────────────────────────────────── */
+.qz-state {
+  font-size: 12px;
+  font-weight: 500;
+  color: @qz_ink_secondary;
+}
+
+.qz-state.is-ice { color: @qz_ice; }
+.qz-state.is-amber { color: @qz_amber; }
+.qz-state.is-quiet { color: @qz_ink_quiet; }
+
+.qz-dot {
+  min-width: 6px;
+  min-height: 6px;
+  border-radius: 50%;
+  background: @qz_ink_secondary;
+}
+
+.qz-dot.is-ice { background: @qz_ice; }
+.qz-dot.is-amber { background: @qz_amber; }
+.qz-dot.is-quiet { background: @qz_ink_quiet; }
+
+.qz-ring {
+  min-width: 4px;
+  min-height: 4px;
+  border-radius: 50%;
+  border: 1px solid @qz_ink_muted;
+}
+
+.qz-tick {
+  min-width: 5px;
+  min-height: 5px;
+  background: @qz_ink_muted;
+}
+.qz-tick.is-amber { background: @qz_amber; }
+.qz-tick.is-current { background: @qz_ink; }
+
+/* ── 细线与发丝线栅格（卡片的替代品） ────────────────────────────── */
+.qz-hairline-h {
+  min-height: 1px;
+  background: @qz_line_hairline;
+}
+
+.qz-hairline-v {
+  min-width: 1px;
+  background: @qz_line_border;
+}
+
+.qz-view-section {
+  border-top: 1px solid @qz_line_hairline;
+  padding-top: 24px;
+}
+
+.qz-rail {
+  border-top: 1px solid @qz_line_rail;
+  border-bottom: 1px solid @qz_line_rail;
+  background: transparent;
+}
+
+.qz-cell {
+  padding: 22px 24px 24px 24px;
+  box-shadow: -1px 0 0 0 @qz_line_border, 0 -1px 0 0 @qz_line_border;
+}
+
+.qz-cell.is-accent {
+  box-shadow: inset 0 1.5px 0 0 @qz_ice, -1px 0 0 0 @qz_line_border;
+}
+
+.qz-rail-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.qz-rail-group-note {
+  font-size: 13px;
+  color: @qz_ink_secondary;
+  padding: 14px 0;
+  border-top: 1px solid @qz_line_rail;
+  border-bottom: 1px solid @qz_line_rail;
+}
+
+/* ── 选取：整条都能点，选中是一层浅填充（行与条款另有一条白线） ──── */
+button.qz-pick {
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: inherit;
+  font-weight: inherit;
+  transition: background-color 150ms;
+}
+
+button.qz-pick:hover {
+  background: @qz_fill_hover;
+}
+
+button.qz-pick:focus-visible {
+  outline: 1px solid @qz_ice;
+  outline-offset: -1px;
+}
+
+button.qz-pick.is-current {
+  background: @qz_fill_selected;
+}
+
+button.qz-pick.is-line.is-current {
+  box-shadow: inset 1.5px 0 0 0 @qz_ink;
+}
+
+.qz-row {
+  border-bottom: 1px solid @qz_line_hairline;
+}
+
+.qz-list {
+  border-top: 1px solid @qz_line_rail;
+}
+
+.qz-row-pad {
+  padding: 14px 16px;
+}
+
+.qz-row-text {
+  font-size: 14px;
+  color: @qz_ink;
+}
+
+.qz-row-action {
+  margin: 0 12px 0 4px;
+}
+
+/* ── 按钮：一屏至多一个白色主按钮 ─────────────────────────────────── */
+button.qz-btn-white {
+  min-height: 0;
+  padding: 9px 22px;
+  border: none;
+  border-radius: 5px;
+  background: @qz_ink;
+  background-image: none;
+  box-shadow: none;
+  color: @qz_void;
+  font-weight: 500;
+  transition: opacity 150ms;
+}
+
+button.qz-btn-white:hover { opacity: 0.88; }
+
+button.qz-btn-outline {
+  min-height: 0;
+  padding: 8px 16px;
+  border: 1px solid @qz_line_strong;
+  border-radius: 6px;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: @qz_ink;
+  font-weight: 500;
+  transition: border-color 150ms, background-color 150ms;
+}
+
+button.qz-btn-outline:hover {
+  border-color: @qz_line_hover;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+button.qz-btn-outline.is-compact {
+  padding: 4px 11px;
+  font-size: 13px;
+}
+
+button.qz-btn-outline.is-pressed {
+  background: @qz_fill_active;
+  border-color: @qz_line_hover;
+}
+
+button.qz-btn-text {
+  min-height: 0;
+  min-width: 0;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: @qz_ink_support;
+  font-size: 13px;
+  text-decoration: underline;
+  transition: color 150ms;
+}
+
+button.qz-btn-text:hover { color: @qz_ink; }
+
+button.qz-btn-white:focus-visible,
+button.qz-btn-outline:focus-visible,
+button.qz-btn-text:focus-visible,
+button.qz-nav-item:focus-visible {
+  outline: 1px solid @qz_ice;
+  outline-offset: 3px;
+}
+
+button:disabled {
+  opacity: 0.38;
+}
+
+button.qz-link-arrow {
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: @qz_ink_support;
+  font-size: 13px;
+  transition: color 150ms;
+}
+
+button.qz-link-arrow:hover { color: @qz_ink; }
+
+/* ── 输入：只有搜索、改一条、写一条底线、口令；没有对他说话的地方 ── */
+.qz-input {
+  border: 1px solid @qz_line_control;
+  border-radius: 6px;
+  background: rgba(8, 8, 8, 0.9);
+  padding: 2px 10px;
+  min-height: 0;
+  transition: border-color 150ms;
+}
+
+.qz-input:hover { border-color: rgba(255, 255, 255, 0.24); }
+
+.qz-input:focus-within {
+  border-color: @qz_line_hover;
+  outline: 1px solid @qz_ice;
+  outline-offset: 3px;
+}
+
+.qz-input text,
+.qz-input entry,
+.qz-input searchentry,
+.qz-input passwordentry {
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  border: none;
+  outline: none;
+  color: @qz_ink;
+  caret-color: @qz_amber;
+  font-size: 14px;
+  min-height: 0;
+}
+
+.qz-input.is-secret text,
+.qz-input.is-secret passwordentry {
+  font-family: "JetBrains Mono", monospace;
+  letter-spacing: 2px;
+}
+
+.qz-input textview,
+.qz-input textview text {
+  background: transparent;
+  color: @qz_ink;
+  caret-color: @qz_amber;
+  font-size: 14px;
+}
+
+.qz-input placeholder {
+  color: @qz_ink_quiet;
+}
+
+.qz-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: @qz_ink_secondary;
+}
+
+.qz-field-hint {
+  font-size: 12px;
+  color: @qz_ink_secondary;
+}
+
+.qz-field-hint.is-amber { color: @qz_amber; }
+
+/* ── 分段控件 ─────────────────────────────────────────────────────── */
+.qz-segmented {
+  border: 1px solid @qz_line_border;
+  border-radius: 6px;
+  background: rgba(8, 8, 8, 0.72);
+  padding: 3px;
+}
+
+.qz-segmented button.qz-segment {
+  min-height: 0;
+  min-width: 0;
+  padding: 3px 11px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: @qz_ink_secondary;
+  font-size: 12px;
+  font-weight: 500;
+  transition: color 150ms, background-color 150ms;
+}
+
+.qz-segmented button.qz-segment:hover { color: @qz_ink; }
+.qz-segmented button.qz-segment.is-active {
+  background: @qz_fill_active;
+  color: @qz_ink;
+}
+
+/* ── 定义列表与时间线 ─────────────────────────────────────────────── */
+.qz-deflist-row {
+  border-bottom: 1px solid @qz_line_hairline;
+  padding: 8px 0;
+}
+
+.qz-deflist-term {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: @qz_ink_secondary;
+}
+
+.qz-deflist-value {
+  font-size: 13px;
+  color: @qz_ink_soft;
+}
+
+.qz-deflist-value.is-mono {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+
+.qz-timeline-item {
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  margin-left: 2px;
+  padding: 0 0 20px 22px;
+}
+
+.qz-timeline-item.is-compact { padding-bottom: 14px; }
+
+.qz-timeline-time,
+.qz-timeline-day {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: @qz_ink_secondary;
+}
+
+.qz-timeline-day {
+  padding: 18px 0 12px 0;
+  letter-spacing: 0.3px;
+}
+
+.qz-timeline-text {
+  font-size: 14px;
+  color: @qz_ink;
+}
+
+.qz-timeline-item.is-compact .qz-timeline-text { font-size: 13px; color: @qz_ink_soft; }
+
+.qz-ledger-kind {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: @qz_ink_support;
+}
+
+/* ── 主从：左是结果，右是选中条目 ─────────────────────────────────── */
+.qz-split-detail {
+  padding: 4px 0 24px 28px;
+}
+
+.qz-detail-text {
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -0.2px;
+  color: @qz_ink;
+}
+
+.qz-detail-quote {
+  border-left: 1.5px solid @qz_line_mark;
+  padding: 2px 0 2px 14px;
+  color: @qz_ink;
+}
+
+/* ── 条款：一份简短的编号文书 ─────────────────────────────────────── */
+.qz-clauses {
+  border-top: 1px solid @qz_line_rail;
+}
+
+.qz-clause {
+  border-bottom: 1px solid @qz_line_hairline;
+  padding: 18px 0;
+}
+
+.qz-clause-no {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: @qz_ink_secondary;
+  min-width: 28px;
+}
+
+.qz-clause-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.qz-clause-text {
+  font-size: 14px;
+  color: @qz_ink_support;
+}
+
+/* ── 签署条：上下各一条线，右侧是整屏唯一的白色按钮 ──────────────── */
+.qz-sign-bar {
+  border-top: 1px solid @qz_line_rail;
+  border-bottom: 1px solid @qz_line_rail;
+  padding: 22px 0;
+}
+
+/* ── 刻度：全站唯一的滑杆 ─────────────────────────────────────────── */
+scale.qz-scale-input {
+  min-height: 28px;
+  padding: 0;
+}
+
+scale.qz-scale-input trough {
+  min-height: 1px;
+  background: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+scale.qz-scale-input trough highlight,
+scale.qz-scale-input trough fill {
+  background: transparent;
+  background-image: none;
+  border: none;
+}
+
+scale.qz-scale-input slider {
+  min-width: 14px;
+  min-height: 14px;
+  margin: -7px;
+  border-radius: 50%;
+  background: @qz_ink;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+scale.qz-scale-input:focus-visible slider {
+  outline: 1px solid @qz_ice;
+  outline-offset: 3px;
+}
+
+.qz-scale-ends {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ── 状态版面：说清现状与下一步，而不是一行灰字 ──────────────────── */
+.qz-situation-title {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.6px;
+}
+
+.qz-situation.is-compact .qz-situation-title {
+  font-size: 16px;
+  letter-spacing: -0.3px;
+}
+
+.qz-situation-body {
+  font-size: 14px;
+  color: @qz_ink_support;
+}
+
+.qz-cmd {
+  background: @qz_well;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  padding: 10px 16px;
+}
+
+.qz-cmd-text {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  color: @qz_ink_soft;
+}
+
+/* ── 出处栏 ──────────────────────────────────────────────────────── */
+.qz-aside-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.qz-aside-lead {
+  font-size: 13px;
+  color: @qz_ink_support;
+}
+
+/* ── 对话框：再确认一次，不可撤回 ────────────────────────────────── */
+.qz-dialog-title { font-size: 20px; font-weight: 500; letter-spacing: -0.4px; }
+.qz-dialog-body { font-size: 14px; color: @qz_ink_support; }
+
+/* ── 托盘菜单 ────────────────────────────────────────────────────── */
+window.tray-menu { background: @qz_surface; color: @qz_ink; }

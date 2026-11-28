@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! 桌面端持久化配置：认知密度、窗口尺寸与启动偏好。
+//! 桌面端持久化配置：窗口尺寸、最大化状态与上次停留的页。
 //!
 //! 配置目录优先级（全部只读环境变量，不写回）：
 //! 1. `QUETZALCOATL_DESKTOP_CONFIG_DIR`（显式覆盖，测试与便携部署用）；
@@ -10,7 +10,7 @@
 //! 落盘采用「同目录、按进程唯一的临时文件 + rename」的原子替换（应用允许多实例，
 //! 临时名必须含 pid 以免互相覆盖）；损坏或字段缺失的 JSON 整体回退默认配置，
 //! 绝不逐字段猜测、也绝不弹错误对话框（缺失/损坏配置不是用户需要被打断的错误）。
-//! 只有 `maximized` 声明了 `#[serde(default)]`，其余字段缺失会走整体默认回退。
+//! 旧版本写下的 `density` 字段会被忽略。
 //!
 //! 关于窗口位置：GTK4 已移除 `gtk_window_get_position()` / `gtk_window_move()`，
 //! Wayland 合成器亦禁止客户端指定绝对坐标，因此本端持久化**尺寸**（`default_width` /
@@ -20,7 +20,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use quetzalcoatl_client_core::CognitionDensity;
 use serde::{Deserialize, Serialize};
 
 /// 显式配置目录覆盖（测试与便携安装使用）。
@@ -28,16 +27,18 @@ pub const CONFIG_DIR_ENV: &str = "QUETZALCOATL_DESKTOP_CONFIG_DIR";
 /// 配置文件文件名。
 pub const CONFIG_FILE_NAME: &str = "desktop.json";
 
-const MIN_WIDTH: i32 = 720;
+const MIN_WIDTH: i32 = 360;
 const MAX_WIDTH: i32 = 4096;
-const MIN_HEIGHT: i32 = 480;
+const MIN_HEIGHT: i32 = 400;
 const MAX_HEIGHT: i32 = 3072;
+
+fn default_page() -> String {
+    String::from("overview")
+}
 
 /// 桌面端配置（向后兼容：缺失字段一律取默认值）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopConfig {
-    /// 上次使用的认知密度；重启后恢复。
-    pub density: CognitionDensity,
     /// 窗口默认宽度（像素）。
     pub width: i32,
     /// 窗口默认高度（像素）。
@@ -45,15 +46,18 @@ pub struct DesktopConfig {
     /// 上次关闭时是否最大化。
     #[serde(default)]
     pub maximized: bool,
+    /// 上次停留的页（机器名，例如 `memories`）。
+    #[serde(default = "default_page")]
+    pub page: String,
 }
 
 impl Default for DesktopConfig {
     fn default() -> Self {
         Self {
-            density: CognitionDensity::Workbench,
-            width: 1120,
-            height: 760,
+            width: 1280,
+            height: 820,
             maximized: false,
+            page: default_page(),
         }
     }
 }
@@ -118,5 +122,21 @@ impl DesktopConfig {
         self.width = self.width.clamp(MIN_WIDTH, MAX_WIDTH);
         self.height = self.height.clamp(MIN_HEIGHT, MAX_HEIGHT);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_density_field_is_ignored_and_size_is_clamped() {
+        let raw = br#"{"density":"workbench","width":1,"height":99999,"maximized":true}"#;
+        let config: DesktopConfig = serde_json::from_slice(raw).unwrap_or_default();
+        let config = config.sanitized();
+        assert_eq!(config.width, MIN_WIDTH);
+        assert_eq!(config.height, MAX_HEIGHT);
+        assert!(config.maximized);
+        assert_eq!(config.page, "overview");
     }
 }

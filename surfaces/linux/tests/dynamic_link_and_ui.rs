@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
-//! Task 4.3 验收测试：Linux 纯原生桌面端的 ELF 动态链接合规、三档认知密度状态切换、
-//! 视图补丁回流、只读窗口（无输入框、无发送按钮）、真实守护进程无头冒烟与降级路径。
+//! 治理面验收测试：Linux 纯原生桌面端的 ELF 动态链接合规，以及「只看和签」的治理面——
+//! 九页都能从真实守护进程读出、没有给他发一句话的输入框、守护进程不在线时整页保留上一次的内容、
+//! 写动作（改、不主动提、抹除、签署、迎合）真的落到守护进程、token 与样式层不漂移。
+//! GTK 必须跑在进程主线程里，所以每个需要窗口的用例都由父测试以 `xvfb` 子进程驱动。
 //!
 //! ## 为什么必须断言 `libadwaita-1` 是**动态**链接（LGPL-2.1 合规说明）
 //!
@@ -29,28 +31,22 @@ use std::time::{Duration, Instant};
 
 use gtk::glib;
 use libadwaita as adw;
-use quetzalcoatl_client_core::ThinClient;
-use quetzalcoatl_client_core::{CognitionDensity, ViewOp, ViewPatch, ViewRow};
-use quetzalcoatl_daemon::{DaemonConfig, IpcRequest, IpcResponse, QuetzalcoatlDaemon};
+use quetzalcoatl_daemon::{DaemonConfig, IpcClient, IpcRequest, IpcResponse, QuetzalcoatlDaemon};
 use quetzalcoatl_desktop::app::{self, DesktopOptions};
-use quetzalcoatl_desktop::config::DesktopConfig;
-use quetzalcoatl_desktop::model::{self, ConnectionState, UiModel};
-use quetzalcoatl_desktop::tray;
-use quetzalcoatl_desktop::views::visible_text;
+use quetzalcoatl_desktop::routes::{PAGES, PageKey};
 use uuid::Uuid;
 
 use gtk::prelude::*;
 use gtk4 as gtk;
 
-const CHILD_PATCH_OUT: &str = "QZ_DESKTOP_PATCH_PROBE_OUT";
-const CHILD_GTK_OUT: &str = "QZ_DESKTOP_GTK_PROBE_OUT";
-const CHILD_GTK_CONFIG_DIR: &str = "QZ_DESKTOP_GTK_PROBE_CONFIG_DIR";
-const CHILD_SNAPSHOT_OUT: &str = "QZ_DESKTOP_SNAPSHOT_PROBE_OUT";
-const CHILD_ONLINE_UI_OUT: &str = "QZ_DESKTOP_ONLINE_UI_PROBE_OUT";
-const CHILD_READ_ONLY_OUT: &str = "QZ_DESKTOP_READ_ONLY_PROBE_OUT";
 const CHILD_TRAY_OUT: &str = "QZ_DESKTOP_TRAY_PROBE_OUT";
 const CHILD_LIFECYCLE_OUT: &str = "QZ_DESKTOP_LIFECYCLE_PROBE_OUT";
 const CHILD_TRAY_PROGRESS: &str = "QZ_DESKTOP_TRAY_PROBE_PROGRESS";
+const CHILD_GOV_OUT: &str = "QZ_DESKTOP_GOV_PROBE_OUT";
+const CHILD_GOV_MODE: &str = "QZ_DESKTOP_GOV_PROBE_MODE";
+const CHILD_GOV_WIDTH: &str = "QZ_DESKTOP_GOV_PROBE_WIDTH";
+const CHILD_GOV_SYNC: &str = "QZ_DESKTOP_GOV_PROBE_SYNC";
+const SHOT_DIR_ENV: &str = "QZ_DESKTOP_SHOTS";
 
 struct TempDir {
     path: PathBuf,
@@ -125,7 +121,6 @@ fn run_capture(program: &str, args: &[&str]) -> (bool, String) {
     (output.status.success(), text)
 }
 
-/// 当前进程是否持有指向 `spine.sqlite*` 的文件描述符（Task 4.1 同款探针）。
 /// 真实进程存活检查：读取 `/proc/<pid>/stat`，并排除僵尸态。
 fn process_alive(pid: u32) -> bool {
     match fs::read_to_string(format!("/proc/{pid}/stat")) {
@@ -134,22 +129,12 @@ fn process_alive(pid: u32) -> bool {
     }
 }
 
-fn spine_db_fds() -> Vec<String> {
-    let Ok(entries) = fs::read_dir("/proc/self/fd") else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(std::result::Result::ok)
-        .filter_map(|entry| fs::read_link(entry.path()).ok())
-        .map(|target| target.display().to_string())
-        .filter(|target| target.contains("spine.sqlite"))
-        .collect()
-}
-
 fn headless_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut command = Command::new("xvfb-run");
     command
         .arg("-a")
+        // xvfb-run 把 -s 后面的一整段原样交给 Xvfb，这里必须是一个参数。
+        .args(["-s", "-screen 0 1600x1100x24"])
         .arg(program)
         .stdin(Stdio::null())
         .env("GDK_BACKEND", "x11")
@@ -183,83 +168,11 @@ fn start_real_daemon(home: &Path) -> quetzalcoatl_daemon::DaemonHandle {
     daemon
 }
 
-fn session_patch() -> ViewPatch {
-    ViewPatch {
-        from_rev: 0,
-        to_rev: 7,
-        density: CognitionDensity::Workbench,
-        ops: vec![
-            ViewOp::Upsert {
-                row: ViewRow::new(
-                    model::KIND_SESSION,
-                    model::KIND_SESSION,
-                    "与助手的第 3 次对话",
-                )
-                .with_detail("线程 thread-synthetic-3 · 共 4 轮")
-                .with_updated_rev(7),
-            },
-            ViewOp::Upsert {
-                row: ViewRow::new(
-                    model::KIND_PROJECT,
-                    model::KIND_PROJECT,
-                    "合成项目：花园光照记录",
-                )
-                .with_detail("/tmp/synthetic/garden · 2 个未提交变更")
-                .with_updated_rev(6),
-            },
-            ViewOp::Upsert {
-                row: ViewRow::new(
-                    model::KIND_APPROVAL,
-                    model::KIND_APPROVAL,
-                    "等待批准：写入 3 个文件",
-                )
-                .with_detail("洁净室校验已通过 · 合成策略 allow_synthetic_write")
-                .with_updated_rev(6),
-            },
-            ViewOp::Upsert {
-                row: ViewRow::new(
-                    model::KIND_WORKFLOW,
-                    model::KIND_WORKFLOW,
-                    "Sprint 4 · 桌面端接线",
-                )
-                .with_detail("3/5 步骤完成 · 下一步：无障碍审查")
-                .with_updated_rev(5),
-            },
-            ViewOp::Upsert {
-                row: ViewRow::new(
-                    "conscience:ROOT",
-                    model::KIND_CONSCIENCE,
-                    "ROOT (100) · 不可协商的宪法红线",
-                )
-                .with_detail("层级 ROOT · 4 条锁定条款")
-                .with_raw_json("{\"tier\":\"ROOT\",\"weight\":100,\"locked\":true}")
-                .with_updated_rev(4),
-            },
-            ViewOp::Upsert {
-                row: ViewRow::new(
-                    "conscience:SELF_CORE",
-                    model::KIND_CONSCIENCE,
-                    "SELF_CORE (70) · 长期人格核",
-                )
-                .with_detail("层级 SELF_CORE · 冷却升格队列 1 项")
-                .with_raw_json("{\"tier\":\"SELF_CORE\",\"weight\":70}")
-                .with_updated_rev(3),
-            },
-            ViewOp::Upsert {
-                row: ViewRow::new(model::KIND_TOOL, model::KIND_TOOL, "shell.exec（沙箱内）")
-                    .with_detail("近 24h 调用 12 次 · 全部通过客观校验")
-                    .with_raw_json("{\"tool\":\"shell.exec\",\"sandboxed\":true}")
-                    .with_updated_rev(2),
-            },
-        ],
-    }
-}
-
 /// 一棵控件树的输入面清点（含当前不可见的页面与控件）。
 struct InputSurface {
     /// 遍历到的控件总数（防空转：树必须真的被走过）。
     widgets: usize,
-    /// 可编辑输入控件的类型名。
+    /// 可编辑输入控件：最近一层有名字的祖先（含自己）的名字。
     editable: Vec<String>,
     /// 文案或图标带「发送」含义的按钮。
     send_buttons: Vec<String>,
@@ -274,6 +187,31 @@ fn walk_widgets(root: &gtk::Widget, visit: &mut dyn FnMut(&gtk::Widget)) {
         walk_widgets(&node, visit);
         child = node.next_sibling();
     }
+}
+
+/// 一个控件里能看见的全部文字。
+fn visible_text(root: &impl IsA<gtk::Widget>) -> String {
+    let mut parts = Vec::new();
+    walk_widgets(root.as_ref(), &mut |widget| {
+        if let Some(label) = widget.dynamic_cast_ref::<gtk::Label>() {
+            parts.push(label.label().to_string());
+        }
+    });
+    parts.join(" ")
+}
+
+/// 最近一层有名字的祖先（含自己）的名字；没有就回到类型名。
+fn owner_name(widget: &gtk::Widget) -> String {
+    let mut node = Some(widget.clone());
+    while let Some(current) = node {
+        let name = current.widget_name();
+        let generic = current.type_().name().to_owned();
+        if !name.is_empty() && name.as_str() != generic {
+            return name.to_string();
+        }
+        node = current.parent();
+    }
+    widget.type_().name().to_owned()
 }
 
 fn input_surface(root: &impl IsA<gtk::Widget>) -> InputSurface {
@@ -291,8 +229,10 @@ fn input_surface(root: &impl IsA<gtk::Widget>) -> InputSurface {
             || widget
                 .dynamic_cast_ref::<gtk::TextView>()
                 .is_some_and(|input| input.is_editable());
-        if editable {
-            surface.editable.push(widget.type_().name().to_owned());
+        // `GtkText` 是 `Entry`/`SearchEntry`/`PasswordEntry` 的内部代理，只记最外层那个。
+        let delegate = widget.type_().name() == "GtkText";
+        if editable && !delegate {
+            surface.editable.push(owner_name(widget));
         }
         if let Some(button) = widget.dynamic_cast_ref::<gtk::Button>() {
             let caption = button
@@ -395,541 +335,6 @@ fn adwaita_and_gtk_are_dynamically_linked_and_never_statically_embedded() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. ViewPatch 到达 UI 模型，且绝不打开 spine.sqlite
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore = "由父测试以子进程方式驱动（无环境变量时不做任何断言）"]
-fn patch_child_probe() {
-    let Some(out_path) = std::env::var_os(CHILD_PATCH_OUT).map(PathBuf::from) else {
-        return; // 父测试直接调用时跳过
-    };
-
-    let mut model_ui = UiModel::offline("probe home 下没有守护进程");
-    let patch_result = model_ui.apply_patch(&session_patch());
-
-    let rows = model_ui.view.rows.len();
-    let report = serde_json::json!({
-        "ok": patch_result.is_ok() && rows == 7,
-        "patch_ok": patch_result.is_ok(),
-        "rows": rows,
-        "rev": model_ui.view.rev,
-        "sessions": model_ui.rows_of(model::KIND_SESSION).len(),
-        "conscience": model_ui.rows_of(model::KIND_CONSCIENCE).len(),
-        "db_fds": spine_db_fds(),
-        "connection_offline": matches!(model_ui.connection, ConnectionState::Offline { .. }),
-    });
-    fs::write(&out_path, report.to_string()).expect("写入补丁探针报告");
-}
-
-#[test]
-fn view_patch_reaches_ui_model_without_touching_spine() {
-    let temp = TempDir::new("patch");
-    let out = temp.path().join("patch.json");
-    let exe = std::env::current_exe().expect("current exe");
-    let output = Command::new(&exe)
-        .arg("--exact")
-        .arg("patch_child_probe")
-        .arg("--ignored")
-        .arg("--nocapture")
-        .env(CHILD_PATCH_OUT, &out)
-        .env("QUETZALCOATL_HOME", temp.path())
-        .env_remove("LD_LIBRARY_PATH")
-        .stdin(Stdio::null())
-        .output()
-        .expect("spawn patch probe");
-    assert!(
-        output.status.success(),
-        "补丁探针子进程失败: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(&out).expect("读取探针报告")).expect("探针 JSON");
-    assert_eq!(
-        report["ok"],
-        serde_json::Value::Bool(true),
-        "报告: {report}"
-    );
-    assert_eq!(report["rows"].as_u64(), Some(7), "行数: {report}");
-    assert_eq!(report["rev"].as_u64(), Some(7), "修订: {report}");
-    assert_eq!(
-        report["sessions"].as_u64(),
-        Some(1),
-        "会话行必须能按种类投影出来: {report}"
-    );
-    assert_eq!(
-        report["conscience"].as_u64(),
-        Some(2),
-        "良知行必须能按种类投影出来: {report}"
-    );
-    assert_eq!(
-        report["db_fds"].as_array().map(Vec::len),
-        Some(0),
-        "UI 模型路径不得打开 spine.sqlite: {report}"
-    );
-    assert_eq!(
-        report["connection_offline"],
-        serde_json::Value::Bool(true),
-        "无守护进程时必须是类型化离线态"
-    );
-    assert!(
-        !temp.path().join("spine").exists(),
-        "薄客户端路径绝不创建 spine 目录"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 3. 三档密度切换 + 状态保持 + 配置回环（真实 GTK 窗口，xvfb 无头）
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore = "由父测试以子进程方式驱动（需要 xvfb 且无环境变量时不做任何断言）"]
-fn gtk_child_probe() {
-    let Some(out_path) = std::env::var_os(CHILD_GTK_OUT).map(PathBuf::from) else {
-        return; // 父测试直接调用时跳过
-    };
-    let config_dir = std::env::var_os(CHILD_GTK_CONFIG_DIR)
-        .map(PathBuf::from)
-        .expect("子探针必须提供配置目录");
-
-    let mut report = serde_json::json!({ "ok": false });
-    if let Err(err) = gtk::init() {
-        report["error"] = serde_json::Value::String(format!("gtk init 失败: {err}"));
-        let _ = fs::write(&out_path, report.to_string());
-        return;
-    }
-
-    let config_path = config_dir.join("desktop.json");
-    fs::create_dir_all(&config_dir).expect("配置目录");
-    let loaded = DesktopConfig::default();
-    {
-        let mut initial = loaded.clone();
-        initial.density = CognitionDensity::Workbench;
-        initial.width = 980;
-        initial.height = 640;
-        initial.save_to(Some(&config_path)).expect("写入初始配置");
-    }
-
-    let state = app::build_desktop(DesktopOptions {
-        home: config_dir.join("home"),
-        config_path: Some(config_path.clone()),
-        self_test: false,
-    });
-
-    let patch = session_patch();
-    let (base_rev, rows_before, page_before) = {
-        let mut guard = state.borrow_mut();
-        guard.model.apply_patch(&patch).expect("应用视图补丁");
-        let page_before = guard
-            .widgets
-            .stack
-            .visible_child_name()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-        (
-            guard.model.view.rev,
-            guard.model.view.rows.clone(),
-            page_before,
-        )
-    };
-    app::refresh(&state);
-    state.borrow().window.present();
-    let mapped = app::pump_until_mapped(&state.borrow().widgets.workbench.root, 4_000);
-
-    let mut switches = Vec::new();
-    let mut pages_mapped = Vec::new();
-    let mut rows_preserved = true;
-    let mut rows_rendered = Vec::new();
-    // 快捷键必须是 GAction + accelerator（布局无关），而不是裸 keyval 匹配。
-    let app = adw_application();
-    app.register(None::<&gtk::gio::Cancellable>)
-        .expect("注册探针 GApplication");
-    app::install_density_actions(&app, std::rc::Rc::downgrade(&state));
-    let expected_accels = [
-        ("density-companion", "<Primary>1"),
-        ("density-companion", "<Primary><Shift>1"),
-        ("density-workbench", "<Primary>2"),
-        ("density-inspector", "<Primary>3"),
-    ];
-    // GTK 会把 "<Primary>1" 规范化成 "<Control>1"，按解析后的 (keyval, modifiers) 比较。
-    let accels_installed = expected_accels.iter().all(|(action, accel)| {
-        let expected = gtk::accelerator_parse(*accel);
-        app.accels_for_action(&format!("app.{action}"))
-            .iter()
-            .any(|installed| gtk::accelerator_parse(installed.as_str()) == expected)
-    });
-    let mut shortcuts = Vec::new();
-    let sequence = [
-        ("density-companion", CognitionDensity::Companion),
-        ("density-workbench", CognitionDensity::Workbench),
-        ("density-inspector", CognitionDensity::Inspector),
-        ("density-companion", CognitionDensity::Companion),
-    ];
-    for (action, density) in sequence {
-        shortcuts.push(
-            app.list_actions()
-                .iter()
-                .any(|registered| registered.as_str() == action),
-        );
-        app.activate_action(action, None);
-        let _ = density;
-        app::pump_events(120);
-        let guard = state.borrow();
-        let page = guard
-            .widgets
-            .stack
-            .visible_child_name()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-        switches.push(page.clone());
-        pages_mapped.push((
-            page.clone(),
-            guard.widgets.stack.child_by_name(&page).is_some(),
-            guard.widgets.companion.root.is_mapped(),
-            guard.widgets.workbench.root.is_mapped(),
-            guard.widgets.inspector.root.is_mapped(),
-        ));
-        rows_preserved &= guard.model.view.rows == rows_before;
-        // 每一页都必须把快照行真的画出来，并严格守住自己的披露层级：
-        // 陪伴只有摘要，工作台多出细节，原始载荷只在检视。
-        let rendered = match page.as_str() {
-            "companion" => {
-                let text = visible_text(&guard.widgets.companion.root);
-                text.contains("与助手的第 3 次对话")
-                    && text.contains("ROOT (100) · 不可协商的宪法红线")
-                    && !text.contains("thread-synthetic-3")
-                    && !text.contains("\"tier\"")
-            }
-            "workbench" => {
-                let text = visible_text(&guard.widgets.workbench.root);
-                text.contains("与助手的第 3 次对话")
-                    && text.contains("线程 thread-synthetic-3 · 共 4 轮")
-                    && text.contains("等待批准：写入 3 个文件")
-                    && !text.contains("\"tier\"")
-            }
-            _ => {
-                let text = visible_text(&guard.widgets.inspector.root);
-                text.contains("ROOT (100) · 不可协商的宪法红线")
-                    && text.contains("层级 ROOT · 4 条锁定条款")
-                    && text.contains("\"tier\":\"ROOT\"")
-            }
-        };
-        rows_rendered.push((page, rendered));
-    }
-
-    // 离线时陪伴页唯一的交互控件是「重新连接」，它必须以按钮角色暴露给辅助技术。
-    let accessible_button = gtk::test_accessible_has_role(
-        &state.borrow().widgets.companion.retry,
-        gtk::AccessibleRole::Button,
-    ) && state.borrow().widgets.companion.retry.is_visible();
-    let rev_delta = state.borrow().model.view.rev - base_rev;
-
-    let tray_status = tray::status_label(&state.borrow().widgets.tray_status).to_string();
-
-    // 重启回环：落盘 Inspector，再以同一配置路径重新构建桌面。
-    let window_size = [
-        state.borrow().window.width(),
-        state.borrow().window.height(),
-    ];
-    app::apply_density(&state, CognitionDensity::Inspector);
-    state.borrow().persist_config().expect("持久化配置");
-    let reloaded = DesktopConfig::load_from(Some(&config_path));
-    let restarted = app::build_desktop(DesktopOptions {
-        home: config_dir.join("home"),
-        config_path: Some(config_path.clone()),
-        self_test: false,
-    });
-    let restored_page = restarted
-        .borrow()
-        .widgets
-        .stack
-        .visible_child_name()
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-
-    // 最大化回环：写入 maximized=true 后重新构建，必须既发出 maximize 请求，
-    // 又让 GTK 真实报告 is_maximized()==true；删掉 window.maximize() 时后者会失败。
-    let max_path = config_dir.join("desktop-maximized.json");
-    let mut max_config = DesktopConfig::load_from(Some(&config_path));
-    max_config.maximized = true;
-    max_config.save_to(Some(&max_path)).expect("写入最大化配置");
-    let maximized = app::build_desktop(DesktopOptions {
-        home: config_dir.join("home"),
-        config_path: Some(max_path),
-        self_test: false,
-    });
-    let maximize_requested = maximized.borrow().maximize_requested;
-    let maximize_effective = maximized.borrow().window.is_maximized();
-
-    report = serde_json::json!({
-        "ok": mapped
-            && switches == vec!["companion", "workbench", "inspector", "companion"]
-            && accels_installed
-            && shortcuts.iter().all(|ok| *ok)
-            && rows_preserved
-            && rows_rendered.iter().all(|(_, rendered)| *rendered)
-            && accessible_button
-            && rev_delta == 4
-            && reloaded.density == CognitionDensity::Inspector
-            && restored_page == "inspector"
-            && maximize_requested
-            && maximize_effective,
-        "mapped": mapped,
-        "page_before": page_before,
-        "switches": switches,
-        "shortcuts_mapped": shortcuts,
-        "accels_installed": accels_installed,
-        "pages_mapped": pages_mapped,
-        "rows_preserved": rows_preserved,
-        "rows_rendered": rows_rendered,
-        "accessible_button": accessible_button,
-        "rev_delta": rev_delta,
-        "tray": tray_status,
-        "reloaded_density": reloaded.density.label(),
-        "reloaded_size": [reloaded.width, reloaded.height],
-        "persisted_size": [reloaded.width, reloaded.height],
-        "window_size": window_size,
-        "restored_page": restored_page,
-        "maximize_requested": maximize_requested,
-        "maximize_effective": maximize_effective,
-        "window_visible": state.borrow().window.is_visible(),
-    });
-    state.borrow().window.destroy();
-    restarted.borrow().window.destroy();
-    maximized.borrow().window.destroy();
-    fs::write(&out_path, report.to_string()).expect("写入 GTK 探针报告");
-}
-
-#[test]
-fn three_density_switching_preserves_state_and_persists_under_xvfb() {
-    let temp = TempDir::new("gtk");
-    let out = temp.path().join("gtk.json");
-    let config_dir = temp.path().join("config");
-    let exe = std::env::current_exe().expect("current exe");
-    let output = headless_command(exe)
-        .arg("--exact")
-        .arg("gtk_child_probe")
-        .arg("--ignored")
-        .arg("--nocapture")
-        .env(CHILD_GTK_OUT, &out)
-        .env(CHILD_GTK_CONFIG_DIR, &config_dir)
-        .env("QUETZALCOATL_HOME", temp.path().join("home"))
-        .output()
-        .expect("spawn GTK probe");
-    assert!(
-        output.status.success(),
-        "GTK 无头探针失败: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(&out).expect("读取 GTK 探针报告")).expect("探针 JSON");
-    assert_eq!(
-        report["ok"],
-        serde_json::Value::Bool(true),
-        "报告: {report}"
-    );
-    assert_eq!(report["page_before"].as_str(), Some("workbench"));
-    assert_eq!(
-        report["switches"],
-        serde_json::json!(["companion", "workbench", "inspector", "companion"]),
-        "Ctrl+1/2/3 必须即时切到对应密度: {report}"
-    );
-    assert_eq!(report["rev_delta"].as_u64(), Some(4));
-    assert_eq!(report["restored_page"].as_str(), Some("inspector"));
-    assert_eq!(
-        report["maximize_requested"],
-        serde_json::Value::Bool(true),
-        "启动时必须发出 maximize 请求: {report}"
-    );
-    assert_eq!(
-        report["maximize_effective"],
-        serde_json::Value::Bool(true),
-        "最大化必须真实生效（可证伪地覆盖 window.maximize()）: {report}"
-    );
-    assert_eq!(
-        report["persisted_size"], report["window_size"],
-        "落盘尺寸必须等于真实窗口尺寸（WM 无关）: {report}"
-    );
-    assert_eq!(
-        report["reloaded_size"], report["window_size"],
-        "重启后尺寸必须真实回环: {report}"
-    );
-    let persisted = report["persisted_size"].as_array().expect("persisted_size");
-    let persisted_width = persisted[0].as_i64().unwrap_or(0);
-    let persisted_height = persisted[1].as_i64().unwrap_or(0);
-    assert!(
-        persisted_width >= 320 && persisted_height >= 240,
-        "持久化尺寸必须来自真实窗口: {report}"
-    );
-    assert_eq!(
-        report["accels_installed"],
-        serde_json::Value::Bool(true),
-        "Ctrl+1/2/3 必须注册为 action accelerator: {report}"
-    );
-    assert!(
-        report["shortcuts_mapped"]
-            .as_array()
-            .map(|values| values.iter().all(|v| v.as_bool() == Some(true)))
-            .unwrap_or(false)
-    );
-    assert_eq!(
-        report["rows_preserved"],
-        serde_json::Value::Bool(true),
-        "切换密度不得重建或丢弃任何快照行: {report}"
-    );
-    assert_eq!(
-        report["rows_rendered"],
-        serde_json::json!([
-            ["companion", true],
-            ["workbench", true],
-            ["inspector", true],
-            ["companion", true]
-        ]),
-        "每一页都必须按自己的披露层级画出快照行: {report}"
-    );
-    assert_eq!(report["accessible_button"], serde_json::Value::Bool(true));
-    assert_eq!(report["window_visible"], serde_json::Value::Bool(true));
-
-    // 可见性与无障碍角色的额外断言在子报告里逐页核对（被隐藏页不得占用布局）。
-    let pages = report["pages_mapped"].as_array().expect("pages_mapped");
-    for entry in pages {
-        let page = entry[0].as_str().unwrap_or_default();
-        let companion = entry[2].as_bool().unwrap_or(false);
-        let workbench = entry[3].as_bool().unwrap_or(false);
-        let inspector = entry[4].as_bool().unwrap_or(false);
-        assert_eq!(
-            companion,
-            page == "companion",
-            "companion 映射错误: {entry}"
-        );
-        assert_eq!(
-            workbench,
-            page == "workbench",
-            "workbench 映射错误: {entry}"
-        );
-        assert_eq!(
-            inspector,
-            page == "inspector",
-            "inspector 映射错误: {entry}"
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 4. 真实守护进程 + 真实二进制无头冒烟；以及无守护进程/无 DBus 的优雅降级
-// ---------------------------------------------------------------------------
-
-#[test]
-fn headless_smoke_launches_binary_against_real_daemon_and_exits_cleanly() {
-    let home = TempDir::new("daemon");
-    let config_dir = TempDir::new("daemon_config");
-    let mut daemon = start_real_daemon(home.path());
-
-    let output = headless_command(binary())
-        .arg("--self-test")
-        .arg("--home")
-        .arg(home.path())
-        .env("QUETZALCOATL_DESKTOP_CONFIG_DIR", config_dir.path())
-        .env(
-            "DBUS_SESSION_BUS_ADDRESS",
-            format!(
-                "unix:path={}",
-                config_dir.path().join("no-such-bus").display()
-            ),
-        )
-        .output()
-        .expect("spawn desktop self-test");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    assert!(
-        output.status.success(),
-        "无头冒烟失败: status={:?} stdout={stdout} stderr={stderr}",
-        output.status
-    );
-    assert!(
-        stdout.contains("SELF_TEST_OK"),
-        "缺少自检标记: stdout={stdout} stderr={stderr}"
-    );
-    assert!(
-        stdout.contains("window=visible"),
-        "主窗口必须真实存在: {stdout}"
-    );
-    assert!(
-        stdout.contains("connected=true"),
-        "必须经薄客户端连上真实守护进程: {stdout}"
-    );
-    assert!(
-        stdout.contains("degraded=0"),
-        "在线时不得进入降级态: {stdout}"
-    );
-    assert!(
-        stdout.contains("density=workbench"),
-        "默认密度应为工作台: {stdout}"
-    );
-    let tray_field = stdout
-        .split_whitespace()
-        .find(|token| token.starts_with("tray="))
-        .unwrap_or("tray=missing");
-    assert!(
-        matches!(
-            tray_field,
-            "tray=registered" | "tray=no-watcher" | "tray=no-session-bus" | "tray=bus-unavailable"
-        ),
-        "托盘必须优雅降级而不是崩溃: {tray_field}"
-    );
-
-    daemon.shutdown().expect("关闭守护进程");
-    assert!(!home.path().join("run/daemon.json").exists());
-}
-
-#[test]
-fn headless_smoke_degrades_without_daemon_and_without_dbus() {
-    let home = TempDir::new("degraded");
-    let config_dir = TempDir::new("degraded_config");
-    fs::create_dir_all(home.path()).expect("空 home");
-
-    let output = headless_command(binary())
-        .arg("--self-test")
-        .arg("--home")
-        .arg(home.path())
-        .env("QUETZALCOATL_DESKTOP_CONFIG_DIR", config_dir.path())
-        .env_remove("DBUS_SESSION_BUS_ADDRESS")
-        .output()
-        .expect("spawn degraded self-test");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    assert!(
-        output.status.success(),
-        "无守护进程时必须优雅退出而不是崩溃: status={:?} stdout={stdout} stderr={stderr}",
-        output.status
-    );
-    assert!(stdout.contains("SELF_TEST_OK"), "{stdout}");
-    assert!(stdout.contains("window=visible"), "{stdout}");
-    assert!(
-        stdout.contains("connected=false"),
-        "无守护进程必须进入类型化离线视图: {stdout}"
-    );
-    assert!(
-        stdout.contains("degraded=1"),
-        "离线视图必须显式标记降级: {stdout}"
-    );
-    assert!(
-        stdout.contains("tray=no-session-bus"),
-        "无 DBus 会话总线时托盘必须静默降级: {stdout}"
-    );
-    assert!(
-        !stderr.contains("panic"),
-        "绝不允许 panic 或错误对话框路径: {stderr}"
-    );
-    assert!(
-        !home.path().join("spine/spine.sqlite").exists(),
-        "桌面端绝不直接创建 spine.sqlite"
-    );
-}
-
-// ---------------------------------------------------------------------------
 // 5. 构建集成：桌面规范文件、图标占位与安装说明
 // ---------------------------------------------------------------------------
 
@@ -984,471 +389,6 @@ fn desktop_entry_icon_and_readme_install_rules_are_present() {
     assert!(!manifest.contains("webkit2gtk"));
     assert!(!manifest.contains("tauri"));
     assert!(!manifest.contains("electron"));
-}
-
-// ---------------------------------------------------------------------------
-// 6. 生产路径快照：真实守护进程 → 会话/审计/良知行 + 良知正文（仅检视态）
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore = "由父测试以子进程方式驱动（需要 xvfb + 真实守护进程）"]
-fn snapshot_child_probe() {
-    let Some(out_path) = std::env::var_os(CHILD_SNAPSHOT_OUT).map(PathBuf::from) else {
-        return;
-    };
-    let mut report = serde_json::json!({ "ok": false });
-    if let Err(err) = gtk::init() {
-        report["error"] = serde_json::Value::String(format!("gtk init 失败: {err}"));
-        let _ = fs::write(&out_path, report.to_string());
-        return;
-    }
-    let home = quetzalcoatl_client_core::resolve_client_home(None);
-    let config_path = out_path.with_extension("desktop.json");
-    let state = app::build_desktop(DesktopOptions {
-        home,
-        config_path: Some(config_path),
-        self_test: false,
-    });
-    let desktop = state.borrow();
-    let sessions = desktop.model.rows_of(model::KIND_SESSION).len();
-    let audits = desktop.model.rows_of(model::KIND_AUDIT).len();
-    let conscience = desktop.model.rows_of(model::KIND_CONSCIENCE).len();
-    let workflow = desktop.model.rows_of(model::KIND_WORKFLOW).len();
-    let body = desktop.model.conscience_body.clone().unwrap_or_default();
-    let declared_events = desktop
-        .client
-        .as_ref()
-        .and_then(|client| client.status().ok())
-        .map(|status| status.spine_events_count)
-        .unwrap_or(0);
-    let audit_seqs: Vec<u64> = desktop
-        .model
-        .view
-        .rows
-        .values()
-        .filter(|row| row.kind == model::KIND_AUDIT)
-        .map(|row| row.updated_rev)
-        .collect();
-    let rev_matches_status =
-        u64::try_from(declared_events).unwrap_or_default() == desktop.model.view.rev;
-    report = serde_json::json!({
-        "ok": desktop.model.connection.is_online()
-            && sessions > 0
-            && audits > 0
-            && conscience > 0
-            && !body.trim().is_empty(),
-        "online": desktop.model.connection.is_online(),
-        "sessions": sessions,
-        "audits": audits,
-        "conscience": conscience,
-        "workflow": workflow,
-        "conscience_body_chars": body.chars().count(),
-        "model_rev": desktop.model.view.rev,
-        "declared_events": declared_events,
-        "rev_matches_status": rev_matches_status,
-        "audit_seqs": audit_seqs,
-        "db_fds": spine_db_fds(),
-        "rows_total": desktop.model.view.rows.len(),
-    });
-    fs::write(&out_path, report.to_string()).expect("写入快照探针报告");
-}
-
-#[test]
-fn daemon_snapshot_populates_sessions_audit_and_conscience() {
-    let home = TempDir::new("snapshot_daemon");
-    let out = home.path().join("snapshot.json");
-    let mut daemon = start_real_daemon(home.path());
-
-    // 真实写入一条领域切换审计事件（守护进程会将其追加进脊柱）。
-    let client = ThinClient::mount(home.path()).expect("薄客户端挂载");
-    let packs = match client.call(&IpcRequest::DomainList) {
-        Ok(IpcResponse::DomainPacks { packs, .. }) => packs,
-        other => panic!("domain list 失败: {other:?}"),
-    };
-    let target = packs
-        .iter()
-        .map(|pack| pack.id.clone())
-        .find(|id| id != "personal-companion")
-        .expect("至少存在一个非默认领域包");
-    match client.call(&IpcRequest::DomainUse { id: target.clone() }) {
-        Ok(IpcResponse::DomainActivated(_)) | Ok(IpcResponse::DomainPacks { .. }) => {}
-        other => panic!("domain use 失败: {other:?}"),
-    }
-
-    let output = spawn_probe("snapshot_child_probe", false)
-        .env(CHILD_SNAPSHOT_OUT, &out)
-        .env("QUETZALCOATL_HOME", home.path())
-        .output()
-        .expect("spawn snapshot probe");
-    assert!(
-        output.status.success(),
-        "快照探针失败: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(&out).expect("读取快照报告")).expect("JSON");
-    assert_eq!(
-        report["ok"],
-        serde_json::Value::Bool(true),
-        "报告: {report}"
-    );
-    assert_eq!(report["online"], serde_json::Value::Bool(true));
-    assert!(report["sessions"].as_u64().unwrap_or(0) > 0, "{report}");
-    assert!(report["audits"].as_u64().unwrap_or(0) > 0, "{report}");
-    assert!(report["conscience"].as_u64().unwrap_or(0) > 0, "{report}");
-    assert!(
-        report["conscience_body_chars"].as_u64().unwrap_or(0) > 0,
-        "检视态必须能拿到良知锁定正文: {report}"
-    );
-    assert_eq!(
-        report["db_fds"].as_array().map(Vec::len),
-        Some(0),
-        "桌面端读取快照不得持有 spine.sqlite: {report}"
-    );
-    assert_eq!(
-        report["rev_matches_status"],
-        serde_json::Value::Bool(true),
-        "快照 rev 必须等于守护进程报告的事件总数: {report}"
-    );
-    let audit_seqs = report["audit_seqs"].as_array().expect("audit_seqs");
-    let declared_events = report["declared_events"].as_u64().unwrap_or_default();
-    let expected_audits = usize::try_from(declared_events.min(6)).unwrap_or_default();
-    assert_eq!(
-        audit_seqs.len(),
-        expected_audits,
-        "审计行必须恰好是最近 min(6, 事件总数) 条: {report}"
-    );
-    let seqs: Vec<u64> = audit_seqs
-        .iter()
-        .map(|value| value.as_u64().unwrap_or_default())
-        .collect();
-    assert!(
-        seqs.windows(2).all(|pair| pair[0] > pair[1]),
-        "审计行必须按 seq 严格倒序: {report}"
-    );
-
-    daemon.shutdown().expect("关闭守护进程");
-}
-
-// ---------------------------------------------------------------------------
-// 7. 披露契约（真实守护进程）：陪伴/工作台零技术细节，技术细节只在检视
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore = "由父测试以子进程方式驱动（需要 xvfb + 真实守护进程）"]
-fn online_ui_child_probe() {
-    let Some(out_path) = std::env::var_os(CHILD_ONLINE_UI_OUT).map(PathBuf::from) else {
-        return;
-    };
-    let mut report = serde_json::json!({ "ok": false });
-    if let Err(err) = gtk::init() {
-        report["error"] = serde_json::Value::String(format!("gtk init 失败: {err}"));
-        let _ = fs::write(&out_path, report.to_string());
-        return;
-    }
-    let home = quetzalcoatl_client_core::resolve_client_home(None);
-    let config_path = out_path.with_extension("desktop.json");
-    let state = app::build_desktop(DesktopOptions {
-        home,
-        config_path: Some(config_path),
-        self_test: false,
-    });
-    app::refresh(&state);
-    state.borrow().window.present();
-    let _ = app::pump_until_mapped(&state.borrow().widgets.workbench.root, 4_000);
-
-    let workbench_text = visible_text(&state.borrow().widgets.workbench.root);
-    let inspector_text = visible_text(&state.borrow().widgets.inspector.root);
-    let disclosure_plain = !workbench_text.contains("pid")
-        && !workbench_text.contains("127.0.0.1")
-        && !workbench_text.contains("unix:")
-        && !workbench_text.contains("STORAGE_")
-        && !workbench_text.contains("IPC")
-        && !workbench_text.contains("睡眠相位")
-        && !workbench_text.contains("脊柱事件");
-    let inspector_technical = inspector_text.contains("pid")
-        && (inspector_text.contains("127.0.0.1") || inspector_text.contains("unix:"))
-        && (inspector_text.contains("睡眠相位") || inspector_text.contains("脊柱事件"));
-
-    // 陪伴页：在线时把会话/良知/审计的摘要行原样列出来，且不带任何运行技术细节。
-    app::apply_density(&state, CognitionDensity::Companion);
-    app::pump_events(80);
-    let companion_text = visible_text(&state.borrow().widgets.companion.root);
-    let companion_plain = !companion_text.contains("pid")
-        && !companion_text.contains("127.0.0.1")
-        && !companion_text.contains("unix:")
-        && !companion_text.contains("STORAGE_")
-        && !companion_text.contains("IPC")
-        && !companion_text.contains("睡眠相位");
-    let (sessions, conscience, audits, companion_lists_snapshot) = {
-        let desktop = state.borrow();
-        let mut counts = [0usize; 3];
-        let mut listed = true;
-        for (slot, kind) in [
-            model::KIND_SESSION,
-            model::KIND_CONSCIENCE,
-            model::KIND_AUDIT,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let rows = desktop.model.rows_of(kind);
-            counts[slot] = rows.len();
-            listed &= rows.iter().all(|row| companion_text.contains(&row.summary));
-        }
-        (counts[0], counts[1], counts[2], listed)
-    };
-
-    let page = state
-        .borrow()
-        .widgets
-        .stack
-        .visible_child_name()
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-    let surface = input_surface(&state.borrow().window);
-
-    report = serde_json::json!({
-        "ok": disclosure_plain
-            && inspector_technical
-            && companion_plain
-            && companion_lists_snapshot
-            && sessions > 0
-            && conscience > 0
-            && audits > 0
-            && page == "companion"
-            && surface.editable.is_empty()
-            && surface.send_buttons.is_empty(),
-        "disclosure_plain": disclosure_plain,
-        "inspector_technical": inspector_technical,
-        "companion_plain": companion_plain,
-        "companion_lists_snapshot": companion_lists_snapshot,
-        "sessions": sessions,
-        "conscience": conscience,
-        "audits": audits,
-        "workbench_text": workbench_text,
-        "inspector_text": inspector_text,
-        "companion_text": companion_text,
-        "page": page,
-        "widgets": surface.widgets,
-        "editable": surface.editable,
-        "send_buttons": surface.send_buttons,
-        "db_fds": spine_db_fds(),
-    });
-    state.borrow().window.destroy();
-    fs::write(&out_path, report.to_string()).expect("写入在线 UI 探针报告");
-}
-
-#[test]
-fn pages_keep_disclosure_layers_against_real_daemon() {
-    let home = TempDir::new("online_ui_daemon");
-    let out = home.path().join("online_ui.json");
-    let mut daemon = start_real_daemon(home.path());
-
-    // 真实写入一条领域切换审计事件，保证审计行非空。
-    let client = ThinClient::mount(home.path()).expect("薄客户端挂载");
-    let packs = match client.call(&IpcRequest::DomainList) {
-        Ok(IpcResponse::DomainPacks { packs, .. }) => packs,
-        other => panic!("domain list 失败: {other:?}"),
-    };
-    let target = packs
-        .iter()
-        .map(|pack| pack.id.clone())
-        .find(|id| id != "personal-companion")
-        .expect("至少存在一个非默认领域包");
-    match client.call(&IpcRequest::DomainUse { id: target }) {
-        Ok(IpcResponse::DomainActivated(_)) | Ok(IpcResponse::DomainPacks { .. }) => {}
-        other => panic!("domain use 失败: {other:?}"),
-    }
-
-    let output = spawn_probe("online_ui_child_probe", false)
-        .env(CHILD_ONLINE_UI_OUT, &out)
-        .env("QUETZALCOATL_HOME", home.path())
-        .output()
-        .expect("spawn online UI probe");
-    assert!(
-        output.status.success(),
-        "在线 UI 探针失败: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(&out).expect("读取在线 UI 报告")).expect("JSON");
-    assert_eq!(
-        report["ok"],
-        serde_json::Value::Bool(true),
-        "报告: {report}"
-    );
-    assert_eq!(report["disclosure_plain"], serde_json::Value::Bool(true));
-    assert_eq!(report["inspector_technical"], serde_json::Value::Bool(true));
-    assert_eq!(report["companion_plain"], serde_json::Value::Bool(true));
-    assert_eq!(
-        report["companion_lists_snapshot"],
-        serde_json::Value::Bool(true),
-        "陪伴页必须列出快照里的会话/良知/审计摘要: {report}"
-    );
-    assert!(report["sessions"].as_u64().unwrap_or(0) > 0, "{report}");
-    assert!(report["conscience"].as_u64().unwrap_or(0) > 0, "{report}");
-    assert!(report["audits"].as_u64().unwrap_or(0) > 0, "{report}");
-    assert_eq!(report["page"].as_str(), Some("companion"));
-    assert_eq!(
-        report["editable"].as_array().map(Vec::len),
-        Some(0),
-        "在线时窗口里也不得出现可编辑输入框: {report}"
-    );
-    assert_eq!(
-        report["send_buttons"].as_array().map(Vec::len),
-        Some(0),
-        "在线时窗口里也不得出现发送按钮: {report}"
-    );
-    assert_eq!(
-        report["db_fds"].as_array().map(Vec::len),
-        Some(0),
-        "UI 路径不得持有 spine.sqlite: {report}"
-    );
-    daemon.shutdown().expect("关闭守护进程");
-}
-
-// ---------------------------------------------------------------------------
-// 8. 只读窗口：任何页面都没有可编辑输入框，也没有「发送」按钮
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore = "由父测试以子进程方式驱动（需要 xvfb）"]
-fn read_only_child_probe() {
-    let Some(out_path) = std::env::var_os(CHILD_READ_ONLY_OUT).map(PathBuf::from) else {
-        return;
-    };
-    let mut report = serde_json::json!({ "ok": false });
-    if let Err(err) = gtk::init() {
-        report["error"] = serde_json::Value::String(format!("gtk init 失败: {err}"));
-        let _ = fs::write(&out_path, report.to_string());
-        return;
-    }
-    let home = quetzalcoatl_client_core::resolve_client_home(None);
-    let config_path = out_path.with_extension("desktop.json");
-    let state = app::build_desktop(DesktopOptions {
-        home,
-        config_path: Some(config_path),
-        self_test: false,
-    });
-    // 填入合成快照行（含待审批行），让每一页都处在「有内容」的形态下被检查。
-    state
-        .borrow_mut()
-        .model
-        .apply_patch(&session_patch())
-        .expect("应用视图补丁");
-    app::refresh(&state);
-    let window = state.borrow().window.clone();
-    window.present();
-    let mapped = app::pump_until_mapped(&window, 4_000);
-
-    let mut pages = Vec::new();
-    for density in [
-        CognitionDensity::Companion,
-        CognitionDensity::Workbench,
-        CognitionDensity::Inspector,
-    ] {
-        app::apply_density(&state, density);
-        app::pump_events(120);
-        let guard = state.borrow();
-        let page = guard
-            .widgets
-            .stack
-            .visible_child_name()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-        let page_mapped = guard
-            .widgets
-            .stack
-            .visible_child()
-            .is_some_and(|child| child.is_mapped());
-        // 从窗口根开始走：标题栏、横幅与三个页面（含当前不可见的两页）全部在内。
-        let surface = input_surface(&guard.window);
-        pages.push(serde_json::json!({
-            "page": page,
-            "mapped": page_mapped,
-            "widgets": surface.widgets,
-            "editable": surface.editable,
-            "send_buttons": surface.send_buttons,
-            "buttons": surface.buttons,
-        }));
-    }
-
-    report = serde_json::json!({ "ok": mapped, "mapped": mapped, "pages": pages });
-    state.borrow().window.destroy();
-    fs::write(&out_path, report.to_string()).expect("写入只读探针报告");
-}
-
-#[test]
-fn no_page_offers_an_editable_input_or_send_button() {
-    let home = TempDir::new("read_only_probe");
-    let out = home.path().join("read_only.json");
-    let output = spawn_probe("read_only_child_probe", false)
-        .env(CHILD_READ_ONLY_OUT, &out)
-        .env("QUETZALCOATL_HOME", home.path().join("home"))
-        .env_remove("DBUS_SESSION_BUS_ADDRESS")
-        .output()
-        .expect("spawn read-only probe");
-    assert!(
-        output.status.success(),
-        "只读探针失败: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(&out).expect("读取只读探针报告")).expect("JSON");
-    assert_eq!(
-        report["ok"],
-        serde_json::Value::Bool(true),
-        "报告: {report}"
-    );
-    let pages = report["pages"].as_array().expect("pages");
-    let visited: Vec<&str> = pages
-        .iter()
-        .map(|entry| entry["page"].as_str().unwrap_or_default())
-        .collect();
-    assert_eq!(
-        visited,
-        ["companion", "workbench", "inspector"],
-        "三个页面必须逐一被检查: {report}"
-    );
-    for entry in pages {
-        let page = entry["page"].as_str().unwrap_or_default();
-        assert_eq!(
-            entry["mapped"],
-            serde_json::Value::Bool(true),
-            "{page} 页必须真实显示后再检查: {entry}"
-        );
-        assert_eq!(
-            entry["editable"].as_array().map(Vec::len),
-            Some(0),
-            "{page} 页所在的窗口里不得存在可编辑输入框: {entry}"
-        );
-        assert_eq!(
-            entry["send_buttons"].as_array().map(Vec::len),
-            Some(0),
-            "{page} 页所在的窗口里不得存在发送按钮: {entry}"
-        );
-        // 防空转：遍历必须真的走到了按钮（离线的「重新连接」与合成审批行的「批准/拒绝」）。
-        let buttons: Vec<&str> = entry["buttons"]
-            .as_array()
-            .expect("buttons")
-            .iter()
-            .map(|value| value.as_str().unwrap_or_default())
-            .collect();
-        for expected in ["重新连接", "批准", "拒绝"] {
-            assert!(
-                buttons.contains(&expected),
-                "{page} 页的控件遍历没有走到「{expected}」按钮，断言可能空转: {entry}"
-            );
-        }
-        assert!(
-            entry["widgets"].as_u64().unwrap_or(0) > 40,
-            "{page} 页遍历到的控件太少，断言可能空转: {entry}"
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1772,4 +712,1437 @@ fn close_exits_without_tray_host() {
     );
     assert_eq!(report["tray"].as_str(), Some("no-session-bus"));
     assert_eq!(report["fallback_fired"], serde_json::Value::Bool(false));
+}
+
+// ---------------------------------------------------------------------------
+// 3. 样式层：token 不漂移、只有两种语义色、GTK 能解析
+// ---------------------------------------------------------------------------
+
+fn governance_css() -> &'static str {
+    quetzalcoatl_desktop::style::GOVERNANCE_CSS
+}
+
+fn design_tokens() -> String {
+    let root = manifest_dir().join("../../packages/design-system/tokens");
+    fs::read_to_string(root.join("colors.css")).expect("读取设计系统 colors.css")
+}
+
+fn token_value(css: &str, name: &str) -> String {
+    let needle = format!("{name}:");
+    let line = css
+        .lines()
+        .find(|line| line.trim_start().starts_with(&needle))
+        .unwrap_or_else(|| panic!("设计系统里没有 {name}"));
+    line.split(':')
+        .nth(1)
+        .expect("token 有值")
+        .split(';')
+        .next()
+        .expect("token 以分号结束")
+        .trim()
+        .to_owned()
+}
+
+fn gtk_color(css: &str, name: &str) -> String {
+    let needle = format!("@define-color {name} ");
+    let line = css
+        .lines()
+        .find(|line| line.starts_with(&needle))
+        .unwrap_or_else(|| panic!("GTK 样式里没有 {name}"));
+    line[needle.len()..].trim_end_matches(';').trim().to_owned()
+}
+
+#[test]
+fn gtk_colors_stay_in_sync_with_the_design_system_tokens() {
+    let tokens = design_tokens();
+    let css = governance_css();
+    for (gtk_name, token) in [
+        ("qz_void", "--qz-void"),
+        ("qz_surface", "--qz-surface"),
+        ("qz_well", "--qz-well"),
+        ("qz_ink", "--qz-ink"),
+        ("qz_ink_soft", "--qz-ink-soft"),
+        ("qz_ink_support", "--qz-ink-support"),
+        ("qz_ink_secondary", "--qz-ink-secondary"),
+        ("qz_ink_quiet", "--qz-ink-quiet"),
+        ("qz_ink_muted", "--qz-ink-muted"),
+        ("qz_line_hairline", "--qz-hairline"),
+        ("qz_line_border", "--qz-border"),
+        ("qz_line_rail", "--qz-line-rail"),
+        ("qz_line_control", "--qz-line-control"),
+        ("qz_line_strong", "--qz-border-strong"),
+        ("qz_line_mark", "--qz-line-mark"),
+        ("qz_line_hover", "--qz-line-hover"),
+        ("qz_fill_hover", "--qz-fill-hover"),
+        ("qz_fill_selected", "--qz-fill-selected"),
+        ("qz_fill_active", "--qz-fill-active"),
+        ("qz_ice", "--qz-ice"),
+        ("qz_amber", "--qz-amber"),
+    ] {
+        assert_eq!(
+            gtk_color(css, gtk_name).replace(' ', ""),
+            token_value(&tokens, token).replace(' ', ""),
+            "GTK 的 {gtk_name} 与设计系统的 {token} 不一致"
+        );
+    }
+    // 纯黑底、两种语义色：这三个值是整套视觉的地基。
+    assert_eq!(gtk_color(css, "qz_void"), "#000000");
+    assert_eq!(gtk_color(css, "qz_ice"), "#bae6fd");
+    assert_eq!(gtk_color(css, "qz_amber"), "#e5a03d");
+}
+
+#[test]
+fn only_ice_and_amber_are_chromatic_and_weights_stay_in_the_scale() {
+    let css = governance_css();
+    // 每一个十六进制颜色：要么无彩（R=G=B），要么正是冰蓝或琥珀。
+    let mut hex_seen = 0;
+    for (index, _) in css.match_indices('#') {
+        let hex: String = css[index + 1..]
+            .chars()
+            .take_while(char::is_ascii_hexdigit)
+            .collect();
+        if hex.len() != 6 {
+            continue;
+        }
+        hex_seen += 1;
+        let (r, g, b) = (&hex[0..2], &hex[2..4], &hex[4..6]);
+        let achromatic = r == g && g == b;
+        assert!(
+            achromatic || hex == "bae6fd" || hex == "e5a03d",
+            "样式层出现了第三种颜色 #{hex}"
+        );
+    }
+    assert!(hex_seen > 20, "颜色清点可能空转");
+    // rgba 只允许白（线与填充）、黑（模糊底）与琥珀/冰蓝的发光。
+    for (index, _) in css.match_indices("rgba(") {
+        let args: String = css[index + 5..].chars().take_while(|c| *c != ')').collect();
+        let parts: Vec<&str> = args.split(',').map(str::trim).collect();
+        let (r, g, b) = (parts[0], parts[1], parts[2]);
+        assert!(
+            (r == g && g == b)
+                || args.starts_with("229, 160, 61")
+                || args.starts_with("186, 230, 253"),
+            "rgba({args}) 不是无彩色"
+        );
+    }
+    for (index, _) in css.match_indices("font-weight:") {
+        let value: String = css[index + 12..]
+            .chars()
+            .take_while(|c| *c != ';')
+            .collect::<String>()
+            .trim()
+            .to_owned();
+        assert!(
+            matches!(value.as_str(), "400" | "500" | "600" | "inherit"),
+            "字重 {value} 不在 400/500/600 之内"
+        );
+    }
+    // 每一对「文字色 + 黑底」都要够读：冰蓝与琥珀对纯黑的对比度。
+    fn luminance(hex: &str) -> f64 {
+        let channel = |at: usize| {
+            let v = f64::from(u8::from_str_radix(&hex[at..at + 2], 16).expect("hex")) / 255.0;
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+    }
+    for hex in ["bae6fd", "e5a03d", "8a8a8a", "b5b5b5"] {
+        let ratio = (luminance(hex) + 0.05) / 0.05;
+        assert!(ratio >= 4.5, "#{hex} 对纯黑的对比度只有 {ratio:.2}");
+    }
+}
+
+#[test]
+fn bundled_fonts_are_present_with_their_licenses() {
+    let dir = manifest_dir().join("resources/fonts");
+    for name in [
+        "sora-latin-400-normal.ttf",
+        "sora-latin-500-normal.ttf",
+        "sora-latin-600-normal.ttf",
+        "jetbrains-mono-latin-400-normal.ttf",
+        "jetbrains-mono-latin-500-normal.ttf",
+        "LICENSE-sora.txt",
+        "LICENSE-jetbrains-mono.txt",
+    ] {
+        assert!(dir.join(name).is_file(), "缺少随包字体或许可证 {name}");
+    }
+    let css = governance_css();
+    assert!(css.contains("\"Sora\"") && css.contains("\"JetBrains Mono\""));
+}
+
+// ---------------------------------------------------------------------------
+// 4. 治理面子进程探针（xvfb + 真实守护进程）
+// ---------------------------------------------------------------------------
+
+fn find_named(root: &impl IsA<gtk::Widget>, name: &str) -> Option<gtk::Widget> {
+    let mut found = None;
+    walk_widgets(root.as_ref(), &mut |widget| {
+        if found.is_none() && widget.widget_name() == name {
+            found = Some(widget.clone());
+        }
+    });
+    found
+}
+
+fn find_prefixed(root: &impl IsA<gtk::Widget>, prefix: &str) -> Vec<gtk::Widget> {
+    let mut found = Vec::new();
+    walk_widgets(root.as_ref(), &mut |widget| {
+        if widget.widget_name().starts_with(prefix) {
+            found.push(widget.clone());
+        }
+    });
+    found
+}
+
+fn click_named(root: &impl IsA<gtk::Widget>, name: &str) -> bool {
+    match find_named(root, name).and_then(|w| w.downcast::<gtk::Button>().ok()) {
+        Some(button) => {
+            button.emit_clicked();
+            true
+        }
+        None => false,
+    }
+}
+
+/// 点一整行（行本身是一个容器，里面第一个按钮才是选取按钮）。
+fn click_first_button_in(container: &gtk::Widget) -> bool {
+    let mut target = None;
+    walk_widgets(container, &mut |widget| {
+        if target.is_none()
+            && let Some(button) = widget.dynamic_cast_ref::<gtk::Button>()
+        {
+            target = Some(button.clone());
+        }
+    });
+    match target {
+        Some(button) => {
+            button.emit_clicked();
+            true
+        }
+        None => false,
+    }
+}
+
+fn wait_for_any(root: &impl IsA<gtk::Widget>, names: &[&str], timeout_ms: u64) -> bool {
+    app::pump_until(timeout_ms, || {
+        names.iter().any(|name| find_named(root, name).is_some())
+    })
+}
+
+/// 每一页「已经读出来」的标志（任一出现即可）。
+fn ready_markers(key: PageKey) -> &'static [&'static str] {
+    match key {
+        PageKey::Overview => &["agent-name"],
+        PageKey::SelfPage => &["core-values", "changes", "identity", "situation-self-empty"],
+        PageKey::User => &["user-columns", "situation-user-empty"],
+        PageKey::Us => &["scale"],
+        PageKey::Memories => &["memory-split", "memory-list"],
+        PageKey::Baseline => &["clauses", "situation-baseline-empty"],
+        PageKey::Hosts => &["host-checks", "situation-hosts-empty", "host-not-installed"],
+        PageKey::Devices => &["this-device-rail"],
+        PageKey::Audit => &["audit-timeline", "situation-audit-empty"],
+    }
+}
+
+fn screenshot(widget: &impl IsA<gtk::Widget>, path: &Path) -> bool {
+    use gtk::gdk::prelude::PaintableExt;
+    let (width, height) = (widget.width(), widget.height());
+    if width <= 0 || height <= 0 {
+        return false;
+    }
+    let paintable = gtk::WidgetPaintable::new(Some(widget));
+    let snapshot = gtk::Snapshot::new();
+    paintable.snapshot(&snapshot, f64::from(width), f64::from(height));
+    let Some(node) = snapshot.to_node() else {
+        return false;
+    };
+    let Some(renderer) = widget.native().and_then(|native| native.renderer()) else {
+        return false;
+    };
+    renderer
+        .render_texture(&node, None)
+        .save_to_png(path)
+        .is_ok()
+}
+
+/// 把窗口里所有页的出现过的文字、按钮、可编辑控件清点成报告。
+fn page_snapshot(window: &adw::ApplicationWindow, root: &gtk::Widget) -> serde_json::Value {
+    let surface = input_surface(window);
+    serde_json::json!({
+        "text": visible_text(root),
+        "widgets": surface.widgets,
+        "editable": surface.editable,
+        "send_buttons": surface.send_buttons,
+        "buttons": surface.buttons,
+    })
+}
+
+fn gov_options(out: &Path) -> DesktopOptions {
+    let width: i32 = std::env::var(CHILD_GOV_WIDTH)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1440);
+    let config_path = out.with_extension("desktop.json");
+    let config = quetzalcoatl_desktop::config::DesktopConfig {
+        width,
+        height: 900,
+        ..quetzalcoatl_desktop::config::DesktopConfig::default()
+    };
+    config.save_to(Some(&config_path)).expect("写入窗口配置");
+    DesktopOptions {
+        home: quetzalcoatl_client_core::resolve_client_home(None),
+        config_path: Some(config_path),
+        self_test: false,
+    }
+}
+
+fn shots_dir() -> Option<PathBuf> {
+    std::env::var_os(SHOT_DIR_ENV).map(PathBuf::from)
+}
+
+fn css_parse_errors() -> Vec<String> {
+    let errors = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let provider = gtk::CssProvider::new();
+    let sink = errors.clone();
+    provider.connect_parsing_error(move |_, section, error| {
+        sink.borrow_mut().push(format!(
+            "行 {}: {error}",
+            section.start_location().lines() + 1
+        ));
+    });
+    provider.load_from_string(governance_css());
+
+    errors.borrow().clone()
+}
+
+fn probe_read(out: &Path) -> serde_json::Value {
+    let state = app::build_desktop(gov_options(out));
+    let window = state.borrow().window.clone();
+    window.present();
+    let mapped = app::pump_until_mapped(&window, 5_000);
+    app::pump_events(400);
+    let shell = state.borrow().shell.clone();
+    let width = window.width();
+
+    // 快捷键必须是 GAction + accelerator（布局无关），而不是裸 keyval 匹配。
+    let app = adw_application();
+    app.register(None::<&gtk::gio::Cancellable>)
+        .expect("注册探针 GApplication");
+    app::install_page_actions(&app, std::rc::Rc::downgrade(&shell));
+    let accels_installed = (1..=PAGES.len()).all(|digit| {
+        let expected = gtk::accelerator_parse(format!("<Primary>{digit}"));
+        app.accels_for_action(&format!("app.page-{digit}"))
+            .iter()
+            .any(|installed| gtk::accelerator_parse(installed.as_str()) == expected)
+    });
+    // 触发 Ctrl+5 对应的动作：真的切到第 5 页（往事）。
+    app.activate_action("page-5", None);
+    app::pump_events(50);
+    let accel_navigates = shell.current() == PageKey::Memories;
+
+    let mut pages = serde_json::Map::new();
+    for info in &PAGES {
+        shell.navigate(info.key);
+        let page = shell.page(info.key).expect("每一页都已建出");
+        let ready = wait_for_any(&page.root(), ready_markers(info.key), 6_000);
+        app::pump_events(350);
+        let mut entry = page_snapshot(&window, &page.root());
+        entry["ready"] = serde_json::Value::Bool(ready);
+        entry["mapped"] = serde_json::Value::Bool(page.root().is_mapped());
+        entry["provenance"] = serde_json::Value::String(visible_text(&shell.ctx.aside.root));
+        if let Some(dir) = shots_dir() {
+            let _ = fs::create_dir_all(&dir);
+            let shot = dir.join(format!("{width}-{}.png", info.slug));
+            entry["shot"] = serde_json::Value::Bool(screenshot(&window, &shot));
+        }
+        pages.insert(info.slug.to_owned(), entry);
+    }
+
+    // 往事页：选一件，右侧（宽屏）或钻取（窄屏）出现全文与三个动作。
+    shell.navigate(PageKey::Memories);
+    app::pump_events(100);
+    let memories_root = shell.page(PageKey::Memories).expect("往事页").root();
+    let rows = find_prefixed(&memories_root, "memory-row-");
+    let first_row = rows.first().cloned();
+    let selected = first_row.as_ref().is_some_and(click_first_button_in);
+    app::pump_events(300);
+    let detail_has_actions = ["action-edit", "action-mute", "action-erase"]
+        .iter()
+        .all(|name| find_named(&memories_root, name).is_some());
+    let mut memory_detail = page_snapshot(&window, &memories_root);
+    memory_detail["selected"] = serde_json::Value::Bool(selected);
+    memory_detail["actions"] = serde_json::Value::Bool(detail_has_actions);
+    if let Some(dir) = shots_dir() {
+        memory_detail["shot"] = serde_json::Value::Bool(screenshot(
+            &window,
+            &dir.join(format!("{width}-memories-selected.png")),
+        ));
+    }
+
+    // 往事页的抹除：二次确认并说明不可恢复；这里只看对话框，取消，不真的抹。
+    let erase_clicked = click_named(&memories_root, "action-erase");
+    app::pump_until(2_000, || find_named(&window, "confirm-ok").is_some());
+    let dialog_text = find_named(&window, "confirm-ok")
+        .and_then(|ok| {
+            let mut node = ok.parent();
+            while let Some(current) = node {
+                if current.has_css_class("qz-dialog") {
+                    return Some(current);
+                }
+                node = current.parent();
+            }
+            None
+        })
+        .map(|body| visible_text(&body))
+        .unwrap_or_default();
+    let dialog_has_cancel_default = find_named(&window, "confirm-cancel").is_some();
+    if let Some(dir) = shots_dir() {
+        let _ = screenshot(&window, &dir.join(format!("{width}-confirm-erase.png")));
+    }
+    click_named(&window, "confirm-cancel");
+    app::pump_events(200);
+
+    // 带口令的确认框：口令空着不能确认，并且说明原因。
+    let secret_seen = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+    let seen = secret_seen.clone();
+    let dialog = quetzalcoatl_desktop::dialog::confirm(
+        shell.ctx.anchor(),
+        quetzalcoatl_desktop::dialog::ConfirmSpec {
+            title: String::from("吊销「合成设备」？"),
+            word: String::from("不可撤回"),
+            quote: None,
+            paragraphs: vec![String::from("吊销之后不能撤回。")],
+            confirm_label: String::from("吊销"),
+            passphrase: Some((String::from("口令"), String::from("合成口令"))),
+        },
+        std::rc::Rc::new(move |secret, finish| {
+            *seen.borrow_mut() = Some(secret);
+            finish(Ok(()));
+        }),
+    );
+    app::pump_events(200);
+    click_named(&window, "confirm-ok");
+    app::pump_events(100);
+    let refused_without_passphrase = secret_seen.borrow().is_none()
+        && find_named(&window, "confirm-ok").is_some()
+        && visible_text(&window).contains("先输入口令");
+    if let Some(entry) = find_named(&window, "confirm-passphrase")
+        .and_then(|w| w.dynamic_cast::<gtk::Editable>().ok())
+    {
+        entry.set_text("synthetic-pass-1234");
+    }
+    click_named(&window, "confirm-ok");
+    app::pump_events(200);
+    let passphrase_delivered = secret_seen.borrow().as_deref() == Some("synthetic-pass-1234");
+    let _ = dialog;
+
+    serde_json::json!({
+        "ok": mapped,
+        "mapped": mapped,
+        "width": width,
+        "narrow": shell.ctx.narrow(),
+        "aside_mapped": shell.ctx.aside.root.is_mapped(),
+        "accels_installed": accels_installed,
+        "accel_navigates": accel_navigates,
+        "css_errors": css_parse_errors(),
+        "pages": pages,
+        "memory_detail": memory_detail,
+        "erase_clicked": erase_clicked,
+        "erase_dialog": dialog_text,
+        "erase_dialog_has_cancel": dialog_has_cancel_default,
+        "refused_without_passphrase": refused_without_passphrase,
+        "passphrase_delivered": passphrase_delivered,
+    })
+}
+
+/// 点选某一行（按行里的文字找），行里第一个按钮是选取按钮。
+fn click_row_containing(root: &gtk::Widget, prefix: &str, needle: &str) -> bool {
+    let row = find_prefixed(root, prefix)
+        .into_iter()
+        .find(|row| visible_text(row).contains(needle));
+    row.as_ref().is_some_and(click_first_button_in)
+}
+
+fn set_text_view(root: &impl IsA<gtk::Widget>, name: &str, text: &str) -> bool {
+    match find_named(root, name).and_then(|w| w.downcast::<gtk::TextView>().ok()) {
+        Some(view) => {
+            view.buffer().set_text(text);
+            true
+        }
+        None => false,
+    }
+}
+
+fn set_editable(root: &impl IsA<gtk::Widget>, name: &str, text: &str) -> bool {
+    match find_named(root, name).and_then(|w| w.dynamic_cast::<gtk::Editable>().ok()) {
+        Some(entry) => {
+            entry.set_text(text);
+            true
+        }
+        None => false,
+    }
+}
+
+fn probe_write(out: &Path) -> serde_json::Value {
+    let state = app::build_desktop(gov_options(out));
+    let window = state.borrow().window.clone();
+    window.present();
+    let mapped = app::pump_until_mapped(&window, 5_000);
+    let shell = state.borrow().shell.clone();
+    let mut steps = serde_json::Map::new();
+
+    // 往事页：改一条（搜出来的那一条）。
+    shell.navigate(PageKey::Memories);
+    let memories = shell.page(PageKey::Memories).expect("往事页").root();
+    wait_for_any(&memories, ready_markers(PageKey::Memories), 6_000);
+    app::pump_events(200);
+    set_editable(&memories, "memory-search", "跨设备切换会话");
+    app::pump_until(4_000, || {
+        visible_text(&memories).contains("共 1 件")
+            || visible_text(&memories).contains("已显示 1 / 1")
+    });
+    app::pump_events(200);
+    steps.insert(
+        "memory_selected".into(),
+        click_row_containing(&memories, "memory-row-", "跨设备切换会话").into(),
+    );
+    app::pump_events(300);
+    steps.insert(
+        "edit_clicked".into(),
+        click_named(&memories, "action-edit").into(),
+    );
+    app::pump_events(200);
+    steps.insert(
+        "edit_text_set".into(),
+        set_text_view(
+            &memories,
+            "entry-edit-text",
+            "跨设备切换会话时，先看未完成目标的步骤状态，再继续。",
+        )
+        .into(),
+    );
+    steps.insert(
+        "save_clicked".into(),
+        click_named(&memories, "action-save").into(),
+    );
+    app::pump_until(5_000, || {
+        visible_text(&shell.ctx.aside.root).contains("刚刚由你修改")
+    });
+    steps.insert(
+        "provenance_recent".into(),
+        visible_text(&shell.ctx.aside.root)
+            .contains("刚刚由你修改")
+            .into(),
+    );
+
+    // 我页：把第一条偏好设为「不主动提」。
+    shell.navigate(PageKey::User);
+    let user = shell.page(PageKey::User).expect("我页").root();
+    wait_for_any(&user, ready_markers(PageKey::User), 6_000);
+    app::pump_events(200);
+    let preference_row = find_prefixed(&user, "entry-row-").into_iter().next();
+    steps.insert(
+        "preference_selected".into(),
+        preference_row
+            .as_ref()
+            .is_some_and(click_first_button_in)
+            .into(),
+    );
+    app::pump_events(300);
+    steps.insert(
+        "mute_clicked".into(),
+        click_named(&user, "action-mute").into(),
+    );
+    app::pump_until(5_000, || {
+        find_prefixed(&user, "entry-row-")
+            .iter()
+            .any(|row| visible_text(row).contains("不主动提"))
+    });
+    app::pump_events(300);
+
+    // 往事页：抹除另一条（经二次确认）。
+    shell.navigate(PageKey::Memories);
+    set_editable(&memories, "memory-search", "");
+    app::pump_events(600);
+    let erase_target = "按分类目录树组织";
+    set_editable(&memories, "memory-search", erase_target);
+    app::pump_until(4_000, || visible_text(&memories).contains("共 1 件"));
+    app::pump_events(200);
+    steps.insert(
+        "erase_target_selected".into(),
+        click_row_containing(&memories, "memory-row-", erase_target).into(),
+    );
+    app::pump_events(300);
+    steps.insert(
+        "erase_clicked".into(),
+        click_named(&memories, "action-erase").into(),
+    );
+    app::pump_until(2_000, || find_named(&window, "confirm-ok").is_some());
+    steps.insert(
+        "erase_confirmed".into(),
+        click_named(&window, "confirm-ok").into(),
+    );
+    app::pump_until(5_000, || {
+        visible_text(&shell.ctx.aside.root).contains("刚刚由你抹除")
+    });
+    steps.insert(
+        "erase_notice".into(),
+        visible_text(&shell.ctx.aside.root)
+            .contains("刚刚由你抹除")
+            .into(),
+    );
+
+    // 底线页：写一条、设口令、签署。
+    shell.navigate(PageKey::Baseline);
+    let baseline = shell.page(PageKey::Baseline).expect("底线页").root();
+    wait_for_any(&baseline, ready_markers(PageKey::Baseline), 6_000);
+    app::pump_events(200);
+    steps.insert(
+        "clause_add".into(),
+        click_named(&baseline, "clause-add").into(),
+    );
+    app::pump_events(200);
+    steps.insert(
+        "clause_title".into(),
+        set_editable(&baseline, "clause-title", "不替我对外发出任何东西").into(),
+    );
+    steps.insert(
+        "clause_text".into(),
+        set_text_view(
+            &baseline,
+            "clause-text",
+            "没有我点头，他不能替我发邮件、发消息或付款。",
+        )
+        .into(),
+    );
+    steps.insert(
+        "clause_done".into(),
+        click_named(&baseline, "clause-done").into(),
+    );
+    app::pump_events(200);
+    // 两遍口令不一样：签不了，并说明原因。
+    set_editable(&baseline, "sign-passphrase", "synthetic-pass-1234");
+    set_editable(&baseline, "sign-passphrase-repeat", "synthetic-pass-9999");
+    click_named(&baseline, "sign-button");
+    app::pump_events(200);
+    steps.insert(
+        "mismatch_refused".into(),
+        visible_text(&baseline).contains("两遍口令不一样").into(),
+    );
+    set_editable(&baseline, "sign-passphrase", "synthetic-pass-1234");
+    set_editable(&baseline, "sign-passphrase-repeat", "synthetic-pass-1234");
+    steps.insert(
+        "sign_clicked".into(),
+        click_named(&baseline, "sign-button").into(),
+    );
+    app::pump_until(5_000, || visible_text(&baseline).contains("起生效"));
+    steps.insert(
+        "signed_state".into(),
+        visible_text(&baseline).contains("起生效").into(),
+    );
+    if let Some(dir) = shots_dir() {
+        let _ = fs::create_dir_all(&dir);
+        let _ = screenshot(&window, &dir.join("write-baseline-signed.png"));
+    }
+
+    // 我们页：把迎合滑杆拖到 60。
+    shell.navigate(PageKey::Us);
+    let us = shell.page(PageKey::Us).expect("我们页").root();
+    wait_for_any(&us, ready_markers(PageKey::Us), 6_000);
+    app::pump_events(200);
+    let scale = find_named(&us, "focus-scale").and_then(|w| w.downcast::<gtk::Scale>().ok());
+    steps.insert("scale_present".into(), scale.is_some().into());
+    if let Some(scale) = &scale {
+        scale.set_value(60.0);
+    }
+    app::pump_until(5_000, || {
+        visible_text(&shell.ctx.aside.root).contains("刚刚由你调节")
+    });
+    steps.insert(
+        "focus_notice".into(),
+        visible_text(&shell.ctx.aside.root)
+            .contains("刚刚由你调节")
+            .into(),
+    );
+
+    serde_json::json!({ "ok": mapped, "steps": steps })
+}
+
+fn probe_offline(out: &Path) -> serde_json::Value {
+    let state = app::build_desktop(gov_options(out));
+    let window = state.borrow().window.clone();
+    window.present();
+    let mapped = app::pump_until_mapped(&window, 5_000);
+    let shell = state.borrow().shell.clone();
+    app::pump_until(5_000, || shell.ctx.answered());
+    app::pump_events(300);
+    let status = find_named(&window, "daemon-status")
+        .and_then(|row| row.ancestor(gtk::Revealer::static_type()))
+        .and_then(|w| w.downcast::<gtk::Revealer>().ok());
+    let mut pages = serde_json::Map::new();
+    for info in &PAGES {
+        shell.navigate(info.key);
+        let page = shell.page(info.key).expect("页");
+        let ready = wait_for_any(&page.root(), &["situation-unreachable"], 4_000);
+        app::pump_events(100);
+        let mut entry = page_snapshot(&window, &page.root());
+        entry["unreachable_situation"] = ready.into();
+        pages.insert(info.slug.to_owned(), entry);
+    }
+    if let Some(dir) = shots_dir() {
+        let _ = fs::create_dir_all(&dir);
+        shell.navigate(PageKey::Overview);
+        app::pump_events(200);
+        let _ = screenshot(
+            &window,
+            &dir.join(format!("{}-offline.png", window.width())),
+        );
+    }
+    serde_json::json!({
+        "ok": mapped,
+        "online": shell.ctx.online(),
+        "ever_online": shell.ctx.ever_online(),
+        "status_revealed": status.is_some_and(|r| r.reveals_child()),
+        "status_text": visible_text(&window),
+        "pages": pages,
+    })
+}
+
+fn probe_outage(out: &Path) -> serde_json::Value {
+    let sync_dir = PathBuf::from(std::env::var_os(CHILD_GOV_SYNC).expect("同步目录"));
+    let state = app::build_desktop(gov_options(out));
+    let window = state.borrow().window.clone();
+    window.present();
+    let mapped = app::pump_until_mapped(&window, 5_000);
+    let shell = state.borrow().shell.clone();
+    let overview = shell.page(PageKey::Overview).expect("总览").root();
+    let loaded = wait_for_any(&overview, &["agent-name"], 6_000);
+    let name_before = find_named(&overview, "agent-name")
+        .and_then(|w| w.downcast::<gtk::Label>().ok())
+        .map(|label| label.label().to_string())
+        .unwrap_or_default();
+    // 往事页也读一遍并选中一条：断线之后它的写动作必须不可用。
+    shell.navigate(PageKey::User);
+    let user = shell.page(PageKey::User).expect("我页").root();
+    wait_for_any(&user, ready_markers(PageKey::User), 6_000);
+    app::pump_events(200);
+    let selected = find_prefixed(&user, "entry-row-")
+        .into_iter()
+        .next()
+        .as_ref()
+        .is_some_and(click_first_button_in);
+    app::pump_events(300);
+    let writable_before = find_named(&user, "action-edit").is_some_and(|w| w.is_sensitive());
+    let online_before = shell.ctx.online();
+
+    fs::write(sync_dir.join("loaded"), "1").expect("写入同步标记");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline && !sync_dir.join("stopped").is_file() {
+        app::pump_events(50);
+    }
+    // 守护进程已被停掉：重读，应当进入降级但保留上一次的内容。
+    shell.reload();
+    app::pump_until(8_000, || !shell.ctx.online());
+    app::pump_events(300);
+    let status = find_named(&window, "daemon-status")
+        .and_then(|row| row.ancestor(gtk::Revealer::static_type()))
+        .and_then(|w| w.downcast::<gtk::Revealer>().ok());
+    let name_after = find_named(&overview, "agent-name")
+        .and_then(|w| w.downcast::<gtk::Label>().ok())
+        .map(|label| label.label().to_string())
+        .unwrap_or_default();
+    let writable_after = find_named(&user, "action-edit").map(|w| w.is_sensitive());
+    let user_text_after = visible_text(&user);
+    // 一页从没读过：整页是联系不上的状态版面。
+    shell.navigate(PageKey::Hosts);
+    let hosts = shell.page(PageKey::Hosts).expect("宿主页").root();
+    let hosts_unreachable = wait_for_any(&hosts, &["situation-unreachable"], 6_000);
+    if let Some(dir) = shots_dir() {
+        let _ = fs::create_dir_all(&dir);
+        shell.navigate(PageKey::User);
+        app::pump_events(300);
+        let _ = screenshot(
+            &window,
+            &dir.join(format!("{}-outage-user.png", window.width())),
+        );
+    }
+    serde_json::json!({
+        "ok": mapped && loaded,
+        "name_before": name_before,
+        "name_after": name_after,
+        "selected": selected,
+        "writable_before": writable_before,
+        "online_before": online_before,
+        "online_after": shell.ctx.online(),
+        "status_revealed": status.is_some_and(|r| r.reveals_child()),
+        "writable_after": writable_after,
+        "user_text_after": user_text_after,
+        "hosts_unreachable": hosts_unreachable,
+    })
+}
+
+#[test]
+#[ignore = "由父测试以子进程方式驱动（xvfb）；无环境变量时不做任何断言"]
+fn governance_child_probe() {
+    let Some(out_path) = std::env::var_os(CHILD_GOV_OUT).map(PathBuf::from) else {
+        return;
+    };
+    let mode = std::env::var(CHILD_GOV_MODE).unwrap_or_default();
+    let mut report = serde_json::json!({ "ok": false });
+    if let Err(err) = gtk::init() {
+        report["error"] = serde_json::Value::String(format!("gtk init 失败: {err}"));
+        let _ = fs::write(&out_path, report.to_string());
+        return;
+    }
+    let _ = adw::init();
+    report = match mode.as_str() {
+        "read" => probe_read(&out_path),
+        "write" => probe_write(&out_path),
+        "offline" => probe_offline(&out_path),
+        "outage" => probe_outage(&out_path),
+        other => serde_json::json!({ "ok": false, "error": format!("未知模式 {other}") }),
+    };
+    fs::write(&out_path, report.to_string()).expect("写入治理面探针报告");
+}
+
+/// 起真实守护进程并导入 V1 夹具，得到一片有内容的海。
+fn seeded_daemon(tag: &str) -> (TempDir, quetzalcoatl_daemon::DaemonHandle, IpcClient) {
+    let home = TempDir::new(tag);
+    let daemon = start_real_daemon(&home.path().join("h"));
+    let client = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+    let soul = manifest_dir().join("../../crates/quetzalcoatl-spine/tests/fixtures/v1_soul_v14");
+    if let IpcResponse::Error { code, detail } = client
+        .call(&IpcRequest::ImportV1 {
+            soul_dir: soul,
+            db_paths: Vec::new(),
+        })
+        .expect("导入 V1 夹具")
+    {
+        panic!("导入 V1 夹具失败: {code} {detail}")
+    }
+    (home, daemon, client)
+}
+
+fn run_gov_child(
+    mode: &str,
+    width: i32,
+    home: &Path,
+    sync: Option<&Path>,
+) -> (serde_json::Value, std::process::Output) {
+    let out_dir = TempDir::new(&format!("gov_{mode}"));
+    let out = out_dir.path().join("report.json");
+    let mut command = spawn_probe("governance_child_probe", false);
+    command
+        .env(CHILD_GOV_OUT, &out)
+        .env(CHILD_GOV_MODE, mode)
+        .env(CHILD_GOV_WIDTH, width.to_string())
+        .env("QUETZALCOATL_HOME", home)
+        .env("QUETZALCOATL_DESKTOP_CONFIG_DIR", out_dir.path())
+        .env("GSK_RENDERER", "cairo")
+        .env("XDG_CACHE_HOME", out_dir.path().join("cache"))
+        .env_remove("DBUS_SESSION_BUS_ADDRESS");
+    if let Some(sync) = sync {
+        command.env(CHILD_GOV_SYNC, sync);
+    }
+    if let Some(dir) = std::env::var_os(SHOT_DIR_ENV) {
+        command.env(SHOT_DIR_ENV, dir);
+    }
+    let output = command.output().expect("spawn governance probe");
+    let report = fs::read(&out)
+        .ok()
+        .and_then(|raw| serde_json::from_slice(&raw).ok())
+        .unwrap_or_else(|| {
+            panic!(
+                "治理面探针没有写出报告: status={:?}\nstdout={}\nstderr={}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
+    (report, output)
+}
+
+/// 失败信息里只放报告的一小段，免得整份报告淹没输出。
+fn brief(report: &serde_json::Value) -> String {
+    let text = report.to_string();
+    text.chars().take(700).collect()
+}
+
+fn page_text<'a>(report: &'a serde_json::Value, slug: &str) -> &'a str {
+    report["pages"][slug]["text"].as_str().unwrap_or_default()
+}
+
+/// 治理面里唯一允许存在的可编辑控件，以及它们各自的用途。
+/// 其中没有任何一个是「对他说一句话」。
+const ALLOWED_EDITABLES: [&str; 3] = ["memory-search", "sign-passphrase", "sign-passphrase-repeat"];
+
+fn assert_governance_read(report: &serde_json::Value, narrow: bool) {
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(report)
+    );
+    assert_eq!(
+        report["narrow"],
+        serde_json::Value::Bool(narrow),
+        "{}",
+        brief(report)
+    );
+    assert_eq!(
+        report["css_errors"].as_array().map(Vec::len),
+        Some(0),
+        "样式层必须能被 GTK 无错解析: {}",
+        report["css_errors"]
+    );
+    assert_eq!(
+        report["accels_installed"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(report)
+    );
+    assert_eq!(
+        report["accel_navigates"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(report)
+    );
+
+    // 九页都从真守护进程读了出来。
+    for info in &PAGES {
+        let entry = &report["pages"][info.slug];
+        assert_eq!(
+            entry["ready"],
+            serde_json::Value::Bool(true),
+            "{} 页没有读出内容: {}",
+            info.slug,
+            brief(entry)
+        );
+        assert!(
+            entry["widgets"].as_u64().unwrap_or(0) > 60,
+            "{} 页遍历到的控件太少，断言可能空转: {}",
+            info.slug,
+            brief(entry)
+        );
+        assert!(
+            !entry["provenance"].as_str().unwrap_or_default().is_empty(),
+            "出处栏永不留空: {} {}",
+            info.slug,
+            brief(entry)
+        );
+    }
+    let overview = page_text(report, "overview");
+    assert!(overview.contains("青羽"), "总览要写他的名字: {overview}");
+    assert!(overview.contains("相处第"), "{overview}");
+    assert!(
+        overview.contains("等你的事") && overview.contains("同步") && overview.contains("宿主"),
+        "{overview}"
+    );
+    assert!(
+        overview.contains("底线待签署"),
+        "没签底线时总览里这一格是琥珀的待签署: {overview}"
+    );
+    let me = page_text(report, "self");
+    assert!(
+        me.contains("核心价值") || me.contains("他还没有长出自己的样子"),
+        "{me}"
+    );
+    let user = page_text(report, "user");
+    assert!(user.contains("偏好") && user.contains("事实"), "{user}");
+    let us = page_text(report, "us");
+    assert!(us.contains("他迎合谁") && us.contains("下限"), "{us}");
+    let memories = page_text(report, "memories");
+    assert!(
+        memories.contains("已显示") && memories.contains("不主动提"),
+        "{memories}"
+    );
+    let baseline = page_text(report, "baseline");
+    assert!(baseline.contains("待签署"), "{baseline}");
+    let hosts = page_text(report, "hosts");
+    assert!(
+        hosts.contains("重新体检") || hosts.contains("他还没有住进任何宿主"),
+        "{hosts}"
+    );
+    let devices = page_text(report, "devices");
+    assert!(
+        devices.contains("这台设备") && devices.contains("其余设备"),
+        "{devices}"
+    );
+    let audit = page_text(report, "audit");
+    assert!(
+        audit.contains("已显示") || audit.contains("还没有任何写入"),
+        "{audit}"
+    );
+
+    // 无输入框不变量：任何一页、窗口里的任何控件，都没有给他发一句话的地方。
+    for info in &PAGES {
+        let entry = &report["pages"][info.slug];
+        let editable: Vec<&str> = entry["editable"]
+            .as_array()
+            .expect("editable")
+            .iter()
+            .filter_map(|name| name.as_str())
+            .collect();
+        for name in &editable {
+            assert!(
+                ALLOWED_EDITABLES.contains(name),
+                "{} 页出现了不该有的可编辑控件 `{name}`（只允许搜索与口令）: {}",
+                info.slug,
+                brief(entry)
+            );
+        }
+        assert_eq!(
+            entry["send_buttons"].as_array().map(Vec::len),
+            Some(0),
+            "{} 页出现了「发送」类按钮: {}",
+            info.slug,
+            brief(entry)
+        );
+    }
+    // 整棵树里搜索与口令框各只有一份；其余的编辑框只在点了「改」「添一条」之后才出现。
+    let any_page = &report["pages"]["overview"]["editable"];
+    assert!(
+        any_page
+            .as_array()
+            .expect("editable")
+            .iter()
+            .any(|name| name == "memory-search"),
+        "整棵树里应当有且只有搜索框这一类常驻输入: {any_page}"
+    );
+
+    // 往事页：选中之后有全文与「改、不主动提、抹除」三个动作。
+    let detail = &report["memory_detail"];
+    assert_eq!(
+        detail["selected"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(detail)
+    );
+    assert_eq!(
+        detail["actions"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(detail)
+    );
+    for editable in detail["editable"].as_array().expect("editable") {
+        let name = editable.as_str().unwrap_or_default();
+        assert!(
+            ALLOWED_EDITABLES.contains(&name),
+            "往事选中态出现了不该有的可编辑控件 `{name}`: {}",
+            brief(detail)
+        );
+    }
+    // 抹除要二次确认，并说明不可恢复。
+    assert_eq!(
+        report["erase_clicked"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(report)
+    );
+    let dialog = report["erase_dialog"].as_str().unwrap_or_default();
+    assert!(
+        dialog.contains("抹除这一条") && dialog.contains("不可恢复"),
+        "{dialog}"
+    );
+    assert!(dialog.contains("所有设备"), "{dialog}");
+    assert_eq!(
+        report["erase_dialog_has_cancel"],
+        serde_json::Value::Bool(true)
+    );
+    // 口令确认框：口令空着不能确认；填了之后口令原样交给动作。
+    assert_eq!(
+        report["refused_without_passphrase"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(report)
+    );
+    assert_eq!(
+        report["passphrase_delivered"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(report)
+    );
+}
+
+#[test]
+fn nine_pages_read_from_a_real_daemon_without_any_chat_input_at_wide_and_narrow_widths() {
+    let (home, mut daemon, _client) = seeded_daemon("gov_read");
+    let hold_home = home.path().join("h");
+    let (wide, wide_out) = run_gov_child("read", 1440, &hold_home, None);
+    assert!(
+        wide_out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&wide_out.stderr)
+    );
+    assert_governance_read(&wide, false);
+    assert_eq!(
+        wide["aside_mapped"],
+        serde_json::Value::Bool(true),
+        "宽屏有独立的出处栏: {}",
+        brief(&wide)
+    );
+    let (narrow, narrow_out) = run_gov_child("read", 720, &hold_home, None);
+    assert!(
+        narrow_out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&narrow_out.stderr)
+    );
+    assert_governance_read(&narrow, true);
+    // 窄屏：出处栏落到正文下方，仍然在。
+    assert_eq!(
+        narrow["aside_mapped"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(&narrow)
+    );
+    daemon.shutdown().expect("关闭守护进程");
+}
+
+#[test]
+fn every_write_in_the_governance_surface_reaches_the_daemon() {
+    let (home, mut daemon, client) = seeded_daemon("gov_write");
+    let (report, output) = run_gov_child("write", 1440, &home.path().join("h"), None);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(&report)
+    );
+    for step in [
+        "memory_selected",
+        "edit_clicked",
+        "edit_text_set",
+        "save_clicked",
+        "provenance_recent",
+        "preference_selected",
+        "mute_clicked",
+        "erase_target_selected",
+        "erase_clicked",
+        "erase_confirmed",
+        "erase_notice",
+        "clause_add",
+        "clause_title",
+        "clause_text",
+        "clause_done",
+        "mismatch_refused",
+        "sign_clicked",
+        "signed_state",
+        "scale_present",
+        "focus_notice",
+    ] {
+        assert_eq!(
+            report["steps"][step],
+            serde_json::Value::Bool(true),
+            "步骤 {step} 没有完成: {}",
+            brief(&report)
+        );
+    }
+
+    let value = |request: &IpcRequest| -> serde_json::Value {
+        serde_json::to_value(client.call(request).expect("调用守护进程")).expect("序列化")
+    };
+    // 改：新的一条接替旧的，写着是你改的。
+    let edited = value(&IpcRequest::SeaMemories {
+        query: Some(String::from("先看未完成目标的步骤状态")),
+        state: None,
+        cursor: None,
+        limit: None,
+    });
+    assert_eq!(edited["data"]["items"][0]["by_owner"], true, "{edited}");
+    // 抹除：搜不到了。
+    let erased = value(&IpcRequest::SeaMemories {
+        query: Some(String::from("按分类目录树组织")),
+        state: Some(String::from("all")),
+        cursor: None,
+        limit: None,
+    });
+    assert_eq!(
+        erased["data"]["items"].as_array().map(Vec::len),
+        Some(0),
+        "{erased}"
+    );
+    // 不主动提：我页里至少有一条被设了。
+    let muted = value(&IpcRequest::SeaMemories {
+        query: None,
+        state: Some(String::from("muted")),
+        cursor: None,
+        limit: None,
+    });
+    assert!(muted["data"]["total"].as_u64().unwrap_or(0) >= 1, "{muted}");
+    // 签署：一条你的底线，已生效。
+    let baseline = value(&IpcRequest::SeaBaseline);
+    assert_eq!(baseline["data"]["signed"], true, "{baseline}");
+    assert_eq!(
+        baseline["data"]["directives"].as_array().map(Vec::len),
+        Some(1),
+        "{baseline}"
+    );
+    // 迎合：拖到 60 之后，「我们」的权重不是默认值。
+    let us = value(&IpcRequest::SeaUs);
+    let us_weight = us["data"]["focus"]["us_weight"].as_f64().unwrap_or(-1.0);
+    let floor = us["data"]["focus"]["floor_self"].as_f64().unwrap_or(0.0);
+    assert!(
+        (us_weight - 0.6_f64.min(1.0 - floor)).abs() < 0.011,
+        "迎合权重没有落到守护进程: {us}"
+    );
+    daemon.shutdown().expect("关闭守护进程");
+}
+
+#[test]
+fn without_a_daemon_every_page_degrades_to_one_amber_line_and_a_next_step() {
+    let home = TempDir::new("gov_offline");
+    fs::create_dir_all(home.path().join("h")).expect("空 home");
+    let (report, output) = run_gov_child("offline", 1440, &home.path().join("h"), None);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(&report)
+    );
+    assert_eq!(
+        report["online"],
+        serde_json::Value::Bool(false),
+        "{}",
+        brief(&report)
+    );
+    assert_eq!(
+        report["status_revealed"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(&report)
+    );
+    let status = report["status_text"].as_str().unwrap_or_default();
+    assert!(
+        status.contains("联系不上") && status.contains("qz up"),
+        "{status}"
+    );
+    for info in &PAGES {
+        let entry = &report["pages"][info.slug];
+        assert_eq!(
+            entry["unreachable_situation"],
+            serde_json::Value::Bool(true),
+            "{} 页在守护进程不在线时应是联系不上的状态版面: {}",
+            info.slug,
+            brief(entry)
+        );
+        assert!(
+            entry["text"].as_str().unwrap_or_default().contains("qz up"),
+            "{} 页要给出下一步: {}",
+            info.slug,
+            brief(entry)
+        );
+        assert_eq!(
+            entry["send_buttons"].as_array().map(Vec::len),
+            Some(0),
+            "{}",
+            brief(entry)
+        );
+    }
+    assert!(
+        !home.path().join("h/spine/spine.sqlite").exists(),
+        "桌面端绝不直接创建 spine.sqlite"
+    );
+}
+
+#[test]
+fn an_outage_keeps_the_last_content_and_switches_every_write_off() {
+    let (home, mut daemon, _client) = seeded_daemon("gov_outage");
+    let sync = TempDir::new("gov_outage_sync");
+    let sync_path = sync.path().to_path_buf();
+    let home_path = home.path().join("h");
+    let handle = thread::spawn(move || run_gov_child("outage", 1440, &home_path, Some(&sync_path)));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline && !sync.path().join("loaded").is_file() {
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        sync.path().join("loaded").is_file(),
+        "子进程没有在 30 秒内读完第一屏"
+    );
+    daemon.shutdown().expect("关闭守护进程");
+    fs::write(sync.path().join("stopped"), "1").expect("写入同步标记");
+    let (report, output) = handle.join().expect("子进程线程");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        report["ok"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(&report)
+    );
+    assert_eq!(report["name_before"], "青羽", "{}", brief(&report));
+    assert_eq!(
+        report["name_after"],
+        "青羽",
+        "断线之后整页保留上一次的内容: {}",
+        brief(&report)
+    );
+    assert_eq!(
+        report["selected"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(&report)
+    );
+    assert_eq!(
+        report["writable_before"],
+        serde_json::Value::Bool(true),
+        "在线时写动作可用: {}",
+        brief(&report)
+    );
+    assert_eq!(
+        report["online_after"],
+        serde_json::Value::Bool(false),
+        "{}",
+        brief(&report)
+    );
+    assert_eq!(
+        report["status_revealed"],
+        serde_json::Value::Bool(true),
+        "{}",
+        brief(&report)
+    );
+    assert_eq!(
+        report["writable_after"],
+        serde_json::Value::Bool(false),
+        "断线之后写动作一律不可用: {}",
+        brief(&report)
+    );
+    assert!(
+        report["user_text_after"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("偏好"),
+        "断线之后「我」页仍保留上一次的内容: {}",
+        brief(&report)
+    );
+    assert_eq!(
+        report["hosts_unreachable"],
+        serde_json::Value::Bool(true),
+        "从没读过的页是联系不上的状态版面: {}",
+        brief(&report)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 5. 真实二进制无头冒烟：在线与离线
+// ---------------------------------------------------------------------------
+
+#[test]
+fn headless_smoke_launches_binary_against_real_daemon_and_exits_cleanly() {
+    let home = TempDir::new("daemon");
+    let config_dir = TempDir::new("daemon_config");
+    let mut daemon = start_real_daemon(home.path());
+
+    let output = headless_command(binary())
+        .arg("--self-test")
+        .arg("--home")
+        .arg(home.path())
+        .env("QUETZALCOATL_DESKTOP_CONFIG_DIR", config_dir.path())
+        .env("XDG_CACHE_HOME", config_dir.path().join("cache"))
+        .env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            format!(
+                "unix:path={}",
+                config_dir.path().join("no-such-bus").display()
+            ),
+        )
+        .output()
+        .expect("spawn desktop self-test");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        output.status.success(),
+        "无头冒烟失败: status={:?} stdout={stdout} stderr={stderr}",
+        output.status
+    );
+    assert!(
+        stdout.contains("SELF_TEST_OK"),
+        "缺少自检标记: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        stdout.contains("window=visible"),
+        "主窗口必须真实存在: {stdout}"
+    );
+    assert!(stdout.contains("page=overview"), "默认停在总览: {stdout}");
+    assert!(
+        stdout.contains("connected=true"),
+        "必须经本机 IPC 连上真实守护进程: {stdout}"
+    );
+    assert!(
+        stdout.contains("degraded=0"),
+        "在线时不得进入降级态: {stdout}"
+    );
+    let tray_field = stdout
+        .split_whitespace()
+        .find(|token| token.starts_with("tray="))
+        .unwrap_or("tray=missing");
+    assert!(
+        matches!(
+            tray_field,
+            "tray=registered" | "tray=no-watcher" | "tray=no-session-bus" | "tray=bus-unavailable"
+        ),
+        "托盘必须优雅降级而不是崩溃: {tray_field}"
+    );
+
+    daemon.shutdown().expect("关闭守护进程");
+    assert!(!home.path().join("run/daemon.json").exists());
+}
+
+#[test]
+fn headless_smoke_degrades_without_daemon_and_without_dbus() {
+    let home = TempDir::new("degraded");
+    let config_dir = TempDir::new("degraded_config");
+    fs::create_dir_all(home.path()).expect("空 home");
+
+    let output = headless_command(binary())
+        .arg("--self-test")
+        .arg("--home")
+        .arg(home.path())
+        .env("QUETZALCOATL_DESKTOP_CONFIG_DIR", config_dir.path())
+        .env("XDG_CACHE_HOME", config_dir.path().join("cache"))
+        .env_remove("DBUS_SESSION_BUS_ADDRESS")
+        .output()
+        .expect("spawn degraded self-test");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        output.status.success(),
+        "无守护进程时必须优雅退出而不是崩溃: status={:?} stdout={stdout} stderr={stderr}",
+        output.status
+    );
+    assert!(stdout.contains("SELF_TEST_OK"), "{stdout}");
+    assert!(stdout.contains("window=visible"), "{stdout}");
+    assert!(
+        stdout.contains("connected=false"),
+        "无守护进程必须进入降级: {stdout}"
+    );
+    assert!(stdout.contains("degraded=1"), "降级必须显式标记: {stdout}");
+    assert!(
+        stdout.contains("tray=no-session-bus"),
+        "无 DBus 会话总线时托盘必须静默降级: {stdout}"
+    );
+    assert!(
+        !stderr.contains("panic"),
+        "绝不允许 panic 或错误对话框路径: {stderr}"
+    );
+    assert!(
+        !home.path().join("spine/spine.sqlite").exists(),
+        "桌面端绝不直接创建 spine.sqlite"
+    );
 }
