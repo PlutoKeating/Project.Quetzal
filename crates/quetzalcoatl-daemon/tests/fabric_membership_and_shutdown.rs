@@ -358,10 +358,13 @@ fn read_sovereign_identity(qz_home: &Path) -> Result<SovereignIdentity, BoxError
         .as_str()
         .ok_or("missing device_id")?
         .parse()?;
-    let ed = hex32(val["ed25519_seed_hex"].as_str().ok_or("seed")?)?;
-    let xw = hex32(val["xwing_seed_hex"].as_str().ok_or("xwing seed")?)?;
-    let root = hex32(val["root_key_hex"].as_str().ok_or("root")?)?;
-    let epoch1 = hex32(val["epoch1_key_hex"].as_str().ok_or("epoch1")?)?;
+    // 密钥材料与身份分开存放。
+    let keys: serde_json::Value =
+        serde_json::from_slice(&fs::read(qz_home.join("identity/keys.json"))?)?;
+    let ed = hex32(keys["ed25519_seed_hex"].as_str().ok_or("seed")?)?;
+    let xw = hex32(keys["xwing_seed_hex"].as_str().ok_or("xwing seed")?)?;
+    let root = hex32(keys["root_key_hex"].as_str().ok_or("root")?)?;
+    let epoch1 = hex32(keys["epoch1_key_hex"].as_str().ok_or("epoch1")?)?;
     Ok(SovereignIdentity {
         agent_id,
         device: DeviceIdentity::from_seeds(device_id, ed, xw)?,
@@ -1078,12 +1081,18 @@ fn two_idle_daemons_dial_via_hub_discovery_and_converge_peer_only_after_hub_loss
     let mut state_a: serde_json::Value =
         serde_json::from_slice(&fs::read(home_a.join("identity/sovereign_state.json"))?)?;
     state_a["device_id"] = serde_json::Value::String(device_b.device_id().to_string());
-    state_a["ed25519_seed_hex"] =
-        serde_json::Value::String(hex_encode_seed(device_b.ed25519_seed()));
-    state_a["xwing_seed_hex"] = serde_json::Value::String(hex_encode_seed(device_b.xwing_seed()));
     fs::write(
         home_b.join("identity/sovereign_state.json"),
         serde_json::to_vec_pretty(&state_a)?,
+    )?;
+    let mut keys_a: serde_json::Value =
+        serde_json::from_slice(&fs::read(home_a.join("identity/keys.json"))?)?;
+    keys_a["ed25519_seed_hex"] =
+        serde_json::Value::String(hex_encode_seed(device_b.ed25519_seed()));
+    keys_a["xwing_seed_hex"] = serde_json::Value::String(hex_encode_seed(device_b.xwing_seed()));
+    fs::write(
+        home_b.join("identity/keys.json"),
+        serde_json::to_vec_pretty(&keys_a)?,
     )?;
     let membership_b = serde_json::json!({
         "extra_epoch_keys": [],

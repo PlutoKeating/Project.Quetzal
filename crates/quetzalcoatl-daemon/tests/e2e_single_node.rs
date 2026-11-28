@@ -778,8 +778,8 @@ fn regression_r1_finding1_6_and_8_worker_runs_inside_os_sandbox_scoped_hook_toke
             r#"#!/bin/sh
 set -e
 # (A) 断言当前运行在真实无容器沙箱内，$QUETZALCOATL_HOME 被遮蔽不可读！
-if [ -f "{qz_home}/identity/sovereign_state.json" ]; then
-  echo "CRITICAL LEAK: Worker read sovereign_state.json!" >&2
+if [ -f "{qz_home}/identity/sovereign_state.json" ] || [ -f "{qz_home}/identity/keys.json" ]; then
+  echo "CRITICAL LEAK: Worker read the identity or key files!" >&2
   exit 71
 fi
 if [ -f "{qz_home}/run/daemon.token" ]; then

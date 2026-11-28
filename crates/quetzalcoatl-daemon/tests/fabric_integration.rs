@@ -383,9 +383,20 @@ fn read_sovereign_identity(
         .as_str()
         .ok_or("missing device_id")?
         .parse()?;
-    let ed_seed = hex32(val["ed25519_seed_hex"].as_str().ok_or("missing seed")?)?;
-    let xw_seed = hex32(val["xwing_seed_hex"].as_str().ok_or("missing xwing seed")?)?;
-    let root_bytes = hex32(val["root_key_hex"].as_str().ok_or("missing root_key_hex")?)?;
+    // 密钥材料与身份分开存放。
+    let keys: serde_json::Value =
+        serde_json::from_slice(&fs::read(qz_home.join("identity/keys.json"))?)?;
+    let ed_seed = hex32(keys["ed25519_seed_hex"].as_str().ok_or("missing seed")?)?;
+    let xw_seed = hex32(
+        keys["xwing_seed_hex"]
+            .as_str()
+            .ok_or("missing xwing seed")?,
+    )?;
+    let root_bytes = hex32(
+        keys["root_key_hex"]
+            .as_str()
+            .ok_or("missing root_key_hex")?,
+    )?;
     Ok((
         agent_id,
         DeviceIdentity::from_seeds(device_id, ed_seed, xw_seed)?,
