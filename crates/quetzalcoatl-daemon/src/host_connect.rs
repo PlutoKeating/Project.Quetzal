@@ -35,6 +35,58 @@ const TPL_HOOKS: &str =
 const TPL_MCP: &str =
     include_str!("../../../packages/harness-enhancers/claude-code-plugin/plugin/.mcp.json");
 
+/// 插件里的斜杠命令：文件名与内容。命令集是显式写死的。
+const TPL_COMMANDS: &[(&str, &str)] = &[
+    (
+        "correct.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/correct.md"
+        ),
+    ),
+    (
+        "forget.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/forget.md"
+        ),
+    ),
+    (
+        "hush.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/hush.md"
+        ),
+    ),
+    (
+        "learned.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/learned.md"
+        ),
+    ),
+    (
+        "off-record.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/off-record.md"
+        ),
+    ),
+    (
+        "on-record.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/on-record.md"
+        ),
+    ),
+    (
+        "remember.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/remember.md"
+        ),
+    ),
+    (
+        "why.md",
+        include_str!(
+            "../../../packages/harness-enhancers/claude-code-plugin/plugin/commands/why.md"
+        ),
+    ),
+];
+
 /// 调用宿主命令行的时限。
 const HOST_CLI_DEADLINE: Duration = Duration::from_secs(90);
 
@@ -156,6 +208,9 @@ fn write_plugin_source(target: &ClaudeCodeTarget) -> Result<()> {
     )?;
     write_private(&root.join("plugin/hooks/hooks.json"), &fill(TPL_HOOKS))?;
     write_private(&root.join("plugin/.mcp.json"), &fill(TPL_MCP))?;
+    for (file_name, body) in TPL_COMMANDS {
+        write_private(&root.join("plugin/commands").join(file_name), body)?;
+    }
     Ok(())
 }
 
@@ -447,6 +502,41 @@ fn hooks_registered(target: &ClaudeCodeTarget, event: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 只看本地文件得到的接入状态：治理面每次打开都会读，不能去调宿主的命令行。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeCodeLocalState {
+    pub installed: bool,
+    pub connected: bool,
+    pub session_start: bool,
+    pub prompt_submit: bool,
+    pub stop: bool,
+}
+
+pub(crate) fn claude_code_local_state(qz_home: &Path) -> ClaudeCodeLocalState {
+    let host_dir = qz_home.join("hosts").join(HOST_CLAUDE_CODE);
+    let hooks: Option<Value> = fs::read(host_dir.join("marketplace/plugin/hooks/hooks.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_slice(&raw).ok());
+    let registered = |event: &str| {
+        hooks
+            .as_ref()
+            .and_then(|h| h.get("hooks"))
+            .and_then(|h| h.get(event))
+            .and_then(Value::as_array)
+            .is_some_and(|entries| !entries.is_empty())
+    };
+    let on_path = std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join("claude").is_file()));
+    let connected = host_dir.join("connect.json").is_file();
+    ClaudeCodeLocalState {
+        installed: on_path || connected,
+        connected,
+        session_start: registered("SessionStart"),
+        prompt_submit: registered("UserPromptSubmit"),
+        stop: registered("Stop"),
+    }
+}
+
 fn plugin_enabled_in_host(target: &ClaudeCodeTarget) -> Option<bool> {
     let stdout = run_host_cli(&target.claude_bin, &["plugin", "list", "--json"]).ok()?;
     let listed: Value = serde_json::from_str(stdout.trim()).ok()?;
@@ -535,9 +625,10 @@ pub fn doctor_claude_code(qz_home: &Path, target: Option<&ClaudeCodeTarget>) -> 
                 matches!(
                     client.call(&IpcRequest::HostPromptSubmit {
                         host: String::from(HOST_CLAUDE_CODE),
-                        session_id: String::from("qz-doctor"),
+                        session_id: String::from(crate::host_sessions::PROBE_SESSION_ID),
                         cwd: None,
                         prompt: String::from("qz doctor 通路自检"),
+                        transcript_path: None,
                     }),
                     Ok(IpcResponse::HostContext { .. })
                 )

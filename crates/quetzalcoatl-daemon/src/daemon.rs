@@ -466,7 +466,6 @@ fn load_or_init_sovereign_bundle(
 )> {
     let state_path = qz_home.join(SOVEREIGN_STATE_FILE);
     let keys_path = qz_home.join(SOVEREIGN_KEYS_FILE);
-    let sqlite_path = qz_home.join("spine/spine.sqlite");
     let now_ms = now_unix_ms();
 
     // 旧版快照里带着的整份良知：只在变更日志还是空的时候用来收编为基线。
@@ -531,6 +530,44 @@ fn load_or_init_sovereign_bundle(
         created
     };
 
+    let (mut spine, root_key) = open_sovereign_spine(qz_home, &persisted, now_ms)?;
+
+    // 良知以脊柱里的变更事件为准。还没有任何变更事件时（全新安装，或从旧版升级上来），
+    // 把出厂良知或旧快照里的良知收编为基线，从此只追加。
+    let conscience = match journal::replay(&mut spine)? {
+        Some(replayed) => replayed,
+        None => {
+            let mut baseline = match legacy_conscience {
+                Some(legacy) => legacy,
+                None => default_seed_conscience(&root_key, now_ms)?,
+            };
+            let _ = retire_legacy_seed(&mut baseline, &root_key, now_ms)?;
+            journal::commit(
+                &mut spine,
+                None,
+                &baseline,
+                SEA_ACTOR_SYSTEM,
+                1,
+                "收编为基线",
+                now_ms,
+            )?;
+            baseline
+        }
+    };
+    conscience.verify_signature_and_hashes()?;
+    let graph = SerpentineGraph::from_json_v2(&persisted.graph_json_v2)?;
+    save_sovereign_state(qz_home, &persisted)?;
+
+    Ok((spine, conscience, graph, persisted))
+}
+
+/// 按身份与密钥打开本机的脊柱（含组网成员表的重放）。不碰良知。
+fn open_sovereign_spine(
+    qz_home: &Path,
+    persisted: &PersistedSovereignState,
+    now_ms: u64,
+) -> Result<(SpineEngine<RusqliteWalStore>, AccountRootKey)> {
+    let sqlite_path = qz_home.join("spine/spine.sqlite");
     let root_bytes = hex_decode_fixed::<32>("root_key_hex", &persisted.root_key_hex)?;
     let ed_seed = hex_decode_fixed::<32>("ed25519_seed_hex", &persisted.ed25519_seed_hex)?;
     let xw_seed = hex_decode_fixed::<32>("xwing_seed_hex", &persisted.xwing_seed_hex)?;
@@ -563,33 +600,99 @@ fn load_or_init_sovereign_bundle(
             .upsert_markdown_doc("SOUL.md", &soul_md, init_hlc)?;
     }
 
-    // 良知以脊柱里的变更事件为准。还没有任何变更事件时（全新安装，或从旧版升级上来），
-    // 把出厂良知或旧快照里的良知收编为基线，从此只追加。
-    let conscience = match journal::replay(&mut spine)? {
-        Some(replayed) => replayed,
-        None => {
-            let mut baseline = match legacy_conscience {
-                Some(legacy) => legacy,
-                None => default_seed_conscience(&root_key, now_ms)?,
-            };
-            let _ = retire_legacy_seed(&mut baseline, &root_key, now_ms)?;
-            journal::commit(
-                &mut spine,
-                None,
-                &baseline,
-                SEA_ACTOR_SYSTEM,
-                1,
-                "收编为基线",
-                now_ms,
-            )?;
-            baseline
-        }
-    };
-    conscience.verify_signature_and_hashes()?;
-    let graph = SerpentineGraph::from_json_v2(&persisted.graph_json_v2)?;
-    save_sovereign_state(qz_home, &persisted)?;
+    Ok((spine, root_key))
+}
 
-    Ok((spine, conscience, graph, persisted))
+/// 恢复时：按恢复包写出身份文件与密钥文件。
+pub(crate) fn write_restored_identity(
+    qz_home: &Path,
+    payload: &crate::sea_archive::RecoveryPayload,
+) -> Result<()> {
+    write_json_private(
+        &qz_home.join(SOVEREIGN_KEYS_FILE),
+        &SovereignKeysFile {
+            root_key_hex: payload.root_key_hex.clone(),
+            ed25519_seed_hex: payload.ed25519_seed_hex.clone(),
+            xwing_seed_hex: payload.xwing_seed_hex.clone(),
+            epoch1_key_hex: payload.epoch1_key_hex.clone(),
+        },
+        "密钥文件",
+    )?;
+    write_json_private(
+        &qz_home.join(SOVEREIGN_STATE_FILE),
+        &SovereignStateFile {
+            agent_id: payload.agent_id,
+            device_id: payload.device_id,
+            graph_json_v2: payload.graph_json_v2.clone(),
+            root_key_hex: None,
+            ed25519_seed_hex: None,
+            xwing_seed_hex: None,
+            epoch1_key_hex: None,
+            conscience: None,
+        },
+        "主权身份文件",
+    )
+}
+
+/// 恢复时：按刚写出的身份打开一个空脊柱，不收编任何基线。
+pub(crate) fn open_restored_spine(
+    qz_home: &Path,
+) -> Result<(SpineEngine<RusqliteWalStore>, AccountRootKey)> {
+    let state: SovereignStateFile =
+        read_json_file(&qz_home.join(SOVEREIGN_STATE_FILE), "主权身份文件")?;
+    let keys: SovereignKeysFile = read_json_file(&qz_home.join(SOVEREIGN_KEYS_FILE), "密钥文件")?;
+    let persisted = PersistedSovereignState {
+        agent_id: state.agent_id,
+        device_id: state.device_id,
+        root_key_hex: keys.root_key_hex,
+        ed25519_seed_hex: keys.ed25519_seed_hex,
+        xwing_seed_hex: keys.xwing_seed_hex,
+        epoch1_key_hex: keys.epoch1_key_hex,
+        graph_json_v2: state.graph_json_v2,
+    };
+    open_sovereign_spine(qz_home, &persisted, now_unix_ms())
+}
+
+/// 导出：脊柱的签名事件与物化视图，加上人读得懂的海；给了口令时再加上恢复包。
+/// 返回这份导出能不能用来恢复。
+fn export_sea(
+    qz_home: &Path,
+    zip_path: &Path,
+    options: ZipExportOptions,
+    passphrase: Option<&str>,
+    parts: (
+        &SpineEngine<RusqliteWalStore>,
+        &Conscience,
+        &SerpentineGraph,
+        &PersistedSovereignState,
+    ),
+) -> Result<bool> {
+    let (spine, conscience, graph, persisted) = parts;
+    let mut extra = crate::sea_archive::readable_sea_files(conscience);
+    let recoverable = if let Some(passphrase) = passphrase {
+        crate::sea_governance::require_owner_passphrase(qz_home, passphrase)?;
+        let payload = crate::sea_archive::RecoveryPayload {
+            version: 1,
+            agent_id: persisted.agent_id,
+            device_id: persisted.device_id,
+            root_key_hex: persisted.root_key_hex.clone(),
+            ed25519_seed_hex: persisted.ed25519_seed_hex.clone(),
+            xwing_seed_hex: persisted.xwing_seed_hex.clone(),
+            epoch1_key_hex: persisted.epoch1_key_hex.clone(),
+            membership_state_json: crate::sea_archive::read_membership_state(qz_home),
+            entry_keys: crate::sea_archive::collect_entry_keys(spine.store(), conscience)?,
+            graph_json_v2: graph.to_json_v2()?,
+        };
+        extra.push((
+            String::from(crate::sea_archive::RECOVERY_BUNDLE_PATH),
+            crate::sea_archive::seal_recovery_bundle(&payload, passphrase)?,
+        ));
+        true
+    } else {
+        false
+    };
+    spine.export_zip_with(zip_path, options, &extra)?;
+    Ok(recoverable)
 }
 
 /// 把身份与记忆图写回 `identity/sovereign_state.json`。密钥与良知都不在这个文件里。
@@ -611,7 +714,7 @@ fn save_sovereign_state(qz_home: &Path, persisted: &PersistedSovereignState) -> 
 }
 
 /// 记忆图是本机的检索索引，整份存成快照。
-fn save_graph_snapshot(
+pub(crate) fn save_graph_snapshot(
     qz_home: &Path,
     persisted: &mut PersistedSovereignState,
     graph: &SerpentineGraph,
@@ -762,7 +865,7 @@ pub(crate) struct DaemonMutableState {
     pub(crate) kernel: BlindKernel<RusqliteWalStore>,
     pub(crate) conscience: Conscience,
     pub(crate) graph: SerpentineGraph,
-    _arbiter: ConscienceArbiter,
+    pub(crate) arbiter: ConscienceArbiter,
     pub(crate) persisted: PersistedSovereignState,
     pub(crate) group: crate::group::GroupRoomRuntime,
     /// opt-in 声学语音门；`None` 时零 AEC/VAD 状态、零副作用。
@@ -781,6 +884,7 @@ impl DaemonMutableState {
         &mut self,
         before: Conscience,
         actor: &str,
+        epoch: Epoch,
         summary: &str,
         now_ms: u64,
     ) -> Result<Option<u64>> {
@@ -789,7 +893,7 @@ impl DaemonMutableState {
             Some(&before),
             &self.conscience,
             actor,
-            1,
+            epoch.get(),
             summary,
             now_ms,
         ) {
@@ -846,8 +950,8 @@ fn insert_conscience_row(
 }
 
 pub(crate) struct SharedDaemonCore {
-    config: DaemonConfig,
-    runtime_info: DaemonRuntimeInfo,
+    pub(crate) config: DaemonConfig,
+    pub(crate) runtime_info: DaemonRuntimeInfo,
     worker_sandbox: Arc<SandboxManager>,
     hook_tokens: ScopedHookTokenRegistry,
     harness_host: HarnessHost,
@@ -906,7 +1010,6 @@ impl SharedDaemonCore {
         guard.group.summary(room_id)
     }
 
-    /// 同源 Web 控制台的实时附加面板：良知树（仅结构字段）+ 本机产物 + 会话形态。
     /// 桌面端三档密度快照：会话/运行进展/良知/审计行 + 脊柱事件水位。
     ///
     /// 只读、确定性排序（按 key），绝不包含 SpineEvent 的 payload 正文；审计行只暴露
@@ -1043,7 +1146,8 @@ impl SharedDaemonCore {
                     })
                     .unwrap_or_else(|| String::from("脊柱事件"));
                 rows.push(DesktopRow {
-                    key: format!("audit/{}", head.seq),
+                    // 行按键的字典序排列：用补数让最近的事件排在最前。
+                    key: format!("audit/{:020}", u64::MAX - head.seq),
                     kind: String::from("audit"),
                     summary: format!("审计事件 #{} · {payload_kind}", head.seq),
                     detail: Some(format!(
@@ -1217,6 +1321,12 @@ impl SharedDaemonCore {
             )?;
         }
         Ok(key)
+    }
+
+    /// 写良知时用的纪元：联网时是 Hub 见证的租约纪元，单机时为 1。
+    /// 多设备下用它丢弃过期纪元写下的变更。
+    pub(crate) fn sea_epoch(&self) -> Epoch {
+        Epoch::new(self.channel_lease_anchor().0.max(1))
     }
 
     fn channel_lease_anchor(&self) -> (u64, String) {
@@ -1875,15 +1985,60 @@ impl SharedDaemonCore {
                 session_id,
                 cwd,
                 prompt,
+                transcript_path,
             } => (
-                self.handle_host_prompt_submit(&host, &session_id, cwd, &prompt),
+                self.handle_host_prompt_submit(&host, &session_id, cwd, &prompt, transcript_path),
                 false,
             ),
             IpcRequest::HostTurnEnd {
                 host,
                 session_id,
-                transcript_path: _,
-            } => (self.handle_host_turn_end(&host, &session_id), false),
+                transcript_path,
+            } => (
+                self.handle_host_turn_end(&host, &session_id, transcript_path),
+                false,
+            ),
+            IpcRequest::SeaOverview => (self.sea_overview(), false),
+            IpcRequest::SeaSelf => (self.sea_self(), false),
+            IpcRequest::SeaUser => (self.sea_user(), false),
+            IpcRequest::SeaUs => (self.sea_us(), false),
+            IpcRequest::SeaMemories {
+                query,
+                state,
+                cursor,
+                limit,
+            } => (
+                self.sea_memories(query.as_deref(), state.as_deref(), cursor.as_deref(), limit),
+                false,
+            ),
+            IpcRequest::SeaMemory { id } => (self.sea_memory(&id), false),
+            IpcRequest::SeaBaseline => (self.sea_baseline(), false),
+            IpcRequest::SeaHosts => (self.sea_hosts(), false),
+            IpcRequest::SeaDevices => (self.sea_devices(), false),
+            IpcRequest::SeaAudit { cursor, limit } => {
+                (self.sea_audit(cursor.as_deref(), limit), false)
+            }
+            IpcRequest::SeaEntryUpdate { id, text } => (self.sea_entry_update(&id, &text), false),
+            IpcRequest::SeaEntryMute { id, muted } => (self.sea_entry_mute(&id, muted), false),
+            IpcRequest::SeaEntryErase { id } => (self.sea_entry_erase(&id), false),
+            IpcRequest::SeaBaselineSign {
+                directives,
+                passphrase,
+            } => (self.sea_baseline_sign(&directives, &passphrase), false),
+            IpcRequest::SeaFocusSet { self_weight } => (self.sea_focus_set(self_weight), false),
+            IpcRequest::SeaDeviceRevoke {
+                device_id,
+                passphrase,
+            } => (self.sea_device_revoke(&device_id, &passphrase), false),
+            IpcRequest::HostToolTicket {
+                host,
+                session_id,
+                tool,
+                arguments,
+            } => (
+                self.handle_host_tool_ticket(&host, &session_id, &tool, &arguments),
+                false,
+            ),
             IpcRequest::HostStatusLine {
                 host: _,
                 session_id,
@@ -1905,6 +2060,7 @@ impl SharedDaemonCore {
             IpcRequest::Export {
                 zip_path,
                 include_sealed_spine,
+                passphrase,
             } => {
                 let Ok(guard) = self.state.lock() else {
                     return (
@@ -1915,15 +2071,27 @@ impl SharedDaemonCore {
                         false,
                     );
                 };
-                match guard.kernel.spine().export_zip(
+                match export_sea(
+                    &self.config.quetzalcoatl_home,
                     &zip_path,
                     ZipExportOptions {
                         include_spine_packs: include_sealed_spine,
                     },
+                    passphrase.as_deref(),
+                    (
+                        guard.kernel.spine(),
+                        &guard.conscience,
+                        &guard.graph,
+                        &guard.persisted,
+                    ),
                 ) {
-                    Ok(()) => (
+                    Ok(recoverable) => (
                         IpcResponse::Ack {
-                            detail: format!("exported to {}", zip_path.display()),
+                            detail: String::from(if recoverable {
+                                "recoverable"
+                            } else {
+                                "readable-only"
+                            }),
                         },
                         false,
                     ),
@@ -1961,9 +2129,13 @@ impl SharedDaemonCore {
                             ..
                         } = *guard;
                         absorb_imported_sea(conscience, graph, kernel.spine(), now_ms);
-                        if let Err(err) =
-                            guard.commit_sea(before, SEA_ACTOR_IMPORT, "导入 V1 灵魂", now_ms)
-                        {
+                        if let Err(err) = guard.commit_sea(
+                            before,
+                            SEA_ACTOR_IMPORT,
+                            self.sea_epoch(),
+                            "导入 V1 灵魂",
+                            now_ms,
+                        ) {
                             return (
                                 IpcResponse::Error {
                                     code: String::from(err.code().as_str()),
@@ -2953,7 +3125,7 @@ fn absorb_imported_sea(
 
 pub struct DaemonHandle {
     qz_home: PathBuf,
-    runtime_info: DaemonRuntimeInfo,
+    pub(crate) runtime_info: DaemonRuntimeInfo,
     ipc_token: String,
     gateway_handle: GatewayServerHandle,
     ipc_handle: LocalIpcServerHandle,
@@ -3170,58 +3342,6 @@ impl QuetzalcoatlDaemon {
                     ),
                 }
             }
-
-            fn web_extras(&self) -> Option<serde_json::Value> {
-                self.slot
-                    .lock()
-                    .ok()
-                    .and_then(|guard| guard.clone())
-                    .map(|core| core.web_extras())
-            }
-
-            fn web_commit_artifact(
-                &self,
-                artifact_key: &str,
-            ) -> std::result::Result<String, (String, String)> {
-                let Some(core) = self.slot.lock().ok().and_then(|guard| guard.clone()) else {
-                    return Err((
-                        String::from("STORAGE_ERROR"),
-                        String::from("daemon initializing"),
-                    ));
-                };
-                let (rooms_response, _) = core.dispatch_ipc(IpcRequest::GroupList);
-                let rooms = match rooms_response {
-                    IpcResponse::GroupRooms(rooms) => rooms,
-                    IpcResponse::Error { code, detail } => return Err((code, detail)),
-                    other => {
-                        return Err((String::from("UNEXPECTED_RESPONSE"), format!("{other:?}")));
-                    }
-                };
-                let Some(room) = rooms.first() else {
-                    return Err((
-                        String::from("NO_GROUP_SESSION"),
-                        String::from("当前为个人会话；加入群组房间后才能提交共享产物。"),
-                    ));
-                };
-                let request = IpcRequest::GroupSend {
-                    room_id: room.room_id.clone(),
-                    text: format!("[artifact] {artifact_key}"),
-                    mentions: Vec::new(),
-                    sender_kind: crate::local_ipc::GroupSenderWire::Owner,
-                    consecutive_agent_hops: 0,
-                    human_typing_active: false,
-                    kind: String::from("artifact_commit"),
-                    parent_seq: 0,
-                };
-                match core.dispatch_ipc(request) {
-                    (IpcResponse::GroupSend(outcome), _) => Ok(format!(
-                        "已在群组 {} 提交产物引用（MLS epoch {}）",
-                        outcome.room_id, outcome.mls_epoch
-                    )),
-                    (IpcResponse::Error { code, detail }, _) => Err((code, detail)),
-                    (other, _) => Err((String::from("UNEXPECTED_RESPONSE"), format!("{other:?}"))),
-                }
-            }
         }
 
         let stop = Arc::new(AtomicBool::new(false));
@@ -3263,7 +3383,7 @@ impl QuetzalcoatlDaemon {
                 kernel,
                 conscience,
                 graph,
-                _arbiter: arbiter,
+                arbiter,
                 persisted,
                 group: group_runtime,
                 voice: voice_runtime,
@@ -3311,17 +3431,21 @@ impl QuetzalcoatlDaemon {
 }
 
 /// 当 `quetzalcoatld` 在线时自动走本地 IPC 薄客户端导出（返回 `Ok(true)`）；离线时安全加锁直接导出（返回 `Ok(false)`）。
+///
+/// 给了口令时导出包里带上恢复包，第二个返回值说明这份导出能不能用来恢复。
 pub fn export_offline_or_via_ipc(
     qz_home: &Path,
     zip_path: &Path,
     options: ZipExportOptions,
-) -> Result<bool> {
+    passphrase: Option<&str>,
+) -> Result<(bool, bool)> {
     if let Some(client) = IpcClient::connect_from_home(qz_home)? {
         match client.call(&IpcRequest::Export {
             zip_path: zip_path.to_path_buf(),
             include_sealed_spine: options.include_spine_packs,
+            passphrase: passphrase.map(String::from),
         })? {
-            IpcResponse::Ack { .. } => return Ok(true),
+            IpcResponse::Ack { detail } => return Ok((true, detail == "recoverable")),
             IpcResponse::Error { detail, .. } => {
                 return Err(QuetzalcoatlError::StorageError { detail });
             }
@@ -3334,9 +3458,32 @@ pub fn export_offline_or_via_ipc(
     }
 
     let _lock = ExclusiveSpineLock::acquire(qz_home)?;
-    let (spine, _, _, _) = load_or_init_sovereign_bundle(qz_home)?;
-    spine.export_zip(zip_path, options)?;
-    Ok(false)
+    let (spine, conscience, graph, persisted) = load_or_init_sovereign_bundle(qz_home)?;
+    let recoverable = export_sea(
+        qz_home,
+        zip_path,
+        options,
+        passphrase,
+        (&spine, &conscience, &graph, &persisted),
+    )?;
+    Ok((false, recoverable))
+}
+
+/// 把一份导出恢复进一个空的家目录（守护进程不能在运行）。
+pub fn restore_offline(
+    qz_home: &Path,
+    zip_path: &Path,
+    passphrase: &str,
+) -> Result<crate::sea_archive::RestoreReport> {
+    if IpcClient::connect_from_home(qz_home)?.is_some() {
+        return Err(QuetzalcoatlError::PermissionDenied {
+            detail: String::from(
+                "守护进程正在运行。恢复只放进一个空目录：先 qz down，或者用 --home 指向一个新目录。",
+            ),
+        });
+    }
+    let _lock = ExclusiveSpineLock::acquire(qz_home)?;
+    crate::sea_archive::restore_from_archive(qz_home, zip_path, passphrase)
 }
 
 /// 当 `quetzalcoatld` 在线时自动走本地 IPC 薄客户端执行 `import-v1`（返回 `(report, true)`）；离线时安全加锁直接导入（返回 `(report, false)`）。

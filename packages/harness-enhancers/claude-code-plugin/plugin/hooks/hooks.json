@@ -1,24 +1,48 @@
 {
-  "description": "Quetzalcoatl：会话开始送入核心，每次提交带上相关往事，回合结束登记。任何失败都放行。",
+  "description": "Quetzalcoatl：会话开始送入核心，每次提交带上相关往事，回合结束给出回执；工具调用前登记所属会话，并拦下模型在命令行里冒充宿主的调用。任何失败都放行。",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "{{QZ_BIN}} hook --host claude-code", "timeout": 5 }
+          {
+            "type": "command",
+            "command": "{{QZ_BIN}} hook --host claude-code",
+            "timeout": 5
+          }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "{{QZ_BIN}} hook --host claude-code", "timeout": 5 }
+          {
+            "type": "command",
+            "command": "{{QZ_BIN}} hook --host claude-code",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|mcp__.*quetzalcoatl.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{QZ_BIN}} hook --host claude-code",
+            "timeout": 5
+          }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "{{QZ_BIN}} hook --host claude-code", "timeout": 5 }
+          {
+            "type": "command",
+            "command": "{{QZ_BIN}} hook --host claude-code",
+            "timeout": 5
+          }
         ]
       }
     ]

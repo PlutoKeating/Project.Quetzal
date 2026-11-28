@@ -190,12 +190,71 @@ pub enum IpcRequest {
         session_id: String,
         cwd: Option<PathBuf>,
         prompt: String,
+        /// 宿主的对话记录文件：用来核对「这句话真的是用户说的」。
+        #[serde(default)]
+        transcript_path: Option<PathBuf>,
     },
-    /// 宿主的一个回合结束。
+    /// 宿主的一个回合结束：取回这一回合留下了几处改动。
     HostTurnEnd {
         host: String,
         session_id: String,
         transcript_path: Option<PathBuf>,
+    },
+    /// 治理面（docs/GOVERNANCE_SURFACE.md 第 3 节）：只看和签。
+    SeaOverview,
+    SeaSelf,
+    SeaUser,
+    SeaUs,
+    SeaMemories {
+        #[serde(default)]
+        query: Option<String>,
+        #[serde(default)]
+        state: Option<String>,
+        #[serde(default)]
+        cursor: Option<String>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    SeaMemory {
+        id: String,
+    },
+    SeaBaseline,
+    SeaHosts,
+    SeaDevices,
+    SeaAudit {
+        #[serde(default)]
+        cursor: Option<String>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    SeaEntryUpdate {
+        id: String,
+        text: String,
+    },
+    SeaEntryMute {
+        id: String,
+        muted: bool,
+    },
+    SeaEntryErase {
+        id: String,
+    },
+    SeaBaselineSign {
+        directives: Vec<crate::sea_governance::DirectiveDraft>,
+        passphrase: String,
+    },
+    SeaFocusSet {
+        self_weight: f64,
+    },
+    SeaDeviceRevoke {
+        device_id: String,
+        passphrase: String,
+    },
+    /// 宿主即将执行我们的一个工具：登记它属于哪个会话（工具调用本身不带会话编号）。
+    HostToolTicket {
+        host: String,
+        session_id: String,
+        tool: String,
+        arguments: serde_json::Value,
     },
     /// 状态栏要显示的一行所需的数据。
     HostStatusLine {
@@ -210,6 +269,9 @@ pub enum IpcRequest {
     Export {
         zip_path: PathBuf,
         include_sealed_spine: bool,
+        /// 本人口令：给了就在导出包里放进恢复包。
+        #[serde(default)]
+        passphrase: Option<String>,
     },
     ImportV1 {
         soul_dir: PathBuf,
@@ -404,6 +466,26 @@ pub enum IpcResponse {
         context: String,
     },
     HostStatusLine(HostStatusLineView),
+    SeaOverview(crate::sea_governance::SeaOverview),
+    SeaSelf(crate::sea_governance::SeaSelf),
+    SeaUser(crate::sea_governance::SeaUser),
+    SeaUs(crate::sea_governance::SeaUs),
+    SeaMemories(crate::sea_governance::MemoriesPage),
+    SeaMemory(crate::sea_governance::MemoryDetail),
+    SeaBaseline(crate::sea_governance::Baseline),
+    SeaHosts(crate::sea_governance::HostsView),
+    SeaDevices(crate::sea_governance::DevicesView),
+    SeaAudit(crate::sea_governance::AuditPage),
+    SeaEntryUpdate(crate::sea_governance::EntryWrite),
+    SeaEntryMute(crate::sea_governance::EntryWrite),
+    SeaEntryErase(crate::sea_governance::EntryWrite),
+    SeaBaselineSign(crate::sea_governance::BaselineSigned),
+    SeaFocusSet(crate::sea_governance::SeaUs),
+    SeaDeviceRevoke(crate::sea_governance::DevicesView),
+    /// 回合结束的回执：这一回合留下了几处改动。
+    HostTurnSummary {
+        written: usize,
+    },
     /// 工具调用的结果文字；`is_error` 为真时宿主会把它当作工具报错呈现给模型。
     HostToolResult {
         text: String,
@@ -545,23 +627,6 @@ pub fn validate_loopback_host_and_origin(
 
 pub(crate) trait IpcHandler: Send + Sync + 'static {
     fn handle(&self, req: IpcRequest) -> (IpcResponse, bool);
-
-    /// 同源 Web 控制台附加快照（良知树 / 产物 / 会话）；默认无。
-    fn web_extras(&self) -> Option<serde_json::Value> {
-        None
-    }
-
-    /// 群组产物提交。默认 fail-closed，只有守护进程实现才可成功。
-    fn web_commit_artifact(
-        &self,
-        artifact_key: &str,
-    ) -> std::result::Result<String, (String, String)> {
-        let _ = artifact_key;
-        Err((
-            String::from("WEB_UNSUPPORTED"),
-            String::from("当前宿主未实现 Web 产物提交"),
-        ))
-    }
 }
 
 pub(crate) struct LocalIpcServerHandle {

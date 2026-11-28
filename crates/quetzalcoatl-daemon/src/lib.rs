@@ -15,6 +15,9 @@ pub mod host_sessions;
 pub mod ingress_key;
 pub mod local_ipc;
 pub mod platform_crypto;
+pub mod sea_archive;
+pub mod sea_governance;
+mod sea_ops;
 pub mod voice;
 pub mod web_console;
 pub mod webhook;
@@ -24,6 +27,7 @@ pub use daemon::{
     DaemonConfig, DaemonHandle, DaemonRuntimeInfo, DaemonStatus, DelegateRunRequest,
     DelegateRunResponse, ExploreWakeReport, QuetzalcoatlDaemon, export_offline_or_via_ipc,
     import_v1_offline_or_via_ipc, resolve_quetzalcoatl_home, resolve_web_console_dir,
+    restore_offline,
 };
 pub use domains::{DomainPackSummary, DomainPackView, DomainRuntime};
 pub use fabric::{
@@ -40,6 +44,7 @@ pub use local_ipc::{
     DesktopRow, IpcClient, IpcRequest, IpcResponse, validate_loopback_host_and_origin,
 };
 pub use platform_crypto::{decrypt_json_envelope, decrypt_wecom};
+pub use sea_governance::DirectiveDraft;
 pub use voice::{
     DaemonVoiceEvent, MAX_VOICE_STREAMS, VOICE_AI_ENV, VoiceActivityRuntime, VoiceActivitySessions,
     VoiceAiConfig, VoiceStreamError, VoiceTurnReport, decode_audio_frame,

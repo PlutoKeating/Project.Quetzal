@@ -19,10 +19,12 @@ use quetzalcoatl_daemon::local_ipc::GroupSenderWire;
 use quetzalcoatl_daemon::{
     DaemonConfig, DaemonFabricConfig, DelegateRunRequest, FabricLoginRequest, IpcClient,
     IpcRequest, IpcResponse, QuetzalcoatlDaemon, export_offline_or_via_ipc,
-    import_v1_offline_or_via_ipc, resolve_quetzalcoatl_home,
+    import_v1_offline_or_via_ipc, resolve_quetzalcoatl_home, restore_offline,
 };
 use quetzalcoatl_group::floor_control::{Mention, MentionKind};
-use quetzalcoatl_harness::{CodingAgentKind, DiscoveryConfig, discover_coding_agents};
+use quetzalcoatl_harness::{
+    CodingAgentKind, DiscoveryConfig, discover_coding_agents, discover_coding_agents_patiently,
+};
 use quetzalcoatl_kernel::CleanRoomVerifierDag;
 use quetzalcoatl_sandbox::SandboxCommand;
 use quetzalcoatl_spine::ZipExportOptions;
@@ -43,7 +45,8 @@ Commands:
   status      Show daemon, sovereign spine, heart and fabric status
   agents      Discover installed Coding Agents (<10ms parallel probe)
   delegate    Hand one task to a local coding agent in an isolated worktree; verified in the clean room
-  export      Export readable Markdown + Spine ZIP archive
+  export      Export readable Markdown + Spine ZIP; with a passphrase it also carries a recovery bundle
+  import      Restore an export into an empty home (asks for the export passphrase)
   import-v1   Idempotently migrate legacy V1 soul repo and SQLite sessions
   login       Authenticate against quetzalcoatl-hub (OPAQUE PIN or Bearer token)
   pair        Quantum-safe X-Wing device pairing (start | join | approve)
@@ -1091,7 +1094,11 @@ fn run_host_mcp(args: &[String]) -> Result<()> {
 
 /// 找到本机的 Claude Code 并拼出接入所需的全部位置；找不到时返回 `None`。
 fn locate_claude_code_target(qz_home: &Path) -> Result<Option<ClaudeCodeTarget>> {
-    let report = discover_coding_agents(&DiscoveryConfig::default())?;
+    // 这是用户主动执行的命令，不在热路径上：给宿主的版本探测留足时间。
+    let report = discover_coding_agents_patiently(&DiscoveryConfig {
+        probe_timeout: Duration::from_secs(3),
+        ..DiscoveryConfig::default()
+    })?;
     let Some(agent) = report
         .agents
         .iter()
@@ -1786,15 +1793,85 @@ fn run_webhook(args: &[String]) -> Result<()> {
     }
 }
 
+/// 读口令：`--passphrase-stdin` 时读标准输入的第一行；否则在终端上提示输入（不回显）。
+fn read_passphrase(from_stdin: bool, prompt: &str) -> Result<String> {
+    use std::io::{BufRead, IsTerminal};
+    let stdin = std::io::stdin();
+    let interactive = !from_stdin && stdin.is_terminal();
+    if interactive {
+        eprint!("{prompt}");
+        let _ = std::io::stderr().flush();
+        let _ = Command::new("stty")
+            .arg("-echo")
+            .stdin(Stdio::inherit())
+            .status();
+    }
+    let mut line = String::new();
+    let read = stdin.lock().read_line(&mut line);
+    if interactive {
+        let _ = Command::new("stty")
+            .arg("echo")
+            .stdin(Stdio::inherit())
+            .status();
+        eprintln!();
+    }
+    read.map_err(|e| QuetzalcoatlError::StorageError {
+        detail: format!("读口令失败: {e}"),
+    })?;
+    let passphrase = line.trim_end_matches(['\r', '\n']).to_owned();
+    if passphrase.is_empty() {
+        return Err(QuetzalcoatlError::PermissionDenied {
+            detail: String::from("没有输入口令。"),
+        });
+    }
+    Ok(passphrase)
+}
+
+/// `qz import <导出包>`：把导出恢复进一个空的家目录。
+fn run_import(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut zip_path: Option<PathBuf> = None;
+    let mut from_stdin = false;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--passphrase-stdin" => from_stdin = true,
+            "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
+            other if zip_path.is_none() => zip_path = Some(PathBuf::from(other)),
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("qz import 多余或未知参数: {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+    let zip_path = zip_path.ok_or_else(|| QuetzalcoatlError::StorageError {
+        detail: String::from("用法: qz import <导出包> [--passphrase-stdin]"),
+    })?;
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let passphrase = read_passphrase(from_stdin, "导出时的口令: ")?;
+    let report = restore_offline(&qz_home, &zip_path, &passphrase)?;
+    println!(
+        "{} 回来了：{} 条往事，{} 条记录。运行 qz up 启动，然后打开你的宿主。",
+        report.agent_name, report.memories, report.events_imported
+    );
+    Ok(())
+}
+
 fn run_export(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
     let mut include_sealed_spine = true;
     let mut zip_path: Option<PathBuf> = None;
+    let mut recoverable = true;
+    let mut from_stdin = false;
 
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
             "--no-sealed-spine" => include_sealed_spine = false,
+            "--readable-only" => recoverable = false,
+            "--passphrase-stdin" => from_stdin = true,
             "--home" => {
                 i += 1;
                 let v = args.get(i).ok_or_else(|| QuetzalcoatlError::StorageError {
@@ -1816,18 +1893,32 @@ fn run_export(args: &[String]) -> Result<()> {
         detail: String::from("用法: qz export <zip_path>"),
     })?;
     let qz_home = resolve_quetzalcoatl_home(home);
-    let via_ipc = export_offline_or_via_ipc(
+    // 没有终端、也没有用 --passphrase-stdin 时，问不了口令：只导出能读的那一份。
+    let can_ask = from_stdin || std::io::IsTerminal::is_terminal(&std::io::stdin());
+    let passphrase = if recoverable && can_ask {
+        Some(read_passphrase(
+            from_stdin,
+            "口令（用来封存恢复包；第一次输入即设定）: ",
+        )?)
+    } else {
+        None
+    };
+    let (_via_ipc, can_restore) = export_offline_or_via_ipc(
         &qz_home,
         &target_zip,
         ZipExportOptions {
             include_spine_packs: include_sealed_spine,
         },
+        passphrase.as_deref(),
     )?;
-    println!(
-        "exported archive to {} (mode={})",
-        target_zip.display(),
-        if via_ipc { "ipc" } else { "offline" }
-    );
+    if can_restore {
+        println!(
+            "已导出到 {}。在另一台机器上用 qz import 和这个口令恢复。",
+            target_zip.display()
+        );
+    } else {
+        println!("已导出到 {}（只能阅读，不能恢复）。", target_zip.display());
+    }
     Ok(())
 }
 
@@ -1964,6 +2055,7 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "group" => run_group(rest),
         "channel" => run_channel(rest),
         "sayit" => run_sayit(rest),
+        "import" => run_import(rest),
         "webhook" => run_webhook(rest),
         "domain" => run_domain(rest),
         other => Err(QuetzalcoatlError::StorageError {

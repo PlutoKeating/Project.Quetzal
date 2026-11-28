@@ -55,7 +55,21 @@ fn request_for_event(host: &str, event: &Value) -> Option<IpcRequest> {
             session_id,
             cwd,
             prompt: String::from(text_field(event, "prompt")?),
+            transcript_path: text_field(event, "transcript_path").map(PathBuf::from),
         }),
+        // 宿主即将执行我们的一个工具：登记它属于哪个会话。
+        "PreToolUse" => {
+            let tool = own_tool_name(text_field(event, "tool_name")?)?;
+            Some(IpcRequest::HostToolTicket {
+                host,
+                session_id,
+                tool: String::from(tool),
+                arguments: event
+                    .get("tool_input")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            })
+        }
         "Stop" => Some(IpcRequest::HostTurnEnd {
             host,
             session_id,
@@ -65,7 +79,100 @@ fn request_for_event(host: &str, event: &Value) -> Option<IpcRequest> {
     }
 }
 
+/// 宿主给我们的工具起的名字形如 `mcp__plugin_quetzalcoatl_quetzalcoatl__recall`：取出最后一段。
+fn own_tool_name(host_tool_name: &str) -> Option<&str> {
+    let (server, tool) = host_tool_name.rsplit_once("__")?;
+    (server.starts_with("mcp__") && server.contains("quetzalcoatl") && !tool.is_empty())
+        .then_some(tool)
+}
+
+/// 只供宿主调用、不该由模型在命令行里调用的子命令。
+const HOST_ONLY_SUBCOMMANDS: &[&str] = &["hook", "mcp", "statusline"];
+
+/// 一条命令行是否在调用 `qz` 的宿主专用子命令。
+///
+/// 钩子和模型能执行的命令是同一个系统用户，模型可以自己调钩子冒充用户说话。
+/// 这里只是第一道闸（挡住顺手而为的冒充）；真正的限制是：以本人名义的改动还要和对话记录核对，
+/// 并且最高只能写到「关于我」这一层，底线只能在治理面里签。
+#[must_use]
+pub fn command_calls_host_only_entry(command: &str) -> bool {
+    let cleaned: String = command
+        .chars()
+        .map(|c| match c {
+            '\'' | '"' | '`' | '\\' | '(' | ')' | '{' | '}' | '$' => ' ',
+            ';' | '|' | '&' | '\n' => '\u{1}',
+            other => other,
+        })
+        .collect();
+    cleaned.split('\u{1}').any(|segment| {
+        let mut words = segment.split_whitespace().peekable();
+        // 找到这一段真正执行的命令：跳过环境变量赋值与常见的包装命令。
+        let command = loop {
+            let Some(word) = words.next() else {
+                return false;
+            };
+            let is_assignment = word
+                .split_once('=')
+                .is_some_and(|(name, _)| !name.is_empty() && !name.contains('/'));
+            if is_assignment || word.starts_with('-') || SHELL_WRAPPERS.contains(&word) {
+                continue;
+            }
+            break word;
+        };
+        let name = command.rsplit('/').next().unwrap_or(command);
+        if name != "qz" && name != "qz.exe" {
+            return false;
+        }
+        // `qz` 自己的全局参数里只有 `--home` 带一个值。
+        while let Some(word) = words.next() {
+            if word == "--home" {
+                let _ = words.next();
+            } else if !word.starts_with('-') {
+                return HOST_ONLY_SUBCOMMANDS.contains(&word);
+            }
+        }
+        false
+    })
+}
+
+/// 常见的包装命令：它们后面跟着的才是真正执行的命令。
+const SHELL_WRAPPERS: &[&str] = &[
+    "sudo", "env", "exec", "command", "nohup", "time", "timeout", "xargs", "eval", "bash", "sh",
+    "zsh", "dash",
+];
+
+/// 模型想在命令行里调用宿主专用子命令时，给宿主的拒绝答复；否则为空。
+fn guard_shell_command(event: &Value) -> Option<String> {
+    if text_field(event, "hook_event_name") != Some("PreToolUse")
+        || text_field(event, "tool_name") != Some("Bash")
+    {
+        return None;
+    }
+    let command = event.get("tool_input")?.get("command")?.as_str()?;
+    command_calls_host_only_entry(command).then(|| {
+        serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason":
+                    "这些是宿主自己调用的入口，不能在命令行里调用。要记住、纠正或忘掉什么，请用对应的工具，并由用户亲口说出来。",
+            }
+        })
+        .to_string()
+    })
+}
+
 fn render_hook_output(event: &Value, response: &IpcResponse) -> String {
+    if let IpcResponse::HostTurnSummary { written } = response {
+        if *written == 0 {
+            return String::new();
+        }
+        // 回合结束时给用户看的一行回执。
+        return serde_json::json!({
+            "systemMessage": format!("记下了 {written} 条。说「记了什么」可以看到。"),
+        })
+        .to_string();
+    }
     let IpcResponse::HostContext { context } = response else {
         return String::new();
     };
@@ -95,6 +202,10 @@ pub fn run_hook(qz_home: &Path, host: &str, stdin_json: &str) -> String {
     let Ok(event) = serde_json::from_str::<Value>(stdin_json) else {
         return String::new();
     };
+    // 这一道闸不依赖守护进程：守护进程停了也照样拦。
+    if let Some(denial) = guard_shell_command(&event) {
+        return denial;
+    }
     let Some(request) = request_for_event(host, &event) else {
         return String::new();
     };
@@ -131,7 +242,9 @@ pub fn format_status_line(view: Option<&HostStatusLineView>, color: bool) -> Str
         paint(color, ANSI_ICE, "●")
     };
     let mut line = format!("{dot} {} · 已接上", view.agent_name);
-    if view.session_known {
+    if view.off_record {
+        line.push_str(" · 无痕");
+    } else if view.session_known {
         line.push_str(&format!(" · 带入 {}", view.recalled_last_turn));
     }
     if needs_owner {
@@ -165,7 +278,10 @@ pub fn run_status_line(qz_home: &Path, host: &str, stdin_json: &str, color: bool
 
 #[cfg(test)]
 mod tests {
-    use super::{format_status_line, request_for_event, run_hook};
+    use super::{
+        command_calls_host_only_entry, format_status_line, own_tool_name, request_for_event,
+        run_hook,
+    };
     use crate::host_sessions::HostStatusLineView;
     use crate::local_ipc::IpcRequest;
 
@@ -221,6 +337,7 @@ mod tests {
             session_known: true,
             recalled_last_turn: 3,
             pending_for_owner: 0,
+            off_record: false,
         };
         assert_eq!(
             format_status_line(Some(&calm), false),
@@ -236,5 +353,64 @@ mod tests {
             "● 栗子 · 已接上 · 2 件事等你"
         );
         assert!(format_status_line(Some(&waiting), true).contains("\x1b[38;2;229;160;61m"));
+        let private = HostStatusLineView {
+            off_record: true,
+            session_known: true,
+            pending_for_owner: 0,
+            ..waiting
+        };
+        assert_eq!(
+            format_status_line(Some(&private), false),
+            "● 栗子 · 已接上 · 无痕"
+        );
+    }
+
+    #[test]
+    fn the_model_cannot_call_host_only_entries_from_the_shell() {
+        for blocked in [
+            "qz hook --host claude-code",
+            "echo '{}' | /home/u/.local/bin/qz hook --host claude-code",
+            "cd /tmp && qz mcp",
+            "FOO=1 qz --home /tmp/x statusline",
+            "bash -c \"qz hook --host claude-code\"",
+        ] {
+            assert!(
+                command_calls_host_only_entry(blocked),
+                "应当拦下：{blocked}"
+            );
+        }
+        for allowed in [
+            "qz status",
+            "qz doctor",
+            "cargo test -p quetzalcoatl-daemon",
+            "grep -rn 'qz hook' docs/",
+            "git commit -m 'hook: fix'",
+        ] {
+            assert!(!command_calls_host_only_entry(allowed), "不该拦：{allowed}");
+        }
+        let event = serde_json::json!({
+            "hook_event_name": "PreToolUse",
+            "session_id": "s-1",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo x | qz hook --host claude-code"},
+        })
+        .to_string();
+        let home = std::env::temp_dir().join("quetzalcoatl-hook-no-daemon-home");
+        let out = run_hook(&home, "claude-code", &event);
+        assert!(
+            out.contains("\"permissionDecision\":\"deny\""),
+            "守护进程不在时这道闸也要生效：{out}"
+        );
+    }
+
+    #[test]
+    fn our_own_tools_are_recognised_by_their_host_side_name() {
+        assert_eq!(
+            own_tool_name("mcp__plugin_quetzalcoatl_quetzalcoatl__remember"),
+            Some("remember")
+        );
+        assert_eq!(own_tool_name("mcp__quetzalcoatl__recall"), Some("recall"));
+        assert_eq!(own_tool_name("mcp__github__create_issue"), None);
+        assert_eq!(own_tool_name("Bash"), None);
     }
 }
