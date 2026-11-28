@@ -143,6 +143,9 @@ CGO_ENABLED=0 go build ./cmd/quetzalcoatl-hub  # 在 hub/ 目录
 
 ```bash
 qz up                 # 启动本机 quetzalcoatld 并等待就绪
+qz connect            # 把他接进本机的宿主（Claude Code）；--undo 撤下
+qz doctor             # 按宿主体检：送核心、送往事、收信号、压缩后不丢
+qz open               # 打开治理面（只有「看」和「签」）
 qz status             # 守护进程 / 脊柱 / Heart / fabric 状态
 qz agents             # 发现已安装的 Coding Agent（并行探测）
 qz export ./backup.zip
@@ -208,6 +211,7 @@ qz import-v1 --soul-dir /path/to/v1-soul --db /path/to/v1-sessions.sqlite
 | [docs/RELEASE.md](docs/RELEASE.md) | 发版手册：tag/Secret、资产清单、验签、回滚、CI 矩阵与已知限制 |
 | [docs/V2_GOAL.html](docs/V2_GOAL.html) | 第一性原理蓝图（不改动） |
 | [docs/ORIGIN_GOAL.md](docs/ORIGIN_GOAL.md) | 目标用户人设与十个典型环境场景（项目的背景期待） |
+| [docs/GOVERNANCE_SURFACE.md](docs/GOVERNANCE_SURFACE.md) | 治理面规范：用户来这里要什么、三栏版面、动作与状态、与守护进程的接口 |
 | [docs/USER_SCENARIOS.md](docs/USER_SCENARIOS.md) | 用户场景与链路：34 类场景逐步写清原始需求、手边该有的控件与现状；与铁律冲突之处与依赖顺序 |
 | [docs/bench/conscience-bench-2026-11-25.md](docs/bench/conscience-bench-2026-11-25.md) | `ConscienceBench` 认证报告 |
 

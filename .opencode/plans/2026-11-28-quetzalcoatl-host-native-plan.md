@@ -185,20 +185,20 @@
 - Consumes: `handle_chat` 的 Worker 分支（只依赖请求里的任务描述与验收 DAG）。
 - Produces: 委派接口（拟 `IpcRequest::DelegateRun` / `handle_delegate_run`）与一次性的、非对话的命令行入口（拟 `qz delegate`，不进快速开始）。
 
-- [ ] **Step 1: 把依赖对话接口的用例改写为走委派接口：空跑校验被洁净室拦截、Worker 在独立 worktree 完成并签发验收标记、沙箱缺失时直接失败、Worker 跑在沙箱里、带工作区而未配模型时的报错**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 抽出委派处理函数与接口，登记命令行入口**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 把依赖对话接口的用例改写为走委派接口：空跑校验被洁净室拦截、Worker 在独立 worktree 完成并签发验收标记、沙箱缺失时直接失败、Worker 跑在沙箱里、带工作区而未配模型时的报错**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 抽出委派处理函数与接口，登记命令行入口**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 1.2：删除对话轮
 
 **Files:**
 - Modify: `crates/quetzalcoatl-daemon/src/daemon.rs`（`handle_chat` 的 routine 分支、`execute_routine_gateway_turn`、`normalize_upstream_error_body`、`ChatRequest.thread_id`）、`local_ipc.rs`（`IpcRequest::Chat` / `IpcResponse::Chat`）、`bin/qz.rs`（`run_chat`、`send_single_chat_turn`、`USAGE_TEXT`）、`crates/quetzalcoatl-daemon/src/web_console.rs`（对话方法、假流式帧、白名单及其测试）
 
-- [ ] **Step 1: 增加断言：对话接口与 `qz chat` 不再存在；Web 白名单拒绝对话方法**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 删除上述代码与只服务它的用例；`model_not_configured_error` 的文案不再指向 Web 控制台**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 增加断言：对话接口与 `qz chat` 不再存在；Web 白名单拒绝对话方法**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 删除上述代码与只服务它的用例；`model_not_configured_error` 的文案不再指向 Web 控制台**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 1.3：删除输入框
 
@@ -217,10 +217,10 @@
 - Modify: `crates/quetzalcoatl-harness/src/drivers/mod.rs`（`build_common_sandbox_env`）、`crates/quetzalcoatl-harness/src/gateway.rs`（`copy_and_strip_cred_dir`）
 - Test: `crates/quetzalcoatl-harness/tests/harness_pitfalls.rs`
 
-- [ ] **Step 1: 增加用例：受管运行的环境里带标记；复制出的宿主配置只含凭据白名单，不含用户层的钩子与已启用插件**
-- [ ] **Step 2: 运行测试确认红灯**
-- [ ] **Step 3: 注入标记；配置复制改为凭据白名单，存根设置由我们合成**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 增加用例：受管运行的环境里带标记；复制出的宿主配置只含凭据白名单，不含用户层的钩子与已启用插件**
+- [x] **Step 2: 运行测试确认红灯**
+- [x] **Step 3: 注入标记；配置复制改为凭据白名单，存根设置由我们合成**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 1.5：文档同步
 
@@ -248,20 +248,20 @@
 **Files:**
 - Modify: `crates/quetzalcoatl-daemon/src/daemon.rs`（`default_seed_conscience`、快照加载处的迁移）、`crates/quetzalcoatl-ewave/src/assembler.rs`（`AssemblyRequest` 增加注入面档位）
 
-- [ ] **Step 1: 用例：宿主会话档位的输出不含委派 Worker 的条款，也不要求可见标签；旧快照加载后种子被替换并重新签名**
-- [ ] **Step 2: 确认红灯**
-- [ ] **Step 3: 中性种子（用 `ConscienceManifest::sign_with_root` 重签）、迁移、档位**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 用例：宿主会话档位的输出不含委派 Worker 的条款，也不要求可见标签；旧快照加载后种子被替换并重新签名**
+- [x] **Step 2: 确认红灯**
+- [x] **Step 3: 中性种子（用 `ConscienceManifest::sign_with_root` 重签）、迁移、档位**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 2.2：召回地板
 
 **Files:**
 - Modify: `crates/quetzalcoatl-ewave/src/assembler.rs`、`crates/quetzalcoatl-spine/src/store.rs`（`search_memories_fts`）、`crates/quetzalcoatl-daemon/src/daemon.rs`（`sync_imported_memories_into_ewave`）
 
-- [ ] **Step 1: 用例：一句自然的中文或英文提问能召回正文里只含其中几个词的记忆；问题为空时不带往事；召回条数不超过上限；召回结果能回指到记忆条目**
-- [ ] **Step 2: 确认红灯**
-- [ ] **Step 3: 重写全文检索查询与触发兜底；图节点带记忆编号；空问题与上限**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 用例：一句自然的中文或英文提问能召回正文里只含其中几个词的记忆；问题为空时不带往事；召回条数不超过上限；召回结果能回指到记忆条目**
+- [x] **Step 2: 确认红灯**
+- [x] **Step 3: 重写全文检索查询与触发兜底；图节点带记忆编号；空问题与上限**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 2.3：V1 导入映射
 
@@ -269,10 +269,10 @@
 - Modify: `crates/quetzalcoatl-daemon/src/daemon.rs`、`crates/quetzalcoatl-spine` 的 V1 导入模块
 - Test: 现有 V1 合成夹具
 
-- [ ] **Step 1: 用例：V1 灵魂的自述进入身份与价值，关于用户的部分进入「关于我」层**
-- [ ] **Step 2: 确认红灯**
-- [ ] **Step 3: 实现映射；导入物一律不进核心层与底线**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 用例：V1 灵魂的自述进入身份与价值，关于用户的部分进入「关于我」层**
+- [x] **Step 2: 确认红灯**
+- [x] **Step 3: 实现映射；导入物一律不进核心层与底线**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 2.4：宿主会话接口
 
@@ -284,10 +284,10 @@
 - Consumes: `ContextAssembler::assemble`、`Conscience::take_disclosures`。
 - Produces: 拟 `HostSessionStart` / `HostPromptSubmit` / `HostTurnEnd` / `HostPostCompact` / `HostStatusLine` / `HostMcp`；会话登记表（每轮带入的条目编号）。
 
-- [ ] **Step 1: 用例：会话开始返回核心；提交之前按提问返回往事并登记条目；压缩之后重新返回核心；读路径在全局状态锁被占用时仍在时限内返回；Web 调用这些方法被拒**
-- [ ] **Step 2: 确认红灯**
-- [ ] **Step 3: 实现模块与接口**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 用例：会话开始返回核心；提交之前按提问返回往事并登记条目；压缩之后重新返回核心；读路径在全局状态锁被占用时仍在时限内返回；Web 调用这些方法被拒**
+- [x] **Step 2: 确认红灯**
+- [x] **Step 3: 实现模块与接口**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 2.5：钩子命令
 
@@ -295,10 +295,10 @@
 - Create: `crates/quetzalcoatl-daemon/src/host_hook.rs`
 - Modify: `crates/quetzalcoatl-daemon/src/bin/qz.rs`（拟 `qz hook`，登记进 `USAGE_TEXT`）
 
-- [ ] **Step 1: 用例：各事件的输入输出符合宿主约定；守护进程不可达、超时、输入畸形时以成功码退出且无输出；见到受管运行标记立即退出**
-- [ ] **Step 2: 确认红灯**
-- [ ] **Step 3: 实现（用 `IpcClient::from_runtime_info`，不做状态探活）**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 用例：各事件的输入输出符合宿主约定；守护进程不可达、超时、输入畸形时以成功码退出且无输出；见到受管运行标记立即退出**
+- [x] **Step 2: 确认红灯**
+- [x] **Step 3: 实现（用 `IpcClient::from_runtime_info`，不做状态探活）**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 2.6：MCP 命令
 
@@ -306,10 +306,10 @@
 - Create: `crates/quetzalcoatl-daemon/src/host_mcp.rs`
 - Modify: `crates/quetzalcoatl-daemon/src/bin/qz.rs`（拟 `qz mcp`）、`crates/quetzalcoatl-harness/src/mcp_bridge.rs`（宿主会话主体与显式工具白名单）
 
-- [ ] **Step 1: 用例：工具清单只有「查往事」，不出现 Router 专用工具；守护进程重启后（令牌已变）调用仍然成功；召回有上限**
-- [ ] **Step 2: 确认红灯**
-- [ ] **Step 3: 实现标准输入输出的 MCP 循环与转发**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 用例：工具清单只有「查往事」，不出现 Router 专用工具；守护进程重启后（令牌已变）调用仍然成功；召回有上限**
+- [x] **Step 2: 确认红灯**
+- [x] **Step 3: 实现标准输入输出的 MCP 循环与转发**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 2.7：插件包与接上命令
 
@@ -317,10 +317,10 @@
 - Create: `packages/harness-enhancers/claude-code-plugin/`（插件清单、钩子表、MCP 配置）、`crates/quetzalcoatl-daemon/src/host_connect.rs`
 - Modify: `crates/quetzalcoatl-daemon/src/bin/qz.rs`（拟 `qz connect`，含撤销）
 
-- [ ] **Step 1: 用例：接上后本地插件源写在 `QUETZALCOATL_HOME` 下、钩子表里是 `qz` 的绝对路径；重复执行不重复写；撤销后宿主配置逐字节还原；宿主不存在时给出一句可执行的提示**
-- [ ] **Step 2: 确认红灯**
-- [ ] **Step 3: 实现（插件文件内嵌进 `qz`；改动前备份；用 `discover_coding_agents` 定位宿主）**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 用例：接上后本地插件源写在 `QUETZALCOATL_HOME` 下、钩子表里是 `qz` 的绝对路径；重复执行不重复写；撤销后宿主配置逐字节还原；宿主不存在时给出一句可执行的提示**
+- [x] **Step 2: 确认红灯**
+- [x] **Step 3: 实现（插件文件内嵌进 `qz`；改动前备份；用 `discover_coding_agents` 定位宿主）**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 2.8：诊断、状态栏与安装器
 
@@ -328,18 +328,18 @@
 - Modify: `crates/quetzalcoatl-daemon/src/bin/qz.rs`（拟 `qz doctor`、`qz statusline`）、`scripts/install.sh`、`scripts/install.src.ps1`（并重新生成 `scripts/install.ps1`）
 - Test: `scripts/tests/install_verify_sig.test.sh`
 
-- [ ] **Step 1: 用例：诊断按宿主报告四项；状态栏只在用户没有自定义时写入；安装末尾接上失败不算安装失败；卸载先撤销；`qz up` 不再打印控制台地址**
-- [ ] **Step 2: 确认红灯**
-- [ ] **Step 3: 实现**
-- [ ] **Step 4: 全门禁验证并提交**
+- [x] **Step 1: 用例：诊断按宿主报告四项；状态栏只在用户没有自定义时写入；安装末尾接上失败不算安装失败；卸载先撤销；`qz up` 不再打印控制台地址**
+- [x] **Step 2: 确认红灯**
+- [x] **Step 3: 实现**
+- [x] **Step 4: 全门禁验证并提交**
 
 ### Task 2.9：端到端与真机验收
 
 **Files:**
 - Create: `crates/quetzalcoatl-daemon/tests/e2e_host_attach.rs`（含「假 Claude Code」夹具：按插件的钩子表依次触发钩子）
 
-- [ ] **Step 1: 用例：开场带入、提交带入、压缩后重贴、守护进程停机时放行、受管运行里钩子不触发**
-- [ ] **Step 2: 全绿后提交**
+- [x] **Step 1: 用例：开场带入、提交带入、压缩后重贴、守护进程停机时放行、受管运行里钩子不触发**
+- [x] **Step 2: 全绿后提交**
 - [ ] **Step 3: 真机验收（当场授权）；更新 `docs/USER_SCENARIOS.md` 现状栏；升预发布版本**
 
 ---
