@@ -243,11 +243,12 @@ pub fn run_import_v1<S: MaterializedStore>(
             fs::read_to_string(&soul_md_path).map_err(|e| QuetzalcoatlError::StorageError {
                 detail: format!("读取 V1 SOUL.md 失败: {e}"),
             })?;
+        // 自述会成为良知里的一个条目，而条目正文不以明文进签名链（否则抹除就不是真删）：
+        // 事件只记摘要，正文在可删除的物化视图里，并由变更日志封存后入链。
         let ev_payload = serde_json::json!({
             "kind": "conscience.v1_soul",
-            "authority": 70,
             "path": "SOUL.md",
-            "content": raw,
+            "content_blake3": blake3::hash(raw.as_bytes()).to_hex().to_string(),
         });
         if emit_v1_event_once(
             engine,
@@ -279,11 +280,12 @@ pub fn run_import_v1<S: MaterializedStore>(
                 detail: format!("读取 V1 {rel_file} 失败: {e}"),
             })?;
             for block in split_v1_section_blocks(&raw) {
+                // 同上：记忆正文不以明文进签名链，事件只记摘要。
                 let ev_payload = serde_json::json!({
                     "kind": "memory.v1_import",
                     "category": category,
                     "authority": authority,
-                    "content": block,
+                    "content_blake3": blake3::hash(block.as_bytes()).to_hex().to_string(),
                 });
                 if let Some(digest) = emit_v1_event_once(
                     engine,

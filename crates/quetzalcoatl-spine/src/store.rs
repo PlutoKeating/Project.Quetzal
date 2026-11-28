@@ -119,6 +119,8 @@ pub trait MaterializedStore {
     fn list_checkpoints(&self) -> Result<Vec<SpineCheckpoint>>;
 
     fn upsert_memory(&mut self, memory: &MaterializedMemory) -> Result<()>;
+    /// 删除一条物化的记忆及其全文索引，并把腾出的页清零。不存在时不算错误。
+    fn delete_memory(&mut self, memory_id: &str) -> Result<()>;
     fn list_memories(&self) -> Result<Vec<MaterializedMemory>>;
     fn search_memories_fts(&self, query: &str, limit: usize) -> Result<Vec<MaterializedMemory>>;
 
@@ -143,6 +145,8 @@ pub trait MaterializedStore {
     /// 不可导出的私有状态块（群组 MLS 私钥材料等）：仅存于本地脊柱库，绝不进入可读 ZIP 导出。
     fn put_private_blob(&mut self, blob_key: &str, payload_json: &str) -> Result<()>;
     fn get_private_blob(&self, blob_key: &str) -> Result<Option<String>>;
+    /// 删除一个私有状态块，并要求存储把腾出的页清零：条目钥匙就放在这里，删除必须是真删。
+    fn delete_private_blob(&mut self, blob_key: &str) -> Result<()>;
 
     fn has_v1_import_digest(&self, digest: &ArtifactId) -> Result<bool>;
     fn record_v1_import_digest(
@@ -853,6 +857,24 @@ impl MaterializedStore for RusqliteWalStore {
         Ok(out)
     }
 
+    fn delete_memory(&mut self, memory_id: &str) -> Result<()> {
+        self.conn
+            .pragma_update(None, "secure_delete", "ON")
+            .map_err(sql_err)?;
+        let tx = self.conn.transaction().map_err(sql_err)?;
+        tx.execute(
+            "DELETE FROM memories_fts WHERE memory_id = ?1;",
+            params![memory_id],
+        )
+        .map_err(sql_err)?;
+        tx.execute(
+            "DELETE FROM memories WHERE memory_id = ?1;",
+            params![memory_id],
+        )
+        .map_err(sql_err)?;
+        tx.commit().map_err(sql_err)
+    }
+
     fn search_memories_fts(&self, query: &str, limit: usize) -> Result<Vec<MaterializedMemory>> {
         let trimmed = query.trim();
         if trimmed.is_empty() || limit == 0 {
@@ -1284,6 +1306,19 @@ impl MaterializedStore for RusqliteWalStore {
                     payload_json,
                     HlcTimestamp::from_parts(0, 0, 0).to_hex()
                 ],
+            )
+            .map_err(sql_err)?;
+        Ok(())
+    }
+
+    fn delete_private_blob(&mut self, blob_key: &str) -> Result<()> {
+        self.conn
+            .pragma_update(None, "secure_delete", "ON")
+            .map_err(sql_err)?;
+        self.conn
+            .execute(
+                "DELETE FROM private_blobs WHERE blob_key = ?1;",
+                params![blob_key],
             )
             .map_err(sql_err)?;
         Ok(())
