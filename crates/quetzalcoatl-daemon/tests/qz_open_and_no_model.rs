@@ -2,7 +2,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo)]
 
 //! 新手验收回归：
-//! 1. `qz up` 打印 Web 控制台 URL，`qz open` 在无桌面时打印同一个 URL 并以 0 退出；
+//! 1. `qz up` 不打印任何地址，只把人引向宿主；`qz open` 在无桌面时打印治理面的地址并以 0 退出；
 //! 2. 宿主没有任何登录凭据时，`qz delegate` 返回单前缀的 `MODEL_NOT_CONFIGURED`，并**绝不**向上游发请求；
 //! 3. 自家对话入口 `qz chat` 已不存在。
 //!
@@ -160,29 +160,28 @@ fn qz_open_prints_console_url_and_unconfigured_chat_is_typed_without_upstream_ca
         qz_home: qz_home.clone(),
     };
 
+    // `qz up` 不把人往自家界面上引：它只说下一步去宿主，不打印任何地址。
     let up_stdout = String::from_utf8_lossy(&up_out.stdout);
-    let console_url = up_stdout
-        .lines()
-        .find_map(|line| line.strip_prefix("console: "))
-        .map(str::trim)
-        .ok_or("qz up must print the console URL")?
-        .to_owned();
     assert!(
-        console_url.starts_with("http://127.0.0.1:") && console_url.ends_with('/'),
-        "unexpected console URL: {console_url}"
+        !up_stdout.contains("http://"),
+        "qz up must not print a console URL: {up_stdout}"
+    );
+    assert!(
+        up_stdout.contains("打开你的宿主"),
+        "qz up must point the user at their host: {up_stdout}"
     );
 
-    // `qz open` 在无桌面时打印同一个 URL，并以 0 退出。
+    // 治理面只在用户主动要看时才打开：`qz open` 在无桌面时打印它的地址，并以 0 退出。
     let open_out = run_qz(&qz, home.path(), &qz_home, &["open"])?;
     assert!(
         open_out.status.success(),
         "qz open failed: {}",
         String::from_utf8_lossy(&open_out.stderr)
     );
-    assert_eq!(
-        String::from_utf8_lossy(&open_out.stdout).trim(),
-        console_url,
-        "qz open must print the same console URL"
+    let surface_url = String::from_utf8_lossy(&open_out.stdout).trim().to_owned();
+    assert!(
+        surface_url.starts_with("http://127.0.0.1:") && surface_url.ends_with('/'),
+        "unexpected governance surface URL: {surface_url}"
     );
 
     // `qz status` 仍然是健康的。

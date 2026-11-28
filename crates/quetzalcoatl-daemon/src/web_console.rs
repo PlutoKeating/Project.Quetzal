@@ -1206,6 +1206,11 @@ mod tests {
         for denied in [
             "chat",
             "delegate_run",
+            "host_session_start",
+            "host_prompt_submit",
+            "host_turn_end",
+            "host_status_line",
+            "host_tool_call",
             "conscience_pinned",
             "desktop_snapshot",
             "export",

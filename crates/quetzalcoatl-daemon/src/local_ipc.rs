@@ -41,6 +41,7 @@ use crate::group::{
     GroupInviteOutcome, GroupLeaveOutcome, GroupMemberView, GroupRevokeOutcome, GroupRoomSummary,
     GroupSendOutcome,
 };
+use crate::host_sessions::HostStatusLineView;
 use crate::web_console::WebConsole;
 
 const MAX_IPC_HEADER_BYTES: usize = 32 * 1024;
@@ -174,6 +175,37 @@ pub enum IpcRequest {
     EwaveCheckReport {
         conflict: String,
         ids: Vec<String>,
+    },
+    /// 用户自己的宿主会话开始（含恢复、清空、压缩之后）：取回要送进去的核心。
+    HostSessionStart {
+        host: String,
+        session_id: String,
+        cwd: Option<PathBuf>,
+        /// 宿主给出的开始原因：`startup` / `resume` / `clear` / `compact`。
+        source: String,
+    },
+    /// 用户提交一句话之前：取回与这句话相关的往事（没有就为空）。
+    HostPromptSubmit {
+        host: String,
+        session_id: String,
+        cwd: Option<PathBuf>,
+        prompt: String,
+    },
+    /// 宿主的一个回合结束。
+    HostTurnEnd {
+        host: String,
+        session_id: String,
+        transcript_path: Option<PathBuf>,
+    },
+    /// 状态栏要显示的一行所需的数据。
+    HostStatusLine {
+        host: String,
+        session_id: Option<String>,
+    },
+    /// 宿主会话里的一次工具调用（由 `qz mcp` 从宿主的 MCP 请求里取出工具名与参数后转交）。
+    HostToolCall {
+        tool: String,
+        arguments: serde_json::Value,
     },
     Export {
         zip_path: PathBuf,
@@ -366,6 +398,16 @@ pub enum IpcResponse {
     ExploreTick(ExploreWakeReport),
     ConsciencePinned {
         pinned_system_tail: String,
+    },
+    /// 要送进宿主会话的文字；为空串表示这一次什么都不带。
+    HostContext {
+        context: String,
+    },
+    HostStatusLine(HostStatusLineView),
+    /// 工具调用的结果文字；`is_error` 为真时宿主会把它当作工具报错呈现给模型。
+    HostToolResult {
+        text: String,
+        is_error: bool,
     },
     Ack {
         detail: String,
@@ -984,6 +1026,7 @@ pub struct IpcClient {
     http_addr: SocketAddr,
     unix_socket: Option<PathBuf>,
     ipc_token: String,
+    timeout: Duration,
 }
 
 impl IpcClient {
@@ -1009,13 +1052,33 @@ impl IpcClient {
         }
     }
 
+    /// 只读运行态文件、不做探活的连接器，给宿主钩子这类必须立刻返回的调用方用。
+    ///
+    /// 守护进程每次启动都会换令牌和端口，所以每次调用都现读这两个文件；
+    /// 文件缺失或损坏时返回 `None`，调用方据此放行。
+    #[must_use]
+    pub fn from_home_unprobed(qz_home: &Path) -> Option<Self> {
+        let raw_info = fs::read(qz_home.join("run/daemon.json")).ok()?;
+        let info = serde_json::from_slice::<DaemonRuntimeInfo>(&raw_info).ok()?;
+        let raw_tok = fs::read_to_string(qz_home.join("run/daemon.token")).ok()?;
+        Some(Self::from_runtime_info(&info, raw_tok.trim().to_owned()))
+    }
+
     #[must_use]
     pub fn from_runtime_info(info: &DaemonRuntimeInfo, ipc_token: String) -> Self {
         Self {
             http_addr: info.ipc_http_addr,
             unix_socket: info.unix_socket_path.clone(),
             ipc_token,
+            timeout: Duration::from_secs(30),
         }
+    }
+
+    /// 改写单次调用的读写与连接时限（默认 30 秒）。
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     pub fn call(&self, req: &IpcRequest) -> Result<IpcResponse> {
@@ -1027,19 +1090,18 @@ impl IpcClient {
         if let Some(sock) = &self.unix_socket
             && let Ok(mut ustream) = UnixStream::connect(sock)
         {
-            let _ = ustream.set_read_timeout(Some(Duration::from_secs(30)));
-            let _ = ustream.set_write_timeout(Some(Duration::from_secs(30)));
+            let _ = ustream.set_read_timeout(Some(self.timeout));
+            let _ = ustream.set_write_timeout(Some(self.timeout));
             return self.roundtrip_over_stream(&mut ustream, "127.0.0.1", &body);
         }
 
         let mut tcp =
-            TcpStream::connect_timeout(&self.http_addr, Duration::from_secs(3)).map_err(|e| {
-                QuetzalcoatlError::StorageError {
-                    detail: format!("连接本机 quetzalcoatld IPC ({}) 失败: {e}", self.http_addr),
-                }
+            TcpStream::connect_timeout(&self.http_addr, self.timeout.min(Duration::from_secs(3)))
+                .map_err(|e| QuetzalcoatlError::StorageError {
+                detail: format!("连接本机 quetzalcoatld IPC ({}) 失败: {e}", self.http_addr),
             })?;
-        let _ = tcp.set_read_timeout(Some(Duration::from_secs(30)));
-        let _ = tcp.set_write_timeout(Some(Duration::from_secs(30)));
+        let _ = tcp.set_read_timeout(Some(self.timeout));
+        let _ = tcp.set_write_timeout(Some(self.timeout));
         let host_hdr = self.http_addr.to_string();
         self.roundtrip_over_stream(&mut tcp, &host_hdr, &body)
     }

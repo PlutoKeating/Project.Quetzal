@@ -1,0 +1,12 @@
+{
+  "name": "quetzalcoatl-local",
+  "description": "Quetzalcoatl 在本机为 Claude Code 写出的插件源，由接上命令维护。",
+  "owner": { "name": "Quetzalcoatl" },
+  "plugins": [
+    {
+      "name": "quetzalcoatl",
+      "source": "./plugin",
+      "description": "把你的 Agent 的核心与相关往事送进这个会话。任何失败都放行，不影响宿主。"
+    }
+  ]
+}

@@ -837,6 +837,7 @@ fn snapshot_exposes_real_conscience_tree_and_artifacts_without_sensitive_bodies(
         "真实守护进程必须披露良知树行，实际 keys={:?}",
         rows.keys().collect::<Vec<_>>()
     );
+    let mut saw_operator = false;
     let mut saw_root = false;
     for key in conscience_keys {
         let row = &rows[key];
@@ -853,14 +854,19 @@ fn snapshot_exposes_real_conscience_tree_and_artifacts_without_sensitive_bodies(
                 "良知 raw_json 泄露非结构字段: {field}"
             );
         }
-        if row["detail"]
-            .as_str()
-            .is_some_and(|d| d.contains("ROOT 100"))
-        {
+        let detail = row["detail"].as_str().unwrap_or_default();
+        if detail.contains("OPERATOR 80") {
+            saw_operator = true;
+        }
+        if detail.contains("ROOT 100") {
             saw_root = true;
         }
     }
-    assert!(saw_root, "必须至少有一行 ROOT 100 良知条目");
+    assert!(saw_operator, "出厂良知必须带一行 OPERATOR 80 部署约束");
+    assert!(
+        !saw_root,
+        "出厂时底线为空：ROOT 100 只能由用户亲手签署，不能有写死的条款"
+    );
 
     let artifact_keys: Vec<&String> = rows
         .keys()

@@ -1,0 +1,26 @@
+{
+  "description": "Quetzalcoatl：会话开始送入核心，每次提交带上相关往事，回合结束登记。任何失败都放行。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "{{QZ_BIN}} hook --host claude-code", "timeout": 5 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "{{QZ_BIN}} hook --host claude-code", "timeout": 5 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "{{QZ_BIN}} hook --host claude-code", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}

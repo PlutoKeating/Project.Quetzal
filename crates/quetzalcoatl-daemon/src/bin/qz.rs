@@ -4,12 +4,17 @@
 //! `qz` — Quetzalcoatl 唯一简写终端命令行入口（自动本地 IPC 薄客户端切换，杜绝 `SQLITE_BUSY`）。
 
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use quetzalcoatl_daemon::host_connect::{
+    ClaudeCodeTarget, StatusLineOutcome, connect_claude_code, disconnect_claude_code,
+    doctor_claude_code,
+};
+use quetzalcoatl_daemon::host_hook::{HOST_CLAUDE_CODE, run_hook, run_status_line};
 use quetzalcoatl_daemon::local_ipc::GroupSenderWire;
 use quetzalcoatl_daemon::{
     DaemonConfig, DaemonFabricConfig, DelegateRunRequest, FabricLoginRequest, IpcClient,
@@ -17,7 +22,7 @@ use quetzalcoatl_daemon::{
     import_v1_offline_or_via_ipc, resolve_quetzalcoatl_home,
 };
 use quetzalcoatl_group::floor_control::{Mention, MentionKind};
-use quetzalcoatl_harness::{DiscoveryConfig, discover_coding_agents};
+use quetzalcoatl_harness::{CodingAgentKind, DiscoveryConfig, discover_coding_agents};
 use quetzalcoatl_kernel::CleanRoomVerifierDag;
 use quetzalcoatl_sandbox::SandboxCommand;
 use quetzalcoatl_spine::ZipExportOptions;
@@ -30,9 +35,11 @@ Usage:
   qz <COMMAND> [OPTIONS]
 
 Commands:
-  up          Start local quetzalcoatld daemon, wait for health, print the Web console URL
+  up          Start local quetzalcoatld daemon and wait until it is ready
+  connect     Attach to the hosts on this machine (Claude Code); --undo detaches cleanly
+  doctor      Check, host by host, that his core, memories and signals get through
   down        Gracefully shut down running quetzalcoatld
-  open        Open the local Web console (prints the URL when no desktop is available)
+  open        Open the local governance surface (prints the URL when no desktop is available)
   status      Show daemon, sovereign spine, heart and fabric status
   agents      Discover installed Coding Agents (<10ms parallel probe)
   delegate    Hand one task to a local coding agent in an isolated worktree; verified in the clean room
@@ -48,6 +55,11 @@ Commands:
   domain      五大首发领域包：list | show <id> | use <id>
               本版本仅完成领域包的声明、校验与切换审计；
               实机执行（紧急告警、引用强制、答案拦截）随 Runner 接入生效
+
+Host entry points (invoked by the attached host, not by people):
+  hook        Host hook entry: reads the host event on stdin, never blocks the host
+  mcp         Host tool channel (MCP over stdio)
+  statusline  One line for the host status bar
 ";
 
 fn locate_quetzalcoatld_binary() -> PathBuf {
@@ -163,7 +175,7 @@ fn run_up(args: &[String]) -> Result<()> {
             "quetzalcoatld already online (pid={}, agent={}, ipc={})",
             st.pid, st.agent_id, st.ipc_http_addr
         );
-        print_console(st.ipc_http_addr);
+        println!("打开你的宿主，他在了。还没接上的话执行 `qz connect`；治理面用 `qz open`。");
         return Ok(());
     }
 
@@ -251,8 +263,7 @@ fn run_up(args: &[String]) -> Result<()> {
                 "quetzalcoatld ready (pid={}, agent={}, ipc={})",
                 st.pid, st.agent_id, st.ipc_http_addr
             );
-            print_console(st.ipc_http_addr);
-            println!("hint: run `qz open` to launch it in the browser");
+            println!("打开你的宿主，他在了。还没接上的话执行 `qz connect`；治理面用 `qz open`。");
             return Ok(());
         }
         if let Ok(Some(exit_status)) = child.try_wait() {
@@ -273,22 +284,13 @@ fn console_url(addr: std::net::SocketAddr) -> String {
     format!("http://{addr}/")
 }
 
-/// 安装包把 `bin/web/` 放在可执行文件旁；源码构建（`target/debug`）默认没有静态资源。
-/// 只用于在打印控制台地址时给出诚实的说明，绝不阻断启动。
-fn bundled_console_available() -> bool {
+/// 安装包把治理面的静态资源放在可执行文件旁的 `web/`；源码构建（`target/debug`）默认没有。
+/// 只用于在打印治理面地址时给出诚实的说明，绝不阻断。
+fn bundled_surface_available() -> bool {
     std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|dir| dir.join("web").join("index.html")))
         .is_some_and(|index| index.is_file())
-}
-
-fn print_console(addr: std::net::SocketAddr) {
-    println!("console: {}", console_url(addr));
-    if !bundled_console_available() {
-        println!(
-            "note: this build carries no bundled web console assets (installed releases do); the URL will not serve a page yet"
-        );
-    }
 }
 
 /// 是否存在可用图形会话；无桌面（SSH/容器/CI）时只打印 URL，绝不尝试拉起浏览器。
@@ -358,9 +360,9 @@ fn run_open(args: &[String]) -> Result<()> {
                     }
                 }
             }
-            if !bundled_console_available() {
+            if !bundled_surface_available() {
                 eprintln!(
-                    "note: this build carries no bundled web console assets (installed releases do); the page will not load"
+                    "note: this build carries no bundled governance surface assets (installed releases do); the page will not load"
                 );
             }
             println!("{url}");
@@ -1015,6 +1017,181 @@ fn run_delegate(args: &[String]) -> Result<()> {
             detail: format!("未知的 IPC 响应: {other:?}"),
         }),
     }
+}
+
+/// 宿主入口命令的参数解析：宽松处理，任何情况下都不报错（这些命令不能挡宿主的路）。
+fn lenient_home_and_host(args: &[String]) -> (Option<PathBuf>, String) {
+    let mut home = None;
+    let mut host = String::from(HOST_CLAUDE_CODE);
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--home" => {
+                i += 1;
+                home = args.get(i).map(PathBuf::from);
+            }
+            "--host" => {
+                i += 1;
+                if let Some(value) = args.get(i) {
+                    host.clone_from(value);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (home, host)
+}
+
+/// 读入宿主写到标准输入的事件；超出上限的部分丢弃。
+fn read_host_event() -> String {
+    const HOST_EVENT_LIMIT: u64 = 8 * 1024 * 1024;
+    let mut input = String::new();
+    let _ = io::stdin()
+        .lock()
+        .take(HOST_EVENT_LIMIT)
+        .read_to_string(&mut input);
+    input
+}
+
+/// `qz hook`：宿主钩子入口。无论发生什么都以成功码退出，也不在标准错误上说话。
+fn run_host_hook(args: &[String]) -> Result<()> {
+    let (home, host) = lenient_home_and_host(args);
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let output = run_hook(&qz_home, &host, &read_host_event());
+    if !output.is_empty() {
+        print!("{output}");
+        let _ = io::stdout().flush();
+    }
+    Ok(())
+}
+
+/// `qz statusline`：宿主状态栏的一行。
+fn run_host_status_line(args: &[String]) -> Result<()> {
+    let (home, host) = lenient_home_and_host(args);
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let color = std::env::var_os("NO_COLOR").is_none();
+    let line = run_status_line(&qz_home, &host, &read_host_event(), color);
+    if !line.is_empty() {
+        println!("{line}");
+        let _ = io::stdout().flush();
+    }
+    Ok(())
+}
+
+/// `qz mcp`：宿主会话里的工具通道（标准输入输出上的 MCP 服务）。
+fn run_host_mcp(args: &[String]) -> Result<()> {
+    let (home, _) = lenient_home_and_host(args);
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let _ = quetzalcoatl_daemon::host_mcp::serve_stdio(&qz_home, stdin.lock(), stdout.lock());
+    Ok(())
+}
+
+/// 找到本机的 Claude Code 并拼出接入所需的全部位置；找不到时返回 `None`。
+fn locate_claude_code_target(qz_home: &Path) -> Result<Option<ClaudeCodeTarget>> {
+    let report = discover_coding_agents(&DiscoveryConfig::default())?;
+    let Some(agent) = report
+        .agents
+        .iter()
+        .find(|agent| agent.kind == CodingAgentKind::ClaudeCode)
+    else {
+        return Ok(None);
+    };
+    let qz_bin = std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("无法确定 qz 自身的路径: {e}"),
+        })?;
+    let claude_config_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude")))
+        .ok_or_else(|| QuetzalcoatlError::StorageError {
+            detail: String::from("无法确定 Claude Code 的配置目录（缺少 HOME）"),
+        })?;
+    Ok(Some(ClaudeCodeTarget {
+        qz_home: qz_home.to_path_buf(),
+        qz_bin,
+        claude_bin: agent.binary_path.clone(),
+        claude_config_dir,
+    }))
+}
+
+/// `qz connect`：把他接进本机已有的宿主。`--undo` 撤下。
+fn run_connect(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut undo = false;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--undo" => undo = true,
+            "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!(
+                        "qz connect 不认识参数 `{other}`（可用：--undo、--home <目录>）"
+                    ),
+                });
+            }
+        }
+        i += 1;
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let Some(target) = locate_claude_code_target(&qz_home)? else {
+        return Err(QuetzalcoatlError::StorageError {
+            detail: String::from(
+                "本机没有找到 Claude Code。装好并登录它之后，再执行 `qz connect`。",
+            ),
+        });
+    };
+
+    if undo {
+        disconnect_claude_code(&target)?;
+        println!("已从 Claude Code 撤下。它的配置里不再有 Quetzalcoatl 的任何东西。");
+        return Ok(());
+    }
+
+    let report = connect_claude_code(&target)?;
+    println!("已接上 Claude Code。");
+    match report.status_line {
+        StatusLineOutcome::Written | StatusLineOutcome::AlreadyOurs => {
+            println!("  状态栏  会显示他的名字和这一轮带入了几条往事");
+        }
+        StatusLineOutcome::KeptUserOwn => {
+            println!("  状态栏  你已经有自己的状态栏，没有改动");
+        }
+        StatusLineOutcome::SettingsUntouched => {
+            println!("  状态栏  设置文件读不懂，没有改动");
+        }
+    }
+    println!("打开你的 Claude Code，他在了。想确认每一步都通，执行 `qz doctor`。");
+    Ok(())
+}
+
+/// `qz doctor`：按宿主体检。
+fn run_doctor(args: &[String]) -> Result<()> {
+    let (home, json_mode) = parse_home_and_json_flags(args)?;
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let target = locate_claude_code_target(&qz_home)?;
+    let lines = doctor_claude_code(&qz_home, target.as_ref());
+    if json_mode {
+        let encoded = serde_json::to_string_pretty(&lines).map_err(|e| {
+            QuetzalcoatlError::SerializationError {
+                detail: e.to_string(),
+            }
+        })?;
+        println!("{encoded}");
+        return Ok(());
+    }
+    println!("Claude Code");
+    for item in &lines {
+        // 实心点 = 通；空心点 = 需要你看一眼。颜色之外另有文字，不靠颜色区分。
+        let mark = if item.ok { "●" } else { "○" };
+        println!("  {mark} {}  {}", item.label, item.detail);
+    }
+    Ok(())
 }
 
 fn map_ipc_error_code(code: &str, detail: String) -> QuetzalcoatlError {
@@ -1774,6 +1951,11 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "status" => run_status(rest),
         "agents" => run_agents(rest),
         "delegate" => run_delegate(rest),
+        "connect" => run_connect(rest),
+        "doctor" => run_doctor(rest),
+        "hook" => run_host_hook(rest),
+        "mcp" => run_host_mcp(rest),
+        "statusline" => run_host_status_line(rest),
         "export" => run_export(rest),
         "import-v1" => run_import_v1(rest),
         "login" => run_login(rest),

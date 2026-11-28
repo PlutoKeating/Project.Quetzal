@@ -24,8 +24,8 @@ use quetzalcoatl_crypto::{
 };
 use quetzalcoatl_ewave::{
     AssemblyRequest, Authority, BudgetProfile, Conscience, ConscienceArbiter, ConscienceManifest,
-    ContextAssembler, FocusConfig, MemoryEntry, MemoryKind, Mutability, ObserveOptions,
-    ProtectedDirective, ProvenanceRecord, SerpentineGraph, ValueEntry,
+    ContextAssembler, FocusConfig, IdentityBlock, MemoryEntry, MemoryKind, Mutability,
+    ObserveOptions, ProtectedDirective, ProvenanceRecord, SerpentineGraph, ValueEntry,
 };
 use quetzalcoatl_harness::{
     AcpJsonRpcDriver, ClaudeCodeDriver, CodexDriver, CodingAgentKind, DiscoveredAgent,
@@ -308,23 +308,61 @@ pub(crate) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn default_seed_conscience(root_key: &AccountRootKey, now_ms: u64) -> Result<Conscience> {
-    let root_directives = vec![ProtectedDirective {
-        id: String::from("root-01"),
-        authority: Authority::Root,
-        title: String::from("主权与安全铁律"),
-        content: String::from("严禁泄露宿主凭据、严禁绕过无容器沙箱与断网洁净室客观校验器。"),
-        created_at_ms: now_ms,
-    }];
-    let operator_directives = vec![ProtectedDirective {
-        id: String::from("operator-01"),
+/// 首次启动时写入的占位 `SOUL.md` 的标题；用来区分占位文档与用户带进来的自述。
+const GENESIS_SOUL_HEADING: &str = "# Quetzalcoatl Sovereign Agent";
+/// 身份块里承载自述的那一条的编号。
+const IDENTITY_SOUL_ID: &str = "soul";
+
+/// 旧版种子里两条受保护条款的编号。它们是工程纪律，不是用户的底线，也不该进用户的宿主会话。
+const LEGACY_SEED_ROOT_ID: &str = "root-01";
+const LEGACY_SEED_OPERATOR_ID: &str = "operator-01";
+
+/// 出厂的部署约束：对任何宿主会话都成立、也都无害的一条。
+fn default_operator_directives(now_ms: u64) -> Vec<ProtectedDirective> {
+    vec![ProtectedDirective {
+        id: String::from("operator-credentials"),
         authority: Authority::Operator,
-        title: String::from("双层分工纪律"),
-        content: String::from(
-            "Router 专注上下文协调与单声道发声，一切终端与文件修改任务委派隔离 Worker 完成。",
-        ),
+        title: String::from("凭据不外泄"),
+        content: String::from("不向任何对话、工具或外部通道泄露本机的登录凭据与密钥。"),
         created_at_ms: now_ms,
-    }];
+    }]
+}
+
+/// 把旧版种子换成中性种子并重新签名。只在两层受保护条款与旧种子逐条相同时才动，
+/// 用户自己签过的底线一律不碰。返回是否发生了替换。
+fn retire_legacy_seed(
+    conscience: &mut Conscience,
+    root_key: &AccountRootKey,
+    now_ms: u64,
+) -> Result<bool> {
+    let is_legacy = conscience.root_directives.len() == 1
+        && conscience.operator_directives.len() == 1
+        && conscience
+            .root_directives
+            .iter()
+            .all(|d| d.id == LEGACY_SEED_ROOT_ID)
+        && conscience
+            .operator_directives
+            .iter()
+            .all(|d| d.id == LEGACY_SEED_OPERATOR_ID);
+    if !is_legacy {
+        return Ok(false);
+    }
+    conscience.root_directives = Vec::new();
+    conscience.operator_directives = default_operator_directives(now_ms);
+    conscience.manifest = ConscienceManifest::sign_with_root(
+        root_key,
+        &conscience.root_directives,
+        &conscience.operator_directives,
+        now_ms,
+    )?;
+    Ok(true)
+}
+
+/// 出厂良知：底线为空，等用户亲手签署；部署约束只有一条中性条款；核心价值只有诚实这一条。
+fn default_seed_conscience(root_key: &AccountRootKey, now_ms: u64) -> Result<Conscience> {
+    let root_directives: Vec<ProtectedDirective> = Vec::new();
+    let operator_directives = default_operator_directives(now_ms);
     let manifest = ConscienceManifest::sign_with_root(
         root_key,
         &root_directives,
@@ -379,7 +417,7 @@ fn load_or_init_sovereign_bundle(
     let sqlite_path = qz_home.join("spine/spine.sqlite");
     let now_ms = now_unix_ms();
 
-    let persisted: PersistedSovereignState = if state_path.is_file() {
+    let mut persisted: PersistedSovereignState = if state_path.is_file() {
         let raw = fs::read(&state_path).map_err(|e| QuetzalcoatlError::StorageError {
             detail: format!("读取主权身份文件失败 ({}): {e}", state_path.display()),
         })?;
@@ -426,6 +464,14 @@ fn load_or_init_sovereign_bundle(
     let ep1_bytes = hex_decode_fixed::<32>("epoch1_key_hex", &persisted.epoch1_key_hex)?;
 
     let root_key = AccountRootKey::from_bytes(root_bytes);
+    if retire_legacy_seed(&mut persisted.conscience, &root_key, now_ms)? {
+        let encoded = serde_json::to_vec_pretty(&persisted).map_err(|e| {
+            QuetzalcoatlError::SerializationError {
+                detail: format!("编码主权身份文件失败: {e}"),
+            }
+        })?;
+        write_private_file(&state_path, &encoded)?;
+    }
     let device = DeviceIdentity::from_seeds(persisted.device_id, ed_seed, xw_seed)?;
     let mut ring =
         EpochKeyRing::new_genesis(persisted.agent_id, &root_key, device.public_record())?;
@@ -443,7 +489,7 @@ fn load_or_init_sovereign_bundle(
     let mut spine = SpineEngine::new(persisted.agent_id, device, ring, initial_hlc, store)?;
     if spine.store().list_markdown_docs()?.is_empty() {
         let soul_md = format!(
-            "# Quetzalcoatl Sovereign Agent\n\n- AgentId: `{}`\n- Schema: `ewave-conscience/v1`\n",
+            "{GENESIS_SOUL_HEADING}\n\n- AgentId: `{}`\n- Schema: `ewave-conscience/v1`\n",
             persisted.agent_id
         );
         let init_hlc = spine.local_hlc();
@@ -611,8 +657,8 @@ fn is_executable_regular_file(path: &Path) -> bool {
 pub(crate) struct DaemonMutableState {
     _spine_lock: ExclusiveSpineLock,
     pub(crate) kernel: BlindKernel<RusqliteWalStore>,
-    conscience: Conscience,
-    graph: SerpentineGraph,
+    pub(crate) conscience: Conscience,
+    pub(crate) graph: SerpentineGraph,
     _arbiter: ConscienceArbiter,
     pub(crate) persisted: PersistedSovereignState,
     pub(crate) group: crate::group::GroupRoomRuntime,
@@ -675,6 +721,8 @@ pub(crate) struct SharedDaemonCore {
     harness_host: HarnessHost,
     gateway_base_url: String,
     pub(crate) state: Mutex<DaemonMutableState>,
+    /// 用户自己的宿主会话登记表（有自己的锁，读它不需要全局状态锁）。
+    pub(crate) host_sessions: crate::host_sessions::HostSessionRegistry,
     fabric: Mutex<Option<Arc<DaemonFabricRuntime>>>,
 }
 
@@ -1681,6 +1729,36 @@ impl SharedDaemonCore {
                     ),
                 }
             }
+            IpcRequest::HostSessionStart {
+                host,
+                session_id,
+                cwd,
+                source: _,
+            } => (
+                self.handle_host_session_start(&host, &session_id, cwd),
+                false,
+            ),
+            IpcRequest::HostPromptSubmit {
+                host,
+                session_id,
+                cwd,
+                prompt,
+            } => (
+                self.handle_host_prompt_submit(&host, &session_id, cwd, &prompt),
+                false,
+            ),
+            IpcRequest::HostTurnEnd {
+                host,
+                session_id,
+                transcript_path: _,
+            } => (self.handle_host_turn_end(&host, &session_id), false),
+            IpcRequest::HostStatusLine {
+                host: _,
+                session_id,
+            } => (self.handle_host_status_line(session_id.as_deref()), false),
+            IpcRequest::HostToolCall { tool, arguments } => {
+                (self.handle_host_tool_call(&tool, &arguments), false)
+            }
             IpcRequest::EwaveCheckReport { conflict, ids } => {
                 if let Ok(mut guard) = self.state.lock() {
                     guard.ewave_check_reports.push((conflict, ids));
@@ -1743,7 +1821,13 @@ impl SharedDaemonCore {
                     .import_v1(&soul_dir, &db_paths, now_ms)
                 {
                     Ok(report) => {
-                        sync_imported_memories_into_ewave(&mut guard, now_ms);
+                        let DaemonMutableState {
+                            ref mut conscience,
+                            ref mut graph,
+                            ref kernel,
+                            ..
+                        } = *guard;
+                        absorb_imported_sea(conscience, graph, kernel.spine(), now_ms);
                         let DaemonMutableState {
                             ref mut persisted,
                             ref conscience,
@@ -2589,49 +2673,148 @@ fn fabric_disabled_response() -> (IpcResponse, bool) {
     )
 }
 
-fn sync_imported_memories_into_ewave(state: &mut DaemonMutableState, now_ms: u64) {
-    if let Ok(mat_mems) = state.kernel.spine().store().list_memories() {
-        for mm in mat_mems {
-            let exists = state
-                .conscience
-                .memories
-                .iter()
-                .any(|m| m.id == mm.memory_id);
-            if !exists {
-                state.conscience.memories.push(MemoryEntry {
-                    id: mm.memory_id.clone(),
-                    kind: MemoryKind::Fact,
-                    topic: Some(mm.category),
-                    content: mm.content.clone(),
-                    about: Vec::new(),
-                    salience: 0.75,
-                    evidence_count: 1,
-                    constant: false,
-                    untrusted: false,
-                    pressure_flags: Vec::new(),
-                    authority: Authority::Memory,
-                    mutability: Mutability::memory_free(),
-                    valid_from_ms: now_ms,
-                    invalid_at_ms: None,
-                    triggers: Vec::new(),
-                    provenance: ProvenanceRecord {
-                        written_by: String::from("import-v1"),
-                        at_ms: now_ms,
-                        source_event_ids: vec![mm.memory_id],
-                        model: None,
-                        supersedes: None,
-                    },
-                });
-                let _ = state.graph.observe(
-                    serde_json::json!({"origin": "import-v1"}),
-                    ObserveOptions {
-                        text: Some(mm.content),
-                        ..Default::default()
-                    },
-                );
+/// 把物化视图里的一条记忆收进良知与记忆图（已存在则跳过）。
+///
+/// 类别决定落在哪一层：关于用户的进「关于我」，其余是普通记忆；导入物一律不进核心层与底线。
+/// 记忆图节点直接用记忆编号，召回结果才能回指到条目。
+fn absorb_materialized_memory(
+    conscience: &mut Conscience,
+    graph: &mut SerpentineGraph,
+    mm: quetzalcoatl_spine::MaterializedMemory,
+    now_ms: u64,
+) {
+    if conscience.memories.iter().any(|m| m.id == mm.memory_id) {
+        return;
+    }
+    let about_user = mm.category == "user_pref";
+    conscience.memories.push(MemoryEntry {
+        id: mm.memory_id.clone(),
+        kind: MemoryKind::Fact,
+        topic: Some(mm.category),
+        content: mm.content.clone(),
+        about: if about_user {
+            vec![String::from("user")]
+        } else {
+            Vec::new()
+        },
+        salience: 0.75,
+        evidence_count: 1,
+        constant: false,
+        untrusted: false,
+        pressure_flags: Vec::new(),
+        authority: if about_user {
+            Authority::UserPref
+        } else {
+            Authority::Memory
+        },
+        mutability: if about_user {
+            Mutability::user_pref_default()
+        } else {
+            Mutability::memory_free()
+        },
+        valid_from_ms: now_ms,
+        invalid_at_ms: None,
+        triggers: Vec::new(),
+        provenance: ProvenanceRecord {
+            written_by: String::from("import-v1"),
+            at_ms: now_ms,
+            source_event_ids: vec![mm.memory_id.clone()],
+            model: None,
+            supersedes: None,
+        },
+    });
+    let _ = graph.observe(
+        serde_json::json!({"origin": "import-v1", "memory_id": mm.memory_id}),
+        ObserveOptions {
+            id: Some(mm.memory_id),
+            text: Some(mm.content),
+            ..Default::default()
+        },
+    );
+}
+
+/// V1 灵魂里的自述与名字进身份块（性情层，不进核心）。已经有同编号的身份块时不覆盖。
+fn absorb_v1_identity(
+    conscience: &mut Conscience,
+    spine: &SpineEngine<RusqliteWalStore>,
+    now_ms: u64,
+) {
+    let provenance = ProvenanceRecord {
+        written_by: String::from("import-v1"),
+        at_ms: now_ms,
+        source_event_ids: Vec::new(),
+        model: None,
+        supersedes: None,
+    };
+    let has_block =
+        |conscience: &Conscience, id: &str| conscience.identity.iter().any(|b| b.id == id);
+
+    if !has_block(conscience, IDENTITY_SOUL_ID)
+        && let Ok(docs) = spine.store().list_markdown_docs()
+        && let Some((_, soul)) = docs.into_iter().find(|(path, _)| path == "SOUL.md")
+        && !soul.starts_with(GENESIS_SOUL_HEADING)
+        && !soul.trim().is_empty()
+    {
+        conscience.identity.push(IdentityBlock {
+            id: String::from(IDENTITY_SOUL_ID),
+            label: String::from("自述"),
+            description: String::from("从 V1 灵魂带来的自述"),
+            value: soul.trim().to_owned(),
+            char_limit: 1_500,
+            authority: Authority::SelfSoft,
+            mutability: Mutability::self_soft_default(),
+            pinned: true,
+            provenance: provenance.clone(),
+        });
+    }
+
+    if !has_block(conscience, crate::host_sessions::AGENT_NAME_IDENTITY_ID)
+        && let Ok(events) = spine.store().list_all_events()
+    {
+        let name = events.iter().find_map(|(event, _)| {
+            let payload: serde_json::Value = serde_json::from_str(&event.payload_utf8).ok()?;
+            if payload.get("kind")?.as_str()? != "v1.agent_profile" {
+                return None;
             }
+            let profile = payload.get("profile")?;
+            ["displayName", "name"].iter().find_map(|key| {
+                profile
+                    .get(*key)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+            })
+        });
+        if let Some(name) = name {
+            conscience.identity.push(IdentityBlock {
+                id: String::from(crate::host_sessions::AGENT_NAME_IDENTITY_ID),
+                label: String::from("名字"),
+                description: String::from("从 V1 灵魂带来的名字"),
+                value: name,
+                char_limit: 64,
+                authority: Authority::SelfSoft,
+                mutability: Mutability::self_soft_default(),
+                pinned: true,
+                provenance,
+            });
         }
     }
+}
+
+/// 导入之后把物化视图里的新内容收进良知：记忆、自述与名字。
+fn absorb_imported_sea(
+    conscience: &mut Conscience,
+    graph: &mut SerpentineGraph,
+    spine: &SpineEngine<RusqliteWalStore>,
+    now_ms: u64,
+) {
+    if let Ok(memories) = spine.store().list_memories() {
+        for mm in memories {
+            absorb_materialized_memory(conscience, graph, mm, now_ms);
+        }
+    }
+    absorb_v1_identity(conscience, spine, now_ms);
 }
 
 pub struct DaemonHandle {
@@ -2954,6 +3137,7 @@ impl QuetzalcoatlDaemon {
                 domains: domain_runtime,
                 ewave_check_reports: Vec::new(),
             }),
+            host_sessions: crate::host_sessions::HostSessionRegistry::default(),
             fabric: Mutex::new(fabric_runtime.clone()),
         });
 
@@ -3049,43 +3233,7 @@ pub fn import_v1_offline_or_via_ipc(
     let (mut spine, mut conscience, mut graph, mut persisted) =
         load_or_init_sovereign_bundle(qz_home)?;
     let report = spine.import_v1(soul_dir, db_paths, now_ms)?;
-    if let Ok(mat_mems) = spine.store().list_memories() {
-        for mm in mat_mems {
-            if !conscience.memories.iter().any(|m| m.id == mm.memory_id) {
-                conscience.memories.push(MemoryEntry {
-                    id: mm.memory_id.clone(),
-                    kind: MemoryKind::Fact,
-                    topic: Some(mm.category),
-                    content: mm.content.clone(),
-                    about: Vec::new(),
-                    salience: 0.75,
-                    evidence_count: 1,
-                    constant: false,
-                    untrusted: false,
-                    pressure_flags: Vec::new(),
-                    authority: Authority::Memory,
-                    mutability: Mutability::memory_free(),
-                    valid_from_ms: now_ms,
-                    invalid_at_ms: None,
-                    triggers: Vec::new(),
-                    provenance: ProvenanceRecord {
-                        written_by: String::from("import-v1"),
-                        at_ms: now_ms,
-                        source_event_ids: vec![mm.memory_id],
-                        model: None,
-                        supersedes: None,
-                    },
-                });
-                let _ = graph.observe(
-                    serde_json::json!({"origin": "import-v1"}),
-                    ObserveOptions {
-                        text: Some(mm.content),
-                        ..Default::default()
-                    },
-                );
-            }
-        }
-    }
+    absorb_imported_sea(&mut conscience, &mut graph, &spine, now_ms);
     save_sovereign_snapshot(qz_home, &mut persisted, &conscience, &graph)?;
     Ok((report, false))
 }
