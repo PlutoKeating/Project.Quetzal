@@ -4,6 +4,11 @@
 `## <version>` 抽取对应小节，作为 GitHub Release 的 notes。新增版本时在文件顶部追加小节，
 标题格式固定为 `## <version>`（可带日期）。
 
+## 2.0.0-alpha.10
+
+- macOS 与 Windows 外壳改用 Quetzalcoatl 设计系统的外观：纯黑底、白字，唯一的实色是白色主按钮。
+- 第一性原理蓝图（`docs/V2_GOAL.html`）改用设计系统的样式与 tokens，去掉旧的配色与外链字体。
+
 ## 2.0.0-alpha.9
 
 - 治理面「宿主」页：没接上（或没装）的宿主只占一行、写明 `qz connect`，不再铺四格一样的「不通」；「几步不通」只数接上了的宿主。Web 与 Linux 同改。
