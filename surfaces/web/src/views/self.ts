@@ -348,7 +348,7 @@ export class SelfView extends BaseView<SeaSelf> {
                       "data-focus-key": `read:${item.id}`,
                       onclick: () => this.#select({ kind: "read", id: item.id }),
                     },
-                    excerpt(item.text.replace(/^（他自己读到的：[^）]*）/u, ""), 48),
+                    excerpt(item.text.replace(/^（他自己读到的：[^）]*）/u, "").replace(/\s*出处：\S+\s*$/u, ""), 48),
                   ),
                 );
               }),

@@ -155,7 +155,7 @@ impl OverviewPage {
             list.append(&signal_row(
                 Tone::Amber,
                 &format!("{} 件事等你拍板", overview.pending.approvals),
-                Some("在桌面通知里或终端里拍板（qz approve）"),
+                Some("qz approve"),
             ));
         }
         Self::cell(
