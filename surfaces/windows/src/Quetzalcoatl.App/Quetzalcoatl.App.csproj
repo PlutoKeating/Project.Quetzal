@@ -20,11 +20,6 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="../Quetzalcoatl.Desktop/Quetzalcoatl.Desktop.csproj" />
-    <ProjectReference Include="../Quetzalcoatl.Interop/Quetzalcoatl.Interop.csproj" />
-  </ItemGroup>
-
   <Target Name="QzRequireAppxMsBuildTools" BeforeTargets="PrepareForBuild" Condition="'$(UseWinUI)' == 'true'">
     <Error
       Condition="'$(AppxMSBuildToolsPath)' == '' or !Exists('$(AppxMSBuildToolsPath)Microsoft.Build.AppxPackage.dll')"

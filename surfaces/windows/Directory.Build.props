@@ -3,11 +3,8 @@
   <!--
     Quetzalcoatl Windows 桌面端统一编译门禁：
       * Nullable=enable / TreatWarningsAsErrors=true —— 与 AGENTS.md 第 4.6 条一致；
-      * NET 分析器暂不启用：本任务的 Windows 验证机已被所有者暂停，无法在真实编译器上
-        验证 CAxxxx 规则与 WinUI 生成代码/手写代码的兼容性；盲开会让「警告即错误」门禁
-        在无法复验的情况下变红。Deferred (VMs paused by owner)：恢复 Windows 构建后，
-        先在 `Quetzalcoatl.Desktop` / `Quetzalcoatl.Interop` 上开启 `AnalysisMode=Recommended`
-        并逐条收敛，再提交。
+      * NET 分析器暂不启用：Windows 验证只在 CI 的 windows 任务里进行，盲开 CAxxxx 规则会让
+        「警告即错误」门禁在无法本地复验时变红。
   -->
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
