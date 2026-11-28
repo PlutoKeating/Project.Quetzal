@@ -230,11 +230,30 @@ Hub 端 `POST /v1/groups/{group_id}/commits` 请求体：
    字符集排除易混字符）+ 过期时间。
 2. 新设备 `POST /v1/pair/join`，提交 `device_id`、32 字节 Ed25519 公钥、1216 字节 X-Wing 公钥。
 3. 现有设备 `POST /v1/pair/approve`。
-4. `POST /v1/pair/complete` 用 X-Wing HPKE 将当前 `EpochKey[e]` 包裹给新设备。
-5. `short_code` 只存 HMAC（`HMAC-SHA256("quetzalcoatl/v2/pairing-code:" || pairing_id || ":" ||
+4. 新设备 `POST /v1/pair/complete`（附新设备对 `quetzalcoatl/v2/pair-complete:<pairing_id>` 的签名），
+   换回会话令牌与用新设备 X-Wing 公钥封存的根密钥（只能换一次）。
+5. 纪元钥匙与条目钥匙走下面的封存钥匙通道：已有设备在下一次心跳时把它们逐个封存给新设备。
+   新设备收齐第一个纪元的钥匙后接管同一个身份（原来的身份与脊柱挪到 `before-pairing-<时间>/`），
+   同步拉下密文包，再随条目钥匙的到达重放出同一片海。
+6. `short_code` 只存 HMAC（`HMAC-SHA256("quetzalcoatl/v2/pairing-code:" || pairing_id || ":" ||
    CODE)`），有尝试次数上限，超限 `429 CREDENTIAL_REJECTED`。
-6. **纪元轮换**：设备吊销、成员移除或群成员变更后，立即生成 `EpochKey[e+1]` 并以剩余设备公钥
+7. **纪元轮换**：设备吊销、成员移除或群成员变更后，立即生成 `EpochKey[e+1]` 并以剩余设备公钥
    重新包裹；旧纪元密文不再可解。
+
+### 9.1 封存钥匙通道
+
+条目钥匙（每条往事一把）与纪元钥匙不进签名事件链，而是经这条可以删除的通道在设备之间传递。
+每一份都在客户端用接收设备的 X-Wing 公钥封存（HPKE，`info = quetzalcoatl/v2/device-sealed-secret`，
+`aad = quetzalcoatl/device-secret|<agent>|<device>|<name>`），Hub 只见密文。
+
+| 端点 | 作用 | 谁能调用 |
+| --- | --- | --- |
+| `PUT /v1/keys/{agent_id}/{device_id}/{name...}` | 寄给某台设备一份 `{aad_utf8, ciphertext_hex, hpke_enc_hex}` | 该 Agent 的任一设备 |
+| `GET /v1/keys/{agent_id}/{device_id}` | 取走寄给本机的全部 | 只有收件设备本身 |
+| `DELETE /v1/keys/{agent_id}/{name...}` | 删掉这个名字在所有设备上的那一份（抹除时） | 该 Agent 的任一设备 |
+
+名字：条目钥匙是 `sea.entry-key/<层>/<编号>`，纪元钥匙是 `epoch-key/<纪元>`。抹除时本机先销毁钥匙，
+再删 Hub 上的所有副本（离线时排队，联网后删）；其它设备重放到这次抹除时销毁自己那一把。
 
 ## 10. 通道信封与 Webhook 入站
 

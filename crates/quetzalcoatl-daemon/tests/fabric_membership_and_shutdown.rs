@@ -1433,3 +1433,229 @@ fn channel_send_under_partition_local_queues_outbox_and_refuses_public_send() ->
     let _ = accept_thread.join();
     Ok(())
 }
+
+/// 以独立进程的方式跑 `qz`，带上连到测试 Hub 所需的环境（自签名证书、短心跳）。
+fn qz_env(
+    args: &[&str],
+    qz_home: &Path,
+    hub: &RunningGoHub,
+    ca_pem: &Path,
+) -> Result<std::process::Output, BoxError> {
+    Ok(Command::new(PathBuf::from(env!("CARGO_BIN_EXE_qz")))
+        .env("QUETZALCOATL_HOME", qz_home)
+        .env(
+            "QUETZALCOATL_DAEMON_BIN",
+            env!("CARGO_BIN_EXE_quetzalcoatld"),
+        )
+        .env("QUETZALCOATL_FABRIC_HUB_URL", &hub.https_url)
+        .env("QUETZALCOATL_FABRIC_HUB_CA_FILE", ca_pem)
+        .env("QUETZALCOATL_FABRIC_QAD_PORT", hub.qad_port.to_string())
+        .env("QUETZALCOATL_FABRIC_MDNS", "0")
+        .env("QUETZALCOATL_FABRIC_TICK_MS", "400")
+        .env("QUETZALCOATL_HUB_URL", &hub.https_url)
+        .env("QUETZALCOATL_REFLECT", "0")
+        .args(args)
+        .stdin(Stdio::piped())
+        .output()?)
+}
+
+fn memories_of(qz_home: &Path) -> Result<Vec<serde_json::Value>, BoxError> {
+    let client = IpcClient::connect_from_home(qz_home)?.ok_or("守护进程没在运行")?;
+    let response = serde_json::to_value(client.call(&IpcRequest::SeaMemories {
+        query: None,
+        state: Some(String::from("all")),
+        cursor: None,
+        limit: Some(200),
+    })?)?;
+    Ok(response["data"]["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default())
+}
+
+#[test]
+fn a_paired_device_becomes_the_same_agent_and_an_erase_reaches_it() -> TestResult {
+    let _serial = hub_serial();
+    let hub = RunningGoHub::spawn()?;
+    let tmp = TempDirGuard::new("qz_two_dev")?;
+    let home_a = tmp.path().join("a");
+    let home_b = tmp.path().join("b");
+    let ca_pem = tmp.path().join("ca.pem");
+    fs::write(&ca_pem, &hub.ca_cert_pem)?;
+    struct Down<'a>(Vec<&'a Path>);
+    impl Drop for Down<'_> {
+        fn drop(&mut self) {
+            for home in &self.0 {
+                let _ = Command::new(PathBuf::from(env!("CARGO_BIN_EXE_qz")))
+                    .env("QUETZALCOATL_HOME", home)
+                    .arg("down")
+                    .output();
+            }
+        }
+    }
+    let _down = Down(vec![home_a.as_path(), home_b.as_path()]);
+
+    // A：起来、登录（第一次登录即注册）、带进一片海。
+    let up = qz_env(&["up"], &home_a, &hub, &ca_pem)?;
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+    let mut login = Command::new(PathBuf::from(env!("CARGO_BIN_EXE_qz")))
+        .env("QUETZALCOATL_HOME", &home_a)
+        .env("QUETZALCOATL_HUB_URL", &hub.https_url)
+        .args(["login", "--pin-stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let Some(mut stdin) = login.stdin.take() {
+        use std::io::Write as _;
+        stdin.write_all(b"two-device-pin-1\n")?;
+    }
+    let login = login.wait_with_output()?;
+    assert!(
+        login.status.success(),
+        "{}",
+        String::from_utf8_lossy(&login.stderr)
+    );
+    let soul = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../quetzalcoatl-spine/tests/fixtures/v1_soul_v14");
+    let import = qz_env(
+        &["import-v1", "--soul-dir", &soul.to_string_lossy()],
+        &home_a,
+        &hub,
+        &ca_pem,
+    )?;
+    assert!(
+        import.status.success(),
+        "{}",
+        String::from_utf8_lossy(&import.stderr)
+    );
+    let a_memories = memories_of(&home_a)?;
+    assert!(a_memories.len() >= 5);
+
+    // A 发起配对；B 一条命令加入并一直等到接管完成；A 确认。
+    let start = qz_env(&["pair", "start", "--json"], &home_a, &hub, &ca_pem)?;
+    let start: serde_json::Value = serde_json::from_slice(&start.stdout)?;
+    let code = start["pair_code"].as_str().ok_or("pair_code")?.to_owned();
+    let up_b = qz_env(&["up"], &home_b, &hub, &ca_pem)?;
+    assert!(
+        up_b.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up_b.stderr)
+    );
+    let join_home = home_b.clone();
+    let join_ca = ca_pem.clone();
+    let join_code = code.clone();
+    let hub_url = hub.https_url.clone();
+    let qad = hub.qad_port;
+    let joiner = thread::spawn(move || {
+        Command::new(PathBuf::from(env!("CARGO_BIN_EXE_qz")))
+            .env("QUETZALCOATL_HOME", &join_home)
+            .env(
+                "QUETZALCOATL_DAEMON_BIN",
+                env!("CARGO_BIN_EXE_quetzalcoatld"),
+            )
+            .env("QUETZALCOATL_FABRIC_HUB_URL", &hub_url)
+            .env("QUETZALCOATL_FABRIC_HUB_CA_FILE", &join_ca)
+            .env("QUETZALCOATL_FABRIC_QAD_PORT", qad.to_string())
+            .env("QUETZALCOATL_FABRIC_MDNS", "0")
+            .env("QUETZALCOATL_FABRIC_TICK_MS", "400")
+            .env("QUETZALCOATL_REFLECT", "0")
+            .args(["pair", "join", "--code", &join_code])
+            .output()
+    });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let approve = qz_env(
+            &["pair", "approve", "--code", &code],
+            &home_a,
+            &hub,
+            &ca_pem,
+        )?;
+        if approve.status.success() {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(
+                format!("approve 失败: {}", String::from_utf8_lossy(&approve.stderr)).into(),
+            );
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    let joined = joiner.join().map_err(|_| "join 线程崩溃")??;
+    assert!(
+        joined.status.success(),
+        "pair join 失败: {}\n{}",
+        String::from_utf8_lossy(&joined.stdout),
+        String::from_utf8_lossy(&joined.stderr)
+    );
+    assert!(String::from_utf8_lossy(&joined.stdout).contains("同一个他"));
+
+    // B 上出现同一片海：同步下密文包，条目钥匙随后到达，重放。
+    let a_texts: Vec<String> = a_memories
+        .iter()
+        .filter_map(|m| m["text"].as_str().map(String::from))
+        .collect();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let b_texts: Vec<String> = memories_of(&home_b)?
+            .iter()
+            .filter_map(|m| m["text"].as_str().map(String::from))
+            .collect();
+        if a_texts.iter().all(|text| b_texts.contains(text)) {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("B 没有收到 A 的海: A={a_texts:?} B={b_texts:?}").into());
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+
+    // A 抹除一条：B 上也消失。
+    let target = a_memories[0]["id"].as_str().ok_or("id")?.to_owned();
+    let target_text = a_memories[0]["text"].as_str().ok_or("text")?.to_owned();
+    let client_a = IpcClient::connect_from_home(&home_a)?.ok_or("A 不在")?;
+    let erased = client_a.call(&IpcRequest::SeaEntryErase { id: target.clone() })?;
+    assert!(
+        !matches!(erased, IpcResponse::Error { .. }),
+        "A 抹除失败: {erased:?}"
+    );
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let still_there = memories_of(&home_b)?
+            .iter()
+            .any(|m| m["text"].as_str() == Some(target_text.as_str()));
+        if !still_there {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err("A 的抹除没有到达 B".into());
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    // 真删：B 停下后，它的家目录里任何文件都找不到那段文字。
+    let down = qz_env(&["down"], &home_b, &hub, &ca_pem)?;
+    assert!(down.status.success());
+    fn contains(dir: &Path, needle: &[u8]) -> Option<PathBuf> {
+        for entry in fs::read_dir(dir).ok()?.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(hit) = contains(&path, needle) {
+                    return Some(hit);
+                }
+            } else if fs::read(&path)
+                .is_ok_and(|bytes| bytes.windows(needle.len()).any(|w| w == needle))
+            {
+                return Some(path);
+            }
+        }
+        None
+    }
+    let leftover = contains(&home_b.join("spine"), target_text.as_bytes())
+        .or_else(|| contains(&home_b.join("identity"), target_text.as_bytes()));
+    assert_eq!(leftover, None, "B 上被抹除的正文还在");
+    Ok(())
+}

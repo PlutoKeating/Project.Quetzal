@@ -359,6 +359,14 @@ impl DaemonMutableState {
         self.conscience.memories.retain(|m| m.id != id);
         self.kernel.spine_mut().store_mut().delete_memory(id)?;
         let _ = self.graph.redact_entry(id, now_ms);
+        // 别的设备上的那一把钥匙也要删：记下来，下次联网时在 Hub 上删掉寄给所有设备的那一份。
+        crate::sea_sync::queue_remote_key_delete(
+            qz_home,
+            &quetzalcoatl_ewave::journal::entry_key_blob_name(
+                quetzalcoatl_ewave::journal::SeaLayer::Memory,
+                id,
+            ),
+        );
         self.finish_sea_write(
             qz_home,
             before,

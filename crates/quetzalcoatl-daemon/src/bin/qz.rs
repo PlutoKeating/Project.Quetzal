@@ -762,8 +762,17 @@ fn run_pair_join(args: &[String]) -> Result<()> {
     })?;
     let (pairing_id, short_code) = parse_pair_code(&code)?;
     let qz_home = resolve_quetzalcoatl_home(parsed.home);
-    let client = require_daemon(&qz_home)?;
-    expect_fabric_hub(&client, parsed.hub.as_ref())?;
+    // 新设备通常还没接 Hub：带上 Hub 地址（不给就是官方 Hub）重启守护进程。
+    let hub = parsed
+        .hub
+        .clone()
+        .or_else(|| {
+            std::env::var("QUETZALCOATL_HUB_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        })
+        .unwrap_or_else(|| String::from(quetzalcoatl_daemon::OFFICIAL_HUB_URL));
+    let client = ensure_fabric_daemon(&qz_home, &hub)?;
     match client.call(&IpcRequest::FabricPairJoin {
         pairing_id,
         short_code,
@@ -771,20 +780,111 @@ fn run_pair_join(args: &[String]) -> Result<()> {
         IpcResponse::FabricPairJoin(res) => {
             if parsed.json_mode {
                 print_json(&res)?;
-            } else {
-                println!(
-                    "paired joiner_device={} pairing_id={} hub={}",
-                    res.joiner_device_id, res.pairing_id, res.hub_url
-                );
-                println!("请回到已授权设备执行 `qz pair approve --code <pair_code>`");
+                return Ok(());
             }
-            Ok(())
+            println!("已发出加入请求。请在已有的那台设备上运行：qz pair approve --code {code}");
+            println!("这边会等它确认（最多十分钟）……");
+            finish_pairing(&qz_home, &client, &res.pairing_id, &short_code_of(&code))
         }
         IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
         other => Err(QuetzalcoatlError::StorageError {
             detail: format!("未知的 IPC 响应: {other:?}"),
         }),
     }
+}
+
+/// 守护进程没有接 Hub 时，带上 Hub 地址重启它；已经接了就原样用。
+fn ensure_fabric_daemon(qz_home: &Path, hub: &str) -> Result<IpcClient> {
+    let client = require_daemon(qz_home)?;
+    if let IpcResponse::Status(status) = client.call(&IpcRequest::Status)?
+        && status.fabric.hub_url.is_some()
+    {
+        return Ok(client);
+    }
+    let me = std::env::current_exe().map_err(|e| QuetzalcoatlError::StorageError {
+        detail: format!("无法确定 qz 自身的路径: {e}"),
+    })?;
+    let home_arg = qz_home.to_string_lossy().into_owned();
+    let _ = Command::new(&me)
+        .args(["down", "--home", &home_arg])
+        .status();
+    let up = Command::new(&me)
+        .args(["up", "--home", &home_arg, "--fabric-hub", hub])
+        .stdout(Stdio::null())
+        .status()
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("重启守护进程失败: {e}"),
+        })?;
+    if !up.success() {
+        return Err(QuetzalcoatlError::StorageError {
+            detail: String::from("带上 Hub 地址重启守护进程失败，看看 qz status。"),
+        });
+    }
+    require_daemon(qz_home)
+}
+
+fn short_code_of(code: &str) -> String {
+    code.split_once('.')
+        .map_or_else(String::new, |(_, short)| String::from(short))
+}
+
+/// 新设备一侧：等旧设备确认，取回钥匙，然后接管成同一个他并重启守护进程。
+fn finish_pairing(
+    qz_home: &Path,
+    client: &IpcClient,
+    pairing_id: &str,
+    short_code: &str,
+) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(600);
+    loop {
+        match client.call(&IpcRequest::FabricPairComplete {
+            pairing_id: String::from(pairing_id),
+            short_code: String::from(short_code),
+        })? {
+            IpcResponse::FabricPairComplete { ready: true, .. } => break,
+            IpcResponse::FabricPairComplete { ready: false, .. } => {}
+            IpcResponse::Error { code, detail } => {
+                if !detail.contains("not yet approved") {
+                    return Err(map_ipc_error_code(&code, detail));
+                }
+            }
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("未知的 IPC 响应: {other:?}"),
+                });
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(QuetzalcoatlError::StorageError {
+                detail: String::from(
+                    "十分钟内没有等到旧设备确认。确认之后，在这台设备上重新运行同一条 qz pair join 即可接着完成。",
+                ),
+            });
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    }
+    let me = std::env::current_exe().map_err(|e| QuetzalcoatlError::StorageError {
+        detail: format!("无法确定 qz 自身的路径: {e}"),
+    })?;
+    let home_arg = qz_home.to_string_lossy().into_owned();
+    let _ = Command::new(&me)
+        .args(["down", "--home", &home_arg])
+        .status();
+    let agent = quetzalcoatl_daemon::pair_adopt::adopt_paired_identity(qz_home)?;
+    let up = Command::new(&me)
+        .args(["up", "--home", &home_arg])
+        .stdout(Stdio::null())
+        .status()
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("重启守护进程失败: {e}"),
+        })?;
+    if !up.success() {
+        return Err(QuetzalcoatlError::StorageError {
+            detail: String::from("接管后守护进程没有起来，看看 qz status。"),
+        });
+    }
+    println!("这台设备已经是同一个他了（{agent}）。他的海正在同步过来，打开你的宿主即可。");
+    Ok(())
 }
 
 fn run_pair_approve(args: &[String]) -> Result<()> {

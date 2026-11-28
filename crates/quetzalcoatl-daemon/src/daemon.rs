@@ -534,8 +534,17 @@ fn load_or_init_sovereign_bundle(
 
     // 良知以脊柱里的变更事件为准。还没有任何变更事件时（全新安装，或从旧版升级上来），
     // 把出厂良知或旧快照里的良知收编为基线，从此只追加。
+    let adopting = qz_home.join(crate::pair_adopt::ADOPTING_MARKER).exists();
     let conscience = match journal::replay(&mut spine)? {
-        Some(replayed) => replayed,
+        Some(replayed) => {
+            if adopting {
+                let _ = fs::remove_file(qz_home.join(crate::pair_adopt::ADOPTING_MARKER));
+            }
+            replayed
+        }
+        // 刚经配对接管、还没同步到旧设备的海：先用出厂良知顶着，但不写进变更日志，
+        // 否则它会盖过旧设备的海。
+        None if adopting => default_seed_conscience(&root_key, now_ms)?,
         None => {
             let mut baseline = match legacy_conscience {
                 Some(legacy) => legacy,
@@ -624,6 +633,38 @@ pub(crate) fn write_restored_identity(
             agent_id: payload.agent_id,
             device_id: payload.device_id,
             graph_json_v2: payload.graph_json_v2.clone(),
+            root_key_hex: None,
+            ed25519_seed_hex: None,
+            xwing_seed_hex: None,
+            epoch1_key_hex: None,
+            conscience: None,
+        },
+        "主权身份文件",
+    )
+}
+
+/// 配对接管时：按配对来的身份写出身份文件与密钥文件。
+pub(crate) fn write_adopted_identity(
+    qz_home: &Path,
+    adoption: &crate::pair_adopt::PairAdoption,
+) -> Result<()> {
+    let epoch1 = adoption.epoch_keys.get(&1).cloned().unwrap_or_default();
+    write_json_private(
+        &qz_home.join(SOVEREIGN_KEYS_FILE),
+        &SovereignKeysFile {
+            root_key_hex: adoption.root_key_hex.clone(),
+            ed25519_seed_hex: adoption.ed25519_seed_hex.clone(),
+            xwing_seed_hex: adoption.xwing_seed_hex.clone(),
+            epoch1_key_hex: epoch1,
+        },
+        "密钥文件",
+    )?;
+    write_json_private(
+        &qz_home.join(SOVEREIGN_STATE_FILE),
+        &SovereignStateFile {
+            agent_id: adoption.agent_id,
+            device_id: adoption.device_id,
+            graph_json_v2: SerpentineGraph::new(Default::default())?.to_json_v2()?,
             root_key_hex: None,
             ed25519_seed_hex: None,
             xwing_seed_hex: None,
@@ -1904,6 +1945,34 @@ impl SharedDaemonCore {
                         IpcResponse::Error {
                             code: String::from(err.code().as_str()),
                             detail: err.to_string(),
+                        },
+                        false,
+                    ),
+                }
+            }
+            IpcRequest::FabricPairComplete {
+                pairing_id,
+                short_code,
+            } => {
+                let Some(runtime) = self.fabric_runtime() else {
+                    return fabric_disabled_response();
+                };
+                match runtime.pair_complete(
+                    &self.config.quetzalcoatl_home,
+                    &pairing_id,
+                    &short_code,
+                ) {
+                    Ok(adoption) => (
+                        IpcResponse::FabricPairComplete {
+                            agent_id: adoption.agent_id,
+                            ready: adoption.ready(),
+                        },
+                        false,
+                    ),
+                    Err(err) => (
+                        IpcResponse::Error {
+                            code: String::from(err.code().as_str()),
+                            detail: err.detail().map_or_else(|| err.to_string(), str::to_owned),
                         },
                         false,
                     ),

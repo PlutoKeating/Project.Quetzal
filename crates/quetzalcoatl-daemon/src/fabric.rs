@@ -720,6 +720,8 @@ pub(crate) struct DaemonFabricRuntime {
     ticker: Mutex<Option<JoinHandle<()>>>,
     /// 最近一次读到的 Hub 元信息与读到的时刻。
     hub_meta: Mutex<Option<(quetzalcoatl_fabric::HubMeta, u64)>>,
+    /// 上次重放良知时脊柱里的事件数：变了才重放。
+    last_replayed_events: AtomicU64,
 }
 
 struct FabricBootInput {
@@ -808,6 +810,7 @@ impl DaemonFabricRuntime {
             stop: Arc::new(AtomicBool::new(false)),
             ticker: Mutex::new(None),
             hub_meta: Mutex::new(None),
+            last_replayed_events: AtomicU64::new(0),
         });
         Ok(runtime)
     }
@@ -823,7 +826,7 @@ impl DaemonFabricRuntime {
         Arc::clone(&self.core_slot)
     }
 
-    fn config_snapshot(&self) -> DaemonFabricConfig {
+    pub(crate) fn config_snapshot(&self) -> DaemonFabricConfig {
         match self.config.lock() {
             Ok(g) => g.clone(),
             Err(_) => DaemonFabricConfig {
@@ -844,7 +847,24 @@ impl DaemonFabricRuntime {
             .and_then(|g| g.as_ref().map(|s| s.session_token.clone()))
     }
 
-    fn hub_client(&self, token: Option<&str>) -> Result<HubClient> {
+    pub(crate) fn runtime(&self) -> &tokio::runtime::Runtime {
+        &self.rt
+    }
+
+    /// 本机作为新设备加入时用的身份（`qz pair join` 生成）。
+    pub(crate) fn joiner_identity(&self, qz_home: &Path) -> Result<DeviceIdentity> {
+        let path = qz_home.join(FABRIC_JOINER_REL_PATH);
+        let p = load_json_private::<PersistedJoinerIdentity>(&path).ok_or_else(|| {
+            QuetzalcoatlError::StorageError {
+                detail: String::from("这台设备还没有发起加入：先 qz pair join --code <配对码>。"),
+            }
+        })?;
+        let ed = hex_decode_fixed::<32>("joiner.ed25519_seed_hex", &p.ed25519_seed_hex)?;
+        let xw = hex_decode_fixed::<32>("joiner.xwing_seed_hex", &p.xwing_seed_hex)?;
+        DeviceIdentity::from_seeds(p.device_id, ed, xw)
+    }
+
+    pub(crate) fn hub_client(&self, token: Option<&str>) -> Result<HubClient> {
         let config = self.config_snapshot();
         let ca = lock_or_storage(&self.ca_certs_der)?.clone();
         HubClient::new(HubClientConfig {
@@ -1174,6 +1194,26 @@ impl DaemonFabricRuntime {
         drop(inflight);
         self.last_sync_cursor.store(cursor, Ordering::SeqCst);
         *lock_or_storage(&self.lease_view)? = view;
+
+        // 阶段 6：他的海跨设备 —— 交换封存的钥匙；合进来了别的设备的变更或新钥匙时重放良知。
+        let exchange = core.exchange_sealed_keys(&self.hub_client(Some(&token))?, &self.rt);
+        let event_count = lock_or_storage(&core.state)?
+            .kernel
+            .spine()
+            .store()
+            .spine_event_count_and_heads(0)
+            .map(|(count, _)| count)
+            .unwrap_or_default();
+        let grew = self
+            .last_replayed_events
+            .swap(event_count, Ordering::SeqCst)
+            != event_count;
+        let got_keys = exchange
+            .as_ref()
+            .is_ok_and(|e| e.received_entry_keys + e.received_epoch_keys > 0);
+        if grew || got_keys {
+            let _ = core.resync_sea_from_spine();
+        }
         Ok(())
     }
 

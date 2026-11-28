@@ -266,6 +266,11 @@ pub enum IpcRequest {
     /// `qz pair start`：发起抗量子 X-Wing 设备配对。
     FabricPairStart,
     /// `qz pair join --code <pairing_id>.<short_code>`。
+    /// 新设备一侧：旧设备确认之后换回根密钥与纪元钥匙（还没确认时报错，稍后再试）。
+    FabricPairComplete {
+        pairing_id: String,
+        short_code: String,
+    },
     FabricPairJoin {
         pairing_id: String,
         short_code: String,
@@ -478,6 +483,10 @@ pub enum IpcResponse {
     FabricLogin(FabricLoginResult),
     FabricPairStart(Box<FabricPairStartResult>),
     FabricPairJoin(FabricPairJoinResult),
+    FabricPairComplete {
+        agent_id: quetzalcoatl_types::AgentId,
+        ready: bool,
+    },
     FabricPairApprove(Box<FabricPairApproveResult>),
     FabricNodes(Box<FabricNodesReport>),
     FabricRevokeDevice(FabricRevokeResult),
