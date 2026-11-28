@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitAny": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "typeRoots": ["../../../surfaces/web/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["quetzalcoatl/index.ts"]
+}

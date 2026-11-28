@@ -41,6 +41,11 @@ jobs:
             libgtk-4-dev libadwaita-1-dev libsqlite3-dev libzstd-dev \
             pkg-config xvfb dbus
 
+      # 宿主插件的端到端用例用 node 直接加载 OpenCode 插件（TypeScript，靠 node 自带的类型擦除）。
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
       - name: Rust toolchain (pinned by rust-toolchain.toml)
         run: |
           rustup show
@@ -133,6 +138,9 @@ jobs:
           npm run build
           npx playwright install --with-deps chromium
           npm test
+
+      - name: OpenCode plugin — strict typecheck
+        run: surfaces/web/node_modules/.bin/tsc -p packages/harness-enhancers/opencode-plugin/tsconfig.json
 
       - name: Website — install, typecheck, unit tests, prerender build
         working-directory: website

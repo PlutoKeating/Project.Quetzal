@@ -1,0 +1,9 @@
+{
+  "name": "quetzalcoatl-opencode",
+  "version": "{{QZ_VERSION}}",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  }
+}

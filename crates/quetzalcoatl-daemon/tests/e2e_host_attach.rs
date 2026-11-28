@@ -72,11 +72,18 @@ fn write_fake_claude(dir: &Path) -> std::io::Result<PathBuf> {
             log = codex_log.display()
         ),
     )?;
+    // 假 OpenCode：只回答版本号。它的插件由 OpenCode 自己加载，测试里用 node 加载同一份插件代替。
+    let opencode = dir.join("opencode");
+    fs::write(
+        &opencode,
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'opencode v2.4.1'; exit 0; fi\nexit 0\n",
+    )?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
         fs::set_permissions(&codex, fs::Permissions::from_mode(0o755))?;
+        fs::set_permissions(&opencode, fs::Permissions::from_mode(0o755))?;
     }
     Ok(path)
 }
@@ -510,6 +517,7 @@ fn connect_without_the_host_says_what_to_do_next() -> TestResult {
     let rig = Rig::new("nohost")?;
     fs::remove_file(rig.fake_claude_dir.join("claude"))?;
     fs::remove_file(rig.fake_claude_dir.join("codex"))?;
+    fs::remove_file(rig.fake_claude_dir.join("opencode"))?;
     let out = Command::new(qz())
         .args(["connect"])
         .env("QUETZALCOATL_HOME", &rig.qz_home)
@@ -519,7 +527,7 @@ fn connect_without_the_host_says_what_to_do_next() -> TestResult {
     assert!(!out.status.success(), "没有宿主时接上应当失败");
     let said = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(
-        said.contains("Claude Code") && said.contains("Codex"),
+        said.contains("Claude Code") && said.contains("Codex") && said.contains("OpenCode"),
         "要说清缺的是哪个宿主: {said}"
     );
     assert!(said.contains("qz connect"), "要说清下一步: {said}");
@@ -1236,5 +1244,124 @@ fn codex_gets_the_same_plugin_through_its_own_plugin_commands_and_can_be_undone(
         calls.contains("plugin remove quetzalcoatl@quetzalcoatl-local"),
         "{calls}"
     );
+    Ok(())
+}
+
+/// 用 node 加载放进 OpenCode 的那份插件，给它一个替身上下文，按 OpenCode 的顺序触发挂点。
+const OPENCODE_DRIVER: &str = r#"
+const [pluginPath, prompt] = process.argv.slice(2);
+const plugin = (await import(pluginPath)).default;
+const hooks = new Map();
+let mcp = null;
+const ctx = {
+  location: { directory: process.cwd() },
+  session: {
+    hook: async (name, cb) => { hooks.set(name, cb); return { dispose: async () => {} }; },
+    get: async () => ({ parentID: null }),
+  },
+  tool: { hook: async (name, cb) => { hooks.set("tool." + name, cb); return { dispose: async () => {} }; } },
+  mcp: { transform: async (cb) => { cb({ set: (name, cfg) => { mcp = { name, cfg }; } }); return { dispose: async () => {} }; } },
+};
+await plugin.setup(ctx);
+await hooks.get("prompt")({ sessionID: "oc-1", messageID: "m-1", prompt: { text: prompt } });
+const request = { sessionID: "oc-1", system: [] };
+await hooks.get("context")(request);
+let denied = null;
+try {
+  await hooks.get("tool.execute.before")({ tool: "bash", sessionID: "oc-1", input: { command: "echo hi | qz hook --host opencode" } });
+} catch (error) { denied = String(error.message); }
+let allowed = true;
+try {
+  await hooks.get("tool.execute.before")({ tool: "bash", sessionID: "oc-1", input: { command: "ls -la" } });
+} catch { allowed = false; }
+await hooks.get("experimental.idle")({ sessionID: "oc-1", background: [] });
+console.log(JSON.stringify({ mcp, system: request.system.map((p) => p.text).join("\n"), denied, allowed, hooks: [...hooks.keys()] }));
+"#;
+
+#[test]
+fn opencode_gets_a_plugin_directory_that_brings_him_in_and_guards_the_shell() -> TestResult {
+    let rig = Rig::new("opencode")?;
+    let mut daemon = start_daemon_with_fixture(&rig)?;
+    let connect = rig.qz(&["connect"], None, &[])?;
+    let said = String::from_utf8_lossy(&connect.stdout).into_owned();
+    assert!(
+        connect.status.success(),
+        "{}",
+        String::from_utf8_lossy(&connect.stderr)
+    );
+    assert!(said.contains("已接上 OpenCode"), "{said}");
+
+    let plugin_dir = rig.root.join(".config/opencode/plugins/quetzalcoatl");
+    let index = fs::read_to_string(plugin_dir.join("index.ts"))?;
+    assert!(
+        index.contains(&qz().to_string_lossy().into_owned()),
+        "插件里是 qz 的绝对路径"
+    );
+    assert!(!index.contains("{{"), "模板占位符必须全部替换");
+    assert!(
+        !index.contains(daemon.ipc_token()),
+        "插件里不得出现守护进程令牌"
+    );
+    let package: Value = serde_json::from_slice(&fs::read(plugin_dir.join("package.json"))?)?;
+    assert_eq!(package["version"], env!("CARGO_PKG_VERSION"));
+
+    let driver = rig.root.join("opencode-driver.mjs");
+    fs::write(&driver, OPENCODE_DRIVER)?;
+    let run = Command::new("node")
+        .arg(&driver)
+        .arg(plugin_dir.join("index.ts"))
+        .arg("数据库迁移方案是什么")
+        .env("QUETZALCOATL_HOME", &rig.qz_home)
+        .env("HOME", &rig.root)
+        .env_remove("QUETZALCOATL_MANAGED_RUN")
+        .current_dir(&rig.root)
+        .output()?;
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let out: Value = serde_json::from_slice(&run.stdout)?;
+    assert_eq!(out["mcp"]["name"], "quetzalcoatl");
+    assert_eq!(out["mcp"]["cfg"]["command"][1], "mcp");
+    assert_eq!(out["mcp"]["cfg"]["command"][3], "opencode");
+    let system = out["system"].as_str().unwrap_or_default();
+    assert!(
+        system.contains("Ehecatl") || system.contains("<ewave"),
+        "开场带入核心: {system}"
+    );
+    assert!(
+        out["denied"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("宿主自己调用的入口"),
+        "模型在命令行里调 qz hook 要被拦下: {out}"
+    );
+    assert_eq!(out["allowed"], true, "别的命令照常放行");
+
+    // 守护进程停了：插件照常工作，只是什么都不带。
+    daemon.shutdown()?;
+    let quiet = Command::new("node")
+        .arg(&driver)
+        .arg(plugin_dir.join("index.ts"))
+        .arg("随便问一句")
+        .env("QUETZALCOATL_HOME", &rig.qz_home)
+        .env("HOME", &rig.root)
+        .env_remove("QUETZALCOATL_MANAGED_RUN")
+        .current_dir(&rig.root)
+        .output()?;
+    assert!(
+        quiet.status.success(),
+        "{}",
+        String::from_utf8_lossy(&quiet.stderr)
+    );
+    let quiet_out: Value = serde_json::from_slice(&quiet.stdout)?;
+    assert_eq!(quiet_out["system"], "", "守护进程停了就什么都不带");
+
+    let doctor = rig.qz(&["doctor"], None, &[])?;
+    assert!(String::from_utf8_lossy(&doctor.stdout).contains("OpenCode"));
+    let undo = rig.qz(&["connect", "--undo"], None, &[])?;
+    assert!(undo.status.success());
+    assert!(!plugin_dir.exists(), "撤下后插件目录不留");
     Ok(())
 }

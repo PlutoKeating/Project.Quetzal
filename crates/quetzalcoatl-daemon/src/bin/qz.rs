@@ -1294,6 +1294,37 @@ fn locate_codex_target(
     }))
 }
 
+fn locate_opencode_target(
+    qz_home: &Path,
+) -> Result<Option<quetzalcoatl_daemon::host_connect_opencode::OpenCodeTarget>> {
+    let report = discover_coding_agents_patiently(&DiscoveryConfig {
+        probe_timeout: Duration::from_secs(3),
+        ..DiscoveryConfig::default()
+    })?;
+    if !report
+        .agents
+        .iter()
+        .any(|agent| agent.kind == CodingAgentKind::OpenCode)
+    {
+        return Ok(None);
+    }
+    let qz_bin = std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("无法确定 qz 自身的路径: {e}"),
+        })?;
+    let Some(config_dir) = quetzalcoatl_daemon::host_connect_opencode::opencode_config_dir() else {
+        return Ok(None);
+    };
+    Ok(Some(
+        quetzalcoatl_daemon::host_connect_opencode::OpenCodeTarget {
+            qz_home: qz_home.to_path_buf(),
+            qz_bin,
+            config_dir,
+        },
+    ))
+}
+
 /// `qz connect`：把他接进本机已有的宿主。`--undo` 撤下。
 fn run_connect(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
@@ -1316,10 +1347,11 @@ fn run_connect(args: &[String]) -> Result<()> {
     let qz_home = resolve_quetzalcoatl_home(home);
     let claude = locate_claude_code_target(&qz_home)?;
     let codex = locate_codex_target(&qz_home)?;
-    if claude.is_none() && codex.is_none() {
+    let opencode = locate_opencode_target(&qz_home)?;
+    if claude.is_none() && codex.is_none() && opencode.is_none() {
         return Err(QuetzalcoatlError::StorageError {
             detail: String::from(
-                "本机没有找到 Claude Code，也没有找到 Codex。装好并登录其中一个之后，再执行 `qz connect`。",
+                "本机没有找到 Claude Code、Codex 或 OpenCode。装好并登录其中一个之后，再执行 `qz connect`。",
             ),
         });
     }
@@ -1333,7 +1365,24 @@ fn run_connect(args: &[String]) -> Result<()> {
             quetzalcoatl_daemon::host_connect_codex::disconnect_codex(target)?;
             println!("已从 Codex 撤下。");
         }
+        if let Some(target) = &opencode {
+            quetzalcoatl_daemon::host_connect_opencode::disconnect_opencode(target)?;
+            println!("已从 OpenCode 撤下。");
+        }
         return Ok(());
+    }
+
+    if let Some(target) = &opencode {
+        match quetzalcoatl_daemon::host_connect_opencode::connect_opencode(target) {
+            Ok(()) => {
+                println!("已接上 OpenCode。");
+                println!("  它的后台服务会自己加载；没生效就执行 opencode service restart");
+            }
+            Err(err) => println!(
+                "OpenCode 没有接上：{}",
+                err.detail().unwrap_or("写插件目录失败")
+            ),
+        }
     }
 
     if let Some(target) = &codex {
@@ -1397,6 +1446,16 @@ fn run_doctor(args: &[String]) -> Result<()> {
     {
         println!("Codex");
         for item in quetzalcoatl_daemon::host_connect_codex::doctor_codex(&qz_home, &codex) {
+            let mark = if item.ok { "●" } else { "○" };
+            println!("  {mark} {}  {}", item.label, item.detail);
+        }
+    }
+    if let Some(opencode) = locate_opencode_target(&qz_home)?
+        && opencode.plugin_dir().exists()
+    {
+        println!("OpenCode");
+        for item in quetzalcoatl_daemon::host_connect_opencode::doctor_opencode(&qz_home, &opencode)
+        {
             let mark = if item.ok { "●" } else { "○" };
             println!("  {mark} {}  {}", item.label, item.detail);
         }

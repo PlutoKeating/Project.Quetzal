@@ -1353,6 +1353,11 @@ impl SharedDaemonCore {
                     "codex",
                 ),
             ),
+            view(
+                crate::host_connect_opencode::HOST_OPENCODE,
+                "OpenCode",
+                crate::host_connect_opencode::opencode_local_state(home),
+            ),
         ]
     }
 
