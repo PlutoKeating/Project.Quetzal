@@ -110,6 +110,7 @@ fn serve(state: Arc<Mutex<FakeSayIt>>) -> Result<String, Box<dyn Error>> {
 fn record(id: &str, rev: u64, title: &str, body: &str) -> Value {
     json!({
         "id": id, "rev": rev, "title": title, "kind": "own",
+        "captured_at": 1_795_855_591_608_u64, "project_ids": [],
         "markdown": format!("---\nid: \"{id}\"\ntitle: \"{title}\"\n---\n# {title}\n{body}")
     })
 }

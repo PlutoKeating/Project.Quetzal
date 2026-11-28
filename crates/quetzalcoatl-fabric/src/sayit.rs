@@ -30,8 +30,9 @@ pub struct SayItRecord {
     pub deleted: bool,
     #[serde(default)]
     pub title: Option<String>,
+    /// 采集时刻：SayIt 给的是毫秒时间戳（Markdown 头里才是 ISO 字符串），两种都收。
     #[serde(default)]
-    pub captured_at: Option<String>,
+    pub captured_at: Option<serde_json::Value>,
     #[serde(default)]
     pub markdown: Option<String>,
 }
