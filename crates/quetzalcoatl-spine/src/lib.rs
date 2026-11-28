@@ -9,7 +9,10 @@ pub mod import_v1;
 pub mod ledger;
 pub mod store;
 
-pub use archive::{ZipExportOptions, export_zip_archive, import_zip_archive};
+pub use archive::{
+    ZipExportOptions, export_zip_archive, export_zip_archive_with, import_zip_archive,
+    read_archive_entry,
+};
 pub use import_v1::{V1ImportReport, run_import_v1};
 pub use ledger::{
     AUTO_PACK_EVENT_THRESHOLD, SpineCheckpoint, SpineEvent, SpineEventHeader, compute_event_blake3,
@@ -570,6 +573,15 @@ impl<S: MaterializedStore> SpineEngine<S> {
 
     pub fn export_zip(&self, zip_path: &Path, options: ZipExportOptions) -> Result<()> {
         export_zip_archive(self, zip_path, options)
+    }
+
+    pub fn export_zip_with(
+        &self,
+        zip_path: &Path,
+        options: ZipExportOptions,
+        extra_files: &[(String, Vec<u8>)],
+    ) -> Result<()> {
+        export_zip_archive_with(self, zip_path, options, extra_files)
     }
 
     pub fn import_zip(&mut self, zip_path: &Path, local_trusted_wall_ms: u64) -> Result<usize> {

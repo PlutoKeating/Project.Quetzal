@@ -89,6 +89,20 @@ pub fn export_zip_archive<S: MaterializedStore>(
     zip_path: &Path,
     options: ZipExportOptions,
 ) -> Result<()> {
+    export_zip_archive_with(engine, zip_path, options, &[])
+}
+
+/// 导出时另外放进几份文件（例如由良知整理出的可读文档、口令封存的恢复包）。
+/// 路径与已有文件重名时，以这里给的为准。
+pub fn export_zip_archive_with<S: MaterializedStore>(
+    engine: &SpineEngine<S>,
+    zip_path: &Path,
+    options: ZipExportOptions,
+    extra_files: &[(String, Vec<u8>)],
+) -> Result<()> {
+    for (rel_path, _) in extra_files {
+        validate_safe_rel_path(rel_path)?;
+    }
     if let Some(parent) = zip_path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -105,7 +119,14 @@ pub fn export_zip_archive<S: MaterializedStore>(
     let docs = engine.store().list_markdown_docs()?;
     let mut written_paths = BTreeSet::new();
 
+    for (rel_path, bytes) in extra_files {
+        write_zip_entry(&mut writer, rel_path, bytes)?;
+        written_paths.insert(rel_path.clone());
+    }
     for (rel_path, content) in &docs {
+        if written_paths.contains(rel_path) {
+            continue;
+        }
         write_zip_entry(&mut writer, rel_path, content.as_bytes())?;
         written_paths.insert(rel_path.clone());
     }
@@ -222,6 +243,26 @@ pub fn export_zip_archive<S: MaterializedStore>(
             detail: format!("收尾写入 ZIP 归档失败: {e}"),
         })?;
     Ok(())
+}
+
+/// 读出归档里的一个文件；没有这个文件时返回 `None`。
+pub fn read_archive_entry(zip_path: &Path, name: &str) -> Result<Option<Vec<u8>>> {
+    let file = File::open(zip_path).map_err(|e| QuetzalcoatlError::StorageError {
+        detail: format!("打开 ZIP 归档失败: {e}"),
+    })?;
+    let mut archive = ZipArchive::new(file).map_err(|e| QuetzalcoatlError::StorageError {
+        detail: format!("解析 ZIP 归档结构失败: {e}"),
+    })?;
+    let Ok(mut entry) = archive.by_name(name) else {
+        return Ok(None);
+    };
+    let mut buf = Vec::new();
+    entry
+        .read_to_end(&mut buf)
+        .map_err(|e| QuetzalcoatlError::StorageError {
+            detail: format!("读取 ZIP 条目 {name} 失败: {e}"),
+        })?;
+    Ok(Some(buf))
 }
 
 pub fn import_zip_archive<S: MaterializedStore>(
