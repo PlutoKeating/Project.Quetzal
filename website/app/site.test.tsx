@@ -310,10 +310,17 @@ describe("copy matches the product", () => {
 
   it("documents every command of this release and no other", () => {
     const all = pages.map((p) => p.text).join("\n");
-    for (const cmd of ["qz connect", "qz connect --undo", "qz doctor", "qz status", "qz up", "qz down", "qz open", "qz export", "qz import", "qz import-v1", "qz login", "qz pair"]) {
+    const documented = [
+      "qz connect", "qz connect --undo", "qz doctor", "qz status", "qz up", "qz down", "qz open", "qz export", "qz import",
+      "qz import-v1", "qz login", "qz pair", "qz bring", "qz sayit connect", "qz reflect", "qz approve", "qz recovery-code", "qz recover",
+    ];
+    for (const cmd of documented) {
       expect(all, cmd).toContain(cmd);
     }
-    const known = new Set(["connect", "doctor", "status", "up", "down", "open", "export", "import", "import-v1", "login", "pair"]);
+    const known = new Set([
+      "connect", "doctor", "status", "up", "down", "open", "export", "import", "import-v1", "login", "pair",
+      "bring", "sayit", "reflect", "approve", "recovery-code", "recover",
+    ]);
     for (const page of pages) {
       for (const match of page.text.matchAll(/\bqz ([a-z][a-z0-9-]*)/g)) expect(known.has(match[1] ?? ""), `${page.path}: qz ${match[1]}`).toBe(true);
     }
