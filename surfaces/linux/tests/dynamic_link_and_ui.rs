@@ -1343,7 +1343,8 @@ fn probe_write(out: &Path) -> serde_json::Value {
         "sign_clicked".into(),
         click_named(&baseline, "sign-button").into(),
     );
-    app::pump_until(5_000, || visible_text(&baseline).contains("起生效"));
+    // 第一次签署要设口令并用它封存根私钥（两次 Argon2id），慢机器上要多等一会儿。
+    app::pump_until(20_000, || visible_text(&baseline).contains("起生效"));
     steps.insert(
         "signed_state".into(),
         visible_text(&baseline).contains("起生效").into(),

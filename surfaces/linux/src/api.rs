@@ -20,6 +20,8 @@ use quetzalcoatl_daemon::{DirectiveDraft, IpcClient, IpcRequest, IpcResponse};
 
 /// 读取与写入的时限：治理面是本机调用，超过它就当作联系不上。
 const CALL_TIMEOUT: Duration = Duration::from_secs(8);
+/// 带口令的写（签底线、吊销）要做 Argon2id，第一次签署还要封存根私钥：多给些时间。
+const PASSPHRASE_CALL_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// 一次调用没有成功。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,7 +122,13 @@ fn blocking_call(home: &std::path::Path, request: &IpcRequest) -> Result<IpcResp
             "run/daemon.json 或 run/daemon.token 缺失",
         )));
     };
-    match client.with_timeout(CALL_TIMEOUT).call(request) {
+    let timeout = match request {
+        IpcRequest::SeaBaselineSign { .. } | IpcRequest::SeaDeviceRevoke { .. } => {
+            PASSPHRASE_CALL_TIMEOUT
+        }
+        _ => CALL_TIMEOUT,
+    };
+    match client.with_timeout(timeout).call(request) {
         Ok(IpcResponse::Error { code, detail }) => Err(ApiError::Remote { code, detail }),
         Ok(response) => Ok(response),
         Err(err) => Err(ApiError::Unreachable(err.to_string())),
