@@ -525,8 +525,23 @@ pub(crate) struct ClaudeCodeLocalState {
 }
 
 pub(crate) fn claude_code_local_state(qz_home: &Path) -> ClaudeCodeLocalState {
-    let host_dir = qz_home.join("hosts").join(HOST_CLAUDE_CODE);
-    let hooks: Option<Value> = fs::read(host_dir.join("marketplace/plugin/hooks/hooks.json"))
+    host_local_state(
+        qz_home,
+        HOST_CLAUDE_CODE,
+        "marketplace/plugin/hooks/hooks.json",
+        "claude",
+    )
+}
+
+/// 某个宿主只看本地文件得到的接入状态：插件源里的钩子表、接入记录、命令行在不在 PATH 上。
+pub(crate) fn host_local_state(
+    qz_home: &Path,
+    host: &str,
+    hooks_rel: &str,
+    binary: &str,
+) -> ClaudeCodeLocalState {
+    let host_dir = qz_home.join("hosts").join(host);
+    let hooks: Option<Value> = fs::read(host_dir.join(hooks_rel))
         .ok()
         .and_then(|raw| serde_json::from_slice(&raw).ok());
     let registered = |event: &str| {
@@ -538,7 +553,7 @@ pub(crate) fn claude_code_local_state(qz_home: &Path) -> ClaudeCodeLocalState {
             .is_some_and(|entries| !entries.is_empty())
     };
     let on_path = std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join("claude").is_file()));
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(binary).is_file()));
     let connected = host_dir.join("connect.json").is_file();
     ClaudeCodeLocalState {
         installed: on_path || connected,

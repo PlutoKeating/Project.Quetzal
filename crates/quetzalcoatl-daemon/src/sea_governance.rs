@@ -1203,45 +1203,63 @@ impl SharedDaemonCore {
     }
 
     fn sea_host_views(&self) -> Vec<HostView> {
-        let local = crate::host_connect::claude_code_local_state(&self.config.quetzalcoatl_home);
+        let home = &self.config.quetzalcoatl_home;
         let check = |key: &str, ok: bool, yes: &str, no: &str| HostCheck {
             key: String::from(key),
             ok,
             detail: String::from(if ok { yes } else { no }),
         };
-        vec![HostView {
-            host: String::from(crate::host_hook::HOST_CLAUDE_CODE),
-            name: String::from("Claude Code"),
-            installed: local.installed,
-            version: None,
-            connected: local.connected,
-            checks: vec![
-                check(
-                    "core",
-                    local.connected && local.session_start,
-                    "会话开始时送入他的核心",
-                    "会话开始时还送不进去：在终端运行 qz connect",
+        let view =
+            |host: &str, name: &str, local: crate::host_connect::ClaudeCodeLocalState| HostView {
+                host: String::from(host),
+                name: String::from(name),
+                installed: local.installed,
+                version: None,
+                connected: local.connected,
+                checks: vec![
+                    check(
+                        "core",
+                        local.connected && local.session_start,
+                        "会话开始时送入他的核心",
+                        "会话开始时还送不进去：在终端运行 qz connect",
+                    ),
+                    check(
+                        "recall",
+                        local.connected && local.prompt_submit,
+                        "每次提交带上相关往事",
+                        "提交时还带不进往事：在终端运行 qz connect",
+                    ),
+                    check(
+                        "signal",
+                        local.connected && local.stop,
+                        "回合结束时收得到信号",
+                        "回合结束时还收不到信号：在终端运行 qz connect",
+                    ),
+                    check(
+                        "compaction",
+                        local.connected && local.session_start,
+                        "压缩对话之后重新送入核心",
+                        "压缩之后核心会丢：在终端运行 qz connect",
+                    ),
+                ],
+            };
+        vec![
+            view(
+                crate::host_hook::HOST_CLAUDE_CODE,
+                "Claude Code",
+                crate::host_connect::claude_code_local_state(home),
+            ),
+            view(
+                crate::host_connect_codex::HOST_CODEX,
+                "Codex",
+                crate::host_connect::host_local_state(
+                    home,
+                    crate::host_connect_codex::HOST_CODEX,
+                    "marketplace/plugins/quetzalcoatl/hooks/hooks.json",
+                    "codex",
                 ),
-                check(
-                    "recall",
-                    local.connected && local.prompt_submit,
-                    "每次提交带上相关往事",
-                    "提交时还带不进往事：在终端运行 qz connect",
-                ),
-                check(
-                    "signal",
-                    local.connected && local.stop,
-                    "回合结束时收得到信号",
-                    "回合结束时还收不到信号：在终端运行 qz connect",
-                ),
-                check(
-                    "compaction",
-                    local.connected && local.session_start,
-                    "压缩对话之后重新送入核心",
-                    "压缩之后核心会丢：在终端运行 qz connect",
-                ),
-            ],
-        }]
+            ),
+        ]
     }
 
     fn sea_devices_view(&self) -> DevicesView {
