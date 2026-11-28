@@ -514,8 +514,27 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
     assert_eq!(code_resp["verification_mark"]["passed_test_count"], 4);
     assert_eq!(
         fs::read_to_string(project_repo.join("src/lib.rs"))?,
+        "pub fn compute_sum(_a: u32, _b: u32) -> u32 { 0 }\n",
+        "验收通过后先等拍板，目标仓库还没动"
+    );
+    let approval_id = code_resp["approval_id"]
+        .as_str()
+        .ok_or("qz delegate 应返回拍板编号")?
+        .to_owned();
+    let approve_out = Command::new(&qz_bin)
+        .env("QUETZALCOATL_HOME", &qz_home)
+        .args(["approve", &approval_id])
+        .output()?;
+    assert!(
+        approve_out.status.success(),
+        "qz approve 失败: {}",
+        String::from_utf8_lossy(&approve_out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&approve_out.stdout).contains("已合进你的目录"));
+    assert_eq!(
+        fs::read_to_string(project_repo.join("src/lib.rs"))?,
         "pub fn compute_sum(a: u32, b: u32) -> u32 { a + b }\n",
-        "洁净室验收通过后工作树变更应落盘至目标仓库"
+        "拍板合进去之后工作树变更落盘至目标仓库"
     );
 
     // 同时核对 Router 若尝试调用 shell/edit 被确定性剥夺拦截
