@@ -464,3 +464,71 @@ fn the_rhythm_of_his_time_alone_is_set_from_the_governance_surface() -> TestResu
     assert!(bad.is_err(), "开始与结束是同一个钟点不算时段: {bad:?}");
     Ok(())
 }
+
+#[test]
+fn a_watched_notes_folder_keeps_flowing_in_and_follows_edits_and_deletions() -> TestResult {
+    let root = common::temp_root("watch")?;
+    let _guard = TempGuard(root.clone());
+    let notes = root.join("vault");
+    fs::create_dir_all(&notes)?;
+    fs::write(
+        notes.join("鸢尾花.md"),
+        "# 发布\n鸢尾花计划的发布日定在周四。\n",
+    )?;
+    fs::write(notes.join("家.md"), "# 阳台\n阳台上的绿萝每周浇一次水。\n")?;
+    let daemon = QuetzalcoatlDaemon::start(DaemonConfig::new(root.join("h")))?;
+    let client = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+    let all = |client: &IpcClient| -> Result<String, Box<dyn Error>> {
+        Ok(call(
+            client,
+            &IpcRequest::SeaMemories {
+                query: None,
+                state: Some(String::from("all")),
+                cursor: None,
+                limit: Some(200),
+            },
+        )?
+        .to_string())
+    };
+
+    let first = call(
+        &client,
+        &IpcRequest::ImportWatch {
+            path: Some(notes.clone()),
+            stop: false,
+        },
+    )?;
+    assert_eq!(first["data"]["added"], 2, "{first}");
+    assert!(all(&client)?.contains("发布日定在周四"));
+
+    // 没变的不重复带。
+    let again = call(
+        &client,
+        &IpcRequest::ImportWatch {
+            path: None,
+            stop: false,
+        },
+    )?;
+    assert_eq!(again["data"]["added"], 0, "{again}");
+    assert_eq!(again["data"]["updated"], 0, "{again}");
+
+    fs::write(
+        notes.join("鸢尾花.md"),
+        "# 发布\n鸢尾花计划的发布日改到下周一。\n",
+    )?;
+    fs::remove_file(notes.join("家.md"))?;
+    let changed = call(
+        &client,
+        &IpcRequest::ImportWatch {
+            path: None,
+            stop: false,
+        },
+    )?;
+    assert_eq!(changed["data"]["updated"], 1, "{changed}");
+    assert_eq!(changed["data"]["erased"], 1, "{changed}");
+    let now = all(&client)?;
+    assert!(now.contains("改到下周一"), "{now}");
+    assert!(!now.contains("定在周四"), "改了的旧内容不留: {now}");
+    assert!(!now.contains("绿萝"), "删了的抹除: {now}");
+    Ok(())
+}

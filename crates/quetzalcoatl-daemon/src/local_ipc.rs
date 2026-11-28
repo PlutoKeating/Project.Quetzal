@@ -138,6 +138,11 @@ pub enum IpcRequest {
     ImportUndo {
         batch_id: String,
     },
+    /// 登记（`stop` 为真时取消登记）一个只读笔记目录并立即重读；`path` 为空时只重读。
+    ImportWatch {
+        path: Option<PathBuf>,
+        stop: bool,
+    },
     /// 治理面（docs/GOVERNANCE_SURFACE.md 第 3 节）：只看和签。
     SeaOverview,
     SeaSelf,
@@ -411,6 +416,7 @@ pub enum IpcResponse {
     ApprovalDecide(crate::approvals::ApprovalOutcome),
     ImportNotes(crate::notes_import::ImportReport),
     ImportUndo(crate::notes_import::UndoReport),
+    ImportWatch(crate::notes_import::WatchReport),
     SeaOverview(crate::sea_governance::SeaOverview),
     SeaSelf(crate::sea_governance::SeaSelf),
     SeaUser(crate::sea_governance::SeaUser),

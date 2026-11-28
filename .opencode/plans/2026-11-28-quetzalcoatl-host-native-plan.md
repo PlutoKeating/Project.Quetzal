@@ -594,7 +594,7 @@
 - [x] **Task 9.2**：SayIt 自动合龙（需要 SayIt 仓库配合，跨仓改动另行确认）。
   > **落地说明**：SayIt 0.4.0 上线了只读接口（SayIt 仓库 `docs/READ_API.md`）。`qz sayit connect` 用个人令牌接上（令牌只存本机，0600），守护进程每五分钟按修订号增量取记录：一条记录成为一条往事（来源标为 SayIt），记录改了旧的抹除、新的接替，删了或移出令牌范围就抹除；落盘之后才上报游标，SayIt 据此显示「已入海」。用的是记录的 Markdown 而不是子树快照：往事要能在治理面里读、能导出、能真删，快照只进检索图做不到这些。没有跨仓改 SayIt。
 - [x] **Task 9.3**：通用导入（宿主自带的规则与记忆、各家对话导出包、角色卡），每次导入可整批撤回；只读的外部笔记来源。
-  > **落地说明**：`qz bring <文件或目录>` 带进 Markdown、纯文本（宿主的 CLAUDE.md、AGENTS.md 这类规则与记忆文件就是 Markdown）与各家对话导出（ChatGPT、Claude 的 conversations.json，只取用户自己说的话）；按标题或空行切段，一批一个编号，来源在治理面里写明；`qz bring --undo <批次>` 整批抹除。角色卡与只读的外部笔记来源（持续同步）没有做。
+  > **落地说明**：`qz bring <文件或目录>` 带进 Markdown、纯文本（宿主的 CLAUDE.md、AGENTS.md 这类规则与记忆文件就是 Markdown）与各家对话导出（ChatGPT、Claude 的 conversations.json，只取用户自己说的话）；按标题或空行切段，一批一个编号，来源在治理面里写明；`qz bring --undo <批次>` 整批抹除。角色卡（Character Card V1/V2/V3 的 JSON，或把卡片放在 `chara`/`ccv3` 文本块里的 PNG）的设定、性格、场景各成一条往事，不改他的核心。`qz bring --watch <目录>` 登记一个只读的笔记目录（例如 Obsidian 仓库）：守护进程每五分钟重读，每个文件一批，新增的带进来、改了的旧批次抹除再接替、删了的抹除；`--unwatch` 取消，已带进来的留着。
 
 ---
 

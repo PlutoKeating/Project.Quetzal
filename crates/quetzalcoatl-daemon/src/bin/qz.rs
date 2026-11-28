@@ -48,7 +48,8 @@ Commands:
   export      Export readable Markdown + Spine ZIP; with a passphrase it also carries a recovery bundle
   import      Restore an export into an empty home (asks for the export passphrase)
   approve     List what waits for your decision; approve <id> applies it, --deny drops it
-  bring       Bring in notes, host rule files and chat exports as memories; --undo <batch> takes a batch back out
+  bring       Bring in notes, host rule files, chat exports and character cards as memories;
+              --undo <batch> takes a batch back out; --watch <dir> keeps a notes folder flowing in
   reflect     Have him look back on recent sessions now (normally runs by itself while you are away);
               --quiet stops him from bringing things up first, --speak-first turns it back on;
               --explore sends him out to read about something he got curious about (read-only);
@@ -2291,18 +2292,58 @@ fn run_approve(args: &[String]) -> Result<()> {
 fn run_bring(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
     let mut undo: Option<String> = None;
+    let mut watch: Option<(PathBuf, bool)> = None;
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
             "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
             "--undo" => undo = Some(parse_flag_value(args, &mut i, "--undo")?.clone()),
+            "--watch" => {
+                watch = Some((
+                    PathBuf::from(parse_flag_value(args, &mut i, "--watch")?),
+                    false,
+                ));
+            }
+            "--unwatch" => {
+                watch = Some((
+                    PathBuf::from(parse_flag_value(args, &mut i, "--unwatch")?),
+                    true,
+                ));
+            }
             other => paths.push(PathBuf::from(other)),
         }
         i += 1;
     }
     let qz_home = resolve_quetzalcoatl_home(home);
     let client = require_daemon(&qz_home)?.with_timeout(Duration::from_secs(600));
+    if let Some((dir, stop)) = watch {
+        let dir = fs::canonicalize(&dir).unwrap_or(dir);
+        return match client.call(&IpcRequest::ImportWatch {
+            path: Some(dir.clone()),
+            stop,
+        })? {
+            IpcResponse::ImportWatch(report) => {
+                if stop {
+                    println!("不再看 {}。已经带进来的留着。", dir.display());
+                } else {
+                    println!(
+                        "会一直看着 {}：每五分钟重读一次，新增的带进来，改了的接替，删了的抹除。",
+                        dir.display()
+                    );
+                }
+                println!(
+                    "这一次：新增 {} 个文件，更新 {} 个，抹除 {} 个。",
+                    report.added, report.updated, report.erased
+                );
+                Ok(())
+            }
+            IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+            other => Err(QuetzalcoatlError::StorageError {
+                detail: format!("未知的 IPC 响应: {other:?}"),
+            }),
+        };
+    }
     if let Some(batch_id) = undo {
         return match client.call(&IpcRequest::ImportUndo { batch_id })? {
             IpcResponse::ImportUndo(report) => {
@@ -2321,7 +2362,7 @@ fn run_bring(args: &[String]) -> Result<()> {
     if paths.is_empty() {
         return Err(QuetzalcoatlError::StorageError {
             detail: String::from(
-                "用法: qz bring <文件或目录>...（Markdown、纯文本、对话导出的 conversations.json）；qz bring --undo <批次>",
+                "用法: qz bring <文件或目录>...（Markdown、纯文本、对话导出的 conversations.json、角色卡 JSON 或 PNG）；qz bring --undo <批次>；qz bring --watch <目录> 一直看着一个笔记目录（--unwatch 取消）",
             ),
         });
     }

@@ -1674,6 +1674,12 @@ impl SharedDaemonCore {
                 Ok(report) => (IpcResponse::ImportNotes(report), false),
                 Err(err) => ipc_error_response(err),
             },
+            IpcRequest::ImportWatch { path, stop } => {
+                match self.watch_notes(path.as_deref(), stop) {
+                    Ok(report) => (IpcResponse::ImportWatch(report), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
             IpcRequest::ImportUndo { batch_id } => match self.undo_import(&batch_id) {
                 Ok(report) => (IpcResponse::ImportUndo(report), false),
                 Err(err) => ipc_error_response(err),
@@ -3154,7 +3160,7 @@ impl QuetzalcoatlDaemon {
                     }
                 });
         }
-        // SayIt 自动流入：接上了就每隔五分钟拉一次。
+        // SayIt 自动流入与登记的笔记目录：每隔五分钟各看一次。
         {
             let weak = Arc::downgrade(&shared_core);
             let _ = std::thread::Builder::new()
@@ -3166,6 +3172,7 @@ impl QuetzalcoatlDaemon {
                             break;
                         };
                         let _ = core.pull_sayit();
+                        let _ = core.sync_watched_notes();
                     }
                 });
         }
