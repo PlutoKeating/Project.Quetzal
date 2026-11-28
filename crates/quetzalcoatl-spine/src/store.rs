@@ -319,7 +319,23 @@ impl RusqliteWalStore {
         )
         .map_err(sql_err)?;
 
+        // 全文索引默认只给删掉的行打标记，词条还留在索引里；要求它删的时候把词条一并拿掉。
+        conn.execute(
+            "INSERT INTO memories_fts(memories_fts, rank) VALUES('secure-delete', 1);",
+            [],
+        )
+        .map_err(sql_err)?;
+
         Ok(Self { conn })
+    }
+
+    /// 真删的最后一步：把预写日志并回主库并截断。
+    ///
+    /// 删除只是把主库里的页清零；被删内容的旧页还躺在预写日志里，直到下一次合并。
+    fn purge_freed_pages(&self) -> Result<()> {
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE);", [], |_row| Ok(()))
+            .map_err(sql_err)
     }
 
     pub fn journal_mode(&self) -> Result<String> {
@@ -872,7 +888,8 @@ impl MaterializedStore for RusqliteWalStore {
             params![memory_id],
         )
         .map_err(sql_err)?;
-        tx.commit().map_err(sql_err)
+        tx.commit().map_err(sql_err)?;
+        self.purge_freed_pages()
     }
 
     fn search_memories_fts(&self, query: &str, limit: usize) -> Result<Vec<MaterializedMemory>> {
@@ -1321,7 +1338,7 @@ impl MaterializedStore for RusqliteWalStore {
                 params![blob_key],
             )
             .map_err(sql_err)?;
-        Ok(())
+        self.purge_freed_pages()
     }
 
     fn get_private_blob(&self, blob_key: &str) -> Result<Option<String>> {

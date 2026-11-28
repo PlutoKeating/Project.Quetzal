@@ -2734,6 +2734,14 @@ impl SerpentineGraph {
                 node.label = None;
                 node.data = serde_json::Value::Null;
                 node.meta.clear();
+                // 向量是文字的词法指纹：保留维度，换成一个不带任何信息的单位向量
+                //（图不接受全零向量）。
+                if let Some(embedding) = node.embedding.as_mut() {
+                    embedding.iter_mut().for_each(|x| *x = 0.0);
+                    if let Some(first) = embedding.first_mut() {
+                        *first = 1.0;
+                    }
+                }
                 node.updated_at = at_ms;
             }
         }
