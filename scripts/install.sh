@@ -23,6 +23,7 @@
 #   QZ_TEST_RELEASE_PUBKEY raw-32-byte Ed25519 public key (base64url) replacing the embedded one
 #   QZ_VERIFIER            auto (default) | openssl | perl
 #   QZ_SKIP_SERVICE=1      write the unit/plist but do not call systemctl/launchctl
+#   QZ_SKIP_CONNECT=1      do not attach to (or detach from) the hosts on this machine
 #   QZ_OS / QZ_ARCH        override platform detection (linux|macos, x64|arm64)
 #
 # Runs on macOS bash 3.2: no associative arrays, no ${var,,}, no mapfile.
@@ -603,6 +604,21 @@ health_check() {
   return 0
 }
 
+# Attach to the hosts already on this machine (Claude Code). Installing IS attaching: there is
+# no "installed but not in use yet" state. A missing or signed-out host is not an install
+# failure - the user gets one line telling them what to run later.
+ATTACHED=0
+connect_hosts() {
+  if [ "${QZ_SKIP_CONNECT:-0}" = 1 ]; then
+    note "QZ_SKIP_CONNECT=1: not attaching to hosts"
+    return 0
+  fi
+  if QUETZALCOATL_HOME="$QZ_HOME" "$PREFIX/bin/qz" connect >>"$LOG" 2>&1; then
+    ATTACHED=1
+  fi
+  return 0
+}
+
 do_install() {
   VERSION=${VERSION#v}
   case "$VERSION" in
@@ -661,14 +677,21 @@ do_install() {
     macos) write_service_macos ;;
   esac
   write_desktop_entry
+  connect_hosts
 
   say ""
   say "Quetzalcoatl $VERSION installed."
   case ":$PATH:" in
     *":$PREFIX/bin:"*) : ;;
-    *) say "Add $PREFIX/bin to PATH, then run: qz up" ;;
+    *) say "Add $PREFIX/bin to PATH." ;;
   esac
-  say "Next: qz up      (starts quetzalcoatld, the single spine owner)"
+  if [ "$ATTACHED" = 1 ]; then
+    say "Attached to Claude Code. Open it as you always do: he is there."
+    say "  detach any time: qz connect --undo"
+  else
+    say "No host attached yet. Install and sign in to Claude Code, then run: qz connect"
+  fi
+  say "Start the daemon if it is not running: qz up      Check every step: qz doctor"
   say "Docs: $SITE/docs/start/install"
 }
 
@@ -719,6 +742,11 @@ do_uninstall() {
     if [ "$OS" = macos ] && have launchctl; then
       launchctl unload "$plist" >>"${LOG:-/dev/null}" 2>&1 || true
     fi
+  fi
+  # Detach from the hosts first, while qz is still there to do it: nothing of ours may stay
+  # behind in the user's host configuration.
+  if [ "${QZ_SKIP_CONNECT:-0}" != 1 ] && [ -x "$PREFIX/bin/qz" ]; then
+    QUETZALCOATL_HOME="$QZ_HOME" "$PREFIX/bin/qz" connect --undo >>"${LOG:-/dev/null}" 2>&1 || true
   fi
   rm -f "$unit" "$plist" "$HOME/.local/share/applications/quetzalcoatl.desktop"
   rm -f "$PREFIX/bin/qz" "$PREFIX/bin/quetzalcoatld" "$PREFIX/bin/quetzalcoatl-sandbox-exec" "$PREFIX/bin/quetzalcoatl-desktop"

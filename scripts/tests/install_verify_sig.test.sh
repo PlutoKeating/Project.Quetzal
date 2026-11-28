@@ -89,6 +89,8 @@ mk_release() {
     cat >"$stage/bin/qz" <<STUB
 #!/bin/sh
 if [ "\${1:-}" = "--version" ]; then printf 'qz $reported\n'; exit 0; fi
+printf '%s\n' "\$*" >>"\$0.calls"
+if [ "\${1:-}" = "connect" ] && [ -n "\${STUB_CONNECT_FAILS:-}" ]; then exit 7; fi
 exit 0
 STUB
   else
@@ -333,9 +335,22 @@ check "test public key override is refused without QZ_ALLOW_TEST_PUBKEY=1" expec
   "env -u QZ_ALLOW_TEST_PUBKEY HOME='$C11' QZ_PREFIX='$C11/prefix' QUETZALCOATL_HOME='$C11/qzhome' QZ_RELEASE_BASE='$BASE/v1.0.0' QZ_TEST_RELEASE_PUBKEY='$PUB' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --version 1.0.0 --no-desktop"
 check "gated override installed nothing" expect_absent "$C11/prefix/bin/qz"
 
+# ---------------------------------------------------------------- 10b. attaching to hosts
+check "install attaches to the hosts on this machine" grep -qx 'connect' "$C1/prefix/bin/qz.calls"
+C10B="$WORK/c10b"
+mkdir -p "$C10B"
+check "a host that cannot be attached does not fail the install" bash -c \
+  "STUB_CONNECT_FAILS=1 HOME='$C10B' QZ_PREFIX='$C10B/prefix' QUETZALCOATL_HOME='$C10B/qzhome' QZ_RELEASE_BASE='$BASE/v1.0.0' QZ_TEST_RELEASE_PUBKEY='$PUB' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --version 1.0.0 --no-desktop 2>&1 | grep -q 'No host attached yet'"
+check "the install without a host still produced qz" test -x "$C10B/prefix/bin/qz"
+C10C="$WORK/c10c"
+mkdir -p "$C10C"
+check "QZ_SKIP_CONNECT=1 installs without touching any host" bash -c \
+  "QZ_SKIP_CONNECT=1 HOME='$C10C' QZ_PREFIX='$C10C/prefix' QUETZALCOATL_HOME='$C10C/qzhome' QZ_RELEASE_BASE='$BASE/v1.0.0' QZ_TEST_RELEASE_PUBKEY='$PUB' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --version 1.0.0 --no-desktop >/dev/null 2>&1 && test ! -e '$C10C/prefix/bin/qz.calls'"
+
 # ---------------------------------------------------------------- 11. uninstall
 check "uninstall removes binaries and the unit, keeps the home" bash -c \
   "HOME='$C1' QZ_PREFIX='$C1/prefix' QUETZALCOATL_HOME='$C1/qzhome' QZ_SKIP_SERVICE=1 bash '$INSTALLER' --uninstall"
+check "uninstall detached from the hosts before removing qz" grep -qx 'connect --undo' "$C1/prefix/bin/qz.calls"
 check "uninstall removed qz" expect_absent "$C1/prefix/bin/qz"
 check "uninstall removed the web console" expect_absent "$C1/prefix/bin/web"
 check "uninstall removed the unit" expect_absent "$C1/.config/systemd/user/quetzalcoatld.service"
