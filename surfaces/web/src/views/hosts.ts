@@ -65,7 +65,7 @@ export class HostsView extends BaseView<HostsPayload> {
 
     const failing = data.hosts.reduce(
       (count, host) =>
-        count + (host.installed ? this.#checks(host).filter((check) => check.result?.ok === false).length : 0),
+        count + (host.connected ? this.#checks(host).filter((check) => check.result?.ok === false).length : 0),
       0,
     );
     this.setState(
@@ -117,7 +117,8 @@ export class HostsView extends BaseView<HostsPayload> {
         state,
         host.version === null ? null : h("span", { class: "qz-meta", dir: "ltr" }, host.version),
       ),
-      host.installed
+      // 没接上时四项都不通、原因相同：只说一句该做什么，不铺四格一样的「不通」。
+      host.connected
         ? h(
             "div",
             { class: "qz-rail is-grid", "data-role": "host-checks" },
@@ -125,8 +126,8 @@ export class HostsView extends BaseView<HostsPayload> {
           )
         : h(
             "p",
-            { class: "qz-rail-group-note" },
-            "这台设备上没有装它。装上之后在终端运行 ",
+            { class: "qz-rail-group-note", "data-role": host.installed ? "host-not-connected" : "host-not-installed" },
+            host.installed ? "装了，还没接上。在终端运行 " : "这台设备上没有装它。装上之后在终端运行 ",
             command("qz connect"),
             "，四项检查会列在这里。",
           ),

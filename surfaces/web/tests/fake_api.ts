@@ -188,7 +188,8 @@ export function fullFixture(): Fixture {
             { key: "compaction", ok: true, detail: "压缩之后重新送了一遍核心。" },
           ],
         },
-        { host: "opencode", name: "OpenCode", installed: false, version: null, connected: false, checks: [] },
+        { host: "opencode", name: "OpenCode", installed: true, version: "2.4.1", connected: false, checks: [] },
+        { host: "dsh", name: "DeepSeek Harness", installed: false, version: null, connected: false, checks: [] },
       ],
     },
     devices: {

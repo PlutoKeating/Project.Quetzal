@@ -139,7 +139,8 @@ impl HostsPage {
             trailing.push(line(version, &["qz-meta"]).upcast());
         }
         group.append(&rail_head(&host.name, &trailing));
-        if host.installed {
+        // 没接上时四项都不通、原因相同：只说一句该做什么，不铺四格一样的「不通」。
+        if host.connected {
             let cells: Vec<gtk::Widget> = CHECKS
                 .iter()
                 .map(|info| self.check_cell(host, info))
@@ -149,9 +150,17 @@ impl HostsPage {
             group.append(&grid);
         } else {
             let note = hbox(6);
-            note.set_widget_name("host-not-installed");
+            note.set_widget_name(if host.installed {
+                "host-not-connected"
+            } else {
+                "host-not-installed"
+            });
             note.append(&text(
-                "这台设备上没有装它。装上之后在终端运行",
+                if host.installed {
+                    "装了，还没接上。在终端运行"
+                } else {
+                    "这台设备上没有装它。装上之后在终端运行"
+                },
                 &["qz-section-note"],
             ));
             note.append(&code_chip("qz connect"));
@@ -164,7 +173,7 @@ impl HostsPage {
     fn failing(data: &HostsView) -> usize {
         data.hosts
             .iter()
-            .filter(|host| host.installed)
+            .filter(|host| host.connected)
             .map(|host| host.checks.iter().filter(|check| !check.ok).count())
             .sum()
     }

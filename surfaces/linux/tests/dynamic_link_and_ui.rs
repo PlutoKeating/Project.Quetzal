@@ -941,7 +941,12 @@ fn ready_markers(key: PageKey) -> &'static [&'static str] {
         PageKey::Us => &["scale"],
         PageKey::Memories => &["memory-split", "memory-list"],
         PageKey::Baseline => &["clauses", "situation-baseline-empty"],
-        PageKey::Hosts => &["host-checks", "situation-hosts-empty", "host-not-installed"],
+        PageKey::Hosts => &[
+            "host-checks",
+            "situation-hosts-empty",
+            "host-not-installed",
+            "host-not-connected",
+        ],
         PageKey::Devices => &["this-device-rail"],
         PageKey::Audit => &["audit-timeline", "situation-audit-empty"],
     }

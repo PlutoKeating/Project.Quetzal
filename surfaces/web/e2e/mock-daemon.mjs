@@ -493,6 +493,15 @@ function buildFull(now) {
       {
         host: "opencode",
         name: "OpenCode",
+        installed: true,
+        version: "2.4.1",
+        connected: false,
+        last_seen_ms: null,
+        checks: [],
+      },
+      {
+        host: "dsh",
+        name: "DeepSeek Harness",
         installed: false,
         version: null,
         connected: false,

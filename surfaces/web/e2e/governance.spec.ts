@@ -401,7 +401,10 @@ test.describe("九个视图的主路径", () => {
     await failing.locator(".qz-pick").click();
     await expect(provenance(page).locator('[data-role="provenance-title"]')).toHaveText("Codex · 收信号");
     await expect(provenance(page)).toContainText("下一步");
-    await expect(page.locator('[data-host="opencode"]')).toContainText("未安装");
+    // 装了没接上、没装：各只占一行，不铺四格。
+    await expect(page.locator('[data-host="opencode"]')).toContainText("未接上");
+    await expect(page.locator('[data-host="opencode"] [data-role="host-checks"]')).toHaveCount(0);
+    await expect(page.locator('[data-host="dsh"]')).toContainText("未安装");
   });
 
   test("设备：这台在最上；吊销要再次确认并输入口令", async ({ page }) => {

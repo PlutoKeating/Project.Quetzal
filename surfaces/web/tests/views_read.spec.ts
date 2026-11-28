@@ -456,10 +456,18 @@ describe("宿主：每个宿主一行，四格对应四项", () => {
 
   it("没装的宿主只占一行，写明装上之后怎么接", async () => {
     const ui = await mount({ hash: "#/hosts" });
-    const host = ui.q('[data-host="opencode"]');
+    const host = ui.q('[data-host="dsh"]');
     expect(text(host.querySelector(".qz-state"))).toBe("未安装");
     expect(host.querySelectorAll('[data-role="host-checks"]')).toHaveLength(0);
     expect(text(host.querySelector(".qz-code-chip"))).toBe("qz connect");
+  });
+
+  it("装了没接上的宿主也只占一行，不铺四格一样的「不通」", async () => {
+    const ui = await mount({ hash: "#/hosts" });
+    const host = ui.q('[data-host="opencode"]');
+    expect(text(host.querySelector(".qz-state"))).toBe("未接上");
+    expect(host.querySelectorAll('[data-role="host-checks"]')).toHaveLength(0);
+    expect(text(host.querySelector('[data-role="host-not-connected"]'))).toContain("装了，还没接上");
   });
 
   it("选中一项检查，出处栏写明它查的是什么", async () => {
