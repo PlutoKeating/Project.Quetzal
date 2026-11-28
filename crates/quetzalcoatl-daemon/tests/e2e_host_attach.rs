@@ -486,3 +486,111 @@ fn connect_without_the_host_says_what_to_do_next() -> TestResult {
     assert!(said.contains("qz connect"), "要说清下一步: {said}");
     Ok(())
 }
+
+/// 测试结束（含提前返回）时把后台守护进程停掉。
+struct DaemonProcessGuard<'a>(&'a Rig);
+
+impl Drop for DaemonProcessGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.qz(&["down"], None, &[]);
+    }
+}
+
+fn hook_context(rig: &Rig, event: &Value) -> Result<String, Box<dyn Error>> {
+    let out = rig.qz(
+        &["hook", "--host", "claude-code"],
+        Some(&event.to_string()),
+        &[],
+    )?;
+    injected_context(&out)
+}
+
+#[test]
+fn what_he_knows_survives_a_hard_kill_and_keys_live_apart_from_the_snapshot() -> TestResult {
+    let rig = Rig::new("durab")?;
+    let daemon_bin = env!("CARGO_BIN_EXE_quetzalcoatld");
+    let up = rig.qz(&["up"], None, &[("QUETZALCOATL_DAEMON_BIN", daemon_bin)])?;
+    assert!(
+        up.status.success(),
+        "qz up 失败: {}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+    let _guard = DaemonProcessGuard(&rig);
+
+    let soul = fixture_soul();
+    let import = rig.qz(
+        &["import-v1", "--soul-dir", &soul.to_string_lossy()],
+        None,
+        &[],
+    )?;
+    assert!(
+        import.status.success(),
+        "导入失败: {}",
+        String::from_utf8_lossy(&import.stderr)
+    );
+
+    // 强杀：不给守护进程任何收尾的机会。
+    let status = rig.qz(&["status", "--json"], None, &[])?;
+    let status: Value = serde_json::from_slice(&status.stdout)?;
+    let pid = status["pid"].as_u64().ok_or("status 里没有 pid")?;
+    let killed = Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .status()?;
+    assert!(killed.success());
+    let gone_by = Instant::now() + Duration::from_secs(5);
+    while Path::new(&format!("/proc/{pid}")).exists() && Instant::now() < gone_by {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let up_again = rig.qz(&["up"], None, &[("QUETZALCOATL_DAEMON_BIN", daemon_bin)])?;
+    assert!(
+        up_again.status.success(),
+        "强杀后重启失败: {}",
+        String::from_utf8_lossy(&up_again.stderr)
+    );
+
+    // 导入的东西是经变更事件写进脊柱的，强杀之后重放就都在。
+    let core = hook_context(
+        &rig,
+        &json!({"hook_event_name": "SessionStart", "session_id": "after-kill", "source": "startup"}),
+    )?;
+    assert!(core.contains("青羽"), "强杀后名字还在: {core}");
+    assert!(
+        core.contains("诚实、审慎与好奇心"),
+        "强杀后自述还在: {core}"
+    );
+    let recalled = hook_context(
+        &rig,
+        &json!({"hook_event_name": "UserPromptSubmit", "session_id": "after-kill",
+                "prompt": "整理长期笔记的时候目录怎么组织？"}),
+    )?;
+    assert!(
+        recalled.contains("按分类目录树组织"),
+        "强杀后往事还在: {recalled}"
+    );
+
+    // 身份文件里只有身份与本机的检索索引：没有密钥，也没有良知本身（它由变更事件重放得到）。
+    // 密钥单独存放且只有本人可读。
+    let state: Value = serde_json::from_str(&fs::read_to_string(
+        rig.qz_home.join("identity/sovereign_state.json"),
+    )?)?;
+    let mut fields: Vec<&str> = state
+        .as_object()
+        .map(|map| map.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+    fields.sort_unstable();
+    assert_eq!(
+        fields,
+        vec!["agent_id", "device_id", "graph_json_v2"],
+        "身份文件里不得有密钥或良知"
+    );
+    let keys_path = rig.qz_home.join("identity/keys.json");
+    assert!(fs::read_to_string(&keys_path)?.contains("root_key_hex"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&keys_path)?.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "密钥文件只有本人可读写");
+    }
+    Ok(())
+}

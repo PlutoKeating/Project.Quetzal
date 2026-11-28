@@ -25,7 +25,7 @@ use quetzalcoatl_crypto::{
 use quetzalcoatl_ewave::{
     AssemblyRequest, Authority, BudgetProfile, Conscience, ConscienceArbiter, ConscienceManifest,
     ContextAssembler, FocusConfig, IdentityBlock, MemoryEntry, MemoryKind, Mutability,
-    ObserveOptions, ProtectedDirective, ProvenanceRecord, SerpentineGraph, ValueEntry,
+    ObserveOptions, ProtectedDirective, ProvenanceRecord, SerpentineGraph, ValueEntry, journal,
 };
 use quetzalcoatl_harness::{
     AcpJsonRpcDriver, ClaudeCodeDriver, CodexDriver, CodingAgentKind, DiscoveredAgent,
@@ -272,7 +272,10 @@ impl ExclusiveSpineLock {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+/// 内存里的主权状态：身份、密钥材料与记忆图快照。
+///
+/// 落盘时分成两个文件：`identity/sovereign_state.json`（身份与记忆图）与
+/// `identity/keys.json`（密钥材料）。良知不在这里——它由脊柱里的变更事件重放得到。
 pub(crate) struct PersistedSovereignState {
     agent_id: AgentId,
     device_id: DeviceId,
@@ -280,8 +283,56 @@ pub(crate) struct PersistedSovereignState {
     ed25519_seed_hex: String,
     xwing_seed_hex: String,
     epoch1_key_hex: String,
-    conscience: Conscience,
     graph_json_v2: String,
+}
+
+/// `identity/sovereign_state.json` 的内容。
+///
+/// 旧版把密钥与整份良知也放在这个文件里；读到时接过来迁走，之后再也不写回。
+#[derive(Serialize, Deserialize)]
+struct SovereignStateFile {
+    agent_id: AgentId,
+    device_id: DeviceId,
+    graph_json_v2: String,
+    #[serde(default, skip_serializing)]
+    root_key_hex: Option<String>,
+    #[serde(default, skip_serializing)]
+    ed25519_seed_hex: Option<String>,
+    #[serde(default, skip_serializing)]
+    xwing_seed_hex: Option<String>,
+    #[serde(default, skip_serializing)]
+    epoch1_key_hex: Option<String>,
+    #[serde(default, skip_serializing)]
+    conscience: Option<Conscience>,
+}
+
+/// `identity/keys.json` 的内容：根私钥、设备种子与首个纪元密钥。
+#[derive(Serialize, Deserialize)]
+struct SovereignKeysFile {
+    root_key_hex: String,
+    ed25519_seed_hex: String,
+    xwing_seed_hex: String,
+    epoch1_key_hex: String,
+}
+
+const SOVEREIGN_STATE_FILE: &str = "identity/sovereign_state.json";
+const SOVEREIGN_KEYS_FILE: &str = "identity/keys.json";
+
+fn write_json_private<T: Serialize>(path: &Path, value: &T, what: &str) -> Result<()> {
+    let bytes =
+        serde_json::to_vec_pretty(value).map_err(|e| QuetzalcoatlError::SerializationError {
+            detail: format!("编码{what}失败: {e}"),
+        })?;
+    write_private_file(path, &bytes)
+}
+
+fn read_json_file<T: serde::de::DeserializeOwned>(path: &Path, what: &str) -> Result<T> {
+    let raw = fs::read(path).map_err(|e| QuetzalcoatlError::StorageError {
+        detail: format!("读取{what}失败 ({}): {e}", path.display()),
+    })?;
+    serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
+        detail: format!("解析{what}失败: {e}"),
+    })
 }
 
 pub(crate) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -413,20 +464,42 @@ fn load_or_init_sovereign_bundle(
     SerpentineGraph,
     PersistedSovereignState,
 )> {
-    let state_path = qz_home.join("identity/sovereign_state.json");
+    let state_path = qz_home.join(SOVEREIGN_STATE_FILE);
+    let keys_path = qz_home.join(SOVEREIGN_KEYS_FILE);
     let sqlite_path = qz_home.join("spine/spine.sqlite");
     let now_ms = now_unix_ms();
 
-    let mut persisted: PersistedSovereignState = if state_path.is_file() {
-        let raw = fs::read(&state_path).map_err(|e| QuetzalcoatlError::StorageError {
-            detail: format!("读取主权身份文件失败 ({}): {e}", state_path.display()),
-        })?;
-        serde_json::from_slice(&raw).map_err(|e| QuetzalcoatlError::SerializationError {
-            detail: format!("解析主权身份文件失败: {e}"),
-        })?
+    // 旧版快照里带着的整份良知：只在变更日志还是空的时候用来收编为基线。
+    let mut legacy_conscience: Option<Conscience> = None;
+    let persisted = if state_path.is_file() {
+        let state: SovereignStateFile = read_json_file(&state_path, "主权身份文件")?;
+        let keys: SovereignKeysFile = if keys_path.is_file() {
+            read_json_file(&keys_path, "密钥文件")?
+        } else {
+            // 旧版把密钥放在身份文件里：迁到单独的密钥文件，并把身份文件重写成不带密钥的样子。
+            let missing = || QuetzalcoatlError::StorageError {
+                detail: String::from("主权身份文件里没有密钥，也找不到单独的密钥文件"),
+            };
+            let migrated = SovereignKeysFile {
+                root_key_hex: state.root_key_hex.clone().ok_or_else(missing)?,
+                ed25519_seed_hex: state.ed25519_seed_hex.clone().ok_or_else(missing)?,
+                xwing_seed_hex: state.xwing_seed_hex.clone().ok_or_else(missing)?,
+                epoch1_key_hex: state.epoch1_key_hex.clone().ok_or_else(missing)?,
+            };
+            write_json_private(&keys_path, &migrated, "密钥文件")?;
+            migrated
+        };
+        legacy_conscience = state.conscience;
+        PersistedSovereignState {
+            agent_id: state.agent_id,
+            device_id: state.device_id,
+            root_key_hex: keys.root_key_hex,
+            ed25519_seed_hex: keys.ed25519_seed_hex,
+            xwing_seed_hex: keys.xwing_seed_hex,
+            epoch1_key_hex: keys.epoch1_key_hex,
+            graph_json_v2: state.graph_json_v2,
+        }
     } else {
-        let agent_id = AgentId::new_v4();
-        let device_id = DeviceId::new_v4();
         let mut root_bytes = [0u8; 32];
         let mut ed_seed = [0u8; 32];
         let mut xw_seed = [0u8; 32];
@@ -435,26 +508,26 @@ fn load_or_init_sovereign_bundle(
         OsRng.fill_bytes(&mut ed_seed);
         OsRng.fill_bytes(&mut xw_seed);
         OsRng.fill_bytes(&mut ep1_bytes);
-
-        let root_key = AccountRootKey::from_bytes(root_bytes);
-        let conscience = default_seed_conscience(&root_key, now_ms)?;
         let graph = SerpentineGraph::new(Default::default())?;
         let created = PersistedSovereignState {
-            agent_id,
-            device_id,
+            agent_id: AgentId::new_v4(),
+            device_id: DeviceId::new_v4(),
             root_key_hex: hex_encode(&root_bytes),
             ed25519_seed_hex: hex_encode(&ed_seed),
             xwing_seed_hex: hex_encode(&xw_seed),
             epoch1_key_hex: hex_encode(&ep1_bytes),
-            conscience,
             graph_json_v2: graph.to_json_v2()?,
         };
-        let encoded = serde_json::to_vec_pretty(&created).map_err(|e| {
-            QuetzalcoatlError::SerializationError {
-                detail: format!("编码主权身份文件失败: {e}"),
-            }
-        })?;
-        write_private_file(&state_path, &encoded)?;
+        write_json_private(
+            &keys_path,
+            &SovereignKeysFile {
+                root_key_hex: created.root_key_hex.clone(),
+                ed25519_seed_hex: created.ed25519_seed_hex.clone(),
+                xwing_seed_hex: created.xwing_seed_hex.clone(),
+                epoch1_key_hex: created.epoch1_key_hex.clone(),
+            },
+            "密钥文件",
+        )?;
         created
     };
 
@@ -464,14 +537,6 @@ fn load_or_init_sovereign_bundle(
     let ep1_bytes = hex_decode_fixed::<32>("epoch1_key_hex", &persisted.epoch1_key_hex)?;
 
     let root_key = AccountRootKey::from_bytes(root_bytes);
-    if retire_legacy_seed(&mut persisted.conscience, &root_key, now_ms)? {
-        let encoded = serde_json::to_vec_pretty(&persisted).map_err(|e| {
-            QuetzalcoatlError::SerializationError {
-                detail: format!("编码主权身份文件失败: {e}"),
-            }
-        })?;
-        write_private_file(&state_path, &encoded)?;
-    }
     let device = DeviceIdentity::from_seeds(persisted.device_id, ed_seed, xw_seed)?;
     let mut ring =
         EpochKeyRing::new_genesis(persisted.agent_id, &root_key, device.public_record())?;
@@ -498,28 +563,66 @@ fn load_or_init_sovereign_bundle(
             .upsert_markdown_doc("SOUL.md", &soul_md, init_hlc)?;
     }
 
-    let conscience = persisted.conscience.clone();
+    // 良知以脊柱里的变更事件为准。还没有任何变更事件时（全新安装，或从旧版升级上来），
+    // 把出厂良知或旧快照里的良知收编为基线，从此只追加。
+    let conscience = match journal::replay(&mut spine)? {
+        Some(replayed) => replayed,
+        None => {
+            let mut baseline = match legacy_conscience {
+                Some(legacy) => legacy,
+                None => default_seed_conscience(&root_key, now_ms)?,
+            };
+            let _ = retire_legacy_seed(&mut baseline, &root_key, now_ms)?;
+            journal::commit(
+                &mut spine,
+                None,
+                &baseline,
+                SEA_ACTOR_SYSTEM,
+                1,
+                "收编为基线",
+                now_ms,
+            )?;
+            baseline
+        }
+    };
     conscience.verify_signature_and_hashes()?;
     let graph = SerpentineGraph::from_json_v2(&persisted.graph_json_v2)?;
+    save_sovereign_state(qz_home, &persisted)?;
 
     Ok((spine, conscience, graph, persisted))
 }
 
-fn save_sovereign_snapshot(
+/// 把身份与记忆图写回 `identity/sovereign_state.json`。密钥与良知都不在这个文件里。
+fn save_sovereign_state(qz_home: &Path, persisted: &PersistedSovereignState) -> Result<()> {
+    write_json_private(
+        &qz_home.join(SOVEREIGN_STATE_FILE),
+        &SovereignStateFile {
+            agent_id: persisted.agent_id,
+            device_id: persisted.device_id,
+            graph_json_v2: persisted.graph_json_v2.clone(),
+            root_key_hex: None,
+            ed25519_seed_hex: None,
+            xwing_seed_hex: None,
+            epoch1_key_hex: None,
+            conscience: None,
+        },
+        "主权身份文件",
+    )
+}
+
+/// 记忆图是本机的检索索引，整份存成快照。
+fn save_graph_snapshot(
     qz_home: &Path,
     persisted: &mut PersistedSovereignState,
-    conscience: &Conscience,
     graph: &SerpentineGraph,
 ) -> Result<()> {
-    persisted.conscience = conscience.clone();
     persisted.graph_json_v2 = graph.to_json_v2()?;
-    let bytes = serde_json::to_vec_pretty(persisted).map_err(|e| {
-        QuetzalcoatlError::SerializationError {
-            detail: format!("保存主权良知快照失败: {e}"),
-        }
-    })?;
-    write_private_file(&qz_home.join("identity/sovereign_state.json"), &bytes)
+    save_sovereign_state(qz_home, persisted)
 }
+
+/// 变更事件里的执行者标记。
+pub(crate) const SEA_ACTOR_SYSTEM: &str = "system";
+pub(crate) const SEA_ACTOR_IMPORT: &str = "import";
 
 fn register_standard_capabilities(kernel: &mut BlindKernel<RusqliteWalStore>) -> Result<()> {
     for (cap_id, sink, surface, idempotent) in [
@@ -668,6 +771,35 @@ pub(crate) struct DaemonMutableState {
     /// 领域包运行时：默认 `personal-companion`，切换留痕并持久化。
     pub(crate) domains: crate::domains::DomainRuntime,
     ewave_check_reports: Vec<(String, Vec<String>)>,
+}
+
+impl DaemonMutableState {
+    /// 把良知自 `before` 以来的改动写成一条变更事件。没有改动时什么都不写。
+    ///
+    /// 写失败时把内存里的良知恢复成 `before`：内存永远不能领先于脊柱。
+    pub(crate) fn commit_sea(
+        &mut self,
+        before: Conscience,
+        actor: &str,
+        summary: &str,
+        now_ms: u64,
+    ) -> Result<Option<u64>> {
+        match journal::commit(
+            self.kernel.spine_mut(),
+            Some(&before),
+            &self.conscience,
+            actor,
+            1,
+            summary,
+            now_ms,
+        ) {
+            Ok(seq) => Ok(seq),
+            Err(err) => {
+                self.conscience = before;
+                Err(err)
+            }
+        }
+    }
 }
 
 /// 良知行只披露层级、id、标题与披露标志，**绝不下发受保护正文**。
@@ -1821,6 +1953,7 @@ impl SharedDaemonCore {
                     .import_v1(&soul_dir, &db_paths, now_ms)
                 {
                     Ok(report) => {
+                        let before = guard.conscience.clone();
                         let DaemonMutableState {
                             ref mut conscience,
                             ref mut graph,
@@ -1828,18 +1961,24 @@ impl SharedDaemonCore {
                             ..
                         } = *guard;
                         absorb_imported_sea(conscience, graph, kernel.spine(), now_ms);
+                        if let Err(err) =
+                            guard.commit_sea(before, SEA_ACTOR_IMPORT, "导入 V1 灵魂", now_ms)
+                        {
+                            return (
+                                IpcResponse::Error {
+                                    code: String::from(err.code().as_str()),
+                                    detail: err.to_string(),
+                                },
+                                false,
+                            );
+                        }
                         let DaemonMutableState {
                             ref mut persisted,
-                            ref conscience,
                             ref graph,
                             ..
                         } = *guard;
-                        let _ = save_sovereign_snapshot(
-                            &self.config.quetzalcoatl_home,
-                            persisted,
-                            conscience,
-                            graph,
-                        );
+                        let _ =
+                            save_graph_snapshot(&self.config.quetzalcoatl_home, persisted, graph);
                         (IpcResponse::ImportV1(report), false)
                     }
                     Err(err) => (
@@ -2619,16 +2758,10 @@ impl SharedDaemonCore {
                         .seal_checkpoint(None, now_unix_ms());
                     let DaemonMutableState {
                         ref mut persisted,
-                        ref conscience,
                         ref graph,
                         ..
                     } = *guard;
-                    let _ = save_sovereign_snapshot(
-                        &self.config.quetzalcoatl_home,
-                        persisted,
-                        conscience,
-                        graph,
-                    );
+                    let _ = save_graph_snapshot(&self.config.quetzalcoatl_home, persisted, graph);
                 }
                 (
                     IpcResponse::Ack {
@@ -2701,6 +2834,7 @@ fn absorb_materialized_memory(
         evidence_count: 1,
         constant: false,
         untrusted: false,
+        muted: false,
         pressure_flags: Vec::new(),
         authority: if about_user {
             Authority::UserPref
@@ -3233,8 +3367,18 @@ pub fn import_v1_offline_or_via_ipc(
     let (mut spine, mut conscience, mut graph, mut persisted) =
         load_or_init_sovereign_bundle(qz_home)?;
     let report = spine.import_v1(soul_dir, db_paths, now_ms)?;
+    let before = conscience.clone();
     absorb_imported_sea(&mut conscience, &mut graph, &spine, now_ms);
-    save_sovereign_snapshot(qz_home, &mut persisted, &conscience, &graph)?;
+    journal::commit(
+        &mut spine,
+        Some(&before),
+        &conscience,
+        SEA_ACTOR_IMPORT,
+        1,
+        "导入 V1 灵魂",
+        now_ms,
+    )?;
+    save_graph_snapshot(qz_home, &mut persisted, &graph)?;
     Ok((report, false))
 }
 

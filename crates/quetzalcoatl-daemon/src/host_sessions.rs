@@ -374,12 +374,18 @@ impl SharedDaemonCore {
             } else {
                 ""
             };
+            let quiet = if item.muted {
+                " 用户要求不主动提"
+            } else {
+                ""
+            };
             lines.push(format!(
-                "[{} {} 自 {} 起{}] {}",
+                "[{} {} 自 {} 起{}{}] {}",
                 item.id,
                 item.layer,
                 format_day_utc(item.valid_from_ms),
                 trust,
+                quiet,
                 item.content
             ));
         }
