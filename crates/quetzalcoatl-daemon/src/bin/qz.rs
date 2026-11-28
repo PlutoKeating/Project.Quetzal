@@ -55,7 +55,7 @@ Commands:
   nodes       List fabric peers, path kind, Router holder and witness_epoch
   group       openmls 群组：create | invite | join | leave | list | send | members | revoke-steward
   channel     七大通道族：list | enable <name> | disable <name> | status | send <name> --text <...>
-  sayit       SayIt v2.1 子树吸纳：ingest --path <snapshot> | --batch <dir>
+  sayit       SayIt: connect (personal token) | pull | disconnect; ingest --path <snapshot> | --batch <dir>
   webhook     零知识 Webhook 入站：pull [--limit N] | status | register | rotate
   domain      五大首发领域包：list | show <id> | use <id>
               本版本仅完成领域包的声明、校验与切换审计；
@@ -1778,7 +1778,75 @@ fn run_domain(args: &[String]) -> Result<()> {
     }
 }
 
+/// `qz sayit connect|pull|disconnect`：SayIt 自动流入。
+fn run_sayit_link(action: &str, args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut url: Option<String> = None;
+    let mut from_stdin = false;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
+            "--url" => url = Some(parse_flag_value(args, &mut i, "--url")?.clone()),
+            "--token-stdin" => from_stdin = true,
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("qz sayit {action} 不认识参数 {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    match action {
+        "connect" => {
+            let token = read_passphrase(
+                from_stdin,
+                "SayIt 个人令牌（在 SayIt 的「我的东西」里创建）: ",
+            )?;
+            let account =
+                quetzalcoatl_daemon::sayit_pull::connect(&qz_home, url.as_deref(), &token)?;
+            println!(
+                "已接上 SayIt（{account}）。你在 SayIt 里记下的会自动流进他的海；qz sayit pull 立刻拉一次。"
+            );
+            Ok(())
+        }
+        "disconnect" => {
+            quetzalcoatl_daemon::sayit_pull::disconnect(&qz_home)?;
+            println!("已断开 SayIt。已经流进来的往事留着，要删就在治理面里抹除。");
+            Ok(())
+        }
+        _ => {
+            let client = require_daemon(&qz_home)?.with_timeout(Duration::from_secs(300));
+            match client.call(&IpcRequest::SayItPull)? {
+                IpcResponse::SayItPull(report) if !report.connected => {
+                    println!("还没接上 SayIt：先 qz sayit connect。");
+                    Ok(())
+                }
+                IpcResponse::SayItPull(report) => {
+                    println!(
+                        "从 SayIt 流入：新增 {}，更新 {}，抹除 {}（游标 {}）。",
+                        report.added, report.updated, report.erased, report.cursor
+                    );
+                    Ok(())
+                }
+                IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+                other => Err(QuetzalcoatlError::StorageError {
+                    detail: format!("未知的 IPC 响应: {other:?}"),
+                }),
+            }
+        }
+    }
+}
+
 fn run_sayit(args: &[String]) -> Result<()> {
+    if let Some(action) = args
+        .first()
+        .map(String::as_str)
+        .filter(|a| matches!(*a, "connect" | "pull" | "disconnect"))
+    {
+        return run_sayit_link(action, &args[1..]);
+    }
     let mut home: Option<PathBuf> = None;
     let mut json_mode = false;
     let mut path: Option<PathBuf> = None;

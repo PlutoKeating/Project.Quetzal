@@ -1721,6 +1721,16 @@ impl SharedDaemonCore {
                 self.handle_host_turn_end(&host, &session_id, transcript_path),
                 false,
             ),
+            IpcRequest::SayItPull => match self.pull_sayit() {
+                Ok(report) => (IpcResponse::SayItPull(report), false),
+                Err(err) => (
+                    IpcResponse::Error {
+                        code: String::from(err.code().as_str()),
+                        detail: err.detail().map_or_else(|| err.to_string(), str::to_owned),
+                    },
+                    false,
+                ),
+            },
             IpcRequest::ReflectNow => match self.reflect_if_due(true) {
                 Ok(report) => (IpcResponse::Reflection(report), false),
                 Err(err) => (
@@ -3182,6 +3192,21 @@ impl QuetzalcoatlDaemon {
                             break;
                         };
                         let _ = core.reflect_if_due(false);
+                    }
+                });
+        }
+        // SayIt 自动流入：接上了就每隔五分钟拉一次。
+        {
+            let weak = Arc::downgrade(&shared_core);
+            let _ = std::thread::Builder::new()
+                .name(String::from("quetzalcoatl-sayit"))
+                .spawn(move || {
+                    loop {
+                        std::thread::sleep(Duration::from_secs(300));
+                        let Some(core) = weak.upgrade() else {
+                            break;
+                        };
+                        let _ = core.pull_sayit();
                     }
                 });
         }

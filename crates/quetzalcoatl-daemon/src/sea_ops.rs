@@ -187,6 +187,31 @@ impl DaemonMutableState {
         epoch: Epoch,
         now_ms: u64,
     ) -> Result<WrittenEntry> {
+        self.remember_written_by(
+            qz_home,
+            text,
+            about_user,
+            topic,
+            source,
+            SEA_ACTOR_OWNER,
+            epoch,
+            now_ms,
+        )
+    }
+
+    /// 记下一条往事，写明是谁写下的（本人亲口说的，或者从本人自己的另一个工具里带进来的）。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn remember_written_by(
+        &mut self,
+        qz_home: &Path,
+        text: &str,
+        about_user: bool,
+        topic: Option<&str>,
+        source: &str,
+        written_by: &str,
+        epoch: Epoch,
+        now_ms: u64,
+    ) -> Result<WrittenEntry> {
         let text = clean_text(text)?;
         let before = self.conscience.clone();
         let authority = if about_user {
@@ -223,7 +248,7 @@ impl DaemonMutableState {
             invalid_at_ms: None,
             triggers: Vec::new(),
             provenance: ProvenanceRecord {
-                written_by: String::from(SEA_ACTOR_OWNER),
+                written_by: String::from(written_by),
                 at_ms: now_ms,
                 source_event_ids: vec![String::from(source)],
                 model: None,

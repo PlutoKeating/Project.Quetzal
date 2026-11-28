@@ -6,6 +6,7 @@
 
 pub mod endpoint;
 pub mod lease_router;
+pub mod sayit;
 pub mod sync_actor;
 pub mod worker_pool;
 

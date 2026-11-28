@@ -287,7 +287,9 @@ fn build_ca_tls_config(custom_ca_certs_der: &[Vec<u8>]) -> CaTlsConfig {
     }))
 }
 
-fn build_rustls_client_config(custom_ca_certs_der: &[Vec<u8>]) -> Result<rustls::ClientConfig> {
+pub(crate) fn build_rustls_client_config(
+    custom_ca_certs_der: &[Vec<u8>],
+) -> Result<rustls::ClientConfig> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let ca_cfg = if custom_ca_certs_der.is_empty() {
         CaTlsConfig::embedded().with_extra_roots(rustls_native_certs::load_native_certs().certs)
