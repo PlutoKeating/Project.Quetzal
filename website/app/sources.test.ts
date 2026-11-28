@@ -79,9 +79,9 @@ describe("the site uses the design system and nothing else", () => {
     }
   });
 
-  it("keeps colour literals to the two places the diagram rules require", () => {
+  it("keeps colour literals to the favicon, which cannot read tokens", () => {
     const withLiterals = authored.filter((path) => (read(path).match(COLOR) ?? []).length > 0).map(rel);
-    expect(withLiterals.sort()).toEqual(["app/diagrams/kit.tsx", "public/favicon.svg"]);
+    expect(withLiterals.sort()).toEqual(["public/favicon.svg"]);
   });
 
   it("names only design-system classes and tokens that exist", () => {
