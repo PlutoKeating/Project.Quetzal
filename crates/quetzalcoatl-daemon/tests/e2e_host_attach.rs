@@ -1066,3 +1066,66 @@ fn only_the_user_can_hand_off_a_task_and_its_progress_can_be_checked() -> TestRe
     );
     Ok(())
 }
+
+#[test]
+fn when_left_alone_he_looks_back_on_a_session_through_the_users_own_host() -> TestResult {
+    let rig = Rig::new("reflect")?;
+    // 假宿主的非交互模式：确认带着受管标记被拉起，然后给出一次回想。
+    let fake_host = rig.fake_claude_dir.join("claude-headless");
+    fs::write(
+        &fake_host,
+        "#!/bin/sh\n\
+         [ -n \"$QUETZALCOATL_MANAGED_RUN\" ] || exit 9\n\
+         echo '{\"result\":\"{\\\"memories\\\":[{\\\"text\\\":\\\"用户在给编译器写寄存器分配\\\"}],\\\"temperament\\\":[],\\\"values\\\":[]}\"}'\n",
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&fake_host, fs::Permissions::from_mode(0o755))?;
+    }
+    let daemon_bin = env!("CARGO_BIN_EXE_quetzalcoatld");
+    let host_bin = fake_host.to_string_lossy().into_owned();
+    let up = rig.qz(
+        &["up"],
+        None,
+        &[
+            ("QUETZALCOATL_DAEMON_BIN", daemon_bin),
+            ("QUETZALCOATL_REFLECT_HOST_BIN", host_bin.as_str()),
+        ],
+    )?;
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+    let _guard = DaemonProcessGuard(&rig);
+    let connect = rig.qz(&["connect"], None, &[])?;
+    assert!(connect.status.success());
+
+    let session = Session::start(&rig, "r-1")?;
+    session.say("今天把寄存器分配的图着色写完了，明天做溢出")?;
+    session.append_transcript(&json!({
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "好的，溢出部分明天继续。"}]}
+    }))?;
+    session.end_turn()?;
+
+    let reflect = rig.qz(&["reflect"], None, &[])?;
+    let said = String::from_utf8_lossy(&reflect.stdout).into_owned();
+    assert!(
+        reflect.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reflect.stderr)
+    );
+    assert!(said.contains("留下 1 条"), "{said}");
+
+    let (found, _) = session.tool("recall", json!({"query": "寄存器分配"}))?;
+    assert!(found.contains("用户在给编译器写寄存器分配"), "{found}");
+
+    let again = rig.qz(&["reflect"], None, &[])?;
+    assert!(
+        String::from_utf8_lossy(&again.stdout).contains("没有新的相处可回想"),
+        "同一段相处只回想一次"
+    );
+    Ok(())
+}

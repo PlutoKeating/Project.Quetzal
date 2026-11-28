@@ -47,6 +47,7 @@ Commands:
   delegate    Hand one task to a local coding agent in an isolated worktree; verified in the clean room
   export      Export readable Markdown + Spine ZIP; with a passphrase it also carries a recovery bundle
   import      Restore an export into an empty home (asks for the export passphrase)
+  reflect     Have him look back on recent sessions now (normally runs by itself while you are away)
   import-v1   Idempotently migrate legacy V1 soul repo and SQLite sessions
   login       Sign in to the official Hub (or --hub <url>); the first sign-in registers this agent
   pair        Quantum-safe X-Wing device pairing (start | join | approve)
@@ -1860,6 +1861,30 @@ fn read_passphrase(from_stdin: bool, prompt: &str) -> Result<String> {
     Ok(passphrase)
 }
 
+/// `qz reflect`：让他现在就回想一次最近的相处（平时在你不在场时自己进行）。
+fn run_reflect(args: &[String]) -> Result<()> {
+    let home = parse_optional_home(args)?;
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?.with_timeout(Duration::from_secs(300));
+    match client.call(&IpcRequest::ReflectNow)? {
+        IpcResponse::Reflection(report) => {
+            if report.ran {
+                println!(
+                    "回想了一段相处：提出 {} 条，留下 {} 条，{} 条等更多证据。",
+                    report.proposed, report.accepted, report.pending
+                );
+            } else {
+                println!("这次没有回想：{}。", report.note);
+            }
+            Ok(())
+        }
+        IpcResponse::Error { detail, .. } => Err(QuetzalcoatlError::StorageError { detail }),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("意外的回答: {other:?}"),
+        }),
+    }
+}
+
 /// `qz import <导出包>`：把导出恢复进一个空的家目录。
 fn run_import(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
@@ -2089,6 +2114,7 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "channel" => run_channel(rest),
         "sayit" => run_sayit(rest),
         "import" => run_import(rest),
+        "reflect" => run_reflect(rest),
         "webhook" => run_webhook(rest),
         "domain" => run_domain(rest),
         other => Err(QuetzalcoatlError::StorageError {

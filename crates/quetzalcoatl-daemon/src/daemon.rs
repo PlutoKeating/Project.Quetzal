@@ -1998,6 +1998,16 @@ impl SharedDaemonCore {
                 self.handle_host_turn_end(&host, &session_id, transcript_path),
                 false,
             ),
+            IpcRequest::ReflectNow => match self.reflect_if_due(true) {
+                Ok(report) => (IpcResponse::Reflection(report), false),
+                Err(err) => (
+                    IpcResponse::Error {
+                        code: String::from(err.code().as_str()),
+                        detail: err.detail().map_or_else(|| err.to_string(), str::to_owned),
+                    },
+                    false,
+                ),
+            },
             IpcRequest::SeaOverview => (self.sea_overview(), false),
             IpcRequest::SeaSelf => (self.sea_self(), false),
             IpcRequest::SeaUser => (self.sea_user(), false),
@@ -3401,6 +3411,28 @@ impl QuetzalcoatlDaemon {
 
         if let Ok(mut guard) = core_holder.lock() {
             *guard = Some(Arc::clone(&shared_core));
+        }
+        // 他闲下来时的回想：定时看一眼，用户不在场、离上次够久、有新的相处时才进行。
+        // 设 QUETZALCOATL_REFLECT=0 关闭。
+        if std::env::var("QUETZALCOATL_REFLECT").map_or(true, |v| v.trim() != "0") {
+            let weak = Arc::downgrade(&shared_core);
+            let tick = Duration::from_millis(
+                std::env::var("QUETZALCOATL_REFLECT_TICK_MS")
+                    .ok()
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(10 * 60 * 1_000),
+            );
+            let _ = std::thread::Builder::new()
+                .name(String::from("quetzalcoatl-reflection"))
+                .spawn(move || {
+                    loop {
+                        std::thread::sleep(tick);
+                        let Some(core) = weak.upgrade() else {
+                            break;
+                        };
+                        let _ = core.reflect_if_due(false);
+                    }
+                });
         }
         // 已持久化 Hub 会话时，守护进程启动即自动登记本设备独立入站公钥。
         let _ = shared_core.register_channel_ingress_key();

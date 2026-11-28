@@ -117,7 +117,7 @@ fn give_superseded_versions_their_own_ids(conscience: &mut Conscience) {
 
 impl DaemonMutableState {
     /// 提交对良知的改动，并把本机的检索索引存盘。写不进脊柱时内存恢复原样。
-    fn finish_sea_write(
+    pub(crate) fn finish_sea_write(
         &mut self,
         qz_home: &Path,
         before: Conscience,

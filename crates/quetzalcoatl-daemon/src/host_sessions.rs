@@ -941,6 +941,17 @@ impl SharedDaemonCore {
                 turn.as_ref().map(|turn| turn.started_at_ms),
                 now_ms,
             );
+            // 记下这段相处的对话记录在哪里，供他闲下来时回想。
+            if let Some(path) = transcript_path
+                .as_deref()
+                .or_else(|| turn.as_ref().and_then(|t| t.transcript_path.as_deref()))
+            {
+                crate::reflection::note_transcript(
+                    &self.config.quetzalcoatl_home,
+                    &format!("ep-{host}-{session_id}"),
+                    path,
+                );
+            }
         }
         let Some(turn) = turn else {
             return IpcResponse::HostTurnSummary { written: 0 };

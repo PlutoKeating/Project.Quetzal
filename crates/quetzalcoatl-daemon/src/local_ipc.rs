@@ -200,6 +200,8 @@ pub enum IpcRequest {
         session_id: String,
         transcript_path: Option<PathBuf>,
     },
+    /// 让他现在就回想一次最近的相处（平时在用户不在场时自己进行）。
+    ReflectNow,
     /// 治理面（docs/GOVERNANCE_SURFACE.md 第 3 节）：只看和签。
     SeaOverview,
     SeaSelf,
@@ -466,6 +468,7 @@ pub enum IpcResponse {
         context: String,
     },
     HostStatusLine(HostStatusLineView),
+    Reflection(crate::reflection::ReflectionReport),
     SeaOverview(crate::sea_governance::SeaOverview),
     SeaSelf(crate::sea_governance::SeaSelf),
     SeaUser(crate::sea_governance::SeaUser),
