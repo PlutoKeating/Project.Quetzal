@@ -12,6 +12,7 @@
 pub mod entry_seal;
 pub mod keys;
 pub mod pack;
+pub mod passphrase;
 
 pub use entry_seal::{EntryKey, SealedEntry, open_entry, seal_entry};
 pub use keys::{
@@ -33,6 +34,10 @@ pub use pack::{
     compute_bucket_len, open_manifest_envelope, open_packfile, parse_padded_frame,
     seal_manifest_envelope, seal_packfile, seal_packfile_with_materials, zstd_compress_1mib,
     zstd_decompress_1mib_guarded,
+};
+pub use passphrase::{
+    MIN_PASSPHRASE_CHARS, PassphraseSealed, PassphraseVerifier, open_with_passphrase,
+    seal_with_passphrase,
 };
 
 use quetzalcoatl_types::{QuetzalcoatlError, Result};
