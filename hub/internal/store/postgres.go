@@ -558,6 +558,19 @@ func (p *PostgresStore) ListKeySlots(ctx context.Context, agentID string) ([]Key
 	return out, rows.Err()
 }
 
+func (p *PostgresStore) DeleteKeySlots(ctx context.Context, agentID string, slotTypes []string) (int64, error) {
+	var total int64
+	for _, slotType := range slotTypes {
+		res, err := p.db.ExecContext(ctx, `DELETE FROM key_slots WHERE agent_id = $1 AND slot_type = $2`, agentID, slotType)
+		if err != nil {
+			return total, err
+		}
+		n, _ := res.RowsAffected()
+		total += n
+	}
+	return total, nil
+}
+
 func (p *PostgresStore) SaveChallenge(ctx context.Context, ch AuthChallenge) error {
 	if ch.PayloadJSON == "" {
 		ch.PayloadJSON = "{}"

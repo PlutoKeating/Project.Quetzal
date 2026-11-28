@@ -370,6 +370,8 @@ type Store interface {
 	UpsertKeySlot(ctx context.Context, slot KeySlotEnvelope) error
 	GetKeySlot(ctx context.Context, agentID, slotType string) (*KeySlotEnvelope, error)
 	ListKeySlots(ctx context.Context, agentID string) ([]KeySlotEnvelope, error)
+	// DeleteKeySlots 删除该 Agent 下所有槽位名以 prefix 开头或等于 exact 的槽位，返回删除条数。
+	DeleteKeySlots(ctx context.Context, agentID string, slotTypes []string) (int64, error)
 
 	SaveChallenge(ctx context.Context, ch AuthChallenge) error
 	ConsumeChallenge(ctx context.Context, challengeID, purpose string, nowMs int64) (*AuthChallenge, error)
@@ -1117,6 +1119,21 @@ func (s *SQLiteStore) ListKeySlots(ctx context.Context, agentID string) ([]KeySl
 		out = append(out, slot)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLiteStore) DeleteKeySlots(ctx context.Context, agentID string, slotTypes []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var total int64
+	for _, slotType := range slotTypes {
+		res, err := s.db.ExecContext(ctx, `DELETE FROM key_slots WHERE agent_id = ? AND slot_type = ?`, agentID, slotType)
+		if err != nil {
+			return total, err
+		}
+		n, _ := res.RowsAffected()
+		total += n
+	}
+	return total, nil
 }
 
 func (s *SQLiteStore) SaveChallenge(ctx context.Context, ch AuthChallenge) error {

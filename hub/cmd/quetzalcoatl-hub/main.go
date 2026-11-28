@@ -655,6 +655,7 @@ func main() {
 	blobs.RegisterRoutes(mux)
 	authSvc.RegisterRoutes(mux)
 	authSvc.RegisterChannelIngressRoutes(mux)
+	authSvc.RegisterSealedKeyRoutes(mux)
 	spineSvc.RegisterRoutes(mux)
 	leaseSvc.RegisterRoutes(mux)
 	webhookSvc.RegisterRoutes(mux)
