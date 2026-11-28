@@ -60,6 +60,25 @@ export interface SeaSelf {
   core_values: CoreValue[];
   temperament: TemperamentItem[];
   changes: SelfChange[];
+  lately: SelfLately;
+}
+
+/** 他独处时：回想、出去读、想先提的事，和你给他定的节律。 */
+export interface SelfLately {
+  last_reflected_ms: number | null;
+  last_explored_ms: number | null;
+  curious: string[];
+  bring_up: string | null;
+  read: LatelyRead[];
+  speak_first: boolean;
+  /** 不打扰的时段：[开始的钟点, 结束的钟点]，本地时间，含头不含尾。 */
+  quiet_hours: number[] | null;
+}
+
+export interface LatelyRead {
+  id: string;
+  text: string;
+  at_ms: number;
 }
 
 export interface Preference {
@@ -248,6 +267,10 @@ export interface SeaMethods {
     result: BaselineSigned;
   };
   sea_focus_set: { params: { self_weight: number }; result: SeaUs };
+  sea_rhythm_set: {
+    params: { speak_first: boolean; quiet_hours: number[] | null };
+    result: SeaSelf;
+  };
   sea_device_revoke: { params: { device_id: string; passphrase: string }; result: DevicesView };
 }
 
@@ -272,5 +295,6 @@ export const SEA_WRITE_METHODS = [
   "sea_entry_erase",
   "sea_baseline_sign",
   "sea_focus_set",
+  "sea_rhythm_set",
   "sea_device_revoke",
 ] as const satisfies readonly SeaMethod[];

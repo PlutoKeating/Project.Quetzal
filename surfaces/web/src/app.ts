@@ -228,6 +228,9 @@ export class GovernanceApp {
         api.baselineSign(directives, passphrase),
       ),
       focusSet: track((selfWeight: number) => api.focusSet(selfWeight)),
+      rhythmSet: track((speakFirst: boolean, quietHours: readonly number[] | null) =>
+        api.rhythmSet(speakFirst, quietHours),
+      ),
       deviceRevoke: track((deviceId: string, passphrase: string) =>
         api.deviceRevoke(deviceId, passphrase),
       ),

@@ -555,6 +555,10 @@ button.qz-link-arrow:hover { color: @qz_ink; }
 
 .qz-field-hint.is-amber { color: @qz_amber; }
 
+/* ── 写成一句话的设置：选择嵌在它补全的那句话里 ─────────────────── */
+.qz-sentences { margin-top: 20px; }
+.qz-sentence { color: @qz_ink_secondary; }
+
 /* ── 分段控件 ─────────────────────────────────────────────────────── */
 .qz-segmented {
   border: 1px solid @qz_line_border;

@@ -116,6 +116,21 @@ export function fullFixture(): Fixture {
           evidence: [],
         },
       ],
+      lately: {
+        last_reflected_ms: NOW - 3 * HOUR,
+        last_explored_ms: NOW - 20 * HOUR,
+        curious: ["寄存器溢出的代价模型"],
+        bring_up: "溢出那部分做完了吗",
+        read: [
+          {
+            id: "mem-read-1",
+            text: "（他自己读到的：图着色）溢出时要选代价最小的变量 出处：https://example.org/regalloc",
+            at_ms: NOW - 20 * HOUR,
+          },
+        ],
+        speak_first: true,
+        quiet_hours: [23, 8],
+      },
     },
     preferences: [
       memory("pref-1", "回答先给结论，再给理由。", 188, { layer: "USER_PREF", topic: null }),
@@ -207,7 +222,21 @@ export function freshFixture(): Fixture {
       hosts: [],
       sync: { state: "local-only", hub_url: null, devices: 1, last_synced_ms: null },
     },
-    self: { identity: [], core_values: [], temperament: [], changes: [] },
+    self: {
+      identity: [],
+      core_values: [],
+      temperament: [],
+      changes: [],
+      lately: {
+        last_reflected_ms: null,
+        last_explored_ms: null,
+        curious: [],
+        bring_up: null,
+        read: [],
+        speak_first: true,
+        quiet_hours: null,
+      },
+    },
     preferences: [],
     facts: [],
     memories: [],
@@ -412,6 +441,22 @@ export class FakeApi implements SeaApi {
       this.#audit("baseline_sign", `${directives.length} 条底线`, null);
       return { signed_at_ms: NOW };
     });
+  }
+
+  rhythmSet(speakFirst: boolean, quietHours: readonly number[] | null): Promise<SeaSelf> {
+    return this.#run(
+      "sea_rhythm_set",
+      { speak_first: speakFirst, quiet_hours: quietHours === null ? null : [...quietHours] },
+      () => {
+        this.data.self.lately = {
+          ...this.data.self.lately,
+          speak_first: speakFirst,
+          bring_up: speakFirst ? this.data.self.lately.bring_up : null,
+          quiet_hours: quietHours === null ? null : [...quietHours],
+        };
+        return this.data.self;
+      },
+    );
   }
 
   focusSet(selfWeight: number): Promise<SeaUs> {

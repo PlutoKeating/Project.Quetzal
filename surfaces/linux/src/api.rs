@@ -331,6 +331,25 @@ impl Api {
         );
     }
 
+    pub fn rhythm_set(
+        &self,
+        speak_first: bool,
+        quiet_hours: Option<(u8, u8)>,
+        done: impl FnOnce(Result<SeaSelf, ApiError>) + 'static,
+    ) {
+        self.call(
+            IpcRequest::SeaRhythmSet {
+                speak_first,
+                quiet_hours,
+            },
+            |r| match r {
+                IpcResponse::SeaRhythmSet(v) => Some(v),
+                _ => None,
+            },
+            done,
+        );
+    }
+
     pub fn focus_set(
         &self,
         self_weight: f64,

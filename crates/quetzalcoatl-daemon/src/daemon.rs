@@ -1781,6 +1781,10 @@ impl SharedDaemonCore {
                 passphrase,
             } => (self.sea_baseline_sign(&directives, &passphrase), false),
             IpcRequest::SeaFocusSet { self_weight } => (self.sea_focus_set(self_weight), false),
+            IpcRequest::SeaRhythmSet {
+                speak_first,
+                quiet_hours,
+            } => (self.sea_rhythm_set(speak_first, quiet_hours), false),
             IpcRequest::SeaDeviceRevoke {
                 device_id,
                 passphrase,

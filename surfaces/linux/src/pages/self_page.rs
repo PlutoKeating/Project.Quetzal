@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 
 //! 他：上半是核心价值的发丝线栅格（编号、陈述、自何时起），性情列在其后、字号小一级；
-//! 下半是「最近的变化」时间线，每一条变化可以展开证据链（哪几次相处、跨多少天）。
+//! 下半是「最近的变化」时间线，每一条变化可以展开证据链（哪几次相处、跨多少天）；
+//! 最后是「他独处时」：他回想过什么、出去读了什么、想先提什么，节律写在句子里，不另起一排开关。
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -9,16 +10,16 @@ use std::rc::{Rc, Weak};
 
 use gtk::prelude::*;
 use gtk4 as gtk;
-use quetzalcoatl_daemon::sea_governance::{SeaSelf, SelfChange};
+use quetzalcoatl_daemon::sea_governance::{SeaSelf, SelfChange, SelfLately};
 
 use crate::api::ApiError;
 use crate::aside::{Event, Provenance};
 use crate::ctx::{Ctx, Page, upgrade};
 use crate::routes::PageKey;
-use crate::timefmt::{excerpt, format_date, format_date_time, ordinal, span_days};
+use crate::timefmt::{excerpt, format_ago, format_date, format_date_time, ordinal, span_days};
 use crate::ui::{
     Fact, TickTone, Tone, button_text, cell, deflist, hbox, heading, line, pick, rail, section,
-    state_word, text, timeline_item, vbox,
+    segmented, state_word, text, timeline_item, vbox,
 };
 
 use super::{Frame, compact_empty, empty_page, frame, pickable_cell, unavailable};
@@ -39,6 +40,43 @@ enum Selection {
     Value(String),
     Temperament(String),
     Change(String),
+    Read(String),
+}
+
+/// 不打扰时段的几个选择；要别的钟点用 `qz reflect --quiet-hours`。
+/// 一个选择：键、标签、钟点（开始, 结束）。
+type QuietChoice = (&'static str, &'static str, Option<(u8, u8)>);
+
+const QUIET_CHOICES: [QuietChoice; 3] = [
+    ("none", "随时", None),
+    ("night", "夜里（23–8 点）", Some((23, 8))),
+    ("work", "上班时（9–18 点）", Some((9, 18))),
+];
+
+fn quiet_key(hours: Option<(u8, u8)>) -> &'static str {
+    QUIET_CHOICES
+        .iter()
+        .find(|(_, _, h)| *h == hours)
+        .map_or("custom", |(key, _, _)| key)
+}
+
+/// 他读到的一条去掉前缀与出处，只留要点。
+fn read_gist(text: &str) -> String {
+    let body = text
+        .strip_prefix("（他自己读到的：")
+        .and_then(|rest| rest.split_once('）').map(|(_, after)| after))
+        .unwrap_or(text);
+    body.split(" 出处：")
+        .next()
+        .unwrap_or(body)
+        .trim()
+        .to_owned()
+}
+
+fn read_source(text: &str) -> Option<String> {
+    text.rsplit_once("出处：")
+        .map(|(_, source)| source.trim().to_owned())
+        .filter(|s| !s.is_empty())
 }
 
 pub struct SelfPage {
@@ -48,6 +86,7 @@ pub struct SelfPage {
     failure: RefCell<Option<ApiError>>,
     selection: RefCell<Option<Selection>>,
     expanded: RefCell<HashSet<String>>,
+    rhythm_failure: RefCell<Option<String>>,
     me: Weak<SelfPage>,
 }
 
@@ -60,6 +99,7 @@ impl SelfPage {
             failure: RefCell::new(None),
             selection: RefCell::new(None),
             expanded: RefCell::new(HashSet::new()),
+            rhythm_failure: RefCell::new(None),
             me: me.clone(),
         })
     }
@@ -276,6 +316,185 @@ impl SelfPage {
         )
     }
 
+    /// 一句话里嵌一组单选：「他见面时 [可以先提一件事 | 等我先说]」。
+    fn sentence(&self, lead: &str, name: &str, choices: gtk::Box) -> gtk::Box {
+        let row = hbox(16);
+        row.add_css_class("qz-sentence");
+        row.set_widget_name(name);
+        row.append(&text(lead, &["qz-body"]));
+        row.append(&self.ctx.guard(choices));
+        row
+    }
+
+    fn set_rhythm(&self, speak_first: bool, quiet_hours: Option<(u8, u8)>) {
+        let weak = self.me.clone();
+        let ctx = self.ctx.clone();
+        self.ctx
+            .api
+            .rhythm_set(speak_first, quiet_hours, move |result| {
+                ctx.note(&result);
+                upgrade(&weak, |page| {
+                    match result {
+                        Ok(data) => {
+                            *page.rhythm_failure.borrow_mut() = None;
+                            page.ctx.say(&format!(
+                                "已改好：他{}，{}。",
+                                if speak_first {
+                                    "可以先提一件事"
+                                } else {
+                                    "等你先说"
+                                },
+                                quiet_hours.map_or_else(
+                                    || String::from("随时可以回想和出去读"),
+                                    |(a, b)| format!("{a}–{b} 点之间不打扰"),
+                                )
+                            ));
+                            *page.data.borrow_mut() = Some(data);
+                        }
+                        Err(error) => {
+                            let message = format!("没有改成：{}", error.describe());
+                            page.ctx.alert(&message);
+                            *page.rhythm_failure.borrow_mut() = Some(message);
+                        }
+                    }
+                    page.render();
+                });
+            });
+    }
+
+    /// 他独处时：左边一栏是他做过的（回想、出去读），右边一栏是他接下来想做的；节律写成两句话。
+    fn alone_section(&self, lately: &SelfLately) -> gtk::Box {
+        let now = self.ctx.now();
+        let did = vbox(0);
+        did.set_widget_name("alone-did");
+        let reflected = text(
+            &lately.last_reflected_ms.map_or_else(
+                || String::from("还没有回想过你们的相处。你离开宿主半小时后，他会自己回想一次。"),
+                |ms| format!("{}回想过一段相处。", format_ago(ms, now)),
+            ),
+            &["qz-timeline-text"],
+        );
+        did.append(&timeline_item(
+            Some("回想"),
+            &reflected,
+            TickTone::Neutral,
+            false,
+        ));
+        let read_body = vbox(6);
+        read_body.append(&text(
+            &lately.last_explored_ms.map_or_else(
+                || String::from("还没有出去读过。他只用搜索和读网页，不碰你的文件。"),
+                |ms| {
+                    format!(
+                        "{}出去读过，记下了 {} 条。",
+                        format_ago(ms, now),
+                        lately.read.len()
+                    )
+                },
+            ),
+            &["qz-timeline-text"],
+        ));
+        if !lately.read.is_empty() {
+            let list = vbox(6);
+            list.set_widget_name("alone-read");
+            for item in &lately.read {
+                let selection = Selection::Read(item.id.clone());
+                let row = hbox(10);
+                row.append(&crate::ui::dot(Tone::Quiet));
+                row.append(&text(&excerpt(&read_gist(&item.text), 48), &["qz-body"]));
+                let button = pick(&row, self.is_current(&selection), false);
+                let weak = self.me.clone();
+                button.connect_clicked(move |_| {
+                    upgrade(&weak, |page| page.select(selection.clone()));
+                });
+                list.append(&button);
+            }
+            read_body.append(&list);
+        }
+        did.append(&timeline_item(
+            Some("出去读"),
+            &read_body,
+            TickTone::Neutral,
+            false,
+        ));
+
+        let next = deflist(&[
+            Fact::new(
+                "他好奇的",
+                if lately.curious.is_empty() {
+                    String::from("眼下没有。回想时他起了好奇心，会排在这里。")
+                } else {
+                    lately.curious.join("；")
+                },
+            ),
+            Fact::new(
+                "下次想先提",
+                lately.bring_up.clone().unwrap_or_else(|| {
+                    String::from(if lately.speak_first {
+                        "没有。真有必要时他才会先开口。"
+                    } else {
+                        "你让他等你先说。"
+                    })
+                }),
+            ),
+        ]);
+        next.set_widget_name("alone-next");
+        let left = cell();
+        left.append(&did);
+        let right = cell();
+        right.append(&next);
+        let columns = rail(&[left.upcast(), right.upcast()], 2);
+
+        let quiet_hours = lately.quiet_hours;
+        let weak = self.me.clone();
+        let speak = segmented(
+            &[("yes", "可以先提一件事"), ("no", "等我先说")],
+            if lately.speak_first { "yes" } else { "no" },
+            move |key| {
+                upgrade(&weak, |page| page.set_rhythm(key == "yes", quiet_hours));
+            },
+        );
+        let speak_first = lately.speak_first;
+        let weak = self.me.clone();
+        let options: Vec<(&'static str, &'static str)> = QUIET_CHOICES
+            .iter()
+            .map(|(key, label, _)| (*key, *label))
+            .collect();
+        let quiet = segmented(&options, quiet_key(quiet_hours), move |key| {
+            if let Some((_, _, hours)) = QUIET_CHOICES.iter().find(|(k, _, _)| *k == key) {
+                let hours = *hours;
+                upgrade(&weak, |page| page.set_rhythm(speak_first, hours));
+            }
+        });
+        let rhythm = vbox(12);
+        rhythm.add_css_class("qz-sentences");
+        rhythm.set_widget_name("alone-rhythm");
+        rhythm.append(&self.sentence("他见面时", "alone-speak", speak));
+        rhythm.append(&self.sentence("他不打扰你的时候", "alone-quiet", quiet));
+        if quiet_key(quiet_hours) == "custom"
+            && let Some((a, b)) = quiet_hours
+        {
+            rhythm.append(&line(
+                &format!("现在是 {a}–{b} 点（用 qz reflect --quiet-hours 设的）"),
+                &["qz-meta"],
+            ));
+        }
+        if let Some(message) = self.rhythm_failure.borrow().as_ref() {
+            rhythm.append(&crate::ui::amber_hint(message));
+        }
+        let content = vbox(20);
+        content.append(&columns);
+        content.append(&rhythm);
+        let block = section(
+            "他独处时",
+            false,
+            Some("你不在的时候，他借你的宿主回想、出去读。循环和模型都是宿主的，读到的只作参考。"),
+            &content,
+        );
+        block.set_widget_name("alone");
+        block
+    }
+
     fn draw(&self, data: &SeaSelf) {
         let body = &self.frame.body;
         crate::ui::clear(body);
@@ -286,7 +505,9 @@ impl SelfPage {
         let empty = data.identity.is_empty()
             && data.core_values.is_empty()
             && data.temperament.is_empty()
-            && data.changes.is_empty();
+            && data.changes.is_empty()
+            && data.lately.last_reflected_ms.is_none()
+            && data.lately.read.is_empty();
         if empty {
             *self.selection.borrow_mut() = None;
             empty_page(
@@ -335,6 +556,7 @@ impl SelfPage {
             body.append(&self.temperament_section(data));
         }
         body.append(&self.changes_section(data));
+        body.append(&self.alone_section(&data.lately));
     }
 
     fn provenance(&self) -> Provenance {
@@ -386,6 +608,32 @@ impl SelfPage {
                         Fact::new("层", "性情"),
                         Fact::new("自", format_date(item.since_ms)),
                     ],
+                    ..Provenance::default()
+                }
+            }
+            Selection::Read(id) => {
+                let Some(item) = data.lately.read.iter().find(|r| r.id == id) else {
+                    return Provenance::sentence(PageKey::SelfPage.info().sentence);
+                };
+                let ctx = self.ctx.clone();
+                let target = item.id.clone();
+                Provenance {
+                    title: Some(excerpt(&read_gist(&item.text), 80)),
+                    lead: String::from(
+                        "这是他独处时自己读到、记下的。它只作参考：宿主里引用它时会标明来源不可信。",
+                    ),
+                    facts: vec![
+                        Fact::new("层", "往事 · 只作参考"),
+                        Fact::new("读到", format_date_time(item.at_ms)),
+                        Fact::new(
+                            "出处",
+                            read_source(&item.text).unwrap_or_else(|| String::from("没有写明")),
+                        ),
+                    ],
+                    link: Some((
+                        String::from("在往事里看它"),
+                        Rc::new(move || ctx.goto(PageKey::Memories, Some(target.clone()))),
+                    )),
                     ..Provenance::default()
                 }
             }

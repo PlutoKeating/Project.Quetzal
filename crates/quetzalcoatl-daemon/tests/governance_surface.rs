@@ -426,3 +426,41 @@ fn notes_and_chat_exports_come_in_as_one_batch_and_can_be_taken_back_out() -> Te
     );
     Ok(())
 }
+
+#[test]
+fn the_rhythm_of_his_time_alone_is_set_from_the_governance_surface() -> TestResult {
+    let root = common::temp_root("rhythm")?;
+    let _guard = TempGuard(root.clone());
+    let daemon = QuetzalcoatlDaemon::start(DaemonConfig::new(root.join("h")))?;
+    let client = IpcClient::from_runtime_info(daemon.runtime_info(), daemon.ipc_token().to_owned());
+
+    let before = call(&client, &IpcRequest::SeaSelf)?;
+    assert_eq!(before["data"]["lately"]["speak_first"], true, "{before}");
+    assert!(before["data"]["lately"]["quiet_hours"].is_null());
+
+    let set = call(
+        &client,
+        &IpcRequest::SeaRhythmSet {
+            speak_first: false,
+            quiet_hours: Some((23, 8)),
+        },
+    )?;
+    assert_eq!(set["kind"], "sea_rhythm_set", "{set}");
+    assert_eq!(set["data"]["lately"]["speak_first"], false);
+    assert_eq!(
+        set["data"]["lately"]["quiet_hours"],
+        serde_json::json!([23, 8])
+    );
+    let ledger = fs::read_to_string(root.join("h/reflection/ledger.json"))?;
+    assert!(ledger.contains("\"quiet\": true"), "{ledger}");
+
+    let bad = call(
+        &client,
+        &IpcRequest::SeaRhythmSet {
+            speak_first: true,
+            quiet_hours: Some((8, 8)),
+        },
+    );
+    assert!(bad.is_err(), "开始与结束是同一个钟点不算时段: {bad:?}");
+    Ok(())
+}

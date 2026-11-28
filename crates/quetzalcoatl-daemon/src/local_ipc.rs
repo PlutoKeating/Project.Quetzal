@@ -241,6 +241,10 @@ pub enum IpcRequest {
     SeaFocusSet {
         self_weight: f64,
     },
+    SeaRhythmSet {
+        speak_first: bool,
+        quiet_hours: Option<(u8, u8)>,
+    },
     SeaDeviceRevoke {
         device_id: String,
         passphrase: String,
@@ -481,6 +485,7 @@ pub enum IpcResponse {
     SeaEntryErase(crate::sea_governance::EntryWrite),
     SeaBaselineSign(crate::sea_governance::BaselineSigned),
     SeaFocusSet(crate::sea_governance::SeaUs),
+    SeaRhythmSet(crate::sea_governance::SeaSelf),
     SeaDeviceRevoke(crate::sea_governance::DevicesView),
     /// 回合结束的回执：这一回合留下了几处改动。
     HostTurnSummary {

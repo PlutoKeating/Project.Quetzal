@@ -113,6 +113,12 @@ const PLAN: Step[] = [
     reply: (api) => api.focusSet(0.7),
   },
   {
+    method: "sea_rhythm_set",
+    params: { speak_first: false, quiet_hours: [23, 8] },
+    call: (client) => client.rhythmSet(false, [23, 8]),
+    reply: (api) => api.rhythmSet(false, [23, 8]),
+  },
+  {
     method: "sea_device_revoke",
     params: { device_id: "dev-old", passphrase: PASSPHRASE },
     call: (client) => client.deviceRevoke("dev-old", PASSPHRASE),
@@ -120,11 +126,11 @@ const PLAN: Step[] = [
   },
 ];
 
-describe("类型化客户端：十六个方法的请求体与答复", () => {
-  it("契约恰好是十个读方法和六个写方法", () => {
+describe("类型化客户端：十七个方法的请求体与答复", () => {
+  it("契约恰好是十个读方法和七个写方法", () => {
     expect(SEA_READ_METHODS).toHaveLength(10);
-    expect(SEA_WRITE_METHODS).toHaveLength(6);
-    expect(new Set([...SEA_READ_METHODS, ...SEA_WRITE_METHODS]).size).toBe(16);
+    expect(SEA_WRITE_METHODS).toHaveLength(7);
+    expect(new Set([...SEA_READ_METHODS, ...SEA_WRITE_METHODS]).size).toBe(17);
   });
 
   it("每个方法都发出契约里的 method 与 params，并把 data 解码成类型化的结果", async () => {
@@ -145,7 +151,7 @@ describe("类型化客户端：十六个方法的请求体与答复", () => {
     }
 
     const sent = net.rpc();
-    expect(sent).toHaveLength(16);
+    expect(sent).toHaveLength(17);
     sent.forEach((request, index) => {
       const step = PLAN[index];
       expect(request.method).toBe("POST");

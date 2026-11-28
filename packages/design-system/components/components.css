@@ -2325,6 +2325,23 @@ html[dir="rtl"] .qz-rail.is-grid > .qz-cell {
   margin-bottom: var(--qz-space-5);
 }
 
+/* A setting written as a sentence: the choice sits inside the words it completes,
+   instead of a row of bare toggles. */
+.qz-sentences {
+  display: grid;
+  gap: var(--qz-space-3);
+  margin-top: var(--qz-space-5);
+}
+
+.qz-sentence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--qz-space-2) var(--qz-space-4);
+  margin: 0;
+  color: var(--qz-ink-secondary);
+}
+
 .qz-toolbar .qz-input {
   flex: 1 1 14rem;
 }

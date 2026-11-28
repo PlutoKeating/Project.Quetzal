@@ -78,7 +78,7 @@ describe("他：核心价值的栅格、性情、最近的变化", () => {
   it("性情列在核心之后，标题小一级", async () => {
     const ui = await mount({ hash: "#/self" });
     const titles = ui.all("main h2");
-    expect(titles.map(text)).toEqual(["核心价值", "性情", "最近的变化"]);
+    expect(titles.map(text)).toEqual(["核心价值", "性情", "最近的变化", "他独处时"]);
     expect(titles[1]?.classList.contains("is-minor")).toBe(true);
     expect(titles[0]?.classList.contains("is-minor")).toBe(false);
   });

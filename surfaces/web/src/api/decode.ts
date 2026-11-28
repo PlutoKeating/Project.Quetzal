@@ -111,6 +111,15 @@ const self: Decoder<SeaSelf> = obj<SeaSelf>({
       evidence: arr(obj({ episode_id: str, host: str, at_ms: num })),
     }),
   ),
+  lately: obj({
+    last_reflected_ms: nullable(num),
+    last_explored_ms: nullable(num),
+    curious: arr(str),
+    bring_up: nullable(str),
+    read: arr(obj({ id: str, text: str, at_ms: num })),
+    speak_first: bool,
+    quiet_hours: nullable(arr(num)),
+  }),
 });
 
 const memoryShape = {
@@ -228,5 +237,6 @@ export const RESULT_DECODERS: { [M in SeaMethod]: Decoder<SeaMethods[M]["result"
   sea_entry_erase: entryWrite,
   sea_baseline_sign: baselineSigned,
   sea_focus_set: us,
+  sea_rhythm_set: self,
   sea_device_revoke: devices,
 };

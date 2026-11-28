@@ -76,6 +76,7 @@ export interface SeaApi {
   entryErase(id: string): Promise<EntryWrite>;
   baselineSign(directives: readonly DirectiveDraft[], passphrase: string): Promise<BaselineSigned>;
   focusSet(selfWeight: number): Promise<SeaUs>;
+  rhythmSet(speakFirst: boolean, quietHours: readonly number[] | null): Promise<SeaSelf>;
   deviceRevoke(deviceId: string, passphrase: string): Promise<DevicesView>;
 }
 
@@ -179,6 +180,13 @@ export class SeaClient implements SeaApi {
 
   focusSet(selfWeight: number): Promise<SeaUs> {
     return this.call("sea_focus_set", { self_weight: selfWeight });
+  }
+
+  rhythmSet(speakFirst: boolean, quietHours: readonly number[] | null): Promise<SeaSelf> {
+    return this.call("sea_rhythm_set", {
+      speak_first: speakFirst,
+      quiet_hours: quietHours === null ? null : [...quietHours],
+    });
   }
 
   deviceRevoke(deviceId: string, passphrase: string): Promise<DevicesView> {

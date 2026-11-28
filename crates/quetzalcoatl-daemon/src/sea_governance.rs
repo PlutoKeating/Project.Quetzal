@@ -133,6 +133,63 @@ pub struct SeaSelf {
     pub core_values: Vec<CoreValue>,
     pub temperament: Vec<TemperamentItem>,
     pub changes: Vec<SelfChange>,
+    /// 他最近独处时做了什么。
+    #[serde(default)]
+    pub lately: SelfLately,
+}
+
+/// 他独处时：回想、出去读、想先提的事，和你给他定的节律。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SelfLately {
+    pub last_reflected_ms: Option<u64>,
+    pub last_explored_ms: Option<u64>,
+    /// 他想自己去了解、还没去读的事。
+    pub curious: Vec<String>,
+    /// 下次见面他想先提的一件事。
+    pub bring_up: Option<String>,
+    /// 他自己读到、记下的东西（最近的在前）。
+    pub read: Vec<LatelyRead>,
+    pub speak_first: bool,
+    /// 不打扰的时段（本地小时，含头不含尾）。
+    pub quiet_hours: Option<(u8, u8)>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct LatelyRead {
+    pub id: String,
+    pub text: String,
+    pub at_ms: u64,
+}
+
+fn lately_of(qz_home: &std::path::Path, conscience: &quetzalcoatl_ewave::Conscience) -> SelfLately {
+    let ledger = crate::reflection::ReflectionLedger::load(qz_home);
+    let mut read: Vec<LatelyRead> = conscience
+        .memories
+        .iter()
+        .filter(|m| m.invalid_at_ms.is_none())
+        .filter(|m| {
+            m.provenance
+                .source_event_ids
+                .iter()
+                .any(|s| s == "explore" || s.starts_with("explore:"))
+        })
+        .map(|m| LatelyRead {
+            id: m.id.clone(),
+            text: m.content.clone(),
+            at_ms: m.valid_from_ms,
+        })
+        .collect();
+    read.sort_by_key(|item| std::cmp::Reverse(item.at_ms));
+    read.truncate(12);
+    SelfLately {
+        last_reflected_ms: (ledger.last_run_ms > 0).then_some(ledger.last_run_ms),
+        last_explored_ms: (ledger.last_explore_ms > 0).then_some(ledger.last_explore_ms),
+        curious: ledger.curious.clone(),
+        bring_up: ledger.bring_up.clone(),
+        read,
+        speak_first: !ledger.quiet,
+        quiet_hours: ledger.quiet_hours,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -634,6 +691,7 @@ impl DaemonMutableState {
             .filter(|value| value.invalid_at_ms.is_none());
         let episodes = &conscience.episodes;
         SeaSelf {
+            lately: SelfLately::default(),
             identity: conscience
                 .identity
                 .iter()
@@ -1043,8 +1101,41 @@ impl SharedDaemonCore {
     }
 
     pub(crate) fn sea_self(&self) -> IpcResponse {
-        self.with_state(|state| IpcResponse::SeaSelf(state.sea_self()))
-            .unwrap_or_else(|| error("STORAGE_ERROR", BUSY))
+        let home = self.config.quetzalcoatl_home.clone();
+        self.with_state(|state| {
+            let mut view = state.sea_self();
+            view.lately = lately_of(&home, &state.conscience);
+            IpcResponse::SeaSelf(view)
+        })
+        .unwrap_or_else(|| error("STORAGE_ERROR", BUSY))
+    }
+
+    /// 他独处时的节律：先不先开口、哪些钟点不打扰。只是你给他的安排，不是对他的改写，不经签署。
+    pub(crate) fn sea_rhythm_set(
+        &self,
+        speak_first: bool,
+        quiet_hours: Option<(u8, u8)>,
+    ) -> IpcResponse {
+        if quiet_hours.is_some_and(|(start, end)| start > 23 || end > 24 || start == end) {
+            return error(
+                "INVALID_ID",
+                "不打扰的时段要写成 0–23 点开始、到另一个钟点结束",
+            );
+        }
+        let home = self.config.quetzalcoatl_home.clone();
+        let mut ledger = crate::reflection::ReflectionLedger::load(&home);
+        ledger.quiet = !speak_first;
+        if !speak_first {
+            ledger.bring_up = None;
+        }
+        ledger.quiet_hours = quiet_hours;
+        if let Err(err) = ledger.save(&home) {
+            return from_error(&err);
+        }
+        match self.sea_self() {
+            IpcResponse::SeaSelf(view) => IpcResponse::SeaRhythmSet(view),
+            other => other,
+        }
     }
 
     pub(crate) fn sea_user(&self) -> IpcResponse {

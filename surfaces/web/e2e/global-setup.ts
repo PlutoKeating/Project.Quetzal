@@ -72,7 +72,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   };
   const binary =
     process.env.QUETZALCOATL_DAEMON_BIN ?? join(REPO_ROOT, "target/debug/quetzalcoatld");
-  if (!existsSync(binary)) {
+  // 没有指定二进制时每次都让 cargo 增量构建一次，免得拿旧的守护进程去测新的页面。
+  if (process.env.QUETZALCOATL_DAEMON_BIN === undefined) {
     run(toolchainBin("cargo"), ["build", "-p", "quetzalcoatl-daemon", "--bin", "quetzalcoatld"], REPO_ROOT, env);
   }
   if (!existsSync(binary)) {

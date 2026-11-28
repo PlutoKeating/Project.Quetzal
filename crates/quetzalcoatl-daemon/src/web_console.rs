@@ -50,6 +50,7 @@ const WEB_ALLOWED_METHODS: &[&str] = &[
     "sea_entry_erase",
     "sea_baseline_sign",
     "sea_focus_set",
+    "sea_rhythm_set",
     "sea_device_revoke",
 ];
 

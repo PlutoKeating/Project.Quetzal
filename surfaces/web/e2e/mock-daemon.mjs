@@ -420,6 +420,21 @@ function buildFull(now) {
     core,
     temperament,
     changes,
+    lately: {
+      last_reflected_ms: now - 3 * HOUR,
+      last_explored_ms: now - 20 * HOUR,
+      curious: ["寄存器溢出的代价模型"],
+      bring_up: "溢出那部分做完了吗",
+      read: [
+        {
+          id: "mem-read-1",
+          text: "（他自己读到的：图着色）溢出时要选代价最小的变量 出处：https://example.org/regalloc",
+          at_ms: now - 20 * HOUR,
+        },
+      ],
+      speak_first: true,
+      quiet_hours: [23, 8],
+    },
     entries,
     relations: [
       {
@@ -511,6 +526,15 @@ function buildFresh(now) {
     core: [],
     temperament: [],
     changes: [],
+    lately: {
+      last_reflected_ms: null,
+      last_explored_ms: null,
+      curious: [],
+      bring_up: null,
+      read: [],
+      speak_first: true,
+      quiet_hours: null,
+    },
     entries: new Map(),
     relations: [],
     focus: { self_weight: 0.5, us_weight: 0.5, floor_self: 0.2, floor_locked: true },
@@ -648,6 +672,7 @@ const METHODS = {
       core_values: state.core.map((item) => ({ ...item })),
       temperament: state.temperament.map((item) => ({ ...item })),
       changes: state.changes.map((change) => ({ ...change, evidence: change.evidence.map((item) => ({ ...item })) })),
+      lately: { ...state.lately, curious: [...state.lately.curious], read: state.lately.read.map((item) => ({ ...item })) },
     };
   },
 
@@ -794,6 +819,17 @@ const METHODS = {
     state.baseline.signed_at_ms = signed_at_ms;
     audit("baseline_sign", `${directives.length} 条底线`);
     return { signed_at_ms };
+  },
+
+  sea_rhythm_set(params) {
+    const speak = params?.speak_first;
+    const hours = params?.quiet_hours ?? null;
+    if (typeof speak !== "boolean") throw new RpcError("INVALID_PARAMS", "speak_first 必须是真或假。");
+    if (hours !== null && !(Array.isArray(hours) && hours.length === 2)) {
+      throw new RpcError("INVALID_PARAMS", "quiet_hours 是两个钟点，或者 null。");
+    }
+    state.lately = { ...state.lately, speak_first: speak, bring_up: speak ? state.lately.bring_up : null, quiet_hours: hours };
+    return this.sea_self();
   },
 
   sea_focus_set(params) {

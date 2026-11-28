@@ -434,3 +434,38 @@ describe("写操作之后，导航上的信号点重新读取", () => {
     expect(ui.api.callsTo("sea_overview").length).toBe(before + 1);
   });
 });
+
+describe("他独处时：节律写在句子里", () => {
+  it("他读到的、他好奇的、想先提的都在；改节律写入一次，句子跟着变", async () => {
+    const ui = await mount({ hash: "#/self" });
+    const section = ui.q('[data-section="alone"]');
+    expect(text(section)).toContain("寄存器溢出的代价模型");
+    expect(text(section)).toContain("溢出那部分做完了吗");
+    expect(text(ui.q('[data-role="alone-read"]'))).toContain("溢出时要选代价最小的变量");
+
+    const night = ui.q<HTMLButtonElement>('[data-role="alone-quiet"] [data-choice="night"]');
+    expect(night.getAttribute("aria-checked")).toBe("true");
+
+    ui.q<HTMLButtonElement>('[data-role="alone-speak"] [data-choice="no"]').click();
+    await vi.waitFor(() => expect(ui.api.callsTo("sea_rhythm_set")).toHaveLength(1));
+    await settle();
+    expect(ui.api.callsTo("sea_rhythm_set")[0]?.params).toEqual({ speak_first: false, quiet_hours: [23, 8] });
+    expect(
+      ui.q('[data-role="alone-speak"] [data-choice="no"]').getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(text(ui.q('[data-role="alone-next"]'))).toContain("你让他等你先说");
+
+    ui.q<HTMLButtonElement>('[data-role="alone-quiet"] [data-choice="none"]').click();
+    await vi.waitFor(() => expect(ui.api.callsTo("sea_rhythm_set")).toHaveLength(2));
+    expect(ui.api.callsTo("sea_rhythm_set")[1]?.params).toEqual({ speak_first: false, quiet_hours: null });
+  });
+
+  it("选中他读到的一条：出处栏写明只作参考与出处", async () => {
+    const ui = await mount({ hash: "#/self" });
+    ui.q<HTMLButtonElement>('[data-role="alone-read"] .qz-pick').click();
+    await settle();
+    const provenance = text(document.querySelector('[data-role="provenance"]') ?? document.body);
+    expect(provenance).toContain("只作参考");
+    expect(provenance).toContain("https://example.org/regalloc");
+  });
+});
