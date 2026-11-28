@@ -144,6 +144,7 @@ impl Rig {
             .env("CLAUDE_CONFIG_DIR", &self.claude_config)
             .env("PATH", path_env)
             .env("NO_COLOR", "1")
+            .env("QUETZALCOATL_NOTIFY", "0")
             .env_remove("QUETZALCOATL_MANAGED_RUN")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

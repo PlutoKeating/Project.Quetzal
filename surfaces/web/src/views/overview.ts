@@ -182,7 +182,7 @@ export class OverviewView extends BaseView<SeaOverview> {
           { class: "qz-signal" },
           dot("amber"),
           h("span", null, `${overview.pending.approvals} 件事等你拍板`),
-          h("span", { class: "qz-meta" }, "在宿主里拍板"),
+          h("span", { class: "qz-meta" }, "在桌面通知里或终端里拍板（qz approve）"),
         ),
       );
     }

@@ -446,6 +446,8 @@ pub(crate) struct HostSessionRegistry {
     delegations: Mutex<BTreeMap<String, Delegation>>,
     agent_name: Mutex<String>,
     pending_for_owner: AtomicUsize,
+    /// 等你拍板的事（由拍板队列维护）。
+    pub(crate) pending_approvals: AtomicUsize,
     /// 宿主在执行我们的工具之前登记的票据：这次调用属于哪个会话。
     tool_tickets: Mutex<Vec<ToolTicket>>,
 }
@@ -457,6 +459,7 @@ impl Default for HostSessionRegistry {
             delegations: Mutex::new(BTreeMap::new()),
             agent_name: Mutex::new(String::from(DEFAULT_AGENT_NAME)),
             pending_for_owner: AtomicUsize::new(0),
+            pending_approvals: AtomicUsize::new(0),
             tool_tickets: Mutex::new(Vec::new()),
         }
     }
@@ -543,7 +546,8 @@ impl HostSessionRegistry {
             agent_name,
             session_known,
             recalled_last_turn,
-            pending_for_owner: self.pending_for_owner.load(Ordering::Relaxed),
+            pending_for_owner: self.pending_for_owner.load(Ordering::Relaxed)
+                + self.pending_approvals.load(Ordering::Relaxed),
             off_record,
             update: None,
             update_required: false,
@@ -1496,6 +1500,7 @@ impl SharedDaemonCore {
                     workspace_dir,
                     verifier_dag: None,
                     router_attempted_forbidden_tools: Vec::new(),
+                    hold_for_approval: true,
                 });
                 let finished = match outcome {
                     Ok(done) => Delegation::Done {
@@ -1517,7 +1522,11 @@ impl SharedDaemonCore {
                             } else {
                                 done.changed_files.join("、")
                             }
-                        ),
+                        ) + &done.approval_id.as_ref().map_or_else(String::new, |id| {
+                            format!(
+                                "\n还没合进你的目录，等你拍板：在桌面通知上点「合进去」，或者在终端执行 qz approve {id}（不要就 qz approve {id} --deny）。"
+                            )
+                        }),
                     },
                     Err(err) => Delegation::Failed {
                         task: task_text,

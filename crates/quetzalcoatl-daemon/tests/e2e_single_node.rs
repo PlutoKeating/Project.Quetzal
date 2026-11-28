@@ -472,6 +472,7 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
         workspace_dir: project_repo.clone(),
         verifier_dag: Some(vacuous_dag),
         router_attempted_forbidden_tools: vec![String::from("shell"), String::from("edit")],
+        hold_for_approval: false,
     }))?;
     assert!(
         matches!(vacuous_res, IpcResponse::Error { .. }),
@@ -531,6 +532,7 @@ echo 'QZ_VERIFIER_REPORT: {"executed_tests": 4, "passed_tests": 4, "failed_tests
             ),
         )),
         router_attempted_forbidden_tools: vec![String::from("shell"), String::from("edit")],
+        hold_for_approval: false,
     }))?;
     match router_guard_res {
         IpcResponse::DelegateRun(resp) => {
@@ -693,6 +695,7 @@ fn regression_r1_finding1_6_and_8_worker_runs_inside_os_sandbox_without_daemon_a
         workspace_dir: project_repo.clone(),
         verifier_dag: None,
         router_attempted_forbidden_tools: Vec::new(),
+        hold_for_approval: false,
     }))?;
     match fail_closed_res {
         IpcResponse::Error { code, .. } => {
@@ -795,22 +798,49 @@ echo '{{"type":"step_finish","part":{{"reason":"stop"}}}}'
             SandboxCommand::new("/bin/sh", vec![verify_sh.to_string_lossy().into_owned()]),
         )),
         router_attempted_forbidden_tools: Vec::new(),
+        hold_for_approval: true,
     }))?;
-    match code_res {
+    let approval_id = match code_res {
         IpcResponse::DelegateRun(resp) => {
             assert!(
                 resp.final_text
                     .contains("Worker confined inside OS sandbox")
             );
             assert!(resp.verification_mark.is_some());
+            resp.approval_id
+                .ok_or("用户自己的仓库：验收通过后先等拍板")?
         }
         other => {
             return Err(format!("沙箱内 Worker 执行应成功，实际返回: {other:?}").into());
         }
+    };
+    assert!(
+        !fs::read_to_string(project_repo.join("src/lib.rs"))?.contains("sandbox_confined"),
+        "没拍板之前，用户的目录一个字节都没动"
+    );
+    match client.call(&IpcRequest::Approvals)? {
+        IpcResponse::Approvals(items) => {
+            assert_eq!(items.len(), 1);
+            assert!(
+                items[0].files.iter().any(|f| f == "src/lib.rs"),
+                "{items:?}"
+            );
+        }
+        other => return Err(format!("预期返回拍板队列，实际: {other:?}").into()),
+    }
+    match client.call(&IpcRequest::ApprovalDecide {
+        id: approval_id,
+        approve: true,
+    })? {
+        IpcResponse::ApprovalDecide(outcome) => {
+            assert!(outcome.approved);
+            assert!(outcome.applied_files.iter().any(|f| f == "src/lib.rs"));
+        }
+        other => return Err(format!("预期返回拍板结果，实际: {other:?}").into()),
     }
     assert!(
         fs::read_to_string(project_repo.join("src/lib.rs"))?.contains("sandbox_confined"),
-        "Worker 在真实 bwrap 沙箱内完成修改并通过洁净室校验"
+        "Worker 在真实 bwrap 沙箱内完成修改、通过洁净室校验、经你同意后合进来"
     );
 
     daemon.shutdown()?;

@@ -123,6 +123,13 @@ pub enum IpcRequest {
     ExploreNow,
     /// 从 SayIt 拉一次（平时每隔几分钟自己拉）。
     SayItPull,
+    /// 等你拍板的事。
+    Approvals,
+    /// 拍板：同意就合进你的目录，不要就丢掉。
+    ApprovalDecide {
+        id: String,
+        approve: bool,
+    },
     /// 把笔记、宿主的规则与记忆文件、对话导出包带进来（一批，可整批撤回）。
     ImportNotes {
         paths: Vec<PathBuf>,
@@ -400,6 +407,8 @@ pub enum IpcResponse {
     HostStatusLine(HostStatusLineView),
     Reflection(crate::reflection::ReflectionReport),
     SayItPull(crate::sayit_pull::SayItPullReport),
+    Approvals(Vec<crate::approvals::ApprovalView>),
+    ApprovalDecide(crate::approvals::ApprovalOutcome),
     ImportNotes(crate::notes_import::ImportReport),
     ImportUndo(crate::notes_import::UndoReport),
     SeaOverview(crate::sea_governance::SeaOverview),

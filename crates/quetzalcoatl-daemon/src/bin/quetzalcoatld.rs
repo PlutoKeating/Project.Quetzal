@@ -164,6 +164,7 @@ fn parse_args(args: Vec<String>) -> Result<DaemonCli> {
 
     let qz_home = resolve_quetzalcoatl_home(home);
     let mut cfg = DaemonConfig::new(qz_home);
+    cfg.desktop_notifications = std::env::var("QUETZALCOATL_NOTIFY").map_or(true, |v| v != "0");
     if let Some(ia) = ipc_addr {
         cfg.ipc_bind_addr = ia;
     }

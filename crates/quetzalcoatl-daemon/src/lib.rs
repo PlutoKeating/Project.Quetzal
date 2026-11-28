@@ -3,6 +3,7 @@
 
 //! `quetzalcoatl-daemon` — 单物理主机独占脊柱守护进程 `quetzalcoatld`、防 DNS 重绑定本地 IPC 与薄客户端协议。
 
+pub mod approvals;
 pub mod channels;
 pub mod daemon;
 pub mod domains;

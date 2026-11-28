@@ -105,6 +105,8 @@ pub struct DaemonConfig {
     pub voice_ai: crate::voice::VoiceAiConfig,
     /// 同源 Web 控制台静态资源目录（`QUETZALCOATL_WEB_DIR` 或可执行文件旁 `web/`）。
     pub web_dir: Option<PathBuf>,
+    /// 要你拍板时发桌面通知（默认关；常驻的 `quetzalcoatld` 打开，`QUETZALCOATL_NOTIFY=0` 关掉）。
+    pub desktop_notifications: bool,
 }
 
 impl DaemonConfig {
@@ -144,6 +146,7 @@ impl DaemonConfig {
             fabric,
             voice_ai,
             web_dir,
+            desktop_notifications: false,
         }
     }
 }
@@ -207,6 +210,9 @@ pub struct DelegateRunRequest {
     pub workspace_dir: PathBuf,
     pub verifier_dag: Option<CleanRoomVerifierDag>,
     pub router_attempted_forbidden_tools: Vec<String>,
+    /// 验收通过后先不合进目标仓库，等用户拍板（用户自己的仓库一律如此）。
+    #[serde(default)]
+    pub hold_for_approval: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,6 +224,9 @@ pub struct DelegateRunResponse {
     pub verification_mark: Option<VerificationMark>,
     pub router_denied_capabilities: Vec<String>,
     pub changed_files: Vec<String>,
+    /// 等你拍板时的编号；已经合进去时为空。
+    #[serde(default)]
+    pub approval_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -932,6 +941,7 @@ pub(crate) struct SharedDaemonCore {
     pub(crate) state: Mutex<DaemonMutableState>,
     /// 用户自己的宿主会话登记表（有自己的锁，读它不需要全局状态锁）。
     pub(crate) host_sessions: crate::host_sessions::HostSessionRegistry,
+    pub(crate) approvals: crate::approvals::ApprovalQueue,
     fabric: Mutex<Option<Arc<DaemonFabricRuntime>>>,
 }
 
@@ -1424,8 +1434,14 @@ impl SharedDaemonCore {
             }
         };
 
-        let applied_files = wt_lease.apply_verified_to_repo()?;
-        wt_lease.cleanup()?;
+        let (changed_files, approval_id) = if req.hold_for_approval {
+            let (id, files) = self.hold_for_approval(run_id, &req.task, wt_lease)?;
+            (files, Some(id))
+        } else {
+            let applied_files = wt_lease.apply_verified_to_repo()?;
+            wt_lease.cleanup()?;
+            (applied_files, None)
+        };
 
         Ok(DelegateRunResponse {
             final_text: worker_outcome.final_text,
@@ -1433,7 +1449,8 @@ impl SharedDaemonCore {
             verifier_runs: completion.verifier_runs,
             verification_mark: completion.verification_mark,
             router_denied_capabilities: router_denied,
-            changed_files: applied_files,
+            changed_files,
+            approval_id,
         })
     }
 
@@ -1661,6 +1678,13 @@ impl SharedDaemonCore {
                 Ok(report) => (IpcResponse::ImportUndo(report), false),
                 Err(err) => ipc_error_response(err),
             },
+            IpcRequest::Approvals => (IpcResponse::Approvals(self.pending_approvals()), false),
+            IpcRequest::ApprovalDecide { id, approve } => {
+                match self.decide_approval(&id, approve) {
+                    Ok(outcome) => (IpcResponse::ApprovalDecide(outcome), false),
+                    Err(err) => ipc_error_response(err),
+                }
+            }
             IpcRequest::SayItPull => match self.pull_sayit() {
                 Ok(report) => (IpcResponse::SayItPull(report), false),
                 Err(err) => (
@@ -3100,6 +3124,7 @@ impl QuetzalcoatlDaemon {
                 domains: domain_runtime,
             }),
             host_sessions: crate::host_sessions::HostSessionRegistry::default(),
+            approvals: crate::approvals::ApprovalQueue::default(),
             fabric: Mutex::new(fabric_runtime.clone()),
         });
 

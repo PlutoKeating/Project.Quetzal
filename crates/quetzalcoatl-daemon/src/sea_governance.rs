@@ -1030,6 +1030,7 @@ impl SharedDaemonCore {
         let hosts = self.sea_host_views();
         let devices = self.sea_devices_view();
         let last_seen = self.host_sessions.last_seen_ms();
+        let pending_approvals = self.approvals.len();
         let Some(overview) = self.with_state(|state| {
             let conscience = &state.conscience;
             let active = || {
@@ -1069,7 +1070,7 @@ impl SharedDaemonCore {
                 },
                 pending: PendingCounts {
                     disclosures: conscience.pending_disclosures.len(),
-                    approvals: 0,
+                    approvals: pending_approvals,
                 },
                 hosts: Vec::new(),
                 sync: SyncSummary {

@@ -47,6 +47,7 @@ Commands:
   delegate    Hand one task to a local coding agent in an isolated worktree; verified in the clean room
   export      Export readable Markdown + Spine ZIP; with a passphrase it also carries a recovery bundle
   import      Restore an export into an empty home (asks for the export passphrase)
+  approve     List what waits for your decision; approve <id> applies it, --deny drops it
   bring       Bring in notes, host rule files and chat exports as memories; --undo <batch> takes a batch back out
   reflect     Have him look back on recent sessions now (normally runs by itself while you are away);
               --quiet stops him from bringing things up first, --speak-first turns it back on;
@@ -1137,6 +1138,7 @@ fn run_delegate(args: &[String]) -> Result<()> {
         workspace_dir,
         verifier_dag,
         router_attempted_forbidden_tools: Vec::new(),
+        hold_for_approval: true,
     }))?;
     match resp {
         IpcResponse::DelegateRun(run) => {
@@ -1149,6 +1151,12 @@ fn run_delegate(args: &[String]) -> Result<()> {
                 println!("{s}");
             } else {
                 println!("{}", run.final_text);
+                if let Some(id) = &run.approval_id {
+                    println!(
+                        "\n验收通过，改了 {} 个文件，还没合进你的目录。合进去：qz approve {id}；不要：qz approve {id} --deny",
+                        run.changed_files.len()
+                    );
+                }
             }
             let _ = io::stdout().flush();
             Ok(())
@@ -2213,6 +2221,72 @@ fn read_passphrase(from_stdin: bool, prompt: &str) -> Result<String> {
     Ok(passphrase)
 }
 
+/// `qz approve`：列出等你拍板的事；`qz approve <编号>` 合进去，加 `--deny` 不要。
+fn run_approve(args: &[String]) -> Result<()> {
+    let mut home: Option<PathBuf> = None;
+    let mut deny = false;
+    let mut id: Option<String> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--home" => home = Some(PathBuf::from(parse_flag_value(args, &mut i, "--home")?)),
+            "--deny" => deny = true,
+            other if !other.starts_with('-') && id.is_none() => id = Some(String::from(other)),
+            other => {
+                return Err(QuetzalcoatlError::StorageError {
+                    detail: format!("qz approve 不认识参数 {other}"),
+                });
+            }
+        }
+        i += 1;
+    }
+    let qz_home = resolve_quetzalcoatl_home(home);
+    let client = require_daemon(&qz_home)?.with_timeout(Duration::from_secs(120));
+    let Some(id) = id else {
+        return match client.call(&IpcRequest::Approvals)? {
+            IpcResponse::Approvals(items) if items.is_empty() => {
+                println!("没有等你拍板的事。");
+                Ok(())
+            }
+            IpcResponse::Approvals(items) => {
+                for item in &items {
+                    println!("{}  {}", item.id, item.task);
+                    for file in &item.files {
+                        println!("      {file}");
+                    }
+                }
+                println!("合进去：qz approve <编号>；不要：qz approve <编号> --deny");
+                Ok(())
+            }
+            IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+            other => Err(QuetzalcoatlError::StorageError {
+                detail: format!("未知的 IPC 响应: {other:?}"),
+            }),
+        };
+    };
+    match client.call(&IpcRequest::ApprovalDecide { id, approve: !deny })? {
+        IpcResponse::ApprovalDecide(outcome) if outcome.approved => {
+            println!(
+                "已合进你的目录：{}",
+                if outcome.applied_files.is_empty() {
+                    String::from("（没有文件变化）")
+                } else {
+                    outcome.applied_files.join("、")
+                }
+            );
+            Ok(())
+        }
+        IpcResponse::ApprovalDecide(outcome) => {
+            println!("不要了：{} 的改动已丢掉，你的目录没动。", outcome.id);
+            Ok(())
+        }
+        IpcResponse::Error { code, detail } => Err(map_ipc_error_code(&code, detail)),
+        other => Err(QuetzalcoatlError::StorageError {
+            detail: format!("未知的 IPC 响应: {other:?}"),
+        }),
+    }
+}
+
 /// `qz bring <文件或目录>...`：把已有的笔记、规则与对话导出带进来；`--undo <批次>` 整批撤回。
 fn run_bring(args: &[String]) -> Result<()> {
     let mut home: Option<PathBuf> = None;
@@ -2589,6 +2663,7 @@ fn dispatch_cli(raw_args: Vec<String>) -> Result<()> {
         "import" => run_import(rest),
         "reflect" => run_reflect(rest),
         "bring" => run_bring(rest),
+        "approve" => run_approve(rest),
         "webhook" => run_webhook(rest),
         "domain" => run_domain(rest),
         other => Err(QuetzalcoatlError::StorageError {
